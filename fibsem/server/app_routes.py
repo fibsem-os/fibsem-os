@@ -51,7 +51,9 @@ class AppContext(Protocol):
 
     def pending_prompt(self) -> Dict[str, Any]: ...
 
-    def answer_prompt(self, response: bool, nonce: int) -> Dict[str, Any]: ...
+    def answer_prompt(
+        self, response: bool, nonce: int, value: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]: ...
 
     def stop_workflow(self) -> Dict[str, Any]: ...
 
@@ -160,7 +162,20 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                     "an answer must name the question it answers.",
                 },
             )
-        result = context.answer_prompt(bool(body.get("response", False)), nonce)
+        value = body.get("value")
+        if value is not None and not isinstance(value, dict):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_value",
+                    "message": "value, when given, must be a JSON object: "
+                    "{left, top, width, height} for EditAlignmentArea, "
+                    "{x, y} for PickPOI.",
+                },
+            )
+        result = context.answer_prompt(
+            bool(body.get("response", False)), nonce, value=value
+        )
         if result.get("stale"):
             raise HTTPException(
                 status_code=409,
@@ -168,6 +183,14 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                     "error_type": "stale_prompt",
                     "message": "That question is no longer pending; "
                     "re-read /app/prompt and answer the current one.",
+                },
+            )
+        if result.get("invalid_value"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_value",
+                    "message": result["invalid_value"],
                 },
             )
         return result

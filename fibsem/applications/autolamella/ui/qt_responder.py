@@ -63,8 +63,8 @@ class QtResponder(QObject):
 
     _submitted = pyqtSignal(object, object)  # (Request, Future)
     _agent_answered = pyqtSignal(
-        bool, object, object
-    )  # (clicked_yes, nonce, Future[bool])
+        bool, object, object, object
+    )  # (clicked_yes, nonce, value, Future[bool])
     _agent_peeked = pyqtSignal(object)  # (Future[(nonce, live value)])
 
     def __init__(self, ui: "AutoLamellaUI"):
@@ -164,7 +164,12 @@ class QtResponder(QObject):
             return None, None
         return pending[0], pending[2]
 
-    def submit_answer(self, clicked_yes: bool, nonce: Optional[int] = None) -> "Future":
+    def submit_answer(
+        self,
+        clicked_yes: bool,
+        nonce: Optional[int] = None,
+        value: Optional[object] = None,
+    ) -> "Future":
         """Answer the pending question as if the matching button were clicked.
 
         Any thread; returns a Future[bool] that resolves True when the answer
@@ -180,23 +185,36 @@ class QtResponder(QObject):
         :class:`StalePromptError` and nothing is clicked. Without one, the
         answer takes whatever is pending — the trusting form, for callers that
         just looked (tests, a local console).
+
+        ``value`` optionally carries an adjusted answer for the questions read
+        from live widget state — a :class:`FibsemRectangle` for
+        ``EditAlignmentArea``, a :class:`Point` (microscope image coordinates)
+        for ``PickPOI``. It is applied to the widget first, exactly as if the
+        operator had dragged it there, and then the ordinary click path reads
+        it back — so the proposed geometry lands on screen, and attribution,
+        the nonce, and first-writer-wins all hold unchanged. A value on any
+        other question type fails the future without clicking anything.
         """
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_answered.emit(clicked_yes, nonce, outcome)
+        self._agent_answered.emit(clicked_yes, nonce, value, outcome)
         return outcome
 
     def _apply_agent_answer(
-        self, clicked_yes: bool, nonce: Optional[int], outcome: "Future"
+        self,
+        clicked_yes: bool,
+        nonce: Optional[int],
+        value: Optional[object],
+        outcome: "Future",
     ) -> None:
         """GUI thread. Complete ``outcome`` with whether the answer applied.
 
         The nonce check happens here, on the thread that posts and clears
         questions — the one place it cannot race a swap.
         """
+        pending = self._pending_question
         if nonce is not None:
-            pending = self._pending_question
             if pending is None or pending[1].cancelled() or pending[2] != nonce:
                 self._fail(
                     outcome,
@@ -206,11 +224,56 @@ class QtResponder(QObject):
                 )
                 return
         try:
-            applied = self.answer_confirm(clicked_yes, source="agent")
+            if value is not None:
+                if pending is None or pending[1].cancelled():
+                    raise StalePromptError(
+                        "a value-carrying answer needs a pending question"
+                    )
+                self._apply_value(pending[0], value)
+            applied = self.answer_confirm(
+                clicked_yes, source="agent", adjusted=value is not None
+            )
         except Exception as exc:  # noqa: BLE001 - the asker owns the failure
             self._fail(outcome, exc)
             return
         self._deliver(outcome, applied)
+
+    def _apply_value(self, request: "Request", value: object) -> None:
+        """Put ``value`` into the widget the pending question reads from.
+
+        GUI thread. This is the write-side mirror of :meth:`_live_answer`: the
+        same widget the operator would drag, so the read-back in
+        :meth:`_answer` — and the operator's own eyes — see the adjusted
+        geometry before anything is accepted.
+        """
+        from fibsem.structures import FibsemRectangle, Point
+
+        if isinstance(request, EditAlignmentArea):
+            if not isinstance(value, FibsemRectangle):
+                raise ValueError("an EditAlignmentArea value must be a FibsemRectangle")
+            image_widget = self._ui.image_widget
+            if image_widget is None:
+                raise RuntimeError("No image widget to place the alignment area on.")
+            image_widget.toggle_alignment_area(value)
+            return
+        if isinstance(request, PickPOI):
+            if not isinstance(value, Point):
+                raise ValueError("a PickPOI value must be a Point")
+            controller = self._view_controller()
+            if controller is None:
+                raise RuntimeError("No canvas to place the point of interest on.")
+            from fibsem import conversions
+
+            image = request.image
+            px = conversions.microscope_image_to_image_coordinates(
+                value, image.data.shape, image.metadata.pixel_size.x
+            )
+            controller.set_points(BeamType.ION, "poi", [(px.x, px.y)])
+            return
+        raise ValueError(
+            f"{type(request).__name__} answers cannot carry a value; "
+            "only EditAlignmentArea and PickPOI can."
+        )
 
     def peek_live_answer(self) -> "Future":
         """What would the answer be if Yes were clicked right now? Any thread.
@@ -664,7 +727,9 @@ class QtResponder(QObject):
         widget.set_workflow_mode(False)
         return settings
 
-    def answer_confirm(self, clicked_yes: bool, source: str = "operator") -> bool:
+    def answer_confirm(
+        self, clicked_yes: bool, source: str = "operator", adjusted: bool = False
+    ) -> bool:
         """Complete the pending question from the yes/no click.
 
         Returns False when no question is pending, so the caller can fall through
@@ -678,6 +743,9 @@ class QtResponder(QObject):
         ``"agent"`` when routed from :meth:`submit_answer`. It rides the one
         call that applies the answer, so the attribution on the emitted
         ``prompt_answered`` event can never disagree with what happened.
+        ``adjusted`` marks an answer that carried its own geometry (the value
+        path), so the record shows the agent changed the widget, not just
+        accepted what stood.
         """
         pending = self._pending_question
         if pending is None:
@@ -697,17 +765,17 @@ class QtResponder(QObject):
             return True
         logging.info(
             f"prompt answered: {type(request).__name__} "
-            f"response={clicked_yes} by={source}"
+            f"response={clicked_yes} by={source} adjusted={adjusted}"
         )
-        self._emit_question_event(
-            "prompt_answered",
-            {
-                "type": type(request).__name__,
-                "response": bool(clicked_yes),
-                "answered_by": source,
-                "nonce": pending[2],
-            },
-        )
+        answered_payload = {
+            "type": type(request).__name__,
+            "response": bool(clicked_yes),
+            "answered_by": source,
+            "nonce": pending[2],
+        }
+        if adjusted:
+            answered_payload["adjusted"] = True
+        self._emit_question_event("prompt_answered", answered_payload)
         if isinstance(request, RunMillingTask) and clicked_yes and request.enabled:
             # Run Milling: the prompt comes down but the question stays open —
             # the finished signal re-asks or completes. (No {"msg": ""} clear;

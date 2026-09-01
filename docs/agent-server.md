@@ -62,7 +62,14 @@ In **Tools → Agent Server**, the *Act* switch lets the agent:
 - **answer supervision questions** — through exactly the same path as your
   Yes/No buttons. First answer wins: you can always answer first, and your
   click beats the agent's every time. Every answer is attributed — the line
-  under the buttons reads `agent · answered Run Milling · 14:22:31`;
+  under the buttons reads `agent · answered Run Milling · 14:22:31`.
+  For the two geometry questions (alignment area, point of interest) an
+  answer can carry an adjustment: the agent's proposed rectangle or marker
+  is placed on your screen through the same widgets you would drag, then
+  accepted — you see exactly what it chose, out-of-bounds proposals are
+  refused before anything moves, and the record marks the answer as
+  adjusted. Milling parameters cannot travel this way; only the geometry
+  the question itself is about;
 - **start and stop workflows** — the same as your Run and Stop buttons
   (stopping, like the stop-milling command, actually works for *any* connected
   agent regardless of permission: the emergency brake is never gated);

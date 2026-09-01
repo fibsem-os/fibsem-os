@@ -201,6 +201,71 @@ def test_the_prompt_mirrors_the_live_marker_not_the_frozen_request(window, ui, q
     _finish(thread, qapp)
 
 
+def _answer_with_value_on_worker(ui, qapp, response, nonce, value):
+    """Call AgentContext.answer_prompt from a worker thread, as the server does."""
+    from fibsem.applications.autolamella.server import AgentContext
+
+    ctx = AgentContext(ui)
+    outcome = {}
+
+    def target():
+        outcome["result"] = ctx.answer_prompt(response, nonce, value=value)
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while "result" not in outcome and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert "result" in outcome, "answer_prompt never returned"
+    return outcome["result"]
+
+
+def test_a_value_answer_moves_the_marker_and_answers_with_it(window, ui, qapp):
+    image = _fib_image(ui)
+    thread, outcome = _pick_on_worker_thread(
+        ui, qapp, image, initial=Point(x=1e-6, y=2e-6)
+    )
+    _, nonce = ui.ui_responder.pending_question_and_nonce()
+
+    proposed = {"x": 5e-6, "y": -3e-6}
+    result = _answer_with_value_on_worker(ui, qapp, True, nonce, proposed)
+    _finish(thread, qapp)
+
+    assert result["applied"] is True
+    assert result["adjusted"] is True
+    poi = outcome.get("poi")
+    assert isinstance(poi, Point)
+    # The marker landed where proposed, and the answer read it back
+    # (pixel-rounded through the overlay).
+    px = image.metadata.pixel_size.x
+    assert poi.x == pytest.approx(proposed["x"], abs=px)
+    assert poi.y == pytest.approx(proposed["y"], abs=px)
+
+
+def test_an_out_of_bounds_point_is_refused_and_the_marker_stands(window, ui, qapp):
+    image = _fib_image(ui)
+    initial = Point(x=1e-6, y=2e-6)
+    thread, _ = _pick_on_worker_thread(ui, qapp, image, initial=initial)
+    _, nonce = ui.ui_responder.pending_question_and_nonce()
+    px = image.metadata.pixel_size.x
+    half_width = image.data.shape[1] / 2 * px
+
+    result = _answer_with_value_on_worker(
+        ui, qapp, True, nonce, {"x": 2 * half_width, "y": 0.0}
+    )
+
+    assert result["applied"] is False
+    assert "invalid_value" in result
+    # Nothing was clicked and the marker did not move.
+    assert ui.ui_responder.pending_question_and_nonce()[1] == nonce
+    marker = window.view_controller.overlay_points(BeamType.ION, "poi")
+    assert marker, "the marker should still be up"
+
+    ui.pushButton_yes.click()
+    _finish(thread, qapp)
+
+
 def test_a_stop_interrupts_a_pick_nobody_confirms(ui, qapp):
     thread, outcome = _pick_on_worker_thread(ui, qapp, _fib_image(ui))
 
