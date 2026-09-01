@@ -14,7 +14,7 @@ stays in one place (build_server).
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 try:  # Protocol is typing-only; keep import robust on the 3.8 floor
     from typing import Protocol
@@ -42,6 +42,8 @@ class AppContext(Protocol):
     def task_outputs(self, item_name: str) -> Dict[str, Any]: ...
 
     def item_detail(self, item_name: str) -> Dict[str, Any]: ...
+
+    def output_image(self, item_name: str, filename: str) -> Dict[str, Any]: ...
 
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
@@ -107,6 +109,23 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/items/{item_name}")
     def item_detail(item_name: str):
         return context.item_detail(item_name)
+
+    @router.get("/items/{item_name}/outputs/{filename}")
+    def output_image(item_name: str, filename: str):
+        # Serves actual image/jpeg (not a JSON payload) so a browser <img>
+        # can consume it; filename must be a basename the item's own
+        # task_outputs listing names — the context refuses anything else.
+        result = context.output_image(item_name, filename)
+        jpeg = result.get("jpeg")
+        if jpeg is None:
+            detail: Dict[str, Any] = {
+                "error_type": "not_found",
+                "message": result.get("error", "No such output image."),
+            }
+            if "filenames" in result:
+                detail["filenames"] = result["filenames"]
+            raise HTTPException(status_code=404, detail=detail)
+        return Response(content=jpeg, media_type="image/jpeg")
 
     @router.get("/recent_experiments")
     def recent_experiments():

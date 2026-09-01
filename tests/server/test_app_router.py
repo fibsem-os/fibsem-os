@@ -102,6 +102,38 @@ def test_task_outputs_round_trip(client, host):
     assert missing["available"] is False
 
 
+def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
+    import numpy as np
+    import tifffile
+
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    lamella = host.experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    fname = "ref_Rough Milling_final_res_01_ib.tif"
+    tifffile.imwrite(
+        os.path.join(lamella.path, fname),
+        (np.random.rand(64, 96) * 65535).astype(np.uint16),
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": [fname]})
+    )
+
+    served = client.get(f"/app/items/{lamella.name}/outputs/{fname}", headers=AUTH)
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/jpeg"
+    assert served.content[:2] == b"\xff\xd8"  # JPEG magic
+
+    # An unlisted name is refused with the valid ones — never resolved as a path.
+    refused = client.get(
+        f"/app/items/{lamella.name}/outputs/../../etc/passwd", headers=AUTH
+    )
+    assert refused.status_code in (404, 422)
+    unknown = client.get(f"/app/items/{lamella.name}/outputs/nope.tif", headers=AUTH)
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["filenames"] == [fname]
+
+
 def test_summaries_and_protocol_over_http(client):
     for path in ("/app/experiment_summary", "/app/task_history", "/app/protocol"):
         body = client.get(path, headers=AUTH).json()
