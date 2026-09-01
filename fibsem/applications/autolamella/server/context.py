@@ -254,21 +254,13 @@ class AgentContext:
         whole on acquisition, never mutated in place) and encodes previews on
         the server thread; the GUI thread is neither entered nor blocked.
         """
-        widget = getattr(self._host, "image_widget", None)
-        if widget is None:
+        if getattr(self._host, "image_widget", None) is None:
             return {"available": False, "sem": None, "fib": None}
-        from fibsem.applications.autolamella.server.prompts import _preview_b64
-
-        payload: Dict[str, Any] = {"available": True}
-        for key, image in (
-            ("sem", getattr(widget, "eb_image", None)),
-            ("fib", getattr(widget, "ib_image", None)),
-        ):
-            entry = _preview_b64(getattr(image, "data", None))
-            if entry is not None:
-                entry["acquired_at"] = self._acquired_at(image)
-            payload[key] = entry
-        return payload
+        return {
+            "available": True,
+            "sem": self._display_frame("eb_image"),
+            "fib": self._display_frame("ib_image"),
+        }
 
     @staticmethod
     def _acquired_at(image) -> Optional[str]:
@@ -444,7 +436,26 @@ class AgentContext:
         current = self._peek_current(responder, payload["type"], nonce)
         if current is not None:
             payload["current"] = current
+        if payload["type"] == "EditAlignmentArea" and payload.get("image") is None:
+            # The frame the area sits on is display state, not workflow state:
+            # attach it here, where the display cache already lives, rather
+            # than having the workflow reach into the widget to build the
+            # request. Same whole-reference grab as display_images.
+            payload["image"] = self._display_frame("ib_image")
         return {"available": True, "pending": payload}
+
+    def _display_frame(self, attr: str) -> Optional[Dict[str, Any]]:
+        """One display-cache image as the standard preview payload, or None."""
+        widget = getattr(self._host, "image_widget", None)
+        image = getattr(widget, attr, None)
+        if image is None:
+            return None
+        from fibsem.applications.autolamella.server.prompts import _preview_payload
+
+        entry = _preview_payload(image)
+        if entry is not None:
+            entry["acquired_at"] = self._acquired_at(image)
+        return entry
 
     def _peek_current(
         self, responder, request_type: str, nonce: int

@@ -73,6 +73,9 @@ def test_acquire_image_preview_endpoint(armed_client):
     assert body["full_width"] >= body["width"]
     assert body["beam_type"] == "ION"
     assert body["hfw"] is not None
+    # metres per SOURCE pixel: the scale an agent needs to map coordinates
+    # onto the preview without assuming a field of view.
+    assert body["pixelsize"]["x"] == pytest.approx(body["hfw"] / body["full_width"])
 
 
 def test_last_image_preview_endpoint(armed_client):

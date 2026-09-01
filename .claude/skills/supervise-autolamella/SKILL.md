@@ -105,9 +105,11 @@ placement, that is the operator's decision (see the ladder).
   Do not re-mill without a reason you can state.
 
 **`EditAlignmentArea`** — the payload's `current` is the live rectangle
-(fractions of the frame). Sanity-check: in bounds, non-degenerate size,
-consistent with previous items. Yes accepts it as shown. In a fiducial task
-this prompt arrives at the task's *end*, not its start.
+(fractions of the frame), and `image` is the frame it sits on (the post-mill
+FIB view). Sanity-check against the image: in bounds, non-degenerate size,
+covering the fiducial, consistent with previous items. Yes accepts it as
+shown. In a fiducial task this prompt arrives at the task's *end*, not its
+start.
 
 **`PickPOI`** — a placement. The payload carries the image and the live
 `current` marker (microscope image coordinates, +y up, origin centre). In

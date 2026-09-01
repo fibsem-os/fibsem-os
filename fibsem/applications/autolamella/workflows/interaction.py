@@ -127,7 +127,13 @@ class ConfirmDetection(Request["DetectedFeatures"]):
 
 @dataclass(frozen=True)
 class EditAlignmentArea(Request["FibsemRectangle"]):
-    """Let the supervisor adjust an alignment area; answer with the final area."""
+    """Let the supervisor adjust an alignment area; answer with the final area.
+
+    The area is fractions of the FIB frame; the frame itself is display state
+    the workflow does not own, so it does not travel in the request — the
+    agent server attaches the FIB display image when it serializes the
+    question (the same seam that serves ``/app/images``).
+    """
 
     initial: "FibsemRectangle"
     message: str = "Edit Alignment Area"

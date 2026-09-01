@@ -39,7 +39,10 @@ def preview_jpeg_bytes(
             )
         else:
             data = np.zeros_like(data, dtype=np.uint8)
-    pil = PILImage.fromarray(data, mode="L" if data.ndim == 2 else "RGB")
+    # No explicit mode: fromarray infers L for 2-D uint8 and RGB for 3-D, and
+    # the mode parameter is deprecated in Pillow 11.3 / removed in Pillow 13 —
+    # under filterwarnings=error the deprecation made every preview fail.
+    pil = PILImage.fromarray(data)
     if pil.width > max_width:
         scale = max_width / pil.width
         pil = pil.resize(
@@ -61,12 +64,22 @@ def preview_payload(image, max_width: int = 768) -> dict:
         "full_height": int(image.data.shape[0]),
         "beam_type": None,
         "hfw": None,
+        # metres per SOURCE pixel (full_width, not the downscaled preview):
+        # every image payload states its own scale so an agent never maps
+        # coordinates using an assumed field of view.
+        "pixelsize": None,
     }
     md = image.metadata
     if md is not None and md.image_settings is not None:
         payload["hfw"] = _maybe_float(md.image_settings.hfw)
         beam_type = md.image_settings.beam_type
         payload["beam_type"] = beam_type.name if beam_type is not None else None
+    pixel_size = getattr(md, "pixel_size", None)
+    if pixel_size is not None:
+        payload["pixelsize"] = {
+            "x": _maybe_float(pixel_size.x),
+            "y": _maybe_float(pixel_size.y),
+        }
     return payload
 
 

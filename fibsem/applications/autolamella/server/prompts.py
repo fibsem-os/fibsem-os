@@ -37,8 +37,35 @@ def _preview_b64(data) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _image_data(image) -> Optional[Any]:
-    return getattr(image, "data", None) if image is not None else None
+def _preview_payload(image) -> Optional[Dict[str, Any]]:
+    """A preview plus the scale facts needed to map coordinates onto it.
+
+    Accepts a FibsemImage or a bare ndarray. For a FibsemImage this is the
+    acquisition endpoints' own payload (``width``/``height`` of the downscaled
+    rendition, ``full_width``/``full_height`` of the source, ``hfw``,
+    ``beam_type``, ``pixelsize`` in metres per *source* pixel). Bare arrays
+    carry no metadata, so they report only the preview and source dimensions.
+    The mirrored-overlay incident (live FOV ≠ acquisition FOV) is why every
+    image carries its own scale rather than letting the client assume one;
+    failures return None rather than hiding the question.
+    """
+    if image is None:
+        return None
+    if hasattr(image, "metadata"):
+        try:
+            from fibsem.server.images import preview_payload
+
+            return preview_payload(image)
+        except Exception:
+            return None
+    entry = _preview_b64(image)
+    if entry is None:
+        return None
+    shape = getattr(image, "shape", None)
+    if shape is not None and len(shape) >= 2:
+        entry["full_height"] = int(shape[0])
+        entry["full_width"] = int(shape[1])
+    return entry
 
 
 def serialize_request(request) -> Dict[str, Any]:
@@ -73,7 +100,9 @@ def serialize_request(request) -> Dict[str, Any]:
                     for f in getattr(detection, "features", [])
                 ],
                 "pixelsize": to_plain(getattr(detection, "pixelsize", None)),
-                "image": _preview_b64(getattr(detection, "image", None)),
+                "coordinates": "feature px are source-image pixels (origin "
+                "top-left, +y down); pixelsize is metres per source pixel",
+                "image": _preview_payload(getattr(detection, "image", None)),
             }
         )
         return payload
@@ -86,6 +115,12 @@ def serialize_request(request) -> Dict[str, Any]:
                 "initial": to_plain(request.initial.to_dict())
                 if request.initial is not None
                 else None,
+                "coordinates": "areas are fractions of the frame (origin "
+                "top-left), so they need no rescaling against the preview",
+                # The frame is display state the request doesn't carry;
+                # AgentContext.pending_prompt fills it from the FIB display
+                # cache — the same source /app/images serves.
+                "image": None,
             }
         )
         return payload
@@ -97,7 +132,9 @@ def serialize_request(request) -> Dict[str, Any]:
                 "initial": to_plain(request.initial.to_dict())
                 if request.initial is not None
                 else None,
-                "image": _preview_b64(_image_data(request.image)),
+                "coordinates": "points are microscope image coordinates: "
+                "metres, origin at the image centre, +x right, +y UP",
+                "image": _preview_payload(request.image),
             }
         )
         return payload
