@@ -319,15 +319,16 @@ class QtResponder(QObject):
             # in the workflow thread as this instruction's failure.
             raise RuntimeError("No image widget available to display images.")
 
+        # _on_acquire owns the eb_image/ib_image references, routed by
+        # metadata.beam_type — assigning them positionally here too would
+        # let a mislabeled image split the two authorities silently.
         if request.sem_image is not None:
-            image_widget.eb_image = request.sem_image
             image_widget._on_acquire(request.sem_image)
             image_widget.set_ui_from_settings(
                 image_settings=request.sem_image.metadata.image_settings,
                 beam_type=BeamType.ELECTRON,
             )
         if request.fib_image is not None:
-            image_widget.ib_image = request.fib_image
             image_widget._on_acquire(request.fib_image)
             image_widget.set_ui_from_settings(
                 image_settings=request.fib_image.metadata.image_settings,
