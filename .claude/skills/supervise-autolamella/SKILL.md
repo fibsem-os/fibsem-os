@@ -165,9 +165,17 @@ The argument selects a variation on the same loop:
   is violated, when you cannot evaluate one, or when a question type the
   exemplar never showed appears.
 - **batch-review**: supervision is off or minimal; let the run complete, then
-  present the outputs (`/app/run_summary`, `/app/task_outputs/{item}`, final
-  images) and act on the operator's verdicts — `requeue_task` for the items
-  they name, `start_workflow` for a fresh round.
+  present the outputs (`/app/run_summary`, `/app/task_outputs/{item}`,
+  `/app/items/{item}`, final images) and act on the verdicts —
+  `requeue_task` for items in a running workflow, `start_workflow` for a
+  fresh round. Whose verdicts is a **policy question you settle up front**,
+  never a judgment you assume: at the start of the session, ask the operator
+  (or take it from your instructions) whether you **propose** reruns for
+  their confirmation — the default — or **decide** them yourself. Deciding
+  is an explicit delegation; even then keep it bounded (at most one rerun
+  per item unless told otherwise) and report every rerun with the evidence
+  behind it. A rerun spends beam time and dose on a possibly marginal
+  lamella — whenever the delegation is unclear, propose.
 
 ## Acting beyond answers (control permission)
 
