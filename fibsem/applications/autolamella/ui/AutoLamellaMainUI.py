@@ -715,6 +715,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_show_plugins.triggered.connect(self._on_show_plugins)
         tools_menu.addAction(self.action_show_plugins)
 
+        self.action_create_desktop_shortcut = QAction(
+            "Create Desktop Shortcut...", self
+        )
+        self.action_create_desktop_shortcut.setToolTip(
+            "Place a shortcut on your desktop that launches AutoLamella from this "
+            "environment"
+        )
+        self.action_create_desktop_shortcut.triggered.connect(
+            self._on_create_desktop_shortcut
+        )
+        tools_menu.addAction(self.action_create_desktop_shortcut)
+
         # add help menu
         help_menu = menu_bar.addMenu("Help")
         if help_menu is None:
@@ -1069,6 +1081,57 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         from fibsem.ui.widgets.plugins_dialog import PluginsDialog
 
         PluginsDialog(parent=self).exec_()
+
+    def _on_create_desktop_shortcut(self):
+        """Create a launcher shortcut for the AutoLamella UI, confirming overwrites.
+
+        The location is chosen by the user, defaulting to the Desktop.
+        """
+        from pathlib import Path
+
+        from PyQt5.QtWidgets import QFileDialog
+
+        from fibsem.tools import desktop_shortcut
+
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            "Choose Shortcut Location",
+            str(desktop_shortcut.get_desktop_directory()),
+        )
+        if not chosen:
+            return
+        directory = Path(chosen)
+        try:
+            path = desktop_shortcut.create_desktop_shortcut(directory=directory)
+        except FileExistsError as exc:
+            reply = QMessageBox.question(
+                self,
+                "Create Desktop Shortcut",
+                f"A shortcut already exists at:\n{exc}\n\nReplace it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+            try:
+                path = desktop_shortcut.create_desktop_shortcut(
+                    overwrite=True, directory=directory
+                )
+            except Exception as exc2:
+                self._show_shortcut_error(exc2)
+                return
+        except Exception as exc:
+            self._show_shortcut_error(exc)
+            return
+        self.show_toast(f"Shortcut created: {path}", "info")
+
+    def _show_shortcut_error(self, exc: Exception) -> None:
+        logging.error(f"Failed to create desktop shortcut: {exc}")
+        QMessageBox.warning(
+            self,
+            "Create Desktop Shortcut",
+            f"Could not create the desktop shortcut:\n{exc}",
+        )
 
     def _on_toggle_minimap_widget(self, checked: bool):
         """Toggle the minimap plot widget visibility."""
