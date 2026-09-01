@@ -140,20 +140,6 @@ def test_the_rect_survives_the_overlay_coming_down(ui, qapp):
     assert outcome["area"].width == pytest.approx(first.width)
 
 
-def test_the_request_carries_the_fib_display_frame(ui, qapp):
-    # A remote responder must answer from the request alone: the frame the
-    # area is judged against travels in it — the widget's FIB reference at
-    # ask time, grabbed whole (never mutated), so no GUI-thread entry.
-    thread, _ = _edit_on_worker_thread(ui, qapp)
-
-    request = ui.ui_responder.pending_question()
-    assert request.image is ui.image_widget.ib_image
-    assert request.image is not None
-
-    ui.pushButton_yes.click()
-    _finish(thread, qapp)
-
-
 def test_headless_and_unvalidated_return_the_input(ui):
     assert update_alignment_area_ui(INITIAL, parent_ui=None, validate=True) is INITIAL
     assert update_alignment_area_ui(INITIAL, parent_ui=ui, validate=False) is INITIAL

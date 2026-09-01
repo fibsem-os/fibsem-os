@@ -117,7 +117,10 @@ def serialize_request(request) -> Dict[str, Any]:
                 else None,
                 "coordinates": "areas are fractions of the frame (origin "
                 "top-left), so they need no rescaling against the preview",
-                "image": _preview_payload(request.image),
+                # The frame is display state the request doesn't carry;
+                # AgentContext.pending_prompt fills it from the FIB display
+                # cache — the same source /app/images serves.
+                "image": None,
             }
         )
         return payload

@@ -40,19 +40,17 @@ def test_pick_poi_payload_carries_scale_and_convention():
     json.dumps(payload)  # wire-safe
 
 
-def test_edit_alignment_area_payload_carries_the_frame():
+def test_edit_alignment_area_payload_declares_the_frame_slot():
+    # The frame is display state the request doesn't carry: the serializer
+    # declares the slot, AgentContext.pending_prompt fills it from the FIB
+    # display cache (pinned over HTTP in test_agent_prompt_surface.py).
     area = FibsemRectangle(left=0.4, top=0.4, width=0.2, height=0.2)
-    payload = serialize_request(EditAlignmentArea(initial=area, image=_image()))
+    payload = serialize_request(EditAlignmentArea(initial=area))
 
     assert payload["initial"]["width"] == pytest.approx(0.2)
-    assert payload["image"]["pixelsize"] is not None
+    assert payload["image"] is None
     assert "fractions of the frame" in payload["coordinates"]
     json.dumps(payload)
-
-    # The field is optional: without an image the question still serializes.
-    bare = serialize_request(EditAlignmentArea(initial=area))
-    assert bare["image"] is None
-    json.dumps(bare)
 
 
 def test_confirm_detection_bare_array_reports_source_dimensions():

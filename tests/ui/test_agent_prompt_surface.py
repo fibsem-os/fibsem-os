@@ -198,6 +198,63 @@ def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
         assert fib["pixelsize"]["x"] == pytest.approx(100e-6 / 1536)
 
 
+def test_alignment_prompt_carries_the_fib_display_frame(ui, qapp):
+    """The area is fractions of the FIB frame; the frame itself is display
+    state, attached by the server seam (not carried in the request, and not
+    grabbed by the workflow) — so a remote responder can judge the area
+    without pairing a second request, and sees exactly what the operator
+    sees."""
+    from fibsem.applications.autolamella.workflows.interaction import (
+        EditAlignmentArea,
+    )
+    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
+
+    fib_frame = FibsemImage.generate_blank_image(
+        resolution=(1536, 1024), hfw=80e-6, random=True
+    )
+    fib_frame.metadata.image_settings.beam_type = BeamType.ION
+    ui.image_widget.ib_image = fib_frame
+
+    area = FibsemRectangle(left=0.4, top=0.4, width=0.2, height=0.2)
+    outcome = {}
+
+    def target():
+        try:
+            outcome["answer"] = ask(ui.ui_responder, EditAlignmentArea(initial=area))
+        except Exception as exc:  # noqa: BLE001
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    _spin_until(qapp, lambda: ui.ui_responder.pending_question() is not None)
+
+    with _client(ui, arm_control=False) as client:
+        fetched = {}
+
+        def do_get():
+            fetched["pending"] = client.get("/app/prompt", headers=AUTH).json()[
+                "pending"
+            ]
+
+        # GET from a separate thread: the live-half peek marshals to the GUI
+        # thread, which in this test is the thread spinning the loop.
+        getter = threading.Thread(target=do_get, daemon=True)
+        getter.start()
+        _spin_until(qapp, lambda: "pending" in fetched)
+
+    pending = fetched["pending"]
+    assert pending["type"] == "EditAlignmentArea"
+    entry = pending["image"]
+    assert entry["full_width"] == 1536
+    assert entry["hfw"] == pytest.approx(80e-6)
+    assert entry["pixelsize"]["x"] == pytest.approx(80e-6 / 1536)
+
+    ui.pushButton_yes.click()
+    _spin_until(qapp, lambda: "answer" in outcome or "error" in outcome)
+    thread.join(timeout=5)
+    assert "error" not in outcome
+
+
 def test_an_answer_without_a_nonce_is_rejected(ui, qapp):
     with _client(ui, arm_control=True) as client:
         rejected = client.post(
