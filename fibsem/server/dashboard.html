@@ -57,6 +57,19 @@
   .seg { flex:1; height:4px; background:var(--row-alt); border-radius:1px; }
   .seg.done { background:var(--ok); }
   .seg.active { background:var(--primary); }
+  .strip { display:flex; gap:3px; padding:7px 10px 0; }
+  .strip .t { flex:1; min-width:0; max-width:110px; }
+  .strip img { display:block; width:100%; aspect-ratio:3/2; object-fit:cover;
+    background:var(--canvas); }
+  .strip .lbl { font-family:var(--mono); font-size:9.5px; color:var(--muted);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  .side { display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .queue-body { font-family:var(--mono); font-size:11px; padding:4px 0; max-height:30vh; overflow-y:auto; }
+  .qrow { padding:2.5px 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .qrow .mark { display:inline-block; width:14px; }
+  .qrow.active { color:var(--strong); background:var(--row-alt); }
+
   .facts { width:100%; border-collapse:collapse; font-family:var(--mono); font-size:11px; margin-top:4px; }
   .facts td { padding:2.5px 10px; border-top:1px solid var(--border); }
   .facts td:first-child { color:var(--muted); }
@@ -217,26 +230,62 @@ async function renderCard(name) {
     frame = `<img data-src="${esc(base)}" alt="">`;
     tag = `<span class="frame-tag">${esc(base)}</span>`;
   }
+  // Review strip: the latest run's final image per protocol task, in
+  // protocol order — which task produced which image, at a glance.
+  const byTask = {};
+  for (const t of outputs.tasks || []) byTask[t.name] = t; // later run wins
+  const stripOrder = protocolTasks.length
+    ? protocolTasks.map(t => t.name).filter(n => byTask[n])
+    : Object.keys(byTask);
+  const strip = stripOrder.map(taskName => {
+    const files = byTask[taskName].files || {};
+    const f = (files.final_fib || []).slice(-1)[0]
+      || (files.final_sem || []).slice(-1)[0]
+      || (files.fluorescence || []).slice(-1)[0];
+    if (!f) return "";
+    return `<div class="t"><img data-src="${esc(f)}" alt="" title="${esc(taskName)}">
+      <div class="lbl">${esc(shortTask(taskName))}</div></div>`;
+  }).join("");
+
   el.innerHTML = `
     <div class="card-head"><span class="name">${esc(name)}</span>${state}</div>
     <div class="frame">${frame}${tag}</div>
     <div class="segs">${segs}</div>
+    ${strip ? `<div class="strip">${strip}</div>` : ""}
     <table class="facts">
       <tr><td>next</td><td>${esc(next ? shortTask(next.name) : "—")}</td></tr>
       <tr><td>poi</td><td>${esc(poi)}</td></tr>
       <tr><td>alignment</td><td>${esc(aa)}</td></tr>
       <tr><td>milling angle</td><td>${esc(angle)}</td></tr>
     </table>`;
-  const img = el.querySelector("img[data-src]");
-  if (img) {
+  for (const img of el.querySelectorAll("img[data-src]")) {
     try {
       const r = await fetch(
         "/app/items/" + encodeURIComponent(name) + "/outputs/" +
         encodeURIComponent(img.dataset.src),
         { headers: { Authorization: "Bearer " + TOKEN } });
       if (r.ok) img.src = URL.createObjectURL(await r.blob());
-    } catch (e) { /* thumbnail is a nicety; the card stands without it */ }
+    } catch (e) { /* thumbnails are a nicety; the card stands without them */ }
   }
+}
+
+/* ── workflow queue ────────────────────────────────────────────────── */
+
+async function refreshQueue() {
+  const q = await api("/app/queue");
+  const panel = document.getElementById("queue");
+  const items = q.available ? (q.items || []) : [];
+  if (!items.length) { panel.style.display = "none"; return; }
+  panel.style.display = "";
+  document.getElementById("queue-body").innerHTML = items.map(i => {
+    const status = i.status || "";
+    const active = status === "InProgress";
+    const mark = status === "Completed" ? `<span class="mark ok">✓</span>`
+      : active ? `<span class="mark" style="color:var(--accent)">▶</span>`
+      : status === "Failed" ? `<span class="mark err">✕</span>`
+      : `<span class="mark muted">·</span>`;
+    return `<div class="qrow ${active ? "active" : ""}">${mark}${esc(shortTask(i.task_name))} · ${esc(i.item_name)}</div>`;
+  }).join("");
 }
 
 /* ── event feed ────────────────────────────────────────────────────── */
@@ -306,7 +355,7 @@ async function refreshCards() {
   await Promise.all(itemNames.map(renderCard));
 }
 
-const REFRESHING = { top: false, cards: false };
+const REFRESHING = { top: false, cards: false, queue: false };
 async function throttled(kind, fn) {
   if (REFRESHING[kind]) return;
   REFRESHING[kind] = true;
@@ -331,8 +380,10 @@ async function liveLoop() {
       if (events.length) {
         appendEvents(events);
         await throttled("top", refreshTop);
-        if (events.some(e => e.kind.startsWith("task_") || e.kind.startsWith("workflow_")))
+        if (events.some(e => e.kind.startsWith("task_") || e.kind.startsWith("workflow_"))) {
           await throttled("cards", refreshCards);
+          await throttled("queue", refreshQueue);
+        }
         if (events.some(e => e.kind === "workflow_completed" || e.kind === "workflow_stopped"))
           // The event lands before the worker clears its running flag; a
           // status read right now races it, so read again once it has settled.
@@ -361,9 +412,15 @@ async function boot() {
     <div class="ladder panel" id="ladder"></div>
     <div class="main">
       <div class="cards" id="cards"></div>
-      <div class="feed panel">
-        <div class="feed-head">events · live</div>
-        <div class="feed-body" id="feed"></div>
+      <div class="side">
+        <div class="queue panel" id="queue" style="display:none">
+          <div class="feed-head">workflow queue</div>
+          <div class="queue-body" id="queue-body"></div>
+        </div>
+        <div class="feed panel">
+          <div class="feed-head">events · live</div>
+          <div class="feed-body" id="feed"></div>
+        </div>
       </div>
     </div>
     <footer>read-only · answer questions in AutoLamella</footer>`;
@@ -372,6 +429,7 @@ async function boot() {
   if (seed.available) appendEvents(seed.events || []);
   await refreshTop();
   await refreshCards();
+  await refreshQueue();
   liveLoop();
 }
 

@@ -173,6 +173,15 @@ def test_output_image_renders_recorded_outputs_only(experiment):
     missing = ctx.output_image("no-such-item", fname)
     assert missing["available"] is False
 
+    # task_outputs keeps the per-run grouping: which task produced which file.
+    payload = ctx.task_outputs(lamella.name)
+    assert payload["tasks"] == [
+        {
+            "name": "Rough Milling",
+            "files": {"final_fib": [fname], "fluorescence": [zname]},
+        }
+    ]
+
 
 def test_item_detail_serves_the_durable_item_facts(experiment):
     """One read for what a supervisor judges an item by — the exemplar-mode
