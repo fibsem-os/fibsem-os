@@ -191,6 +191,7 @@ class AgentContext:
                 {
                     "name": task.name,
                     "supervise": task.supervise,
+                    "supervisor": getattr(task, "supervisor", "human"),
                     "required": task.required,
                     "requires": list(task.requires),
                     "scheduled_at": task.scheduled_at.isoformat()
@@ -321,7 +322,12 @@ class AgentContext:
         result["available"] = True
         return result
 
-    def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:
+    def set_supervision(
+        self,
+        task_name: str,
+        supervise: bool,
+        supervisor: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Set whether ``task_name`` asks for supervision, in the live protocol.
 
         The workflow reads this at every decision point (never a snapshot), so
@@ -329,7 +335,19 @@ class AgentContext:
         the mid-run behaviour the GUI's supervised/automated toggle has. The
         GUI's own indicators refresh on the next task transition rather than
         instantly.
+
+        ``supervisor`` optionally sets who the task's questions are addressed
+        to ("human" or "agent") — display and watchdog semantics only; the
+        questions themselves are raised identically, the operator can always
+        answer first, and the designation shows nothing in the GUI unless the
+        agent server is running.
         """
+        if supervisor not in (None, "human", "agent"):
+            return {
+                "available": True,
+                "applied": False,
+                "error": f"supervisor must be 'human' or 'agent', not {supervisor!r}",
+            }
         experiment = self._experiment
         protocol = getattr(experiment, "task_protocol", None) if experiment else None
         config = getattr(protocol, "workflow_config", None) if protocol else None
@@ -338,11 +356,14 @@ class AgentContext:
         for task in config.tasks:
             if task.name == task_name:
                 task.supervise = bool(supervise)
+                if supervisor is not None:
+                    task.supervisor = supervisor
                 return {
                     "available": True,
                     "applied": True,
                     "task_name": task_name,
                     "supervise": bool(supervise),
+                    "supervisor": getattr(task, "supervisor", "human"),
                 }
         return {
             "available": True,

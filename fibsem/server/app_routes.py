@@ -57,7 +57,12 @@ class AppContext(Protocol):
         self, task_names: List[str], item_names: Optional[List[str]] = None
     ) -> Dict[str, Any]: ...
 
-    def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]: ...
+    def set_supervision(
+        self,
+        task_name: str,
+        supervise: bool,
+        supervisor: Optional[str] = None,
+    ) -> Dict[str, Any]: ...
 
     def requeue_task(
         self, item_name: str, task_name: str, front: bool = False
@@ -191,15 +196,21 @@ def build_app_control_router(context: AppContext) -> APIRouter:
     @router.post("/supervision")
     def set_supervision(body: Dict[str, Any]):
         task_name = body.get("task_name")
-        if not isinstance(task_name, str) or "supervise" not in body:
+        supervisor = body.get("supervisor")
+        if (
+            not isinstance(task_name, str)
+            or "supervise" not in body
+            or supervisor not in (None, "human", "agent")
+        ):
             raise HTTPException(
                 status_code=422,
                 detail={
                     "error_type": "missing_field",
-                    "message": "Pass task_name (string) and supervise (boolean).",
+                    "message": "Pass task_name (string) and supervise (boolean); "
+                    "supervisor is optional, 'human' or 'agent'.",
                 },
             )
-        return context.set_supervision(task_name, bool(body["supervise"]))
+        return context.set_supervision(task_name, bool(body["supervise"]), supervisor)
 
     @router.post("/queue/requeue")
     def requeue_task(body: Dict[str, Any]):

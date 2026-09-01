@@ -103,6 +103,7 @@ from fibsem.ui.stylesheets import (
     PROGRESS_BAR_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
     STATUS_BAR_STYLESHEET,
+    SUPERVISION_STATUS_AGENT_STYLESHEET,
     SUPERVISION_STATUS_AUTOMATED_STYLESHEET,
     SUPERVISION_STATUS_SUPERVISED_STYLESHEET,
     USER_ATTENTION_BUTTON_STYLESHEET,
@@ -1295,8 +1296,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ):
             return
 
-        initial_state = "supervised" if selected_tasks[0].supervise else "automated"
-        self._set_border_state(initial_state)
+        self._set_border_state(self._running_border_state(selected_tasks[0].name))
         self._push_timeline_estimates(
             [(ln, tn) for tn in task_names for ln in lamella_names]
         )
@@ -1450,13 +1450,54 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             style.polish(self._border_frame)
         self._border_frame.update()
 
+    def _agent_supervision_active(self, task_name: str) -> bool:
+        """Whether ``task_name``'s questions are addressed to a connected agent.
+
+        Gated on the agent server actually running — with no server there is
+        nobody the designation could refer to, so all the agent chrome stays
+        invisible and a designated task behaves as plain supervised.
+        """
+        ui = self.autolamella_ui
+        if ui is None or task_name is None:
+            return False
+        host = getattr(ui, "_agent_server_host", None)
+        if host is None or not getattr(host, "running", False):
+            return False
+        protocol = ui.protocol
+        if protocol is None:
+            return False
+        return protocol.get_supervisor(task_name) == "agent"
+
+    def _running_border_state(self, task_name: Optional[str]) -> str:
+        """The border for a running workflow: automated, supervised, or agent."""
+        if task_name is None or not get_task_supervision(
+            task_name, self.autolamella_ui
+        ):
+            return "automated"
+        if self._agent_supervision_active(task_name):
+            return "agent"
+        return "supervised"
+
     def _update_supervised_status(self) -> bool:
         """Update the supervised status chip for the current task."""
         task_name = self._current_task_name
         if task_name is None or self.autolamella_ui is None:
             return False
         supervised = get_task_supervision(task_name, self.autolamella_ui)
-        if supervised:
+        if supervised and self._agent_supervision_active(task_name):
+            self.supervised_status_btn.setIcon(
+                fibsem_icon("mdi:star-four-points", color="white")
+            )
+            self.supervised_status_btn.setText("Agent")
+            self.supervised_status_btn.setToolTip(
+                f"{task_name} is supervised by the connected agent. "
+                "You can still answer any question first. Click to toggle "
+                "supervision."
+            )
+            self.supervised_status_btn.setStyleSheet(
+                SUPERVISION_STATUS_AGENT_STYLESHEET
+            )
+        elif supervised:
             self.supervised_status_btn.setIcon(
                 fibsem_icon("mdi:account-hard-hat", color="white")
             )
@@ -1493,9 +1534,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if task.name == self._current_task_name:
                 task.supervise = not task.supervise
                 break
-        supervised = self._update_supervised_status()
+        self._update_supervised_status()
         if self.autolamella_ui.is_workflow_running:
-            self._set_border_state("supervised" if supervised else "automated")
+            self._set_border_state(self._running_border_state(self._current_task_name))
         # Refresh the workflow widget to reflect the toggled supervise state
         if hasattr(self, "lamella_workflow_widget"):
             self.lamella_workflow_widget.workflow.refresh_all()
@@ -2703,7 +2744,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _refresh_workflow_indicators(self) -> None:
         """Re-read the waiting/supervised/running state into the window chrome."""
         # refresh the supervised status chip
-        supervised = self._update_supervised_status()
+        self._update_supervised_status()
 
         waiting = self.autolamella_ui.WAITING_FOR_USER_INTERACTION
         # The timeline freezes its countdown on this: a wait for a human is not machine
@@ -2729,7 +2770,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         elif self.autolamella_ui.WORKFLOW_PENDING:
             self._set_border_state("pending")
         elif self.autolamella_ui.is_workflow_running:
-            self._set_border_state("supervised" if supervised else "automated")
+            self._set_border_state(self._running_border_state(self._current_task_name))
         else:
             self._set_border_state("idle")
 

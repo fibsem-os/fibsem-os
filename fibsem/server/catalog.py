@@ -255,6 +255,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "task_name": "the task to change, e.g. 'Rough Milling'",
             "supervise": "true to ask before acting, false to run automatically",
+            "supervisor": "optional: who supervised questions are addressed to — 'human' (default) or 'agent'; the operator can always answer first",
         },
     ),
     ToolSpec(

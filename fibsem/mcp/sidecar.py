@@ -266,13 +266,11 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/workflow/start", payload)
         return err if err else data
 
-    def set_task_supervision(task_name: str, supervise: bool):
-        data, err = _call(
-            client,
-            "POST",
-            "/app/supervision",
-            {"task_name": task_name, "supervise": bool(supervise)},
-        )
+    def set_task_supervision(task_name: str, supervise: bool, supervisor: str = None):  # noqa: RUF013
+        payload = {"task_name": task_name, "supervise": bool(supervise)}
+        if supervisor is not None:
+            payload["supervisor"] = supervisor
+        data, err = _call(client, "POST", "/app/supervision", payload)
         return err if err else data
 
     def requeue_task(item_name: str, task_name: str, front: bool = False):
