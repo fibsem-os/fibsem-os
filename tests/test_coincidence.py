@@ -189,3 +189,68 @@ def test_measurement_dataclass_defaults():
     assert m.refusal_reason is None
     assert m.method == "crossbeam-xcorr"
     assert not m.seeded
+
+
+def _image_with_metadata(data: np.ndarray, pixel_size: float) -> "FibsemImage":
+    from fibsem.structures import (
+        FibsemHardwareGeometry,
+        FibsemImage,
+        FibsemImageMetadata,
+        FibsemStagePosition,
+        ImageSettings,
+        MicroscopeState,
+        Point,
+    )
+
+    # stage tilt for a 15 deg milling angle with 35 deg pretilt, 52 deg column:
+    # stage_tilt = milling + column + pretilt - 90 = 12 deg
+    metadata = FibsemImageMetadata(
+        image_settings=ImageSettings(
+            hfw=pixel_size * data.shape[1], resolution=(data.shape[1], data.shape[0])
+        ),
+        microscope_state=MicroscopeState(
+            stage_position=FibsemStagePosition(t=np.deg2rad(12.0))
+        ),
+        pixel_size=Point(pixel_size, pixel_size),
+        hardware_geometry=FibsemHardwareGeometry(
+            column_tilt=0,
+            fib_column_tilt=52.0,
+            shuttle_pre_tilt=35.0,
+        ),
+    )
+    return FibsemImage(data=data.astype(np.uint8), metadata=metadata)
+
+
+def test_geometry_from_metadata():
+    from fibsem.alignment.coincidence import geometry_from_metadata
+
+    image = _image_with_metadata(np.zeros(SHAPE, dtype=np.uint8), PIXEL_SIZE)
+    pixel_size, milling_angle, column_tilt = geometry_from_metadata(image)
+    assert pixel_size == pytest.approx(PIXEL_SIZE)
+    assert milling_angle == pytest.approx(np.deg2rad(15.0))
+    assert column_tilt == pytest.approx(np.deg2rad(52.0))
+
+
+def test_measure_from_images_and_diagnostic_plot(tmp_path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from fibsem.alignment.coincidence import measure_coincidence_from_images
+    from fibsem.alignment.plotting import plot_coincidence_measurement
+
+    stretch = fib_view_y_stretch(np.deg2rad(15.0), np.deg2rad(52.0))
+    sem = np.clip(make_sem_scene(), 0, 255)
+    fib = np.clip(make_fib_view(sem, 20.0, 5.0, stretch), 0, 255)
+    sem_image = _image_with_metadata(sem, PIXEL_SIZE)
+    fib_image = _image_with_metadata(fib, PIXEL_SIZE)
+
+    m = measure_coincidence_from_images(sem_image, fib_image)
+    assert m.is_reliable
+    assert m.dx == pytest.approx(5.0 * PIXEL_SIZE, abs=2 * PIXEL_SIZE)
+
+    fig = plot_coincidence_measurement(
+        sem_image, fib_image, m, save=True, path=str(tmp_path)
+    )
+    assert fig is not None
+    pngs = list(tmp_path.glob("*coincidence*.png"))
+    assert len(pngs) == 1

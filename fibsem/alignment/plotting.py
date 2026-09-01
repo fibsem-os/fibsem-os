@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
 
     from fibsem.alignment import AlignmentDifferential, AlignmentIteration
+    from fibsem.alignment.coincidence import CoincidenceMeasurement
     from fibsem.structures import FibsemImage
 
 
@@ -186,5 +187,98 @@ def plot_multi_step_alignment(
     fig.tight_layout()
     if save:
         save_path = os.path.join(ref_path, "figure.png")
+        fig.savefig(save_path, dpi=80)
+    return fig
+
+
+def plot_coincidence_measurement(
+    sem_image: "FibsemImage",
+    fib_image: "FibsemImage",
+    measurement: "CoincidenceMeasurement",
+    title: Optional[str] = None,
+    save: bool = True,
+    path: Optional[str] = None,
+):
+    """Diagnostic figure for one coincidence measurement (FIB-868).
+
+    Three panels: the SEM view, the raw FIB view, and an overlay of the SEM
+    (green) against the perspective-corrected FIB shifted by the measured
+    residual (red) - on a correct measurement the shared structure coincides.
+    The annotation carries the residuals and the reliability verdict.
+
+    Returns:
+        matplotlib.figure.Figure
+    """
+    from datetime import datetime
+
+    from matplotlib.figure import Figure
+    from scipy import ndimage as ndi
+
+    from fibsem.alignment.coincidence import (
+        _stretch_y,
+        fib_view_y_stretch,
+        geometry_from_metadata,
+    )
+
+    pixel_size, milling_angle, column_tilt = geometry_from_metadata(sem_image)
+    stretch = fib_view_y_stretch(milling_angle, column_tilt)
+    fib_stretched = _stretch_y(fib_image.data.astype(np.float32), stretch)
+    dy_px = measurement.dy / pixel_size * stretch
+    dx_px = measurement.dx / pixel_size
+    fib_aligned = ndi.shift(fib_stretched, (dy_px, dx_px), order=1, mode="constant")
+
+    def _normalise(data: np.ndarray) -> np.ndarray:
+        valid = data[data > 0] if (data > 0).any() else data
+        lo, hi = np.percentile(valid, [1, 99])
+        return np.clip((data - lo) / (hi - lo + 1e-6), 0, 1)
+
+    overlay = np.zeros((*sem_image.data.shape, 3))
+    overlay[..., 1] = _normalise(sem_image.data.astype(np.float32))
+    overlay[..., 0] = _normalise(fib_aligned)
+
+    timestamp_str = datetime.now().strftime(DATETIME_DISPLAY)
+    if title is None:
+        title = f"Coincidence Measurement — {timestamp_str}"
+    else:
+        title = f"{title} — {timestamp_str}"
+
+    fig = Figure(figsize=(12, 4.2))
+    axes = fig.subplots(1, 3)
+    fig.suptitle(title)
+    _plot_image_with_crosshair(axes[0], sem_image.data, "SEM")
+    _plot_image_with_crosshair(axes[1], fib_image.data, "FIB")
+    axes[2].imshow(overlay)
+    axes[2].set_title("Overlay (SEM green, aligned FIB red)")
+    axes[2].axis("off")
+
+    verdict = (
+        "RELIABLE"
+        if measurement.is_reliable
+        else (f"REFUSED ({measurement.refusal_reason})")
+    )
+    colour = "lime" if measurement.is_reliable else "red"
+    axes[2].text(
+        0.04,
+        0.04,
+        f"{verdict}\n"
+        f"dx={measurement.dx * 1e6:+.2f}um  dy={measurement.dy * 1e6:+.2f}um\n"
+        f"dz={measurement.dz * 1e6:+.2f}um  "
+        f"band-disagreement={measurement.band_disagreement * 1e6:.2f}um",
+        transform=axes[2].transAxes,
+        color=colour,
+        fontsize=7,
+        va="bottom",
+        fontfamily="monospace",
+        bbox=dict(
+            boxstyle="round,pad=0.2", facecolor="black", alpha=0.6, edgecolor="none"
+        ),
+    )
+
+    fig.tight_layout()
+    if save:
+        ref_path, prefix, ts = _alignment_save_path(sem_image)
+        if path is not None:
+            ref_path = path
+        save_path = os.path.join(ref_path, f"{prefix}coincidence_{ts}.png")
         fig.savefig(save_path, dpi=80)
     return fig
