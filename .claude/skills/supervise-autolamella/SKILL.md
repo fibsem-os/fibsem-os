@@ -142,9 +142,13 @@ The argument selects a variation on the same loop:
 - **collaborative** (default): the ladder above, operator in the loop for
   firsts and placements. Report progress as tasks complete.
 - **exemplar**: the operator handles the first item end to end; you record
-  what they accepted (images, areas, answers) as the reference, then handle
-  the remaining items, comparing each inspect against the exemplar. Divergence
-  from the exemplar is a first-of-class: escalate.
+  what they accepted as the reference, then handle the remaining items,
+  comparing each inspect against the exemplar. Divergence from the exemplar
+  is a first-of-class: escalate. Record from durable state, not the live
+  prompt: after an `ANSWERED by=operator` line, read
+  `GET /app/items/{item_name}` — the accepted POI, alignment area, and
+  milling angle are there — and pair it with the display image. Never race
+  the operator for the prompt's `current` value.
 - **batch-review**: supervision is off or minimal; let the run complete, then
   present the outputs (`/app/run_summary`, `/app/task_outputs/{item}`, final
   images) and act on the operator's verdicts — `requeue_task` for the items

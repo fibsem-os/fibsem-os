@@ -61,6 +61,7 @@ def test_every_method_tolerates_an_empty_host():
         ctx.run_summary(),
         ctx.protocol(),
         ctx.task_outputs("anything"),
+        ctx.item_detail("anything"),
         ctx.stage_position(),
     ]
     for payload in payloads:
@@ -124,6 +125,37 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
     _assert_json_safe(completed)
 
     missing = ctx.task_outputs("no-such-item")
+    assert missing["available"] is False
+    assert "no-such-item" in missing["error"]
+
+
+def test_item_detail_serves_the_durable_item_facts(experiment):
+    """One read for what a supervisor judges an item by — the exemplar-mode
+    seam: after the operator answers, the accepted POI/alignment area are
+    readable here rather than raced out of the live prompt mirror."""
+    from fibsem.structures import FibsemRectangle, MicroscopeState, Point
+
+    host = Host()
+    host.experiment = experiment
+    ctx = AgentContext(host)
+
+    lamella = experiment.positions[0]
+    lamella.poi = Point(1.5e-6, -2.5e-6)
+    lamella.alignment_area = FibsemRectangle(left=0.6, top=0.3, width=0.3, height=0.4)
+    lamella.milling_angle = 15.0
+    lamella.milling_pose = MicroscopeState()
+
+    detail = ctx.item_detail(lamella.name)
+    assert detail["available"] is True
+    assert detail["item_name"] == lamella.name
+    assert detail["poi"] == {"x": 1.5e-6, "y": -2.5e-6}
+    assert detail["alignment_area"]["left"] == 0.6
+    assert detail["milling_angle"] == 15.0
+    assert detail["is_failure"] is False
+    assert "MILLING" in detail["poses"]
+    _assert_json_safe(detail)
+
+    missing = ctx.item_detail("no-such-item")
     assert missing["available"] is False
     assert "no-such-item" in missing["error"]
 

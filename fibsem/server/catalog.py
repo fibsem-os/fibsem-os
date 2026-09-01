@@ -205,6 +205,15 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
     ),
     ToolSpec(
+        name="get_item_detail",
+        description="Everything durable about one item: status, failure flag, POI, alignment area, milling angle, and where its poses put the stage.",
+        method="GET",
+        path="/app/items/{item_name}",
+        scope="read",
+        router="app",
+        params={"item_name": "the item (lamella) name"},
+    ),
+    ToolSpec(
         name="get_task_outputs",
         description="The files an item's completed tasks produced (reference images by role).",
         method="GET",

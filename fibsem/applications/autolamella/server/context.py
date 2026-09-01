@@ -227,6 +227,46 @@ class AgentContext:
             ],
         }
 
+    def item_detail(self, item_name: str) -> Dict[str, Any]:
+        """The durable facts about one item, as a curated snapshot.
+
+        One read for everything a supervisor judges an item by: status,
+        geometry (POI, alignment area, milling angle), and where its poses
+        put the stage. Curated rather than a ``to_dict`` dump — this payload
+        serves agents and the monitor dashboard, so every field in it is
+        wire contract; internals stay internal. Pointer facts live on their
+        own surfaces (files: task_outputs; history: task_history).
+        """
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "item_name": item_name}
+        lamella = experiment.get_lamella_by_name(item_name)
+        if lamella is None:
+            return {
+                "available": False,
+                "item_name": item_name,
+                "error": f"No item named {item_name!r} in this experiment.",
+            }
+        poses = {}
+        for pose_name, pose in dict(lamella.poses).items():
+            position = getattr(pose, "stage_position", None)
+            poses[pose_name] = position.to_dict() if position is not None else None
+        return {
+            "available": True,
+            "item_name": lamella.name,
+            "id": lamella.id,
+            "is_failure": bool(lamella.is_failure),
+            "description": lamella.description,
+            # metres, in the milling coordinate system (+y up, origin centre)
+            "poi": lamella.poi.to_dict() if lamella.poi is not None else None,
+            # fractions of the FIB frame, origin top-left
+            "alignment_area": lamella.alignment_area.to_dict()
+            if lamella.alignment_area is not None
+            else None,
+            "milling_angle": lamella.milling_angle,
+            "poses": poses,
+        }
+
     # --- instrument-adjacent (cached only, never a hardware call) --------------
 
     def stage_position(self) -> Dict[str, Any]:
