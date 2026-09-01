@@ -57,12 +57,19 @@
   .seg { flex:1; height:4px; background:var(--row-alt); border-radius:1px; }
   .seg.done { background:var(--ok); }
   .seg.active { background:var(--primary); }
-  .strip { display:flex; gap:3px; padding:7px 10px 0; }
-  .strip .t { flex:1; min-width:0; max-width:110px; }
-  .strip img { display:block; width:100%; aspect-ratio:3/2; object-fit:cover;
+  .pair { display:flex; gap:2px; background:var(--canvas); }
+  .pair .half { flex:1; min-width:0; position:relative; }
+  .pair img { display:block; width:100%; aspect-ratio:3/2; object-fit:cover; }
+  .pair .beam { position:absolute; left:0; top:0; font-family:var(--mono);
+    font-size:10px; color:var(--muted); background:rgba(20,21,24,.8); padding:1px 6px; }
+
+  .review { padding:6px 10px 2px; display:flex; flex-direction:column; gap:4px; }
+  .rrow { display:flex; gap:3px; align-items:center; }
+  .rrow .lbl { flex:0 0 58px; font-family:var(--mono); font-size:10px;
+    color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rrow .im { flex:1; min-width:0; }
+  .rrow img { display:block; width:100%; aspect-ratio:3/2; object-fit:cover;
     background:var(--canvas); }
-  .strip .lbl { font-family:var(--mono); font-size:9.5px; color:var(--muted);
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
   .side { display:flex; flex-direction:column; gap:10px; min-width:0; }
   .queue-body { font-family:var(--mono); font-size:11px; padding:4px 0; max-height:30vh; overflow-y:auto; }
@@ -219,39 +226,52 @@ async function renderCard(name) {
     ? `${item.alignment_area.width.toFixed(2)} × ${item.alignment_area.height.toFixed(2)}` : "—";
   const angle = item.milling_angle != null ? item.milling_angle.toFixed(1) + "°" : "—";
 
-  // Thumbnail: the last recorded FIB reference image, fetched with the auth
-  // header (an <img src> cannot carry one) and shown via an object URL.
-  const refs = outputs.final_reference_images || [];
-  const pick = refs.filter(p => p.endsWith("_ib.tif")).pop() || refs[refs.length - 1];
-  let frame = `<span class="none">no recorded images yet</span>`;
-  let tag = "";
-  if (pick) {
-    const base = pick.split(/[\\/]/).pop();
-    frame = `<img data-src="${esc(base)}" alt="">`;
-    tag = `<span class="frame-tag">${esc(base)}</span>`;
-  }
-  // Review strip: the latest run's final image per protocol task, in
-  // protocol order — which task produced which image, at a glance.
+  // Images are fetched with the auth header (an <img src> cannot carry one)
+  // and shown via object URLs. SEM on the left, FIB on the right — the
+  // pairing every other surface in the app uses.
   const byTask = {};
   for (const t of outputs.tasks || []) byTask[t.name] = t; // later run wins
-  const stripOrder = protocolTasks.length
+  const reviewOrder = protocolTasks.length
     ? protocolTasks.map(t => t.name).filter(n => byTask[n])
     : Object.keys(byTask);
-  const strip = stripOrder.map(taskName => {
+  const pairOf = taskName => {
     const files = byTask[taskName].files || {};
-    const f = (files.final_fib || []).slice(-1)[0]
-      || (files.final_sem || []).slice(-1)[0]
-      || (files.fluorescence || []).slice(-1)[0];
-    if (!f) return "";
-    return `<div class="t"><img data-src="${esc(f)}" alt="" title="${esc(taskName)}">
-      <div class="lbl">${esc(shortTask(taskName))}</div></div>`;
+    return {
+      sem: (files.final_sem || []).slice(-1)[0],
+      fib: (files.final_fib || []).slice(-1)[0],
+    };
+  };
+  const half = (file, beam) => file
+    ? `<div class="half"><img data-src="${esc(file)}" alt=""><span class="beam">${beam}</span></div>`
+    : `<div class="half"><span class="none">no ${beam}</span></div>`;
+
+  // Main pair: the most recent task that recorded any image.
+  const latest = [...reviewOrder].reverse()
+    .find(n => pairOf(n).sem || pairOf(n).fib);
+  let frame = `<span class="none">no recorded images yet</span>`;
+  let tag = "";
+  if (latest) {
+    const p = pairOf(latest);
+    frame = `<div class="pair">${half(p.sem, "sem")}${half(p.fib, "fib")}</div>`;
+    tag = `<span class="frame-tag">${esc(shortTask(latest))}</span>`;
+  }
+
+  // Review rows: every completed task's final pair, protocol order — the
+  // review tab in miniature.
+  const review = reviewOrder.map(taskName => {
+    const p = pairOf(taskName);
+    if (!p.sem && !p.fib) return "";
+    const im = f => f
+      ? `<div class="im"><img data-src="${esc(f)}" alt="" title="${esc(taskName)}"></div>`
+      : `<div class="im"></div>`;
+    return `<div class="rrow"><span class="lbl" title="${esc(taskName)}">${esc(shortTask(taskName))}</span>${im(p.sem)}${im(p.fib)}</div>`;
   }).join("");
 
   el.innerHTML = `
     <div class="card-head"><span class="name">${esc(name)}</span>${state}</div>
     <div class="frame">${frame}${tag}</div>
     <div class="segs">${segs}</div>
-    ${strip ? `<div class="strip">${strip}</div>` : ""}
+    ${review ? `<div class="review">${review}</div>` : ""}
     <table class="facts">
       <tr><td>next</td><td>${esc(next ? shortTask(next.name) : "—")}</td></tr>
       <tr><td>poi</td><td>${esc(poi)}</td></tr>
