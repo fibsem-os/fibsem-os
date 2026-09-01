@@ -30,8 +30,8 @@ full findings.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 import numpy as np
 from scipy import ndimage as ndi
@@ -78,6 +78,11 @@ class CoincidenceMeasurement:
     refusal_reason: Optional[str] = None  # set when is_reliable is False
     seeded: bool = False
     method: str = "crossbeam-xcorr"
+    coarse: bool = False  # taken at the wide coarse field of view
+    # the pair this was measured from, kept for diagnostics (check_coincidence
+    # fills them in; the pure array path leaves them None)
+    sem_image: Optional[FibsemImage] = field(default=None, repr=False)
+    fib_image: Optional[FibsemImage] = field(default=None, repr=False)
 
 
 @dataclass
@@ -379,14 +384,62 @@ class CoincidenceAlignment:
     converged: bool
     reason: str  # REASON_CONVERGED, REASON_MAX_ITERATIONS, or a refusal_reason
     coarse_used: bool = False
+    # counted, not derived from the history: a coarse measurement adds an
+    # entry without a move
+    moves_applied: int = 0
 
     @property
     def final(self) -> "CoincidenceMeasurement":
         return self.measurements[-1]
 
-    @property
-    def moves_applied(self) -> int:
-        return len(self.measurements) - 1
+
+PROGRESS_MEASURING = "measuring"
+PROGRESS_MEASURED = "measured"
+PROGRESS_MOVING = "moving"
+
+
+@dataclass
+class CoincidenceProgress:
+    """One step of an ensure_coincident run, as reported to `on_progress`.
+
+    Emitted before each acquisition (MEASURING), after each measurement
+    (MEASURED, with the measurement) and before each corrective move
+    (MOVING, with the measurement driving it). `iteration` counts the
+    corrective moves applied so far.
+    """
+
+    stage: str
+    iteration: int
+    max_iterations: int
+    coarse: bool = False
+    measurement: Optional[CoincidenceMeasurement] = None
+
+    def describe(self) -> str:
+        """A one-line, operator-facing description of the step."""
+        pass_name = "coarse" if self.coarse else "fine"
+        if self.stage == PROGRESS_MEASURING:
+            if self.coarse:
+                return "Fine pass refused - measuring at the coarse field of view..."
+            return f"Measuring coincidence ({pass_name}, {self.iteration}/{self.max_iterations} moves so far)..."
+        m = self.measurement
+        assert m is not None
+        if self.stage == PROGRESS_MEASURED:
+            if not m.is_reliable:
+                return (
+                    f"{pass_name.capitalize()} measurement refused: "
+                    f"{m.refusal_reason} (band disagreement {m.band_disagreement * 1e6:.2f} um)."
+                )
+            return (
+                f"{pass_name.capitalize()} measurement: dz {m.dz * 1e6:+.2f} um "
+                f"(dx {m.dx * 1e6:+.2f} um)."
+            )
+        return (
+            f"Correcting height by {m.dz * 1e6:+.2f} um "
+            f"(move {self.iteration + 1}/{self.max_iterations})..."
+        )
+
+
+ProgressCallback = Callable[[CoincidenceProgress], None]
 
 
 def _default_image_settings() -> "ImageSettings":
@@ -422,13 +475,16 @@ def check_coincidence(
     sem_image = microscope.acquire_image(image_settings=settings)
     settings.beam_type = BeamType.ION
     fib_image = microscope.acquire_image(image_settings=settings)
-    return measure_coincidence_from_images(
+    measurement = measure_coincidence_from_images(
         sem_image,
         fib_image,
         prior=prior,
         capture_range=capture_range,
         agreement_tolerance=agreement_tolerance,
     )
+    measurement.sem_image = sem_image
+    measurement.fib_image = fib_image
+    return measurement
 
 
 def ensure_coincident(
@@ -442,6 +498,7 @@ def ensure_coincident(
     coarse_hfw: Optional[float] = DEFAULT_COARSE_HFW,
     coarse_capture_range: float = DEFAULT_COARSE_CAPTURE_RANGE,
     coarse_agreement_tolerance: float = DEFAULT_COARSE_AGREEMENT_TOLERANCE,
+    on_progress: Optional[ProgressCallback] = None,
 ) -> CoincidenceAlignment:
     """Measure the SEM/FIB coincidence and correct it until within tolerance.
 
@@ -481,6 +538,9 @@ def ensure_coincident(
             pitch apart.
         coarse_agreement_tolerance: band-agreement gate for the coarse pass
             (looser: its pixels are ~4x larger).
+        on_progress: called with a CoincidenceProgress before every
+            acquisition, after every measurement and before every move, from
+            the calling thread - a GUI must marshal it across itself.
 
     Returns:
         CoincidenceAlignment with the full measurement history (coarse
@@ -490,8 +550,23 @@ def ensure_coincident(
 
     measurements: List[CoincidenceMeasurement] = []
     coarse_used = False
+    moves = 0
+
+    def report(stage: str, coarse: bool = False, measurement=None) -> None:
+        if on_progress is None:
+            return
+        on_progress(
+            CoincidenceProgress(
+                stage=stage,
+                iteration=moves,
+                max_iterations=max_iterations,
+                coarse=coarse,
+                measurement=measurement,
+            )
+        )
 
     def fine_check(prior: Optional[Tuple[float, float]] = None):
+        report(PROGRESS_MEASURING)
         measurement = check_coincidence(
             microscope,
             image_settings=image_settings,
@@ -500,9 +575,11 @@ def ensure_coincident(
             agreement_tolerance=agreement_tolerance,
         )
         measurements.append(measurement)
+        report(PROGRESS_MEASURED, measurement=measurement)
         return measurement
 
     def coarse_check():
+        report(PROGRESS_MEASURING, coarse=True)
         settings = deepcopy(image_settings or _default_image_settings())
         settings.hfw = coarse_hfw
         measurement = check_coincidence(
@@ -511,7 +588,9 @@ def ensure_coincident(
             capture_range=coarse_capture_range,
             agreement_tolerance=coarse_agreement_tolerance,
         )
+        measurement.coarse = True
         measurements.append(measurement)
+        report(PROGRESS_MEASURED, coarse=True, measurement=measurement)
         return measurement
 
     measurement = fine_check()
@@ -533,7 +612,9 @@ def ensure_coincident(
                 break
             # a coarse move only needs to land within the fine pass's reach
 
+        report(PROGRESS_MOVING, coarse=measurement.coarse, measurement=measurement)
         microscope.vertical_move(dy=measurement.dy, dx=0, relaxation=relaxation)
+        moves += 1
 
         # after a correction the residual should be near zero in y; dx is
         # uncorrected and persists, so seed the fine window there
@@ -550,6 +631,7 @@ def ensure_coincident(
         converged=reason == REASON_CONVERGED,
         reason=reason,
         coarse_used=coarse_used,
+        moves_applied=moves,
     )
     logging.info(
         {

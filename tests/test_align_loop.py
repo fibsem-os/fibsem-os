@@ -122,3 +122,49 @@ def test_error_beyond_the_coarse_window_does_not_claim_success(microscope):
 
     assert not result.converged
     assert result.coarse_used  # it tried
+
+
+def test_progress_reports_every_step_and_moves_are_counted(microscope, tmp_path):
+    from fibsem.alignment.coincidence import (
+        PROGRESS_MEASURED,
+        PROGRESS_MEASURING,
+        PROGRESS_MOVING,
+    )
+    from fibsem.alignment.plotting import save_coincidence_diagnostics
+
+    steps = []
+    result = ensure_coincident(microscope, tolerance=1e-6, on_progress=steps.append)
+
+    assert result.converged
+    assert result.moves_applied == 1
+    # measure, report, move, measure, report - and every step describes itself
+    assert [s.stage for s in steps] == [
+        PROGRESS_MEASURING,
+        PROGRESS_MEASURED,
+        PROGRESS_MOVING,
+        PROGRESS_MEASURING,
+        PROGRESS_MEASURED,
+    ]
+    assert steps[2].measurement is result.measurements[0]
+    assert steps[2].iteration == 0 and steps[3].iteration == 1
+    assert all(s.describe() for s in steps)
+
+    # each measurement keeps its pair, so the run is fully re-plottable
+    saved = save_coincidence_diagnostics(result, str(tmp_path))
+    assert len(saved) == len(result.measurements) == 2
+    assert saved[0].endswith("_01_fine.png")
+
+
+def test_coarse_measurements_do_not_count_as_moves(microscope):
+    microscope._coincidence_scene.coincidence_offset = 40e-6
+    microscope._coincidence_scene.reference_position = None
+    microscope._coincidence_scene.anchor(microscope.get_stage_position())
+
+    result = ensure_coincident(microscope, tolerance=1e-6)
+
+    assert result.converged and result.coarse_used
+    assert result.measurements[1].coarse
+    assert not result.measurements[0].coarse
+    # refused fine + coarse + post-move fine (+ maybe a fine refinement):
+    # the history is longer than the moves by the extra measurements
+    assert result.moves_applied == len(result.measurements) - 2

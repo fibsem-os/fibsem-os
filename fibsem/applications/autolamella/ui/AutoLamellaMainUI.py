@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import html
 import logging
+import os
 import sys
 import time
 from typing import List, Optional, Tuple
@@ -16,7 +17,7 @@ import warnings
 from datetime import datetime
 
 import napari
-from PyQt5.QtCore import QSize, Qt, QTimer
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
@@ -419,6 +420,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     # control from their own half of the truth is how a control gets stuck on.
     _overviews_allowed = True
 
+    # CoincidenceProgress from the align-loop worker, delivered on the GUI thread
+    coincidence_progress = pyqtSignal(object)
+
     def __init__(self):
         super().__init__()
         # The last words a producer supplied, so a backend's messageless tick still
@@ -737,12 +741,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         dev_menu.addAction(self.action_open_coincidence_viewer)
 
-        self.action_ensure_coincidence = QAction("Run SEM/FIB Coincidence Alignment", self)
+        self.action_ensure_coincidence = QAction(
+            "Run SEM/FIB Coincidence Alignment", self
+        )
         self.action_ensure_coincidence.setToolTip(
             "Measure the SEM/FIB coincidence at the current position and "
             "correct it with vertical moves until within tolerance (FIB-868)"
         )
         self.action_ensure_coincidence.triggered.connect(self._on_ensure_coincidence)
+        self.coincidence_progress.connect(self._on_coincidence_progress)
         dev_menu.addAction(self.action_ensure_coincidence)
 
         self._dev_menu = dev_menu
@@ -1217,39 +1224,72 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.show_toast("Not connected to a microscope.", "warning")
             return
         self.action_ensure_coincidence.setEnabled(False)
-        self.show_toast("Measuring coincidence…", "info")
         worker = self._ensure_coincidence_worker()
         worker.returned.connect(self._on_ensure_coincidence_finished)
+        worker.errored.connect(
+            lambda exc: self.show_toast(f"Coincidence alignment failed: {exc}", "error")
+        )
         worker.finished.connect(lambda: self.action_ensure_coincidence.setEnabled(True))
         worker.start()
+
+    def _coincidence_diagnostics_path(self) -> str:
+        """Where a run's diagnostic figures go: the open experiment, else the log."""
+        from fibsem import config as cfg
+        from fibsem.alignment import ALIGNMENT_SUBDIR
+
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        base = experiment.path if experiment is not None else cfg.LOG_PATH
+        return os.path.join(base, ALIGNMENT_SUBDIR)
 
     def _ensure_coincidence_worker(self):
         from fibsem.ui.qt.threading import thread_worker
 
         microscope = self.autolamella_ui.microscope
+        diagnostics_path = self._coincidence_diagnostics_path()
+        # progress crosses back to the GUI thread as a signal, never a call
+        on_progress = self.coincidence_progress.emit
 
         @thread_worker
         def _run():
             from fibsem.alignment.coincidence import ensure_coincident
+            from fibsem.alignment.plotting import save_coincidence_diagnostics
 
-            return ensure_coincident(microscope)
+            result = ensure_coincident(microscope, on_progress=on_progress)
+            save_coincidence_diagnostics(result, diagnostics_path)
+            return result
 
         return _run()
 
+    def _on_coincidence_progress(self, progress) -> None:
+        self.show_toast(progress.describe(), "info", temporary=True)
+        # show each measured pair in the views as it lands, the same way a
+        # spot burn pushes its post-burn image: the acquisition signals are
+        # what the image widget listens to
+        m = progress.measurement
+        if m is None or m.sem_image is None or m.fib_image is None:
+            return
+        microscope = self.autolamella_ui.microscope
+        microscope.sem_acquisition_signal.emit(m.sem_image)
+        microscope.fib_acquisition_signal.emit(m.fib_image)
+
     def _on_ensure_coincidence_finished(self, result) -> None:
         final_dz = result.final.dz * 1e6
+        where = f" Diagnostics in {self._coincidence_diagnostics_path()}"
         if result.converged:
             self.show_toast(
                 f"Coincident: residual {final_dz:+.2f} um after "
-                f"{result.moves_applied} corrective move(s).",
+                f"{result.moves_applied} corrective move(s)."
+                f"{' Coarse pass used.' if result.coarse_used else ''}{where}",
                 "success",
+                duration=10000,
             )
         else:
             self.show_toast(
                 f"Not coincident: {result.reason} "
                 f"(last measured dz {final_dz:+.2f} um, "
-                f"{result.moves_applied} move(s) applied).",
+                f"{result.moves_applied} move(s) applied).{where}",
                 "warning",
+                duration=10000,
             )
 
     def _open_coincidence_milling_viewer(self):
