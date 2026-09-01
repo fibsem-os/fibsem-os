@@ -227,6 +227,70 @@ class AgentContext:
             ],
         }
 
+    def output_image(
+        self, item_name: str, filename: str, max_width: int = 768
+    ) -> Dict[str, Any]:
+        """One recorded output image, rendered as JPEG bytes.
+
+        The read side of :meth:`task_outputs` for clients that cannot touch the
+        disk — the dashboard's thumbnails. ``filename`` must be the basename of
+        a path :meth:`task_outputs` itself listed; anything else is refused
+        with the valid names, so a client can never reach outside the item's
+        own recorded outputs. Stacks and multi-channel images are max-projected
+        to something viewable; this is a preview, not the data.
+        """
+        import os
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "jpeg": None}
+        lamella = experiment.get_lamella_by_name(item_name)
+        if lamella is None:
+            return {
+                "available": False,
+                "jpeg": None,
+                "error": f"No item named {item_name!r} in this experiment.",
+            }
+        history = list(lamella.task_history)
+        paths = _task_outputs.final_reference_images(
+            lamella, *history
+        ) + _task_outputs.fluorescence_images(lamella, *history)
+        match = next((p for p in paths if os.path.basename(p) == filename), None)
+        if match is None:
+            return {
+                "available": True,
+                "jpeg": None,
+                "error": f"No output named {filename!r} for {item_name!r}.",
+                "filenames": [os.path.basename(p) for p in paths],
+            }
+        try:
+            import numpy as np
+            import tifffile
+
+            from fibsem.server.images import preview_jpeg_bytes
+
+            data = np.squeeze(np.asarray(tifffile.imread(match)))
+            # z-stacks / channel stacks project on leading axes; a trailing
+            # RGB(A) axis is colour, not a stack, and stays.
+            while data.ndim > 2 and data.shape[-1] not in (3, 4):
+                data = data.max(axis=0)
+            if data.ndim == 3 and data.shape[-1] == 4:
+                data = data[..., :3]
+            jpeg, width, height = preview_jpeg_bytes(data, max_width=max_width)
+        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+            return {
+                "available": True,
+                "jpeg": None,
+                "error": f"Could not render {filename!r}: {exc}",
+            }
+        return {
+            "available": True,
+            "jpeg": jpeg,
+            "width": width,
+            "height": height,
+            "filename": filename,
+        }
+
     def item_detail(self, item_name: str) -> Dict[str, Any]:
         """The durable facts about one item, as a curated snapshot.
 

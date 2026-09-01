@@ -129,6 +129,51 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
     assert "no-such-item" in missing["error"]
 
 
+def test_output_image_renders_recorded_outputs_only(experiment):
+    import numpy as np
+    import tifffile
+
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    host = Host()
+    host.experiment = experiment
+    ctx = AgentContext(host)
+    lamella = experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    fname = "ref_Rough Milling_final_res_01_ib.tif"
+    tifffile.imwrite(
+        os.path.join(lamella.path, fname),
+        (np.random.rand(48, 64) * 65535).astype(np.uint16),
+    )
+    # A z-stack fluorescence output: projected, not rejected.
+    zname = "fm_stack.tif"
+    tifffile.imwrite(
+        os.path.join(lamella.path, zname),
+        (np.random.rand(5, 48, 64) * 65535).astype(np.uint16),
+        photometric="minisblack",
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name="Rough Milling",
+            outputs={"final_fib": [fname], "fluorescence": [zname]},
+        )
+    )
+
+    served = ctx.output_image(lamella.name, fname)
+    assert served["jpeg"][:2] == b"\xff\xd8"
+    assert (served["width"], served["height"]) == (64, 48)
+
+    stack = ctx.output_image(lamella.name, zname)
+    assert stack["jpeg"][:2] == b"\xff\xd8"
+
+    unknown = ctx.output_image(lamella.name, "not-listed.tif")
+    assert unknown["jpeg"] is None
+    assert sorted(unknown["filenames"]) == [zname, fname]
+
+    missing = ctx.output_image("no-such-item", fname)
+    assert missing["available"] is False
+
+
 def test_item_detail_serves_the_durable_item_facts(experiment):
     """One read for what a supervisor judges an item by — the exemplar-mode
     seam: after the operator answers, the accepted POI/alignment area are
