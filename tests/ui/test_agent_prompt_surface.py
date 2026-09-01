@@ -191,6 +191,11 @@ def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
         qapp.processEvents()
         fib = client.get("/app/images", headers=AUTH).json()["fib"]
         assert fib["acquired_at"] == stamp.isoformat()
+        # The display cache serves the same scale facts as the acquisition
+        # endpoints: overlays drawn on the preview must not guess the FOV.
+        assert fib["full_width"] == 1536
+        assert fib["hfw"] == pytest.approx(100e-6)
+        assert fib["pixelsize"]["x"] == pytest.approx(100e-6 / 1536)
 
 
 def test_an_answer_without_a_nonce_is_rejected(ui, qapp):

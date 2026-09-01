@@ -127,10 +127,17 @@ class ConfirmDetection(Request["DetectedFeatures"]):
 
 @dataclass(frozen=True)
 class EditAlignmentArea(Request["FibsemRectangle"]):
-    """Let the supervisor adjust an alignment area; answer with the final area."""
+    """Let the supervisor adjust an alignment area; answer with the final area.
+
+    ``image`` is the frame the area is judged against (the FIB display at ask
+    time) — the area itself is in fractions of the frame, so it needs no
+    rescaling. Optional: the GUI responder shows the live view and ignores it;
+    it exists so a remote responder can answer from the request alone.
+    """
 
     initial: "FibsemRectangle"
     message: str = "Edit Alignment Area"
+    image: Optional["FibsemImage"] = None
 
 
 @dataclass(frozen=True)

@@ -210,9 +210,15 @@ def update_alignment_area_ui(
     if parent_ui is None or not validate:
         return alignment_area
 
+    # The frame the area is judged against: the FIB display at ask time. A
+    # whole-reference grab (references are replaced, never mutated), so no
+    # GUI-thread entry; the GUI responder ignores it and shows the live view.
+    image_widget = getattr(parent_ui, "image_widget", None)
+    fib_image = getattr(image_widget, "ib_image", None)
+
     return ask(
         parent_ui.ui_responder,
-        EditAlignmentArea(initial=alignment_area, message=msg),
+        EditAlignmentArea(initial=alignment_area, message=msg, image=fib_image),
         abort=lambda: _abort_requested(parent_ui),
     )
 

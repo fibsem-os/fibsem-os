@@ -257,14 +257,14 @@ class AgentContext:
         widget = getattr(self._host, "image_widget", None)
         if widget is None:
             return {"available": False, "sem": None, "fib": None}
-        from fibsem.applications.autolamella.server.prompts import _preview_b64
+        from fibsem.applications.autolamella.server.prompts import _preview_payload
 
         payload: Dict[str, Any] = {"available": True}
         for key, image in (
             ("sem", getattr(widget, "eb_image", None)),
             ("fib", getattr(widget, "ib_image", None)),
         ):
-            entry = _preview_b64(getattr(image, "data", None))
+            entry = _preview_payload(image)
             if entry is not None:
                 entry["acquired_at"] = self._acquired_at(image)
             payload[key] = entry

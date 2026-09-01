@@ -44,6 +44,15 @@ Reading is on for any connected agent — it is the point of the feature:
   and answered (and by whom), as a live feed.
 - **Run history** — the run summary and each item's produced files.
 
+Every image travels as a downscaled preview that carries its own scale: the
+preview's size, the source image's size, the field width, and the physical
+size of a source pixel. Positions are never left to guesswork — point
+questions state their convention in the payload (metres, origin at the image
+centre, +y up), detected features are in source-image pixels, and alignment
+areas are fractions of the frame. An agent drawing on or measuring against a
+preview should always use the scale in the payload it arrived with — the live
+view's field width can differ from the acquisition's.
+
 ## What the agent may do (with your permission)
 
 In **Tools → Agent Server**, the *Act* switch lets the agent:

@@ -61,12 +61,22 @@ def preview_payload(image, max_width: int = 768) -> dict:
         "full_height": int(image.data.shape[0]),
         "beam_type": None,
         "hfw": None,
+        # metres per SOURCE pixel (full_width, not the downscaled preview):
+        # every image payload states its own scale so an agent never maps
+        # coordinates using an assumed field of view.
+        "pixelsize": None,
     }
     md = image.metadata
     if md is not None and md.image_settings is not None:
         payload["hfw"] = _maybe_float(md.image_settings.hfw)
         beam_type = md.image_settings.beam_type
         payload["beam_type"] = beam_type.name if beam_type is not None else None
+    pixel_size = getattr(md, "pixel_size", None)
+    if pixel_size is not None:
+        payload["pixelsize"] = {
+            "x": _maybe_float(pixel_size.x),
+            "y": _maybe_float(pixel_size.y),
+        }
     return payload
 
 
