@@ -81,13 +81,13 @@ def _call_on_worker_thread(qapp, fn, timeout_s=10.0):
 
 
 def test_images_land_in_the_widget_from_a_worker_thread(ui, qapp):
-    # Label the copies with their real beam types: _on_acquire routes by
-    # metadata.beam_type, and the seeded blanks both say ELECTRON — a shape
-    # production never sends (a real FIB image carries ION).
+    # The copies carry their slot's beam type from the widget's seeded blanks;
+    # _on_acquire routes by metadata, so a mislabelled copy would land in the
+    # wrong slot — this doubles as a guard on the seed labels.
     sem = deepcopy(ui.image_widget.eb_image)
     fib = deepcopy(ui.image_widget.ib_image)
-    sem.metadata.image_settings.beam_type = BeamType.ELECTRON
-    fib.metadata.image_settings.beam_type = BeamType.ION
+    assert sem.metadata.beam_type is BeamType.ELECTRON
+    assert fib.metadata.beam_type is BeamType.ION
 
     outcome = _call_on_worker_thread(
         qapp, lambda: set_images_ui(ui, eb_image=sem, ib_image=fib)

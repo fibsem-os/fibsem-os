@@ -39,13 +39,18 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         self.parent = parent
         self.microscope = microscope
-        # generate initial blank images
+        # generate initial blank images, labelled with their slot's beam type:
+        # generate_blank_image defaults both to ELECTRON, and _on_acquire routes
+        # by metadata — acquisition_finished replaying a mislabelled ION blank
+        # would clobber eb_image with it.
         self.eb_image = FibsemImage.generate_blank_image(
             resolution=image_settings.resolution, hfw=image_settings.hfw
         )
+        self.eb_image.metadata.image_settings.beam_type = BeamType.ELECTRON
         self.ib_image = FibsemImage.generate_blank_image(
             resolution=image_settings.resolution, hfw=image_settings.hfw
         )
+        self.ib_image.metadata.image_settings.beam_type = BeamType.ION
 
         self.is_acquiring: bool = False
         self._live_beam: Optional[BeamType] = (
