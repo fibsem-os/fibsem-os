@@ -158,25 +158,6 @@ class CoincidenceScene:
         pixel_size = hfw / width
         cx, cy = width / 2, height / 2
 
-        if self.reference_position is not None:
-            # A tilt or rotation change redefines the view geometry: the
-            # projection's coefficients are evaluated at the reference pose,
-            # so keeping an old anchor renders every later move with stale
-            # trig (moves visibly under-shoot). Re-anchor instead - each
-            # pose is then self-consistent, at the cost of resetting the
-            # height error to the boot offset on such changes.
-            tilt_changed = abs(
-                (stage_position.t or 0.0) - (self.reference_position.t or 0.0)
-            ) > np.deg2rad(1.0)
-            rotation_changed = abs(
-                (stage_position.r or 0.0) - (self.reference_position.r or 0.0)
-            ) > np.deg2rad(2.0)
-            if tilt_changed or rotation_changed:
-                logging.info(
-                    "coincidence scene re-anchored after a tilt/rotation change"
-                )
-                self.reference_position = None
-
         if self.reference_position is None:
             reference = deepcopy(stage_position)
             reference.z = (reference.z or 0.0) - self.coincidence_offset
@@ -189,11 +170,16 @@ class CoincidenceScene:
                 }
             )
 
-        # where the current stage sits in the reference view's plane: carries
-        # the lateral travel, the per-beam projection of the height error
-        # (zero in the SEM view, sin(view_tilt) per metre in the FIB view),
-        # and the scan-rotation/manufacturer conventions
-        ox, oy = projection.to_plane(stage_position, self.reference_position)
+        # where the world anchor appears in the CURRENT view. Asked this way
+        # round (anchor projected into the current pose, not the current
+        # position into the anchor's pose) the trig is evaluated at the
+        # current tilt/rotation - so the world persists through tilt changes
+        # exactly the way the app draws saved positions on views at other
+        # poses, instead of resetting. The offset carries the lateral
+        # travel, the per-beam projection of the height error (near zero in
+        # the SEM view, the view tilt's worth in the FIB view), and the
+        # scan-rotation/manufacturer conventions
+        ax, ay = projection.to_plane(self.reference_position, stage_position)
 
         fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
         flip = -1.0 if np.isclose(projection.scan_rotation, np.pi) else 1.0
@@ -202,9 +188,9 @@ class CoincidenceScene:
 
         # grid mesh bars: world (sample-plane) coordinates per pixel, through
         # the inverse of the same mapping the features use
-        xs_world = flip * ((np.arange(width, dtype=np.float32) - cx) * pixel_size + ox)
+        xs_world = flip * ((np.arange(width, dtype=np.float32) - cx) * pixel_size - ax)
         ys_world = (
-            flip * ((np.arange(height, dtype=np.float32) - cy) * pixel_size + oy) / fs
+            flip * ((np.arange(height, dtype=np.float32) - cy) * pixel_size - ay) / fs
         )
 
         def _near_bar(w: np.ndarray) -> np.ndarray:
@@ -224,8 +210,8 @@ class CoincidenceScene:
         canvas[bar_mask] += self.grid_intensity
 
         for f in self.features:
-            u = cx + (flip * f.x - ox) / pixel_size
-            v = cy + (flip * f.y * fs - oy) / pixel_size
+            u = cx + (flip * f.x + ax) / pixel_size
+            v = cy + (flip * f.y * fs + ay) / pixel_size
             sigma_x = f.sigma / pixel_size
             sigma_y = sigma_x * fs
             self._stamp_blob(canvas, u, v, sigma_x, sigma_y, f.intensity, f.sharpness)

@@ -247,3 +247,40 @@ def test_known_z_move_changes_measurement_by_that_amount(microscope):
     m1 = measure()
     assert m1.is_reliable, m1.refusal_reason
     assert abs(m1.dz - m0.dz) == pytest.approx(dz_applied, abs=0.5e-6)
+
+
+def test_tilting_does_not_reset_the_world(microscope):
+    """The workflow tilts between orientations constantly (select a site at
+    the SEM orientation, tilt to the milling angle): the selected site must
+    still be under the beam afterwards - the world must NOT snap back to its
+    anchor on a tilt change (found live: post-tilt reference images showed
+    the fiducial recentred instead of the selected cell site)."""
+    from scipy import ndimage as ndi
+
+    _fiducial_only(microscope)
+    settings = _image_settings(BeamType.ELECTRON)
+    pixel_size = 150e-6 / 1536
+
+    def fiducial():
+        image = microscope.acquire_image(image_settings=settings)
+        data = ndi.gaussian_filter(image.data.astype(np.float32), 3)
+        y, x = np.unravel_index(np.argmax(data), data.shape)
+        return x, y
+
+    fiducial()  # anchor at the milling pose (t=12)
+    # select a site away from the fiducial, as a user picks a lamella spot
+    microscope.stable_move(dx=40e-6, dy=20e-6, beam_type=BeamType.ELECTRON)
+    fx, fy = fiducial()
+    off_before = np.hypot(fx - 768, fy - 512) * pixel_size
+    assert off_before > 20e-6  # fiducial clearly off-centre at the site
+
+    # the workflow tilts to another orientation
+    microscope.move_stage_relative(
+        FibsemStagePosition(x=0, y=0, z=0, r=0, t=np.deg2rad(23.0))
+    )
+    gx, gy = fiducial()
+    off_after = np.hypot(gx - 768, gy - 512) * pixel_size
+    # the world persisted: the fiducial is still far from centre, not reset
+    # onto the crosshair (the x-component is tilt-invariant: still ~40 um)
+    assert abs((gx - 768) * pixel_size) > 20e-6
+    assert off_after > 20e-6
