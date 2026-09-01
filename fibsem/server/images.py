@@ -39,7 +39,10 @@ def preview_jpeg_bytes(
             )
         else:
             data = np.zeros_like(data, dtype=np.uint8)
-    pil = PILImage.fromarray(data, mode="L" if data.ndim == 2 else "RGB")
+    # No explicit mode: fromarray infers L for 2-D uint8 and RGB for 3-D, and
+    # the mode parameter is deprecated in Pillow 11.3 / removed in Pillow 13 —
+    # under filterwarnings=error the deprecation made every preview fail.
+    pil = PILImage.fromarray(data)
     if pil.width > max_width:
         scale = max_width / pil.width
         pil = pil.resize(
