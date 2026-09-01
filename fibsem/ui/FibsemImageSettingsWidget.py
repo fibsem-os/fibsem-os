@@ -343,12 +343,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                     "Image metadata is None, cannot update the display without beam type information."
                 )
 
-            # update images references
-            if self.microscope.is_acquiring:
-                if image.metadata.beam_type is BeamType.ELECTRON:
-                    self.eb_image = image
-                elif image.metadata.beam_type is BeamType.ION:
-                    self.ib_image = image
+            # update image references for every acquisition, not just the live
+            # stream: workflow one-shots (post-mill inspect, spot burn,
+            # coincidence) also emit on these signals, and eb_image/ib_image
+            # must match what the canvas below shows — click-to-move and the
+            # agent server's /app/images read these references.
+            if image.metadata.beam_type is BeamType.ELECTRON:
+                self.eb_image = image
+            elif image.metadata.beam_type is BeamType.ION:
+                self.ib_image = image
 
             controller = self._view_controller()
             if controller is not None:

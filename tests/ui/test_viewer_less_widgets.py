@@ -145,6 +145,23 @@ def test_acquired_image_lands_on_its_own_beam_canvas():
     )
 
 
+def test_one_shot_acquisition_rebinds_the_image_references():
+    """A workflow one-shot (post-mill inspect, spot burn) emits on the acquisition
+    signals with no live stream running. The references must follow the canvas:
+    an ``is_acquiring`` gate here left ``ib_image`` at the pre-mill frame, so the
+    agent server's /app/images served a stale image through the inspect prompt."""
+    microscope, _ = _session()
+    host = _CanvasHost()
+    widget = _image_widget(host)
+    assert not microscope.is_acquiring, "this test pins the non-streaming path"
+
+    sem, fib = _image(BeamType.ELECTRON), _image(BeamType.ION)
+    widget._on_acquire(sem)
+    widget._on_acquire(fib)
+    assert widget.eb_image is sem
+    assert widget.ib_image is fib
+
+
 def test_no_blank_placeholder_is_seeded():
     """napari seeded two blank images at construction; the canvas shows "No image"
     instead. Seeding would put a grey rectangle up that looks like a failed acquisition."""

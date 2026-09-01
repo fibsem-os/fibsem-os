@@ -26,6 +26,7 @@ from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows import ui as workflow_ui
 from fibsem.applications.autolamella.workflows.interaction import ask
 from fibsem.applications.autolamella.workflows.ui import set_images_ui
+from fibsem.structures import BeamType
 
 
 @pytest.fixture
@@ -80,8 +81,13 @@ def _call_on_worker_thread(qapp, fn, timeout_s=10.0):
 
 
 def test_images_land_in_the_widget_from_a_worker_thread(ui, qapp):
+    # Label the copies with their real beam types: _on_acquire routes by
+    # metadata.beam_type, and the seeded blanks both say ELECTRON — a shape
+    # production never sends (a real FIB image carries ION).
     sem = deepcopy(ui.image_widget.eb_image)
     fib = deepcopy(ui.image_widget.ib_image)
+    sem.metadata.image_settings.beam_type = BeamType.ELECTRON
+    fib.metadata.image_settings.beam_type = BeamType.ION
 
     outcome = _call_on_worker_thread(
         qapp, lambda: set_images_ui(ui, eb_image=sem, ib_image=fib)
