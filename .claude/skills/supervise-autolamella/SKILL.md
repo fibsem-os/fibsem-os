@@ -15,11 +15,15 @@ ever lost by waiting.
 ## Connect
 
 **Prefer the native MCP tools.** If `mcp__fibsem__*` tools are available in
-your session (the repo's `.mcp.json` registers the `fibsem-mcp` sidecar),
-use them for everything below — `get_capabilities`, `get_events`,
-`get_pending_prompt`, `answer_prompt`, `start_workflow`, and the rest map
-one-to-one onto the HTTP surface, and they avoid shell-permission friction
-entirely.
+your session, use them for everything below *except the Watch step* —
+`get_capabilities`, `get_pending_prompt`, `answer_prompt`, `start_workflow`,
+and the rest map one-to-one onto the HTTP surface, and they avoid
+shell-permission friction entirely. (The tools come from the `fibsem-mcp`
+sidecar; if they are missing, the sidecar is not registered in this session's
+MCP config — e.g. `claude mcp add fibsem fibsem-mcp` — and the HTTP fallback
+below works regardless.) Watching is the exception either way: looping the
+`get_events` tool in the foreground blocks you from acting, so the bundled
+watcher stays the watch mechanism even when MCP is connected.
 
 Fallback is plain HTTP; the running app advertises itself in a discovery
 file:
@@ -57,6 +61,9 @@ sees.
 ```
 python .claude/skills/supervise-autolamella/watch_events.py
 ```
+
+(`python3` where `python` doesn't exist — stock macOS/Linux; the path is
+relative to the repo root, so run it from there or spell out the full path.)
 
 Wake and act on its lines: `PROMPT` (a question is standing, with its
 nonce), `ANSWERED` (check who — if the operator answered, your read of that
