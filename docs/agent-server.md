@@ -109,6 +109,21 @@ enabled). A task set to *Agent* raises its questions to the connected agent:
 
 You can always answer any question yourself, whoever it is addressed to.
 
+## The dashboard
+
+**Open Dashboard** in Tools → Agent Server opens a read-only monitor page in
+your browser — the same session the agent sees, for human eyes: experiment
+and workflow state, a card per item with its latest recorded image, a review
+strip of each completed task's final image, and progress through the tasks,
+plus the live workflow queue and event feed while a run is up. It updates
+itself from the event stream; there is nothing to refresh.
+
+It is a monitor, not a second cockpit: questions are answered in AutoLamella.
+The page is served by the agent server itself, so it exists wherever the
+server does — on this machine by default. The button hands the page your
+session token in the URL fragment, which stays in the browser (fragments are
+never sent over the network or written to server logs).
+
 ## Connecting an agent
 
 **On the same machine** — nothing to copy. The running server writes a
