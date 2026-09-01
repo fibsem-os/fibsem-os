@@ -48,7 +48,14 @@ def main_ui(qapp):
 
 
 class _RunningHost:
+    """Running, with a live agent: heard from a second ago (the shape
+    AgentServerHost.agent_seconds_since_seen returns while a watcher polls)."""
+
     running = True
+    seconds_since_seen = 1.0
+
+    def agent_seconds_since_seen(self):
+        return self.seconds_since_seen
 
 
 @pytest.fixture
@@ -75,6 +82,7 @@ def agent_question_standing(main_ui, tmp_path):
     ui.WAITING_FOR_USER_INTERACTION = True
     yield experiment
     main_ui._agent_watchdog.stop()
+    main_ui._agent_liveness_check.stop()
     main_ui._agent_watchdog_expired = False
     (
         ui.experiment,
@@ -135,3 +143,54 @@ def test_expiry_with_nothing_standing_is_a_noop(main_ui, agent_question_standing
     main_ui.autolamella_ui.WAITING_FOR_USER_INTERACTION = False
     main_ui._on_agent_watchdog_expired()
     assert main_ui._agent_watchdog_expired is False
+
+
+def test_a_question_for_an_absent_agent_is_yours_immediately(
+    main_ui, agent_question_standing
+):
+    """No one has connected (or the server can't say): don't park the question
+    on the agent's clock at all — straight to the ordinary waiting chrome."""
+    ui = main_ui.autolamella_ui
+    ui._agent_server_host.agent_seconds_since_seen = lambda: None
+    main_ui._on_question_event("prompt_raised", {})
+
+    assert main_ui._agent_watchdog_expired is True
+    assert not main_ui._agent_watchdog.isActive()
+    assert not main_ui._agent_liveness_check.isActive()
+    assert main_ui._border_state == "waiting"
+    assert not main_ui.user_attention_btn.isHidden()
+
+
+def test_an_agent_that_dies_mid_question_hands_over_early(
+    main_ui, agent_question_standing
+):
+    """Alive at the ask, silent afterwards: the periodic check hands over as
+    soon as the agent stops being heard from, not at the full deadline."""
+    ui = main_ui.autolamella_ui
+    main_ui._on_question_event("prompt_raised", {})
+    assert main_ui._border_state == "agent"
+    assert main_ui._agent_liveness_check.isActive()
+
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AGENT_PRESUMED_GONE_S,
+    )
+
+    ui._agent_server_host.seconds_since_seen = AGENT_PRESUMED_GONE_S + 1.0
+    main_ui._on_agent_liveness_check()
+
+    assert main_ui._agent_watchdog_expired is True
+    assert not main_ui._agent_watchdog.isActive()
+    assert not main_ui._agent_liveness_check.isActive()
+    assert main_ui._border_state == "waiting"
+
+
+def test_a_live_agent_still_gets_the_full_deadline(main_ui, agent_question_standing):
+    """Liveness never shortens the clock for an agent that is in touch."""
+    main_ui._on_question_event("prompt_raised", {})
+    assert main_ui._agent_watchdog.isActive()
+
+    main_ui._on_agent_liveness_check()  # heard from 1 s ago: nothing changes
+
+    assert main_ui._agent_watchdog.isActive()
+    assert main_ui._agent_watchdog_expired is False
+    assert main_ui._border_state == "agent"

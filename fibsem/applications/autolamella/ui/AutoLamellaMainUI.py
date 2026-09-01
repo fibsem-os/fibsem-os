@@ -227,6 +227,12 @@ def set_menu_icon(action: QAction, key: str) -> None:
 # escalates to the operator. A preference later; a constant until the arming
 # dialog gives it a home.
 AGENT_WATCHDOG_MS = 5 * 60 * 1000
+# A live supervising agent long-polls the event stream every ~25 s, so its
+# token is heard from continuously. Silence this long means nobody is on the
+# other end — a parked question is handed to the operator immediately instead
+# of waiting out the full hand-over time above.
+AGENT_PRESUMED_GONE_S = 90
+AGENT_LIVENESS_CHECK_MS = 15 * 1000
 
 
 def play_notification_sound():
@@ -1251,6 +1257,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_watchdog.setSingleShot(True)
         self._agent_watchdog.timeout.connect(self._on_agent_watchdog_expired)
         self._agent_watchdog_expired = False
+        # The companion check: while a question parks on the agent's clock,
+        # confirm someone is actually on the other end (the agent's token is
+        # heard from continuously while it watches). An agent that dies
+        # mid-question hands over in seconds, not the full deadline above.
+        self._agent_liveness_check = QTimer(self)
+        self._agent_liveness_check.setInterval(AGENT_LIVENESS_CHECK_MS)
+        self._agent_liveness_check.timeout.connect(self._on_agent_liveness_check)
         self.supervised_status_btn = QPushButton("Supervised")
         self.supervised_status_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
         self.supervised_status_btn.setToolTip("Click to toggle supervision")
@@ -2798,30 +2811,69 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         except Exception:
             return AGENT_WATCHDOG_MS
 
+    def _agent_seconds_since_seen(self) -> Optional[float]:
+        """Seconds since the agent's token last made a request, or None."""
+        host = getattr(self.autolamella_ui, "_agent_server_host", None)
+        if host is None:
+            return None
+        try:
+            return host.agent_seconds_since_seen()
+        except Exception:
+            return None
+
+    def _agent_presumed_gone(self) -> bool:
+        """Nobody is on the other end: never connected, or silent too long."""
+        age = self._agent_seconds_since_seen()
+        return age is None or age > AGENT_PRESUMED_GONE_S
+
     def _on_question_event(self, kind: str, payload: dict) -> None:
         """GUI thread, from the responder: arm/disarm the agent watchdog."""
         if kind == "prompt_raised":
             self._agent_watchdog_expired = False
             if self._agent_supervision_active(self._current_task_name):
+                if self._agent_presumed_gone():
+                    # Don't park a question for an agent that isn't there.
+                    self._hand_question_to_operator(
+                        "The agent hasn't been in touch — this question is yours."
+                    )
+                    return
                 self._agent_watchdog.start(self._watchdog_ms())
+                self._agent_liveness_check.start()
             else:
                 self._agent_watchdog.stop()
+                self._agent_liveness_check.stop()
         elif kind in ("prompt_answered", "prompt_cancelled"):
             self._agent_watchdog.stop()
+            self._agent_liveness_check.stop()
             self._agent_watchdog_expired = False
         self._refresh_workflow_indicators()
 
     def _on_agent_watchdog_expired(self) -> None:
         """The agent went quiet: the standing question becomes the operator's."""
-        if not self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
-            return  # the answer raced the timer; nothing is standing
-        self._agent_watchdog_expired = True
         minutes = max(1, self._watchdog_ms() // 60000)
-        notification_service.show_toast(
+        self._hand_question_to_operator(
             f"The agent hasn't answered in {minutes} minutes — "
-            "this question is now yours.",
-            "warning",
+            "this question is now yours."
         )
+
+    def _on_agent_liveness_check(self) -> None:
+        """Periodic while a question parks on the agent's clock: hand over the
+        moment the agent stops being heard from, not at the full deadline."""
+        if self._agent_presumed_gone():
+            self._hand_question_to_operator(
+                "The agent hasn't been in touch — this question is yours."
+            )
+
+    def _hand_question_to_operator(self, message: str) -> None:
+        """Escalate the standing question: ordinary waiting chrome + a toast
+        saying why. Informs, never revokes — a late agent answer still applies,
+        and the first writer still wins."""
+        self._agent_watchdog.stop()
+        self._agent_liveness_check.stop()
+        if not self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
+            return  # the answer raced the escalation; nothing is standing
+        self._agent_watchdog_expired = True
+        notification_service.show_toast(message, "warning")
         # The ordinary waiting chrome (orange border, attention button, sound)
         # takes over below, now that agent_holding no longer suppresses it.
         self._refresh_workflow_indicators()
