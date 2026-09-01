@@ -3589,6 +3589,7 @@ class ThermoMicroscope(FibsemMicroscope):
         dy: float,
         dx: float = 0.0,
         beam_type: BeamType = BeamType.ION,
+        relaxation: float = 1.0,
     ) -> FibsemStagePosition:
         """Restore the coincidence point from an offset measured in one beam view.
 
@@ -3597,16 +3598,25 @@ class ThermoMicroscope(FibsemMicroscope):
             dx (float, optional): distance along the x-axis (image coordinates). Defaults to 0.0.
             beam_type (BeamType, optional): the view the offset was measured in.
                 Defaults to ION.
+            relaxation (float, optional): under-relaxation of the correction.
+                1.0 applies the geometrically exact height change; a value
+                below 1.0 deliberately undershoots, which keeps a manual
+                look-correct-look loop convergent where a slight model error
+                would otherwise make it oscillate. This replaces the old
+                hard-coded 0.9, which was found to be absorbing a
+                decomposition error rather than correcting perspective
+                (FIB-773).
         """
         self._check_vertical_move_supported(beam_type)
         if beam_type is BeamType.ELECTRON:
-            return self._vertical_move_from_sem(dx=dx, dy=dy)
-        return self._vertical_move_from_fib(dx=dx, dy=dy)
+            return self._vertical_move_from_sem(dx=dx, dy=dy, relaxation=relaxation)
+        return self._vertical_move_from_fib(dx=dx, dy=dy, relaxation=relaxation)
 
     def _vertical_move_from_fib(
         self,
         dy: float,
         dx: float = 0.0,
+        relaxation: float = 1.0,
     ) -> FibsemStagePosition:
         """Move the stage vertically to correct coincidence point
 
@@ -3634,20 +3644,19 @@ class ThermoMicroscope(FibsemMicroscope):
             if stage_tilt >= np.deg2rad(-90):
                 dy *= -1.0
 
-        # TODO: implement perspective correction
-        PERSPECTIVE_CORRECTION = 0.9
-        z_move = dy
-        if True:  # use_perspective:
-            z_move = (
-                dy
-                / np.cos(np.deg2rad(90 - self.system.ion.column_tilt))
-                * PERSPECTIVE_CORRECTION
-            )  # TODO: MAGIC NUMBER, 90 - fib tilt
+        # a chamber-vertical displacement of dz appears in the FIB view as
+        # dz * sin(column_tilt), independent of stage tilt - so the height
+        # change that cancels an observed dy is dy / sin(column_tilt)
+        z_move = dy / np.sin(np.deg2rad(self.system.ion.column_tilt)) * relaxation
 
-        # manually calculate the dx, dy, dz
+        # decompose the chamber-vertical into the tilted stage axes:
+        # y = m*sin(t), z = m*cos(t). The old form used z = m/cos(t), which
+        # is only vertical at t=0 - at every tilted pose it dragged the
+        # feature sideways in the SEM view, partially undoing the SEM
+        # centring this operation exists to preserve (FIB-773).
         theta = self.get_stage_position().t  # rad
         dy = z_move * np.sin(theta)
-        dz = z_move / np.cos(theta)
+        dz = z_move * np.cos(theta)
         stage_position = FibsemStagePosition(x=dx, y=dy, z=dz, coordinate_system="RAW")
         logging.info(f"Vertical movement: {stage_position}")
         self.move_stage_relative(
@@ -3688,16 +3697,14 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
 
-    def _vertical_move_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
+    def _vertical_move_from_sem(
+        self, dx: float, dy: float, relaxation: float = 1.0
+    ) -> FibsemStagePosition:
         """Correct the coincidence point from an offset measured in the SEM view.
 
         Not the mirror image of the FIB path but a superset: a stable move first
         brings the feature to the centre of the SEM, and the height correction
         that follows puts the FIB back.
-
-        NOTE: the geometry here is known to be wrong away from the flat pose, and
-        the two constants below cancel each other -- see FIB-773. Moved verbatim
-        from ``move_coincident_from_sem``; correcting it needs bench time.
         """
 
         # NOTE:
@@ -3724,10 +3731,10 @@ class ThermoMicroscope(FibsemMicroscope):
         if np.isclose(scan_rotation, 0):
             dy *= -1.0
 
-        # apply the vertical move to correct the position
-        self._vertical_move_from_fib(
-            dx=0, dy=dy * 1.11
-        )  # TODO: MAGIC_NUMBER To correct for perspective correction...
+        # apply the vertical move to correct the position. (The old 1.11
+        # here was 1/0.9: it existed to cancel the magic constant inside
+        # vertical_move from the outside, and is gone with it - FIB-773.)
+        self._vertical_move_from_fib(dx=0, dy=dy, relaxation=relaxation)
 
         return self.get_stage_position()
 

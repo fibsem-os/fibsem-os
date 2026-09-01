@@ -1085,18 +1085,28 @@ class DemoMicroscope(FibsemMicroscope):
         return ThermoMicroscope.stable_move(self, dx, dy, beam_type, static_wd)
 
     def vertical_move(
-        self, dy: float, dx: float = 0.0, beam_type: BeamType = BeamType.ION
+        self,
+        dy: float,
+        dx: float = 0.0,
+        beam_type: BeamType = BeamType.ION,
+        relaxation: float = 1.0,
     ) -> FibsemStagePosition:
         """Restore the coincidence point from an offset measured in one beam view."""
-        return ThermoMicroscope.vertical_move(self, dy, dx, beam_type)
+        return ThermoMicroscope.vertical_move(self, dy, dx, beam_type, relaxation)
 
     def _vertical_move_from_fib(
-        self, dy: float, dx: float = 0.0
+        self, dy: float, dx: float = 0.0, relaxation: float = 1.0
     ) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_fib(self, dy=dy, dx=dx)
+        return ThermoMicroscope._vertical_move_from_fib(
+            self, dy=dy, dx=dx, relaxation=relaxation
+        )
 
-    def _vertical_move_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_sem(self, dx=dx, dy=dy)
+    def _vertical_move_from_sem(
+        self, dx: float, dy: float, relaxation: float = 1.0
+    ) -> FibsemStagePosition:
+        return ThermoMicroscope._vertical_move_from_sem(
+            self, dx=dx, dy=dy, relaxation=relaxation
+        )
 
     def _y_corrected_stage_movement(
         self, expected_y: float, beam_type: BeamType
