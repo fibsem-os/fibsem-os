@@ -15,8 +15,19 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from fibsem.applications.autolamella.ui import (
+    question_timeline_widget as timeline_module,
+)
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows.interaction import Confirm, ask
+
+
+@pytest.fixture(autouse=True)
+def agent_feature_on(monkeypatch):
+    """The strip is visible only with the agent feature; these tests exercise
+    the display, so the gate is held open (and closed explicitly in the
+    gating test)."""
+    monkeypatch.setattr(timeline_module, "_feature_enabled", lambda: True)
 
 
 @pytest.fixture
@@ -107,3 +118,14 @@ def test_the_remembered_trail_stays_bounded(ui, qapp):
         ui.ui_responder.answer_confirm(True)
         thread.join(timeout=5)
     assert len(ui.question_timeline.rows()) == ui.question_timeline.HISTORY
+
+
+def test_the_strip_stays_hidden_with_the_feature_off(ui, qapp, monkeypatch):
+    # The no-behaviour-change invariant: a human-only supervised workflow must
+    # look exactly as it did before the agent feature existed.
+    monkeypatch.setattr(timeline_module, "_feature_enabled", lambda: False)
+    thread, _ = _ask_on_worker(ui, qapp, Confirm("Continue?"))
+    ui.ui_responder.answer_confirm(True)
+    thread.join(timeout=5)
+    assert ui.question_timeline.isHidden()
+    assert len(ui.question_timeline.rows()) == 1  # still recording, just unseen

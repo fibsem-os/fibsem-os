@@ -19,6 +19,19 @@ import time
 from collections import deque
 from typing import Deque, Dict, Tuple
 
+
+def _feature_enabled() -> bool:
+    """The strip belongs to the agent feature: with it off, the widget still
+    records (cheap, and the tooltip is ready if the feature turns on) but
+    stays invisible — the no-behaviour-change-when-disabled invariant."""
+    import fibsem.config as fibsem_cfg
+
+    try:
+        return bool(fibsem_cfg.load_user_preferences().features.agent_server_enabled)
+    except Exception:
+        return False
+
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
 
@@ -92,7 +105,7 @@ class QuestionTimelineWidget(QWidget):
             self._label.setText(text)
         # The recent trail lives in the tooltip, newest first.
         self._label.setToolTip("\n".join(row for row, _ in self._history))
-        self.setVisible(True)
+        self.setVisible(_feature_enabled())
 
     def rows(self):
         """The remembered rows, newest first (for tests, tooling — and the
