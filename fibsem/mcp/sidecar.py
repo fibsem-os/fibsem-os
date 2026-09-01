@@ -249,6 +249,9 @@ def build_sidecar(client, capabilities):
     def get_task_outputs(item_name: str):
         return _app_get(f"/app/task_outputs/{item_name}")
 
+    def get_item_detail(item_name: str):
+        return _app_get(f"/app/items/{item_name}")
+
     def list_recent_experiments():
         return _app_get("/app/recent_experiments")
 
@@ -335,6 +338,7 @@ def build_sidecar(client, capabilities):
             get_run_summary,
             get_protocol,
             get_task_outputs,
+            get_item_detail,
             list_recent_experiments,
             get_events,
             get_display_images,

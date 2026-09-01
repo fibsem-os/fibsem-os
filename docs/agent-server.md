@@ -43,6 +43,8 @@ Reading is on for any connected agent — it is the point of the feature:
 - **Events** — task starts and finishes, milling progress, questions raised
   and answered (and by whom), as a live feed.
 - **Run history** — the run summary and each item's produced files.
+- **Each item's details** — status, failure flag, point of interest,
+  alignment area, milling angle, and where its poses put the stage.
 
 Every image travels as a downscaled preview that carries its own scale: the
 preview's size, the source image's size, the field width, and the physical

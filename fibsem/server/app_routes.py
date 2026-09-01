@@ -41,6 +41,8 @@ class AppContext(Protocol):
 
     def task_outputs(self, item_name: str) -> Dict[str, Any]: ...
 
+    def item_detail(self, item_name: str) -> Dict[str, Any]: ...
+
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
@@ -99,6 +101,10 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/task_outputs/{item_name}")
     def task_outputs(item_name: str):
         return context.task_outputs(item_name)
+
+    @router.get("/items/{item_name}")
+    def item_detail(item_name: str):
+        return context.item_detail(item_name)
 
     @router.get("/recent_experiments")
     def recent_experiments():
