@@ -62,7 +62,8 @@
   .rhead span { flex:1; font-size:10px; letter-spacing:0.05em;
     color:var(--muted); }
   .rrow { display:flex; gap:3px; position:relative; }
-  .rrow .lbl { position:absolute; left:0; bottom:0; z-index:1;
+  .rrow .lbl { position:absolute; left:0; bottom:0; z-index:1; max-width:100%;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     font-size:10px; color:var(--muted);
     background:rgba(20,21,24,.8); padding:0 5px; }
   .rrow .im { flex:1; min-width:0; }
@@ -159,13 +160,6 @@ function ep(ts) {
   return d.toTimeString().slice(0, 8);
 }
 function um(v) { return (v * 1e6 >= 0 ? "+" : "") + (v * 1e6).toFixed(2); }
-function shortTask(name) {
-  return {
-    "Setup Lamella Position": "Setup", "Mill Fiducial": "Fiducial",
-    "Acquire Fluorescence Image": "FM", "Rough Milling": "Rough",
-    "Polishing": "Polish",
-  }[name] || name;
-}
 
 /* ── header + workflow ladder ──────────────────────────────────────── */
 
@@ -175,7 +169,7 @@ function renderHeader(status) {
   const state = wf.running
     ? `<span class="ok">&#9679; running</span>` : `<span class="muted">&#9675; idle</span>`;
   const where = wf.current_task
-    ? ` <span class="muted">·</span> ${esc(shortTask(wf.current_task))} · ${esc(wf.current_item || "")}` : "";
+    ? ` <span class="muted">·</span> ${esc(wf.current_task)} · ${esc(wf.current_item || "")}` : "";
   document.getElementById("hdr").innerHTML = exp ? `
     <span class="exp">${esc(exp.name)}</span>
     <span class="meta">${esc(String(exp.num_items))} items</span>
@@ -197,7 +191,7 @@ function renderLadder(protocol, runSummary, status) {
     const dur = ran[t.name] ? `${Math.round(ran[t.name].duration)} s`
       : (t.name === current ? "running" : "&mdash;");
     return `<div class="rung ${cls}"><div class="rung-bar"></div>
-      <div class="rung-name">${esc(shortTask(t.name))} ${sup}</div>
+      <div class="rung-name">${esc(t.name)} ${sup}</div>
       <div class="rung-time">${dur}</div></div>`;
   }).join("");
 }
@@ -247,7 +241,7 @@ async function renderCard(name) {
     const im = f => f
       ? `<div class="im"><img data-src="${esc(f)}" alt="" title="${esc(taskName)}"></div>`
       : `<div class="im"></div>`;
-    return `<div class="rrow"><span class="lbl" title="${esc(taskName)}">${esc(shortTask(taskName))}</span>${im(p.sem)}${im(p.fib)}</div>`;
+    return `<div class="rrow"><span class="lbl" title="${esc(taskName)}">${esc(taskName)}</span>${im(p.sem)}${im(p.fib)}</div>`;
   }).join("");
 
   el.innerHTML = `
@@ -257,7 +251,7 @@ async function renderCard(name) {
       ? `<div class="review"><div class="rhead"><span>sem</span><span>fib</span></div>${review}</div>`
       : `<div class="frame"><span class="none">no recorded images yet</span></div>`}
     <table class="facts">
-      <tr><td>next</td><td>${esc(next ? shortTask(next.name) : "—")}</td></tr>
+      <tr><td>next</td><td>${esc(next ? next.name : "—")}</td></tr>
       <tr><td>poi</td><td>${esc(poi)}</td></tr>
       <tr><td>alignment</td><td>${esc(aa)}</td></tr>
       <tr><td>milling angle</td><td>${esc(angle)}</td></tr>
@@ -288,7 +282,7 @@ async function refreshQueue() {
       : active ? `<span class="mark" style="color:var(--accent)">▶</span>`
       : status === "Failed" ? `<span class="mark err">✕</span>`
       : `<span class="mark muted">·</span>`;
-    return `<div class="qrow ${active ? "active" : ""}">${mark}${esc(shortTask(i.task_name))} · ${esc(i.item_name)}</div>`;
+    return `<div class="qrow ${active ? "active" : ""}">${mark}${esc(i.task_name)} · ${esc(i.item_name)}</div>`;
   }).join("");
 }
 
