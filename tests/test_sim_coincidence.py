@@ -284,3 +284,16 @@ def test_tilting_does_not_reset_the_world(microscope):
     # onto the crosshair (the x-component is tilt-invariant: still ~40 um)
     assert abs((gx - 768) * pixel_size) > 20e-6
     assert off_after > 20e-6
+
+
+def test_world_anchors_at_connect(microscope):
+    """The world exists from connect: moving straight to a saved position
+    and acquiring must show that position's surroundings, not anchor the
+    fiducial there."""
+    microscope.system.sim["coincidence_projection"] = True
+    microscope._setup_coincidence_projection()
+    scene = microscope._coincidence_scene
+    assert scene.reference_position is not None
+    boot = microscope.get_stage_position()
+    assert scene.reference_position.x == pytest.approx(boot.x or 0.0)
+    assert scene.reference_position.y == pytest.approx(boot.y or 0.0)

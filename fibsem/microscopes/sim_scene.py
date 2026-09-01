@@ -126,6 +126,24 @@ class CoincidenceScene:
                     SceneFeature(x=x, y=y, sigma=0.4e-6, intensity=220.0)
                 )
 
+    def anchor(self, stage_position: FibsemStagePosition) -> None:
+        """Fix the world at a stage position (with the boot height error).
+
+        Called once at connect so the world exists before any image: moving
+        straight to a saved position and acquiring must show that position's
+        surroundings, not anchor the world (fiducial included) there.
+        """
+        reference = deepcopy(stage_position)
+        reference.z = (reference.z or 0.0) - self.coincidence_offset
+        self.reference_position = reference
+        logging.info(
+            {
+                "msg": "coincidence_scene_anchored",
+                "reference_position": reference.to_dict(),
+                "coincidence_offset": self.coincidence_offset,
+            }
+        )
+
     def render(
         self,
         beam_type: BeamType,
@@ -159,16 +177,7 @@ class CoincidenceScene:
         cx, cy = width / 2, height / 2
 
         if self.reference_position is None:
-            reference = deepcopy(stage_position)
-            reference.z = (reference.z or 0.0) - self.coincidence_offset
-            self.reference_position = reference
-            logging.info(
-                {
-                    "msg": "coincidence_scene_init",
-                    "reference_position": reference.to_dict(),
-                    "coincidence_offset": self.coincidence_offset,
-                }
-            )
+            self.anchor(stage_position)
 
         # where the world anchor appears in the CURRENT view. Asked this way
         # round (anchor projected into the current pose, not the current

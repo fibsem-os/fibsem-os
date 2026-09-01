@@ -742,6 +742,17 @@ class DemoMicroscope(FibsemMicroscope):
             return
         offset = float(self.system.sim.get("coincidence_offset", 10e-6))
         self._coincidence_scene = CoincidenceScene(coincidence_offset=offset)
+        try:
+            # anchor the world NOW, at the connect pose - so moving straight
+            # to a saved position and acquiring shows that position's
+            # surroundings rather than anchoring the world there
+            self._coincidence_scene.anchor(self.get_stage_position())
+        except Exception as e:
+            logging.warning(
+                "Could not anchor the coincidence scene at connect (%s); "
+                "it will anchor at the first acquisition instead.",
+                e,
+            )
         logging.info(
             "Simulator coincidence projection enabled (initial offset: %.2f um)",
             offset * 1e6,
