@@ -8,9 +8,17 @@ stop token. That split is what lets a lamella workflow call the same operation
 later without going through the grid manager.
 """
 
+# The built-in tasks register themselves on import.
+from fibsem.applications.autolamella.workflows.tasks.grid import (
+    imaging,  # noqa: E402,F401
+)
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (  # noqa: E402
+    BeamOverviewGridTask,
+    BeamOverviewGridTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     GRID_TASK_REGISTRY,
@@ -23,6 +31,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
 
 __all__ = [
     "GRID_TASK_REGISTRY",
+    "BeamOverviewGridTask",
+    "BeamOverviewGridTaskConfig",
     "GridTask",
     "GridTaskConfig",
     "get_grid_tasks",
