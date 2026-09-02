@@ -17,9 +17,12 @@ misleading answers:
    they must agree.
 """
 
+import os
+
 import numpy as np
 import pytest
 
+import fibsem.config as cfg
 from fibsem import conversions, utils
 from fibsem.alignment.coincidence import measure_coincidence_from_images
 from fibsem.structures import (
@@ -30,13 +33,19 @@ from fibsem.structures import (
     Point,
 )
 
+# The geometry under test is a pre-tilted TFS shuttle; pin it rather than
+# inherit whatever configuration an earlier test left as the default
+TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+
 COINCIDENCE_OFFSET = 8e-6
 MILLING_POSE_TILT = np.deg2rad(12.0)
 
 
 @pytest.fixture
 def microscope():
-    microscope, settings = utils.setup_session(manufacturer="Demo")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
+    )
     yield microscope
     microscope.disconnect()
 

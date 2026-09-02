@@ -5,9 +5,12 @@ loop (measurement geometry, vertical_move decomposition, scene rendering)
 shares BeamStageProjection, so convergence here is a real end-to-end fact.
 """
 
+import os
+
 import numpy as np
 import pytest
 
+import fibsem.config as cfg
 from fibsem import utils
 from fibsem.alignment.coincidence import (
     REASON_CONVERGED,
@@ -16,10 +19,16 @@ from fibsem.alignment.coincidence import (
 )
 from fibsem.structures import BeamType, FibsemStagePosition
 
+# The geometry under test is a pre-tilted TFS shuttle; pin it rather than
+# inherit whatever configuration an earlier test left as the default
+TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+
 
 @pytest.fixture
 def microscope():
-    microscope, settings = utils.setup_session(manufacturer="Demo")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
+    )
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = 8e-6
     microscope._setup_coincidence_projection()

@@ -12,12 +12,19 @@ projection-true scene, at more than one tilt: the bug family being pinned
 here is exact at t=0 and wrong everywhere else.
 """
 
+import os
+
 import numpy as np
 import pytest
 
+import fibsem.config as cfg
 from fibsem import utils
 from fibsem.alignment.coincidence import measure_coincidence_from_images
 from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
+
+# The geometry under test is a pre-tilted TFS shuttle; pin it rather than
+# inherit whatever configuration an earlier test left as the default
+TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 HFW = 150e-6
 RESOLUTION = (1536, 1024)
@@ -26,7 +33,9 @@ PIXEL_SIZE = HFW / RESOLUTION[0]
 
 @pytest.fixture
 def microscope():
-    microscope, settings = utils.setup_session(manufacturer="Demo")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
+    )
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = 0.0
     microscope._setup_coincidence_projection()
