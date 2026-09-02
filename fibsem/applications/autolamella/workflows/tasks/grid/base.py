@@ -23,6 +23,7 @@ from typing import (
     Any,
     ClassVar,
     Dict,
+    List,
     Optional,
     Tuple,
     Type,
@@ -115,6 +116,9 @@ def _deserialise(hint: Any, value: Any) -> Any:
     if origin is Union:  # Optional[X]
         inner = [a for a in hint.__args__ if a is not type(None)]
         return _deserialise(inner[0], value) if len(inner) == 1 else value
+    if origin in (list, List) and isinstance(value, list):  # List[X]
+        (item_hint,) = getattr(hint, "__args__", (None,))
+        return [_deserialise(item_hint, v) for v in value]
     if isinstance(hint, type):
         if issubclass(hint, Enum) and isinstance(value, str):
             return hint[value]

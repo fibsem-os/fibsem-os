@@ -1,4 +1,4 @@
-"""Overview grid tasks: thin wrappers over the tiled runners on main.
+"""The beam overview grid task: a thin wrapper over the FIB/SEM tiled runner.
 
 The operation -- `acquire_beam_overview` -- is a plain function over
 `TiledAcquisitionRunner`, callable from the Overview tab or a script. The task

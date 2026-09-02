@@ -9,12 +9,17 @@ later without going through the grid manager.
 """
 
 # The built-in tasks register themselves on import.
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    imaging,  # noqa: E402,F401
+from fibsem.applications.autolamella.workflows.tasks.grid import (  # noqa: E402,F401
+    fluorescence,
+    imaging,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (  # noqa: E402
+    FluorescenceOverviewGridTask,
+    FluorescenceOverviewGridTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (  # noqa: E402
     BeamOverviewGridTask,
@@ -33,6 +38,8 @@ __all__ = [
     "GRID_TASK_REGISTRY",
     "BeamOverviewGridTask",
     "BeamOverviewGridTaskConfig",
+    "FluorescenceOverviewGridTask",
+    "FluorescenceOverviewGridTaskConfig",
     "GridTask",
     "GridTaskConfig",
     "get_grid_tasks",
