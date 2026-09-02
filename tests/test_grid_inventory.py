@@ -279,3 +279,92 @@ class TestCreateSampleStage:
     def test_fixed_holder_has_no_loader(self):
         microscope = _fixed_demo()
         assert microscope._stage.loader is None
+
+
+# ---------------------------------------------------------------------------
+# Stage.ensure_loaded / unload: the one "make reachable" primitive
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureLoadedWithLoader:
+    def test_exchange_when_not_in_beam(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope, names={2: "grid-birch"})
+        slot = microscope._stage.ensure_loaded("grid-birch")
+        assert slot is loader.working_slot
+        assert slot.loaded_grid.name == "grid-birch"
+        assert [g.name for g in microscope._stage.loaded_grids] == ["grid-birch"]
+
+    def test_noop_when_already_in_beam(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope, names={2: "grid-birch"})
+        microscope._stage.ensure_loaded("grid-birch")
+        loader.fail_next_exchange = True  # would raise if anything moved
+        microscope._stage.ensure_loaded("grid-birch")
+        assert loader.fail_next_exchange is True
+
+    def test_unknown_grid_raises(self):
+        microscope = _compustage_demo()
+        _with_magazine(microscope)
+        with pytest.raises(GridExchangeError, match="not in the magazine"):
+            microscope._stage.ensure_loaded("grid-nowhere")
+
+    def test_hardware_failure_propagates(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        loader.fail_next_exchange = True
+        with pytest.raises(GridExchangeError):
+            microscope._stage.ensure_loaded("Grid-01")
+        assert microscope._stage.loaded_grids == []
+
+    def test_does_not_move_the_stage(self):
+        microscope = _compustage_demo()
+        _with_magazine(microscope)
+        before = microscope.get_stage_position()
+        microscope._stage.ensure_loaded("Grid-01")
+        assert microscope.get_stage_position().is_close2(before, tol=1e-9)
+
+    def test_unload_retracts(self):
+        microscope = _compustage_demo()
+        _with_magazine(microscope)
+        microscope._stage.ensure_loaded("Grid-01")
+        microscope._stage.unload()
+        assert microscope._stage.loaded_grids == []
+
+
+class TestEnsureLoadedOnFixedHolder:
+    def test_present_grid_is_already_reachable(self):
+        microscope = _fixed_demo()
+        holder = microscope._stage.holder
+        holder.slots["Slot-02"].loaded_grid = SampleGrid(name="grid-aspen")
+        before = microscope.get_stage_position()
+        slot = microscope._stage.ensure_loaded("grid-aspen")
+        assert slot is holder.slots["Slot-02"]
+        assert microscope.get_stage_position().is_close2(before, tol=1e-9)
+
+    def test_absent_grid_raises_with_a_manual_instruction(self):
+        microscope = _fixed_demo()
+        with pytest.raises(GridExchangeError, match="Place it in the holder"):
+            microscope._stage.ensure_loaded("grid-aspen")
+
+    def test_unload_is_a_noop(self):
+        microscope = _fixed_demo()
+        microscope._stage.holder.slots["Slot-01"].loaded_grid = SampleGrid(name="g")
+        microscope._stage.unload()
+        assert microscope._stage.holder.slots["Slot-01"].loaded_grid is not None
+
+    def test_move_to_grid_resolves_the_slot(self):
+        microscope = _fixed_demo()
+        holder = microscope._stage.holder
+        holder.slots["Slot-02"].loaded_grid = SampleGrid(name="grid-aspen")
+        holder.slots["Slot-02"].position = FibsemStagePosition(
+            name="Slot-02", x=3e-3, y=-2e-3, z=4e-3, r=0.0, t=0.0
+        )
+        microscope._stage.move_to_grid("grid-aspen")
+        pos = microscope.get_stage_position()
+        assert abs(pos.x - 3e-3) < 1e-9 and abs(pos.y + 2e-3) < 1e-9
+
+    def test_move_to_grid_unknown_raises(self):
+        microscope = _fixed_demo()
+        with pytest.raises(ValueError):
+            microscope._stage.move_to_grid("grid-nowhere")

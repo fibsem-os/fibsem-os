@@ -561,8 +561,54 @@ class Stage:
         return self.parent.move_to_orientation(orientation)
 
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
-        """Alias for move_to_slot for backward compatibility."""
-        return self.move_to_slot(grid_name)
+        """Move the stage to the holder slot that holds this grid."""
+        slot = self.holder.find_slot_by_grid_name(grid_name)
+        if slot is None:
+            raise ValueError(f"Grid '{grid_name}' is not in any holder slot.")
+        return self.move_to_slot(slot.name)
+
+    # -- the one "make reachable" primitive --------------------------------
+
+    @property
+    def loaded_grids(self) -> List[SampleGrid]:
+        """The grids in the beam right now, read from the holder every time."""
+        return [s.loaded_grid for s in self.holder.occupied_slots]  # type: ignore[misc]
+
+    def ensure_loaded(self, grid_name: str) -> GridSlot:
+        """Make a grid reachable, and return the working slot it occupies.
+
+        A no-op when the grid is already in a working slot. With a loader it is a
+        magazine exchange (the current grid is retracted first); without one every
+        present grid already sits in a holder slot, so there is nothing to do but
+        confirm it is there. Raises ``GridExchangeError`` when the grid is not in the
+        inventory or the hardware refuses.
+
+        This does not move the stage: how the grid gets under the beam is the
+        hardware's business, and where on the grid to go is the caller's. Follow it
+        with ``move_to_slot(slot.name)`` (or a task's own positioning).
+        """
+        working = self.holder.find_slot_by_grid_name(grid_name)
+        if working is not None:
+            return working
+        if self.loader is None:
+            raise GridExchangeError(
+                f"Grid '{grid_name}' is not in any holder slot. Place it in the "
+                "holder and update the sample holder configuration."
+            )
+        home = self.loader.find_grid(grid_name)
+        if home is None:
+            raise GridExchangeError(
+                f"Grid '{grid_name}' is not in the magazine. Run an inventory."
+            )
+        self.loader.load_grid(home.name)
+        return self.loader.working_slot
+
+    def unload(self) -> None:
+        """Retract the working slot. Nothing to do on a fixed holder."""
+        if self.loader is None:
+            logging.debug("No loader: nothing to unload from a fixed holder.")
+            return
+        self.loader.unload_grid()
 
 
 def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
