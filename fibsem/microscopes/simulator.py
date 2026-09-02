@@ -751,7 +751,12 @@ class DemoMicroscope(FibsemMicroscope):
         if not self.system.sim.get("coincidence_projection", False):
             return
         offset = float(self.system.sim.get("coincidence_offset", 10e-6))
-        self._coincidence_scene = CoincidenceScene(coincidence_offset=offset)
+        # `sim: tilt_axis_offset` (metres) makes the stage non-eucentric: a
+        # tilt change then costs coincidence, as on real hardware (FIB-899)
+        tilt_axis_offset = float(self.system.sim.get("tilt_axis_offset", 0.0))
+        self._coincidence_scene = CoincidenceScene(
+            coincidence_offset=offset, tilt_axis_offset=tilt_axis_offset
+        )
         try:
             # anchor the world NOW, at the connect pose - so moving straight
             # to a saved position and acquiring shows that position's

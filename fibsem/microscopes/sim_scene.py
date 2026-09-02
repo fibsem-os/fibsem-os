@@ -86,6 +86,10 @@ class CoincidenceScene:
     # grids never load perfectly straight; drawn from +/- this range per seed
     grid_rotation: Optional[float] = None  # rad; random when None
     grid_rotation_range: float = np.deg2rad(45.0)
+    # how far above the stage tilt axis the sample surface sits (m, along the
+    # stage z axis). 0 is a eucentric stage; a real stage is not, and a tilt
+    # change then swings the surface about the axis, costing coincidence
+    tilt_axis_offset: float = 0.0
     # the coincident stage position, captured on first render (current
     # position with z offset by coincidence_offset); every view is rendered
     # as the beam projection of the scene relative to this reference
@@ -188,7 +192,10 @@ class CoincidenceScene:
         # travel, the per-beam projection of the height error (near zero in
         # the SEM view, the view tilt's worth in the FIB view), and the
         # scan-rotation/manufacturer conventions
-        ax, ay = projection.to_plane(self.reference_position, stage_position)
+        reference = self.reference_position
+        if self.tilt_axis_offset:
+            reference = self._non_eucentric_reference(stage_position, projection)
+        ax, ay = projection.to_plane(reference, stage_position)
 
         fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
         flip = -1.0 if np.isclose(projection.scan_rotation, np.pi) else 1.0
@@ -239,6 +246,40 @@ class CoincidenceScene:
             uniform = rng.uniform(0, 255, canvas.shape)
             data = (1 - self.noise_fraction) * data + self.noise_fraction * uniform
         return np.clip(data, 0, 255).astype(np.uint8)
+
+    def _non_eucentric_reference(
+        self, stage_position: FibsemStagePosition, projection: BeamStageProjection
+    ) -> FibsemStagePosition:
+        """The world anchor as a non-eucentric stage actually carries it.
+
+        The projection tilts the world about the point the stage reports - a
+        eucentric stage. On a real stage the surface sits `tilt_axis_offset`
+        above the tilt axis, so a tilt change swings it about the axis. The
+        textbook eucentric-height model: a point h above the axis walks
+        h * sin(dt) ALONG THE SURFACE (the same in both views - only which
+        feature is centred changes) and sags h * (1 - cos(dt)) in height,
+        which is what costs coincidence.
+
+        The walk follows the stable-move direction - on a pre-tilted shuttle
+        that is not the stage y axis but (cos p, -sin p) in stage y/z, with p
+        the corrected pre-tilt; along the stage y axis alone it would leave
+        the surface plane and read as a height error nothing can correct.
+        The sag goes on the stage z axis exactly as the boot
+        `coincidence_offset` does, so the same correction path restores it.
+        """
+        from fibsem.transformations import _projection_terms
+
+        h = self.tilt_axis_offset
+        dt = (stage_position.t or 0.0) - (self.reference_position.t or 0.0)
+        _, pretilt, _ = _projection_terms(
+            projection.geometry, stage_position.r or 0.0, stage_position.t or 0.0
+        )
+        walk = h * np.sin(dt)
+        sag = h * (1.0 - np.cos(dt))
+        reference = deepcopy(self.reference_position)
+        reference.y = (reference.y or 0.0) + walk * np.cos(pretilt)
+        reference.z = (reference.z or 0.0) - walk * np.sin(pretilt) - sag
+        return reference
 
     @staticmethod
     def _stamp_blob(
