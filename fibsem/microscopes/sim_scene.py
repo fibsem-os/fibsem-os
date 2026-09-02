@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import zlib
+from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -38,6 +39,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from scipy.ndimage import binary_dilation as ndi_binary_dilation
 from scipy.ndimage import gaussian_filter as ndi_gaussian
+from scipy.ndimage import map_coordinates as ndi_map_coordinates
 
 from fibsem.projection import (
     BeamStageProjection,
@@ -180,6 +182,15 @@ HOLE_DEPTH = 45.0
 RIP_DEPTH = 80.0
 RIM_INTENSITY = 120.0
 
+# the world texture: the features stamped once into tiles of the sample
+# plane, at a pyramid of pixel sizes, and sampled per view. The finest
+# level is what a ~40 um field at 1536 px needs; below that a view
+# interpolates (a fiducial rim goes soft at extreme zoom, nothing else)
+TEXTURE_BASE_PIXEL = 25e-9  # m
+TEXTURE_TILE = 512  # px
+TEXTURE_BUDGET = 4.0  # texture pixels per view pixel, at most
+TEXTURE_CACHE_BYTES = 384e6
+
 FIDUCIAL_ARM_LENGTH = 8e-6  # m, half-length of each fiducial cross arm
 FIDUCIAL_POINT_SPACING = 0.5e-6  # m
 
@@ -227,6 +238,224 @@ class MilledRegion:
 
 
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
+
+
+class WorldTexture:
+    """The features of a scene stamped into the sample plane once, sampled
+    per view.
+
+    A view is an affine image of the plane (shift, scan rotation,
+    foreshortening), so stamping every feature per frame repeats work
+    that only the mapping changes. Here the plane is tiled at a pyramid of
+    pixel sizes (`TEXTURE_BASE_PIXEL` x 2^level); a tile holds, per beam,
+    the features' intensity composited among themselves and the cover they
+    put over the film. `render` samples it through the same world
+    coordinates its film masks use and lays the film under the cover.
+
+    The level is the view's own pixel, or coarser when the view's footprint
+    on the plane (a foreshortened view covers more of it than its frame)
+    would take more texture pixels than `TEXTURE_BUDGET` per view pixel -
+    a grazing view trades a little x resolution for a bounded cost. Tiles
+    render on first use from the features whose reach touches them, carry
+    a one-pixel apron so sampling interpolates across tile edges, and stay
+    in a byte-capped LRU: a pose imaged repeatedly (an alignment loop, a
+    test) pays the stamping once.
+    """
+
+    CHANNELS = (BeamType.ELECTRON, BeamType.ION, "cover")
+
+    def __init__(self, scene: "SampleScene") -> None:
+        self.features = scene.features
+        self.tiles: "OrderedDict[Tuple[int, int, int], Optional[np.ndarray]]" = (
+            OrderedDict()
+        )
+        self.bytes = 0
+        self.renders = 0
+        # the features' reach, for the per-tile selection and the bounds
+        n = len(self.features)
+        self._x = np.array([f.x for f in self.features], dtype=np.float64)
+        self._y = np.array([f.y for f in self.features], dtype=np.float64)
+        self._reach = np.array(
+            [
+                (4.0 if f.sharpness < 2 else 2.2) * f.sigma * (1 + f.wobble)
+                for f in self.features
+            ],
+            dtype=np.float64,
+        ).reshape(n)
+        if n:
+            self.bounds = (
+                float((self._x - self._reach).min()),
+                float((self._x + self._reach).max()),
+                float((self._y - self._reach).min()),
+                float((self._y + self._reach).max()),
+            )
+        else:
+            self.bounds = (0.0, 0.0, 0.0, 0.0)
+        self._table = {b: BEAM_LAYERS[b] for b in BEAM_LAYERS}
+
+    def within(self, x_lo: float, x_hi: float, y_lo: float, y_hi: float) -> np.ndarray:
+        """Indices of the features whose reach touches a world box."""
+        return np.flatnonzero(
+            (self._x + self._reach >= x_lo)
+            & (self._x - self._reach <= x_hi)
+            & (self._y + self._reach >= y_lo)
+            & (self._y - self._reach <= y_hi)
+        )
+
+    def is_for(self, scene: "SampleScene") -> bool:
+        return self.features is scene.features and len(self.features) == len(self._x)
+
+    @staticmethod
+    def pixel_at(level: int) -> float:
+        return TEXTURE_BASE_PIXEL * (2**level)
+
+    @staticmethod
+    def level_for(pixel_size: float, footprint: float = 0.0, pixels: int = 1) -> int:
+        """The level for a view: the coarsest whose pixel is no larger than
+        the view's, made coarser until the view's footprint on the plane
+        (m^2, over `pixels` view pixels) fits the texture budget."""
+        by_pixel = int(np.floor(np.log2(pixel_size / TEXTURE_BASE_PIXEL)))
+        by_area = 0
+        if footprint > 0:
+            needed = np.sqrt(footprint / (TEXTURE_BUDGET * pixels))
+            by_area = int(np.ceil(np.log2(needed / TEXTURE_BASE_PIXEL)))
+        return max(0, by_pixel, by_area)
+
+    def sample(
+        self, xs_world: np.ndarray, ys_world: np.ndarray, pixel_size: float
+    ) -> Dict[object, np.ndarray]:
+        """The texture at world coordinates that are an affine image of the
+        pixel grid (broadcastable): a dict of per-beam intensities and the
+        `cover` over the film, in the shape of the coordinates."""
+        xs, ys = np.broadcast_arrays(xs_world, ys_world)
+        height, width = xs.shape
+        out = {
+            key: np.zeros((height, width), dtype=np.float32) for key in self.CHANNELS
+        }
+        if self._x.size == 0 or height < 2 or width < 2:
+            return out
+        x_lo, x_hi = float(xs.min()), float(xs.max())
+        y_lo, y_hi = float(ys.min()), float(ys.max())
+        level = self.level_for(
+            pixel_size, (x_hi - x_lo) * (y_hi - y_lo), height * width
+        )
+        tp = self.pixel_at(level)
+        span = TEXTURE_TILE * tp
+
+        # the tiles the view touches, within the features' bounds
+        bx0, bx1, by0, by1 = self.bounds
+        i0, i1 = (
+            int(np.floor(max(x_lo, bx0) / span)),
+            int(np.floor(min(x_hi, bx1) / span)),
+        )
+        j0, j1 = (
+            int(np.floor(max(y_lo, by0) / span)),
+            int(np.floor(min(y_hi, by1) / span)),
+        )
+        if i1 < i0 or j1 < j0:
+            return out
+
+        # pixel steps of the affine map, to box each tile in pixels
+        ox, oy = float(xs[0, 0]), float(ys[0, 0])
+        col = ((xs[0, -1] - ox) / (width - 1), (ys[0, -1] - oy) / (width - 1))
+        row = ((xs[-1, 0] - ox) / (height - 1), (ys[-1, 0] - oy) / (height - 1))
+        det = col[0] * row[1] - col[1] * row[0]
+        if abs(det) < 1e-30:
+            return out
+        inv = (
+            np.array([[row[1], -row[0]], [-col[1], col[0]]]) / det
+        )  # (dx, dy) -> (col, row)
+
+        for j in range(j0, j1 + 1):
+            for i in range(i0, i1 + 1):
+                x0, y0 = i * span, j * span
+                corners = np.array(
+                    [
+                        [x0 - ox, y0 - oy],
+                        [x0 + span - ox, y0 - oy],
+                        [x0 - ox, y0 + span - oy],
+                        [x0 + span - ox, y0 + span - oy],
+                    ]
+                )
+                cr = corners @ inv.T
+                c0, c1 = (
+                    int(np.floor(cr[:, 0].min())) - 1,
+                    int(np.ceil(cr[:, 0].max())) + 2,
+                )
+                r0, r1 = (
+                    int(np.floor(cr[:, 1].min())) - 1,
+                    int(np.ceil(cr[:, 1].max())) + 2,
+                )
+                c0, c1 = max(0, c0), min(width, c1)
+                r0, r1 = max(0, r0), min(height, r1)
+                if c0 >= c1 or r0 >= r1:
+                    continue
+                tile = self.tile(level, i, j)
+                if tile is None:
+                    continue
+                bx, by = xs[r0:r1, c0:c1], ys[r0:r1, c0:c1]
+                sel = (np.floor(bx / span) == i) & (np.floor(by / span) == j)
+                if not sel.any():
+                    continue
+                # tile index space, with the apron: pixel k's centre is at
+                # x0 + (k - 0.5) * tp
+                cu = (bx[sel] - x0) / tp + 0.5
+                cv = (by[sel] - y0) / tp + 0.5
+                for k, key in enumerate(self.CHANNELS):
+                    out[key][r0:r1, c0:c1][sel] = ndi_map_coordinates(
+                        tile[k], [cv, cu], order=1, mode="nearest"
+                    )
+        return out
+
+    def tile(self, level: int, i: int, j: int) -> Optional[np.ndarray]:
+        key = (level, i, j)
+        if key in self.tiles:
+            self.tiles.move_to_end(key)
+            return self.tiles[key]
+        tile = self._render_tile(level, i, j)
+        self.tiles[key] = tile
+        if tile is not None:
+            self.bytes += tile.nbytes
+            while self.bytes > TEXTURE_CACHE_BYTES and len(self.tiles) > 1:
+                _, old = self.tiles.popitem(last=False)
+                if old is not None:
+                    self.bytes -= old.nbytes
+        return tile
+
+    def _render_tile(self, level: int, i: int, j: int) -> Optional[np.ndarray]:
+        tp = self.pixel_at(level)
+        span = TEXTURE_TILE * tp
+        x0, y0 = i * span, j * span
+        hit = self.within(x0 - tp, x0 + span + tp, y0 - tp, y0 + span + tp)
+        if hit.size == 0:
+            return None
+        self.renders += 1
+        size = TEXTURE_TILE + 2
+        tile = np.zeros((len(self.CHANNELS), size, size), dtype=np.float32)
+        beams = self.CHANNELS[:2]
+        for idx in hit:
+            f = self.features[idx]
+            u = (f.x - x0) / tp + 0.5
+            v = (f.y - y0) / tp + 0.5
+            sigma_x = f.sigma / tp
+            targets = [
+                (tile[k], f.intensity * SampleScene._layer_weight(self._table[b], f))
+                for k, b in enumerate(beams)
+            ]
+            SampleScene._stamp_blob(
+                targets,
+                u,
+                v,
+                sigma_x,
+                sigma_x * f.eccentricity,
+                f.sharpness,
+                angle=f.angle,
+                wobble=f.wobble,
+                wobble_phase=f.wobble_phase,
+                opacity=f.opacity,
+                cover=tile[2],
+            )
+        return tile
 
 
 @dataclass
@@ -324,6 +553,7 @@ class SampleScene:
     # defocus model for the FM: blur sigma grows by this many pixels per
     # micron the objective sits away from its focus position
     fm_blur_px_per_um: float = 0.6
+    _texture: Optional[WorldTexture] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.features:
@@ -910,16 +1140,13 @@ class SampleScene:
             canvas[holes] += t["holes"]
             canvas[hole_rim] += t["hole_rim"]
 
-        for f in self.features:
-            # project (foreshorten), rotate with the scan, then shift
-            px_, py_ = f.x, f.y * fs
-            u = cx + (px_ * cos_t - py_ * sin_t + ax) / pixel_size
-            v = cy + (px_ * sin_t + py_ * cos_t + ay) / pixel_size
-            targets = [
-                (canvases[b], f.intensity * self._layer_weight(layers[b], f))
-                for b in canvases
-            ]
-            self._stamp_feature(targets, f, u, v, pixel_size, fs, theta)
+        # the features, from the world texture at the same world coordinates
+        # - the shift, scan rotation and foreshortening are in the sampling
+        texture = self.texture().sample(xs_world, ys_world, pixel_size)
+        cover = texture["cover"]
+        for b, canvas in canvases.items():
+            canvas *= 1.0 - cover
+            canvas += texture[b]
 
         trench = self.milled_mask(xs_world, ys_world) if self.milled else None
         if rng is None:
@@ -1018,9 +1245,17 @@ class SampleScene:
         # ice reflects strongly and barely fluoresces
         ice = 0.9 if bars >= 1.0 else 0.04
 
-        subset_rng = np.random.default_rng(self.seed + 1)
-        in_subset: Dict[int, bool] = {}
-        for f in self.features:
+        # only the features in view - the loop itself is the cost, most
+        # of the scene returning untouched from its bounding-box check
+        texture = self.texture()
+        in_view = texture.within(
+            float(xs_world.min()),
+            float(xs_world.max()),
+            float(ys_world.min()),
+            float(ys_world.max()),
+        )
+        for idx in in_view:
+            f = self.features[idx]
             if f.kind == "fiducial":
                 weight = fiducial * f.intensity
             elif f.kind == "contamination":
@@ -1028,11 +1263,9 @@ class SampleScene:
             elif f.kind == "ice":
                 weight = ice * f.intensity
             else:
-                if f.cell_id not in in_subset:
-                    in_subset[f.cell_id] = subset_rng.random() < self.red_fraction
                 # dyes by part: the DNA dye lives in the nucleus, the
                 # cytoplasmic one everywhere; the subset dye follows the cell
-                body_dye = cells + (red if in_subset[f.cell_id] else 0.0)
+                body_dye = cells + (red if self._in_red_subset(f.cell_id) else 0.0)
                 if f.part == "nucleus":
                     weight = FM_INTENSITY * (fiducial * 1.0 + body_dye * 0.5)
                 elif f.part == "organelle":
@@ -1060,6 +1293,13 @@ class SampleScene:
         data = 400.0 + canvas * 120.0
         data += rng.normal(0, 40.0 + 0.05 * np.sqrt(np.maximum(data, 0)), canvas.shape)
         return np.clip(data, 0, 65535).astype(np.uint16)
+
+    def _in_red_subset(self, cell_id: int) -> bool:
+        """Whether a cell carries the subset dye: drawn from the seed and
+        the cell's id, so the answer is the same whichever features are in
+        view (a draw in feature order would change with the view)."""
+        rng = np.random.default_rng([self.seed + 1, int(cell_id) & 0x7FFFFFFF])
+        return bool(rng.random() < self.red_fraction)
 
     def current_offset(
         self, beam_type: BeamType, beam_current: Optional[float]
@@ -1123,6 +1363,14 @@ class SampleScene:
         reference.z = (reference.z or 0.0) + dz
         return reference
 
+    def texture(self) -> WorldTexture:
+        """The scene's world texture, rebuilt when the feature list is
+        replaced or grows (a test swapping in its own features)."""
+        current = self._texture
+        if current is None or not current.is_for(self):
+            current = self._texture = WorldTexture(self)
+        return current
+
     @staticmethod
     def _layer_weight(table: dict, f: SceneFeature) -> float:
         if f.kind == "cell":
@@ -1172,6 +1420,7 @@ class SampleScene:
         wobble: float = 0.0,
         wobble_phase: float = 0.0,
         opacity: float = 0.0,
+        cover: Optional[np.ndarray] = None,
     ) -> None:
         """Add one supergaussian blob, clipped to its bounding box.
 
@@ -1180,7 +1429,9 @@ class SampleScene:
         with a few harmonics of the polar angle for an irregular outline.
         `opacity` composites instead of adding: inside the outline the
         background (film, holes, bars) is hidden by that fraction. `targets`
-        are (canvas, intensity) pairs sharing the one profile.
+        are (canvas, intensity) pairs sharing the one profile. `cover`, when
+        given, accumulates how much of whatever lies under the targets is
+        hidden, for a background laid under them later.
         """
         height, width = targets[0][0].shape
         # a flat-top blob (sharpness >= 2) is already ~0 by 2 sigma; only a
@@ -1218,10 +1469,13 @@ class SampleScene:
             # the cover is flat out to the outline and drops sharply there,
             # whatever the intensity profile does - a body hides the film
             # under all of itself, not only under its brightest part
-            cover = opacity * np.exp(-0.5 * r2 ** max(sharpness, 6.0))
+            hide = opacity * np.exp(-0.5 * r2 ** max(sharpness, 6.0))
             for canvas, intensity in targets:
                 region = canvas[y0:y1, x0:x1]
-                canvas[y0:y1, x0:x1] = region * (1 - cover) + intensity * profile
+                canvas[y0:y1, x0:x1] = region * (1 - hide) + intensity * profile
+            if cover is not None:
+                region = cover[y0:y1, x0:x1]
+                cover[y0:y1, x0:x1] = 1 - (1 - region) * (1 - hide)
         else:
             for canvas, intensity in targets:
                 canvas[y0:y1, x0:x1] += intensity * profile

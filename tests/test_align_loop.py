@@ -93,13 +93,15 @@ def test_under_relaxed_loop_hits_the_iteration_limit(microscope):
     assert abs(result.final.dz) < abs(result.measurements[0].dz)
 
 
-@pytest.mark.parametrize("offset", [40e-6, 80e-6])
+@pytest.mark.parametrize("offset", [40e-6, 80e-6, 100e-6])
 def test_coarse_pass_rescues_errors_beyond_the_fine_window(microscope, offset):
     """Errors past the fine capture range refuse at fine FOV, escalate to
     the coarse pass, and still converge. On the bare yeast mesh the honest
     reach was ~50 um; with the mammalian scene's coarse-scale content (big
     bodies, ice, contamination over a wider extent) the coarse pass reads
-    80 um correctly, and 100 um still refuses with no move."""
+    80 um correctly, and 100 um since the world texture (the FIB's ellipses
+    foreshortened as the surface is, not as a rotated stamp); 250 um still
+    refuses with no move."""
     microscope._sample_scene.coincidence_offset = offset
     microscope._sample_scene.reference_position = None
     microscope._sample_scene.anchor(microscope.get_stage_position())
@@ -112,7 +114,7 @@ def test_coarse_pass_rescues_errors_beyond_the_fine_window(microscope, offset):
     assert not result.measurements[0].is_reliable  # fine pass refused first
 
 
-@pytest.mark.parametrize("offset", [100e-6, 250e-6])
+@pytest.mark.parametrize("offset", [250e-6])
 def test_error_beyond_the_coarse_window_does_not_claim_success(microscope, offset):
     """Beyond ~one grid pitch the periodic mesh offers an alias both bands
     agree on, and the loop used to converge onto it (this test was an xfail
