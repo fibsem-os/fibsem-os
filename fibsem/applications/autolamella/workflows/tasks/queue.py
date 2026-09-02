@@ -34,6 +34,7 @@ class WorkItem:
     grid on the grid workflow. ``item_name`` is the vocabulary the hooks, the
     status payload and the timeline already speak.
     """
+
     item_name: str
     task_name: str
     status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
@@ -52,11 +53,12 @@ class WorkItem:
 
 class QueueOp(Enum):
     """Outcome of a queue mutation."""
+
     OK = auto()
-    NOT_FOUND = auto()    # no item with that id
+    NOT_FOUND = auto()  # no item with that id
     NOT_PENDING = auto()  # item is active, already run, or removed
-    BAD_ANCHOR = auto()   # the target item is missing or not pending
-    NO_OP = auto()        # already in the requested position
+    BAD_ANCHOR = auto()  # the target item is missing or not pending
+    NO_OP = auto()  # already in the requested position
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,7 @@ class QueueResult:
     The distinct :class:`QueueOp` values exist so the UI can explain a refusal
     ("already running") instead of failing silently.
     """
+
     op: QueueOp
     version: int
 
@@ -93,9 +96,9 @@ class TaskQueue:
 
     # --- Build ---
 
-    def build_from_matrix(self, task_names: List[str],
-                          item_names: List[str],
-                          item_outer: bool = False) -> List[WorkItem]:
+    def build_from_matrix(
+        self, task_names: List[str], item_names: List[str], item_outer: bool = False
+    ) -> List[WorkItem]:
         """Populate queue from a task x item matrix.
 
         Task-outer by default (every item's Trench, then every item's Undercut),
@@ -181,9 +184,15 @@ class TaskQueue:
 
     # --- Mutation (all thread-safe) ---
 
-    def add(self, item_name: str, task_name: str, *,
-            before: Optional[str] = None, after: Optional[str] = None,
-            front: bool = False) -> Optional[WorkItem]:
+    def add(
+        self,
+        item_name: str,
+        task_name: str,
+        *,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
+        front: bool = False,
+    ) -> Optional[WorkItem]:
         """Add a work item, anchored to an existing item or to the queue ends.
 
         Position is one of: ``before``/``after`` an existing *pending* item,
