@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Callable, List, Optional
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -192,7 +193,10 @@ class _MagazineRow(QWidget):
                 if self.state == "occupied"
                 else "Nothing to load"
             )
-        self.btn_action.setVisible(self.state != "empty")
+        # An empty slot keeps the icon's space, blank, so the state column lines
+        # up down the list.
+        if self.state == "empty":
+            self.btn_action.setIcon(QIcon())
         self.btn_action.setEnabled(self.state != "empty" and controls_enabled)
 
     def _on_action(self) -> None:

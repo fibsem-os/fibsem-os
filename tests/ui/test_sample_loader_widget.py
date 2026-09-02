@@ -42,7 +42,7 @@ def test_every_magazine_slot_has_a_row(widget):
     )
     assert not first.name_edit.isReadOnly()
     assert empty.name_edit.text() == "" and empty.name_edit.isReadOnly()
-    assert not empty.btn_action.isEnabled()  # nothing to load, and no button shown
+    assert not empty.btn_action.isEnabled() and empty.btn_action.icon().isNull()
 
 
 def test_load_brings_the_grid_into_the_beam(widget, arctis):

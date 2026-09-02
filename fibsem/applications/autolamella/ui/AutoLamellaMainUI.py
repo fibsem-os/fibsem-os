@@ -56,6 +56,7 @@ from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import INSTRUCTIONS, AutoLamellaUI
+from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
 from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
     LamellaTaskImageWidget,
@@ -993,6 +994,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # ships to everyone, and which of its modalities can be reached follows the
         # instrument rather than a flag.
         self._apply_napari_overview_visibility()
+        self._apply_grid_workflow_visibility()
         # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
         # only route to the manager dialog, and the dialog is the only thing that runs
         # a script. If a script is mid-run, leave it visible -- taking away the only
@@ -1663,6 +1665,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if message and self.status_bar is not None:
             self.status_bar.showMessage(message)
         self._set_minimap_workflow_enabled(False)
+        # A run owns the loader: no manual exchange from the Grids tab meanwhile.
+        if getattr(self, "grids_tab", None) is not None:
+            self.grids_tab.set_controls_enabled(False)
         # A live run is exactly when there is a queue to edit, so the actions come
         # on with it — and go off again in hide_workflow_running.
         if hasattr(self, "workflow_timeline"):
@@ -2148,6 +2153,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.add_overview_tab()
         self.add_protocol_editor_tab()
         self.add_lamella_editor_tab()
+        self.add_grids_tab()
         self.add_workflow_tab()
 
         # add notification button to tab bar
@@ -2166,6 +2172,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.beam_overview_tab.refresh_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
+        self.grids_tab.set_experiment(self.autolamella_ui.experiment)
         experiment = self.autolamella_ui.experiment
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
@@ -2521,6 +2528,44 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.tab_widget.setTabToolTip(index, "Add lamella positions to enable this tab")
 
         self._on_lamella_card_selected(None)
+
+    def add_grids_tab(self):
+        """The Grids tab, between Lamella and Workflow: the experiment's grid records.
+
+        Behind `features.grid_workflow` (visibility only, like the old Minimap tab)
+        until the screening flow has run on the Arctis and a fixed holder.
+        """
+        self.grids_tab = GridsTabWidget()
+        # Fires on disconnect too, with microscope None; the tab redraws its chips
+        # from whatever stage there is.
+        self.autolamella_ui.system_widget.connected_signal.connect(
+            self._refresh_grids_tab_microscope
+        )
+        self.tab_widget.addTab(
+            self.grids_tab,
+            fibsem_icon("mdi:view-grid-outline", color=GRAY_ICON_COLOR),
+            "Grids",
+        )
+        self.tab_widget.setTabEnabled(self.tab_widget.indexOf(self.grids_tab), False)
+        self._apply_grid_workflow_visibility()
+
+    def _refresh_grids_tab_microscope(self):
+        if getattr(self, "grids_tab", None) is None or self.autolamella_ui is None:
+            return
+        self.grids_tab.set_microscope(self.autolamella_ui.microscope)
+
+    def _apply_grid_workflow_visibility(self) -> None:
+        """`features.grid_workflow` shows or hides the Grids tab.
+
+        Read straight off `self._preferences`, like the Minimap flag: a method on
+        the window that owns them needs no module global.
+        """
+        tab = getattr(self, "grids_tab", None)
+        if tab is None:
+            return
+        self.tab_widget.setTabVisible(
+            self.tab_widget.indexOf(tab), self._preferences.features.grid_workflow
+        )
 
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""
@@ -3294,6 +3339,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.workflow_timeline.clear_steps()
         self.hide_workflow_running()
         self.lamella_widget.set_active_lamella_name(None)
+        if getattr(self, "grids_tab", None) is not None:
+            self.grids_tab.set_controls_enabled(True)
         self.user_attention_btn.hide()
         self.lamella_list_widget.refresh_all()
         self.lamella_card_container.refresh_all()
@@ -3349,6 +3396,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
         self._apply_napari_overview_visibility()
+        self._apply_grid_workflow_visibility()
 
     def add_overview_tab(self):
         """Reserve the Overview tab: both modalities, one tab.
