@@ -3,12 +3,22 @@
 This module contains all ThermoFisher AutoScript-specific conversion functions,
 isolated from the general fibsem data structures.
 """
+
 from __future__ import annotations
 
+import logging
 import sys
 from typing import TYPE_CHECKING, Optional, Union
 
-from fibsem.microscopes._stage import SampleGridLoader, SampleHolder, Stage
+from fibsem.microscopes._stage import (
+    GridExchangeError,
+    GridSlot,
+    SampleGrid,
+    SampleGridLoader,
+    SampleHolder,
+    Stage,
+    _slot_name,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscope import ThermoMicroscope
@@ -25,7 +35,9 @@ THERMO_API_AVAILABLE = False
 
 try:
     sys.path.append(r"C:\Program Files\Thermo Scientific AutoScript")
-    sys.path.append(r"C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages")
+    sys.path.append(
+        r"C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages"
+    )
     sys.path.append(r"C:\Program Files\Python36\envs\AutoScript")
     sys.path.append(r"C:\Program Files\Python36\envs\AutoScript\Lib\site-packages")
     from autoscript_sdb_microscope_client.enumerations import CoordinateSystem
@@ -35,6 +47,7 @@ try:
         ManipulatorPosition,
         StagePosition,
     )
+
     THERMO_API_AVAILABLE = True
 except ImportError:
     pass
@@ -56,7 +69,9 @@ def stage_position_to_autoscript(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert to AutoScript position.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert to AutoScript position."
+        )
 
     if compustage:
         return CompustagePosition(
@@ -92,7 +107,9 @@ def stage_position_from_autoscript(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert from AutoScript position.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert from AutoScript position."
+        )
 
     from fibsem.structures import FibsemStagePosition
 
@@ -131,7 +148,9 @@ def manipulator_position_to_autoscript(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert to AutoScript position.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert to AutoScript position."
+        )
 
     if position.coordinate_system == "RAW":
         coordinate_system = "Raw"
@@ -164,7 +183,9 @@ def manipulator_position_from_autoscript(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert from AutoScript position.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert from AutoScript position."
+        )
 
     from fibsem.structures import FibsemManipulatorPosition
 
@@ -193,7 +214,9 @@ def image_settings_from_adorned_image(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert from AdornedImage.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert from AdornedImage."
+        )
 
     from fibsem.structures import BeamType, ImageSettings
     from fibsem.utils import current_timestamp
@@ -235,7 +258,9 @@ def fibsem_image_from_adorned_image(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert from AdornedImage.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert from AdornedImage."
+        )
 
     from fibsem.structures import (
         BeamSettings,
@@ -306,13 +331,19 @@ class AutoscriptManipulator:
         """Retract the manipulator."""
         self.parent.retract_manipulator()
 
-    def move_absolute(self, position: FibsemManipulatorPosition) -> FibsemManipulatorPosition:
+    def move_absolute(
+        self, position: FibsemManipulatorPosition
+    ) -> FibsemManipulatorPosition:
         pass
 
-    def move_relative(self, position: FibsemManipulatorPosition) -> FibsemManipulatorPosition:
+    def move_relative(
+        self, position: FibsemManipulatorPosition
+    ) -> FibsemManipulatorPosition:
         pass
 
-    def move_corrected(self, dx: float, dy: float, beam_type: BeamType) -> FibsemManipulatorPosition:
+    def move_corrected(
+        self, dx: float, dy: float, beam_type: BeamType
+    ) -> FibsemManipulatorPosition:
         pass
 
 
@@ -340,9 +371,125 @@ class AutoscriptCompustage(Stage):
         super().__init__(parent, holder, loader)
 
 
+class AutoscriptSampleLoader(SampleGridLoader):
+    """The AutoScript autoloader (Arctis, xT 28.x, AutoScript >= 4.10) as a grid loader.
+
+    Wraps ``connection.specimen.autoloader``. Magazine slots mirror ``get_slots()``
+    and are addressed by the 1-based ``AutoloaderSlot.id``; ``load(id)`` blocks until
+    the exchange is done and ``unload()`` takes nothing. Grid names live in each
+    slot's ``sample_description``, read on inventory and written back on rename.
+
+    Two things the hardware does that the in-memory model must absorb:
+
+    - A grid that is on the stage makes its magazine slot read ``Empty``. The slot
+      is still that grid's home, so a rescan keeps the grid there while our working
+      slot holds it, and the inventory keeps saying "present, in beam".
+    - ``get_slots(False)`` returns last-known states, which may all be ``Unknown``
+      before any scan. Then, and only then, ``get_slots(True)`` runs a physical scan.
+
+    Confirmed from operator code: the ``get_slots(bool)`` shape, the state strings,
+    ``load(id)`` / ``unload()``, and ``autoloader.stage`` reporting what is on the
+    microscope. Not verified on hardware: whether ``sample_description`` is writable
+    (a refusal is logged, not raised). The magazine is not queried on construction;
+    call ``run_inventory()``.
+    """
+
+    @property
+    def _autoloader(self):
+        return self.parent.connection.specimen.autoloader
+
+    @property
+    def is_installed(self) -> bool:
+        try:
+            return bool(self._autoloader.is_installed)
+        except Exception:  # noqa: BLE001 - device absent, or not ready
+            return False
+
+    # -- inventory -----------------------------------------------------------
+
+    def _scan_magazine(self) -> None:
+        hw_slots = list(self._autoloader.get_slots(False))
+        if hw_slots and all(_slot_state(s) == "Unknown" for s in hw_slots):
+            hw_slots = list(self._autoloader.get_slots(True))
+        if hw_slots:
+            self.capacity = len(hw_slots)
+
+        in_beam = {s.loaded_grid.name for s in self.holder.occupied_slots}
+        slots: dict = {}
+        for hw in hw_slots:
+            number = int(hw.id)
+            name = _slot_name(number - 1)
+            previous = self.slots.get(name)
+            state = _slot_state(hw)
+            grid: Optional[SampleGrid] = None
+            if state == "Occupied":
+                described = (getattr(hw, "sample_description", "") or "").strip()
+                grid_name = described or f"Grid-{number:02d}"
+                if previous is not None and previous.loaded_grid is not None:
+                    if previous.loaded_grid.name == grid_name:
+                        grid = previous.loaded_grid  # keep identity across scans
+                if grid is None:
+                    grid = SampleGrid(name=grid_name)
+            elif (
+                previous is not None
+                and previous.loaded_grid is not None
+                and previous.loaded_grid.name in in_beam
+            ):
+                grid = (
+                    previous.loaded_grid
+                )  # its home; it reads Empty while in the beam
+            elif state == "Unknown":
+                logging.warning(f"Autoloader slot {number} has not been scanned.")
+            slots[name] = GridSlot(name=name, index=number - 1, loaded_grid=grid)
+        self.slots = slots
+
+        # Something may be on the stage that we did not load: reflect the hardware.
+        stage = getattr(self._autoloader, "stage", None)
+        working = self.working_slot
+        if stage is not None:
+            if working.loaded_grid is None and _slot_state(stage) == "Occupied":
+                described = (getattr(stage, "sample_description", "") or "").strip()
+                working.loaded_grid = SampleGrid(name=described or "Grid-on-stage")
+            elif working.loaded_grid is not None and _slot_state(stage) == "Empty":
+                working.loaded_grid = None
+
+    def _write_slot_description(self, slot: GridSlot) -> None:
+        description = slot.loaded_grid.name if slot.loaded_grid is not None else ""
+        try:
+            for hw in self._autoloader.get_slots(False):
+                if int(hw.id) == slot.index + 1:
+                    hw.sample_description = description
+                    return
+            logging.warning(f"Autoloader reported no slot {slot.index + 1} to name.")
+        except Exception as e:  # noqa: BLE001 - not verified writable on hardware
+            logging.warning(f"Could not write the autoloader slot description: {e}")
+
+    # -- exchange ------------------------------------------------------------
+
+    def _do_load(self, slot: GridSlot) -> None:
+        try:
+            self._autoloader.load(slot.index + 1)
+        except Exception as e:
+            raise GridExchangeError(
+                f"Autoloader could not load {slot.name}: {e}"
+            ) from e
+
+    def _do_unload(self, working_slot: GridSlot) -> None:
+        try:
+            self._autoloader.unload()
+        except Exception as e:
+            raise GridExchangeError(f"Autoloader could not unload: {e}") from e
+
+
+def _slot_state(hw_slot) -> str:
+    """``AutoloaderSlot.state`` as a plain string; enum members stringify to it."""
+    state = getattr(hw_slot, "state", "Unknown")
+    text = str(state)
+    return text.rsplit(".", 1)[-1] if "." in text else text
+
+
 class AutoscriptSputterCoater:
     pass
-
 
 
 import time
@@ -355,9 +502,9 @@ from fibsem.structures import FibsemStagePosition
 
 class AutoscriptGISPort:
     port_name: str = "Pt dep"
-    zlimit: float = 4.0e-3 # RAW_COORDINATES
+    zlimit: float = 4.0e-3  # RAW_COORDINATES
 
-    def __init__(self, parent: 'ThermoMicroscope'):
+    def __init__(self, parent: "ThermoMicroscope"):
         self.parent = parent
 
         available_ports = self.parent.connection.gas.list_all_gis_ports()
@@ -376,13 +523,15 @@ class AutoscriptGISPort:
 
     def _move_to_safe_gis_position(self):
 
-        self.parent.move_stage_absolute(FibsemStagePosition(z=self.zlimit-500e-6))
+        self.parent.move_stage_absolute(FibsemStagePosition(z=self.zlimit - 500e-6))
 
     def _run_safety_check(self):
 
         stage_position = self.parent.get_stage_position()
         if stage_position.z > self.zlimit:
-            raise ValueError(f"Unable to insert gis at current z-position{stage_position.pretty}, {self.zlimit*1e3}mm")
+            raise ValueError(
+                f"Unable to insert gis at current z-position{stage_position.pretty}, {self.zlimit * 1e3}mm"
+            )
 
     def open(self):
         self._port.open()
