@@ -75,6 +75,9 @@ def _fiducial_only(microscope):
         offset=0.0,
         cell_type="none",
         grid_intensity=0.0,
+        contamination_density=0.0,
+        ice_density=0.0,
+        rip_fraction=0.0,
         noise_sigma=0.0,
         noise_fraction=0.0,
     )
@@ -196,8 +199,10 @@ def test_stitched_overview_matches_single_wide_shot(microscope, beam_type, tmp_p
 
 
 def test_views_share_the_scene_but_not_the_contrast():
-    """Rendered through identical geometry, the two beams differ only in
-    contrast convention - strongly anti-correlated with noise off."""
+    """Rendered through identical geometry, the two beams show the same
+    structure with different contrast: correlated, but not the same
+    picture and not its inverse either (holes and trenches are dark in
+    both; cells are bright in the SEM, outlined in the FIB)."""
     from fibsem.microscopes.sim_scene import SampleScene
     from fibsem.projection import BeamStageProjection
     from fibsem.structures import FibsemHardwareGeometry
@@ -217,7 +222,7 @@ def test_views_share_the_scene_but_not_the_contrast():
     sem = scene.render(beam_type=BeamType.ELECTRON, **kwargs).astype(np.float32)
     fib = scene.render(beam_type=BeamType.ION, **kwargs).astype(np.float32)
     corr = np.corrcoef(sem.ravel(), fib.ravel())[0, 1]
-    assert corr < -0.9
+    assert 0.2 < corr < 0.95, corr
 
 
 def test_measures_configured_offset(microscope):

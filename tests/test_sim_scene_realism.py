@@ -384,8 +384,10 @@ def test_ice_plates_are_generated_and_render_bright(microscope):
         image_settings=_settings(BeamType.ELECTRON, hfw=300e-6)
     )
     data = image.data.astype(np.float32)
-    # flat plates: large bright connected regions with sharp edges
-    bright = ndi.gaussian_filter(data, 1) > np.percentile(data, 97)
+    # flat plates: large bright connected regions with sharp edges, well
+    # above the film (an absolute step, not a percentile - the plates are
+    # a good fraction of the field)
+    bright = ndi.gaussian_filter(data, 1) > np.median(data) + 40
     labels, n = ndi.label(bright)
     px = 300e-6 / 1536
     areas = ndi.sum(bright, labels, range(1, n + 1)) * px**2
@@ -514,3 +516,79 @@ def test_a_rotated_pattern_mills_the_footprint_it_was_drawn_with(microscope):
     expected = (np.abs(u) <= 12e-6) & (np.abs(v) <= 1.5e-6)
     iou = (trench & expected).sum() / (trench | expected).sum()
     assert iou > 0.8, f"trench footprint IoU {iou:.2f} against the drawn pattern"
+
+
+def _fib_and_sem(microscope, hfw=150e-6):
+    fib = microscope.acquire_image(image_settings=_settings(BeamType.ION, hfw=hfw)).data
+    sem = microscope.acquire_image(
+        image_settings=_settings(BeamType.ELECTRON, hfw=hfw)
+    ).data
+    return fib.astype(np.float32), sem.astype(np.float32)
+
+
+def test_holes_and_trenches_are_dark_in_both_beams(microscope):
+    """No material, no signal: a hole in the film and a milled trench read
+    dark in the FIB as well as the SEM - the FIB is not an inverted SEM."""
+    from fibsem.structures import FibsemRectangleSettings
+
+    scene = _scene(
+        microscope,
+        coincidence_offset=0.0,
+        cell_type="none",
+        contamination_density=0.0,
+        fiducial=False,
+        film="holey",
+    )
+    microscope.draw_rectangle(
+        FibsemRectangleSettings(
+            width=20e-6, height=5e-6, depth=1e-6, centre_x=0.0, centre_y=-25e-6
+        )
+    )
+    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    fib, sem = _fib_and_sem(microscope, hfw=100e-6)
+    for name, image in (("FIB", fib), ("SEM", sem)):
+        film = np.median(image)
+        # the darkest few percent are holes and the trench, well below the film
+        assert np.percentile(image, 2) < film - 30, f"{name}: no dark holes/trench"
+        assert (image < film - 30).mean() > 0.05, f"{name}: too little dark structure"
+
+
+def test_the_fib_sees_cells_as_outlined_not_inverted(microscope):
+    """In the FIB a cell body is slightly darker than the film with a bright
+    rim (the edge effect); in the SEM it is brighter than the film."""
+    scene = _scene(
+        microscope,
+        coincidence_offset=0.0,
+        cell_type="yeast",
+        contamination_density=0.0,
+        fiducial=False,
+        grid_intensity=0.0,
+    )
+    fib, sem = _fib_and_sem(microscope, hfw=100e-6)
+    film_fib, film_sem = np.median(fib), np.median(sem)
+    # the SEM: cells brighter than the film
+    assert (sem > film_sem + 25).mean() > 0.02
+    # the FIB (its own pixels - the two views are foreshortened differently,
+    # so a mask cannot be carried across): bodies darker than the film...
+    dark = fib < film_fib - 15
+    assert dark.mean() > 0.005
+    interior = ndi.binary_erosion(dark, iterations=3)
+    # ...with a bright outline just outside them: the body's darkening
+    # tapers over several pixels before the edge effect's rim, so look a
+    # little way out from the dark core
+    rim = ndi.binary_dilation(dark, iterations=12) & ~ndi.binary_dilation(
+        dark, iterations=6
+    )
+    assert np.percentile(fib[rim], 90) > film_fib + 8
+    assert np.percentile(fib[rim], 90) > fib[interior].mean() + 20
+
+
+def test_the_film_is_brighter_at_grazing_incidence():
+    """SE yield rises with tilt: the same bare film reads brighter in a
+    view that sees it at a steeper angle."""
+    from fibsem.microscopes.sim_scene import BEAM_LAYERS
+
+    t = BEAM_LAYERS[BeamType.ION]
+    grazing = t["film"] + t["film_tilt_gain"] * (1 - 0.26)
+    face_on = t["film"] + t["film_tilt_gain"] * (1 - 0.95)
+    assert grazing > face_on + 30

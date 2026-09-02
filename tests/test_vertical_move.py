@@ -45,6 +45,9 @@ def microscope():
         coincidence_offset=0.0,
         cell_type="none",
         grid_intensity=0.0,
+        contamination_density=0.0,
+        ice_density=0.0,
+        rip_fraction=0.0,
         noise_sigma=0.0,
         noise_fraction=0.0,
     )
