@@ -23,13 +23,15 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QPushButton,
+    QMessageBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleGridLoader
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.tokens import (
     ERROR_COLOR,
@@ -45,7 +47,23 @@ from fibsem.ui.widgets.sample_holder_widget import _NAME_FIELD_STYLE
 _ROW_HEIGHT = 34
 _SLOT_LABEL_WIDTH = 28
 _STATE_LABEL_WIDTH = 64
-_LOAD_BTN_WIDTH = 60
+_ICON_BTN = 26
+# An arrow into a bracket for load, out of it for unload: the grid going into,
+# and coming out of, the beam.
+ICON_LOAD = "mdi:login"
+ICON_UNLOAD = "mdi:logout"
+ICON_INVENTORY = "mdi:refresh"
+_ICON_BTN_STYLE = """
+QToolButton {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 1px;
+}
+QToolButton:hover { background: rgba(255, 255, 255, 30); }
+QToolButton:pressed { background: rgba(255, 255, 255, 15); }
+QToolButton:disabled { background: transparent; }
+"""
 
 # A magazine slot is one of three things. `unknown` (a slot the hardware has not
 # scanned since the magazine was opened) reads as empty until an inventory says
@@ -78,6 +96,7 @@ class _MagazineRow(QWidget):
     its state, and Load."""
 
     load_clicked = pyqtSignal(object)  # GridSlot
+    unload_clicked = pyqtSignal(object)  # GridSlot
     grid_named = pyqtSignal(object, str)  # GridSlot, new name
 
     def __init__(self, slot: GridSlot, in_beam: bool, parent=None) -> None:
@@ -114,11 +133,14 @@ class _MagazineRow(QWidget):
         self.state_label.setFixedWidth(_STATE_LABEL_WIDTH)
         layout.addWidget(self.state_label)
 
-        self.btn_load = QPushButton("Load")
-        self.btn_load.setFixedWidth(_LOAD_BTN_WIDTH)
-        self.btn_load.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_load.clicked.connect(lambda: self.load_clicked.emit(self.slot))
-        layout.addWidget(self.btn_load)
+        # One action, contextual: load an occupied slot's grid, unload the one in
+        # the beam. Nothing on an empty slot.
+        self.btn_action = QToolButton()
+        self.btn_action.setFixedSize(_ICON_BTN, _ICON_BTN)
+        self.btn_action.setIconSize(QSize(18, 18))
+        self.btn_action.setStyleSheet(_ICON_BTN_STYLE)
+        self.btn_action.clicked.connect(self._on_action)
+        layout.addWidget(self.btn_action)
 
         self.refresh(in_beam)
 
@@ -150,18 +172,34 @@ class _MagazineRow(QWidget):
         self.state_label.setText(_STATE_TEXT[self.state])
         self.state_label.setToolTip(_STATE_TIP[self.state])
 
-        loadable = self.state == "occupied" and controls_enabled
-        self.btn_load.setEnabled(loadable)
         if self.state == "in_beam":
-            self.btn_load.setToolTip("Already in the beam")
-        elif self.state == "empty":
-            self.btn_load.setToolTip("Nothing to load")
-        elif not controls_enabled:
-            self.btn_load.setToolTip(
-                "Not while the loader is busy or a workflow is running"
+            self.btn_action.setIcon(
+                fibsem_icon(ICON_UNLOAD, color=stylesheets.GRAY_ICON_COLOR)
+            )
+            self.btn_action.setToolTip(
+                f"Return {name} to the magazine"
+                if controls_enabled
+                else "Not while the loader is busy or a workflow is running"
             )
         else:
-            self.btn_load.setToolTip(f"Bring {name} into the beam")
+            self.btn_action.setIcon(
+                fibsem_icon(ICON_LOAD, color=stylesheets.GRAY_ICON_COLOR)
+            )
+            self.btn_action.setToolTip(
+                f"Bring {name} into the beam"
+                if self.state == "occupied" and controls_enabled
+                else "Not while the loader is busy or a workflow is running"
+                if self.state == "occupied"
+                else "Nothing to load"
+            )
+        self.btn_action.setVisible(self.state != "empty")
+        self.btn_action.setEnabled(self.state != "empty" and controls_enabled)
+
+    def _on_action(self) -> None:
+        if self.state == "in_beam":
+            self.unload_clicked.emit(self.slot)
+        elif self.state == "occupied":
+            self.load_clicked.emit(self.slot)
 
     def _on_name_edited(self) -> None:
         name = self.name_edit.text().strip()
@@ -211,17 +249,20 @@ class SampleLoaderWidget(QWidget):
         inner_layout.setContentsMargins(6, 6, 6, 6)
         inner_layout.setSpacing(6)
 
-        self.btn_inventory = QPushButton("Run inventory")
-        self.btn_inventory.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        # The scan in the title bar, as an icon, where the app keeps a panel's
+        # actions. It moves the magazine, so it asks first.
+        self.btn_inventory = QToolButton()
+        self.btn_inventory.setFixedSize(_ICON_BTN, _ICON_BTN)
+        self.btn_inventory.setIconSize(QSize(18, 18))
+        self.btn_inventory.setStyleSheet(_ICON_BTN_STYLE)
+        self.btn_inventory.setIcon(
+            fibsem_icon(ICON_INVENTORY, color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_inventory.setToolTip(
-            "Ask the autoloader which magazine slots hold a grid, and read their names"
+            "Run inventory: ask the autoloader which magazine slots hold a grid, "
+            "and read their names"
         )
         self.btn_inventory.clicked.connect(self._on_run_inventory)
-
-        self.btn_unload = QPushButton("Unload")
-        self.btn_unload.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_unload.setToolTip("Return the grid in the beam to its magazine slot")
-        self.btn_unload.clicked.connect(self._on_unload)
 
         self.facts_label = QLabel()
         self.facts_label.setWordWrap(True)
@@ -249,7 +290,6 @@ class SampleLoaderWidget(QWidget):
 
         self._panel = TitledPanel("Loader", content=inner, collapsible=True)
         self._panel.add_header_widget(self.btn_inventory)
-        self._panel.add_header_widget(self.btn_unload)
         layout.addWidget(self._panel)
 
     # -- model -----------------------------------------------------------------
@@ -299,6 +339,7 @@ class SampleLoaderWidget(QWidget):
             )
             row.refresh(row.state == "in_beam", controls_enabled=controls)
             row.load_clicked.connect(self._on_load)
+            row.unload_clicked.connect(self._on_unload)
             row.grid_named.connect(self._on_grid_named)
             item = QListWidgetItem(self._list)
             item.setSizeHint(QSize(0, _ROW_HEIGHT))
@@ -323,7 +364,6 @@ class SampleLoaderWidget(QWidget):
     def _apply_controls(self) -> None:
         active = self._controls_enabled and not self._busy and self.loader is not None
         self.btn_inventory.setEnabled(active)
-        self.btn_unload.setEnabled(active and bool(self._in_beam_names()))
         for row in self._rows:
             row.refresh(row.state == "in_beam", controls_enabled=active)
 
@@ -348,6 +388,13 @@ class SampleLoaderWidget(QWidget):
         loader = self.loader
         if loader is None:
             return
+        if not self._confirm(
+            "Run inventory",
+            "Scan the magazine? The autoloader checks every slot for a grid and "
+            "reads the names on the slot descriptions; it takes a moment and the "
+            "magazine must not be opened while it runs.",
+        ):
+            return
 
         def job() -> None:
             self._microscope._stage.run_inventory()
@@ -366,17 +413,28 @@ class SampleLoaderWidget(QWidget):
 
         self._start(job, f"Loading {name}…", f"{name} is in the beam.")
 
-    def _on_unload(self) -> None:
+    def _on_unload(self, slot: GridSlot) -> None:
         loader = self.loader
-        if loader is None:
+        if loader is None or slot.loaded_grid is None:
             return
-        names = self._in_beam_names()
-        name = next(iter(names)) if names else "the grid"
+        name = slot.loaded_grid.name
 
         def job() -> None:
             loader.unload_grid()
 
         self._start(job, f"Unloading {name}…", f"{name} returned to the magazine.")
+
+    def _confirm(self, title: str, text: str) -> bool:
+        """Yes/No before an action that moves the loader. Answered without a
+        dialog in synchronous (test) mode."""
+        if self._synchronous:
+            return True
+        return (
+            QMessageBox.question(
+                self, title, text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            == QMessageBox.Yes
+        )
 
     def _start(self, job: Callable[[], None], doing: str, done: str) -> None:
         if self._busy:

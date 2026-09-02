@@ -37,35 +37,46 @@ def test_every_magazine_slot_has_a_row(widget):
     assert "12 slots · 3 grids · not scanned this session" in widget.facts_label.text()
     first, empty = widget._row_widget(0), widget._row_widget(3)
     assert first.slot_label.text() == "01" and first.name_edit.text() == "Grid-01"
-    assert first.btn_load.isEnabled()
+    assert (
+        first.btn_action.isEnabled() and "into the beam" in first.btn_action.toolTip()
+    )
     assert not first.name_edit.isReadOnly()
     assert empty.name_edit.text() == "" and empty.name_edit.isReadOnly()
-    assert not empty.btn_load.isEnabled()
-    assert not widget.btn_unload.isEnabled()  # nothing in the beam yet
+    assert not empty.btn_action.isEnabled()  # nothing to load, and no button shown
 
 
 def test_load_brings_the_grid_into_the_beam(widget, arctis):
     changed = []
     widget.loader_changed.connect(lambda: changed.append(True))
-    widget._row_widget(1).btn_load.click()
+    widget._row_widget(1).btn_action.click()
     assert arctis._stage.loaded_grids[0].name == "Grid-02"
     assert states(widget)[:3] == ["occupied", "in_beam", "occupied"]
-    assert not widget._row_widget(1).btn_load.isEnabled()
-    assert widget.btn_unload.isEnabled()
+    # the loaded row's action turns into Unload; the others still offer Load
+    assert "Return Grid-02" in widget._row_widget(1).btn_action.toolTip()
+    assert "into the beam" in widget._row_widget(0).btn_action.toolTip()
     assert widget.status_label.text() == "Grid-02 is in the beam."
     assert changed == [True]
     assert not widget.busy
 
 
 def test_unload_returns_it(widget, arctis):
-    widget._row_widget(0).btn_load.click()
-    widget.btn_unload.click()
+    widget._row_widget(0).btn_action.click()
+    widget._row_widget(0).btn_action.click()  # now the unload action
     assert arctis._stage.loaded_grids == []
     assert states(widget)[0] == "occupied"
     assert "returned to the magazine" in widget.status_label.text()
 
 
-def test_run_inventory_stamps_the_scan(widget):
+def test_run_inventory_asks_first_then_stamps_the_scan(widget, monkeypatch):
+    asked = []
+    widget._synchronous = False  # so the confirmation is consulted...
+    monkeypatch.setattr(
+        widget, "_confirm", lambda title, text: asked.append(title) or False
+    )
+    widget.btn_inventory.click()
+    assert asked == ["Run inventory"] and "not scanned" in widget.facts_label.text()
+    monkeypatch.undo()
+    widget._synchronous = True  # ...and answered yes without a dialog
     widget.btn_inventory.click()
     assert "scanned " in widget.facts_label.text()
     assert widget.status_label.text() == "Inventory complete."
@@ -73,10 +84,10 @@ def test_run_inventory_stamps_the_scan(widget):
 
 def test_a_refused_exchange_is_reported_and_the_controls_come_back(widget, arctis):
     arctis._stage.loader.fail_next_exchange = True
-    widget._row_widget(0).btn_load.click()
+    widget._row_widget(0).btn_action.click()
     assert arctis._stage.loaded_grids == []
     assert "Simulated autoloader exchange failure" in widget.status_label.text()
-    assert widget._row_widget(0).btn_load.isEnabled()
+    assert widget._row_widget(0).btn_action.isEnabled()
     assert not widget.busy
 
 
@@ -106,10 +117,10 @@ def test_a_grid_cannot_be_unnamed(widget, arctis):
 def test_the_host_can_lock_the_exchange_controls(widget):
     widget.set_controls_enabled(False)
     assert not widget.btn_inventory.isEnabled()
-    assert not widget._row_widget(0).btn_load.isEnabled()
-    assert "workflow" in widget._row_widget(0).btn_load.toolTip()
+    assert not widget._row_widget(0).btn_action.isEnabled()
+    assert "workflow" in widget._row_widget(0).btn_action.toolTip()
     widget.set_controls_enabled(True)
-    assert widget._row_widget(0).btn_load.isEnabled()
+    assert widget._row_widget(0).btn_action.isEnabled()
 
 
 class TestSampleView:
@@ -124,7 +135,7 @@ class TestSampleView:
     def test_an_exchange_repaints_the_holder(self, qapp, arctis):
         view = FibsemSampleWidget(microscope=arctis)
         view.loader_widget._synchronous = True
-        view.loader_widget._row_widget(0).btn_load.click()
+        view.loader_widget._row_widget(0).btn_action.click()
         assert view.holder_widget._row_widget(0).name_edit.text() == "Grid-01"
 
     def test_move_requests_pass_through(self, qapp, arctis):
