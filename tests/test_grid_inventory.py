@@ -337,10 +337,19 @@ class TestEnsureLoadedOnFixedHolder:
         microscope = _fixed_demo()
         holder = microscope._stage.holder
         holder.slots["Slot-02"].loaded_grid = SampleGrid(name="grid-aspen")
+        holder.slots["Slot-02"].position = FibsemStagePosition(
+            name="Slot-02", x=3e-3, y=0.0, z=4e-3, r=0.0, t=0.0
+        )
         before = microscope.get_stage_position()
         slot = microscope._stage.ensure_loaded("grid-aspen")
         assert slot is holder.slots["Slot-02"]
         assert microscope.get_stage_position().is_close2(before, tol=1e-9)
+
+    def test_present_but_uncalibrated_slot_is_refused(self):
+        microscope = _fixed_demo()
+        microscope._stage.holder.slots["Slot-01"].loaded_grid = SampleGrid(name="g")
+        with pytest.raises(GridExchangeError, match="Calibrate slot positions"):
+            microscope._stage.ensure_loaded("g")
 
     def test_absent_grid_raises_with_a_manual_instruction(self):
         microscope = _fixed_demo()

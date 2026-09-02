@@ -22,13 +22,15 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import replace
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from fibsem import config as cfg
-from fibsem.microscopes._stage import GRID_RADIUS, GridSlot, SampleHolder
+from fibsem.microscopes._stage import GRID_RADIUS, SampleHolder, SlotCalibration
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
@@ -58,6 +60,15 @@ MIN_SLOT_SEPARATION = 2 * GRID_RADIUS
 STEP_HOLDER = 0
 STEP_ORIENTATION = 1
 # slot steps follow, one per slot, then the review step
+
+
+def fibsem_version() -> str:
+    try:
+        from fibsem import __version__
+
+        return str(__version__)
+    except Exception:  # noqa: BLE001 - provenance, not a dependency
+        return "unknown"
 
 
 def _label(
@@ -704,8 +715,19 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         holder.name = self._holder_name
         holder.capacity = self._capacity
         holder._ensure_slots()
+        stage_settings = getattr(self._microscope.system, "stage", None)
+        record = SlotCalibration(
+            orientation=CALIBRATION_ORIENTATION,
+            pre_tilt=float(getattr(stage_settings, "shuttle_pre_tilt", 0.0)),
+            rotation_reference=float(
+                getattr(stage_settings, "rotation_reference", 0.0)
+            ),
+            captured_at=datetime.now().isoformat(timespec="seconds"),
+            fibsem_version=fibsem_version(),
+        )
         for name, position in self._captured.items():
             holder.slots[name].position = position
+            holder.slots[name].calibration = replace(record)
         try:
             holder.save(self._save_path)
         except Exception as e:  # noqa: BLE001 - surfaced on the review page

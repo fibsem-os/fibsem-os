@@ -29,6 +29,7 @@ import logging
 @dataclass
 class GridTaskConfig(ABC):
     """Configuration for AutoLamella tasks."""
+
     task_type: ClassVar[str]
     display_name: ClassVar[str]
     task_name: str = ""
@@ -36,16 +37,19 @@ class GridTaskConfig(ABC):
 
 class GridTask(ABC):
     """Base class for AutoLamella tasks."""
+
     config_cls: ClassVar[GridTaskConfig]
     config: GridTaskConfig
 
-    def __init__(self,
-                 microscope: FibsemMicroscope,
-                 config: GridTaskConfig,
-                 grid: SampleGrid,
-                 experiment: 'Experiment',
-                 parent_ui: Optional['AutoLamellaUI'] = None,
-                 task_manager: Optional['TaskManager'] = None):
+    def __init__(
+        self,
+        microscope: FibsemMicroscope,
+        config: GridTaskConfig,
+        grid: SampleGrid,
+        experiment: "Experiment",
+        parent_ui: Optional["AutoLamellaUI"] = None,
+        task_manager: Optional["TaskManager"] = None,
+    ):
         self.microscope = microscope
         self.config = config
         self.experiment = experiment
@@ -87,35 +91,47 @@ class GridTask(ABC):
 
     def _move_to_grid_slot_position(self, orientation: str):
         """Move to the grid slot position in the target orientation"""
-        target_position = self._get_stage_position_for_orientation(self.slot.position, orientation=orientation)
+        slot = self.slot
+        if slot is None or slot.position is None:
+            raise ValueError(
+                "The grid's slot has no calibrated position; run 'Calibrate slot "
+                "positions' in the Sample Holder panel first."
+            )
+        target_position = self._get_stage_position_for_orientation(
+            slot.position, orientation=orientation
+        )
         self.microscope._stage.move_absolute(target_position)
 
 
 @dataclass
 class AcquireOverviewImageGridTaskConfig(GridTaskConfig):
     """Configuration for acquiring overview image grid task."""
+
     task_type: ClassVar[str] = "ACQUIRE_OVERVIEW_IMAGE_GRID"
     display_name: ClassVar[str] = "Acquire Overview Image"
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
-    settings: OverviewAcquisitionSettings = field(default_factory = OverviewAcquisitionSettings)
+    settings: OverviewAcquisitionSettings = field(
+        default_factory=OverviewAcquisitionSettings
+    )
 
     def __post_init__(self):
         self.settings = OverviewAcquisitionSettings(
-                image_settings= ImageSettings(
+            image_settings=ImageSettings(
                 resolution=(1024, 1024),
                 hfw=500e-6,
                 dwell_time=1e-6,
                 beam_type=BeamType.ION,
                 path=None,
-                filename="overview-image"
+                filename="overview-image",
             ),
-                nrows=3,
-                ncols=3,
-            )
+            nrows=3,
+            ncols=3,
+        )
 
 
 class AcquireOverviewImageGridTask(GridTask):
     """Task to acquire an overview image of the sample grid."""
+
     config_cls: ClassVar[Type[GridTaskConfig]] = AcquireOverviewImageGridTaskConfig
     config: AcquireOverviewImageGridTaskConfig
 
@@ -135,17 +151,16 @@ class AcquireOverviewImageGridTask(GridTask):
         self._move_to_grid_slot_position(self.config.orientation)
 
         tiled_image_acquisition_and_stitch(
-            microscope=self.microscope,
-            settings=self.config.settings
+            microscope=self.microscope, settings=self.config.settings
         )
 
         logging.info(f"Acquired overview image for grid {self.grid.name}")
 
 
-
 @dataclass
 class AcquireImageGridTaskConfig(GridTaskConfig):
     """Configuration for acquiring overview image grid task."""
+
     task_type: ClassVar[str] = "ACQUIRE_IMAGE_GRID"
     display_name: ClassVar[str] = "Acquire Image"
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
@@ -154,6 +169,7 @@ class AcquireImageGridTaskConfig(GridTaskConfig):
 
 class AcquireImageTask(GridTask):
     """Task to acquire an image of the sample grid at a specified voltage."""
+
     config_cls: ClassVar[Type[GridTaskConfig]] = AcquireImageGridTaskConfig
     config: AcquireImageGridTaskConfig
 
@@ -173,24 +189,29 @@ class AcquireImageTask(GridTask):
         self._move_to_grid_slot_position(self.config.orientation)
 
         inital_state = self.microscope.get_microscope_state()
-        self.microscope.set_beam_voltage(self.config.voltage, beam_type=BeamType.ELECTRON)
+        self.microscope.set_beam_voltage(
+            self.config.voltage, beam_type=BeamType.ELECTRON
+        )
 
-        image_settings  = ImageSettings(resolution=(4096, 4096), hfw=2000e-6) 
+        image_settings = ImageSettings(resolution=(4096, 4096), hfw=2000e-6)
         image_settings.save = False
 
         from fibsem import utils
+
         image = self.microscope.acquire_image(image_settings=image_settings)
-        image.save(os.path.join(test_path, f"grid-image-{utils.current_timestamp_v3()}"))
+        image.save(
+            os.path.join(test_path, f"grid-image-{utils.current_timestamp_v3()}")
+        )
 
         self.microscope.set_microscope_state(inital_state)
 
         logging.info(f"Acquired image for grid {self.grid.name}")
 
 
-
 @dataclass
 class CryoDepositionGridTaskConfig(GridTaskConfig):
     """Configuration for cryo deposition task."""
+
     task_type: ClassVar[str] = "CRYO_DEPOSITION_GRID"
     display_name: ClassVar[str] = "Cryo Deposition"
     deposition_time: float = 30.0  # seconds
@@ -199,6 +220,7 @@ class CryoDepositionGridTaskConfig(GridTaskConfig):
 @dataclass
 class CryoSputterGridTaskConfig(GridTaskConfig):
     """Configuration for cryo sputter task."""
+
     task_type: ClassVar[str] = "CRYO_SPUTTER_GRID"
     display_name: ClassVar[str] = "Cryo Sputter"
     sputter_time: float = 60.0  # seconds
@@ -209,10 +231,11 @@ class CryoSputterGridTaskConfig(GridTaskConfig):
 @dataclass
 class CryoCleaninggGridTaskConfig(GridTaskConfig):
     """Configuration for cryo cleaning milling task."""
+
     task_type: ClassVar[str] = "CRYO_CLEANING_GRID"
     display_name: ClassVar[str] = "Cryo Cleaning Milling"
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
-    milling_angle: float = 38.0 # degrees
+    milling_angle: float = 38.0  # degrees
     field_of_view: float = 900e-6  # meters
     duration: float = 10.0  # seconds
     current: float = 15e-9  # A
@@ -220,6 +243,7 @@ class CryoCleaninggGridTaskConfig(GridTaskConfig):
 
 class CryoCleaningGridTask(GridTask):
     """Task to perform cryo cleaning on the sample grid."""
+
     config_cls: ClassVar[Type[GridTaskConfig]] = CryoCleaninggGridTaskConfig
     config: CryoCleaninggGridTaskConfig
 
@@ -238,7 +262,9 @@ class CryoCleaningGridTask(GridTask):
 
         # set beam parameters
         self.microscope.set_beam_current(self.config.current, beam_type=BeamType.ION)
-        self.microscope.set_field_of_view(self.config.field_of_view, beam_type=BeamType.ION)
+        self.microscope.set_field_of_view(
+            self.config.field_of_view, beam_type=BeamType.ION
+        )
 
         # start timer for duration
         start_time = time.time()
@@ -249,11 +275,15 @@ class CryoCleaningGridTask(GridTask):
                 break
             time.sleep(1)  # wait for 1 second before checking again
             remaining_time = self.config.duration - (time.time() - start_time)
-            logging.info(f"Cryo cleaning in progress... {remaining_time:.1f} seconds remaining.")
+            logging.info(
+                f"Cryo cleaning in progress... {remaining_time:.1f} seconds remaining."
+            )
         self.microscope.stop_acquisition()
 
         # restore previous settings if needed
-        self.microscope.set_beam_current(self.microscope.system.ion.beam.beam_current, beam_type=BeamType.ION)
+        self.microscope.set_beam_current(
+            self.microscope.system.ion.beam.beam_current, beam_type=BeamType.ION
+        )
 
         # Implement the cryo cleaning logic here
         logging.info(f"Completed cryo cleaning for grid {self.grid.name}")
@@ -263,12 +293,13 @@ class CryoCleaningGridTask(GridTask):
         os.makedirs(path, exist_ok=True)
         image.save(os.path.join(path, "post-grid-cleaining_ib.tif"))
 
+
 @dataclass
 class ParallelTrenchMIllingGridTaskConfig(GridTaskConfig):
     """Configuration for parallel trench milling task."""
+
     task_type: ClassVar[str] = "PARALLEL_TRENCH_MILLING_GRID"
     display_name: ClassVar[str] = "Parallel Trench Milling"
-
 
 
 GRID_TASK_REGISTRY: Dict[str, Type[GridTask]] = {
@@ -276,18 +307,21 @@ GRID_TASK_REGISTRY: Dict[str, Type[GridTask]] = {
     AcquireImageGridTaskConfig.task_type: AcquireImageTask,
     CryoCleaninggGridTaskConfig.task_type: CryoCleaningGridTask,
     # Add other tasks here as needed
-}   
+}
 
-def run_grid_task(microscope: FibsemMicroscope, 
-          task_name: str, 
-          experiment: 'Experiment',
-          grid: SampleGrid, 
-          parent_ui: Optional['AutoLamellaUI'] = None) -> None:
+
+def run_grid_task(
+    microscope: FibsemMicroscope,
+    task_name: str,
+    experiment: "Experiment",
+    grid: SampleGrid,
+    parent_ui: Optional["AutoLamellaUI"] = None,
+) -> None:
     """Run a specific AutoLamella task."""
 
     # task_config = experiment.task_protocol.task_config.get(task_name)
     # if task_config is None:
-        # raise ValueError(f"Task configuration for {task_name} not found in lamella tasks.")
+    # raise ValueError(f"Task configuration for {task_name} not found in lamella tasks.")
 
     task_cls = GRID_TASK_REGISTRY.get(task_name)
     if task_cls is None:
@@ -295,19 +329,23 @@ def run_grid_task(microscope: FibsemMicroscope,
 
     config = task_cls.config_cls()
 
-    task = task_cls(microscope=microscope,
-                    config=config,
-                    experiment=experiment,
-                    grid=grid,
-                    parent_ui=parent_ui)
+    task = task_cls(
+        microscope=microscope,
+        config=config,
+        experiment=experiment,
+        grid=grid,
+        parent_ui=parent_ui,
+    )
     task.run()
     # TODO: add task config to experiment, integrate into runner
 
 
-def run_grid_tasks(microscope: FibsemMicroscope, 
-                   experiment: 'Experiment', 
-                   grid_names: list[str],
-                   task_names: list[str]) -> None:
+def run_grid_tasks(
+    microscope: FibsemMicroscope,
+    experiment: "Experiment",
+    grid_names: list[str],
+    task_names: list[str],
+) -> None:
     """Run tasks for specified grids."""
     for grid_name in grid_names:
         for task_name in task_names:
@@ -317,4 +355,6 @@ def run_grid_tasks(microscope: FibsemMicroscope,
                 continue
 
             logging.info(f"Running task {task_name} on grid {grid_name}.")
-            run_grid_task(microscope, task_name, experiment=experiment, grid=slot.loaded_grid)
+            run_grid_task(
+                microscope, task_name, experiment=experiment, grid=slot.loaded_grid
+            )

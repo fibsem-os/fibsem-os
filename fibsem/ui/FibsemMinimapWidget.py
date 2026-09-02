@@ -1478,7 +1478,9 @@ class FibsemMinimapWidget(QWidget):
 
         # grid positions
         grid_positions = [
-            s.position for s in self.microscope._stage.holder.slots.values()
+            s.position
+            for s in self.microscope._stage.holder.slots.values()
+            if s.position is not None  # uncalibrated slots draw nothing
         ]
         grid_points = tiled.reproject_stage_positions_onto_image2(
             self.image, grid_positions

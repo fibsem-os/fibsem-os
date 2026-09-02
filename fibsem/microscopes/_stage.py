@@ -50,17 +50,67 @@ class SampleGrid:
 
 
 @dataclass
+class SlotCalibration:
+    """The proof that a slot position was captured properly, and what it was captured against.
+
+    Written only by the calibration wizard. A position without one, which is every
+    holder file in the field before this existed, is not trusted: it was captured at
+    an unknown orientation with a button that took whatever the stage said. A position
+    whose ``pre_tilt`` or ``rotation_reference`` no longer match the system
+    configuration is not trusted either, since the geometry it was captured against
+    has moved. Both cases read as "not calibrated" and the wizard is the way back.
+    """
+
+    orientation: str
+    pre_tilt: float
+    rotation_reference: float
+    captured_at: str = ""
+    fibsem_version: str = ""
+
+    def matches(self, pre_tilt: float, rotation_reference: float) -> bool:
+        return (
+            abs(self.pre_tilt - pre_tilt) < 1e-3
+            and abs(self.rotation_reference - rotation_reference) < 1e-3
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "orientation": self.orientation,
+            "pre_tilt": self.pre_tilt,
+            "rotation_reference": self.rotation_reference,
+            "captured_at": self.captured_at,
+            "fibsem_version": self.fibsem_version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SlotCalibration":
+        return SlotCalibration(
+            orientation=str(data.get("orientation", "")),
+            pre_tilt=float(data.get("pre_tilt", 0.0)),
+            rotation_reference=float(data.get("rotation_reference", 0.0)),
+            captured_at=str(data.get("captured_at", "")),
+            fibsem_version=str(data.get("fibsem_version", "")),
+        )
+
+
+@dataclass
 class GridSlot:
     """A slot that may hold one SampleGrid.
 
-    A holder *working* slot has a calibrated stage ``position``. A loader *magazine*
-    slot is storage and has none, so ``position`` is optional.
+    A holder *working* slot has a stage ``position`` once it has been calibrated, and
+    a ``calibration`` record saying so; until then ``position`` is None and nothing
+    will move to it. A loader *magazine* slot is storage and never has a position.
     """
 
     name: str
     index: int
     position: Optional[FibsemStagePosition] = None
     loaded_grid: Optional[SampleGrid] = None
+    calibration: Optional[SlotCalibration] = None
+
+    @property
+    def is_calibrated(self) -> bool:
+        return self.position is not None and self.calibration is not None
 
     def to_dict(self) -> dict:
         return {
@@ -69,6 +119,9 @@ class GridSlot:
             "position": self.position.to_dict() if self.position is not None else None,
             "loaded_grid": self.loaded_grid.to_dict()
             if self.loaded_grid is not None
+            else None,
+            "calibration": self.calibration.to_dict()
+            if self.calibration is not None
             else None,
         }
 
@@ -84,11 +137,18 @@ class GridSlot:
         position = (
             FibsemStagePosition(**position_data) if position_data is not None else None
         )
+        calibration_data = data.get("calibration")
+        calibration = (
+            SlotCalibration.from_dict(calibration_data)
+            if calibration_data is not None
+            else None
+        )
         slot = GridSlot(
             name=data.get("name", ""),
             index=data.get("index", 0),
             position=position,
             loaded_grid=loaded_grid,
+            calibration=calibration,
         )
         if slot.position is not None:
             slot.position.name = slot.name
@@ -151,16 +211,56 @@ class SampleHolder:
             if s.loaded_grid is not None
         ]
 
+    @property
+    def calibrated_slots(self) -> List["GridSlot"]:
+        """The slots with a trusted position: the ones the stage can be sent to."""
+        return [
+            s
+            for s in sorted(self.slots.values(), key=lambda s: s.index)
+            if s.is_calibrated
+        ]
+
+    def discard_untrusted_positions(
+        self, pre_tilt: float, rotation_reference: float
+    ) -> List[str]:
+        """Drop every slot position that was not calibrated against this geometry.
+
+        A position with no calibration record was captured by the old per-slot
+        button at an unknown orientation; one whose record disagrees with the current
+        pre-tilt or reference rotation was captured against a stage that has since
+        been reconfigured. Neither can be trusted, so both become "not calibrated"
+        in memory. The file is left alone: the wizard rewrites it when someone
+        recalibrates, and never before. Returns one line per discarded slot, for
+        the log and the UI.
+        """
+        notes: List[str] = []
+        for slot in sorted(self.slots.values(), key=lambda s: s.index):
+            if slot.position is None:
+                continue
+            if slot.calibration is None:
+                reason = "it has no calibration record"
+            elif not slot.calibration.matches(pre_tilt, rotation_reference):
+                reason = (
+                    f"it was calibrated at pre-tilt {slot.calibration.pre_tilt:g}°, "
+                    f"reference rotation {slot.calibration.rotation_reference:g}°, "
+                    f"but the system is configured for {pre_tilt:g}° / "
+                    f"{rotation_reference:g}°"
+                )
+            else:
+                continue
+            slot.position = None
+            slot.calibration = None
+            notes.append(f"{slot.name}: position discarded because {reason}")
+        return notes
+
     def _ensure_slots(self) -> None:
         """Ensure exactly `capacity` slots exist; add empty ones for missing indices."""
         for i in range(self.capacity):
             name = f"Slot-{i + 1:02d}"
             if name not in self.slots:
-                self.slots[name] = GridSlot(
-                    name=name,
-                    index=i,
-                    position=FibsemStagePosition(name=name, x=0.0, y=0.0, z=0.0),
-                )
+                # A new slot has no position until it is calibrated; inventing one
+                # at the origin was a number that looked like a measurement.
+                self.slots[name] = GridSlot(name=name, index=i, position=None)
         for name in [
             n for n, s in list(self.slots.items()) if s.index >= self.capacity
         ]:
@@ -547,12 +647,14 @@ class Stage:
         return self.parent.project_stable_move(dx, dy, beam_type, base_position)
 
     def move_to_slot(self, slot_name: str) -> FibsemStagePosition:
-        """Move the stage to a specific slot."""
+        """Move the stage to a specific slot. Refuses a slot that is not calibrated."""
         if self.holder is None:
             raise ValueError("No sample holder defined.")
         if slot_name not in self.holder.slots:
             raise ValueError(f"Slot '{slot_name}' not found in sample holder.")
         slot = self.holder.slots[slot_name]
+        if slot.position is None:
+            raise ValueError(uncalibrated_message(slot_name))
         self.move_absolute(slot.position)
         return self.position
 
@@ -589,6 +691,10 @@ class Stage:
         """
         working = self.holder.find_slot_by_grid_name(grid_name)
         if working is not None:
+            if working.position is None and self.loader is None:
+                # Present, but nothing can be sent to it: on a fixed holder "in the
+                # beam" only means anything once the slot has a trusted position.
+                raise GridExchangeError(uncalibrated_message(working.name))
             return working
         if self.loader is None:
             raise GridExchangeError(
@@ -643,16 +749,19 @@ class Stage:
             self.holder.save(SAMPLE_HOLDER_CONFIGURATION_PATH)
 
 
-def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
+def uncalibrated_message(slot_name: str) -> str:
+    return (
+        f"{slot_name} has no calibrated position. Run 'Calibrate slot positions' "
+        "in the Sample Holder panel on the Microscope tab."
+    )
 
+
+def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
     if microscope.stage_is_compustage:
-        slot01 = GridSlot(
-            name="Slot-01",
-            index=0,
-            position=FibsemStagePosition(
-                name="Slot-01", x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
-            ),
-        )
+        # The working slot's position is not known until someone calibrates it: the
+        # loader puts the grid wherever it puts it, and a placeholder at the origin
+        # was a number that looked like a measurement.
+        slot01 = GridSlot(name="Slot-01", index=0, position=None)
         holder = SampleHolder(
             name="CompuStage Holder", capacity=1, slots={"Slot-01": slot01}
         )
@@ -665,11 +774,16 @@ def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
         if not path.exists():
             logging.info(f"Sample holder config not found at {path}, using default.")
             path = Path(DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH)
-        orientation = microscope.get_orientation("SEM")
         holder = SampleHolder.load(path)
-        for slot in holder.slots.values():
-            slot.position.r = orientation.r
-            slot.position.t = orientation.t
+        # Trust only positions the wizard captured against this stage geometry. The
+        # old stamping of SEM r/t onto whatever x/y/z the file held is gone: a
+        # calibrated position carries its own r/t, and an uncalibrated one has none.
+        stage_settings = microscope.system.stage
+        for note in holder.discard_untrusted_positions(
+            float(stage_settings.shuttle_pre_tilt),
+            float(stage_settings.rotation_reference),
+        ):
+            logging.warning(f"Sample holder: {note}. Recalibrate it.")
         loader = None
 
     holder._parent = microscope

@@ -99,7 +99,10 @@ class _GridSlotRowWidget(QWidget):
             fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_capture.setToolTip("Update Position")
-        self.btn_capture.setVisible(_show_move)
+        # Hidden: this took whatever the stage said, at whatever orientation, and
+        # wrote it with no record, so it now produces a position that is discarded
+        # on the next load. "Calibrate slot positions" is the way to set one.
+        self.btn_capture.setVisible(False)
         self.btn_capture.clicked.connect(lambda: self.capture_clicked.emit(self.slot))
         self.btn_capture.installEventFilter(self)
         layout.addWidget(self.btn_capture)
@@ -132,12 +135,24 @@ class _GridSlotRowWidget(QWidget):
 
     def refresh(self) -> None:
         self.slot_label.setText(self.slot.name)
+        calibrated = self.slot.position is not None
         if self.slot.loaded_grid is not None:
-            self.grid_label.setText(self.slot.loaded_grid.name)
+            text = self.slot.loaded_grid.name
+            if not calibrated:
+                text += "  (not calibrated)"
+            self.grid_label.setText(text)
             self.grid_label.setStyleSheet(_LOADED_STYLE)
         else:
-            self.grid_label.setText("Empty")
+            self.grid_label.setText(
+                "Empty" if calibrated else "Empty  (not calibrated)"
+            )
             self.grid_label.setStyleSheet(_EMPTY_STYLE)
+        self.btn_move.setEnabled(calibrated)
+        self.btn_move.setToolTip(
+            "Move to Position"
+            if calibrated
+            else "Not calibrated: run Calibrate slot positions"
+        )
         if self.btn_clear.isVisible():
             self.btn_clear.setEnabled(self.slot.loaded_grid is not None)
 

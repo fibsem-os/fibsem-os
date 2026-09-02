@@ -190,3 +190,30 @@ def test_orientation_diagram_follows_the_stage(qapp, microscope, tmp_path):
     assert dialog.stage_diagram._mirrored is False
     sem_tilt = microscope.get_orientation(CALIBRATION_ORIENTATION).t
     assert abs(dialog.stage_diagram._stage_tilt - math.degrees(sem_tilt)) < 1e-6
+
+
+def test_save_writes_a_calibration_record_that_survives_reload(
+    qapp, microscope, tmp_path
+):
+    holder = _holder(1)
+    dialog = _dialog(qapp, microscope, holder, tmp_path)
+    _move_to(microscope, x=-3e-3, y=0.0)
+    dialog._show_step(2)
+    dialog._on_capture()
+    dialog._show_step(dialog.review_step)
+    dialog._on_next()  # Save
+
+    again = SampleHolder.load(tmp_path / "holder.yaml")
+    slot = again.slots["Slot-01"]
+    assert slot.is_calibrated
+    assert slot.calibration.orientation == CALIBRATION_ORIENTATION
+    assert slot.calibration.pre_tilt == microscope.system.stage.shuttle_pre_tilt
+    assert slot.calibration.captured_at  # provenance
+    # and the stage trusts it against the same geometry
+    assert (
+        again.discard_untrusted_positions(
+            microscope.system.stage.shuttle_pre_tilt,
+            microscope.system.stage.rotation_reference,
+        )
+        == []
+    )

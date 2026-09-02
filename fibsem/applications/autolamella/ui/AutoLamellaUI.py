@@ -1007,7 +1007,9 @@ class AutoLamellaUI(QMainWindow):
             )
             if self.minimap_plot_widget.grid_positions is None:
                 self.minimap_plot_widget.grid_positions = [
-                    s.position for s in self.microscope._stage.holder.slots.values()
+                    s.position
+                    for s in self.microscope._stage.holder.slots.values()
+                    if s.position is not None  # uncalibrated slots draw nothing
                 ]
             self.minimap_plot_widget.fov_width = fov
             if stage_position is not None:
