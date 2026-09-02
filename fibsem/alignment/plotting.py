@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import numpy as np
 
@@ -13,7 +13,10 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
 
     from fibsem.alignment import AlignmentDifferential, AlignmentIteration
-    from fibsem.alignment.coincidence import CoincidenceMeasurement
+    from fibsem.alignment.coincidence import (
+        CoincidenceAlignment,
+        CoincidenceMeasurement,
+    )
     from fibsem.structures import FibsemImage
 
 
@@ -279,3 +282,40 @@ def plot_coincidence_measurement(
         save_path = os.path.join(ref_path, f"{prefix}coincidence_{ts}.png")
         fig.savefig(save_path, dpi=80)
     return fig
+
+
+def save_coincidence_diagnostics(
+    result: "CoincidenceAlignment", path: str, prefix: str = ""
+) -> List[str]:
+    """Save one diagnostic figure per measurement of an ensure_coincident run.
+
+    Files are numbered in run order (`<prefix>coincidence_<ts>_01_fine.png`,
+    `..._02_coarse.png`, ...) so a run reads as a sequence: the refusal that
+    escalated, the coarse lock, the post-move residual. Measurements without
+    their image pair (the pure array path) are skipped.
+
+    Returns:
+        the saved file paths, in order.
+    """
+    from datetime import datetime
+
+    os.makedirs(path, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    saved: List[str] = []
+    for i, m in enumerate(result.measurements, start=1):
+        if m.sem_image is None or m.fib_image is None:
+            continue
+        pass_name = "coarse" if m.coarse else "fine"
+        fig = plot_coincidence_measurement(
+            m.sem_image,
+            m.fib_image,
+            m,
+            title=f"Coincidence {i}/{len(result.measurements)} ({pass_name})",
+            save=False,
+        )
+        save_path = os.path.join(
+            path, f"{prefix}coincidence_{ts}_{i:02d}_{pass_name}.png"
+        )
+        fig.savefig(save_path, dpi=80)
+        saved.append(save_path)
+    return saved
