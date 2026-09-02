@@ -305,9 +305,8 @@ def test_the_flag_exists_and_is_off_by_default():
 def test_the_flag_survives_a_preferences_round_trip(tmp_path):
     """A flag that does not persist cannot be turned on by the person who wants it back.
 
-    Through `to_dict`/`from_dict` rather than through `apply_feature_flags`, which does
-    not carry this one — saving and reloading is what the preferences dialog actually
-    does, and it is the step that would silently drop an unknown field.
+    Through `to_dict`/`from_dict`: saving and reloading is what the preferences dialog
+    actually does, and it is the step that would silently drop an unknown field.
     """
     import fibsem.config as fibsem_cfg
 

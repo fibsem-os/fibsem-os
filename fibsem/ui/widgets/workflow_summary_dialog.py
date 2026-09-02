@@ -4,6 +4,7 @@ Modal dialog showing a summary of the tasks run in a single workflow run.
 Displays one row per (lamella, task) attempted in the run with status,
 completion time and duration, count chips and a primary OK button.
 """
+
 from typing import List, Optional
 
 import pandas as pd
@@ -80,6 +81,22 @@ QHeaderView::section {{
 """
 
 _COLUMNS = ["Lamella", "Task", "Status", "Completed", "Duration"]
+# The item column by what the run was over: the lamella manager's summary carries
+# lamella_name, the grid manager's grid_name. Header and count words follow.
+_ITEM_COLUMNS = (
+    ("lamella_name", "Lamella", "lamella", "lamellae"),
+    ("grid_name", "Grid", "grid", "grids"),
+    ("item_name", "Item", "item", "items"),
+)
+
+
+def _item_column(df: Optional[pd.DataFrame]):
+    """(column, header, singular, plural) for the item this summary is over."""
+    if df is not None:
+        for column, header, one, many in _ITEM_COLUMNS:
+            if column in df.columns:
+                return column, header, one, many
+    return _ITEM_COLUMNS[0]
 
 
 class _NumericItem(QTableWidgetItem):
@@ -120,7 +137,9 @@ class WorkflowSummaryDialog(QDialog):
         # header: title + meta line
         header_layout = QHBoxLayout()
         title_label = QLabel("Workflow summary")
-        title_label.setStyleSheet(f"font-size: 16px; font-weight: 500; color: {_TEXT_STRONG};")
+        title_label.setStyleSheet(
+            f"font-size: 16px; font-weight: 500; color: {_TEXT_STRONG};"
+        )
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         meta_label = QLabel(self._format_meta(dataframe))
@@ -171,10 +190,14 @@ class WorkflowSummaryDialog(QDialog):
     @staticmethod
     def _make_chip(status: str, count: int) -> QLabel:
         """A pill label: coloured dot + 'N status'."""
-        dot_color, text_color = STATUS_BADGE_COLORS.get(status, (TEXT_MUTED_COLOR, "#aeb4b9"))
+        dot_color, text_color = STATUS_BADGE_COLORS.get(
+            status, (TEXT_MUTED_COLOR, "#aeb4b9")
+        )
         bg = QColor(dot_color)
         bg_rgba = f"rgba({bg.red()}, {bg.green()}, {bg.blue()}, 0.15)"
-        chip = QLabel(f'<span style="color:{dot_color};">&#9679;</span> {count} {status.lower()}')
+        chip = QLabel(
+            f'<span style="color:{dot_color};">&#9679;</span> {count} {status.lower()}'
+        )
         chip.setStyleSheet(
             f"background-color: {bg_rgba}; color: {text_color};"
             f"padding: 3px 10px; border-radius: 10px; font-size: 12px;"
@@ -185,8 +208,10 @@ class WorkflowSummaryDialog(QDialog):
         """Build the styled summary table from the raw dataframe."""
         table = QTableWidget()
         table.setStyleSheet(_TABLE_STYLE)
-        table.setColumnCount(len(_COLUMNS))
-        table.setHorizontalHeaderLabels(_COLUMNS)
+        item_column, item_header, _one, _many = _item_column(df)
+        columns = [item_header] + _COLUMNS[1:]
+        table.setColumnCount(len(columns))
+        table.setHorizontalHeaderLabels(columns)
         table.verticalHeader().setVisible(False)
         table.setShowGrid(False)
         table.setAlternatingRowColors(True)
@@ -205,7 +230,7 @@ class WorkflowSummaryDialog(QDialog):
             status = str(row.get("task_status", ""))
             _dot_color, text_color = STATUS_BADGE_COLORS.get(status, (_TEXT, _TEXT))
 
-            lamella_item = QTableWidgetItem(str(row.get("lamella_name", "")))
+            lamella_item = QTableWidgetItem(str(row.get(item_column, "")))
             lamella_item.setForeground(QColor(_TEXT_STRONG))
 
             task_item = QTableWidgetItem(str(row.get("task_name", "")))
@@ -255,9 +280,10 @@ class WorkflowSummaryDialog(QDialog):
         n_tasks = len(df)
         parts: List[str] = [f"{n_tasks} task" + ("" if n_tasks == 1 else "s")]
 
-        if "lamella_name" in df.columns:
-            n_lamellae = int(df["lamella_name"].nunique())
-            parts.append(f"{n_lamellae} lamella" + ("" if n_lamellae == 1 else "e"))
+        item_column, _header, one, many = _item_column(df)
+        if item_column in df.columns:
+            n_items = int(df[item_column].nunique())
+            parts.append(f"{n_items} {one if n_items == 1 else many}")
 
         if "duration" in df.columns:
             total = pd.to_numeric(df["duration"], errors="coerce").fillna(0).sum()
@@ -275,10 +301,34 @@ def main():
 
     df = pd.DataFrame(
         [
-            {"lamella_name": "01-nice-mako", "task_name": "Setup Lamella Position", "task_status": "Completed", "completed_at": "01:37 PM", "duration": 24.0},
-            {"lamella_name": "02-awake-stork", "task_name": "Setup Lamella Position", "task_status": "Completed", "completed_at": "01:37 PM", "duration": 23.0},
-            {"lamella_name": "01-nice-mako", "task_name": "Mill Fiducial", "task_status": "Failed", "completed_at": "01:38 PM", "duration": 39.0},
-            {"lamella_name": "02-awake-stork", "task_name": "Mill Fiducial", "task_status": "Skipped", "completed_at": "", "duration": None},
+            {
+                "lamella_name": "01-nice-mako",
+                "task_name": "Setup Lamella Position",
+                "task_status": "Completed",
+                "completed_at": "01:37 PM",
+                "duration": 24.0,
+            },
+            {
+                "lamella_name": "02-awake-stork",
+                "task_name": "Setup Lamella Position",
+                "task_status": "Completed",
+                "completed_at": "01:37 PM",
+                "duration": 23.0,
+            },
+            {
+                "lamella_name": "01-nice-mako",
+                "task_name": "Mill Fiducial",
+                "task_status": "Failed",
+                "completed_at": "01:38 PM",
+                "duration": 39.0,
+            },
+            {
+                "lamella_name": "02-awake-stork",
+                "task_name": "Mill Fiducial",
+                "task_status": "Skipped",
+                "completed_at": "",
+                "duration": None,
+            },
         ]
     )
 

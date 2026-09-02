@@ -118,11 +118,11 @@ def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
 
     items = [
         WorkItem(
-            lamella_name="lamella-03",
+            item_name="lamella-03",
             task_name="Trench",
             status=AutoLamellaTaskStatus.InProgress,
         ),
-        WorkItem(lamella_name="lamella-04", task_name="Trench"),
+        WorkItem(item_name="lamella-04", task_name="Trench"),
     ]
     report = WorkflowStatusUpdate(
         task_name="Trench",

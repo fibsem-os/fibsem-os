@@ -28,6 +28,9 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
     FluorescenceOverviewGridTaskConfig,
     run_grid_task,
 )
+from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
+    acquire_fluorescence_overview,
+)
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.microscopes._stage import SampleGrid
 
@@ -144,3 +147,44 @@ class TestRun:
         with pytest.raises(RuntimeError, match="no fluorescence microscope"):
             run_grid_task(plain, "overview_fm", experiment, grid)
         assert grid.task_state.status is AutoLamellaTaskStatus.Failed
+
+
+class TestProgressEndsTheRun:
+    """The FM runner reports up to the stitch; the operation says how it ended, so
+    the window's status bar does not stay on "Stitching tiles" for ever."""
+
+    def test_a_finished_run_reports_saving_then_finished(self, microscope, experiment):
+        from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, TiledStatus
+
+        reports = []
+        microscope.tiled_acquisition_signal.connect(reports.append)
+        grid = experiment.get_grid_by_name("grid-aspen")
+        run_grid_task(microscope, "overview_fm", experiment, grid)
+        statuses = [r.status for r in reports if r.modality == MODALITY_FLUORESCENCE]
+        assert statuses[-2:] == [TiledStatus.SAVING, TiledStatus.FINISHED]
+        assert TiledStatus.STITCHING in statuses
+
+    def test_a_stopped_run_reports_cancelled(self, microscope, experiment):
+        import threading
+
+        from fibsem.imaging.tiling.progress import TiledStatus
+
+        reports = []
+        microscope.tiled_acquisition_signal.connect(reports.append)
+        stop = threading.Event()
+        stop.set()
+        grid = experiment.get_grid_by_name("grid-aspen")
+        config = experiment.grid_protocol.task_config["overview_fm"]
+        # Where the task would have put the stage: the runner refuses to image
+        # anywhere but the FM pose, which would report Failed, not Cancelled.
+        microscope.move_to_device("FM")
+        with pytest.raises(Exception):
+            acquire_fluorescence_overview(
+                microscope,
+                config.channels,
+                config.overview,
+                microscope.get_stage_position(),
+                experiment.grid_path(grid) / "overview_fm",
+                stop_event=stop,
+            )
+        assert reports[-1].status is TiledStatus.CANCELLED

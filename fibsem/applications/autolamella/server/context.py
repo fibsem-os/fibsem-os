@@ -119,7 +119,7 @@ class AgentContext:
             )
             if active is not None:
                 payload["workflow"]["current_task"] = active.task_name
-                payload["workflow"]["current_item"] = active.lamella_name
+                payload["workflow"]["current_item"] = active.item_name
         return payload
 
     def queue(self) -> Dict[str, Any]:
@@ -134,7 +134,7 @@ class AgentContext:
             "items": [
                 {
                     "id": item.id,
-                    "item_name": item.lamella_name,
+                    "item_name": item.item_name,
                     "task_name": item.task_name,
                     "status": item.status.name,
                 }

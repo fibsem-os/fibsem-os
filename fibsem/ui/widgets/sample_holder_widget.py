@@ -285,6 +285,7 @@ class SampleHolderWidget(QWidget):
         self.btn_calibrate.clicked.connect(self._on_calibrate)
 
         self.facts_label = QLabel()
+        self.facts_label.setWordWrap(True)
         self.facts_label.setStyleSheet(
             f"color: {TEXT_MUTED_COLOR}; font-size: 11px; background: transparent;"
         )
@@ -293,6 +294,9 @@ class SampleHolderWidget(QWidget):
         self._list = QListWidget()
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setSelectionMode(QListWidget.NoSelection)
+        # Fixed (the default) lays item widgets out once, at whatever width the
+        # list had then; a later resize or restyle leaves them clipped.
+        self._list.setResizeMode(QListWidget.Adjust)
         self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setMinimumHeight(2 * _ROW_HEIGHT)

@@ -57,6 +57,7 @@ from fibsem.ui import (
 )
 from fibsem.ui import utils as fui
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
+from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.qt.threading import FunctionWorker
 
@@ -222,6 +223,7 @@ class AutoLamellaUI(QMainWindow):
         self.movement_widget: Optional[FibsemMovementWidget] = None
         self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
         self.fm_control_widget: Optional[FMControlWidget] = None
+        self.sample_widget: Optional[FibsemSampleWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
 
@@ -709,6 +711,17 @@ class AutoLamellaUI(QMainWindow):
             )
             self.tabWidget.addTab(self.milling_task_config_widget, "Milling")
 
+            # The hardware view of the grids: the holder, and the magazine when
+            # there is one. Slot moves go through the Movement widget, the same
+            # route as a saved position, so the readout and post-move images follow.
+            self.sample_widget = FibsemSampleWidget(
+                microscope=self.microscope, parent=self
+            )
+            self.sample_widget.move_to_requested.connect(
+                self.movement_widget.move_to_position
+            )
+            self.tabWidget.addTab(self.sample_widget, "Sample")
+
             if self.microscope.fm is not None:
                 self.fm_control_widget = FMControlWidget(
                     microscope=self.microscope, parent=self
@@ -753,6 +766,10 @@ class AutoLamellaUI(QMainWindow):
                 return
 
             # remove tabs
+            if self.sample_widget is not None:
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.sample_widget))
+                self.sample_widget.deleteLater()
+                self.sample_widget = None
             if self.fm_control_widget is not None:
                 # deleteLater fires neither closeEvent nor close_widget, so tear
                 # down the FM widget's external signal connections explicitly
@@ -1045,6 +1062,83 @@ class AutoLamellaUI(QMainWindow):
             self._run_tasks_worker, selected_tasks, selected_lamella
         )
         self._task_worker_thread.start()
+
+    def _start_run_grid_workflow_thread(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]],
+        inventory_first: bool = False,
+    ) -> None:
+        """Start a grid run on the workflow thread: the lamella run's twin.
+
+        `grid_names` None with `inventory_first` is "Screen all grids": the worker
+        runs the inventory, records every present grid, and runs over them all.
+        Shares the worker slot, the manager slot and the finished signal with the
+        lamella run, so Stop, the timeline and the run summary work unchanged and
+        the two cannot overlap.
+        """
+        if self._script_runner_is_busy():
+            msg = "A microscope script is running. Stop it before starting a workflow."
+            logging.warning(msg)
+            notification_service.show_toast(msg, "warning")
+            return
+        self._task_worker_thread = FunctionWorker(
+            self._run_grid_tasks_worker, task_names, grid_names, inventory_first
+        )
+        self._task_worker_thread.start()
+
+    def _run_grid_tasks_worker(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]],
+        inventory_first: bool,
+    ) -> None:
+        """Worker thread for a grid run."""
+        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+            GridTaskManager,
+        )
+        from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
+            present_grids,
+        )
+
+        try:
+            self._workflow_stop_event.clear()
+            if self.microscope is None or self.experiment is None:
+                logging.error("No microscope or experiment loaded.")
+                return
+            if not self.microscope.is_on(BeamType.ELECTRON):
+                self.microscope.turn_on(BeamType.ELECTRON)
+            if not self.microscope.is_on(BeamType.ION):
+                self.microscope.turn_on(BeamType.ION)
+            if inventory_first:
+                grid_names = present_grids(self.microscope, self.experiment)
+            logging.info(f"Starting grid tasks: {task_names}, for grids: {grid_names}")
+            self._task_manager = GridTaskManager(
+                microscope=self.microscope,
+                experiment=self.experiment,
+                parent_ui=self,
+                hook_manager=self.setup_hooks(),
+            )
+            if self._workflow_stop_event.is_set():
+                self._task_manager.stop()
+            self._task_manager.run(task_names, grid_names)
+        except (InterruptedError, OperationCancelledError) as e:
+            logging.info(f"Grid workflow cancelled: {e}")
+        except Exception as e:
+            logging.error(f"Error during grid workflow: {e}")
+        finally:
+            cancelled = self._task_manager is not None and self._task_manager.is_stopped
+            if self._task_manager is not None:
+                try:
+                    self._last_run_summary = (
+                        self._task_manager.build_run_summary_dataframe()
+                    )
+                except Exception as e:
+                    logging.warning(f"Failed to build grid run summary: {e}")
+                    self._last_run_summary = None
+            self._task_manager = None
+            self._task_worker_thread = None
+            self._workflow_finished_signal.emit(cancelled)  # type: ignore
 
     def request_start_workflow(
         self, task_names: List[str], item_names: Optional[List[str]] = None

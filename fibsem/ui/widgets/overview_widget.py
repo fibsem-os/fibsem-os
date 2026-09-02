@@ -821,7 +821,7 @@ class FibsemOverviewWidget(QWidget):
         # they are a lattice over everything and the two controls under them are theirs.
         self.overlay_controls = CanvasOverlayControls(
             [
-                *stage_context.CONTEXT_OVERLAY_ENTRIES,
+                *stage_context.context_overlay_entries(self.microscope),
                 (_OVERLAY_POSITIONS, "Saved positions", True),
                 (_OVERLAY_GRIDBARS, "Grid bars", False),
             ]

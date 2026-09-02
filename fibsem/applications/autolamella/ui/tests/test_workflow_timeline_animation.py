@@ -29,7 +29,7 @@ from fibsem.ui import stylesheets
 
 # ── Fake workflow data ────────────────────────────────────────────────────────
 LAMELLA_NAMES = ["Lamella-01", "Lamella-02"]
-TASK_NAMES    = ["Trench Milling", "Rough Milling", "Polishing"]
+TASK_NAMES = ["Trench Milling", "Rough Milling", "Polishing"]
 
 # Inner steps per task type
 TASK_STEPS: Dict[str, List[str]] = {
@@ -55,7 +55,7 @@ TASK_STEPS: Dict[str, List[str]] = {
     ],
 }
 
-_FAIL_CHANCE = 0.15   # probability any inner step fails
+_FAIL_CHANCE = 0.15  # probability any inner step fails
 
 
 class AnimatedDemo(QWidget):
@@ -67,13 +67,13 @@ class AnimatedDemo(QWidget):
 
         # Build flat list of (lamella, task) pairs matching run_tasks loop order
         self._outer_items: List[WorkItem] = [
-            WorkItem(lamella_name=ln, task_name=tn)
+            WorkItem(item_name=ln, task_name=tn)
             for tn in TASK_NAMES
             for ln in LAMELLA_NAMES
         ]
-        self._outer_idx   = -1   # which outer item is active
+        self._outer_idx = -1  # which outer item is active
         self._inner_steps: List[str] = []
-        self._inner_idx   = -1   # which inner step is active
+        self._inner_idx = -1  # which inner step is active
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -115,7 +115,7 @@ class AnimatedDemo(QWidget):
         self._btn_restart.clicked.connect(self._restart)
         self._btn_stop.clicked.connect(self._stop)
 
-        self._timer.start(400)   # short initial delay
+        self._timer.start(400)  # short initial delay
 
     # ── Timer tick ────────────────────────────────────────────────────────
     def _tick(self):
@@ -138,7 +138,7 @@ class AnimatedDemo(QWidget):
 
         item = self._outer_items[self._outer_idx]
         self._inner_steps = TASK_STEPS[item.task_name]
-        self._inner_idx   = -1
+        self._inner_idx = -1
 
         # Drive the outer timeline directly
         for i in range(len(self._outer_items)):
@@ -192,17 +192,16 @@ class AnimatedDemo(QWidget):
         else:
             self._timer.start(random.randint(1_000, 2_000))
 
-
     def _restart(self):
         self._timer.stop()
         self._outer_items = [
-            WorkItem(lamella_name=ln, task_name=tn)
+            WorkItem(item_name=ln, task_name=tn)
             for tn in TASK_NAMES
             for ln in LAMELLA_NAMES
         ]
-        self._outer_idx  = -1
+        self._outer_idx = -1
         self._inner_steps = []
-        self._inner_idx  = -1
+        self._inner_idx = -1
         self._progress.set_workflow(self._outer_items)
         self._status_label.setText("Restarted.")
         self._timer.start(400)
@@ -210,7 +209,7 @@ class AnimatedDemo(QWidget):
     def _stop(self):
         self._timer.stop()
         self._inner_steps = []
-        self._inner_idx   = -1
+        self._inner_idx = -1
         self._status_label.setText("Stopped.")
 
 

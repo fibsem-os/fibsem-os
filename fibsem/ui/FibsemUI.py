@@ -38,6 +38,7 @@ from fibsem.structures import MicroscopeSettings
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
+from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import NAPARI_STYLE
@@ -73,6 +74,7 @@ class FibsemUI(QMainWindow):
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
         self.milling_widget: Optional[MillingTaskViewerWidget] = None
+        self.sample_widget: Optional[MillingTaskViewerWidget] = None
         self.manipulator_widget: Optional[FibsemManipulatorWidget] = None
         self.overview_widget: Optional[FibsemOverviewWidget] = None
 
@@ -188,6 +190,7 @@ class FibsemUI(QMainWindow):
         self.image_widget = None
         self.movement_widget = None
         self.milling_widget = None
+        self.sample_widget = None
         self.overview_widget = None
 
     # ── the widgets a connection brings with it ──────────────────────────
@@ -225,10 +228,21 @@ class FibsemUI(QMainWindow):
             else:
                 self.manipulator_widget = None
 
+            # The hardware view of the grids: the holder, and the magazine when
+            # there is one. Slot moves go through the Movement widget, the same
+            # route as a saved position, so the readout and post-move images follow.
+            self.sample_widget = FibsemSampleWidget(
+                microscope=self.microscope, parent=self
+            )
+            self.sample_widget.move_to_requested.connect(
+                self.movement_widget.move_to_position
+            )
+
             # add widgets to tabs
             self._add_control_tab(self.image_widget, "Image")
             self._add_control_tab(self.movement_widget, "Movement")
             self._add_control_tab(self.milling_widget, "Milling")
+            self._add_control_tab(self.sample_widget, "Sample")
 
             if self.microscope.system.manipulator.enabled:
                 self._add_control_tab(self.manipulator_widget, "Manipulator")
@@ -258,6 +272,7 @@ class FibsemUI(QMainWindow):
             self.movement_widget._teardown_connections()
             self.movement_widget.deleteLater()
             self.milling_widget.deleteLater()
+            self.sample_widget.deleteLater()
             if self.manipulator_widget is not None:
                 self.manipulator_widget.deleteLater()
 

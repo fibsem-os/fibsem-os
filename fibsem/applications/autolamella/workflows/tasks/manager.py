@@ -57,8 +57,15 @@ def run_task(
     task.run()
 
 
-class TaskManager:
-    """Manages execution of autolamella tasks across lamellas."""
+class BaseTaskManager:
+    """What running a queue of (item, task) work needs, whatever the item is.
+
+    The lamella and grid workflows share everything here: the queue, the two stop
+    intents and the token tasks poll, the queue-changed and status channels to the
+    UI, and the hook run context. What they do not share is the run loop, which
+    each subclass writes: what an item is, how it is looked up, when it is skipped
+    and what it costs to reach are the whole difference between the two.
+    """
 
     def __init__(
         self,
@@ -86,12 +93,215 @@ class TaskManager:
         # the app also calls it when it adopts an experiment, and repeating it just
         # re-sets the same two attributes. See FIB-449.
         self.experiment.register_metadata(self.microscope)
+
+    # --- Public API ---
+
+    def stop(self) -> None:
+        """Signal the manager to stop after current task completes."""
+        self._stop_event.set()
+
+    def stop_task(self) -> None:
+        """Abandon the task now running and carry on with the rest of the queue.
+
+        The task unwinds through the same path a run-wide Stop uses, so it ends
+        Cancelled and whatever it was doing to the hardware is undone the same
+        way. Only the loop's reaction differs: is_stopped is untouched, so
+        _run_queue moves to the next item instead of ending the run.
+
+        Cleared at the top of each task, so a click that lands between two tasks
+        is discarded rather than killing the next one.
+        """
+        self._task_stop_event.set()
+
+    @property
+    def is_stopped(self) -> bool:
+        """Whether the *run* should end. Only _run_queue's loop asks this.
+
+        Deliberately narrow. "Should this task unwind?" is a different question
+        with a different answer -- see `should_abort` -- and conflating the two
+        is what makes any cancel end the whole run.
+        """
+        return self._stop_event.is_set()
+
+    @property
+    def should_abort(self) -> bool:
+        """Whether the task now running should unwind.
+
+        For the one caller with no token to poll: workflows.ui._check_for_abort
+        only ever gets a parent_ui. Everything task-side reads `abort_token`
+        instead, which answers the same question without a second route to it.
+        """
+        return self.abort_token.is_set()
+
+    @property
+    def abort_token(self) -> AnyStopEvent:
+        """What anything inside a task polls to know it has been cancelled.
+
+        Captured by AutoLamellaTask and GridTask, handed on to milling and
+        autofocus via `raise_if_cancelled`, and read directly by the fluorescence,
+        coincidence-milling and grid tasks. Only `is_set()` is ever called on it,
+        which is what lets it widen beyond a bare Event without touching any of
+        those call sites.
+        """
+        return self._abort_token
+
+    def notify_queue_changed(self) -> None:
+        """Tell the UI the queue's contents changed, outside the task lifecycle.
+
+        Status updates only fire when a task starts, finishes or is skipped, so
+        an edit made between two tasks would otherwise stay invisible until the
+        next one began.
+
+        Deliberately its own signal rather than the status channel: a queue
+        edit is not a step in the task lifecycle, and the status handler
+        repaints run chrome an edit must not touch.
+        """
+        if self.parent_ui is None:
+            return
+        self.parent_ui.queue_changed_signal.emit(
+            {
+                "queue_items": self.queue.items,  # thread-safe snapshot
+                "version": self.queue.version,
+            }
+        )
+
+    def hook_run_context(self) -> dict:
+        """The fields every hook event from this run carries: which experiment, and
+        how much of the queue is left.
+
+        Public because AutoLamellaTask fires task events itself and needs the same
+        fields; a task reaches this through its task_manager.
+
+        tasks_remaining excludes the task the event is about: queue.next() marks an
+        item InProgress before the task runs, so the one in flight is already out of
+        the pending set on every path, skips included.
+        """
+        pending, total = self.queue.counts
+        return {
+            "experiment_id": self.experiment.id,
+            "experiment_name": self.experiment.name,
+            "tasks_remaining": pending,
+            "tasks_total": total,
+        }
+
+    def _fire_workflow_hook(self, event: HookEvent) -> None:
+        # Workflow events used to carry nothing at all, so workflow_completed reached a
+        # webhook with no way to tell which experiment had finished.
+        fire_event(self.hook_manager, event, **self.hook_run_context())
+
+    def _fire_skipped_hook(
+        self,
+        task_name: str,
+        item_name: str,
+        skip_reason: str,
+        task_type: str = "",
+        item_id: str = "",
+    ) -> None:
+        """Fire TASK_SKIPPED. Unlike the other task events this cannot come from
+        AutoLamellaTask, because the skip is decided before any task object exists —
+        so there is no task_state to attach, and no task_id: nothing ran to have one.
+        item_id is empty on the lamella-not-found path, where there is no lamella."""
+        fire_event(
+            self.hook_manager,
+            HookEvent.TASK_SKIPPED,
+            task_name=task_name,
+            task_type=task_type,
+            item_name=item_name,
+            item_id=item_id,
+            skip_reason=skip_reason,
+            **self.hook_run_context(),
+        )
+
+    # --- Internal helpers ---
+
+    def _set_workflow_pending(self, pending: bool) -> None:
+        """Tell the UI a run is active but nothing is executing.
+
+        Read by the workflow border, which would otherwise show the running
+        colour throughout a scheduled wait that can last hours. Set on the worker
+        thread and read on the GUI thread, the same way WAITING_FOR_USER_INTERACTION
+        already is.
+        """
+        if self.parent_ui is not None:
+            self.parent_ui.WORKFLOW_PENDING = pending
+
+    def _emit_report(
+        self,
+        item: WorkItem,
+        item_name: str,
+        status: "AutoLamellaTaskStatus",
+        msg: str = "",
+        error_message: Optional[str] = None,
+        task_duration: Optional[float] = None,
+        skip_reason: Optional[str] = None,
+    ) -> None:
+        """Emit one lifecycle report on workflow_status_signal, for any kind of item.
+
+        Fire-and-forget on the status channel: a report that a task started is
+        not a step in any request's handshake, so it must not be able to touch
+        one — questions and instructions live on the responder's futures.
+
+        This stream and the hook stream describe the same lifecycle from two different
+        brackets — the manager brackets the task *call*, the task brackets its own
+        *execution* — and they are deliberately not merged. Hooks run user-configurable
+        code synchronously on the worker thread and HookManager.fire swallows what it
+        raises; the UI needs neither of those properties. See FIB-464.
+
+        What the two must agree on is vocabulary: the item is item_name here as it is in
+        HookContext. The queue position fields below have no hook counterpart and stay —
+        they are timeline positioning, not lifecycle facts.
+        """
+        if self.parent_ui is None:
+            return
+
+        # Progress is measured against the live queue rather than the launch
+        # plan. A position in the original task x lamella matrix has no answer
+        # for an item the user added mid-run, and stops being meaningful for
+        # everything else as soon as the queue is reordered.
+        items = self.queue.items
+        position = next((i for i, it in enumerate(items) if it.id == item.id), None)
+
+        # `lamella_name` is no longer a field: `WorkflowStatusUpdate` derives it from
+        # `item_name` as a property, so the deprecated alias cannot drift from the name
+        # it aliases, and drops cleanly with the HookContext shims after v0.6.
+        update = WorkflowStatusUpdate(
+            task_name=item.task_name,
+            item_name=item_name,
+            status=status,
+            timestamp=time.time(),
+            error_message=error_message,
+            task_duration=task_duration,
+            skip_reason=skip_reason,
+            # Already 1-based on the wire. Consumers render it as-is.
+            queue_position=position + 1 if position is not None else None,
+            queue_total=len(items),
+            queue_items=items,  # thread-safe snapshot: Queue.items returns copies
+            # The plan this run was launched with. Informational only — the live
+            # queue may since have diverged from it.
+            task_names=self.queue.task_names,
+            lamella_names=self.queue.item_names,
+        )
+
+        self.parent_ui.workflow_status_signal.emit(
+            WorkflowStatusEvent(message=msg, report=update)
+        )
+
+
+class TaskManager(BaseTaskManager):
+    """Manages execution of autolamella tasks across lamellas."""
+
+    def __init__(
+        self,
+        microscope: FibsemMicroscope,
+        experiment: "Experiment",
+        parent_ui: Optional["AutoLamellaUI"] = None,
+        hook_manager: Optional[HookManager] = None,
+    ):
+        super().__init__(microscope, experiment, parent_ui, hook_manager)
         # Lamellae already finished when the run started, so re-running a task on
         # finished work does not re-announce it. Seeded in _run_queue.
         self._completed_lamella: Set[str] = set()
         self._experiment_was_complete = False
-
-    # --- Public API ---
 
     def run(
         self, task_names: List[str], required_lamella: Optional[List[str]] = None
@@ -120,16 +330,16 @@ class TaskManager:
             # that has just finished, not at this one.
             self._task_stop_event.clear()
 
-            lamella = self.experiment.get_lamella_by_name(item.lamella_name)
+            lamella = self.experiment.get_lamella_by_name(item.item_name)
             if lamella is None:
                 # No lamella to build a status dict from, so this used to leave no trace
                 # anywhere — not in the log, the UI, or a hook.
                 logging.warning(
-                    f"Skipping {item.task_name}: no lamella named {item.lamella_name} in the experiment."
+                    f"Skipping {item.task_name}: no lamella named {item.item_name} in the experiment."
                 )
                 self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
                 self._fire_skipped_hook(
-                    item.task_name, item.lamella_name, "lamella_not_found"
+                    item.task_name, item.item_name, "lamella_not_found"
                 )
                 continue
 
@@ -227,7 +437,7 @@ class TaskManager:
         """
         rows: List[dict] = []
         for item in self.queue.items:
-            lamella = self.experiment.get_lamella_by_name(item.lamella_name)
+            lamella = self.experiment.get_lamella_by_name(item.item_name)
             completed_at = ""
             duration = None
             if lamella is not None:
@@ -239,7 +449,7 @@ class TaskManager:
                         break
             rows.append(
                 {
-                    "lamella_name": item.lamella_name,
+                    "lamella_name": item.item_name,
                     "task_name": item.task_name,
                     "task_status": item.status.name,
                     "completed_at": completed_at,
@@ -247,99 +457,6 @@ class TaskManager:
                 }
             )
         return pd.DataFrame(rows)
-
-    def stop(self) -> None:
-        """Signal the manager to stop after current task completes."""
-        self._stop_event.set()
-
-    def stop_task(self) -> None:
-        """Abandon the task now running and carry on with the rest of the queue.
-
-        The task unwinds through the same path a run-wide Stop uses, so it ends
-        Cancelled and whatever it was doing to the hardware is undone the same
-        way. Only the loop's reaction differs: is_stopped is untouched, so
-        _run_queue moves to the next item instead of ending the run.
-
-        Cleared at the top of each task, so a click that lands between two tasks
-        is discarded rather than killing the next one.
-        """
-        self._task_stop_event.set()
-
-    @property
-    def is_stopped(self) -> bool:
-        """Whether the *run* should end. Only _run_queue's loop asks this.
-
-        Deliberately narrow. "Should this task unwind?" is a different question
-        with a different answer -- see `should_abort` -- and conflating the two
-        is what makes any cancel end the whole run.
-        """
-        return self._stop_event.is_set()
-
-    @property
-    def should_abort(self) -> bool:
-        """Whether the task now running should unwind.
-
-        For the one caller with no token to poll: workflows.ui._check_for_abort
-        only ever gets a parent_ui. Everything task-side reads `abort_token`
-        instead, which answers the same question without a second route to it.
-        """
-        return self.abort_token.is_set()
-
-    @property
-    def abort_token(self) -> AnyStopEvent:
-        """What anything inside a task polls to know it has been cancelled.
-
-        Captured by AutoLamellaTask and GridTask, handed on to milling and
-        autofocus via `raise_if_cancelled`, and read directly by the fluorescence,
-        coincidence-milling and grid tasks. Only `is_set()` is ever called on it,
-        which is what lets it widen beyond a bare Event without touching any of
-        those call sites.
-        """
-        return self._abort_token
-
-    def notify_queue_changed(self) -> None:
-        """Tell the UI the queue's contents changed, outside the task lifecycle.
-
-        Status updates only fire when a task starts, finishes or is skipped, so
-        an edit made between two tasks would otherwise stay invisible until the
-        next one began.
-
-        Deliberately its own signal rather than the status channel: a queue
-        edit is not a step in the task lifecycle, and the status handler
-        repaints run chrome an edit must not touch.
-        """
-        if self.parent_ui is None:
-            return
-        self.parent_ui.queue_changed_signal.emit(
-            {
-                "queue_items": self.queue.items,  # thread-safe snapshot
-                "version": self.queue.version,
-            }
-        )
-
-    def hook_run_context(self) -> dict:
-        """The fields every hook event from this run carries: which experiment, and
-        how much of the queue is left.
-
-        Public because AutoLamellaTask fires task events itself and needs the same
-        fields; a task reaches this through its task_manager.
-
-        tasks_remaining excludes the task the event is about: queue.next() marks an
-        item InProgress before the task runs, so the one in flight is already out of
-        the pending set on every path, skips included.
-        """
-        pending, total = self.queue.counts
-        return {
-            "experiment_id": self.experiment.id,
-            "experiment_name": self.experiment.name,
-            "tasks_remaining": pending,
-            "tasks_total": total,
-        }
-
-    def _fire_workflow_hook(self, event: HookEvent) -> None:
-        # Workflow events used to carry nothing at all, so workflow_completed reached a
-        # webhook with no way to tell which experiment had finished.
-        fire_event(self.hook_manager, event, **self.hook_run_context())
 
     def _is_complete(self, lamella: "Lamella") -> bool:
         """Whether a lamella has completed every task the workflow requires of it."""
@@ -437,31 +554,6 @@ class TaskManager:
             return f"All tasks completed ({skipped} skipped)."
         return "All tasks completed."
 
-    def _fire_skipped_hook(
-        self,
-        task_name: str,
-        item_name: str,
-        skip_reason: str,
-        task_type: str = "",
-        item_id: str = "",
-    ) -> None:
-        """Fire TASK_SKIPPED. Unlike the other task events this cannot come from
-        AutoLamellaTask, because the skip is decided before any task object exists —
-        so there is no task_state to attach, and no task_id: nothing ran to have one.
-        item_id is empty on the lamella-not-found path, where there is no lamella."""
-        fire_event(
-            self.hook_manager,
-            HookEvent.TASK_SKIPPED,
-            task_name=task_name,
-            task_type=task_type,
-            item_name=item_name,
-            item_id=item_id,
-            skip_reason=skip_reason,
-            **self.hook_run_context(),
-        )
-
-    # --- Internal helpers ---
-
     def _wait_until_scheduled(
         self, scheduled_at: datetime, task_name: str, lamella: "Lamella"
     ) -> None:
@@ -504,17 +596,6 @@ class TaskManager:
             # for the rest of the run.
             self._set_workflow_pending(False)
 
-    def _set_workflow_pending(self, pending: bool) -> None:
-        """Tell the UI a run is active but nothing is executing.
-
-        Read by the workflow border, which would otherwise show the running
-        colour throughout a scheduled wait that can last hours. Set on the worker
-        thread and read on the GUI thread, the same way WAITING_FOR_USER_INTERACTION
-        already is.
-        """
-        if self.parent_ui is not None:
-            self.parent_ui.WORKFLOW_PENDING = pending
-
     def _should_skip(self, lamella: "Lamella", task_name: str) -> Optional[str]:
         """Return skip reason string, or None if task should run.
 
@@ -552,55 +633,15 @@ class TaskManager:
         task_duration: Optional[float] = None,
         skip_reason: Optional[str] = None,
     ) -> None:
-        """Emit one lifecycle report on workflow_status_signal.
-
-        Fire-and-forget on the status channel: a report that a task started is
-        not a step in any request's handshake, so it must not be able to touch
-        one — questions and instructions live on the responder's futures.
-
-        This stream and the hook stream describe the same lifecycle from two different
-        brackets — the manager brackets the task *call*, the task brackets its own
-        *execution* — and they are deliberately not merged. Hooks run user-configurable
-        code synchronously on the worker thread and HookManager.fire swallows what it
-        raises; the UI needs neither of those properties. See FIB-464.
-
-        What the two must agree on is vocabulary: the item is item_name here as it is in
-        HookContext. The queue position fields below have no hook counterpart and stay —
-        they are timeline positioning, not lifecycle facts.
-        """
-        if self.parent_ui is None:
-            return
-
-        # Progress is measured against the live queue rather than the launch
-        # plan. A position in the original task x lamella matrix has no answer
-        # for an item the user added mid-run, and stops being meaningful for
-        # everything else as soon as the queue is reordered.
-        items = self.queue.items
-        position = next((i for i, it in enumerate(items) if it.id == item.id), None)
-
-        # `lamella_name` is no longer a field: `WorkflowStatusUpdate` derives it from
-        # `item_name` as a property, so the deprecated alias cannot drift from the name
-        # it aliases, and drops cleanly with the HookContext shims after v0.6.
-        update = WorkflowStatusUpdate(
-            task_name=item.task_name,
+        """The lamella spelling of `_emit_report`: the item is the lamella."""
+        self._emit_report(
+            item=item,
             item_name=lamella.name,
             status=status,
-            timestamp=time.time(),
+            msg=msg,
             error_message=error_message,
             task_duration=task_duration,
             skip_reason=skip_reason,
-            # Already 1-based on the wire. Consumers render it as-is.
-            queue_position=position + 1 if position is not None else None,
-            queue_total=len(items),
-            queue_items=items,  # thread-safe snapshot: Queue.items returns copies
-            # The plan this run was launched with. Informational only — the live
-            # queue may since have diverged from it.
-            task_names=self.queue.task_names,
-            lamella_names=self.queue.lamella_names,
-        )
-
-        self.parent_ui.workflow_status_signal.emit(
-            WorkflowStatusEvent(message=msg, report=update)
         )
 
     def _run_single_task(

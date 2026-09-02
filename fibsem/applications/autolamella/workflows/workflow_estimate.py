@@ -120,9 +120,7 @@ def estimate_workflow(
     started_at = clock
 
     workflow_config = experiment.task_protocol.workflow_config
-    lamellae = [
-        lam for lam in experiment.positions if lam.name in set(lamella_names)
-    ]
+    lamellae = [lam for lam in experiment.positions if lam.name in set(lamella_names)]
 
     rows: List[TaskEstimate] = []
     work_seconds = 0.0
@@ -378,7 +376,7 @@ def estimate_addition(
     from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 
     clock = now if now is not None else datetime.now()
-    added = [WorkItem(lamella_name=ln, task_name=tn) for ln, tn in pairs]
+    added = [WorkItem(item_name=ln, task_name=tn) for ln, tn in pairs]
     proposed = _with_addition(items, added, run_next)
 
     before = estimate_queue(items, seconds_for, schedule, clock, active_elapsed)
@@ -389,7 +387,9 @@ def estimate_addition(
         work_seconds=after.work_seconds - before.work_seconds,
         # Never negative: adding work cannot bring a finish forward, and floating-point
         # dust on two large sums should not render as "-0s".
-        delay_seconds=max(0.0, (after.expected_finish - before.expected_finish).total_seconds()),
+        delay_seconds=max(
+            0.0, (after.expected_finish - before.expected_finish).total_seconds()
+        ),
         finish_before=before.expected_finish,
         finish_after=after.expected_finish,
         hold_seconds=after.hold_seconds,

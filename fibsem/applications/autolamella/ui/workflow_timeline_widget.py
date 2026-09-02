@@ -949,7 +949,7 @@ class WorkflowProgressWidget(QWidget):
             item_name = report.item_name
             reason_str = _SKIP_REASON_LABELS.get(skip_reason, skip_reason or "Skipped")
             for i, item in enumerate(self._items):
-                if item.lamella_name == item_name and item.task_name == task_name:
+                if item.item_name == item_name and item.task_name == task_name:
                     self._outer._steps[i].subtitle = reason_str
                     self._outer._rows[i].refresh(self._outer._steps[i])
                     break
@@ -971,7 +971,7 @@ class WorkflowProgressWidget(QWidget):
             [i.id for i in self._items],
             [
                 TimelineStep(
-                    label=i.lamella_name,
+                    label=i.item_name,
                     subtitle=i.task_name,
                     status=_queue_status_to_step_status(i.status),
                 )
@@ -1146,7 +1146,7 @@ class WorkflowProgressWidget(QWidget):
         """This item's estimate, or None if there is none to offer."""
         if item is None:
             return None
-        return self._estimates.get((item.lamella_name, item.task_name))
+        return self._estimates.get((item.item_name, item.task_name))
 
     def _machine_elapsed(self, elapsed: float) -> float:
         """`elapsed` less any time the task spent waiting for a human.

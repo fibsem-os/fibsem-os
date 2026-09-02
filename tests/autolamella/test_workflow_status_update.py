@@ -57,7 +57,7 @@ class TestTheShape:
         tiled contract's reason is what you came looking for, this is not it.
         """
         report = WorkflowStatusUpdate(
-            queue_items=[WorkItem(lamella_name="L1", task_name="Trench")]
+            queue_items=[WorkItem(item_name="L1", task_name="Trench")]
         )
 
         assert {report, report} == {report}
@@ -66,7 +66,7 @@ class TestTheShape:
         """The hazard lives in `WorkItem`, not in this test's imagination. If this ever
         stops raising, `eq=False` has lost its reason and the comment is wrong."""
         with pytest.raises(TypeError):
-            hash(WorkItem(lamella_name="L1", task_name="Trench"))
+            hash(WorkItem(item_name="L1", task_name="Trench"))
 
     def test_a_report_cannot_be_written_to(self):
         report = WorkflowStatusUpdate()
