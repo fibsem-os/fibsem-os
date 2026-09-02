@@ -119,11 +119,13 @@ def test_unchanged_name_does_not_emit(qapp, microscope):
     assert changed == []
 
 
-def test_holder_name_is_read_only_here(qapp, microscope):
+def test_panel_is_titled_after_the_holder(qapp, microscope):
     holder = microscope._stage.holder
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
-    assert widget.name_label.text() == holder.name  # set in the wizard, shown here
+    assert widget._panel._title_label.text() == holder.name  # set in the wizard
+    widget.set_holder(None)
+    assert widget._panel._title_label.text() == "Sample Holder"
 
 
 def test_unhosted_widget_moves_the_stage_itself(qapp, microscope):

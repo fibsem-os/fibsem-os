@@ -40,7 +40,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import TitledPanel, style_with_tooltip
 
 _ROW_HEIGHT = 40
 _SLOT_LABEL_WIDTH = 64
@@ -133,8 +133,9 @@ class _SlotRow(QWidget):
         self._has_microscope = has_microscope
         self.setAttribute(Qt.WA_TranslucentBackground)
 
+        self.setFixedHeight(_ROW_HEIGHT)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 2, 6, 2)
+        layout.setContentsMargins(8, 0, 6, 0)
         layout.setSpacing(8)
 
         self.dot = QLabel()
@@ -143,13 +144,13 @@ class _SlotRow(QWidget):
 
         self.slot_label = QLabel()
         self.slot_label.setFixedWidth(_SLOT_LABEL_WIDTH)
-        self.slot_label.setStyleSheet("font-weight: bold; background: transparent;")
         layout.addWidget(self.slot_label)
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("empty")
         self.name_edit.setToolTip("The grid in this slot; leave blank for none")
         self.name_edit.setStyleSheet(_NAME_FIELD_STYLE)
+        self.name_edit.setFixedHeight(26)
         self.name_edit.setClearButtonEnabled(True)
         self.name_edit.editingFinished.connect(self._on_name_edited)
         layout.addWidget(self.name_edit, 1)
@@ -179,14 +180,17 @@ class _SlotRow(QWidget):
         self.setToolTip(tooltip)
         self.slot_label.setToolTip(tooltip)
         self.status = slot_status(slot)
-        self.dot.setStyleSheet(
-            f"background: {_STATUS_COLOUR[self.status]}; border-radius: 5px;"
+        style_with_tooltip(
+            self.dot, f"background: {_STATUS_COLOUR[self.status]}; border-radius: 5px;"
         )
         self.dot.setToolTip(tooltip)
-        self.slot_label.setStyleSheet(
+        # Selector-less rules leak into the QToolTip (a bold label makes a bold
+        # tooltip), so these go through style_with_tooltip.
+        style_with_tooltip(
+            self.slot_label,
             f"font-weight: bold; background: transparent; color: {TEXT_STRONG_COLOR};"
             if slot.is_calibrated
-            else f"font-style: italic; background: transparent; color: {TEXT_MUTED_COLOR};"
+            else f"font-style: italic; background: transparent; color: {TEXT_MUTED_COLOR};",
         )
 
         movable = self._has_microscope and slot.is_calibrated
@@ -243,13 +247,6 @@ class SampleHolderWidget(QWidget):
         inner_layout = QVBoxLayout(inner)
         inner_layout.setContentsMargins(6, 6, 6, 6)
         inner_layout.setSpacing(6)
-
-        # The name is set in the calibration wizard, with the slot count: one place.
-        self.name_label = QLabel()
-        self.name_label.setStyleSheet(
-            f"font-weight: bold; color: {TEXT_STRONG_COLOR}; background: transparent;"
-        )
-        inner_layout.addWidget(self.name_label)
 
         # The pencil sits in the panel's title bar, where the app keeps a panel's
         # edit action, rather than in the body beside the name.
@@ -309,11 +306,13 @@ class SampleHolderWidget(QWidget):
         self._list.clear()
         self._rows = []
         if holder is None:
-            self.name_label.setText("")
+            self._panel.set_title("Sample Holder")
             self.facts_label.setText("")
             return
 
-        self.name_label.setText(holder.name)
+        # One title, not two: the panel is named after the holder it shows. The
+        # name itself is set in the calibration wizard, with the slot count.
+        self._panel.set_title(holder.name)
         slots = sorted(holder.slots.values(), key=lambda s: s.index)
         calibrated = sum(1 for s in slots if s.is_calibrated)
         self.btn_calibrate.setEnabled(self._microscope is not None)
@@ -332,12 +331,14 @@ class SampleHolderWidget(QWidget):
             row.move_clicked.connect(self._on_move_slot)
             row.grid_named.connect(self._on_grid_named)
             item = QListWidgetItem(self._list)
-            item.setSizeHint(row.sizeHint())
+            item.setSizeHint(QSize(0, _ROW_HEIGHT))
             item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self._list.addItem(item)
             self._list.setItemWidget(item, row)
             self._rows.append(row)
-        self._list.setFixedHeight(max(2, len(slots)) * _ROW_HEIGHT + 4)
+        self._list.setFixedHeight(
+            max(2, len(slots)) * _ROW_HEIGHT + 2 * self._list.frameWidth()
+        )
 
     def _row_widget(self, i: int) -> Optional[_SlotRow]:
         return self._rows[i] if 0 <= i < len(self._rows) else None
