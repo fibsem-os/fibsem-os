@@ -583,8 +583,9 @@ def test_fluorescence_image_save_load_is_offline(tmp_path, monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", _no_network)
     monkeypatch.setattr(urllib.request, "urlopen", _no_network)
     # Drop any XSD tifffile cached earlier in the session so the fetch would
-    # actually be attempted if save() still validated.
-    monkeypatch.setattr(tff.OmeXml, "_schema", [])
+    # actually be attempted if save() still validated. Older tifffile (the
+    # 3.8 pin on CI) has no cache attribute at all; raising=False skips it.
+    monkeypatch.setattr(tff.OmeXml, "_schema", [], raising=False)
 
     channel = FluorescenceChannelMetadata(
         name="GFP",
