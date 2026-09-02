@@ -1045,6 +1045,24 @@ class DemoMicroscope(FibsemMicroscope):
             return STAGE_LIMITS_COMPUSTAGE
         return STAGE_LIMITS_DEFAULT
 
+    def _create_grid_loader(self) -> "DemoSampleLoader":
+        """An in-memory autoloader, populated from the ``sim.loader`` block.
+
+        Only reached on a compustage configuration (the Arctis simulator). Keys:
+        ``capacity`` (default 12), ``occupied`` (1-based slot numbers), ``names``
+        (slot number -> grid name), ``exchange_delay`` (seconds, default 0).
+        """
+        from fibsem.microscopes._stage import DemoSampleLoader
+
+        cfg = self.system.sim.get("loader") or {}
+        return DemoSampleLoader(
+            parent=self,
+            capacity=int(cfg.get("capacity", 12)),
+            occupied=cfg.get("occupied") or (),
+            names=cfg.get("names") or {},
+            exchange_delay=float(cfg.get("exchange_delay", 0.0)),
+        )
+
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to the specified position."""
         # Before the position is assigned, not after: a stage that is moving has not

@@ -321,6 +321,15 @@ class FibsemMicroscope(ABC):
 
         self._stage = _create_sample_stage(self)
 
+    def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
+        """The grid loader for a compustage system, or None when it has no autoloader.
+
+        Backends wrap their own hardware; this default is the in-memory model.
+        """
+        from fibsem.microscopes._stage import SampleGridLoader
+
+        return SampleGridLoader(parent=self)
+
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the stage axis limits from the microscope."""
 
@@ -3001,6 +3010,22 @@ class ThermoMicroscope(FibsemMicroscope):
             self._create_sample_stage()
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
+
+    def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
+        """The AutoScript autoloader, when the microscope has one.
+
+        A compustage without an autoloader gets no loader at all: its grids are
+        exchanged by hand, and a phantom twelve-slot magazine would only mislead.
+        """
+        from fibsem.microscopes.autoscript import AutoscriptSampleLoader
+
+        loader = AutoscriptSampleLoader(parent=self)
+        if not loader.is_installed:
+            logging.info(
+                "Compustage without an autoloader: grids are exchanged by hand."
+            )
+            return None
+        return loader
 
     def set_channel(self, channel: BeamType) -> None:
         """
