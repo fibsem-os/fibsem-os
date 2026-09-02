@@ -403,7 +403,7 @@ class FMOverviewWidget(QWidget):
         # word it differently. This tab draws no saved-position or gridbar overlay, so
         # it takes only the stage-context set.
         self.overlay_controls = CanvasOverlayControls(
-            list(stage_context.CONTEXT_OVERLAY_ENTRIES)
+            stage_context.context_overlay_entries(self.microscope)
         )
         self.overlay_controls.toggled.connect(lambda *_: self._refresh_stage_metadata())
         self.btn_overlays = self.canvas.canvas.add_toolbar_button(

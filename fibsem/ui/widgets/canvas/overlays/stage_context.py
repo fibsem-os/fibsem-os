@@ -60,11 +60,42 @@ CONTEXT_OVERLAY_ENTRIES = (
     (OVERLAY_SLOTS, "Holder slots", False),
 )
 
+
+def holder_is_calibrated(microscope) -> bool:
+    """Whether the holder has a slot with a trusted position: the one case in
+    which the grid boundary and the slot marker describe something real."""
+    return any(
+        getattr(slot, "is_calibrated", False) for slot in holder_slots(microscope)
+    )
+
+
+def context_overlay_entries(microscope):
+    """The overlay switches for this instrument, with the defaults resolved.
+
+    Grid boundaries and holder slots come on when the holder has a calibrated
+    slot -- then they draw where a grid is, which is what an overview is read
+    against -- and stay off otherwise, where they would draw a holder that is
+    not there. The module constant keeps the off defaults for callers with no
+    instrument to ask.
+    """
+    calibrated = holder_is_calibrated(microscope)
+    return [
+        (
+            key,
+            label,
+            calibrated if key in (OVERLAY_BOUNDARIES, OVERLAY_SLOTS) else shown,
+        )
+        for key, label, shown in CONTEXT_OVERLAY_ENTRIES
+    ]
+
+
 __all__ = [
     "OVERLAY_LIMITS",
     "OVERLAY_BOUNDARIES",
     "OVERLAY_SLOTS",
     "CONTEXT_OVERLAY_ENTRIES",
+    "context_overlay_entries",
+    "holder_is_calibrated",
     "landmark",
     "canvas_span",
     "holder_slots",

@@ -3899,21 +3899,24 @@ class TestTheOverlaysCanBeTurnedOff:
         widget.context_overlay.set_shapes = real
         return seen.get("n", 0)
 
-    def test_the_holder_overlays_ship_off_and_the_travel_box_ships_on(self, widget):
-        """Grid boundaries and holder slots describe a cryo sample holder, so on a system
-        without one they draw a holder that is not there, over an overview of a sample
-        that is. Travel limits stay on: they are a property of the stage itself.
-
-        Asserted rather than left to the module constant, because the default is the
-        whole of what these switches do for anyone who never opens the popover.
-        """
+    def test_the_holder_overlays_follow_the_holder_and_the_travel_box_ships_on(
+        self, widget
+    ):
+        """Grid boundaries and holder slots describe a cryo sample holder. They come
+        on when the holder has a calibrated slot -- the compustage working slot is
+        calibrated by construction, so here they are on -- and stay off otherwise,
+        where they would draw a holder that is not there (the uncalibrated case is
+        `test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder`). Travel
+        limits are a property of the stage and ship on everywhere."""
         assert widget.overlay_controls.is_visible("limits")
-        assert not widget.overlay_controls.is_visible("boundaries")
-        assert not widget.overlay_controls.is_visible("slots")
+        from fibsem.ui.widgets.canvas.overlays import stage_context
 
+        calibrated = stage_context.holder_is_calibrated(widget.microscope)
+        assert widget.overlay_controls.is_visible("boundaries") is calibrated
+        assert widget.overlay_controls.is_visible("slots") is calibrated
         drawn = {spec.label for spec in widget.context_overlay._specs}
         assert "Stage Limits" in drawn
-        assert "Grid Boundary" not in drawn
+        assert ("Grid Boundary" in drawn) is calibrated
 
     @pytest.mark.parametrize("key", ["limits", "boundaries", "slots"])
     def test_turning_one_off_stops_it_being_drawn(self, widget, key):
@@ -4245,3 +4248,34 @@ class TestItOnlyDrawsItsOwnRuns:
             assert row.detail_label.text().startswith(f"{index} tile"), (
                 f"after {index} tile(s) the row still reads {row.detail_label.text()!r}"
             )
+
+
+def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
+    """Off describes a holder that is not there; on a holder with a calibrated
+    slot they draw where the grid is, and that is worth having on by default."""
+    from fibsem.microscopes._stage import SlotCalibration, _create_sample_stage
+    from fibsem.structures import FibsemStagePosition
+    from fibsem.ui.widgets.canvas.overlays import stage_context
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.stage_is_compustage = False
+    microscope._stage = _create_sample_stage(microscope)
+    assert not stage_context.holder_is_calibrated(microscope)
+    before = FibsemOverviewWidget(microscope)
+    try:
+        assert not before.overlay_controls.is_visible(stage_context.OVERLAY_BOUNDARIES)
+        assert not before.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS)
+    finally:
+        before.deleteLater()
+    slot = microscope._stage.holder.slots["Slot-01"]
+    slot.position = FibsemStagePosition(
+        name=slot.name, x=-4e-3, y=1e-3, z=4e-3, r=0, t=0.61
+    )
+    slot.calibration = SlotCalibration("SEM", 35.0, 0.0, "2026-09-02T11:24:09", "test")
+    assert stage_context.holder_is_calibrated(microscope)
+    widget = FibsemOverviewWidget(microscope)
+    try:
+        assert widget.overlay_controls.is_visible(stage_context.OVERLAY_BOUNDARIES)
+        assert widget.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS)
+    finally:
+        widget.deleteLater()
