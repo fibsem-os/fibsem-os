@@ -483,6 +483,69 @@ class LamellaDefaultConfig:
         )
 
 
+@dataclass
+class GridTaskProtocol:
+    """The grid tasks a protocol offers, and their settings.
+
+    A section of the task protocol (`protocol.yaml`, under `grid_tasks`), because
+    overview settings are tuned once per microscope and reused across experiments
+    exactly as the lamella task settings are. Shared by every grid for now:
+    screening is expected to be uniform across a magazine, and per-grid tuning is
+    a documented later option (seed a per-record config from this, the way a
+    lamella's is seeded from the protocol). Which tasks run in a session, and in
+    what order, is chosen at run time; `order` is the default a task list shows.
+    """
+
+    name: str = "Grid Task Protocol"
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    task_config: Dict[str, "GridTaskConfig"] = field(default_factory=dict)
+    order: List[str] = field(default_factory=list)
+
+    def add(self, config: "GridTaskConfig") -> "GridTaskConfig":
+        if not config.task_name:
+            raise ValueError("A grid task config needs a task_name.")
+        self.task_config[config.task_name] = config
+        if config.task_name not in self.order:
+            self.order.append(config.task_name)
+        return config
+
+    def remove(self, task_name: str) -> None:
+        self.task_config.pop(task_name, None)
+        if task_name in self.order:
+            self.order.remove(task_name)
+
+    @property
+    def ordered_task_names(self) -> List[str]:
+        """`order` first, then anything in `task_config` it forgot to mention."""
+        names = [n for n in self.order if n in self.task_config]
+        names += [n for n in self.task_config if n not in names]
+        return names
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "_id": self.id,
+            "name": self.name,
+            "tasks": {k: v.to_dict() for k, v in self.task_config.items()},
+            "order": list(self.ordered_task_names),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "GridTaskProtocol":
+        from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
+            load_grid_task_configs,
+        )
+
+        data = data or {}
+        protocol = cls(
+            name=data.get("name", "Grid Task Protocol"),
+            task_config=load_grid_task_configs(data.get("tasks", {})),
+            order=list(data.get("order", [])),
+        )
+        if data.get("_id"):
+            protocol.id = data["_id"]
+        return protocol
+
+
 @evented
 @dataclass
 class AutoLamellaTaskProtocol:
@@ -503,6 +566,9 @@ class AutoLamellaTaskProtocol:
     # Experiment-global correlation config (FIB-298): a user-step config, not an
     # automated task, so a peer field rather than an entry in task_config.
     correlation: CorrelationConfig = field(default_factory=CorrelationConfig)
+    # Grid-level tasks (overviews, and later cleaning and deposition): their own
+    # section, since they run on a GridRecord rather than a lamella.
+    grid_tasks: GridTaskProtocol = field(default_factory=GridTaskProtocol)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -515,6 +581,7 @@ class AutoLamellaTaskProtocol:
             "options": self.options.to_dict(),
             "lamella_defaults": self.lamella_defaults.to_dict(),
             "correlation": self.correlation.to_dict(),
+            "grid_tasks": self.grid_tasks.to_dict(),
         }
 
     @classmethod
@@ -536,6 +603,8 @@ class AutoLamellaTaskProtocol:
             ),
             # Missing on protocols saved before this field -> a default config.
             correlation=CorrelationConfig.from_dict(data.get("correlation")),
+            # Likewise: a protocol written before grid tasks existed offers none.
+            grid_tasks=GridTaskProtocol.from_dict(data.get("grid_tasks")),
         )
         if "_id" in data:
             protocol.id = data["_id"]
@@ -1341,67 +1410,6 @@ class GridRecord:
         return f"GridRecord(name={self.name!r}, quality={self.quality.name}, tasks={len(self.task_history)})"
 
 
-@dataclass
-class GridTaskProtocol:
-    """The grid tasks an experiment can run, and their settings. One per experiment.
-
-    Shared by every grid for now: screening is expected to be uniform across a
-    magazine, and per-grid tuning is a documented later option (seed a per-record
-    config from this, the way a lamella's is seeded from the lamella protocol).
-    Which tasks run in a given session, and in what order, is chosen at run time;
-    `order` is the default order a task list is shown in.
-    """
-
-    name: str = "Grid Task Protocol"
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    task_config: Dict[str, "GridTaskConfig"] = field(default_factory=dict)
-    order: List[str] = field(default_factory=list)
-
-    def add(self, config: "GridTaskConfig") -> "GridTaskConfig":
-        if not config.task_name:
-            raise ValueError("A grid task config needs a task_name.")
-        self.task_config[config.task_name] = config
-        if config.task_name not in self.order:
-            self.order.append(config.task_name)
-        return config
-
-    def remove(self, task_name: str) -> None:
-        self.task_config.pop(task_name, None)
-        if task_name in self.order:
-            self.order.remove(task_name)
-
-    @property
-    def ordered_task_names(self) -> List[str]:
-        """`order` first, then anything in `task_config` it forgot to mention."""
-        names = [n for n in self.order if n in self.task_config]
-        names += [n for n in self.task_config if n not in names]
-        return names
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "_id": self.id,
-            "name": self.name,
-            "tasks": {k: v.to_dict() for k, v in self.task_config.items()},
-            "order": list(self.ordered_task_names),
-        }
-
-    @classmethod
-    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "GridTaskProtocol":
-        from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
-            load_grid_task_configs,
-        )
-
-        data = data or {}
-        protocol = cls(
-            name=data.get("name", "Grid Task Protocol"),
-            task_config=load_grid_task_configs(data.get("tasks", {})),
-            order=list(data.get("order", [])),
-        )
-        if data.get("_id"):
-            protocol.id = data["_id"]
-        return protocol
-
-
 @evented
 @dataclass
 class Experiment:
@@ -1410,7 +1418,6 @@ class Experiment:
     path: Path
     positions: EventedList[Lamella] = field(default_factory=EventedList)
     grids: EventedList[GridRecord] = field(default_factory=EventedList)
-    grid_protocol: GridTaskProtocol = field(default_factory=GridTaskProtocol)
     landing_positions: List[FibsemStagePosition] = field(default_factory=list)
     created_at: float = field(
         default_factory=lambda: datetime.timestamp(datetime.now())
@@ -1441,9 +1448,9 @@ class Experiment:
 
         self.positions: EventedList[Lamella] = EventedList()
         self.grids: EventedList[GridRecord] = EventedList()
-        # In experiment.yaml, not protocol.yaml: the grid protocol is small, lean
-        # and tied to the experiment, and a second sidecar is a second thing to lose.
-        self.grid_protocol: GridTaskProtocol = GridTaskProtocol()
+        # Holds the grid tasks only until a task protocol is assigned; see
+        # `grid_protocol`.
+        self._grid_protocol_without_task_protocol: Optional[GridTaskProtocol] = None
         self.landing_positions: List[FibsemStagePosition] = []
 
         self.task_protocol: AutoLamellaTaskProtocol = None  # must be set externally
@@ -1462,7 +1469,6 @@ class Experiment:
             "path": self.path,
             "positions": [deepcopy(lamella.to_dict()) for lamella in self.positions],
             "grids": [grid.to_dict() for grid in self.grids],
-            "grid_protocol": self.grid_protocol.to_dict(),
             "landing_positions": [pos.to_dict() for pos in self.landing_positions],
             "created_at": self.created_at,
             "metadata": self.metadata,
@@ -1502,9 +1508,6 @@ class Experiment:
         # load with none; nothing else about them changes.
         for grid_dict in ddict.get("grids", []):
             experiment.grids.append(GridRecord.from_dict(grid_dict))
-        experiment.grid_protocol = GridTaskProtocol.from_dict(
-            ddict.get("grid_protocol")
-        )
 
         # load landing positions
         for landing_dict in ddict.get("landing_positions", []):
@@ -1558,6 +1561,21 @@ class Experiment:
         return next((p for p in self.positions if p.name == name), None)
 
     # -- grids ---------------------------------------------------------------
+
+    @property
+    def grid_protocol(self) -> GridTaskProtocol:
+        """The grid tasks this experiment can run: the protocol's `grid_tasks`.
+
+        `task_protocol` is None until a session assigns one, and a grid protocol
+        is still needed then (a script, a test), so a placeholder stands in until
+        a protocol arrives -- at which point the protocol's own section is the
+        one that counts, since that is what `protocol.yaml` saves.
+        """
+        if self.task_protocol is not None:
+            return self.task_protocol.grid_tasks
+        if self._grid_protocol_without_task_protocol is None:
+            self._grid_protocol_without_task_protocol = GridTaskProtocol()
+        return self._grid_protocol_without_task_protocol
 
     def get_grid_by_name(self, name: str) -> Optional[GridRecord]:
         return next((g for g in self.grids if g.name == name), None)

@@ -15,6 +15,7 @@ import yaml
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
     AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
@@ -106,6 +107,7 @@ def microscope():
 def experiment(tmp_path):
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
     exp.grid_protocol.add(EchoConfig(task_name="echo"))
     return exp
 
@@ -172,19 +174,33 @@ class TestProtocol:
         with pytest.raises(ValueError):
             GridTaskProtocol().add(EchoConfig())
 
-    def test_round_trips_through_experiment_yaml(self, experiment, tmp_path):
+    def test_is_a_section_of_protocol_yaml(self, experiment, tmp_path):
         experiment.grid_protocol.task_config["echo"].repeats = 4
-        experiment.save()
+        experiment.save(save_protocol=True)
+        data = yaml.safe_load((tmp_path / "exp" / "protocol.yaml").read_text())
+        assert data["grid_tasks"]["tasks"]["echo"]["repeats"] == 4
+        assert "grid_protocol" not in experiment.to_dict()  # not experiment state
+
         loaded = Experiment.load(tmp_path / "exp" / "experiment.yaml")
+        assert loaded.grid_protocol is loaded.task_protocol.grid_tasks
         assert loaded.grid_protocol.id == experiment.grid_protocol.id
         assert loaded.grid_protocol.ordered_task_names == ["echo"]
         assert isinstance(loaded.grid_protocol.task_config["echo"], EchoConfig)
         assert loaded.grid_protocol.task_config["echo"].repeats == 4
 
-    def test_an_old_experiment_has_an_empty_protocol(self, experiment):
-        data = experiment.to_dict()
-        del data["grid_protocol"]
-        assert Experiment.from_dict(data).grid_protocol.task_config == {}
+    def test_a_protocol_written_before_grid_tasks_offers_none(self):
+        data = AutoLamellaTaskProtocol().to_dict()
+        del data["grid_tasks"]
+        assert AutoLamellaTaskProtocol.from_dict(data).grid_tasks.task_config == {}
+
+    def test_usable_before_a_task_protocol_is_assigned(self, tmp_path):
+        exp = Experiment(path=tmp_path, name="exp")
+        assert exp.task_protocol is None
+        exp.grid_protocol.add(EchoConfig(task_name="echo"))
+        assert exp.grid_protocol.ordered_task_names == ["echo"]
+        # once a protocol arrives, its own section is the one that counts
+        exp.task_protocol = AutoLamellaTaskProtocol()
+        assert exp.grid_protocol is exp.task_protocol.grid_tasks
 
     def test_unknown_task_type_is_skipped_not_fatal(self, caplog):
         configs = load_grid_task_configs(
