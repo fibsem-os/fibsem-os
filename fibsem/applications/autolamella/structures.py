@@ -876,6 +876,10 @@ class Lamella:
         default_factory=lambda: Point(0, 0)
     )  # point of interest within lamella area (milling coordinate system)
     description: str = ""  # free-text note about the lamella
+    # The grid this lamella sits on: GridRecord.id, or None when the experiment
+    # does not track grids (every experiment before grid records existed). A
+    # back-reference only; grid -> lamella is derived by filtering on it.
+    grid_id: Optional[str] = None
 
     def __post_init__(self):
         # Deliberately does not create ``path``. Constructing a Lamella is not a
@@ -1060,6 +1064,7 @@ class Lamella:
             "milling_angle": self.milling_angle,
             "poi": self.poi.to_dict(),
             "description": self.description,
+            "grid_id": self.grid_id,
         }
 
     @property
@@ -1115,6 +1120,7 @@ class Lamella:
             milling_angle=data.get("milling_angle", None),
             poi=Point.from_dict(data.get("poi", {"x": 0, "y": 0})),
             description=data.get("description", ""),
+            grid_id=data.get("grid_id"),
         )
 
     def load_reference_image(self, fname) -> FibsemImage:
@@ -1246,6 +1252,95 @@ class Lamella:
         return synced_tasks
 
 
+class GridQuality(Enum):
+    """A human's verdict on a grid, set by hand and never by automation.
+
+    Kept apart from task status on purpose: a task that failed on a grid says
+    nothing about whether the grid is any good, and a good grid can have a failed
+    overview. Same discipline as a lamella's defect state.
+    """
+
+    UNASSESSED = auto()
+    GOOD = auto()
+    POOR = auto()
+
+
+@evented
+@dataclass
+class GridRecord:
+    """A grid as the workflow knows it, distinct from the hardware's `SampleGrid`.
+
+    Linked to the hardware by name and to lamellae by `Lamella.grid_id -> id`.
+    Deliberately holds no slot, stage position, loaded state or copy of the
+    hardware grid: all of that is resolved live against the stage, so a record
+    stays valid when its grid changes slot or leaves the magazine. A record exists
+    from the moment a grid is *available* (present in the inventory), so twelve
+    grids can be queued before any has been in the beam.
+
+    `task_state` and `task_history` are the same types the lamella side uses,
+    and the same rule applies: never replace `task_state` wholesale, mutate it.
+    """
+
+    name: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    description: str = ""
+    quality: GridQuality = GridQuality.UNASSESSED
+    task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
+    task_history: List[AutoLamellaTaskState] = field(default_factory=list)
+    created_at: float = field(
+        default_factory=lambda: datetime.timestamp(datetime.now())
+    )
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            self.id = str(uuid.uuid4())
+
+    def has_completed_task(self, task_name: str) -> bool:
+        return any(
+            t.name == task_name and t.status is AutoLamellaTaskStatus.Completed
+            for t in self.task_history
+        )
+
+    @property
+    def is_failure(self) -> bool:
+        """Whether the latest run on this grid ended in failure. Not a verdict on
+        the grid -- see `quality` for that."""
+        return self.task_state.status is AutoLamellaTaskStatus.Failed
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "_id": self.id,
+            "description": self.description,
+            "quality": self.quality.name,
+            "task_state": self.task_state.to_dict(),
+            "task_history": [t.to_dict() for t in self.task_history],
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GridRecord":
+        quality = data.get("quality", GridQuality.UNASSESSED.name)
+        try:
+            quality = GridQuality[quality]
+        except KeyError:
+            quality = GridQuality.UNASSESSED
+        return cls(
+            name=data["name"],
+            id=data.get("_id") or str(uuid.uuid4()),
+            description=data.get("description", ""),
+            quality=quality,
+            task_state=AutoLamellaTaskState.from_dict(data.get("task_state", {})),
+            task_history=[
+                AutoLamellaTaskState.from_dict(t) for t in data.get("task_history", [])
+            ],
+            created_at=data.get("created_at", datetime.timestamp(datetime.now())),
+        )
+
+    def __repr__(self) -> str:
+        return f"GridRecord(name={self.name!r}, quality={self.quality.name}, tasks={len(self.task_history)})"
+
+
 @evented
 @dataclass
 class Experiment:
@@ -1253,6 +1348,7 @@ class Experiment:
     id: str
     path: Path
     positions: EventedList[Lamella] = field(default_factory=EventedList)
+    grids: EventedList[GridRecord] = field(default_factory=EventedList)
     landing_positions: List[FibsemStagePosition] = field(default_factory=list)
     created_at: float = field(
         default_factory=lambda: datetime.timestamp(datetime.now())
@@ -1282,6 +1378,7 @@ class Experiment:
         self.created_at: float = datetime.timestamp(datetime.now())
 
         self.positions: EventedList[Lamella] = EventedList()
+        self.grids: EventedList[GridRecord] = EventedList()
         self.landing_positions: List[FibsemStagePosition] = []
 
         self.task_protocol: AutoLamellaTaskProtocol = None  # must be set externally
@@ -1299,6 +1396,7 @@ class Experiment:
             "_id": self.id,
             "path": self.path,
             "positions": [deepcopy(lamella.to_dict()) for lamella in self.positions],
+            "grids": [grid.to_dict() for grid in self.grids],
             "landing_positions": [pos.to_dict() for pos in self.landing_positions],
             "created_at": self.created_at,
             "metadata": self.metadata,
@@ -1333,6 +1431,11 @@ class Experiment:
         for lamella_dict in ddict["positions"]:
             lamella = Lamella.from_dict(data=lamella_dict)
             experiment.positions.append(lamella)
+
+        # Experiments written before grid records existed have no "grids" key and
+        # load with none; nothing else about them changes.
+        for grid_dict in ddict.get("grids", []):
+            experiment.grids.append(GridRecord.from_dict(grid_dict))
 
         # load landing positions
         for landing_dict in ddict.get("landing_positions", []):
@@ -1384,6 +1487,55 @@ class Experiment:
     def get_lamella_by_name(self, name: str) -> Optional["Lamella"]:
         """Return the Lamella with the given name, or None if not found."""
         return next((p for p in self.positions if p.name == name), None)
+
+    # -- grids ---------------------------------------------------------------
+
+    def get_grid_by_name(self, name: str) -> Optional[GridRecord]:
+        return next((g for g in self.grids if g.name == name), None)
+
+    def get_grid_by_id(self, grid_id: Optional[str]) -> Optional[GridRecord]:
+        if grid_id is None:
+            return None
+        return next((g for g in self.grids if g.id == grid_id), None)
+
+    def add_grid(self, grid: GridRecord) -> GridRecord:
+        """Track a grid. Names are the link to the hardware, so they are unique."""
+        if self.get_grid_by_name(grid.name) is not None:
+            raise ValueError(f"Grid '{grid.name}' already exists in the experiment.")
+        self.grids.append(grid)
+        return grid
+
+    def remove_grid(self, name: str) -> Optional[GridRecord]:
+        """Stop tracking a grid. Its lamellae are orphaned, not deleted."""
+        grid = self.get_grid_by_name(name)
+        if grid is None:
+            return None
+        for lamella in self.get_lamellae_for_grid(grid):
+            lamella.grid_id = None
+        self.grids.remove(grid)
+        return grid
+
+    def sync_grids_from_inventory(self, stage) -> List[GridRecord]:
+        """Create a record for every grid the inventory reports present.
+
+        Idempotent, matched by name: a grid already tracked is left alone, with its
+        history; a grid whose hardware has gone keeps its record too, and the UI
+        reads "not present" for it from the inventory. Returns the records added.
+        """
+        added: List[GridRecord] = []
+        for entry in stage.grid_inventory():
+            if not entry.present or not entry.name:
+                continue
+            if self.get_grid_by_name(entry.name) is None:
+                added.append(self.add_grid(GridRecord(name=entry.name)))
+        return added
+
+    def get_lamellae_for_grid(self, grid: GridRecord) -> List["Lamella"]:
+        """Derived from `Lamella.grid_id`; nothing stores the reverse."""
+        return [p for p in self.positions if p.grid_id == grid.id]
+
+    def get_grid_for_lamella(self, lamella: "Lamella") -> Optional[GridRecord]:
+        return self.get_grid_by_id(lamella.grid_id)
 
     def save(self, save_protocol: bool = False) -> None:
         """Save the sample data to yaml file"""
