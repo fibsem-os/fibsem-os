@@ -7,6 +7,7 @@ and a thumbnail by role under the grid's own directory.
 """
 
 import threading
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -171,7 +172,7 @@ class TestRun:
         grid = experiment.get_grid_by_name("grid-aspen")
         run_grid_task(microscope, "overview_fib", experiment, grid)
         (overview,) = grid_outputs(experiment, grid, "overview_fib")
-        assert "/overview_fib/" in overview
+        assert Path(overview).parent.name == "overview_fib"
         assert grid_outputs(experiment, grid, "overview_sem") == []
 
     def test_stage_is_where_it_started_afterwards(self, microscope, experiment):
@@ -224,7 +225,9 @@ class TestRun:
             tmp_path / "standalone",
             stem="ov",
         )
-        assert image.filepath and "/standalone/ov-" in image.filepath
+        assert image.filepath
+        assert Path(image.filepath).parent.name == "standalone"
+        assert Path(image.filepath).name.startswith("ov-")
         assert image.data.ndim == 2
 
 
