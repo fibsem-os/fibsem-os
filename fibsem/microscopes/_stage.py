@@ -68,6 +68,26 @@ class SlotCalibration:
     captured_at: str = ""
     fibsem_version: str = ""
 
+    @classmethod
+    def builtin(cls, pre_tilt: float, rotation_reference: float) -> "SlotCalibration":
+        """A position the hardware defines, not one an operator captured.
+
+        The compustage working slot is at the compustage origin by construction:
+        the autoloader puts every grid at the same place and the coordinate system
+        is referenced to it. There is nothing to capture, so the record says so.
+        """
+        return cls(
+            orientation="SEM",
+            pre_tilt=pre_tilt,
+            rotation_reference=rotation_reference,
+            captured_at="",
+            fibsem_version="built-in",
+        )
+
+    @property
+    def is_builtin(self) -> bool:
+        return self.fibsem_version == "built-in" and not self.captured_at
+
     def matches(self, pre_tilt: float, rotation_reference: float) -> bool:
         return (
             abs(self.pre_tilt - pre_tilt) < 1e-3
@@ -807,10 +827,21 @@ def uncalibrated_message(slot_name: str) -> str:
 
 def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
     if microscope.stage_is_compustage:
-        # The working slot's position is not known until someone calibrates it: the
-        # loader puts the grid wherever it puts it, and a placeholder at the origin
-        # was a number that looked like a measurement.
-        slot01 = GridSlot(name="Slot-01", index=0, position=None)
+        # The working slot is the compustage origin by construction: the loader puts
+        # every grid at the same place and the coordinate system is referenced to
+        # it. That is a hardware fact, so the slot is calibrated without a capture.
+        stage_settings = microscope.system.stage
+        slot01 = GridSlot(
+            name="Slot-01",
+            index=0,
+            position=FibsemStagePosition(
+                name="Slot-01", x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
+            ),
+            calibration=SlotCalibration.builtin(
+                float(stage_settings.shuttle_pre_tilt),
+                float(stage_settings.rotation_reference),
+            ),
+        )
         holder = SampleHolder(
             name="CompuStage Holder", capacity=1, slots={"Slot-01": slot01}
         )

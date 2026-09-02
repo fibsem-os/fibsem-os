@@ -12,7 +12,7 @@ os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
 
 
 @pytest.fixture(autouse=True)
-def _isolate_sample_holder_config(tmp_path, monkeypatch):
+def _isolate_sample_holder_config(tmp_path_factory, monkeypatch):
     """Point every test at a private copy of the shipped sample holder config.
 
     ``fibsem/config/sample-holder.yaml`` is the operator's calibration, written by
@@ -27,13 +27,13 @@ def _isolate_sample_holder_config(tmp_path, monkeypatch):
     import fibsem.config as cfg
     import fibsem.microscopes._stage as stage_module
 
-    path = tmp_path / "sample-holder.yaml"
+    # Its own directory, not the test's tmp_path: tests assert on that staying empty.
+    holder_dir = tmp_path_factory.mktemp("sample-holder")
+    path = holder_dir / "sample-holder.yaml"
     shutil.copy(cfg.DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH, path)
     monkeypatch.setattr(cfg, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
     monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
-    occupancy = (
-        tmp_path / "sample-holder-occupancy.yaml"
-    )  # absent until a test writes it
+    occupancy = holder_dir / "sample-holder-occupancy.yaml"  # absent until written
     monkeypatch.setattr(cfg, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(occupancy))
     monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(occupancy))
 

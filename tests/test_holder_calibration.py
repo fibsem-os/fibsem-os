@@ -119,11 +119,13 @@ class TestStageRefusesUncalibratedSlots:
         microscope._stage.move_to_slot("Slot-01")
         assert abs(microscope.get_stage_position().x + 5e-3) < 1e-9
 
-    def test_compustage_working_slot_starts_uncalibrated(self):
+    def test_compustage_working_slot_is_the_origin_by_construction(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
         microscope.stage_is_compustage = True
         stage = _create_sample_stage(microscope)
-        assert stage.holder.slots["Slot-01"].position is None
+        slot = stage.holder.slots["Slot-01"]
+        assert slot.is_calibrated and slot.calibration.is_builtin
+        assert (slot.position.x, slot.position.y) == (0.0, 0.0)
 
 
 class TestLoadingAnOldFile:
