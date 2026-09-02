@@ -58,11 +58,13 @@ REFUSAL_WINDOW_EDGE = "window-edge"
 REFUSAL_LATERAL_OFFSET = "lateral-offset"
 REFUSAL_RIVAL_PEAK = "rival-peak"
 # A second correlation candidate outside the chosen peak's lobe that is
-# nearly as good as the lock: on the simulator every false lock that
-# passed the other gates measured 0.98-1.00 here, every correct fine lock
-# 0.53-0.85 and every correct coarse lock at most 0.94. Calibrated on the
-# simulator only; the bench pairs (FIB-872) are the check.
-DEFAULT_MAX_RIVAL_RATIO = 0.96
+# nearly as good as the lock: on the simulator every correct fine lock
+# measured 0.53-0.85 here (mammalian, yeast, bacteria scenes) and every
+# false fine lock that passed the other gates 0.94-1.00 - the 0.94 one
+# moved the stage 15 um the wrong way before the next measurement caught
+# it. Calibrated on the simulator only; the bench pairs (FIB-872) are the
+# check.
+DEFAULT_MAX_RIVAL_RATIO = 0.92
 # ...but not at the coarse field of view: there a correct lock can read
 # 0.99 (the wide, smooth structure of large cells) while the wrong ones
 # were all caught by the band and lateral gates, and the fine pass that

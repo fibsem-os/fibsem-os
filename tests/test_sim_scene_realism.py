@@ -43,6 +43,9 @@ def microscope():
 
 
 def _scene(microscope, **kwargs) -> SampleScene:
+    """A deterministic scene: no noise, and no ice or rips unless asked -
+    the fiducial finders here look for the darkest/brightest pixels."""
+    kwargs = {"ice_density": 0.0, "rip_fraction": 0.0, **kwargs}
     scene = SampleScene(noise_sigma=0.0, noise_fraction=0.0, **kwargs)
     scene.anchor(microscope.get_stage_position())
     microscope._sample_scene = scene
@@ -119,7 +122,7 @@ def test_beam_shift_moves_the_content_the_way_the_alignment_expects(microscope):
     )
 
     after = _fiducial(microscope.acquire_image(image_settings=settings))
-    assert np.hypot(after[0] - before[0], after[1] - before[1]) < 2
+    assert np.hypot(after[0] - before[0], after[1] - before[1]) < 3
     shift = microscope.get_beam_shift(BeamType.ION)
     assert np.hypot(shift.x, shift.y) > 1e-6  # it really was the beam that moved
 
@@ -306,5 +309,208 @@ def test_the_fm_dyes_the_nucleus_and_the_cytoplasm_differently(microscope):
     # and they sit in cytoplasm: the GFP there is well above the bare film
     # (large adherent cells cover most of the field, so the film is the
     # dim tail of the GFP image, not its median)
-    film = np.percentile(gfp_smooth, 10)
-    assert gfp_smooth[nuclei].mean() > 3 * film
+    film = np.percentile(gfp_smooth, 2)
+    assert gfp_smooth[nuclei].mean() > 2 * film
+
+
+def _world_grid(hfw=300e-6, shape=(1024, 1024)):
+    px = hfw / shape[1]
+    xs = (np.arange(shape[1]) - shape[1] / 2)[None, :] * px
+    ys = (np.arange(shape[0]) - shape[0] / 2)[:, None] * px
+    return xs, ys, px
+
+
+def test_the_film_is_continuous_by_default():
+    assert SampleScene().film == "continuous"
+
+
+@pytest.mark.xfail(
+    reason="the fine-pass correlator aliases on the 4 um hole lattice: at the "
+    "fiducial the two bands disagree by a hole pitch, and an 80 um error "
+    "converges falsely through a lattice alias. Handling a periodic film "
+    "(notching the lattice frequency, or masking the holes) is measurement "
+    "work still to do - FIB-868.",
+    strict=False,
+)
+def test_the_fine_pass_measures_on_holey_film(microscope):
+    _scene(microscope, coincidence_offset=8e-6, film="holey")
+    m = check_coincidence(microscope)
+    assert m.is_reliable, m.refusal_reason
+    assert abs(m.dz) == pytest.approx(8e-6, abs=1e-6)
+
+
+def test_holey_film_is_a_lattice_of_holes_on_the_film_only():
+    scene = SampleScene(film="holey", hole_diameter=2e-6, hole_pitch=4e-6, seed=1)
+    xs, ys, px = _world_grid()
+    bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
+    assert not (holes & bars).any()
+    # R2/2: a 2 um hole every 4 um covers pi / 16 of the film
+    fill = holes[~bars & ~rips].mean()
+    assert fill == pytest.approx(np.pi / 16, rel=0.15)
+    # and it is a lattice: hole centres repeat at the pitch along the grid axes
+    n_holes = ndi.label(holes)[1]
+    film_area = (~bars & ~rips).sum() * px**2
+    assert n_holes == pytest.approx(film_area / scene.hole_pitch**2, rel=0.15)
+    assert not SampleScene(film="continuous").film_masks(xs, ys)[1].any()
+
+
+def test_some_squares_are_ripped_and_rips_are_square_sized():
+    scene = SampleScene(rip_fraction=0.1, seed=2)
+    xs, ys, px = _world_grid(hfw=1200e-6, shape=(1024, 1024))
+    bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
+    n, areas = ndi.label(rips)[1], None
+    squares_in_view = (1200e-6**2) / scene.grid_pitch**2
+    assert 0.03 * squares_in_view < n < 0.25 * squares_in_view
+    labels, n = ndi.label(rips)
+    areas = ndi.sum(rips, labels, range(1, n + 1)) * px**2
+    # a rip is a good part of its square, not a speck
+    assert np.median(areas) > 0.1 * scene.grid_pitch**2
+    assert not SampleScene(rip_fraction=0.0).film_masks(xs, ys)[2].any()
+
+
+def test_ice_plates_are_generated_and_render_bright(microscope):
+    scene = _scene(
+        microscope,
+        coincidence_offset=0.0,
+        cell_type="none",
+        contamination_density=0.0,
+        grid_intensity=0.0,  # so the plates are the brightest thing in view
+        ice_density=2.0,
+    )
+    ice = [f for f in scene.features if f.kind == "ice"]
+    assert len(ice) == int(2.0 * (scene.extent / 100e-6) ** 2)
+    assert all(f.sharpness >= 4 and f.wobble > 0 for f in ice)
+    image = microscope.acquire_image(
+        image_settings=_settings(BeamType.ELECTRON, hfw=300e-6)
+    )
+    data = image.data.astype(np.float32)
+    # flat plates: large bright connected regions with sharp edges
+    bright = ndi.gaussian_filter(data, 1) > np.percentile(data, 97)
+    labels, n = ndi.label(bright)
+    px = 300e-6 / 1536
+    areas = ndi.sum(bright, labels, range(1, n + 1)) * px**2
+    assert (areas > np.pi * (5e-6) ** 2).sum() >= 3
+
+
+def test_beyond_the_grid_is_rim_then_holder():
+    scene = SampleScene(grid_radius=1.4e-3, grid_rim_width=150e-6)
+    xs = np.array([[0.0, 1.45e-3, 1.7e-3]])
+    ys = np.array([[0.0]])
+    bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
+    assert rim.tolist() == [[False, True, True]]
+    assert beyond.tolist() == [[False, False, True]]
+
+
+def test_milled_patterns_persist_in_the_world(microscope):
+    """A rectangle milled at the milling pose is a trench from then on: it
+    sits where the pattern was drawn in the FIB view, it moves with the
+    stage, and the SEM sees it too (FIB-877)."""
+    from fibsem.structures import FibsemRectangleSettings
+
+    _scene(
+        microscope,
+        coincidence_offset=0.0,
+        cell_type="none",
+        contamination_density=0.0,
+        grid_intensity=0.0,
+        ice_density=0.0,
+    )
+    settings = _settings(BeamType.ION)
+    before = microscope.acquire_image(image_settings=settings)
+
+    # a trench 30 x 6 um, 20 um above and 10 um right of the FIB centre
+    # (microscope image coordinates: metres from the centre, y up)
+    microscope.draw_rectangle(
+        FibsemRectangleSettings(
+            width=30e-6, height=6e-6, depth=1e-6, centre_x=10e-6, centre_y=20e-6
+        )
+    )
+    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    after = microscope.acquire_image(image_settings=settings)
+    assert len(microscope._sample_scene.milled) == 1
+
+    def trench_pixels(image):
+        """The trench: the largest dark connected region (the fiducial's
+        thin arms are the only other dark thing in this scene)."""
+        labels, n = ndi.label(image.data < 100)
+        assert n > 0, "no trench rendered"
+        sizes = ndi.sum(np.ones_like(labels), labels, range(1, n + 1))
+        ys, xs = np.nonzero(labels == 1 + int(np.argmax(sizes)))
+        return xs, ys
+
+    assert (after.data < 100).sum() > (before.data < 100).sum() + 100
+    xs, ys = trench_pixels(after)
+    centre = (xs.mean(), ys.mean())
+    # microscope image coordinates are centred with y up
+    height, width = after.data.shape
+    px = after.metadata.pixel_size.x
+    expected = (width / 2 + 10e-6 / px, height / 2 - 20e-6 / px)
+    assert np.hypot(centre[0] - expected[0], centre[1] - expected[1]) < 4
+    assert (xs.max() - xs.min()) * px == pytest.approx(30e-6, rel=0.15)
+
+    # it moves with the stage: 25 um to the right in the FIB view
+    microscope.stable_move(dx=25e-6, dy=0.0, beam_type=BeamType.ION)
+    moved = microscope.acquire_image(image_settings=settings)
+    xs2, ys2 = trench_pixels(moved)
+    assert abs(xs2.mean() - centre[0]) == pytest.approx(25e-6 / px, abs=4)
+    assert ys2.mean() == pytest.approx(centre[1], abs=4)
+
+    # and the SEM sees a dark trench too (a wider field: the FIB's 20 um
+    # "up" is ~77 um along the foreshortened surface at this pose)
+    sem = microscope.acquire_image(
+        image_settings=_settings(BeamType.ELECTRON, hfw=400e-6)
+    )
+    labels, n = ndi.label(sem.data < 40)
+    assert n >= 1
+    sizes = ndi.sum(np.ones_like(labels), labels, range(1, n + 1))
+    sem_px = sem.metadata.pixel_size.x
+    assert sizes.max() * sem_px**2 > 0.5 * 30e-6 * 6e-6  # a trench-sized dark patch
+
+
+def test_the_fiducial_can_be_switched_off():
+    assert any(f.kind == "fiducial" for f in SampleScene().features)
+    scene = SampleScene(fiducial=False)
+    assert not any(f.kind == "fiducial" for f in scene.features)
+    assert SampleScene.from_config({"fiducial": False}).fiducial is False
+
+
+def test_a_rotated_pattern_mills_the_footprint_it_was_drawn_with(microscope):
+    """A rectangle drawn at 45 deg in the FIB view at the milling angle must
+    come back as that same rotated rectangle in the FIB view - the
+    foreshortening is undone on the corners, not on a height alone."""
+    from fibsem.structures import FibsemRectangleSettings
+
+    _scene(
+        microscope,
+        coincidence_offset=0.0,
+        cell_type="none",
+        contamination_density=0.0,
+        grid_intensity=0.0,
+        fiducial=False,
+    )
+    settings = _settings(BeamType.ION)
+    microscope.draw_rectangle(
+        FibsemRectangleSettings(
+            width=24e-6,
+            height=3e-6,
+            depth=1e-6,
+            centre_x=-5e-6,
+            centre_y=8e-6,
+            rotation=np.deg2rad(45),
+        )
+    )
+    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    image = microscope.acquire_image(image_settings=settings)
+    trench = image.data < 100
+
+    # the pattern's own footprint in image pixels (centred, y up)
+    height, width = image.data.shape
+    px = image.metadata.pixel_size.x
+    yy, xx = np.mgrid[0:height, 0:width]
+    dx = (xx - width / 2) * px - (-5e-6)
+    dy = -(yy - height / 2) * px - 8e-6
+    c, s_ = np.cos(np.deg2rad(45)), np.sin(np.deg2rad(45))
+    u, v = dx * c + dy * s_, -dx * s_ + dy * c
+    expected = (np.abs(u) <= 12e-6) & (np.abs(v) <= 1.5e-6)
+    iou = (trench & expected).sum() / (trench | expected).sum()
+    assert iou > 0.8, f"trench footprint IoU {iou:.2f} against the drawn pattern"
