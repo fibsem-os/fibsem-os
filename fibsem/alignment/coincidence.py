@@ -66,10 +66,11 @@ DEFAULT_MAX_LATERAL_OFFSET = 5e-6  # m
 class CoincidenceMeasurement:
     """Result of one coincidence measurement.
 
-    Sign convention: dx/dy are where the FIB-view scene sits relative to the
-    SEM-view scene, in the SEM image convention (x right, y down), after the
-    geometric perspective correction. dz is the inferred height error along
-    the chamber-vertical axis (dz = dy / sin(column_tilt)).
+    Sign convention: dx/dy are the shift that brings the FIB-view scene onto
+    the SEM-view scene - minus the FIB scene's displacement - in the SEM
+    image convention (x right, y down), after the geometric perspective
+    correction; dy is what vertical_move is handed. dz is the inferred
+    height error along the chamber-vertical axis (the z move to apply).
 
     dx is diagnostic only: a height error cannot produce it. A persistent dx
     indicates beam misalignment (correctable by beam shift, see FIB-873),

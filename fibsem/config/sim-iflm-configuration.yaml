@@ -99,6 +99,9 @@ sim:
     #     noise_sigma: 12.0                                  # gaussian noise on the beam images
     #     noise_fraction: 0.15                               # uniform-noise blend on the beam images
     #     grid_rotation: null                                # degrees; null = random within +/- 45
+    #     contamination_density: 15.0                        # specks per 100 x 100 um (aperiodic content on film and bars)
+    #     beam_offset: {ion: [1.3e-6, 0.0]}                  # fixed per-beam misalignment (m): the coincidence measurement's dx
+    #     current_offset_scale: 1.5e-6                       # sigma (m) of a seeded per-beam-current offset; 0 = off
     is_compustage: false                                    # this stage rotates; the objective is off to the side          [USER]
     has_fm: true                                            # stand in for the hardware probe -- see below                  [USER]
 

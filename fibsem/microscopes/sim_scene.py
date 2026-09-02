@@ -30,9 +30,10 @@ SampleScene for the fields and `SampleScene.from_config`.
 from __future__ import annotations
 
 import logging
+import zlib
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.ndimage import gaussian_filter as ndi_gaussian
@@ -135,6 +136,7 @@ class SceneFeature:
     sigma: float  # m
     intensity: float
     sharpness: float = 1.0
+    kind: str = "cell"  # "cell" | "fiducial" | "contamination"
 
 
 @dataclass
@@ -165,6 +167,23 @@ class SampleScene:
     # grids never load perfectly straight; drawn from +/- this range per seed
     grid_rotation: Optional[float] = None  # rad; random when None
     grid_rotation_range: float = np.deg2rad(45.0)
+    # contamination: small specks over film and bars - the aperiodic content
+    # a real grid carries, which is what breaks a mesh-pitch alias
+    contamination_density: float = 15.0  # specks per 100 x 100 um
+    contamination_size: Tuple[float, float] = (0.8e-6, 3.0e-6)  # m, sigma range
+    # a fixed per-beam misalignment ("electron"/"ion" -> (dx, dy) m): the
+    # view shifted as by a beam shift the microscope does not report - the
+    # persistent lateral offset the coincidence measurement calls dx
+    beam_offset: Dict[str, Tuple[float, float]] = field(default_factory=dict)
+    # changing beam current moves the beam a little (aperture/lens
+    # alignment): a seeded per-(beam, current) offset drawn with this sigma
+    # (m), so the milling-current alignment has something real to undo.
+    # Opt-in (0 = off): on, every acquisition carries a current-dependent
+    # lateral offset, which tests with exact expectations must account for
+    current_offset_scale: float = 0.0
+    _current_offsets: Dict[Tuple[str, float], Tuple[float, float]] = field(
+        default_factory=dict, repr=False
+    )
     # how far above the stage tilt axis the sample surface sits (m, along the
     # stage z axis). 0 is a eucentric stage; a real stage is not, and a tilt
     # change then swings the surface about the axis, costing coincidence
@@ -212,8 +231,24 @@ class SampleScene:
                 (float(offset), -float(offset)),
             ):
                 self.features.append(
-                    SceneFeature(x=x, y=y, sigma=0.4e-6, intensity=220.0)
+                    SceneFeature(
+                        x=x, y=y, sigma=0.4e-6, intensity=220.0, kind="fiducial"
+                    )
                 )
+        # contamination: everywhere, film and bars alike
+        n_specks = int(self.contamination_density * (self.extent / 100e-6) ** 2)
+        for _ in range(n_specks):
+            x, y = rng.uniform(-half, half, size=2)
+            self.features.append(
+                SceneFeature(
+                    x=float(x),
+                    y=float(y),
+                    sigma=float(rng.uniform(*self.contamination_size)),
+                    intensity=float(rng.uniform(40, 120)),
+                    sharpness=2.0,
+                    kind="contamination",
+                )
+            )
 
     # the configuration keys `sim: sample:` accepts, with their units
     CONFIG_KEYS = (
@@ -232,6 +267,10 @@ class SampleScene:
         "noise_fraction",
         "grid_rotation",  # degrees; null = random within grid_rotation_range
         "grid_rotation_range",  # degrees
+        "contamination_density",  # specks per 100 x 100 um
+        "contamination_size",  # [min, max] m
+        "beam_offset",  # {electron: [dx, dy], ion: [dx, dy]} m
+        "current_offset_scale",  # m, sigma of the per-current beam offset
     )
 
     @classmethod
@@ -242,9 +281,14 @@ class SampleScene:
         if unknown:
             raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
-        for key in ("cells_per_cluster", "cell_size"):
+        for key in ("cells_per_cluster", "cell_size", "contamination_size"):
             if key in kwargs:
                 kwargs[key] = tuple(kwargs[key])
+        if "beam_offset" in kwargs:
+            kwargs["beam_offset"] = {
+                str(k).lower(): (float(v[0]), float(v[1]))
+                for k, v in (kwargs["beam_offset"] or {}).items()
+            }
         if "cells_per_cluster" in kwargs:
             kwargs["cells_per_cluster"] = tuple(
                 int(v) for v in kwargs["cells_per_cluster"]
@@ -283,6 +327,8 @@ class SampleScene:
         resolution: Tuple[int, int],
         projection: BeamStageProjection,
         rng: Optional[np.random.Generator] = None,
+        beam_shift: Tuple[float, float] = (0.0, 0.0),
+        beam_current: Optional[float] = None,
     ) -> np.ndarray:
         """Render one beam's view of the scene at the current stage position.
 
@@ -299,6 +345,10 @@ class SampleScene:
             resolution: (width, height) in pixels.
             projection: the beam's stage projection (from the live geometry).
             rng: noise source; a fresh default generator when omitted.
+            beam_shift: the beam's current shift (m); the configured
+                `beam_offset` for the beam is added to it.
+            beam_current: the beam current (A); each distinct current carries
+                its own seeded offset (see current_offset_scale).
 
         Returns:
             uint8 image of shape (height, width).
@@ -325,16 +375,31 @@ class SampleScene:
         ax, ay = projection.to_plane(reference, stage_position)
 
         fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
-        flip = -1.0 if np.isclose(projection.scan_rotation, np.pi) else 1.0
+        # scan rotation turns the raster, so the content turns with it - the
+        # full angle here, not only the half-turn the app's projection models,
+        # so an intermediate rotation shows the app's limitation honestly
+        theta = float(projection.scan_rotation or 0.0)
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        # the projection already flips the anchor offset at a half-turn;
+        # undo that and apply the full rotation here so every angle works
+        if np.isclose(theta, np.pi):
+            ax, ay = -ax, -ay
+        ax, ay = ax * cos_t - ay * sin_t, ax * sin_t + ay * cos_t
+        # a beam shift moves the content in the view, in the scan frame
+        offset = self.beam_offset.get(beam_type.name.lower(), (0.0, 0.0))
+        current_offset = self.current_offset(beam_type, beam_current)
+        ax = ax + beam_shift[0] + offset[0] + current_offset[0]
+        ay = ay - (beam_shift[1] + offset[1] + current_offset[1])
 
         canvas = np.zeros((height, width), dtype=np.float32)
 
         # grid mesh bars: world (sample-plane) coordinates per pixel, through
-        # the inverse of the same mapping the features use
-        xs_world = flip * ((np.arange(width, dtype=np.float32) - cx) * pixel_size - ax)
-        ys_world = (
-            flip * ((np.arange(height, dtype=np.float32) - cy) * pixel_size - ay) / fs
-        )
+        # the inverse of the same mapping the features use: un-shift,
+        # un-rotate the scan, un-foreshorten
+        vx = (np.arange(width, dtype=np.float32) - cx)[None, :] * pixel_size - ax
+        vy = (np.arange(height, dtype=np.float32) - cy)[:, None] * pixel_size - ay
+        xs_world = vx * cos_t + vy * sin_t
+        ys_world = (-vx * sin_t + vy * cos_t) / fs
 
         def _near_bar(w: np.ndarray) -> np.ndarray:
             return (
@@ -345,19 +410,21 @@ class SampleScene:
         # the mesh is rotated in the world plane, so the bar test runs on
         # rotated world coordinates (full 2D, no longer separable)
         cos_r, sin_r = np.cos(self.grid_rotation), np.sin(self.grid_rotation)
-        xw = xs_world[None, :]
-        yw = ys_world[:, None]
-        x_rot = xw * cos_r + yw * sin_r
-        y_rot = -xw * sin_r + yw * cos_r
+        x_rot = xs_world * cos_r + ys_world * sin_r
+        y_rot = -xs_world * sin_r + ys_world * cos_r
         bar_mask = _near_bar(x_rot) | _near_bar(y_rot)
         canvas[bar_mask] += self.grid_intensity
 
         for f in self.features:
-            u = cx + (flip * f.x + ax) / pixel_size
-            v = cy + (flip * f.y * fs + ay) / pixel_size
+            # project (foreshorten), rotate with the scan, then shift
+            px_, py_ = f.x, f.y * fs
+            u = cx + (px_ * cos_t - py_ * sin_t + ax) / pixel_size
+            v = cy + (px_ * sin_t + py_ * cos_t + ay) / pixel_size
             sigma_x = f.sigma / pixel_size
             sigma_y = sigma_x * fs
-            self._stamp_blob(canvas, u, v, sigma_x, sigma_y, f.intensity, f.sharpness)
+            self._stamp_blob(
+                canvas, u, v, sigma_x, sigma_y, f.intensity, f.sharpness, angle=theta
+            )
 
         if rng is None:
             rng = np.random.default_rng()
@@ -416,7 +483,9 @@ class SampleScene:
         ax, ay = projection.to_plane(reference, stage_position)
         fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
 
-        bars, cells, red, fiducial = weights
+        bars, cells, red, fiducial = weights[:4]
+        # contamination reflects strongly and autofluoresces faintly
+        contamination = 0.9 if bars >= 1.0 else 0.12
         canvas = np.zeros((height, width), dtype=np.float32)
 
         if bars > 0:
@@ -437,9 +506,10 @@ class SampleScene:
 
         red_rng = np.random.default_rng(self.seed + 1)
         for f in self.features:
-            is_fiducial = f.sharpness == 1.0 and f.sigma < 1e-6
-            if is_fiducial:
+            if f.kind == "fiducial":
                 weight = fiducial
+            elif f.kind == "contamination":
+                weight = contamination
             else:
                 in_subset = red_rng.random() < self.red_fraction
                 weight = cells + (red if in_subset else 0.0)
@@ -465,6 +535,26 @@ class SampleScene:
         data = 400.0 + canvas * 120.0
         data += rng.normal(0, 40.0 + 0.05 * np.sqrt(np.maximum(data, 0)), canvas.shape)
         return np.clip(data, 0, 65535).astype(np.uint16)
+
+    def current_offset(
+        self, beam_type: BeamType, beam_current: Optional[float]
+    ) -> Tuple[float, float]:
+        """The beam offset that goes with a beam current: drawn once per
+        (beam, current) from the scene's seed, so it is reproducible across
+        a session and across sessions with the same seed - a lookup table
+        nobody wrote down, like the real one."""
+        if beam_current is None or self.current_offset_scale <= 0:
+            return (0.0, 0.0)
+        key = (beam_type.name.lower(), float(f"{beam_current:.6g}"))
+        if key not in self._current_offsets:
+            # a deterministic hash - Python's own is salted per process
+            rng = np.random.default_rng(
+                [self.seed, zlib.crc32(key[0].encode()), int(abs(key[1]) * 1e15)]
+            )
+            self._current_offsets[key] = tuple(
+                float(v) for v in rng.normal(0, self.current_offset_scale, size=2)
+            )
+        return self._current_offsets[key]
 
     def _non_eucentric_reference(
         self, stage_position: FibsemStagePosition, projection: BeamStageProjection
@@ -517,21 +607,29 @@ class SampleScene:
         sigma_y: float,
         intensity: float,
         sharpness: float = 1.0,
+        angle: float = 0.0,
     ) -> None:
         """Add one supergaussian blob, clipped to its bounding box.
 
-        sharpness 1 = gaussian; higher = flat top with a sharp rim.
+        sharpness 1 = gaussian; higher = flat top with a sharp rim. `angle`
+        turns the (sigma_x, sigma_y) ellipse, for a scan-rotated view.
         """
         height, width = canvas.shape
-        x0 = max(0, int(u - 4 * sigma_x))
-        x1 = min(width, int(u + 4 * sigma_x) + 1)
-        y0 = max(0, int(v - 4 * sigma_y))
-        y1 = min(height, int(v + 4 * sigma_y) + 1)
+        reach = 4 * max(sigma_x, sigma_y) if angle else None
+        x0 = max(0, int(u - (reach or 4 * sigma_x)))
+        x1 = min(width, int(u + (reach or 4 * sigma_x)) + 1)
+        y0 = max(0, int(v - (reach or 4 * sigma_y)))
+        y1 = min(height, int(v + (reach or 4 * sigma_y)) + 1)
         if x0 >= x1 or y0 >= y1:
             return
         xs = np.arange(x0, x1, dtype=np.float32)
         ys = np.arange(y0, y1, dtype=np.float32)
-        rx = (xs[None, :] - u) / max(sigma_x, 0.5)
-        ry = (ys[:, None] - v) / max(sigma_y, 0.5)
+        dx = xs[None, :] - u
+        dy = ys[:, None] - v
+        if angle:
+            c, s_ = np.cos(angle), np.sin(angle)
+            dx, dy = dx * c + dy * s_, -dx * s_ + dy * c
+        rx = dx / max(sigma_x, 0.5)
+        ry = dy / max(sigma_y, 0.5)
         r2 = rx**2 + ry**2
         canvas[y0:y1, x0:x1] += intensity * np.exp(-0.5 * r2**sharpness)

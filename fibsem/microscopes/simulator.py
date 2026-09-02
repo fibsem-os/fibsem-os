@@ -730,12 +730,19 @@ class DemoMicroscope(FibsemMicroscope):
             projection = BeamStageProjection.from_microscope(
                 self, beam_type=effective_beam_type
             )
+            shift = self.get_beam_shift(effective_beam_type)
+            try:
+                current = float(self.get("current", effective_beam_type))
+            except Exception:
+                current = None
             image.data = self._sample_scene.render(
                 beam_type=effective_beam_type,
                 stage_position=self.get_stage_position(),
                 hfw=effective_image_settings.hfw,
                 resolution=effective_image_settings.resolution,
                 projection=projection,
+                beam_shift=(float(shift.x), float(shift.y)),
+                beam_current=current,
             )
         # generate the next image from the sequence iterator
         elif self.use_image_sequence:
