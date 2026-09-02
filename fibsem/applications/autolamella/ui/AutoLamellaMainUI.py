@@ -3251,6 +3251,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 card.refresh()
             self.grid_workflow_widget.refresh_grid(grid)
             self.grids_tab.results_widget.refresh()
+            # The run's exchanges change what is in the beam; the Sample view
+            # draws from the stage and never polls it, so it is told here.
+            sample = getattr(self.autolamella_ui, "sample_widget", None)
+            if sample is not None:
+                sample.refresh()
         elif lamella is not None:
             self.lamella_list_widget.refresh_lamella(lamella)
             self.lamella_card_container.refresh_lamella(lamella)
@@ -3505,6 +3510,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         sample = getattr(self.autolamella_ui, "sample_widget", None)
         if sample is not None:
             sample.set_controls_enabled(True)
+            sample.refresh()
         self.user_attention_btn.hide()
         self.lamella_list_widget.refresh_all()
         self.lamella_card_container.refresh_all()
