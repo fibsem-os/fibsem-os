@@ -52,11 +52,11 @@ def _enable_projection(microscope, offset: float = COINCIDENCE_OFFSET, **scene_k
             coincidence_offset=offset, **scene_kwargs
         )
     # a realistic milling pose: stage tilt 12 deg -> milling angle 15 deg
-    # (at the Demo's boot tilt of 0 the FIB view is a ~3 deg grazing view,
-    # foreshortened x14 - unmeasurable on hardware too)
-    microscope.move_stage_relative(
-        FibsemStagePosition(x=0, y=0, z=0, r=0, t=MILLING_POSE_TILT)
-    )
+    # (the Demo boots at the SEM orientation, tilt 35; set the tilt
+    # absolutely so the pose does not depend on where it booted)
+    pose = microscope.get_stage_position()
+    pose.t = MILLING_POSE_TILT
+    microscope.move_stage_absolute(pose)
 
 
 def _fiducial_only(microscope):
@@ -278,9 +278,9 @@ def test_tilting_does_not_reset_the_world(microscope):
     assert off_before > 20e-6  # fiducial clearly off-centre at the site
 
     # the workflow tilts to another orientation
-    microscope.move_stage_relative(
-        FibsemStagePosition(x=0, y=0, z=0, r=0, t=np.deg2rad(23.0))
-    )
+    pose = microscope.get_stage_position()
+    pose.t = np.deg2rad(23.0)
+    microscope.move_stage_absolute(pose)
     gx, gy = fiducial()
     off_after = np.hypot(gx - 768, gy - 512) * pixel_size
     # the world persisted: the fiducial is still far from centre, not reset

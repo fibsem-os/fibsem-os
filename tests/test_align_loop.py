@@ -31,9 +31,9 @@ def microscope():
     )
     scene.anchor(microscope.get_stage_position())
     microscope._coincidence_scene = scene
-    microscope.move_stage_relative(
-        FibsemStagePosition(x=0, y=0, z=0, r=0, t=np.deg2rad(12.0))
-    )
+    pose = microscope.get_stage_position()
+    pose.t = np.deg2rad(12.0)
+    microscope.move_stage_absolute(pose)
     yield microscope
     microscope.disconnect()
 

@@ -442,6 +442,16 @@ class DemoMicroscope(FibsemMicroscope):
             scanning_mode_value=None,
         )
         self.stage_is_compustage: bool = self.system.sim.get("is_compustage", False)
+        if not self.stage_is_compustage:
+            # boot at the SEM orientation, as a loaded shuttle sits: at t=0 a
+            # pre-tilted shuttle presents the FIB a grazing 3 deg view, a pose
+            # no real session starts in. A compustage is flat at t=0 already
+            self.stage_system.position.r = np.radians(
+                self.system.stage.rotation_reference
+            )
+            self.stage_system.position.t = np.radians(
+                self.system.stage.shuttle_pre_tilt
+            )
         self.milling_system = MillingSystem(patterns=[])
         self.imaging_system = ImagingSystem()
 
