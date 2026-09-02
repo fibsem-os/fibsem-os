@@ -295,8 +295,8 @@ def plot_coincidence_alignment(
     the FIB stretched to the SEM projection and shifted by the measured
     residual, shown as a checkerboard against the SEM so a good lock reads
     as continuous structure across the tiles and a wrong one as broken
-    edges. A single-panel residual plot at the top right carries the
-    convergence story, and the title the verdict. Measurements without
+    edges. A short residual plot along the bottom carries the convergence
+    story, and the title the verdict. Measurements without
     their image pair are skipped.
 
     Returns:
@@ -321,8 +321,19 @@ def plot_coincidence_alignment(
         if m.sem_image is not None and m.fib_image is not None
     ]
     n = max(len(rows), 1)
-    fig = Figure(figsize=(14.5, 3.3 * n + 0.7))
-    grid = GridSpec(n, 4, figure=fig, width_ratios=[1, 1, 1, 0.85])
+    fig = Figure(figsize=(12, 2.8 * n + 2.4))
+    grid = GridSpec(
+        n + 1,
+        3,
+        figure=fig,
+        height_ratios=[1] * n + [0.6],
+        wspace=0.04,
+        hspace=0.12,
+        left=0.03,
+        right=0.99,
+        top=0.93,
+        bottom=0.06,
+    )
 
     verdict = "CONVERGED" if result.converged else f"NOT COINCIDENT ({result.reason})"
     header = (
@@ -382,8 +393,8 @@ def plot_coincidence_alignment(
             ),
         )
 
-    # one panel's worth of residual plot, not a column-high one
-    ax = fig.add_subplot(grid[0, 3])
+    # a short strip along the bottom, not a column-high panel
+    ax = fig.add_subplot(grid[n, :])
     idx = np.arange(1, len(result.measurements) + 1)
     dz = np.array([m.dz for m in result.measurements]) * 1e6
     dx = np.array([m.dx for m in result.measurements]) * 1e6
@@ -405,10 +416,8 @@ def plot_coincidence_alignment(
     ax.set_xlabel("measurement")
     ax.set_ylabel("um")
     ax.set_title("Residuals", fontsize=10)
-    ax.legend(fontsize="x-small")
+    ax.legend(fontsize="x-small", loc="upper right", ncol=3)
     ax.grid(alpha=0.3)
-
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
 
@@ -489,7 +498,12 @@ def load_coincidence_run(run_dir: str) -> list:
     """
     import json
 
-    from fibsem.alignment.coincidence import measure_coincidence_from_images
+    from fibsem.alignment.coincidence import (
+        DEFAULT_AGREEMENT_TOLERANCE,
+        DEFAULT_CAPTURE_RANGE,
+        DEFAULT_MAX_LATERAL_OFFSET,
+        measure_coincidence_from_images,
+    )
     from fibsem.structures import FibsemImage
 
     with open(os.path.join(run_dir, "run.json")) as f:
@@ -501,13 +515,18 @@ def load_coincidence_run(run_dir: str) -> list:
         sem_image = FibsemImage.load(os.path.join(run_dir, record["sem"]))
         fib_image = FibsemImage.load(os.path.join(run_dir, record["fib"]))
         prior = record.get("prior")
+        # runs saved before the parameters were recorded replay with defaults
         measurement = measure_coincidence_from_images(
             sem_image,
             fib_image,
             prior=None if prior is None else tuple(prior),
-            capture_range=record["capture_range"],
-            agreement_tolerance=record["agreement_tolerance"],
-            max_lateral_offset=record["max_lateral_offset"],
+            capture_range=record.get("capture_range", DEFAULT_CAPTURE_RANGE),
+            agreement_tolerance=record.get(
+                "agreement_tolerance", DEFAULT_AGREEMENT_TOLERANCE
+            ),
+            max_lateral_offset=record.get(
+                "max_lateral_offset", DEFAULT_MAX_LATERAL_OFFSET
+            ),
         )
         measurement.coarse = record["pass"] == "coarse"
         measurement.sem_image = sem_image
