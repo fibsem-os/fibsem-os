@@ -368,3 +368,76 @@ class TestEnsureLoadedOnFixedHolder:
         microscope = _fixed_demo()
         with pytest.raises(ValueError):
             microscope._stage.move_to_grid("grid-nowhere")
+
+
+# ---------------------------------------------------------------------------
+# Stage.assign_grid / run_inventory: naming on either shape
+# ---------------------------------------------------------------------------
+
+
+class TestAssignGrid:
+    def test_with_loader_names_the_magazine_slot(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        microscope._stage.assign_grid("Slot-03", SampleGrid(name="grid-cedar"))
+        assert loader.slots["Slot-03"].loaded_grid.name == "grid-cedar"
+        assert _entry(microscope, "Slot-03").present is True
+
+    def test_on_fixed_holder_names_the_slot_and_saves_the_config(
+        self, tmp_path, monkeypatch
+    ):
+        import fibsem.microscopes._stage as stage_module
+
+        path = tmp_path / "holder.yaml"
+        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+        microscope = _fixed_demo()
+        microscope._stage.assign_grid("Slot-02", SampleGrid(name="grid-birch"))
+        assert _entry(microscope, "Slot-02").name == "grid-birch"
+        from fibsem.microscopes._stage import SampleHolder
+
+        assert SampleHolder.load(path).slots["Slot-02"].loaded_grid.name == "grid-birch"
+
+    def test_on_fixed_holder_can_skip_persisting(self, tmp_path, monkeypatch):
+        import fibsem.microscopes._stage as stage_module
+
+        path = tmp_path / "holder.yaml"
+        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+        microscope = _fixed_demo()
+        microscope._stage.assign_grid("Slot-01", SampleGrid(name="g"), persist=False)
+        assert not path.exists()
+
+    def test_on_fixed_holder_clearing_persists_too(self, tmp_path, monkeypatch):
+        import fibsem.microscopes._stage as stage_module
+
+        path = tmp_path / "holder.yaml"
+        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+        microscope = _fixed_demo()
+        microscope._stage.assign_grid("Slot-01", SampleGrid(name="g"))
+        microscope._stage.assign_grid("Slot-01", None)
+        from fibsem.microscopes._stage import SampleHolder
+
+        assert SampleHolder.load(path).slots["Slot-01"].loaded_grid is None
+
+    def test_unknown_holder_slot_raises(self):
+        microscope = _fixed_demo()
+        with pytest.raises(ValueError):
+            microscope._stage.assign_grid(
+                "Slot-99", SampleGrid(name="g"), persist=False
+            )
+
+
+class TestRunInventory:
+    def test_with_loader_scans_and_returns_rows(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        scanned = []
+        loader._scan_magazine = lambda: scanned.append(True)  # type: ignore[assignment]
+        rows = microscope._stage.run_inventory()
+        assert scanned == [True]
+        assert [r.name for r in rows if r.present] == ["Grid-01", "Grid-02", "Grid-05"]
+
+    def test_on_fixed_holder_is_a_refresh(self):
+        microscope = _fixed_demo()
+        microscope._stage.holder.slots["Slot-01"].loaded_grid = SampleGrid(name="g")
+        rows = microscope._stage.run_inventory()
+        assert [r.name for r in rows if r.present] == ["g"]

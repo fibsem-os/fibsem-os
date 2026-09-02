@@ -610,6 +610,38 @@ class Stage:
             return
         self.loader.unload_grid()
 
+    # -- naming and refreshing the inventory, on either shape --------------
+
+    def run_inventory(self) -> List[GridInventoryEntry]:
+        """Refresh what the hardware knows and return the inventory.
+
+        A magazine scan with a loader. On a fixed holder there is nothing to scan:
+        occupancy is what the operator declared, so this is a plain refresh.
+        """
+        if self.loader is not None:
+            self.loader.run_inventory()
+        return self.grid_inventory()
+
+    def assign_grid(
+        self, slot_name: str, grid: Optional[SampleGrid], persist: bool = True
+    ) -> None:
+        """Name (or clear) the grid in an inventory slot, and keep it.
+
+        With a loader the slot is a magazine slot and the name goes to the hardware's
+        slot description. On a fixed holder the slot is a holder slot and the name is
+        saved to the sample holder configuration, so it is there next session. Pass
+        ``persist=False`` to change only the in-memory holder.
+        """
+        if self.loader is not None:
+            self.loader.assign_grid(slot_name, grid)
+            return
+        slot = self.holder.slots.get(slot_name)
+        if slot is None:
+            raise ValueError(f"Slot '{slot_name}' not found in sample holder.")
+        slot.loaded_grid = grid
+        if persist:
+            self.holder.save(SAMPLE_HOLDER_CONFIGURATION_PATH)
+
 
 def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
 
