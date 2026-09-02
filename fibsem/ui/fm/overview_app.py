@@ -43,13 +43,16 @@ def build_microscope(
         microscope.stage_is_compustage = compustage
         microscope.system.stage.shuttle_pre_tilt = 0
         microscope._update_orientations()
-        # Re-read the travel limits, which `FibsemStage.__init__` cached before the flag
-        # above was set. They are not a detail: a compustage travels +/-999.9 um in x and
-        # only +/-377.8 um in y, against a grid boundary of 1000 um radius -- so in y the
-        # stage runs out of travel well inside the grid, and it is the limits rather than
-        # the boundary that say how far an overview can reach. Left stale, the simulator
-        # reports +/-100 mm and anything drawing them shows nothing at grid scale.
-        microscope._stage.limits = microscope._get_axis_limits()
+        # Rebuild the sample stage, which was created before the flag above was set.
+        # Two things hang off it. The travel limits: a compustage travels +/-999.9 um
+        # in x and only +/-377.8 um in y, against a grid boundary of 1000 um radius,
+        # so it is the limits rather than the boundary that say how far an overview can
+        # reach; left stale, the simulator reports +/-100 mm and anything drawing them
+        # shows nothing at grid scale. And the holder: a compustage has one working
+        # slot at the origin, calibrated by construction, whereas the ambient
+        # configuration's fixed holder has slots nothing has calibrated -- and the grid
+        # boundary is drawn from the holder's slots.
+        microscope._create_sample_stage()
         microscope.move_stage_absolute(
             FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
         )
@@ -68,17 +71,30 @@ def build_microscope(
 
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manufacturer", default="Demo",
-                        help="Demo, Thermo, Tescan (default: Demo)")
+    parser.add_argument(
+        "--manufacturer", default="Demo", help="Demo, Thermo, Tescan (default: Demo)"
+    )
     parser.add_argument("--ip", default="localhost", dest="ip_address")
-    parser.add_argument("--tilt", type=float, default=-180.0,
-                        help="Stage tilt in degrees for the Demo pose (default: -180)")
-    parser.add_argument("--no-compustage", action="store_false", dest="compustage",
-                        help="Pose the Demo microscope as an offset FM mount instead")
-    parser.add_argument("--output", default=None, metavar="DIR",
-                        help="Write acquired overviews under DIR. Each run gets its own "
-                             "subdirectory of tiles, with the stitched mosaic beside it. "
-                             "Omitted, overviews are shown but not saved.")
+    parser.add_argument(
+        "--tilt",
+        type=float,
+        default=-180.0,
+        help="Stage tilt in degrees for the Demo pose (default: -180)",
+    )
+    parser.add_argument(
+        "--no-compustage",
+        action="store_false",
+        dest="compustage",
+        help="Pose the Demo microscope as an offset FM mount instead",
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+        metavar="DIR",
+        help="Write acquired overviews under DIR. Each run gets its own "
+        "subdirectory of tiles, with the stitched mosaic beside it. "
+        "Omitted, overviews are shown but not saved.",
+    )
     args = parser.parse_args(argv)
 
     from PyQt5.QtWidgets import QApplication, QMainWindow
