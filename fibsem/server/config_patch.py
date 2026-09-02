@@ -166,19 +166,19 @@ def _check_bounds(obj: Any, leaf: str, value: Any, path: str) -> None:
         # Compare in that frame, or every valid SI value would be refused.
         scale = f.metadata.get("scale") or 1.0
         display = value * scale
-        unit = f.metadata.get("unit") or ""
+        # No unit label: metadata's "unit" is the SI unit of the STORED value,
+        # while min/max bound the scaled display value — labelling either
+        # number with it would mislead (2e-3 m scales to 2000.0, not "2000 m").
         if minimum is not None and display < minimum:
             raise PatchError(
                 path,
-                f"{display!r} {unit} is below the minimum {minimum!r} {unit} "
-                f"for {path!r} (values are SI; bounds are checked in display "
-                "units).",
+                f"{value!r} (display value {display!r}) is below the minimum "
+                f"{minimum!r} for {path!r}.",
             )
         if maximum is not None and display > maximum:
             raise PatchError(
                 path,
-                f"{display!r} {unit} is above the maximum {maximum!r} {unit} "
-                f"for {path!r} (values are SI; bounds are checked in display "
-                "units).",
+                f"{value!r} (display value {display!r}) is above the maximum "
+                f"{maximum!r} for {path!r}.",
             )
         return
