@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -293,6 +294,17 @@ class SampleHolderWidget(QWidget):
         form.addRow("Pre-Tilt", self.pre_tilt_spin)
         form.addRow("Ref. Rotation", self.reference_rotation_spin)
 
+        # The guided way to set slot positions. The per-row capture button below
+        # takes whatever the stage position is; this moves to the calibration
+        # orientation first and refuses anything else.
+        self.btn_calibrate = QPushButton("Calibrate slot positions…")
+        self.btn_calibrate.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.btn_calibrate.setToolTip(
+            "Walk through each slot at the SEM orientation and capture its centre"
+        )
+        self.btn_calibrate.setEnabled(self._microscope is not None)
+        form.addRow("", self.btn_calibrate)
+
         self._header = _GridListHeader("Slots")
 
         self._list = QListWidget()
@@ -331,6 +343,7 @@ class SampleHolderWidget(QWidget):
         self.name_edit.editingFinished.connect(self._on_holder_form_changed)
         self.description_edit.editingFinished.connect(self._on_holder_form_changed)
         self.capacity_spin.valueChanged.connect(self._on_capacity_changed)
+        self.btn_calibrate.clicked.connect(self._on_calibrate)
         self.holder_changed.connect(self._auto_save)
 
         self._list.currentRowChanged.connect(self._on_list_row_changed)
@@ -474,6 +487,24 @@ class SampleHolderWidget(QWidget):
                 self.holder_changed.emit(self._holder)
         except Exception as e:
             logging.warning(f"Failed to capture stage position: {e}")
+
+    def _on_calibrate(self) -> None:
+        """Open the guided calibration beside the main window; refresh when it saves."""
+        if self._microscope is None or self._holder is None:
+            return
+        from fibsem.ui.widgets.holder_calibration_dialog import (
+            HolderCalibrationDialog,
+        )
+
+        dialog = HolderCalibrationDialog(self._microscope, self._holder, parent=self)
+        dialog.holder_saved.connect(self._on_calibration_saved)
+        self._calibration_dialog = dialog  # keep it alive; it is non-modal
+        dialog.show()
+
+    def _on_calibration_saved(self, holder: SampleHolder) -> None:
+        self.set_holder(holder)
+        # The dialog already wrote the file; this tells hosts the slots moved.
+        self.holder_changed.emit(holder)
 
     def _on_move_slot(self, slot: GridSlot) -> None:
         if self._microscope is None:
