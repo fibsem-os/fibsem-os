@@ -357,10 +357,12 @@ class FluorescenceImage:
             self.data = self.data.reshape(1, 1, *self.data.shape)
 
         ome_md = self.get_ome_metadata()
+        # No schema validation here: ome_types builds the XML from typed
+        # models, and tff.OmeXml.validate fetches the OME XSD over HTTP on
+        # first use. An offline microscope PC (the normal case) blocked on the
+        # socket timeout and then raised on every FM save. Outbound network
+        # calls are opt-in and must never sit on the acquisition path.
         ome_xml = ome_md.to_xml()
-
-        # Validate OME XML
-        assert tff.OmeXml.validate(ome_xml), "OME XML is not valid"
 
         # Reshape image to 5D for tifffile (CZYX -> TCZYX)
         if self.data.ndim != 5:
