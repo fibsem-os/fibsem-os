@@ -14,7 +14,7 @@ from fibsem.alignment.coincidence import (
     REASON_MAX_ITERATIONS,
     ensure_coincident,
 )
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import BeamType, FibsemStagePosition
 
 
 @pytest.fixture
@@ -168,3 +168,36 @@ def test_coarse_measurements_do_not_count_as_moves(microscope):
     # refused fine + coarse + post-move fine (+ maybe a fine refinement):
     # the history is longer than the moves by the extra measurements
     assert result.moves_applied == len(result.measurements) - 2
+
+
+def _anchor_in_view(microscope, beam_type) -> tuple:
+    """Where the scene's world anchor projects into one beam's view (m).
+
+    Read straight off the projection the scene renders with, so it is
+    exact and immune to the periodic mesh's correlation aliases.
+    """
+    from fibsem.projection import BeamStageProjection
+
+    projection = BeamStageProjection.from_microscope(microscope, beam_type)
+    return projection.to_plane(
+        microscope._coincidence_scene.reference_position,
+        microscope.get_stage_position(),
+    )
+
+
+@pytest.mark.parametrize("reference", [BeamType.ELECTRON, BeamType.ION])
+def test_reference_view_keeps_its_centre(microscope, reference):
+    """Whichever view is the reference sees the same scene after the
+    alignment; the other view is the one that moved onto it."""
+    before = {b: _anchor_in_view(microscope, b) for b in BeamType}
+
+    result = ensure_coincident(microscope, tolerance=1e-6, reference=reference)
+    assert result.converged, result.reason
+    assert result.moves_applied == 1
+
+    after = {b: _anchor_in_view(microscope, b) for b in BeamType}
+    other = BeamType.ION if reference is BeamType.ELECTRON else BeamType.ELECTRON
+    kept = np.hypot(*(np.subtract(after[reference], before[reference])))
+    moved = np.hypot(*(np.subtract(after[other], before[other])))
+    assert kept < 1e-6, f"{reference.name} view moved by {kept * 1e6:.2f} um"
+    assert moved > 3e-6, f"{other.name} view only moved {moved * 1e6:.2f} um"
