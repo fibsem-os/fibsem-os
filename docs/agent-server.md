@@ -77,6 +77,15 @@ In **Tools → Agent Server**, the *Act* switch lets the agent:
   agent-supervised, mid-run;
 - **re-queue a task** — "run 03's fiducial again" during a run.
 
+A separate **Configure** switch lets the agent edit task parameters — an
+item's milling depths, currents, imaging settings — as targeted patches
+against exactly the state it last read (a concurrent edit of yours makes the
+agent's write stale, and it is refused, never merged). A task already
+running has copied its settings and is refused outright; pending tasks pick
+changes up when they start. Every applied change is recorded on the
+timeline, old value and new. It is deliberately its own switch: answering
+questions and rewriting protocols are different levels of trust.
+
 Permissions last the session only. They are granted in the dialog, die when
 the app closes, and never persist — every session starts read-only.
 

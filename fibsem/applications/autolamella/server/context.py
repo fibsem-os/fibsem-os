@@ -32,7 +32,26 @@ from typing import Any, Dict, List, Optional
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
-__all__ = ["AgentContext"]
+__all__ = ["AgentContext", "config_version"]
+
+
+def config_version(config) -> str:
+    """A content hash naming exactly this state of a task config.
+
+    The config's nonce (FIB-864): reads serve it, writes echo it, and a
+    mismatch is refused as stale — a patch can never apply against a state
+    its author did not see. Computed from the serialized document so the
+    same content hashes identically wherever it is held.
+    """
+    import hashlib
+    import json
+
+    from fibsem.applications.autolamella.server.events import to_plain
+
+    data = to_plain(config.to_dict())
+    return hashlib.sha256(
+        json.dumps(data, sort_keys=True, default=str).encode()
+    ).hexdigest()[:16]
 
 
 def _json_safe(value: Any) -> Any:
@@ -407,26 +426,73 @@ class AgentContext:
 
         The full ``to_dict``, not a curated snapshot — the document is the
         contract for editing (you cannot patch what you cannot read). The
-        ``version`` hashes the serialized content, so a later write can name
-        exactly the state it read: the config's nonce, refused as stale on
-        mismatch once the write side lands.
+        ``version`` hashes the serialized content, so a write names exactly
+        the state it read: the config's nonce, refused as stale on mismatch.
         """
-        import hashlib
-        import json
-
         from fibsem.applications.autolamella.server.events import to_plain
 
-        data = to_plain(config.to_dict())
-        version = hashlib.sha256(
-            json.dumps(data, sort_keys=True, default=str).encode()
-        ).hexdigest()[:16]
         return {
             "available": True,
             "task_name": task_name,
             "level": level,
-            "version": version,
-            "config": data,
+            "version": config_version(config),
+            "config": to_plain(config.to_dict()),
         }
+
+    def apply_item_task_config_patch(
+        self,
+        item_name: str,
+        task_name: str,
+        patch: Dict[str, Any],
+        version: str,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Patch one item's task config, as an operator edit would land.
+
+        The version (from :meth:`item_task_config`) names the state the patch
+        was written against; the check happens on the GUI thread beside the
+        apply, so an edit landing in between is refused as stale, never
+        half-merged. A task currently running for this item is refused too —
+        it already copied its config, so the edit would take effect never,
+        and a refusal is more honest than a silent no-op. Pending tasks pick
+        the change up when they start (the ``set_supervision`` semantics).
+        """
+        host = self._host
+        if not hasattr(host, "request_apply_task_config_patch"):
+            return {"available": False, "applied": False}
+        manager = self._manager
+        if manager is not None:
+            running = any(
+                item.lamella_name == item_name
+                and item.task_name == task_name
+                and item.status is AutoLamellaTaskStatus.InProgress
+                for item in manager.queue.items
+            )
+            if running:
+                return {
+                    "available": True,
+                    "applied": False,
+                    "error_type": "task_running",
+                    "error": f"{task_name!r} is running for {item_name!r} right "
+                    "now and has already copied its config — the edit would "
+                    "never take effect. Patch it after the task finishes.",
+                }
+        outcome = host.request_apply_task_config_patch(
+            item_name, task_name, dict(patch), str(version)
+        )
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        if result.get("applied") and self._event_buffer is not None:
+            self._event_buffer.append(
+                "config_edited",
+                {
+                    "level": "item",
+                    "item_name": item_name,
+                    "task_name": task_name,
+                    "changes": result.get("changes", []),
+                },
+            )
+        return result
 
     # --- instrument-adjacent (cached only, never a hardware call) --------------
 

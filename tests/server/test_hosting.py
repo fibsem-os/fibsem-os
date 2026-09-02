@@ -56,7 +56,7 @@ def test_start_serves_read_only_with_the_app_router(host, microscope):
     assert host.running
     body = _get(host, "/capabilities").json()
     assert body["routers"]["app"] is True
-    assert body["scopes"] == {"read": True, "control": False, "hardware": False}
+    assert body["scopes"] == {"read": True, "control": False, "configure": False, "hardware": False}
     # idempotent: a second start is a no-op, not a second server
     assert host.start(microscope) is True
 

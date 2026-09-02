@@ -93,7 +93,7 @@ def test_capabilities_reports_scopes_and_routers(read_client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["routers"] == {"microscope": True, "app": False}
-    assert body["scopes"] == {"read": True, "control": False, "hardware": False}
+    assert body["scopes"] == {"read": True, "control": False, "configure": False, "hardware": False}
     assert body["manufacturer"] == "DemoMicroscope"
 
 

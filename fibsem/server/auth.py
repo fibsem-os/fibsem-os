@@ -5,6 +5,9 @@ One bearer token per server instance, three scopes:
 - ``read``: granted to every valid token. Observation only.
 - ``control``: app-level workflow control. Armed by the hosting (GUI toggle in
   the embedded app; unused in bench hosting until an app router exists).
+- ``configure``: editing task parameters (protocol and per-item task configs).
+  Its own rung, deliberately separate from ``control``: answering a question
+  with geometry and editing protocols are different grants (FIB-864).
 - ``hardware``: anything that commands or mutates the microscope. Armed
   explicitly by the hosting (GUI toggle, or ``--arm-hardware`` on the CLI).
 
@@ -26,6 +29,7 @@ from fastapi import HTTPException, Request
 class Scope(str, Enum):
     READ = "read"
     CONTROL = "control"
+    CONFIGURE = "configure"
     HARDWARE = "hardware"
 
 
@@ -80,12 +84,15 @@ class AuthConfig:
     def generate(
         cls,
         arm_control: bool = False,
+        arm_configure: bool = False,
         arm_hardware: bool = False,
         token: Optional[str] = None,
     ) -> "AuthConfig":
         armed = set()
         if arm_control:
             armed.add(Scope.CONTROL)
+        if arm_configure:
+            armed.add(Scope.CONFIGURE)
         if arm_hardware:
             armed.add(Scope.HARDWARE)
         return cls(token=token or secrets.token_urlsafe(32), armed=frozenset(armed))

@@ -184,6 +184,15 @@ class AgentServerDialog(QDialog):
         layout.addWidget(self._control_row)
         self._chk_control = self._control_row.toggle  # the arming switch
 
+        self._configure_row = _ScopeRow(
+            "Configure",
+            "Edit task parameters — protocol defaults and per-item configs. "
+            "Every change is recorded on the timeline.",
+            _AGENT_COLOR,
+        )
+        layout.addWidget(self._configure_row)
+        self._chk_configure = self._configure_row.toggle
+
         self._hardware_row = _ScopeRow(
             "Command hardware",
             "Move the stage, acquire, mill. Not yet available.",
@@ -220,6 +229,7 @@ class AgentServerDialog(QDialog):
         self._btn_reveal.toggled.connect(self._on_reveal_toggled)
         self._btn_copy.clicked.connect(self._on_copy_clicked)
         self._chk_control.toggled.connect(self._on_control_toggled)
+        self._chk_configure.toggled.connect(self._on_configure_toggled)
 
         # Keep the status line live while the dialog is open: "last heard
         # from" is only useful if it ticks. Status text only — a full
@@ -272,6 +282,7 @@ class AgentServerDialog(QDialog):
         ):
             widget.setEnabled(running)
         self._chk_control.setEnabled(running)
+        self._chk_configure.setEnabled(running)
         if not running:
             self._status_dot.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._status_label.setText(
@@ -280,9 +291,10 @@ class AgentServerDialog(QDialog):
             )
             self._status_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._token_edit.setText("")
-            self._chk_control.blockSignals(True)
-            self._chk_control.setChecked(False)
-            self._chk_control.blockSignals(False)
+            for chk in (self._chk_control, self._chk_configure):
+                chk.blockSignals(True)
+                chk.setChecked(False)
+                chk.blockSignals(False)
             return
         from fibsem.server.auth import Scope
 
@@ -295,6 +307,9 @@ class AgentServerDialog(QDialog):
         self._chk_control.blockSignals(True)
         self._chk_control.setChecked(host.auth.is_armed(Scope.CONTROL))
         self._chk_control.blockSignals(False)
+        self._chk_configure.blockSignals(True)
+        self._chk_configure.setChecked(host.auth.is_armed(Scope.CONFIGURE))
+        self._chk_configure.blockSignals(False)
 
     # --- actions --------------------------------------------------------------
 
@@ -340,5 +355,17 @@ class AgentServerDialog(QDialog):
         host.auth.set_armed(Scope.CONTROL, checked)
         logging.warning(
             "agent server: control scope %s via the Agent Server dialog",
+            "ARMED" if checked else "disarmed",
+        )
+
+    def _on_configure_toggled(self, checked: bool) -> None:
+        host = self._host()
+        if host is None:
+            return
+        from fibsem.server.auth import Scope
+
+        host.auth.set_armed(Scope.CONFIGURE, checked)
+        logging.warning(
+            "agent server: configure scope %s via the Agent Server dialog",
             "ARMED" if checked else "disarmed",
         )

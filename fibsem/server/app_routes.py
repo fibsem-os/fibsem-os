@@ -21,7 +21,12 @@ try:  # Protocol is typing-only; keep import robust on the 3.8 floor
 except ImportError:  # pragma: no cover
     Protocol = object  # type: ignore[assignment]
 
-__all__ = ["AppContext", "build_app_control_router", "build_app_router"]
+__all__ = [
+    "AppContext",
+    "build_app_config_router",
+    "build_app_control_router",
+    "build_app_router",
+]
 
 
 class AppContext(Protocol):
@@ -48,6 +53,10 @@ class AppContext(Protocol):
     def protocol_task_config(self, task_name: str) -> Dict[str, Any]: ...
 
     def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]: ...
+
+    def apply_item_task_config_patch(
+        self, item_name: str, task_name: str, patch: Dict[str, Any], version: str
+    ) -> Dict[str, Any]: ...
 
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
@@ -288,5 +297,76 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         return context.requeue_task(
             item_name, task_name, front=bool(body.get("front", False))
         )
+
+    return router
+
+
+def build_app_config_router(context: AppContext) -> APIRouter:
+    """Routes that edit configuration — the ``configure`` scope's own router.
+
+    Deliberately not on the control router: answering a question with
+    geometry (control) and editing protocols (configure) are different
+    grants, and the arming dialog shows them as separate rungs (FIB-864).
+    """
+    router = APIRouter(prefix="/app")
+
+    @router.post("/items/{item_name}/task_config/{task_name}")
+    def patch_item_task_config(item_name: str, task_name: str, body: Dict[str, Any]):
+        patch = body.get("patch")
+        version = body.get("version")
+        if (
+            not isinstance(patch, dict)
+            or not patch
+            or not all(isinstance(k, str) for k in patch)
+            or not isinstance(version, str)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass patch (a non-empty object of dotted-path: "
+                    "value entries) and version (from the config read it was "
+                    "written against).",
+                },
+            )
+        result = context.apply_item_task_config_patch(
+            item_name, task_name, patch, version
+        )
+        if result.get("stale"):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_type": "stale_config",
+                    "message": "The config changed since your read; re-read "
+                    "it and write the patch against the current version.",
+                },
+            )
+        if result.get("error_type") == "task_running":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_type": "task_running",
+                    "message": result.get("error", "That task is running."),
+                },
+            )
+        if result.get("invalid_patch"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_patch",
+                    "message": result["invalid_patch"],
+                    "path": result.get("path"),
+                },
+            )
+        if not result.get("applied") and result.get("error"):
+            detail: Dict[str, Any] = {
+                "error_type": "not_found",
+                "message": result["error"],
+            }
+            for key in ("item_names", "task_names"):
+                if key in result:
+                    detail[key] = result[key]
+            raise HTTPException(status_code=404, detail=detail)
+        return result
 
     return router

@@ -244,6 +244,20 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="update_item_task_config",
+        description="Patch an item's task config with dotted-path edits (e.g. {'milling.mill_rough.stages.0.pattern.depth': 2e-6}). Echo the version from get_item_task_config — a mismatch is refused (409 stale_config): re-read and re-patch. A task currently running for that item is refused (it already copied its config); pending tasks pick the change up at start. Values are validated against the live field's type and declared bounds; the response echoes every change old -> new. Needs the configure permission.",
+        method="POST",
+        path="/app/items/{item_name}/task_config/{task_name}",
+        scope="configure",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "task_name": "the task name, as listed by get_protocol",
+            "patch": "object of dotted-path: value entries to set",
+            "version": "the version token from get_item_task_config",
+        },
+    ),
+    ToolSpec(
         name="get_events",
         description="Events after a sequence number: milling/acquisition progress, stage moves, task lifecycle. Long-polls up to timeout seconds.",
         method="GET",
