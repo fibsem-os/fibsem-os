@@ -131,12 +131,54 @@ def _lattice_draw(i: np.ndarray, j: np.ndarray, seed: int) -> np.ndarray:
     return ((h * 2654435761) & 0xFFFFFFFF) / 2**32
 
 
-# what the beams see of the support, on the canvas scale
-HOLE_DEPTH = 45.0  # film absent inside a hole
-HOLE_RIM = 25.0  # the bright rim around a hole
-RIP_DEPTH = 80.0  # film torn away
-RIM_INTENSITY = 120.0  # the grid's metal rim
-BEYOND_INTENSITY = -60.0  # the holder, beyond the grid
+# What each beam sees of each layer, on a 0-255 scale. Features carry an
+# SEM-scale intensity; the FIB column is a multiplier on it (negative =
+# darker than the film). The support layers are absolute per beam. The FIB
+# is not an inverted SEM: holes and trenches are dark in both (no material,
+# no signal), cell bodies read slightly darker than film in the FIB with
+# bright outlines from the edge effect, contamination and ice stay bright.
+BEAM_LAYERS = {
+    BeamType.ELECTRON: {
+        "film": 60.0,
+        "film_tilt_gain": 30.0,  # added as (1 - foreshortening): tilt contrast
+        "bars": 90.0,
+        "holes": -45.0,
+        "hole_rim": 25.0,
+        "rips": -70.0,  # absolute offset from film where the film is gone
+        "rim": 120.0,
+        "holder": 0.0,
+        "edge_highlight": 0.0,
+        "trench_floor": 0.25,
+        "cell": {"body": 1.0, "nucleus": 1.0, "organelle": 1.0, "bud": 1.0},
+        "contamination": 1.0,
+        "ice": 1.0,
+        "fiducial": 1.0,
+    },
+    BeamType.ION: {
+        "film": 95.0,
+        "film_tilt_gain": 60.0,
+        "bars": 50.0,
+        "holes": -80.0,
+        "hole_rim": 10.0,
+        "rips": -90.0,
+        "rim": 150.0,
+        "holder": 0.0,
+        "edge_highlight": 1.0,  # x the saturating outline of the structure
+        "trench_floor": 0.25,
+        "cell": {"body": -0.7, "nucleus": 0.15, "organelle": 0.0, "bud": -0.7},
+        "contamination": 0.5,
+        "ice": 0.7,
+        "fiducial": -0.3,
+    },
+}
+# the FIB edge effect: an outline brightens by up to EDGE_INTENSITY once the
+# structure gradient (per pixel, on the canvas scale) passes the scale
+EDGE_INTENSITY = 45.0
+EDGE_GRADIENT_SCALE = 4.0
+# the FM reflection's view of the support, on the same scale
+HOLE_DEPTH = 45.0
+RIP_DEPTH = 80.0
+RIM_INTENSITY = 120.0
 
 FIDUCIAL_ARM_LENGTH = 8e-6  # m, half-length of each fiducial cross arm
 FIDUCIAL_POINT_SPACING = 0.5e-6  # m
@@ -185,7 +227,6 @@ class MilledRegion:
 
 
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
-MILL_FLOOR = 0.25  # the fraction of the local beam intensity a trench keeps
 
 
 @dataclass
@@ -847,7 +888,11 @@ class SampleScene:
         ax = ax + beam_shift[0] + offset[0] + current_offset[0]
         ay = ay - (beam_shift[1] + offset[1] + current_offset[1])
 
-        canvas = np.zeros((height, width), dtype=np.float32)
+        # both beams' canvases are drawn together - one profile, one cover,
+        # two intensities - and the requested one is returned. The other is
+        # the "structure" the FIB's edge highlight is taken from
+        canvases = {b: np.zeros((height, width), dtype=np.float32) for b in BEAM_LAYERS}
+        layers = {b: BEAM_LAYERS[b] for b in BEAM_LAYERS}
 
         # grid mesh bars: world (sample-plane) coordinates per pixel, through
         # the inverse of the same mapping the features use: un-shift,
@@ -858,39 +903,54 @@ class SampleScene:
         ys_world = (-vx * sin_t + vy * cos_t) / fs
 
         bars, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
-        canvas[bars] += self.grid_intensity
-        # holes: film absent, with a bright rim one pixel-ish wide
-        canvas[holes] -= HOLE_DEPTH
         hole_rim = ndi_binary_dilation(holes, iterations=2) & ~holes & ~bars
-        canvas[hole_rim] += HOLE_RIM
+        for b, canvas in canvases.items():
+            t = layers[b]
+            canvas[bars] += t["bars"] * (self.grid_intensity / 90.0)
+            canvas[holes] += t["holes"]
+            canvas[hole_rim] += t["hole_rim"]
 
         for f in self.features:
             # project (foreshorten), rotate with the scan, then shift
             px_, py_ = f.x, f.y * fs
             u = cx + (px_ * cos_t - py_ * sin_t + ax) / pixel_size
             v = cy + (px_ * sin_t + py_ * cos_t + ay) / pixel_size
-            self._stamp_feature(canvas, f, u, v, pixel_size, fs, theta)
+            targets = [
+                (canvases[b], f.intensity * self._layer_weight(layers[b], f))
+                for b in canvases
+            ]
+            self._stamp_feature(targets, f, u, v, pixel_size, fs, theta)
 
-        # what is torn or off-grid overrides whatever was drawn there
-        canvas[rips] = -RIP_DEPTH
-        canvas[rim] = RIM_INTENSITY
-        canvas[beyond] = BEYOND_INTENSITY
-
+        trench = self.milled_mask(xs_world, ys_world) if self.milled else None
         if rng is None:
             rng = np.random.default_rng()
+
+        t = layers[beam_type]
+        canvas = canvases[beam_type]
         # soft-compress so overlapping cells don't saturate into flat,
         # texture-free regions (hard clipping kills correlatable structure)
         canvas = 180.0 * np.tanh(canvas / 180.0)
-        if beam_type is BeamType.ION:
-            data = 170.0 - 0.6 * canvas
-        else:
-            data = 60.0 + canvas
-        # a trench is dark in BOTH beams - it is not surface contrast but a
-        # hole in the sample - so it goes on after the per-beam mapping
-        if self.milled:
-            trench = self.milled_mask(xs_world, ys_world)
-            data = np.where(trench, data * MILL_FLOOR, data)
-        data += rng.normal(0, self.noise_sigma, canvas.shape)
+        # the film: brighter at grazing incidence (SE yield rises with tilt)
+        data = t["film"] + t["film_tilt_gain"] * (1.0 - fs) + canvas
+        if t["edge_highlight"]:
+            # the FIB's edge effect: outlines light up wherever the
+            # structure changes - cell rims, bar edges, hole and trench lips
+            structure = ndi_gaussian(canvases[BeamType.ELECTRON], 1.0)
+            if trench is not None:
+                structure = structure - 120.0 * trench
+            gy, gx = np.gradient(structure)
+            # a saturating outline: any real edge lights up about the same,
+            # the way an SE edge effect does, without amplifying flat noise
+            edge = np.tanh(np.hypot(gx, gy) / EDGE_GRADIENT_SCALE)
+            data = data + t["edge_highlight"] * EDGE_INTENSITY * edge
+        # what is torn or off-grid overrides whatever was drawn there
+        data = np.where(rips, t["film"] + t["rips"], data)
+        data = np.where(rim, t["rim"], data)
+        data = np.where(beyond, t["holder"], data)
+        # a trench is a hole in the sample, dark in both beams
+        if trench is not None:
+            data = np.where(trench, data * t["trench_floor"], data)
+        data = data + rng.normal(0, self.noise_sigma, canvas.shape)
         if self.noise_fraction > 0:
             uniform = rng.uniform(0, 255, canvas.shape)
             data = (1 - self.noise_fraction) * data + self.noise_fraction * uniform
@@ -1063,9 +1123,15 @@ class SampleScene:
         reference.z = (reference.z or 0.0) + dz
         return reference
 
+    @staticmethod
+    def _layer_weight(table: dict, f: SceneFeature) -> float:
+        if f.kind == "cell":
+            return float(table["cell"].get(f.part, 1.0))
+        return float(table.get(f.kind, 1.0))
+
     def _stamp_feature(
         self,
-        canvas: np.ndarray,
+        targets,
         f: SceneFeature,
         u: float,
         v: float,
@@ -1075,15 +1141,18 @@ class SampleScene:
         intensity: Optional[float] = None,
     ) -> None:
         """Stamp one feature at view position (u, v): its ellipse in pixels,
-        foreshortened along the view's y, turned with the scan."""
+        foreshortened along the view's y, turned with the scan. `targets` is
+        either one canvas (with `intensity`) or a list of (canvas,
+        intensity) pairs drawn with one profile."""
+        if intensity is not None:
+            targets = [(targets, intensity)]
         sigma_x = f.sigma / pixel_size
         self._stamp_blob(
-            canvas,
+            targets,
             u,
             v,
             sigma_x,
             sigma_x * f.eccentricity * fs,
-            f.intensity if intensity is None else intensity,
             f.sharpness,
             angle=f.angle + scan_rotation,
             wobble=f.wobble,
@@ -1093,12 +1162,11 @@ class SampleScene:
 
     @staticmethod
     def _stamp_blob(
-        canvas: np.ndarray,
+        targets,
         u: float,
         v: float,
         sigma_x: float,
         sigma_y: float,
-        intensity: float,
         sharpness: float = 1.0,
         angle: float = 0.0,
         wobble: float = 0.0,
@@ -1111,9 +1179,10 @@ class SampleScene:
         turns the (sigma_x, sigma_y) ellipse; `wobble` modulates its radius
         with a few harmonics of the polar angle for an irregular outline.
         `opacity` composites instead of adding: inside the outline the
-        background (film, holes, bars) is hidden by that fraction.
+        background (film, holes, bars) is hidden by that fraction. `targets`
+        are (canvas, intensity) pairs sharing the one profile.
         """
-        height, width = canvas.shape
+        height, width = targets[0][0].shape
         # a flat-top blob (sharpness >= 2) is already ~0 by 2 sigma; only a
         # plain gaussian needs the 4 sigma box - and a box 4x smaller is
         # what makes a field of 30 um cells affordable
@@ -1150,7 +1219,9 @@ class SampleScene:
             # whatever the intensity profile does - a body hides the film
             # under all of itself, not only under its brightest part
             cover = opacity * np.exp(-0.5 * r2 ** max(sharpness, 6.0))
-            region = canvas[y0:y1, x0:x1]
-            canvas[y0:y1, x0:x1] = region * (1 - cover) + intensity * profile
+            for canvas, intensity in targets:
+                region = canvas[y0:y1, x0:x1]
+                canvas[y0:y1, x0:x1] = region * (1 - cover) + intensity * profile
         else:
-            canvas[y0:y1, x0:x1] += intensity * profile
+            for canvas, intensity in targets:
+                canvas[y0:y1, x0:x1] += intensity * profile
