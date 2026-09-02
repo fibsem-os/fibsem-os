@@ -86,20 +86,24 @@ class SelectMillingPositionTask(AutoLamellaTask):
 
         if not is_close:
             if self.config.auto_milling_alignment:
-                from fibsem import alignment
+                from fibsem.alignment.coincidence import tilt_coincident
                 from fibsem.transformations import get_stage_tilt_from_milling_angle
 
-                target_stage_tilt_degrees = np.degrees(
-                    get_stage_tilt_from_milling_angle(
-                        self.microscope, np.radians(milling_angle)
+                target_stage_tilt = get_stage_tilt_from_milling_angle(
+                    self.microscope, np.radians(milling_angle)
+                )
+                # tilt straight there and restore coincidence by cross-beam
+                # measurement, keeping what the operator centred in the FIB
+                # view; steps only if the measurement refuses at the target
+                tilt = tilt_coincident(
+                    self.microscope, target_stage_tilt, reference=BeamType.ION
+                )
+                if not tilt.converged:
+                    logging.warning(
+                        "Coincidence not restored at the milling angle (%s); "
+                        "continuing at the target tilt",
+                        tilt.reason,
                     )
-                )
-                alignment._eucentric_tilt_alignment(
-                    microscope=self.microscope,
-                    image_settings=self.image_settings,
-                    target_angle=float(target_stage_tilt_degrees),
-                    step_size=3,
-                )
 
             elif self.validate:
                 current_milling_angle = self.microscope.get_current_milling_angle()
