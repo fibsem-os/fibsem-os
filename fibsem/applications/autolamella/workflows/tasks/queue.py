@@ -125,6 +125,35 @@ class TaskQueue:
             self._version += 1
             return [copy.copy(i) for i in self._items]
 
+    def build_from_pairs(
+        self,
+        pairs: List[Tuple[str, str]],
+        task_names: Optional[List[str]] = None,
+        item_names: Optional[List[str]] = None,
+    ) -> List[WorkItem]:
+        """Populate the queue from an explicit ``(item_name, task_name)`` plan.
+
+        For a run whose steps are not a plain matrix -- the grid workflow puts a
+        load step ahead of each grid's tasks. ``task_names`` and ``item_names``
+        are the launch plan the status payload reports; by default they are read
+        off the pairs in first-seen order.
+        """
+        with self._lock:
+            self._task_names = (
+                list(task_names)
+                if task_names is not None
+                else list(dict.fromkeys(t for _, t in pairs))
+            )
+            self._item_names = (
+                list(item_names)
+                if item_names is not None
+                else list(dict.fromkeys(n for n, _ in pairs))
+            )
+            self._items = [WorkItem(item_name=n, task_name=t) for n, t in pairs]
+            self._active = None
+            self._version += 1
+            return [copy.copy(i) for i in self._items]
+
     # --- Internal helpers (caller must hold self._lock) ---
 
     def _find(self, item_id: str) -> Optional[WorkItem]:
