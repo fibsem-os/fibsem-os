@@ -21,11 +21,17 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     register_grid_task,
 )
 from fibsem.autofunctions.autofocus import AutoFocusSettings
+from fibsem.cancellation import OperationCancelledError
 from fibsem.fm.acquisition import FMTiledAcquisitionRunner, OverviewDestination
 from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import stamped_overview_name
+from fibsem.imaging.tiling.progress import (
+    MODALITY_FLUORESCENCE,
+    TiledProgress,
+    TiledStatus,
+)
 from fibsem.microscopes._stage import uncalibrated_message
 from fibsem.structures import FibsemStagePosition
 
@@ -67,8 +73,28 @@ def acquire_fluorescence_overview(
         stop_event=stop_event,
         centre_position=centre,
     )
-    mosaic = runner.run_and_stitch()
-    return mosaic, destination.save_mosaic(mosaic)
+
+    # The runner reports up to the stitch and leaves the save and the ending to
+    # whoever does the save: on the FM Overview tab that is the widget, here it
+    # is this function. Without the terminal report the window's status bar
+    # stays on "Stitching tiles" after the run has finished.
+    def report(status: TiledStatus, error: Optional[str] = None) -> None:
+        microscope.tiled_acquisition_signal.emit(
+            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, error=error)
+        )
+
+    try:
+        mosaic = runner.run_and_stitch()
+        report(TiledStatus.SAVING)
+        path = destination.save_mosaic(mosaic)
+    except OperationCancelledError:
+        report(TiledStatus.CANCELLED)
+        raise
+    except Exception as e:
+        report(TiledStatus.FAILED, error=str(e))
+        raise
+    report(TiledStatus.FINISHED)
+    return mosaic, path
 
 
 @dataclass
