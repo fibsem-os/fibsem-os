@@ -10,8 +10,6 @@ directory), and what to record (the stitched image and a thumbnail, by role).
 from __future__ import annotations
 
 import logging
-import os
-import tempfile
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,7 +17,6 @@ from typing import TYPE_CHECKING, ClassVar, Optional, Type, Union
 
 import numpy as np
 
-from fibsem import utils
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
@@ -27,7 +24,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.base import (
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     register_grid_task,
 )
-from fibsem.imaging.tiled import TiledAcquisitionRunner
+from fibsem.imaging.thumbnail import write_thumbnail
+from fibsem.imaging.tiled import TiledAcquisitionRunner, stamped_overview_name
 from fibsem.microscopes._stage import uncalibrated_message
 from fibsem.structures import (
     BeamType,
@@ -39,47 +37,9 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
-THUMBNAIL_MAX_EDGE = 512
-
 # The output roles a results card, the Overview tab and the agent server read
 # (FIB-876). One per beam, plus the thumbnail beside it.
 ROLE_BY_BEAM = {BeamType.ELECTRON: "overview_sem", BeamType.ION: "overview_fib"}
-
-
-def stamped_name(stem: str) -> str:
-    """`overview` -> `overview-14-23-05`: the name is a location, and two runs
-    called the same thing land on each other (the Overview tab does the same)."""
-    return f"{stem}-{utils.current_timestamp_v3(timeonly=True)}"
-
-
-def write_thumbnail(data: np.ndarray, destination: Union[str, Path]) -> str:
-    """Write `data` as a display-sized PNG, atomically. Returns the path written.
-
-    Same contract as a lamella's thumbnail: staged in the destination directory
-    and moved into place, so a reader on another thread never sees a partial file.
-    """
-    from PIL import Image
-
-    destination = Path(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if data.ndim == 2:
-        data = np.stack([data, data, data], axis=2)
-    handle, staged = tempfile.mkstemp(
-        dir=str(destination.parent), prefix=".thumbnail-", suffix=".png"
-    )
-    os.close(handle)
-    try:
-        thumbnail = Image.fromarray(np.asarray(data).astype(np.uint8))
-        thumbnail.thumbnail((THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE), Image.LANCZOS)
-        thumbnail.save(staged)
-        os.replace(staged, str(destination))
-    except BaseException:
-        try:
-            os.remove(staged)
-        except OSError:
-            pass
-        raise
-    return str(destination)
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +65,7 @@ def acquire_beam_overview(
     settings = deepcopy(settings)
     settings.image_settings.save = True
     settings.image_settings.path = str(directory)
-    settings.image_settings.filename = stamped_name(stem)
+    settings.image_settings.filename = stamped_overview_name(stem)
     Path(directory).mkdir(parents=True, exist_ok=True)
     runner = TiledAcquisitionRunner(
         microscope, settings, stop_event=stop_event, centre_position=centre

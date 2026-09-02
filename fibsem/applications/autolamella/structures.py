@@ -900,7 +900,10 @@ class DefectState:
 # 512 rather than 280: it leaves the largest card headroom on a HiDPI display, still
 # decodes in ~3 ms, and is a tenth of the bytes. Only ever shrinks -- a frame already
 # smaller than this is written through untouched.
-_THUMBNAIL_MAX_EDGE = 512
+# The bound lives with the writer; kept here by name for anything that imports it.
+from fibsem.imaging.thumbnail import (
+    THUMBNAIL_MAX_EDGE as _THUMBNAIL_MAX_EDGE,  # noqa: E402
+)
 
 
 def _make_thumbnail_placeholder():
@@ -1252,39 +1255,9 @@ class Lamella:
         `_THUMBNAIL_MAX_EDGE`. This is a thumbnail, not a copy of the frame; the frame
         itself is saved separately by the task that acquired it.
         """
-        import tempfile
+        from fibsem.imaging.thumbnail import write_thumbnail
 
-        import numpy as np
-        from PIL import Image
-
-        data = image.filtered_data
-        if data.ndim == 2:
-            data = np.stack([data, data, data], axis=2)
-        # writes directly rather than through FibsemImage.save, so it makes its
-        # own directory -- construction no longer does (FIB-420).
-        os.makedirs(self.path, exist_ok=True)
-        destination = os.path.join(self.path, "thumbnail.png")
-        handle, staged = tempfile.mkstemp(
-            dir=self.path, prefix=".thumbnail-", suffix=".png"
-        )
-        os.close(handle)
-        try:
-            thumbnail = Image.fromarray(data.astype(np.uint8))
-            # In place, and never upscales: a frame smaller than the bound keeps its
-            # own size, which is what a caller passing an already-small image expects.
-            thumbnail.thumbnail(
-                (_THUMBNAIL_MAX_EDGE, _THUMBNAIL_MAX_EDGE), Image.LANCZOS
-            )
-            thumbnail.save(staged)
-            os.replace(staged, destination)
-        except BaseException:
-            # Including cancellation: a staged file left behind would accumulate in the
-            # lamella directory, and it is hidden, so nobody would notice it doing so.
-            try:
-                os.remove(staged)
-            except OSError:
-                pass
-            raise
+        write_thumbnail(image.filtered_data, os.path.join(self.path, "thumbnail.png"))
 
     # def get_task_config_by_type(self, task_type: Type['AutoLamellaTaskConfig']) -> Dict[str, AutoLamellaTaskConfig]:
     #     """Get the task configuration by type."""

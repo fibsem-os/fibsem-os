@@ -16,6 +16,7 @@ from fibsem.config import (
     DEFAULT_STANDARD_RESOLUTION,
     DEFAULT_STANDARD_RESOLUTION_LIST,
 )
+from fibsem.imaging.tiled import stamped_overview_name as _stamped_overview_name
 from fibsem.structures import (
     AutoFocusMode,
     BeamType,
@@ -32,7 +33,6 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
 )
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
-from fibsem.utils import current_timestamp_v3
 
 # What an overview run looks like before anyone touches it.
 #
@@ -49,29 +49,9 @@ OVERVIEW_TILE_DWELL_TIME = 1e-6  # s
 DEFAULT_OVERVIEW_FILENAME = "overview-image"
 
 
-def stamped_overview_name(name: str) -> str:
-    """`overview-image` -> `overview-image-14-23-05`, the time the run was started.
-
-    The name is not a label, it is a location: both overview runners make the tile
-    sub-folder from it and write the stitch keyed on the same name. Two runs called the
-    same thing therefore land on each other -- the second overwrites the first's tiles
-    *and* its mosaic, and only the canvas, holding both in memory, still shows two.
-    Reloading the experiment finds one.
-
-    Time rather than date and time: the experiment directory is already dated, so inside
-    it the time of day is the whole of what distinguishes one run from another.
-
-    Applied to whatever the box says, not only to the default. A name someone typed is
-    no less prone to being reused -- more so, since a memorable name invites it -- and a
-    run that quietly replaced an earlier one is worse than a name with six digits on the
-    end. The box keeps showing the base, and the destination line reports the stamped
-    name, which is what that row is for.
-
-    Shared by both overview tabs. It lived in the FIB/SEM tab, which is 2,000 lines the
-    fluorescence side has no reason to import; here it sits beside
-    `DEFAULT_OVERVIEW_FILENAME`, which is the name it is usually applied to.
-    """
-    return f"{name}-{current_timestamp_v3(timeonly=True)}"
+# Re-exported: it lives with the runners that make the folder from it, and both
+# overview tabs and the grid overview tasks import the same one.
+stamped_overview_name = _stamped_overview_name
 
 
 def default_overview_acquisition_settings() -> OverviewAcquisitionSettings:
