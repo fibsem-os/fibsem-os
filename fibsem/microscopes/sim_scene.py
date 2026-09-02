@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+from scipy.ndimage import binary_dilation as ndi_binary_dilation
 from scipy.ndimage import gaussian_filter as ndi_gaussian
 
 from fibsem.projection import (
@@ -122,6 +123,21 @@ def fm_channel_weights(emission, excitation=None) -> Tuple[float, float, float, 
     )
 
 
+def _lattice_draw(i: np.ndarray, j: np.ndarray, seed: int) -> np.ndarray:
+    """A deterministic pseudo-random number in [0, 1) per integer lattice
+    cell - a hash, so a square or a hole draws the same value from every
+    view and every session with the same seed."""
+    h = (i * 73856093) ^ (j * 19349663) ^ (seed * 83492791)
+    return ((h * 2654435761) & 0xFFFFFFFF) / 2**32
+
+
+# what the beams see of the support, on the canvas scale
+HOLE_DEPTH = 45.0  # film absent inside a hole
+HOLE_RIM = 25.0  # the bright rim around a hole
+RIP_DEPTH = 80.0  # film torn away
+RIM_INTENSITY = 120.0  # the grid's metal rim
+BEYOND_INTENSITY = -60.0  # the holder, beyond the grid
+
 FIDUCIAL_ARM_LENGTH = 8e-6  # m, half-length of each fiducial cross arm
 FIDUCIAL_POINT_SPACING = 0.5e-6  # m
 
@@ -139,7 +155,7 @@ class SceneFeature:
     sigma: float  # m, along the feature's long axis
     intensity: float
     sharpness: float = 1.0
-    kind: str = "cell"  # "cell" | "fiducial" | "contamination"
+    kind: str = "cell"  # "cell" | "fiducial" | "contamination" | "ice"
     # shape: minor/major axis ratio, orientation in the world plane, and an
     # outline wobble (0 = a clean ellipse) with its own phase
     eccentricity: float = 1.0
@@ -149,6 +165,27 @@ class SceneFeature:
     # which part of a cell this is - the FM dyes by part
     part: str = "body"  # "body" | "nucleus" | "organelle" | "bud"
     cell_id: int = -1
+    # how much the feature hides what is under it (film, holes, bars): 0 is
+    # additive (a mound on top), 1 replaces the background inside its
+    # outline - a cell body or an ice plate is opaque, a nucleus sits on top
+    opacity: float = 0.0
+
+
+@dataclass
+class MilledRegion:
+    """A pattern that was milled: a convex polygon on the sample surface,
+    in world coordinates (metres), that every later view shows as a trench
+    (FIB-877). Kept as corners rather than a shape description because the
+    view-to-world mapping at the milling pose is a foreshortening: a
+    rectangle rotated in the FIB image is not a rectangle of any rotation
+    on the surface."""
+
+    points: np.ndarray  # (N, 2) world coordinates, in order round the outline
+    depth: float = 1.0  # m, recorded only
+
+
+MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
+MILL_FLOOR = 0.25  # the fraction of the local beam intensity a trench keeps
 
 
 @dataclass
@@ -181,10 +218,32 @@ class SampleScene:
     # bacteria: count per 150 x 150 um, rod length
     bacteria_density: float = 160.0
     bacteria_length: Tuple[float, float] = (2.0e-6, 3.5e-6)  # m
-    extent: float = 400e-6  # m, features are scattered over +/- extent/2
+    extent: float = 800e-6  # m, features are scattered over +/- extent/2
     grid_pitch: float = 125e-6  # m, mesh pitch (~200 mesh)
     grid_bar_width: float = 35e-6  # m
     grid_intensity: float = 90.0
+    # the support film in each square: "continuous", or "holey" - a
+    # Quantifoil-style lattice of round holes (diameter, centre-to-centre
+    # pitch), aligned with the grid, a seeded few of them broken/merged.
+    # Continuous by default: the lattice is a 4 um periodic pattern the
+    # fine-pass correlator aliases on (false refusals at the fiducial, and a
+    # false convergence at 80 um on the simulator), which the measurement
+    # does not handle yet - see the xfail in test_sim_scene_realism.py
+    film: str = "continuous"
+    hole_diameter: float = 2.0e-6  # m  (R2/2: 2 um holes, 2 um apart)
+    hole_pitch: float = 4.0e-6  # m
+    broken_hole_fraction: float = 0.02
+    # a seeded fraction of squares with the film torn away (a rip)
+    rip_fraction: float = 0.03
+    # ice crystals: flat bright plates with a bright rim, per 100 x 100 um
+    ice_density: float = 0.4
+    ice_size: Tuple[float, float] = (6e-6, 16e-6)  # m, plate radius
+    # the fiducial-like cross at the world origin: handy for eyeballing
+    # navigation, absent on a real grid - off for realistic imaging
+    fiducial: bool = True
+    # the grid's usable radius; beyond it the metal rim, then the holder
+    grid_radius: float = 1.4e-3  # m
+    grid_rim_width: float = 150e-6  # m
     noise_sigma: float = 12.0  # gaussian noise layer over the final image
     # blend of full-range uniform noise, like the simulator's default
     # random-noise images (0 = none, 1 = pure noise)
@@ -218,6 +277,7 @@ class SampleScene:
     # as the beam projection of the scene relative to this reference
     reference_position: Optional[FibsemStagePosition] = None
     features: List[SceneFeature] = field(default_factory=list)
+    milled: List[MilledRegion] = field(default_factory=list)
     # fraction of cells that also carry the red fluorophore (seeded subset)
     red_fraction: float = 0.4
     # defocus model for the FM: blur sigma grows by this many pixels per
@@ -238,7 +298,8 @@ class SampleScene:
         # blobs along each arm, so it goes through the same projection as
         # every other feature
         n_arm = int(2 * FIDUCIAL_ARM_LENGTH / FIDUCIAL_POINT_SPACING) + 1
-        for offset in np.linspace(-FIDUCIAL_ARM_LENGTH, FIDUCIAL_ARM_LENGTH, n_arm):
+        arm = np.linspace(-FIDUCIAL_ARM_LENGTH, FIDUCIAL_ARM_LENGTH, n_arm)
+        for offset in arm if self.fiducial else []:
             for x, y in (
                 (float(offset), float(offset)),
                 (float(offset), -float(offset)),
@@ -262,6 +323,198 @@ class SampleScene:
                     kind="contamination",
                 )
             )
+        # ice crystals: sparse flat plates, irregular outline, bright rim
+        n_ice = int(self.ice_density * (self.extent / 100e-6) ** 2)
+        for _ in range(n_ice):
+            x, y = rng.uniform(-half, half, size=2)
+            self.features.append(
+                SceneFeature(
+                    x=float(x),
+                    y=float(y),
+                    sigma=float(rng.uniform(*self.ice_size)),
+                    intensity=70.0,
+                    sharpness=6.0,
+                    eccentricity=float(rng.uniform(0.7, 1.0)),
+                    angle=float(rng.uniform(0, np.pi)),
+                    wobble=0.18,
+                    wobble_phase=float(rng.uniform(0, 2 * np.pi)),
+                    kind="ice",
+                    opacity=0.9,
+                )
+            )
+
+    def view_to_world(
+        self,
+        beam_type: BeamType,
+        stage_position: FibsemStagePosition,
+        projection: BeamStageProjection,
+        dx: float,
+        dy: float,
+        beam_shift: Tuple[float, float] = (0.0, 0.0),
+        beam_current: Optional[float] = None,
+    ) -> Tuple[float, float]:
+        """World coordinates of a point seen at (dx, dy) metres from the
+        centre of a beam's view (plane convention: y down) - the inverse of
+        the mapping render() draws with: un-shift, un-rotate the scan,
+        un-foreshorten."""
+        reference = self.reference_position
+        if self.tilt_axis_offset:
+            reference = self._non_eucentric_reference(stage_position, projection)
+        ax, ay = projection.to_plane(reference, stage_position)
+        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+        theta = float(projection.scan_rotation or 0.0)
+        if np.isclose(theta, np.pi):
+            ax, ay = -ax, -ay
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        ax, ay = ax * cos_t - ay * sin_t, ax * sin_t + ay * cos_t
+        offset = self.beam_offset.get(beam_type.name.lower(), (0.0, 0.0))
+        current_offset = self.current_offset(beam_type, beam_current)
+        ax = ax + beam_shift[0] + offset[0] + current_offset[0]
+        ay = ay - (beam_shift[1] + offset[1] + current_offset[1])
+        vx, vy = dx - ax, dy - ay
+        return float(vx * cos_t + vy * sin_t), float((-vx * sin_t + vy * cos_t) / fs)
+
+    def mill(
+        self,
+        patterns,
+        beam_type: BeamType,
+        stage_position: FibsemStagePosition,
+        projection: BeamStageProjection,
+        beam_shift: Tuple[float, float] = (0.0, 0.0),
+        beam_current: Optional[float] = None,
+    ) -> List[MilledRegion]:
+        """Commit milling patterns to the world (FIB-877).
+
+        Patterns are in microscope image coordinates of the milling beam's
+        view at this pose (metres from the centre, y up); each becomes a
+        region on the sample surface that every later view - either beam,
+        any tilt - renders as a trench. Rectangles keep their rotation,
+        circles become ellipses (foreshortened back onto the surface),
+        lines are thin rectangles, bitmaps their bounding box.
+        """
+
+        def world(cx, cy):
+            return self.view_to_world(
+                beam_type, stage_position, projection, cx, -cy, beam_shift, beam_current
+            )
+
+        regions: List[MilledRegion] = []
+        for p in patterns:
+            depth = float(getattr(p, "depth", 1e-6) or 1e-6)
+            if hasattr(p, "start_x"):  # a line: a thin rectangle along it
+                half = float(getattr(p, "width", 0.5e-6) or 0.5e-6) / 2
+                dx_, dy_ = p.end_x - p.start_x, p.end_y - p.start_y
+                length = np.hypot(dx_, dy_) or 1e-12
+                nx, ny = -dy_ / length * half, dx_ / length * half
+                corners = [
+                    (p.start_x + nx, p.start_y + ny),
+                    (p.end_x + nx, p.end_y + ny),
+                    (p.end_x - nx, p.end_y - ny),
+                    (p.start_x - nx, p.start_y - ny),
+                ]
+            elif hasattr(p, "radius"):  # a circle: a polygon round it
+                t = np.linspace(0, 2 * np.pi, 24, endpoint=False)
+                corners = [
+                    (
+                        p.centre_x + p.radius * np.cos(a),
+                        p.centre_y + p.radius * np.sin(a),
+                    )
+                    for a in t
+                ]
+            else:  # a rectangle (or a bitmap's bounding box), with its rotation
+                rot = float(getattr(p, "rotation", 0.0) or 0.0)
+                c, s_ = np.cos(rot), np.sin(rot)
+                hw, hh = float(p.width) / 2, float(p.height) / 2
+                corners = [
+                    (p.centre_x + x * c - y * s_, p.centre_y + x * s_ + y * c)
+                    for x, y in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh))
+                ]
+            points = np.array([world(x, y) for x, y in corners])
+            regions.append(MilledRegion(points=points, depth=depth))
+        self.milled.extend(regions)
+        logging.info(
+            {
+                "msg": "sample_scene_milled",
+                "regions": len(regions),
+                "total": len(self.milled),
+            }
+        )
+        return regions
+
+    def milled_mask(self, xs_world: np.ndarray, ys_world: np.ndarray) -> np.ndarray:
+        """Where milled regions lie, from broadcastable world coordinates:
+        inside every edge's half-plane of each (convex) polygon."""
+        mask = np.zeros(np.broadcast(xs_world, ys_world).shape, dtype=bool)
+        for r in self.milled:
+            pts = r.points
+            inside = np.ones_like(mask)
+            # orientation of the polygon decides which side is "inside"
+            area = 0.0
+            for i in range(len(pts)):
+                x0, y0 = pts[i]
+                x1, y1 = pts[(i + 1) % len(pts)]
+                area += x0 * y1 - x1 * y0
+            sign = 1.0 if area > 0 else -1.0
+            for i in range(len(pts)):
+                x0, y0 = pts[i]
+                x1, y1 = pts[(i + 1) % len(pts)]
+                cross = (x1 - x0) * (ys_world - y0) - (y1 - y0) * (xs_world - x0)
+                inside &= sign * cross >= 0
+            mask |= inside
+        return mask
+
+    def film_masks(
+        self, xs_world: np.ndarray, ys_world: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """What the support is at each world point: (bars, holes, rips,
+        rim, beyond) boolean masks, from broadcastable world coordinates.
+
+        The mesh and the hole lattice are rotated together; holes exist
+        only on film (not on bars), a seeded fraction of them broken into
+        larger openings; a seeded fraction of squares is ripped (film gone
+        inside an irregular patch). Past `grid_radius` is the metal rim,
+        past that the holder.
+        """
+        cos_r, sin_r = np.cos(self.grid_rotation), np.sin(self.grid_rotation)
+        x_rot = xs_world * cos_r + ys_world * sin_r
+        y_rot = -xs_world * sin_r + ys_world * cos_r
+
+        def _near_bar(w):
+            return np.abs((w % self.grid_pitch) - self.grid_pitch / 2) < (
+                self.grid_bar_width / 2
+            )
+
+        bars = _near_bar(x_rot) | _near_bar(y_rot)
+        radius = np.hypot(xs_world, ys_world)
+        rim = radius > self.grid_radius
+        beyond = radius > self.grid_radius + self.grid_rim_width
+
+        # a per-square seeded draw, from the square's lattice index. The
+        # bars sit at half-pitch (the world origin is a square's centre), so
+        # the square frame is the bar frame shifted by half a pitch
+        half_pitch = self.grid_pitch / 2
+        sq_i = np.floor((x_rot + half_pitch) / self.grid_pitch).astype(np.int64)
+        sq_j = np.floor((y_rot + half_pitch) / self.grid_pitch).astype(np.int64)
+        square_draw = _lattice_draw(sq_i, sq_j, self.seed)
+        # local coordinates within the square, zero at its centre
+        lx = ((x_rot + half_pitch) % self.grid_pitch) - half_pitch
+        ly = ((y_rot + half_pitch) % self.grid_pitch) - half_pitch
+        # the rip: an irregular patch in the ripped squares
+        angle = np.arctan2(ly, lx)
+        wob = 1 + 0.3 * np.sin(3 * angle + 6.0 * square_draw) + 0.2 * np.sin(5 * angle)
+        patch = np.hypot(lx / (0.55 * self.grid_pitch), ly / (0.4 * self.grid_pitch))
+        rips = (square_draw < self.rip_fraction) & (patch < 0.6 * wob) & ~bars
+
+        holes = np.zeros_like(bars)
+        if self.film == "holey":
+            hi = np.floor(x_rot / self.hole_pitch).astype(np.int64)
+            hj = np.floor(y_rot / self.hole_pitch).astype(np.int64)
+            hx = (x_rot % self.hole_pitch) - self.hole_pitch / 2
+            hy = (y_rot % self.hole_pitch) - self.hole_pitch / 2
+            broken = _lattice_draw(hi, hj, self.seed + 7) < self.broken_hole_fraction
+            r_hole = np.where(broken, 0.8 * self.hole_diameter, self.hole_diameter / 2)
+            holes = (np.hypot(hx, hy) < r_hole) & ~bars
+        return bars, holes, rips, rim, beyond
 
     def _generate_cells(self, rng: np.random.Generator, half: float) -> None:
         kinds = {
@@ -306,6 +559,7 @@ class SampleScene:
                         eccentricity=float(rng.uniform(0.8, 1.0)),
                         angle=angle,
                         cell_id=next_id,
+                        opacity=1.0,
                     )
                 )
                 # a compact nucleus for the FM (the beams barely see it)
@@ -331,6 +585,7 @@ class SampleScene:
                             sharpness=3.0,
                             part="bud",
                             cell_id=next_id,
+                            opacity=1.0,
                         )
                     )
                 next_id += 1
@@ -364,6 +619,7 @@ class SampleScene:
                     wobble=0.25,
                     wobble_phase=phase,
                     cell_id=next_id,
+                    opacity=0.95,
                 )
             )
             # the nuclear mound, off centre
@@ -420,6 +676,7 @@ class SampleScene:
                     eccentricity=width / (length / 2),
                     angle=float(rng.uniform(0, np.pi)),
                     cell_id=next_id,
+                    opacity=1.0,
                 )
             )
             next_id += 1
@@ -446,12 +703,22 @@ class SampleScene:
         "grid_intensity",
         "noise_sigma",
         "noise_fraction",
+        "fiducial",  # the central cross; off for realistic imaging
         "grid_rotation",  # degrees; null = random within grid_rotation_range
         "grid_rotation_range",  # degrees
         "contamination_density",  # specks per 100 x 100 um
         "contamination_size",  # [min, max] m
         "beam_offset",  # {electron: [dx, dy], ion: [dx, dy]} m
         "current_offset_scale",  # m, sigma of the per-current beam offset
+        "film",  # continuous | holey
+        "hole_diameter",  # m
+        "hole_pitch",  # m
+        "broken_hole_fraction",
+        "rip_fraction",  # of squares
+        "ice_density",  # per 100 x 100 um
+        "ice_size",  # [min, max] m
+        "grid_radius",  # m
+        "grid_rim_width",  # m
     )
 
     @classmethod
@@ -469,6 +736,7 @@ class SampleScene:
             "mammalian_radius",
             "nucleus_radius",
             "bacteria_length",
+            "ice_size",
         ):
             if key in kwargs:
                 kwargs[key] = tuple(kwargs[key])
@@ -589,19 +857,12 @@ class SampleScene:
         xs_world = vx * cos_t + vy * sin_t
         ys_world = (-vx * sin_t + vy * cos_t) / fs
 
-        def _near_bar(w: np.ndarray) -> np.ndarray:
-            return (
-                np.abs((w % self.grid_pitch) - self.grid_pitch / 2)
-                < self.grid_bar_width / 2
-            )
-
-        # the mesh is rotated in the world plane, so the bar test runs on
-        # rotated world coordinates (full 2D, no longer separable)
-        cos_r, sin_r = np.cos(self.grid_rotation), np.sin(self.grid_rotation)
-        x_rot = xs_world * cos_r + ys_world * sin_r
-        y_rot = -xs_world * sin_r + ys_world * cos_r
-        bar_mask = _near_bar(x_rot) | _near_bar(y_rot)
-        canvas[bar_mask] += self.grid_intensity
+        bars, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
+        canvas[bars] += self.grid_intensity
+        # holes: film absent, with a bright rim one pixel-ish wide
+        canvas[holes] -= HOLE_DEPTH
+        hole_rim = ndi_binary_dilation(holes, iterations=2) & ~holes & ~bars
+        canvas[hole_rim] += HOLE_RIM
 
         for f in self.features:
             # project (foreshorten), rotate with the scan, then shift
@@ -609,6 +870,11 @@ class SampleScene:
             u = cx + (px_ * cos_t - py_ * sin_t + ax) / pixel_size
             v = cy + (px_ * sin_t + py_ * cos_t + ay) / pixel_size
             self._stamp_feature(canvas, f, u, v, pixel_size, fs, theta)
+
+        # what is torn or off-grid overrides whatever was drawn there
+        canvas[rips] = -RIP_DEPTH
+        canvas[rim] = RIM_INTENSITY
+        canvas[beyond] = BEYOND_INTENSITY
 
         if rng is None:
             rng = np.random.default_rng()
@@ -619,6 +885,11 @@ class SampleScene:
             data = 170.0 - 0.6 * canvas
         else:
             data = 60.0 + canvas
+        # a trench is dark in BOTH beams - it is not surface contrast but a
+        # hole in the sample - so it goes on after the per-beam mapping
+        if self.milled:
+            trench = self.milled_mask(xs_world, ys_world)
+            data = np.where(trench, data * MILL_FLOOR, data)
         data += rng.normal(0, self.noise_sigma, canvas.shape)
         if self.noise_fraction > 0:
             uniform = rng.uniform(0, 255, canvas.shape)
@@ -672,21 +943,20 @@ class SampleScene:
         contamination = 0.9 if bars >= 1.0 else 0.12
         canvas = np.zeros((height, width), dtype=np.float32)
 
+        xs_world = (np.arange(width, dtype=np.float32) - cx)[None, :] * pixel_size - ax
+        ys_world = (
+            (np.arange(height, dtype=np.float32) - cy)[:, None] * pixel_size - ay
+        ) / fs
+        bar_mask, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
         if bars > 0:
-            xs_world = (np.arange(width, dtype=np.float32) - cx) * pixel_size - ax
-            ys_world = (
-                (np.arange(height, dtype=np.float32) - cy) * pixel_size - ay
-            ) / fs
-            cos_r, sin_r = np.cos(self.grid_rotation), np.sin(self.grid_rotation)
-            xw = xs_world[None, :]
-            yw = ys_world[:, None]
-            x_rot = xw * cos_r + yw * sin_r
-            y_rot = -xw * sin_r + yw * cos_r
-            half = self.grid_bar_width / 2
-            bar_mask = (
-                np.abs((x_rot % self.grid_pitch) - self.grid_pitch / 2) < half
-            ) | (np.abs((y_rot % self.grid_pitch) - self.grid_pitch / 2) < half)
             canvas[bar_mask] += bars * self.grid_intensity
+            # in reflection the holes and rips read dark, the rim bright
+            canvas[holes] -= bars * HOLE_DEPTH
+            canvas[rips] -= bars * RIP_DEPTH
+            if self.milled:
+                canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
+        # ice reflects strongly and barely fluoresces
+        ice = 0.9 if bars >= 1.0 else 0.04
 
         subset_rng = np.random.default_rng(self.seed + 1)
         in_subset: Dict[int, bool] = {}
@@ -695,6 +965,8 @@ class SampleScene:
                 weight = fiducial * f.intensity
             elif f.kind == "contamination":
                 weight = contamination * f.intensity
+            elif f.kind == "ice":
+                weight = ice * f.intensity
             else:
                 if f.cell_id not in in_subset:
                     in_subset[f.cell_id] = subset_rng.random() < self.red_fraction
@@ -712,6 +984,8 @@ class SampleScene:
             u = cx + (f.x + ax) / pixel_size
             v = cy + (f.y * fs + ay) / pixel_size
             self._stamp_feature(canvas, f, u, v, pixel_size, fs, 0.0, intensity=weight)
+        canvas[rim] = RIM_INTENSITY if bars >= 1.0 else 0.0
+        canvas[beyond] = 0.0
 
         if defocus:
             # a retracted objective is millimetres from focus: cap the blur so
@@ -814,6 +1088,7 @@ class SampleScene:
             angle=f.angle + scan_rotation,
             wobble=f.wobble,
             wobble_phase=f.wobble_phase,
+            opacity=f.opacity if intensity is None else 0.0,
         )
 
     @staticmethod
@@ -828,15 +1103,24 @@ class SampleScene:
         angle: float = 0.0,
         wobble: float = 0.0,
         wobble_phase: float = 0.0,
+        opacity: float = 0.0,
     ) -> None:
         """Add one supergaussian blob, clipped to its bounding box.
 
         sharpness 1 = gaussian; higher = flat top with a sharp rim. `angle`
         turns the (sigma_x, sigma_y) ellipse; `wobble` modulates its radius
         with a few harmonics of the polar angle for an irregular outline.
+        `opacity` composites instead of adding: inside the outline the
+        background (film, holes, bars) is hidden by that fraction.
         """
         height, width = canvas.shape
-        reach = 4 * max(sigma_x, sigma_y) * (1 + wobble)
+        # a flat-top blob (sharpness >= 2) is already ~0 by 2 sigma; only a
+        # plain gaussian needs the 4 sigma box - and a box 4x smaller is
+        # what makes a field of 30 um cells affordable
+        tails = 4.0 if sharpness < 2 else 2.2
+        reach = tails * max(sigma_x, sigma_y) * (1 + wobble)
+        if u + reach < 0 or u - reach > width or v + reach < 0 or v - reach > height:
+            return
         x0 = max(0, int(u - reach))
         x1 = min(width, int(u + reach) + 1)
         y0 = max(0, int(v - reach))
@@ -860,4 +1144,13 @@ class SampleScene:
                 + 0.4 * np.sin(5 * theta + 2 * wobble_phase)
             )
             r2 = r2 / mod**2
-        canvas[y0:y1, x0:x1] += intensity * np.exp(-0.5 * r2**sharpness)
+        profile = np.exp(-0.5 * r2**sharpness)
+        if opacity > 0:
+            # the cover is flat out to the outline and drops sharply there,
+            # whatever the intensity profile does - a body hides the film
+            # under all of itself, not only under its brightest part
+            cover = opacity * np.exp(-0.5 * r2 ** max(sharpness, 6.0))
+            region = canvas[y0:y1, x0:x1]
+            canvas[y0:y1, x0:x1] = region * (1 - cover) + intensity * profile
+        else:
+            canvas[y0:y1, x0:x1] += intensity * profile

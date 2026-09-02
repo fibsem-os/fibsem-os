@@ -1336,6 +1336,7 @@ class DemoMicroscope(FibsemMicroscope):
         """Run milling with the specified current and voltage."""
 
         MILLING_SLEEP_TIME = 1
+        self._mill_into_sample_scene(milling_current)
 
         # start milling
         start_time = time.time()
@@ -1382,6 +1383,29 @@ class DemoMicroscope(FibsemMicroscope):
                 "milling_voltage": milling_voltage,
                 "asynch": asynch,
             }
+        )
+
+    def _mill_into_sample_scene(self, milling_current: float) -> None:
+        """Commit the drawn patterns to the sample scene, when there is one:
+        from now on every view shows them as trenches (FIB-877). Done when
+        milling starts, so an asynchronous run stamps too."""
+        scene = getattr(self, "_sample_scene", None)
+        if scene is None or not self.milling_system.patterns:
+            return
+        from fibsem.projection import BeamStageProjection
+
+        beam = self.milling_channel
+        projection = BeamStageProjection.from_microscope(self, beam_type=beam)
+        if projection is None:
+            return
+        shift = self.get_beam_shift(beam)
+        scene.mill(
+            list(self.milling_system.patterns),
+            beam,
+            self.get_stage_position(),
+            projection,
+            beam_shift=(float(shift.x), float(shift.y)),
+            beam_current=float(milling_current) if milling_current else None,
         )
 
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:

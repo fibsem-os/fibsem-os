@@ -113,8 +113,10 @@ def test_channels_show_different_structures(microscope):
     # every channel has structure, and they are not the same picture
     for image in (reflection, green, red):
         assert ndi.gaussian_filter(image, 3).std() > 20
+    # opaque cell bodies show in both (reflection faintly), so the two are
+    # correlated but far from the same picture
     corr = np.corrcoef(reflection.ravel(), green.ravel())[0, 1]
-    assert corr < 0.5, f"reflection and green correlate {corr:.2f}: bars vs cells lost"
+    assert corr < 0.75, f"reflection and green correlate {corr:.2f}: bars vs cells lost"
     # the red subset is a subset: where red is bright, green is bright too
     bright_red = ndi.gaussian_filter(red, 3) > np.percentile(red, 99)
     assert ndi.gaussian_filter(green, 3)[bright_red].mean() > np.percentile(green, 80)
