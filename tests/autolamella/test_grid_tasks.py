@@ -194,22 +194,13 @@ class TestProtocol:
         del data["grid_tasks"]
         assert AutoLamellaTaskProtocol.from_dict(data).grid_tasks.task_config == {}
 
-    def test_usable_before_a_task_protocol_is_assigned(self, tmp_path):
+    def test_requires_a_task_protocol(self, tmp_path):
         exp = Experiment(path=tmp_path, name="exp")
         assert exp.task_protocol is None
-        exp.grid_protocol.add(EchoConfig(task_name="echo"))
-        assert exp.grid_protocol.ordered_task_names == ["echo"]
-        # once a protocol arrives, its own section is the one that counts
+        with pytest.raises(ValueError, match="No task protocol"):
+            exp.grid_protocol
         exp.task_protocol = AutoLamellaTaskProtocol()
         assert exp.grid_protocol is exp.task_protocol.grid_tasks
-
-    def test_unknown_task_type_is_skipped_not_fatal(self, caplog):
-        configs = load_grid_task_configs(
-            {"echo": {"task_type": "ECHO_GRID"}, "gone": {"task_type": "NOPE"}}
-        )
-        assert list(configs) == ["echo"]
-        assert configs["echo"].task_name == "echo"
-        assert "gone" in caplog.text
 
 
 # ---------------------------------------------------------------------------

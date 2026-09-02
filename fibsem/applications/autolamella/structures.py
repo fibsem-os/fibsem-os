@@ -1448,9 +1448,6 @@ class Experiment:
 
         self.positions: EventedList[Lamella] = EventedList()
         self.grids: EventedList[GridRecord] = EventedList()
-        # Holds the grid tasks only until a task protocol is assigned; see
-        # `grid_protocol`.
-        self._grid_protocol_without_task_protocol: Optional[GridTaskProtocol] = None
         self.landing_positions: List[FibsemStagePosition] = []
 
         self.task_protocol: AutoLamellaTaskProtocol = None  # must be set externally
@@ -1566,16 +1563,16 @@ class Experiment:
     def grid_protocol(self) -> GridTaskProtocol:
         """The grid tasks this experiment can run: the protocol's `grid_tasks`.
 
-        `task_protocol` is None until a session assigns one, and a grid protocol
-        is still needed then (a script, a test), so a placeholder stands in until
-        a protocol arrives -- at which point the protocol's own section is the
-        one that counts, since that is what `protocol.yaml` saves.
+        One store, not two: the section of the assigned task protocol, which is
+        what `protocol.yaml` saves. The app assigns a protocol when it creates or
+        loads an experiment; anything else has to do the same before asking.
         """
-        if self.task_protocol is not None:
-            return self.task_protocol.grid_tasks
-        if self._grid_protocol_without_task_protocol is None:
-            self._grid_protocol_without_task_protocol = GridTaskProtocol()
-        return self._grid_protocol_without_task_protocol
+        if self.task_protocol is None:
+            raise ValueError(
+                "No task protocol is assigned to this experiment, so it has no grid "
+                "protocol. Set `experiment.task_protocol` first."
+            )
+        return self.task_protocol.grid_tasks
 
     def get_grid_by_name(self, name: str) -> Optional[GridRecord]:
         return next((g for g in self.grids if g.name == name), None)
