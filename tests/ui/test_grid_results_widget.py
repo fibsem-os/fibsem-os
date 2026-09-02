@@ -58,6 +58,7 @@ def grid(experiment):
         root / "overview_sem" / "overview-thumbnail.png",
     )
     assert os.path.isfile(thumb)
+    (root / "overview_sem" / "overview.tif").write_bytes(b"")  # the full overview
     grid.task_history += [
         entry(
             "load", AutoLamellaTaskStatus.Completed, "Loaded into Slot-01.", seconds=218
@@ -94,55 +95,35 @@ def test_nothing_selected(qapp, experiment):
     assert widget.name_label.isHidden()
 
 
-def test_tiles_thumbnail_placeholder_and_not_run(qapp, experiment, grid):
+def test_rows_follow_the_history_with_images_where_recorded(qapp, experiment, grid):
     widget = GridResultsWidget()
     widget.set_experiment(experiment)
     widget.set_grid(grid)
     assert widget.name_label.text() == "grid-elm"
-    assert widget.path_label.text().endswith("grid-elm")
-    assert widget.description_label.text() == "HeLa, batch B"
+    assert widget.name_label.toolTip().endswith("grid-elm")
+    assert widget.subtitle_label.text().startswith(
+        "HeLa, batch B · overview_sem, completed at"
+    )
 
-    sem, fib, fm = widget._tiles  # the protocol's order
-    assert sem.thumbnail is not None and sem.image.pixmap() is not None
-    assert sem.caption.text().startswith("overview_sem · ")
-    assert fib.thumbnail is None and fib.image.text() == "not run"
-    assert fib.caption.text() == "overview_fib"
-    assert fm.image.text() == "failed\nautofocus timeout on tile 7"
-
-    assert widget.load_label.text().startswith("Loaded ")
-    assert "Loaded into Slot-01." in widget.load_label.text()
-    assert widget.load_label.text().endswith("· 218 s")
-
-    assert widget.history.rowCount() == 3
-    assert [widget.history.item(r, 0).text() for r in range(3)] == [
-        "load",
-        "overview_sem",
-        "overview_fm",
-    ]
-    assert widget.history.item(1, 3).text() == "overview_sem"
-    assert widget.history.item(2, 3).text() == "autofocus timeout on tile 7"
+    load, sem, fm = widget.rows
+    assert load.state.name == "load" and load.tile is None
+    assert load.detail_label.text() == "Loaded into Slot-01."
+    assert sem.tile is not None and sem.tile.pixmap() is not None
+    # the tile opens the full overview, not the thumbnail it shows
+    assert sem.image.endswith("overview_sem/overview.tif")
+    assert sem.tile._filepath == sem.image
+    assert fm.tile is None
+    assert fm.status_label.text() == "Failed"
+    assert fm.detail_label.text() == "autofocus timeout on tile 7"
 
 
-def test_a_task_the_protocol_forgot_still_shows(qapp, experiment, grid):
-    experiment.grid_protocol.remove("overview_fm")
-    widget = GridResultsWidget()
-    widget.set_experiment(experiment)
-    widget.set_grid(grid)
-    assert [t.caption.text().split(" · ")[0] for t in widget._tiles] == [
-        "overview_sem",
-        "overview_fib",
-        "overview_fm",
-    ]
-
-
-def test_a_grid_never_loaded(qapp, experiment):
+def test_a_grid_never_run(qapp, experiment):
     grid = experiment.add_grid(GridRecord(name="grid-oak"))
     widget = GridResultsWidget()
     widget.set_experiment(experiment)
     widget.set_grid(grid)
-    assert widget.load_label.text() == "Not loaded by a run yet."
-    assert widget.history.rowCount() == 0
-    assert [t.image.text() for t in widget._tiles] == ["not run"] * 3
+    assert widget.subtitle_label.text() == "No completed tasks"
+    assert len(widget.rows) == 1 and "Nothing has run" in widget.rows[0].text()
 
 
 def test_the_grids_tab_follows_card_selection(qapp, experiment, grid):

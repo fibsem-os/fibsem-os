@@ -1,28 +1,26 @@
-"""Grids tab · Results: the selected grid's overviews and history.
+"""Grids tab · Results: what the selected grid's runs recorded.
 
-Follows card selection. Everything here is read off the grid's task history and
-the outputs recorded on it, never by globbing the grid's directory: a task that
-recorded nothing shows a labelled placeholder saying why, which is the whole
-difference between "failed" and "never ran".
+Follows card selection, in the shape of the Lamella tab's Review view: the name,
+a line on the latest run, then one row per history entry in the order they
+happened. A task's row carries the thumbnail it recorded, and clicking it opens
+the full overview; a task that recorded nothing says why instead. The load is a
+row like any other. Everything is read off the history and the outputs recorded
+on it, never by globbing the grid's directory.
 """
 
 from __future__ import annotations
 
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QAbstractItemView,
-    QGridLayout,
+    QFrame,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QScrollArea,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -46,13 +44,11 @@ from fibsem.ui.tokens import (
     NEUTRAL_550,
     NEUTRAL_900,
     OK_COLOR,
-    TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
 _LOAD_ENTRY_NAME = "load"
-_TILE_W, _TILE_H = 220, 150
-_TILES_PER_LINE = 3
+_TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-friendly size
 
 _STATUS_COLOUR = {
     AutoLamellaTaskStatus.Completed: OK_COLOR,
@@ -68,13 +64,17 @@ def _when(state: AutoLamellaTaskState) -> str:
     return datetime.fromtimestamp(stamp).strftime(TIME_DISPLAY_AMPM_SHORT)
 
 
-def thumbnail_for(
-    experiment: Experiment, grid: GridRecord, state: AutoLamellaTaskState
+def _recorded(
+    experiment: Experiment,
+    grid: GridRecord,
+    state: AutoLamellaTaskState,
+    thumbnail: bool,
 ) -> Optional[str]:
-    """The thumbnail a task run recorded, if the file is still there."""
+    """The last existing file this run recorded: the thumbnail, or the image
+    itself. None when there is none on disk."""
     root = experiment.grid_path(grid)
-    for role, relpaths in state.outputs.items():
-        if not role.endswith("_thumbnail"):
+    for role, relpaths in reversed(list(state.outputs.items())):
+        if role.endswith("_thumbnail") != thumbnail:
             continue
         for relpath in reversed(relpaths):
             path = os.path.join(root, relpath)
@@ -83,83 +83,124 @@ def thumbnail_for(
     return None
 
 
-def latest_runs(grid: GridRecord) -> Dict[str, AutoLamellaTaskState]:
-    """The most recent history entry per task, in first-run order. The load step
-    is not a task and is reported separately."""
-    latest: Dict[str, AutoLamellaTaskState] = {}
+def thumbnail_for(
+    experiment: Experiment, grid: GridRecord, state: AutoLamellaTaskState
+) -> Optional[str]:
+    return _recorded(experiment, grid, state, thumbnail=True)
+
+
+def image_for(
+    experiment: Experiment, grid: GridRecord, state: AutoLamellaTaskState
+) -> Optional[str]:
+    return _recorded(experiment, grid, state, thumbnail=False)
+
+
+def latest_runs(grid: GridRecord) -> dict:
+    """The most recent history entry per task, in first-run order; the load
+    step is not a task."""
+    latest = {}
     for state in grid.task_history:
         if state.name != _LOAD_ENTRY_NAME:
             latest[state.name] = state
     return latest
 
 
-class _OverviewTile(QWidget):
-    """One task's latest result: its thumbnail, or a placeholder that says why not."""
+class _HistoryRow(QWidget):
+    """One history entry: a separator, a line saying what and how it went,
+    and the image it recorded, if any."""
 
     def __init__(
         self,
-        title: str,
-        state: Optional[AutoLamellaTaskState],
+        state: AutoLamellaTaskState,
         thumbnail: Optional[str],
+        image: Optional[str],
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
+        self.state = state
         self.thumbnail = thumbnail
+        self.image = image
+        self.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(4)
 
-        self.image = ClickableLabel(thumbnail or "")
-        self.image.setFixedSize(_TILE_W, _TILE_H)
-        self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 4px;")
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color: #3a3d42;")
+        layout.addWidget(sep)
+
+        line = QHBoxLayout()
+        line.setSpacing(8)
+        self.name_label = QLabel(state.name)
+        self.name_label.setStyleSheet(
+            f"font-size: 12px; font-weight: 600; color: {NEUTRAL_400}; "
+            "background: transparent;"
+        )
+        line.addWidget(self.name_label)
+        colour = _STATUS_COLOUR.get(state.status, NEUTRAL_550)
+        self.status_label = QLabel(state.status.name)
+        self.status_label.setStyleSheet(
+            f"font-size: 11px; color: {colour}; background: transparent;"
+        )
+        line.addWidget(self.status_label)
+        self.when_label = QLabel(_when(state))
+        self.when_label.setStyleSheet(
+            f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
+        )
+        line.addWidget(self.when_label)
+        self.detail_label = ElidedLabel(state.status_message or "")
+        self.detail_label.setStyleSheet(
+            f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
+        )
+        line.addWidget(self.detail_label, 1)
+        layout.addLayout(line)
+
+        self.tile: Optional[ClickableLabel] = None
         if thumbnail is not None:
+            # The tile shows the thumbnail but opens the full overview: the
+            # dialog reads the image and its pixel size for a scale bar, which
+            # a PNG cannot give it.
+            self.tile = ClickableLabel(image or thumbnail)
+            self.tile.setFixedSize(_TILE_W, _TILE_H)
+            self.tile.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tile.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 4px;")
             pixmap = QPixmap(thumbnail)
             if not pixmap.isNull():
-                self.image.setPixmap(
+                self.tile.setPixmap(
                     pixmap.scaled(
                         _TILE_W, _TILE_H, Qt.KeepAspectRatio, Qt.SmoothTransformation
                     )
                 )
-            self.image.clicked.connect(self._open)
-        else:
-            self.image.setWordWrap(True)
-            if state is None:
-                text, colour = "not run", NEUTRAL_550
-            elif state.status is AutoLamellaTaskStatus.Completed:
-                text, colour = "no image recorded", NEUTRAL_550
-            else:
-                text = state.status.name.lower()
-                if state.status_message:
-                    text += f"\n{state.status_message}"
-                colour = _STATUS_COLOUR.get(state.status, NEUTRAL_550)
-            self.image.setText(text)
-            self.image.setStyleSheet(
-                f"background: {NEUTRAL_900}; border-radius: 4px; color: {colour}; "
-                "font-size: 11px; padding: 6px;"
+            self.tile.clicked.connect(self._open)
+            layout.addWidget(self.tile, 0, Qt.AlignLeft)
+        elif (
+            state.name != _LOAD_ENTRY_NAME
+            and state.status is AutoLamellaTaskStatus.Completed
+        ):
+            note = QLabel("No image recorded.")
+            note.setStyleSheet(
+                f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
             )
-        layout.addWidget(self.image)
-
-        caption = title if state is None else f"{title} · {_when(state)}"
-        self.caption = ElidedLabel(caption)
-        self.caption.setStyleSheet(
-            f"font-size: 11px; color: {NEUTRAL_400}; background: transparent;"
-        )
-        layout.addWidget(self.caption)
+            layout.addWidget(note)
 
     def _open(self, path: str) -> None:
-        dialog = ExpandedImageDialog(path, title=self.caption.text(), parent=self)
+        dialog = ExpandedImageDialog(
+            path,
+            title=f"{self.name_label.text()} · {self.when_label.text()}",
+            parent=self,
+        )
         dialog.show()
 
 
 class GridResultsWidget(QWidget):
-    """The selected grid: its overviews by task, the load, and the history."""
+    """The selected grid: its name, the latest run, and its history with images."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._experiment: Optional[Experiment] = None
         self._grid: Optional[GridRecord] = None
-        self._tiles: List[_OverviewTile] = []
+        self._rows: List[QWidget] = []
         self._setup_ui()
         self.refresh()
 
@@ -171,64 +212,37 @@ class GridResultsWidget(QWidget):
         scroll.setFrameShape(QScrollArea.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        self._layout = QVBoxLayout(content)
+        self._layout.setContentsMargins(12, 8, 12, 8)
+        self._layout.setSpacing(4)
 
         self.name_label = QLabel()
         self.name_label.setStyleSheet(
             f"font-size: 14px; font-weight: bold; color: {NEUTRAL_200}; "
             "background: transparent;"
         )
-        layout.addWidget(self.name_label)
-        self.path_label = ElidedLabel("", mode=Qt.ElideLeft)
-        self.path_label.setStyleSheet(
-            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
+        self._layout.addWidget(self.name_label)
+        self.subtitle_label = QLabel()
+        self.subtitle_label.setWordWrap(True)
+        self.subtitle_label.setStyleSheet(
+            f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
         )
-        layout.addWidget(self.path_label)
-        self.description_label = QLabel()
-        self.description_label.setWordWrap(True)
-        self.description_label.setStyleSheet(
-            f"font-size: 11px; color: {NEUTRAL_400}; background: transparent;"
-        )
-        layout.addWidget(self.description_label)
+        self._layout.addWidget(self.subtitle_label)
 
-        self.tiles_widget = QWidget()
-        self.tiles_widget.setStyleSheet("background: transparent;")
-        self._tiles_layout = QGridLayout(self.tiles_widget)
-        self._tiles_layout.setContentsMargins(0, 4, 0, 4)
-        self._tiles_layout.setSpacing(10)
-        self._tiles_layout.setColumnStretch(_TILES_PER_LINE, 1)
-        layout.addWidget(self.tiles_widget)
-
-        self.load_label = QLabel()
-        self.load_label.setWordWrap(True)
-        self.load_label.setStyleSheet(
-            f"font-size: 11px; color: {NEUTRAL_400}; background: transparent;"
-        )
-        layout.addWidget(self.load_label)
-
-        history_title = QLabel("History")
-        history_title.setStyleSheet(
-            f"font-size: 12px; font-weight: 600; color: {NEUTRAL_400}; "
-            "background: transparent;"
-        )
-        layout.addWidget(history_title)
-        self.history = QTableWidget(0, 4)
-        self.history.setHorizontalHeaderLabels(["Task", "When", "Status", "Details"])
-        self.history.verticalHeader().setVisible(False)
-        self.history.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.history.setSelectionMode(QAbstractItemView.NoSelection)
-        self.history.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        layout.addWidget(self.history)
+        self.rows_widget = QWidget()
+        self.rows_widget.setStyleSheet("background: transparent;")
+        self._rows_layout = QVBoxLayout(self.rows_widget)
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(0)
+        self._layout.addWidget(self.rows_widget)
 
         self.empty_label = QLabel("Select a grid card to see its results.")
         self.empty_label.setStyleSheet(
             f"color: {NEUTRAL_550}; font-size: 12px; background: transparent;"
         )
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.empty_label)
-        layout.addStretch(1)
+        self._layout.addWidget(self.empty_label)
+        self._layout.addStretch(1)
         scroll.setWidget(content)
         outer.addWidget(scroll)
 
@@ -246,97 +260,59 @@ class GridResultsWidget(QWidget):
     def grid(self) -> Optional[GridRecord]:
         return self._grid
 
+    @property
+    def rows(self) -> List[QWidget]:
+        return list(self._rows)
+
     def refresh(self) -> None:
-        for tile in self._tiles:
-            self._tiles_layout.removeWidget(tile)
-            tile.deleteLater()
-        self._tiles = []
-        self.history.setRowCount(0)
+        for row in self._rows:
+            self._rows_layout.removeWidget(row)
+            row.deleteLater()
+        self._rows = []
 
         grid, experiment = self._grid, self._experiment
         has_grid = grid is not None and experiment is not None
-        for widget in (
-            self.name_label,
-            self.path_label,
-            self.description_label,
-            self.tiles_widget,
-            self.load_label,
-            self.history,
-        ):
+        for widget in (self.name_label, self.subtitle_label, self.rows_widget):
             widget.setVisible(has_grid)
         self.empty_label.setVisible(not has_grid)
         if not has_grid:
             return
 
         self.name_label.setText(grid.name)
-        self.path_label.setText(str(experiment.grid_path(grid)))
-        self.description_label.setText(grid.description)
-        self.description_label.setVisible(bool(grid.description))
+        self.name_label.setToolTip(str(experiment.grid_path(grid)))
+        parts = []
+        if grid.description:
+            parts.append(grid.description)
+        last = next(
+            (
+                t
+                for t in reversed(grid.task_history)
+                if t.name != _LOAD_ENTRY_NAME
+                and t.status is AutoLamellaTaskStatus.Completed
+            ),
+            None,
+        )
+        parts.append(
+            f"{last.name}, completed at {last.completed_at}"
+            if last is not None
+            else "No completed tasks"
+        )
+        self.subtitle_label.setText(" · ".join(parts))
 
-        # One tile per task: the protocol's tasks in its order, then anything the
-        # history knows that the protocol no longer names.
-        names: List[str] = []
-        try:
-            names = list(experiment.grid_protocol.ordered_task_names)
-        except ValueError:  # no task protocol on this experiment
-            pass
-        runs = latest_runs(grid)
-        for name in runs:
-            if name not in names:
-                names.append(name)
-        for index, name in enumerate(names):
-            state = runs.get(name)
-            thumbnail = (
-                thumbnail_for(experiment, grid, state) if state is not None else None
+        if not grid.task_history:
+            note = QLabel("Nothing has run on this grid yet.")
+            note.setStyleSheet(
+                f"font-size: 11px; color: {NEUTRAL_550}; background: transparent; "
+                "padding-top: 8px;"
             )
-            tile = _OverviewTile(name, state, thumbnail)
-            row, column = divmod(index, _TILES_PER_LINE)
-            self._tiles_layout.addWidget(tile, row, column)
-            self._tiles.append(tile)
-        self.tiles_widget.setVisible(bool(names))
-
-        loads = [t for t in grid.task_history if t.name == _LOAD_ENTRY_NAME]
-        if loads:
-            load = loads[-1]
-            if load.status is AutoLamellaTaskStatus.Completed:
-                text = f"Loaded {_when(load)} · {load.status_message}"
-                if load.duration:
-                    text += f" · {load.duration:.0f} s"
-            else:
-                text = f"Load {load.status.name.lower()} {_when(load)} · {load.status_message}"
-            self.load_label.setText(text)
-        else:
-            self.load_label.setText("Not loaded by a run yet.")
-
+            self._rows_layout.addWidget(note)
+            self._rows.append(note)
+            return
         for state in grid.task_history:
-            row = self.history.rowCount()
-            self.history.insertRow(row)
-            status = QTableWidgetItem(state.status.name)
-            status.setForeground(
-                Qt.GlobalColor.white
-                if state.status not in _STATUS_COLOUR
-                else _brush(_STATUS_COLOUR[state.status])
+            row = _HistoryRow(
+                state,
+                thumbnail_for(experiment, grid, state),
+                image_for(experiment, grid, state),
             )
-            for column, item in enumerate(
-                [
-                    QTableWidgetItem(state.name),
-                    QTableWidgetItem(_when(state)),
-                    status,
-                    QTableWidgetItem(self._details(state)),
-                ]
-            ):
-                self.history.setItem(row, column, item)
-        self.history.resizeRowsToContents()
-
-    @staticmethod
-    def _details(state: AutoLamellaTaskState) -> str:
-        if state.status_message:
-            return state.status_message
-        roles = [r for r in state.outputs if not r.endswith("_thumbnail")]
-        return ", ".join(roles)
-
-
-def _brush(colour: str):
-    from PyQt5.QtGui import QBrush, QColor
-
-    return QBrush(QColor(colour))
+            self._rows_layout.addWidget(row)
+            self._rows.append(row)

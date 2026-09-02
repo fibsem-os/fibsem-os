@@ -75,7 +75,7 @@ _STATE_COLOUR = {
     "empty": NEUTRAL_700,
 }
 _STATE_TEXT = {
-    "in_beam": "in beam",
+    "in_beam": "loaded",
     "occupied": "occupied",
     "empty": "empty",
 }

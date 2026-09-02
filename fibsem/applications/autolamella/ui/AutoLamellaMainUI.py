@@ -77,6 +77,9 @@ from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    LOAD_ENTRY_NAME as GRID_LOAD_STEP,
+)
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.status import (
     WorkflowStatusEvent,
@@ -1752,6 +1755,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.grids_tab.set_controls_enabled(False)
         if getattr(self, "grid_workflow_widget", None) is not None:
             self.grid_workflow_widget.set_controls_enabled(False)
+        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        if sample is not None:
+            sample.set_controls_enabled(False)
         # A live run is exactly when there is a queue to edit, so the actions come
         # on with it — and go off again in hide_workflow_running.
         if hasattr(self, "workflow_timeline"):
@@ -3078,6 +3084,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         label = f"{item.task_name} for {item.item_name}"
 
+        # The load step goes with its grid's tasks. It is in the queue so the
+        # plan shows where the exchanges fall, not to be taken out or moved; a
+        # task loads its grid on its own anyway, so removing the step would only
+        # make the plan lie about when the exchange happens.
+        if item.task_name == GRID_LOAD_STEP and action != "stop_task":
+            self._show_queue_message(
+                f"The load step stays with {item.item_name}'s tasks."
+            )
+            return
+
         if action == "stop_task":
             # Confirmed, unlike Remove: that edits a list, this interrupts an
             # operation already under way on the sample.
@@ -3486,6 +3502,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if getattr(self, "grid_workflow_widget", None) is not None:
             self.grid_workflow_widget.set_controls_enabled(True)
             self.grid_workflow_widget.refresh()
+        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        if sample is not None:
+            sample.set_controls_enabled(True)
         self.user_attention_btn.hide()
         self.lamella_list_widget.refresh_all()
         self.lamella_card_container.refresh_all()

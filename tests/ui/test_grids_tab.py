@@ -62,7 +62,7 @@ class TestHeadline:
             entry(AutoLamellaTaskStatus.Completed),
             entry(AutoLamellaTaskStatus.Completed, "overview_fib"),
         ]
-        assert grid_headline(grid)[0] == "Complete"
+        assert grid_headline(grid)[0].startswith("overview_fib (")
 
     def test_failed_tasks_are_counted(self):
         grid = GridRecord(name="g")
@@ -128,7 +128,7 @@ class TestCards:
         card = tab.cards.cards[1]
         card._action_load.trigger()
         assert arctis._stage.loaded_grids[0].name == "Grid-02"
-        assert [c.text() for c in card._chip_widgets] == ["in beam"]
+        assert [c.text() for c in card._chip_widgets] == ["Loaded"]
         assert card._action_unload.isVisible() and not card._action_load.isVisible()
         assert tab.status_label.text() == "Grid-02 is in the beam."
         card._action_unload.trigger()
@@ -223,7 +223,7 @@ class TestCards:
         assert card._thumb_label.pixmap() is None or card._thumb_label.pixmap().isNull()
         card.refresh()
         assert not card._thumb_label.pixmap().isNull()
-        assert card.status_text == "Complete"
+        assert card.status_text.startswith("overview_sem (")
         # cozy by default: the big thumbnail; the standard row keeps the small one
         assert card.mode == "cozy" and card._thumb_label.height() == 170
         tab.cards.set_mode("standard")
@@ -246,7 +246,7 @@ def test_on_a_fixed_holder_there_is_nothing_to_load(qapp, experiment):
     tab.btn_inventory.click()  # a plain refresh: no scan, no confirmation
     (card,) = tab.cards.cards
     assert card.grid.name == "grid-aspen"
-    assert [c.text() for c in card._chip_widgets] == ["in beam"]
+    assert [c.text() for c in card._chip_widgets] == ["Loaded"]
     assert not card._action_load.isVisible() and not card._action_unload.isVisible()
 
 

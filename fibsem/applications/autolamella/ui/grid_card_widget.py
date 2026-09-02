@@ -132,7 +132,9 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
         return f"{failed} task{'s' if failed != 1 else ''} failed", ERROR_COLOR
     if cancelled:
         return "Cancelled", stylesheets.DEFECT_ORANGE_COLOR
-    return "Complete", OK_COLOR
+    # The lamella card's line: the last completed task and when, not a verdict.
+    last = tasks[-1]
+    return f"{last.name} ({last.completed_at})", NEUTRAL_550
 
 
 # -- thumbnails, decoded once per file -----------------------------------------
@@ -312,20 +314,35 @@ class GridCardWidget(QWidget):
             self._content.setParent(None)
             self._content.deleteLater()
         if self._mode == MODE_COZY:
+            # The lamella card's cozy tile, measure for measure: the thumbnail,
+            # a rule, then a name row with the buttons and the status under it.
             self._thumb_label.setFixedSize(_COZY_THUMB_W, _COZY_THUMB_H)
             content = QWidget()
             layout = QVBoxLayout(content)
-            layout.setContentsMargins(
-                _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING
-            )
-            layout.setSpacing(6)
+            layout.setContentsMargins(_THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, 0)
+            layout.setSpacing(0)
             layout.addWidget(self._thumb_label)
-            row = QHBoxLayout()
-            row.setSpacing(6)
-            row.addWidget(self._info_block(), 1)
-            row.addWidget(self._btn_quality, 0, Qt.AlignVCenter)
-            row.addWidget(self._btn_actions, 0, Qt.AlignVCenter)
-            layout.addLayout(row)
+            sep = QFrame()
+            sep.setFrameShape(QFrame.HLine)
+            sep.setStyleSheet("color: #3a3d42;")
+            layout.addWidget(sep)
+            info = QWidget()
+            info.setStyleSheet("background: transparent;")
+            info_layout = QVBoxLayout(info)
+            info_layout.setContentsMargins(10, 8, 10, 10)
+            info_layout.setSpacing(3)
+            name_row = QHBoxLayout()
+            name_row.setSpacing(4)
+            name_row.addWidget(self._name_label, 1)
+            name_row.addWidget(self._btn_actions)
+            name_row.addWidget(self._btn_quality)
+            info_layout.addLayout(name_row)
+            status_row = QHBoxLayout()
+            status_row.setSpacing(6)
+            status_row.addWidget(self._status_label, 1)
+            status_row.addLayout(self._chips)
+            info_layout.addLayout(status_row)
+            layout.addWidget(info)
         else:
             self._thumb_label.setFixedSize(_THUMB_W, _THUMB_H)
             self._thumb_label.setVisible(self._mode != MODE_COMPACT)
@@ -394,9 +411,11 @@ class GridCardWidget(QWidget):
         if not present:
             chips.append(("not present", NEUTRAL_700))
         elif self.in_beam:
-            chips.append(("in beam", OK_COLOR))
+            chips.append(("Loaded", OK_COLOR))
         for label, chip_colour in chips:
-            widget = chip(label, chip_colour, font_size=10)
+            widget = chip(label, chip_colour)
+            # A pill: the radius the helper draws is half of this height.
+            widget.setFixedHeight(20)
             self._chips.addWidget(widget)
             self._chip_widgets.append(widget)
         slot = f"slot {self._entry.index + 1:02d}" if present else "not in the holder"
@@ -497,7 +516,7 @@ class GridCardContainer(QWidget):
         self._selected_id: Optional[str] = None
         self._mode = mode if mode in CARD_MODES else MODE_COZY
         self._layout = QVBoxLayout(self)
-        self._layout.setSpacing(8)
+        self._layout.setSpacing(12)
         self._layout.setContentsMargins(8, 8, 8, 8)
         self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 

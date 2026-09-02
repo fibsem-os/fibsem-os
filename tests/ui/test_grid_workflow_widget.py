@@ -116,10 +116,9 @@ class TestSelection:
         view.refresh()
         view.grid_header.select_all.setChecked(True)
         assert view.exchanges_for(view.get_selected_grids()) == 2
-        assert [c.text() for c in view._grid_rows["Grid-02"]._chip_widgets] == [
-            "slot 02",
-            "in beam",
-        ]
+        row = view._grid_rows["Grid-02"]
+        assert [c.text() for c in row._chip_widgets] == ["Loaded"]
+        assert row.slot_label.text() == "slot 02"
 
     def test_the_fm_task_is_greyed_without_a_fluorescence_microscope(
         self, qapp, experiment
@@ -138,7 +137,7 @@ class TestSelection:
         assert widget.get_selected_task_names() == ["overview_sem"]
 
     def test_reordering_tasks_writes_the_protocol(self, view, experiment):
-        view._task_rows["overview_fm"].btn_up.click()
+        view._on_reordered(["overview_fm", "overview_sem"])  # what a drop reports
         assert view.get_selected_task_names() == ["overview_fm", "overview_sem"]
         assert experiment.grid_protocol.ordered_task_names == [
             "overview_fm",
