@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import Experiment, GridRecord
 from fibsem.applications.autolamella.ui.grid_card_widget import GridCardContainer
+from fibsem.applications.autolamella.ui.grid_protocol_widget import GridProtocolWidget
 from fibsem.microscopes._stage import GridInventoryEntry, SampleGrid
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -134,14 +135,11 @@ class GridsTabWidget(QWidget):
 
         # -- right: sub-tabs -----------------------------------------------------
         self.sub_tabs = QTabWidget()
-        self.protocol_tab = _placeholder(
-            "Grid task settings: the tasks in the experiment's grid protocol and "
-            "each one's settings. Coming next."
-        )
+        self.protocol_widget = GridProtocolWidget()
         self.results_tab = _placeholder(
             "The selected grid's overviews and history. Coming next."
         )
-        self.sub_tabs.addTab(self.protocol_tab, "Protocol")
+        self.sub_tabs.addTab(self.protocol_widget, "Protocol")
         self.sub_tabs.addTab(self.results_tab, "Results")
         splitter.addWidget(self.sub_tabs)
         splitter.setStretchFactor(1, 1)
@@ -152,10 +150,12 @@ class GridsTabWidget(QWidget):
 
     def set_experiment(self, experiment: Optional[Experiment]) -> None:
         self._experiment = experiment
+        self.protocol_widget.set_experiment(experiment)
         self._rebuild()
 
     def set_microscope(self, microscope) -> None:
         self._microscope = microscope
+        self.protocol_widget.set_microscope(microscope)
         self.refresh()
 
     @property
