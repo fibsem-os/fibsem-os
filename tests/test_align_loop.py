@@ -31,15 +31,13 @@ def microscope():
     )
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = 8e-6
-    microscope._setup_coincidence_projection()
-    from fibsem.microscopes.sim_scene import CoincidenceScene
+    microscope._setup_sample_scene()
+    from fibsem.microscopes.sim_scene import SampleScene
 
     # deterministic scene: the loop is about control flow and geometry
-    scene = CoincidenceScene(
-        coincidence_offset=8e-6, noise_sigma=0.0, noise_fraction=0.0
-    )
+    scene = SampleScene(coincidence_offset=8e-6, noise_sigma=0.0, noise_fraction=0.0)
     scene.anchor(microscope.get_stage_position())
-    microscope._coincidence_scene = scene
+    microscope._sample_scene = scene
     pose = microscope.get_stage_position()
     pose.t = np.deg2rad(12.0)
     microscope.move_stage_absolute(pose)
@@ -101,9 +99,9 @@ def test_coarse_pass_rescues_errors_beyond_the_fine_window(microscope, offset):
     the coarse pass, and still converge. The honest reach on this mesh is
     ~50 um - about half a grid pitch, where rival peaks start to compete;
     an 80 um "rescue" this test once claimed was a false-lock chain."""
-    microscope._coincidence_scene.coincidence_offset = offset
-    microscope._coincidence_scene.reference_position = None
-    microscope._coincidence_scene.anchor(microscope.get_stage_position())
+    microscope._sample_scene.coincidence_offset = offset
+    microscope._sample_scene.reference_position = None
+    microscope._sample_scene.anchor(microscope.get_stage_position())
 
     result = ensure_coincident(microscope, tolerance=1e-6)
 
@@ -120,9 +118,9 @@ def test_error_beyond_the_coarse_window_does_not_claim_success(microscope, offse
     recording that). The alias is caught by its lateral offset instead: a
     height error cannot move x, and on the rotated mesh the rival peak sits
     well off-axis - so the lock is refused rather than acted on."""
-    microscope._coincidence_scene.coincidence_offset = offset
-    microscope._coincidence_scene.reference_position = None
-    microscope._coincidence_scene.anchor(microscope.get_stage_position())
+    microscope._sample_scene.coincidence_offset = offset
+    microscope._sample_scene.reference_position = None
+    microscope._sample_scene.anchor(microscope.get_stage_position())
 
     result = ensure_coincident(microscope, tolerance=1e-6)
 
@@ -189,9 +187,9 @@ def test_a_coarse_run_replays_with_its_own_parameters(microscope, tmp_path):
         save_coincidence_diagnostics,
     )
 
-    microscope._coincidence_scene.coincidence_offset = 40e-6
-    microscope._coincidence_scene.reference_position = None
-    microscope._coincidence_scene.anchor(microscope.get_stage_position())
+    microscope._sample_scene.coincidence_offset = 40e-6
+    microscope._sample_scene.reference_position = None
+    microscope._sample_scene.anchor(microscope.get_stage_position())
     result = ensure_coincident(microscope, tolerance=1e-6)
     assert result.coarse_used
 
@@ -204,9 +202,9 @@ def test_a_coarse_run_replays_with_its_own_parameters(microscope, tmp_path):
 
 
 def test_coarse_measurements_do_not_count_as_moves(microscope):
-    microscope._coincidence_scene.coincidence_offset = 40e-6
-    microscope._coincidence_scene.reference_position = None
-    microscope._coincidence_scene.anchor(microscope.get_stage_position())
+    microscope._sample_scene.coincidence_offset = 40e-6
+    microscope._sample_scene.reference_position = None
+    microscope._sample_scene.anchor(microscope.get_stage_position())
 
     result = ensure_coincident(microscope, tolerance=1e-6)
 
@@ -228,7 +226,7 @@ def _anchor_in_view(microscope, beam_type) -> tuple:
 
     projection = BeamStageProjection.from_microscope(microscope, beam_type)
     return projection.to_plane(
-        microscope._coincidence_scene.reference_position,
+        microscope._sample_scene.reference_position,
         microscope.get_stage_position(),
     )
 
@@ -249,3 +247,24 @@ def test_reference_view_keeps_its_centre(microscope, reference):
     moved = np.hypot(*(np.subtract(after[other], before[other])))
     assert kept < 1e-6, f"{reference.name} view moved by {kept * 1e6:.2f} um"
     assert moved > 3e-6, f"{other.name} view only moved {moved * 1e6:.2f} um"
+
+
+@pytest.mark.parametrize("reference", [BeamType.ELECTRON, BeamType.ION])
+def test_converges_at_the_fib_orientation(microscope, reference):
+    """At the FIB orientation (half a turn round, the FIB looking at the
+    surface face-on) the projections carry the flip; the loop converges
+    exactly. Validated here only - the guard is a logged warning, not a
+    refusal, until hardware confirms it."""
+    fib = microscope.get_orientation("FIB")
+    pose = microscope.get_stage_position()
+    pose.r, pose.t = fib.r, fib.t
+    microscope.move_stage_absolute(pose)
+    microscope._sample_scene.reference_position = None
+    microscope._sample_scene.anchor(microscope.get_stage_position())
+
+    result = ensure_coincident(microscope, tolerance=1e-6, reference=reference)
+
+    assert result.converged, result.reason
+    assert result.moves_applied == 1
+    assert abs(result.measurements[0].dz) == pytest.approx(8e-6, abs=1e-6)
+    assert result.measurements[0].y_stretch < 1  # the FIB is the face-on view here

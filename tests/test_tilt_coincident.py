@@ -18,7 +18,7 @@ from fibsem.alignment.coincidence import (
     check_coincidence,
     tilt_coincident,
 )
-from fibsem.microscopes.sim_scene import CoincidenceScene
+from fibsem.microscopes.sim_scene import SampleScene
 
 # The geometry under test is a pre-tilted TFS shuttle; pin it rather than
 # inherit whatever configuration an earlier test left as the default
@@ -37,14 +37,14 @@ def microscope():
         manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
     )
     microscope.system.sim["coincidence_projection"] = True
-    microscope._setup_coincidence_projection()
+    microscope._setup_sample_scene()
     yield microscope
     microscope.disconnect()
 
 
 def _anchor_scene(microscope, tilt_axis_offset: float) -> None:
     """A noise-free scene, coincident at the current (SEM) pose."""
-    scene = CoincidenceScene(
+    scene = SampleScene(
         coincidence_offset=0.0,
         tilt_axis_offset=tilt_axis_offset,
         noise_sigma=0.0,
@@ -53,7 +53,7 @@ def _anchor_scene(microscope, tilt_axis_offset: float) -> None:
     pose = microscope.get_stage_position()
     assert pose.t == pytest.approx(SEM_TILT)
     scene.anchor(pose)
-    microscope._coincidence_scene = scene
+    microscope._sample_scene = scene
 
 
 def _tilt_to(microscope, tilt: float) -> None:
@@ -152,7 +152,7 @@ def _anchor_in_sem_view(microscope) -> tuple:
     from fibsem.structures import BeamType
 
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)
-    scene = microscope._coincidence_scene
+    scene = microscope._sample_scene
     pose = microscope.get_stage_position()
     reference = scene._non_eucentric_reference(pose, projection)
     return projection.to_plane(reference, pose)

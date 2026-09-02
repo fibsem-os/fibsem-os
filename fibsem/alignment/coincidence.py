@@ -134,12 +134,13 @@ def geometry_from_images(
     the projections the images record - so a saved pair is self-sufficient,
     usable offline with no microscope connection.
 
+    A pair taken nearer the flipped (rotation_180 / FIB-orientation) side
+    than the reference side is measured - the projections carry the
+    half-turn - but logged: validated on the simulator only, where the loop
+    converges exactly at the FIB orientation, and not yet on hardware.
+
     Raises:
-        ValueError: when the pair's metadata cannot supply the projections,
-            or the stage rotation is nearer the flipped (rotation_180 /
-            FIB-orientation) side than the reference side - unvalidated
-            territory where the measurement should refuse rather than
-            silently mis-scale (FIB-868 follow-up).
+        ValueError: when the pair's metadata cannot supply the projections.
     """
     from copy import deepcopy
 
@@ -156,9 +157,9 @@ def geometry_from_images(
     if angle_difference(stage_rotation, rotation_180) < angle_difference(
         stage_rotation, rotation_reference
     ):
-        raise ValueError(
-            "Stage rotation is on the flipped (FIB-orientation) side; "
-            "coincidence measurement there is not validated yet (FIB-868)."
+        logging.warning(
+            "Coincidence measurement on the flipped (FIB-orientation) side: "
+            "validated on the simulator only, not yet on hardware (FIB-868)."
         )
 
     sem_projection = BeamStageProjection.from_image(sem_image)

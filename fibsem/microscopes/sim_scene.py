@@ -1,4 +1,4 @@
-"""Shared-scene projection rendering for the simulated microscope (FIB-874).
+"""A synthetic sample the simulated microscope images through its projections (FIB-874).
 
 The simulator's default imaging (file sequences, or the SEM/FIB text cards)
 serves unrelated pictures per beam: nothing about them reflects the stage
@@ -20,9 +20,11 @@ configured initial offset, so the simulator boots off-coincidence by that
 amount and a vertical move that changes stage z visibly corrects the FIB
 view, exactly as on hardware.
 
-Opt-in via the simulator config (`sim: coincidence_projection: true`),
+Opt-in via the simulator config (`sim: sample: {enabled: true, ...}`),
 defaulting off - the file-sequence and text-card modes remain the default
-for workflow/UI simulation.
+for workflow/UI simulation. The `sample` block also carries the scene's
+options (grid pitch, cell size and count, noise, the height offsets); see
+SampleScene for the fields and `SampleScene.from_config`.
 """
 
 from __future__ import annotations
@@ -33,13 +35,88 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import numpy as np
+from scipy.ndimage import gaussian_filter as ndi_gaussian
 
-from fibsem.projection import BeamStageProjection, surface_foreshortening
+from fibsem.projection import (
+    BeamStageProjection,
+    FMStageProjection,
+    surface_foreshortening,
+)
 from fibsem.structures import BeamType, FibsemStagePosition
 
 # Keep the render well-defined at any pose: below this foreshortening the
 # view is a degenerate grazing projection (features smear to infinity).
 MIN_FORESHORTENING = 0.035  # ~ sin(2 deg)
+
+
+@dataclass(frozen=True)
+class Fluorophore:
+    """A dye on part of the sample: excitation and emission peaks (nm) with
+    the widths a channel's excitation line and emission band are matched
+    against."""
+
+    name: str
+    excitation_peak: float
+    emission_peak: float
+    excitation_width: float = 25.0  # nm, sigma
+    emission_width: float = 35.0  # nm, sigma
+
+    def response(self, excitation, emission) -> float:
+        """How strongly this dye shows in a channel: the product of how well
+        the excitation line drives it and how much of its emission the
+        collected band admits. Either missing counts as fully open."""
+
+        def gauss(value, peak, width):
+            # None, or a non-numeric name ("Fluorescence": a generic
+            # multi-band filter), is an open band - the other side decides
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                return 1.0
+            return float(np.exp(-0.5 * ((value - peak) / width) ** 2))
+
+        return gauss(excitation, self.excitation_peak, self.excitation_width) * gauss(
+            emission, self.emission_peak, self.emission_width
+        )
+
+
+# what carries which dye: the fiducial a DAPI-like blue, every cell a
+# GFP-like green, a seeded subset of cells an mCherry-like red as well
+# peaks sit on real dyes and on the simulated light source's lines (365,
+# 450, 550, 635 nm): 365 drives the fiducial, 450 and 488 the cells, 550 and
+# 561 the subset, 635 nothing on this sample
+FIDUCIAL_DYE = Fluorophore("dapi-like", 365.0, 460.0, excitation_width=30.0)
+CELL_DYE = Fluorophore("gfp-like", 470.0, 510.0, excitation_width=30.0)
+SUBSET_DYE = Fluorophore("mcherry-like", 560.0, 610.0, excitation_width=30.0)
+# in reflection the bars dominate, the fiducial reflects, cells are faint
+REFLECTION_WEIGHTS = (1.0, 0.25, 0.0, 0.6)
+# a faint outline of the bars leaks into every fluorescence channel
+BARS_IN_FLUORESCENCE = 0.05
+
+
+def fm_channel_weights(emission, excitation=None) -> Tuple[float, float, float, float]:
+    """(bars, cells, red subset, fiducial) intensity weights for a channel.
+
+    Reflection is an emission of None (or named so): the excitation light
+    imaged straight back, so the grid bars dominate. Otherwise each dye
+    responds to the excitation line AND the collected emission band - a
+    non-numeric band such as "Fluorescence" is open, and the excitation
+    line alone decides. So 450 or 488 excitation shows the cells, 550/561
+    the red subset, 365 the fiducial, 635 nothing; a mismatched pair (488
+    excitation collected at 610, say) shows a weak bleed rather than
+    nothing.
+    """
+    if emission is None or (
+        isinstance(emission, str) and "reflect" in emission.lower()
+    ):
+        return REFLECTION_WEIGHTS
+    return (
+        BARS_IN_FLUORESCENCE,
+        CELL_DYE.response(excitation, emission),
+        SUBSET_DYE.response(excitation, emission),
+        FIDUCIAL_DYE.response(excitation, emission),
+    )
+
 
 FIDUCIAL_ARM_LENGTH = 8e-6  # m, half-length of each fiducial cross arm
 FIDUCIAL_POINT_SPACING = 0.5e-6  # m
@@ -61,7 +138,7 @@ class SceneFeature:
 
 
 @dataclass
-class CoincidenceScene:
+class SampleScene:
     """A synthetic cryo-grid scene rendered per-beam by projection.
 
     The sample is a regular grid mesh (bars at a known pitch, a hole centred
@@ -74,6 +151,8 @@ class CoincidenceScene:
     coincidence_offset: float = 10e-6  # m, initial height error at boot
     seed: int = 24
     n_clusters: int = 35  # cell clusters scattered over the extent
+    cells_per_cluster: Tuple[int, int] = (3, 8)  # inclusive range
+    cell_size: Tuple[float, float] = (4.5e-6, 12.0e-6)  # m, sigma range per cell
     cluster_spread: float = 15e-6  # m, how far blobs scatter around a cluster
     extent: float = 400e-6  # m, features are scattered over +/- extent/2
     grid_pitch: float = 125e-6  # m, mesh pitch (~200 mesh)
@@ -95,6 +174,11 @@ class CoincidenceScene:
     # as the beam projection of the scene relative to this reference
     reference_position: Optional[FibsemStagePosition] = None
     features: List[SceneFeature] = field(default_factory=list)
+    # fraction of cells that also carry the red fluorophore (seeded subset)
+    red_fraction: float = 0.4
+    # defocus model for the FM: blur sigma grows by this many pixels per
+    # micron the objective sits away from its focus position
+    fm_blur_px_per_um: float = 0.6
 
     def __post_init__(self) -> None:
         if self.features:
@@ -107,12 +191,13 @@ class CoincidenceScene:
         half = self.extent / 2
         for _ in range(self.n_clusters):
             cx, cy = rng.uniform(-half, half, size=2)
-            for _ in range(int(rng.integers(3, 9))):
+            lo, hi = self.cells_per_cluster
+            for _ in range(int(rng.integers(lo, hi + 1))):
                 self.features.append(
                     SceneFeature(
                         x=float(cx + rng.normal(0, self.cluster_spread)),
                         y=float(cy + rng.normal(0, self.cluster_spread)),
-                        sigma=float(rng.uniform(4.5e-6, 12.0e-6)),
+                        sigma=float(rng.uniform(*self.cell_size)),
                         intensity=float(rng.uniform(40, 110)),
                         sharpness=3.0,
                     )
@@ -129,6 +214,48 @@ class CoincidenceScene:
                 self.features.append(
                     SceneFeature(x=x, y=y, sigma=0.4e-6, intensity=220.0)
                 )
+
+    # the configuration keys `sim: sample:` accepts, with their units
+    CONFIG_KEYS = (
+        "coincidence_offset",  # m
+        "tilt_axis_offset",  # m
+        "seed",
+        "n_clusters",
+        "cells_per_cluster",  # [min, max]
+        "cell_size",  # [min, max] m
+        "cluster_spread",  # m
+        "extent",  # m
+        "grid_pitch",  # m
+        "grid_bar_width",  # m
+        "grid_intensity",
+        "noise_sigma",
+        "noise_fraction",
+        "grid_rotation",  # degrees; null = random within grid_rotation_range
+        "grid_rotation_range",  # degrees
+    )
+
+    @classmethod
+    def from_config(cls, config: dict) -> "SampleScene":
+        """Build a scene from the `sim: sample:` block (unknown keys rejected,
+        angles in degrees, ranges as two-element lists)."""
+        unknown = set(config) - set(cls.CONFIG_KEYS) - {"enabled"}
+        if unknown:
+            raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
+        kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
+        for key in ("cells_per_cluster", "cell_size"):
+            if key in kwargs:
+                kwargs[key] = tuple(kwargs[key])
+        if "cells_per_cluster" in kwargs:
+            kwargs["cells_per_cluster"] = tuple(
+                int(v) for v in kwargs["cells_per_cluster"]
+            )
+        if kwargs.get("grid_rotation") is not None:
+            kwargs["grid_rotation"] = float(np.deg2rad(kwargs["grid_rotation"]))
+        if "grid_rotation_range" in kwargs:
+            kwargs["grid_rotation_range"] = float(
+                np.deg2rad(kwargs["grid_rotation_range"])
+            )
+        return cls(**kwargs)
 
     def anchor(self, stage_position: FibsemStagePosition) -> None:
         """Fix the world at a stage position (with the boot height error).
@@ -246,6 +373,98 @@ class CoincidenceScene:
             uniform = rng.uniform(0, 255, canvas.shape)
             data = (1 - self.noise_fraction) * data + self.noise_fraction * uniform
         return np.clip(data, 0, 255).astype(np.uint8)
+
+    def render_fm(
+        self,
+        stage_position: FibsemStagePosition,
+        resolution: Tuple[int, int],
+        projection: FMStageProjection,
+        weights: Tuple[float, float, float, float] = (0.05, 1.0, 0.0, 0.0),
+        defocus: float = 0.0,
+        rng: Optional[np.random.Generator] = None,
+    ) -> np.ndarray:
+        """Render the fluorescence camera's view of the scene.
+
+        The same world the beams image, through the FM's own projection
+        (camera tilt, image transform, pixel size), so a feature the SEM
+        shows sits where the FM projection says it does. Channels are what
+        a cryo-CLEM grid looks like: `reflection` shows the grid bars (and
+        the cells faintly), `green` the cells, `red` a seeded subset of them,
+        `blue` the fiducial; anything else renders dark. `defocus` (m, the
+        objective's distance from its focus position) blurs the image.
+
+        Args:
+            stage_position: current stage position.
+            resolution: (width, height) in pixels, after binning.
+            projection: the FM stage projection (from the live geometry).
+            weights: per-structure intensities (see fm_channel_weights).
+            defocus: objective distance from focus, in metres.
+            rng: noise source; a fresh default generator when omitted.
+
+        Returns:
+            uint16 image of shape (height, width).
+        """
+        width, height = int(resolution[0]), int(resolution[1])
+        pixel_size = projection.pixel_size
+        cx, cy = width / 2, height / 2
+        if self.reference_position is None:
+            self.anchor(stage_position)
+
+        reference = self.reference_position
+        if self.tilt_axis_offset:
+            reference = self._non_eucentric_reference(stage_position, projection)
+        ax, ay = projection.to_plane(reference, stage_position)
+        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+
+        bars, cells, red, fiducial = weights
+        canvas = np.zeros((height, width), dtype=np.float32)
+
+        if bars > 0:
+            xs_world = (np.arange(width, dtype=np.float32) - cx) * pixel_size - ax
+            ys_world = (
+                (np.arange(height, dtype=np.float32) - cy) * pixel_size - ay
+            ) / fs
+            cos_r, sin_r = np.cos(self.grid_rotation), np.sin(self.grid_rotation)
+            xw = xs_world[None, :]
+            yw = ys_world[:, None]
+            x_rot = xw * cos_r + yw * sin_r
+            y_rot = -xw * sin_r + yw * cos_r
+            half = self.grid_bar_width / 2
+            bar_mask = (
+                np.abs((x_rot % self.grid_pitch) - self.grid_pitch / 2) < half
+            ) | (np.abs((y_rot % self.grid_pitch) - self.grid_pitch / 2) < half)
+            canvas[bar_mask] += bars * self.grid_intensity
+
+        red_rng = np.random.default_rng(self.seed + 1)
+        for f in self.features:
+            is_fiducial = f.sharpness == 1.0 and f.sigma < 1e-6
+            if is_fiducial:
+                weight = fiducial
+            else:
+                in_subset = red_rng.random() < self.red_fraction
+                weight = cells + (red if in_subset else 0.0)
+            if weight <= 0:
+                continue
+            u = cx + (f.x + ax) / pixel_size
+            v = cy + (f.y * fs + ay) / pixel_size
+            sigma_x = f.sigma / pixel_size
+            self._stamp_blob(
+                canvas, u, v, sigma_x, sigma_x * fs, weight * f.intensity, f.sharpness
+            )
+
+        if defocus:
+            # a retracted objective is millimetres from focus: cap the blur so
+            # the render stays cheap and the frame reads as "out of focus"
+            sigma_px = min(abs(defocus) * 1e6 * self.fm_blur_px_per_um, 40.0)
+            if sigma_px > 0.3:
+                canvas = ndi_gaussian(canvas, sigma_px)
+
+        if rng is None:
+            rng = np.random.default_rng()
+        # 16-bit camera: a dim background, shot-noise-like gaussian noise
+        data = 400.0 + canvas * 120.0
+        data += rng.normal(0, 40.0 + 0.05 * np.sqrt(np.maximum(data, 0)), canvas.shape)
+        return np.clip(data, 0, 65535).astype(np.uint16)
 
     def _non_eucentric_reference(
         self, stage_position: FibsemStagePosition, projection: BeamStageProjection

@@ -53,11 +53,11 @@ def microscope():
 def _enable_projection(microscope, offset: float = COINCIDENCE_OFFSET, **scene_kwargs):
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = offset
-    microscope._setup_coincidence_projection()
+    microscope._setup_sample_scene()
     if scene_kwargs:
-        from fibsem.microscopes.sim_scene import CoincidenceScene
+        from fibsem.microscopes.sim_scene import SampleScene
 
-        microscope._coincidence_scene = CoincidenceScene(
+        microscope._sample_scene = SampleScene(
             coincidence_offset=offset, **scene_kwargs
         )
     # a realistic milling pose: stage tilt 12 deg -> milling angle 15 deg
@@ -103,7 +103,7 @@ def _find_fiducial(image):
 
 
 def test_projection_defaults_off(microscope):
-    assert microscope._coincidence_scene is None
+    assert microscope._sample_scene is None
 
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
@@ -198,13 +198,11 @@ def test_stitched_overview_matches_single_wide_shot(microscope, beam_type, tmp_p
 def test_views_share_the_scene_but_not_the_contrast():
     """Rendered through identical geometry, the two beams differ only in
     contrast convention - strongly anti-correlated with noise off."""
-    from fibsem.microscopes.sim_scene import CoincidenceScene
+    from fibsem.microscopes.sim_scene import SampleScene
     from fibsem.projection import BeamStageProjection
     from fibsem.structures import FibsemHardwareGeometry
 
-    scene = CoincidenceScene(
-        coincidence_offset=0.0, noise_sigma=0.0, noise_fraction=0.0
-    )
+    scene = SampleScene(coincidence_offset=0.0, noise_sigma=0.0, noise_fraction=0.0)
     geometry = FibsemHardwareGeometry(
         column_tilt=0, fib_column_tilt=52.0, shuttle_pre_tilt=35.0
     )
@@ -303,8 +301,8 @@ def test_world_anchors_at_connect(microscope):
     and acquiring must show that position's surroundings, not anchor the
     fiducial there."""
     microscope.system.sim["coincidence_projection"] = True
-    microscope._setup_coincidence_projection()
-    scene = microscope._coincidence_scene
+    microscope._setup_sample_scene()
+    scene = microscope._sample_scene
     assert scene.reference_position is not None
     boot = microscope.get_stage_position()
     assert scene.reference_position.x == pytest.approx(boot.x or 0.0)

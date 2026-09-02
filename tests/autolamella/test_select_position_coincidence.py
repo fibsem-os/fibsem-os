@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
 )
-from fibsem.microscopes.sim_scene import CoincidenceScene
+from fibsem.microscopes.sim_scene import SampleScene
 from fibsem.projection import BeamStageProjection
 from fibsem.structures import BeamType
 
@@ -36,20 +36,20 @@ def microscope():
         manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
     )
     microscope.system.sim["coincidence_projection"] = True
-    microscope._setup_coincidence_projection()
+    microscope._setup_sample_scene()
     yield microscope
     microscope.disconnect()
 
 
 def _anchor_scene(microscope, coincidence_offset: float) -> None:
-    scene = CoincidenceScene(
+    scene = SampleScene(
         coincidence_offset=coincidence_offset,
         tilt_axis_offset=NON_EUCENTRIC,
         noise_sigma=0.0,
         noise_fraction=0.0,
     )
     scene.anchor(microscope.get_stage_position())
-    microscope._coincidence_scene = scene
+    microscope._sample_scene = scene
 
 
 def _anchor_in_fib_view(microscope) -> tuple:
@@ -57,7 +57,7 @@ def _anchor_in_fib_view(microscope) -> tuple:
     the invariant: with reference=ION nothing the task does may move what
     the operator centred there - not the alignment, not the tilt."""
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ION)
-    scene = microscope._coincidence_scene
+    scene = microscope._sample_scene
     pose = microscope.get_stage_position()
     return projection.to_plane(scene._non_eucentric_reference(pose, projection), pose)
 

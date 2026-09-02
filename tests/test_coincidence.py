@@ -246,20 +246,6 @@ def test_measure_from_images_and_diagnostic_plot(tmp_path):
     assert len(pngs) == 1
 
 
-def test_flipped_rotation_is_rejected():
-    from fibsem.alignment.coincidence import geometry_from_images
-
-    blank = np.zeros(SHAPE, dtype=np.uint8)
-    sem_image, fib_image = _image_pair(blank, blank)
-    # stage rotated to the flipped (FIB-orientation) side: unvalidated
-    # territory, so the derivation must refuse loudly
-    for image in (sem_image, fib_image):
-        image.metadata.microscope_state.stage_position.r = np.deg2rad(180.0)
-
-    with pytest.raises(ValueError, match="FIB-orientation"):
-        geometry_from_images(sem_image, fib_image)
-
-
 def test_large_lateral_offset_is_refused_as_a_rival_peak():
     """A height error cannot move x, so a lock far out in x is a wrong peak
     even when both bands agree on it - it must not be acted on."""
