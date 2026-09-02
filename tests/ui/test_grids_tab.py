@@ -18,6 +18,9 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.grid_card_widget import grid_headline
 from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    LOAD_ENTRY_NAME,
+)
 from fibsem.microscopes._stage import SampleGrid, _create_sample_stage
 
 
@@ -58,7 +61,7 @@ class TestHeadline:
     def test_complete_after_a_load(self):
         grid = GridRecord(name="g")
         grid.task_history += [
-            entry(AutoLamellaTaskStatus.Completed, "load"),
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
             entry(AutoLamellaTaskStatus.Completed),
             entry(AutoLamellaTaskStatus.Completed, "overview_fib"),
         ]
@@ -67,7 +70,7 @@ class TestHeadline:
     def test_failed_tasks_are_counted(self):
         grid = GridRecord(name="g")
         grid.task_history += [
-            entry(AutoLamellaTaskStatus.Completed, "load"),
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
             entry(AutoLamellaTaskStatus.Failed),
             entry(AutoLamellaTaskStatus.Completed, "overview_fib"),
         ]
@@ -76,9 +79,9 @@ class TestHeadline:
     def test_a_failed_load_with_nothing_after_it(self):
         grid = GridRecord(name="g")
         grid.task_history += [
-            entry(AutoLamellaTaskStatus.Completed, "load"),
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
             entry(AutoLamellaTaskStatus.Completed),
-            entry(AutoLamellaTaskStatus.Failed, "load"),
+            entry(AutoLamellaTaskStatus.Failed, LOAD_ENTRY_NAME),
         ]
         assert grid_headline(grid)[0] == "Load failed"
 

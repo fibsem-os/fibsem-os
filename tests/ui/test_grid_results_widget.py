@@ -24,6 +24,9 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,
 )
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    LOAD_ENTRY_NAME,
+)
 from fibsem.imaging.thumbnail import write_thumbnail
 
 
@@ -61,7 +64,10 @@ def grid(experiment):
     (root / "overview_sem" / "overview.tif").write_bytes(b"")  # the full overview
     grid.task_history += [
         entry(
-            "load", AutoLamellaTaskStatus.Completed, "Loaded into Slot-01.", seconds=218
+            LOAD_ENTRY_NAME,
+            AutoLamellaTaskStatus.Completed,
+            "Loaded into Slot-01.",
+            seconds=218,
         ),
         entry(
             "overview_sem",
@@ -106,7 +112,7 @@ def test_rows_follow_the_history_with_images_where_recorded(qapp, experiment, gr
     )
 
     load, sem, fm = widget.rows
-    assert load.state.name == "load" and load.tile is None
+    assert load.state.name == LOAD_ENTRY_NAME and load.tile is None
     assert load.detail_label.text() == "Loaded into Slot-01."
     assert sem.tile is not None and sem.tile.pixmap() is not None
     # the tile opens the full overview, not the thumbnail it shows

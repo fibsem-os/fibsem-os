@@ -130,7 +130,7 @@ class TestOnTheAutoloader:
     def test_the_plan_is_what_a_confirmation_shows(self, arctis, experiment):
         plan = screening_plan(arctis, experiment)
         assert plan[:3] == [
-            ("Grid-01", "load"),
+            ("Grid-01", LOAD_ENTRY_NAME),
             ("Grid-01", "overview_sem"),
             ("Grid-01", "overview_fib"),
         ]
@@ -138,7 +138,7 @@ class TestOnTheAutoloader:
         assert screening_plan(arctis, experiment, ["overview_fib"]) == [
             (g, s)
             for g in ("Grid-01", "Grid-02", "Grid-03")
-            for s in ("load", "overview_fib")
+            for s in (LOAD_ENTRY_NAME, "overview_fib")
         ]
 
     def test_a_grid_that_will_not_load_does_not_stop_the_others(

@@ -53,7 +53,8 @@ if TYPE_CHECKING:
 # the manager's job. It is in the queue so it can be *seen*, not so it can be
 # switched off -- a task whose grid is not in the beam loads it anyway, so
 # removing or reordering a load item changes what is shown, never what runs.
-LOAD_ENTRY_NAME = "load"
+# Readable where it shows: the queue, the timeline, the summary, the history.
+LOAD_ENTRY_NAME = "Load grid"
 LOAD_TASK_TYPE = "LOAD_GRID"
 
 # Skip reasons, in the vocabulary TASK_SKIPPED hooks and status reports carry.

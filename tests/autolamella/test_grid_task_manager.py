@@ -151,10 +151,10 @@ class TestOrderAndLoading:
         assert plan_grid_run(
             ["overview_sem", "overview_fib"], ["Grid-01", "Grid-02"]
         ) == [
-            ("Grid-01", "load"),
+            ("Grid-01", LOAD_ENTRY_NAME),
             ("Grid-01", "overview_sem"),
             ("Grid-01", "overview_fib"),
-            ("Grid-02", "load"),
+            ("Grid-02", LOAD_ENTRY_NAME),
             ("Grid-02", "overview_sem"),
             ("Grid-02", "overview_fib"),
         ]
@@ -162,9 +162,9 @@ class TestOrderAndLoading:
     def test_the_queue_is_the_plan(self, manager):
         run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
         assert [(i.item_name, i.task_name) for i in manager.queue.items] == [
-            ("Grid-01", "load"),
+            ("Grid-01", LOAD_ENTRY_NAME),
             ("Grid-01", "overview_sem"),
-            ("Grid-02", "load"),
+            ("Grid-02", LOAD_ENTRY_NAME),
             ("Grid-02", "overview_sem"),
         ]
         assert manager.queue.task_names == ["overview_sem"]
@@ -201,7 +201,7 @@ class TestOrderAndLoading:
         assert load_entries(experiment.get_grid_by_name("Grid-03")) == []
         # the planned load step still completes: the grid is where it needs to be
         load, _ = manager.queue.items
-        assert (load.task_name, load.status) == ("load", Status.Completed)
+        assert (load.task_name, load.status) == (LOAD_ENTRY_NAME, Status.Completed)
 
     def test_a_task_loads_its_grid_even_if_the_load_step_was_removed(
         self, manager, experiment, microscope
@@ -248,17 +248,17 @@ class TestFailureIsolation:
 
         statuses = [(i.item_name, i.task_name, i.status) for i in manager.queue.items]
         assert statuses == [
-            ("Grid-01", "load", Status.Failed),
+            ("Grid-01", LOAD_ENTRY_NAME, Status.Failed),
             ("Grid-01", "overview_sem", Status.Skipped),
             ("Grid-01", "overview_fib", Status.Skipped),
-            ("Grid-02", "load", Status.Completed),
+            ("Grid-02", LOAD_ENTRY_NAME, Status.Completed),
             ("Grid-02", "overview_sem", Status.Completed),
             ("Grid-02", "overview_fib", Status.Completed),
         ]
         (load_report,) = [
             r
             for r in manager.parent_ui.reports
-            if r.task_name == "load" and r.status is Status.Failed
+            if r.task_name == LOAD_ENTRY_NAME and r.status is Status.Failed
         ]
         assert load_report.item_name == "Grid-01"
         assert "Simulated" in load_report.error_message
@@ -306,7 +306,7 @@ class TestFailureIsolation:
         assert executed == [("Grid-01", "overview_sem")]
         skipped = [r for r in manager.parent_ui.reports if r.status is Status.Skipped]
         assert [(r.item_name, r.task_name) for r in skipped] == [
-            ("Grid-99", "load"),
+            ("Grid-99", LOAD_ENTRY_NAME),
             ("Grid-99", "overview_sem"),
         ]
         assert {r.skip_reason for r in skipped} == {SKIP_GRID_NOT_FOUND}
@@ -327,7 +327,9 @@ class TestStopAndStatus:
 
     def test_reports_name_the_grid_and_track_the_queue(self, manager):
         run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
-        reports = [r for r in manager.parent_ui.reports if r.task_name != "load"]
+        reports = [
+            r for r in manager.parent_ui.reports if r.task_name != LOAD_ENTRY_NAME
+        ]
         assert [(r.item_name, r.status) for r in reports] == [
             ("Grid-01", Status.InProgress),
             ("Grid-01", Status.Completed),
@@ -337,9 +339,9 @@ class TestStopAndStatus:
         assert [r.queue_position for r in reports] == [2, 2, 4, 4]
         assert reports[-1].queue_total == 4
         assert [i.task_name for i in reports[-1].queue_items] == [
-            "load",
+            LOAD_ENTRY_NAME,
             "overview_sem",
-            "load",
+            LOAD_ENTRY_NAME,
             "overview_sem",
         ]
 
@@ -356,7 +358,7 @@ class TestStopAndStatus:
             "duration",
         ]
         assert df["grid_name"].tolist() == ["Grid-01", "Grid-01", "Grid-02", "Grid-02"]
-        assert df["task_name"].tolist() == ["load", "overview_sem"] * 2
+        assert df["task_name"].tolist() == [LOAD_ENTRY_NAME, "overview_sem"] * 2
         assert df["task_status"].tolist() == [
             "Failed",
             "Skipped",

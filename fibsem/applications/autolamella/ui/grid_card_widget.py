@@ -34,6 +34,9 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
 )
 from fibsem.applications.autolamella.task_outputs import latest_grid_output
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
+)
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.microscopes._stage import GridInventoryEntry
 from fibsem.ui import stylesheets
@@ -60,8 +63,6 @@ _THUMB_W, _THUMB_H = 66, 44
 _COZY_THUMB_W = _CARD_WIDTH - 8 - _THUMB_PADDING * 2
 _COZY_THUMB_H = 170
 _BTN_SIZE = 24
-# The load step's history entry, as the grid manager writes it.
-_LOAD_ENTRY_NAME = "load"
 # Which overview a card shows, in order of preference.
 _THUMBNAIL_ROLES = (
     "overview_sem_thumbnail",

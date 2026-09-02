@@ -35,6 +35,9 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
     ClickableLabel,
     ExpandedImageDialog,
 )
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
+)
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
@@ -47,7 +50,6 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
-_LOAD_ENTRY_NAME = "load"
 _TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-friendly size
 
 _STATUS_COLOUR = {
