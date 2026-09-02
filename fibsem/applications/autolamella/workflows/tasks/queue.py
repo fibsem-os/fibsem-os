@@ -28,11 +28,21 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
 @dataclass
 class WorkItem:
-    """A single (lamella, task) work unit."""
-    lamella_name: str
+    """A single (item, task) work unit.
+
+    The item is whatever the run is over: a lamella on the lamella workflow, a
+    grid on the grid workflow. ``item_name`` is the vocabulary the hooks, the
+    status payload and the timeline already speak.
+    """
+    item_name: str
     task_name: str
     status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
     id: str = field(default_factory=lambda: str(uuid4()))
+
+    @property
+    def lamella_name(self) -> str:
+        """Deprecated alias for :attr:`item_name`; drop with the v0.6 shims."""
+        return self.item_name
 
     @property
     def is_pending(self) -> bool:
@@ -79,21 +89,35 @@ class TaskQueue:
         self._version = 0
         # Original matrix dimensions for status dict compat
         self._task_names: List[str] = []
-        self._lamella_names: List[str] = []
+        self._item_names: List[str] = []
 
     # --- Build ---
 
     def build_from_matrix(self, task_names: List[str],
-                          lamella_names: List[str]) -> List[WorkItem]:
-        """Populate queue from task x lamella matrix (task-outer, lamella-inner)."""
+                          item_names: List[str],
+                          item_outer: bool = False) -> List[WorkItem]:
+        """Populate queue from a task x item matrix.
+
+        Task-outer by default (every item's Trench, then every item's Undercut),
+        which is the lamella workflow's order. ``item_outer`` runs every task on
+        one item before moving to the next -- the grid workflow's order, where
+        an item costs a grid exchange to reach and is exchanged once.
+        """
         with self._lock:
             self._task_names = list(task_names)
-            self._lamella_names = list(lamella_names)
-            self._items = [
-                WorkItem(lamella_name=ln, task_name=tn)
-                for tn in task_names
-                for ln in lamella_names
-            ]
+            self._item_names = list(item_names)
+            if item_outer:
+                self._items = [
+                    WorkItem(item_name=name, task_name=tn)
+                    for name in item_names
+                    for tn in task_names
+                ]
+            else:
+                self._items = [
+                    WorkItem(item_name=name, task_name=tn)
+                    for tn in task_names
+                    for name in item_names
+                ]
             self._active = None
             self._version += 1
             return [copy.copy(i) for i in self._items]
@@ -157,7 +181,7 @@ class TaskQueue:
 
     # --- Mutation (all thread-safe) ---
 
-    def add(self, lamella_name: str, task_name: str, *,
+    def add(self, item_name: str, task_name: str, *,
             before: Optional[str] = None, after: Optional[str] = None,
             front: bool = False) -> Optional[WorkItem]:
         """Add a work item, anchored to an existing item or to the queue ends.
@@ -169,14 +193,14 @@ class TaskQueue:
         or no longer pending. Adding a duplicate of an already-completed pair is
         allowed: that is how a task is re-run.
         """
-        item = WorkItem(lamella_name=lamella_name, task_name=task_name)
+        item = WorkItem(item_name=item_name, task_name=task_name)
         with self._lock:
             if before is not None or after is not None:
                 anchor_id = before if before is not None else after
                 anchor = self._find(anchor_id)  # type: ignore[arg-type]
                 if anchor is None or not anchor.is_pending:
                     logging.warning(
-                        f"Cannot add {task_name} for {lamella_name}: anchor "
+                        f"Cannot add {task_name} for {item_name}: anchor "
                         f"{anchor_id} is missing or no longer pending."
                     )
                     return None
@@ -342,6 +366,11 @@ class TaskQueue:
         return list(self._task_names)
 
     @property
+    def item_names(self) -> List[str]:
+        """Original item names list (for status dict compat)."""
+        return list(self._item_names)
+
+    @property
     def lamella_names(self) -> List[str]:
-        """Original lamella names list (for status dict compat)."""
-        return list(self._lamella_names)
+        """Deprecated alias for :attr:`item_names`; drop with the v0.6 shims."""
+        return self.item_names

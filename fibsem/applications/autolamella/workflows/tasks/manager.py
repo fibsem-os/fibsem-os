@@ -120,16 +120,16 @@ class TaskManager:
             # that has just finished, not at this one.
             self._task_stop_event.clear()
 
-            lamella = self.experiment.get_lamella_by_name(item.lamella_name)
+            lamella = self.experiment.get_lamella_by_name(item.item_name)
             if lamella is None:
                 # No lamella to build a status dict from, so this used to leave no trace
                 # anywhere — not in the log, the UI, or a hook.
                 logging.warning(
-                    f"Skipping {item.task_name}: no lamella named {item.lamella_name} in the experiment."
+                    f"Skipping {item.task_name}: no lamella named {item.item_name} in the experiment."
                 )
                 self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
                 self._fire_skipped_hook(
-                    item.task_name, item.lamella_name, "lamella_not_found"
+                    item.task_name, item.item_name, "lamella_not_found"
                 )
                 continue
 
@@ -227,7 +227,7 @@ class TaskManager:
         """
         rows: List[dict] = []
         for item in self.queue.items:
-            lamella = self.experiment.get_lamella_by_name(item.lamella_name)
+            lamella = self.experiment.get_lamella_by_name(item.item_name)
             completed_at = ""
             duration = None
             if lamella is not None:
@@ -239,7 +239,7 @@ class TaskManager:
                         break
             rows.append(
                 {
-                    "lamella_name": item.lamella_name,
+                    "lamella_name": item.item_name,
                     "task_name": item.task_name,
                     "task_status": item.status.name,
                     "completed_at": completed_at,
@@ -596,7 +596,7 @@ class TaskManager:
             # The plan this run was launched with. Informational only — the live
             # queue may since have diverged from it.
             task_names=self.queue.task_names,
-            lamella_names=self.queue.lamella_names,
+            lamella_names=self.queue.item_names,
         )
 
         self.parent_ui.workflow_status_signal.emit(

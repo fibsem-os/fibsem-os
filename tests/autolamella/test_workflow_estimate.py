@@ -218,7 +218,7 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (  # noq
 def _items(*spec) -> list:
     """(lamella, task) or (lamella, task, status) triples, in queue order."""
     return [
-        WorkItem(lamella_name=s[0], task_name=s[1],
+        WorkItem(item_name=s[0], task_name=s[1],
                  status=s[2] if len(s) > 2 else AutoLamellaTaskStatus.NotStarted)
         for s in spec
     ]

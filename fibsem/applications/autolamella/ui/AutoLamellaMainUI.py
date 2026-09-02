@@ -2703,7 +2703,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         lamella_names = [lam.name for lam in lamellae]
         task_names = [t.name for t in tasks]
 
-        pending = {(i.lamella_name, i.task_name) for i in manager.queue.pending}
+        pending = {(i.item_name, i.task_name) for i in manager.queue.pending}
         already = [
             f"{t} for {ln}"
             for t in task_names
@@ -2768,7 +2768,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         items = info.get("queue_items", [])
         # An added item can be a (lamella, task) pair the launch matrix never held, so
         # the estimates are recomputed here rather than only at the start.
-        self._push_timeline_estimates([(i.lamella_name, i.task_name) for i in items])
+        self._push_timeline_estimates([(i.item_name, i.task_name) for i in items])
         self.workflow_timeline.refresh_queue(items)
 
     def _estimate_addition(self, manager, pairs: list, run_next: bool):
@@ -2785,7 +2785,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         lamella_by_name = {lam.name: lam for lam in experiment.positions}
 
         def seconds_for(item):
-            lamella = lamella_by_name.get(item.lamella_name)
+            lamella = lamella_by_name.get(item.item_name)
             if lamella is None:
                 return None
             config = lamella.task_config.get(item.task_name)
@@ -2800,7 +2800,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 logging.warning(
                     "Could not estimate duration for %s on %s.",
                     item.task_name,
-                    item.lamella_name,
+                    item.item_name,
                     exc_info=True,
                 )
                 return None
@@ -2820,7 +2820,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         active_elapsed = None
         active = manager.queue.active
         if active is not None:
-            lamella = lamella_by_name.get(active.lamella_name)
+            lamella = lamella_by_name.get(active.item_name)
             if lamella is not None and lamella.task_state.start_timestamp:
                 active_elapsed = max(
                     0.0, time.time() - lamella.task_state.start_timestamp
@@ -2904,7 +2904,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if item is None:
             self._show_queue_message("That task is no longer in the queue.")
             return
-        label = f"{item.task_name} for {item.lamella_name}"
+        label = f"{item.task_name} for {item.item_name}"
 
         if action == "stop_task":
             # Confirmed, unlike Remove: that edits a list, this interrupts an
@@ -2937,7 +2937,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if action == "run_again":
             # A fresh item rather than a rewind: the original attempt still
             # happened and stays in the run record.
-            added = queue.add(item.lamella_name, item.task_name, front=True)
+            added = queue.add(item.item_name, item.task_name, front=True)
             message = (
                 f"Queued {label} to run next."
                 if added is not None

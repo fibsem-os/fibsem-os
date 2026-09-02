@@ -74,7 +74,7 @@ def joined(dialog) -> str:
 
 
 def queue(*spec) -> list:
-    return [WorkItem(lamella_name=ln, task_name=tn) for ln, tn in spec]
+    return [WorkItem(item_name=ln, task_name=tn) for ln, tn in spec]
 
 
 def estimate(items, seconds=600.0, run_next=False, schedule=None):

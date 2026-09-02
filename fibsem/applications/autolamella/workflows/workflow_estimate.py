@@ -378,7 +378,7 @@ def estimate_addition(
     from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 
     clock = now if now is not None else datetime.now()
-    added = [WorkItem(lamella_name=ln, task_name=tn) for ln, tn in pairs]
+    added = [WorkItem(item_name=ln, task_name=tn) for ln, tn in pairs]
     proposed = _with_addition(items, added, run_next)
 
     before = estimate_queue(items, seconds_for, schedule, clock, active_elapsed)

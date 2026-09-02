@@ -67,7 +67,7 @@ class AnimatedDemo(QWidget):
 
         # Build flat list of (lamella, task) pairs matching run_tasks loop order
         self._outer_items: List[WorkItem] = [
-            WorkItem(lamella_name=ln, task_name=tn)
+            WorkItem(item_name=ln, task_name=tn)
             for tn in TASK_NAMES
             for ln in LAMELLA_NAMES
         ]
@@ -196,7 +196,7 @@ class AnimatedDemo(QWidget):
     def _restart(self):
         self._timer.stop()
         self._outer_items = [
-            WorkItem(lamella_name=ln, task_name=tn)
+            WorkItem(item_name=ln, task_name=tn)
             for tn in TASK_NAMES
             for ln in LAMELLA_NAMES
         ]
