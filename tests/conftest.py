@@ -12,6 +12,28 @@ os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
 
 
 @pytest.fixture(autouse=True)
+def _isolate_sample_holder_config(tmp_path, monkeypatch):
+    """Point every test at a private copy of the shipped sample holder config.
+
+    ``fibsem/config/sample-holder.yaml`` is the operator's calibration, written by
+    the calibration wizard and ignored by git. Reading it in tests would make the
+    suite depend on whichever holder was last calibrated on this machine, and the
+    holder widget's auto-save would overwrite that calibration with test data --
+    which it did, before this fixture existed. Both readers resolve the path at
+    call time, so patching the two module attributes is enough.
+    """
+    import shutil
+
+    import fibsem.config as cfg
+    import fibsem.microscopes._stage as stage_module
+
+    path = tmp_path / "sample-holder.yaml"
+    shutil.copy(cfg.DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH, path)
+    monkeypatch.setattr(cfg, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+    monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+
+
+@pytest.fixture(autouse=True)
 def _isolate_cwd(tmp_path, monkeypatch):
     """Run every test from its own tmp dir.
 

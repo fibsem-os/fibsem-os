@@ -51,7 +51,6 @@ fibsem/config/*.yaml
 !fibsem/config/odemis*.yaml
 !fibsem/config/tescan-*.yaml
 !fibsem/config/sim-*.yaml
-!fibsem/config/sample-holder.yaml
 !fibsem/config/default-sample-holder.yaml
 
 **/wandb/*
