@@ -13,6 +13,7 @@ from psygnal import Signal
 from fibsem.config import (
     DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH,
     SAMPLE_HOLDER_CONFIGURATION_PATH,
+    SAMPLE_HOLDER_OCCUPANCY_PATH,
 )
 from fibsem.structures import BeamType, FibsemStagePosition, RangeLimit
 
@@ -266,13 +267,54 @@ class SampleHolder:
         ]:
             del self.slots[name]
 
-    def to_dict(self) -> dict:
+    def to_dict(self, include_grids: bool = True) -> dict:
+        slots = {}
+        for name, slot in self.slots.items():
+            data = slot.to_dict()
+            if not include_grids:
+                data["loaded_grid"] = None
+            slots[name] = data
         return {
             "name": self.name,
             "capacity": self.capacity,
-            "slots": {name: slot.to_dict() for name, slot in self.slots.items()},
+            "slots": slots,
             "description": self.description,
         }
+
+    # -- occupancy: which grid is in which slot, kept apart from the calibration --
+
+    def occupancy_to_dict(self) -> dict:
+        """Slot name -> grid, for the slots that hold one."""
+        return {
+            name: slot.loaded_grid.to_dict()
+            for name, slot in self.slots.items()
+            if slot.loaded_grid is not None
+        }
+
+    def apply_occupancy(self, data: dict) -> None:
+        """Put the recorded grids back into their slots; unlisted slots are emptied."""
+        for name, slot in self.slots.items():
+            grid_data = (data or {}).get(name)
+            slot.loaded_grid = (
+                SampleGrid.from_dict(grid_data) if grid_data is not None else None
+            )
+
+    def save_occupancy(self, path: Union[str, Path]) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            yaml.dump(
+                self.occupancy_to_dict(), f, default_flow_style=False, sort_keys=False
+            )
+
+    def load_occupancy(self, path: Union[str, Path]) -> bool:
+        """Apply the occupancy file if there is one. Returns whether there was."""
+        path = Path(path)
+        if not path.exists():
+            return False
+        with open(path, "r") as f:
+            self.apply_occupancy(yaml.safe_load(f) or {})
+        return True
 
     @classmethod
     def from_dict(cls, data: dict) -> "SampleHolder":
@@ -299,10 +341,17 @@ class SampleHolder:
         return cls.from_dict(data)
 
     def save(self, path: Union[str, Path]) -> None:
+        """Write the holder's geometry and calibration. Not the grids in it: those
+        are session state and live in the occupancy file (``save_occupancy``)."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
-            yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
+            yaml.dump(
+                self.to_dict(include_grids=False),
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+            )
 
 
 class GridExchangeError(RuntimeError):
@@ -735,8 +784,8 @@ class Stage:
 
         With a loader the slot is a magazine slot and the name goes to the hardware's
         slot description. On a fixed holder the slot is a holder slot and the name is
-        saved to the sample holder configuration, so it is there next session. Pass
-        ``persist=False`` to change only the in-memory holder.
+        saved to the occupancy file, so it is there next session; the calibration file
+        is not touched. Pass ``persist=False`` to change only the in-memory holder.
         """
         if self.loader is not None:
             self.loader.assign_grid(slot_name, grid)
@@ -746,7 +795,7 @@ class Stage:
             raise ValueError(f"Slot '{slot_name}' not found in sample holder.")
         slot.loaded_grid = grid
         if persist:
-            self.holder.save(SAMPLE_HOLDER_CONFIGURATION_PATH)
+            self.holder.save_occupancy(SAMPLE_HOLDER_OCCUPANCY_PATH)
 
 
 def uncalibrated_message(slot_name: str) -> str:
@@ -784,6 +833,9 @@ def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
             float(stage_settings.rotation_reference),
         ):
             logging.warning(f"Sample holder: {note}. Recalibrate it.")
+        # The grids in the slots are session state, remembered in their own file so
+        # a restart does not forget what is physically still in the shuttle.
+        holder.load_occupancy(SAMPLE_HOLDER_OCCUPANCY_PATH)
         loader = None
 
     holder._parent = microscope

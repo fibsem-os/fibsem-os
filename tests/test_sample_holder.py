@@ -216,7 +216,7 @@ class TestSerialization:
 
 
 class TestSaveLoad:
-    def test_save_and_load(self, tmp_path):
+    def test_save_and_load_keeps_geometry_not_grids(self, tmp_path):
         path = tmp_path / "holder.yaml"
         h = _make_holder(capacity=2, name="SavedHolder")
         h.slots["Slot-01"].loaded_grid = SampleGrid(name="Grid-A")
@@ -225,8 +225,28 @@ class TestSaveLoad:
         h2 = SampleHolder.load(path)
         assert h2.name == "SavedHolder"
         assert len(h2.slots) == 2
-        assert h2.slots["Slot-01"].loaded_grid.name == "Grid-A"
+        # what is in a slot is session state, kept in the occupancy file instead
+        assert h2.slots["Slot-01"].loaded_grid is None
         assert h2.slots["Slot-02"].loaded_grid is None
+
+    def test_occupancy_round_trips_separately(self, tmp_path):
+        path = tmp_path / "occupancy.yaml"
+        h = _make_holder(capacity=2)
+        h.slots["Slot-02"].loaded_grid = SampleGrid(name="Grid-B", description="d")
+        h.save_occupancy(path)
+
+        h2 = _make_holder(capacity=2)
+        h2.slots["Slot-01"].loaded_grid = SampleGrid(name="stale")
+        assert h2.load_occupancy(path) is True
+        assert h2.slots["Slot-01"].loaded_grid is None  # unlisted slots are emptied
+        assert h2.slots["Slot-02"].loaded_grid.name == "Grid-B"
+        assert h2.slots["Slot-02"].loaded_grid.description == "d"
+
+    def test_load_occupancy_without_a_file_changes_nothing(self, tmp_path):
+        h = _make_holder(capacity=1)
+        h.slots["Slot-01"].loaded_grid = SampleGrid(name="keep")
+        assert h.load_occupancy(tmp_path / "missing.yaml") is False
+        assert h.slots["Slot-01"].loaded_grid.name == "keep"
 
     def test_load_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):

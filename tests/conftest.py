@@ -31,6 +31,11 @@ def _isolate_sample_holder_config(tmp_path, monkeypatch):
     shutil.copy(cfg.DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH, path)
     monkeypatch.setattr(cfg, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
     monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+    occupancy = (
+        tmp_path / "sample-holder-occupancy.yaml"
+    )  # absent until a test writes it
+    monkeypatch.setattr(cfg, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(occupancy))
+    monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(occupancy))
 
 
 @pytest.fixture(autouse=True)

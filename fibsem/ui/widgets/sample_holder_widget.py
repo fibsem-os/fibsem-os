@@ -127,10 +127,17 @@ class _SlotRow(QWidget):
     move_clicked = pyqtSignal(object)  # GridSlot
     grid_named = pyqtSignal(object, str)  # GridSlot, new name ("" clears it)
 
-    def __init__(self, slot: GridSlot, has_microscope: bool, parent=None) -> None:
+    def __init__(
+        self,
+        slot: GridSlot,
+        has_microscope: bool,
+        names_editable: bool = True,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.slot = slot
         self._has_microscope = has_microscope
+        self._names_editable = names_editable
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.setFixedHeight(_ROW_HEIGHT)
@@ -148,11 +155,18 @@ class _SlotRow(QWidget):
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("empty")
-        self.name_edit.setToolTip("The grid in this slot; leave blank for none")
         self.name_edit.setStyleSheet(_NAME_FIELD_STYLE)
         self.name_edit.setFixedHeight(26)
-        self.name_edit.setClearButtonEnabled(True)
-        self.name_edit.editingFinished.connect(self._on_name_edited)
+        if names_editable:
+            self.name_edit.setToolTip("The grid in this slot; leave blank for none")
+            self.name_edit.setClearButtonEnabled(True)
+            self.name_edit.editingFinished.connect(self._on_name_edited)
+        else:
+            # An autoloader knows what is in its working slot; the name follows a load.
+            self.name_edit.setReadOnly(True)
+            self.name_edit.setToolTip(
+                "The grid the autoloader put here; set by loading, not by typing"
+            )
         layout.addWidget(self.name_edit, 1)
 
         self.btn_move = QToolButton()
@@ -213,9 +227,11 @@ class _SlotRow(QWidget):
 class SampleHolderWidget(QWidget):
     """The holder's slots: calibration state, the grid in each, and Move.
 
-    ``holder_changed`` fires after the holder object was edited here (a rename, a
-    grid named or cleared) and after the wizard saved a calibration; it is what the
-    auto-save and any host listens to. ``set_holder`` swaps which holder is shown.
+    ``holder_changed`` fires after a grid was named or cleared here and after the
+    wizard saved a calibration, for hosts that draw the holder. Nothing is saved
+    from here: the wizard writes the calibration file, and naming a grid goes
+    through ``Stage.assign_grid``, which writes the occupancy file (or, with a
+    loader, the hardware). ``set_holder`` swaps which holder is shown.
     """
 
     holder_changed = pyqtSignal(object)  # SampleHolder
@@ -229,11 +245,12 @@ class SampleHolderWidget(QWidget):
         super().__init__(parent)
         self._microscope = microscope
         self._move_directly = move_directly
+        stage = getattr(microscope, "_stage", None)
+        self._has_loader = getattr(stage, "loader", None) is not None
         self._holder: Optional[SampleHolder] = None
         self._calibration_dialog = None
         self._rows: List[_SlotRow] = []
         self._setup_ui()
-        self.holder_changed.connect(self._auto_save)
         self.setEnabled(False)
 
     # -- layout ----------------------------------------------------------------
@@ -327,7 +344,11 @@ class SampleHolderWidget(QWidget):
 
         has_microscope = self._microscope is not None
         for slot in slots:
-            row = _SlotRow(slot, has_microscope=has_microscope)
+            row = _SlotRow(
+                slot,
+                has_microscope=has_microscope,
+                names_editable=not self._has_loader,
+            )
             row.move_clicked.connect(self._on_move_slot)
             row.grid_named.connect(self._on_grid_named)
             item = QListWidgetItem(self._list)
@@ -346,14 +367,26 @@ class SampleHolderWidget(QWidget):
     # -- edits -----------------------------------------------------------------
 
     def _on_grid_named(self, slot: GridSlot, name: str) -> None:
+        """Record the grid in a slot. Through the stage when there is one, so the
+        occupancy file is written and a restart still knows what is in the shuttle."""
         if self._holder is None:
             return
+        grid: Optional[SampleGrid]
         if not name:
-            slot.loaded_grid = None
-        elif slot.loaded_grid is None:
-            slot.loaded_grid = SampleGrid(name=name)
+            grid = None
+        elif slot.loaded_grid is not None:
+            grid = slot.loaded_grid
+            grid.name = name
         else:
-            slot.loaded_grid.name = name
+            grid = SampleGrid(name=name)
+        if self._microscope is not None:
+            try:
+                self._microscope._stage.assign_grid(slot.name, grid)
+            except Exception as e:  # noqa: BLE001 - keep the in-memory change, say so
+                logging.warning(f"Could not record the grid in {slot.name}: {e}")
+                slot.loaded_grid = grid
+        else:
+            slot.loaded_grid = grid
         self.holder_changed.emit(self._holder)
 
     def _on_move_slot(self, slot: GridSlot) -> None:
@@ -385,18 +418,8 @@ class SampleHolderWidget(QWidget):
 
     def _on_calibration_saved(self, holder: SampleHolder) -> None:
         self.set_holder(holder)
-        # The dialog already wrote the file; this tells hosts the slots moved.
+        # The dialog already wrote the calibration; this tells hosts the slots moved.
         self.holder_changed.emit(holder)
-
-    def _auto_save(self, holder: SampleHolder) -> None:
-        if holder is None:
-            return
-        from fibsem import config as cfg
-
-        try:
-            holder.save(cfg.SAMPLE_HOLDER_CONFIGURATION_PATH)
-        except Exception as e:  # noqa: BLE001 - a failed save is reported, not fatal
-            logging.warning(f"Auto-save of sample holder failed: {e}")
 
 
 if __name__ == "__main__":

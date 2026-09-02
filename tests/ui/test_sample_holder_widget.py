@@ -137,6 +137,36 @@ def test_unhosted_widget_moves_the_stage_itself(qapp, microscope):
     assert abs(microscope.get_stage_position().x + 5e-3) < 1e-9
 
 
+def test_naming_persists_to_the_occupancy_file_not_the_calibration(qapp, microscope):
+    import fibsem.config as cfg
+
+    holder = microscope._stage.holder
+    widget = SampleHolderWidget(microscope=microscope)
+    widget.set_holder(holder)
+    row = widget._row_widget(0)
+    row.name_edit.setText("grid-aspen")
+    row.name_edit.editingFinished.emit()
+    from pathlib import Path
+
+    assert Path(cfg.SAMPLE_HOLDER_OCCUPANCY_PATH).exists()
+    assert "grid-aspen" not in Path(cfg.SAMPLE_HOLDER_CONFIGURATION_PATH).read_text()
+
+
+def test_names_are_read_only_with_a_loader(qapp):
+    from fibsem.microscopes._stage import DemoSampleLoader
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.stage_is_compustage = True
+    microscope._stage = _create_sample_stage(microscope)
+    microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1,))
+    microscope._stage.ensure_loaded("Grid-01")
+    widget = SampleHolderWidget(microscope=microscope)
+    widget.set_holder(microscope._stage.holder)
+    row = widget._row_widget(0)
+    assert row.name_edit.isReadOnly()
+    assert row.name_edit.text() == "Grid-01"
+
+
 def test_calibrate_opens_the_wizard_non_modal(qapp, microscope):
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(microscope._stage.holder)

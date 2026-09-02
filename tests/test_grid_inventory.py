@@ -35,8 +35,6 @@ def _fixed_demo():
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_is_compustage = False
     microscope._stage = _create_sample_stage(microscope)
-    for slot in microscope._stage.holder.slots.values():
-        slot.loaded_grid = None
     return microscope
 
 
@@ -392,25 +390,25 @@ class TestAssignGrid:
         assert loader.slots["Slot-03"].loaded_grid.name == "grid-cedar"
         assert _entry(microscope, "Slot-03").present is True
 
-    def test_on_fixed_holder_names_the_slot_and_saves_the_config(
+    def test_on_fixed_holder_names_the_slot_and_saves_the_occupancy(
         self, tmp_path, monkeypatch
     ):
         import fibsem.microscopes._stage as stage_module
 
-        path = tmp_path / "holder.yaml"
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+        path = tmp_path / "occupancy.yaml"
+        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(path))
         microscope = _fixed_demo()
         microscope._stage.assign_grid("Slot-02", SampleGrid(name="grid-birch"))
         assert _entry(microscope, "Slot-02").name == "grid-birch"
-        from fibsem.microscopes._stage import SampleHolder
-
-        assert SampleHolder.load(path).slots["Slot-02"].loaded_grid.name == "grid-birch"
+        # the next session's holder picks it up; the calibration file is untouched
+        again = _fixed_demo()
+        assert again._stage.holder.slots["Slot-02"].loaded_grid.name == "grid-birch"
 
     def test_on_fixed_holder_can_skip_persisting(self, tmp_path, monkeypatch):
         import fibsem.microscopes._stage as stage_module
 
-        path = tmp_path / "holder.yaml"
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+        path = tmp_path / "occupancy.yaml"
+        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(path))
         microscope = _fixed_demo()
         microscope._stage.assign_grid("Slot-01", SampleGrid(name="g"), persist=False)
         assert not path.exists()
@@ -418,14 +416,12 @@ class TestAssignGrid:
     def test_on_fixed_holder_clearing_persists_too(self, tmp_path, monkeypatch):
         import fibsem.microscopes._stage as stage_module
 
-        path = tmp_path / "holder.yaml"
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+        path = tmp_path / "occupancy.yaml"
+        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(path))
         microscope = _fixed_demo()
         microscope._stage.assign_grid("Slot-01", SampleGrid(name="g"))
         microscope._stage.assign_grid("Slot-01", None)
-        from fibsem.microscopes._stage import SampleHolder
-
-        assert SampleHolder.load(path).slots["Slot-01"].loaded_grid is None
+        assert _fixed_demo()._stage.holder.slots["Slot-01"].loaded_grid is None
 
     def test_unknown_holder_slot_raises(self):
         microscope = _fixed_demo()
