@@ -1,4 +1,5 @@
-"""Grids · Protocol: the grid tasks in the experiment's protocol and their settings."""
+"""The grid protocol editor: the grid tasks in the experiment's protocol and their
+settings, hosted on the Protocol tab under the Lamella | Grid selector."""
 
 import os
 from pathlib import Path
@@ -18,7 +19,10 @@ from fibsem.applications.autolamella.ui.grid_protocol_widget import (
     AddGridTaskDialog,
     GridProtocolWidget,
 )
-from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
+from fibsem.applications.autolamella.ui.protocol_details_dialog import (
+    ProtocolDetailsDialog,
+    ProtocolHeaderWidget,
+)
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,
@@ -54,31 +58,29 @@ def test_without_a_task_protocol_there_is_nothing_to_edit(qapp, tmp_path):
     (tmp_path / "exp").mkdir()
     w = GridProtocolWidget()
     w.set_experiment(exp)
-    assert "task protocol first" in w.hint_label.text()
-    assert not w.btn_add.isEnabled()
+    assert "task protocol first" in w.editor_panel.hint.text()
+    assert not w.task_list.btn_add.isVisibleTo(w)
 
 
 def test_an_empty_protocol_invites_a_task(widget):
-    assert widget.task_list.count() == 0
-    assert "No grid tasks yet" in widget.hint_label.text()
-    assert widget.btn_add.isEnabled() and not widget.btn_reset.isEnabled()
+    assert widget.task_names == []
+    assert "No grid tasks yet" in widget.editor_panel.hint.text()
+    assert widget.task_list.btn_add.isVisibleTo(widget)
+    assert not widget.editor_panel.btn_reset.isEnabled()
 
 
 def test_adding_a_beam_task_lists_it_selects_it_and_saves(widget, experiment):
     config = widget.add_task(BEAM, "overview_sem")
     assert isinstance(config, BeamOverviewGridTaskConfig)
-    assert widget.task_list.count() == 1
+    assert widget.task_names == ["overview_sem"]
     assert widget.selected_task_name == "overview_sem"
-    row = widget._rows["overview_sem"]
-    assert row.name_label.text() == "overview_sem"
-    assert row.task_label.text() == "Beam overview"
-    assert widget.editor_title.text() == "overview_sem · Beam overview"
+    assert widget.editor_panel.title.text() == "overview_sem · Beam overview"
     assert saved_protocol(experiment)["grid_tasks"]["order"] == ["overview_sem"]
 
 
 def test_the_form_edits_the_config_on_save(widget, experiment):
     widget.add_task(BEAM, "overview_fib")
-    editor = widget._editor_for(BEAM)
+    editor = widget.editor_panel.editor_for(BEAM)
     editor.orientation.setCurrentText("FIB")
     editor.filename.setText("survey")
     settings = editor.settings.get_settings()
@@ -96,7 +98,7 @@ def test_the_form_edits_the_config_on_save(widget, experiment):
 
 def test_an_edit_in_the_form_is_saved_as_it_is_made(widget, experiment):
     widget.add_task(BEAM, "overview_sem")
-    editor = widget._editor_for(BEAM)
+    editor = widget.editor_panel.editor_for(BEAM)
     editor.orientation.setCurrentText("FIB")  # no Save anywhere
     assert experiment.grid_protocol.task_config["overview_sem"].orientation == "FIB"
     assert (
@@ -116,7 +118,7 @@ def test_filling_the_form_from_a_config_does_not_write_it_back(widget, experimen
 
 def test_reset_puts_the_defaults_back(widget, experiment):
     widget.add_task(BEAM, "overview_sem")
-    editor = widget._editor_for(BEAM)
+    editor = widget.editor_panel.editor_for(BEAM)
     editor.orientation.setCurrentText("FIB")
     widget.apply_selected()
     fresh = widget.reset_selected()
@@ -133,15 +135,15 @@ def test_the_trash_icon_asks_first(widget, monkeypatch):
     monkeypatch.setattr(
         QMessageBox, "question", lambda *a, **k: asked.append(True) or QMessageBox.No
     )
-    widget._rows["overview_sem"].btn_remove.click()
-    assert asked == [True] and list(widget._rows) == ["overview_sem"]
+    widget.task_list.btn_remove.click()
+    assert asked == [True] and widget.task_names == ["overview_sem"]
 
 
 def test_remove_drops_the_task_and_saves(widget, experiment):
     widget.add_task(BEAM, "overview_sem")
     widget.add_task(BEAM, "overview_fib")
     widget.remove_task("overview_sem")
-    assert list(widget._rows) == ["overview_fib"]
+    assert widget.task_names == ["overview_fib"]
     assert saved_protocol(experiment)["grid_tasks"]["order"] == ["overview_fib"]
 
 
@@ -175,7 +177,7 @@ def test_the_fluorescence_editor_round_trips_channels_and_z(widget, experiment):
     config.zparams = ZParameters(zmin=-3e-6, zmax=3e-6, zstep=1e-6)
     config.overview.rows, config.overview.cols = 2, 3
     widget.refresh()  # reload the form from the record
-    editor = widget._editor_for(FM)
+    editor = widget.editor_panel.editor_for(FM)
     assert [c.name for c in editor.channels.channel_settings] == ["GFP", "mCherry"]
     assert editor.settings.parameters.rows == 2
     assert editor.settings.z_widget.z_parameters.zstep == pytest.approx(1e-6)
@@ -195,12 +197,91 @@ def test_the_fluorescence_editor_takes_the_fm_when_one_connects(widget):
         config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
     )
     widget.set_microscope(arctis)
-    assert widget._editor_for(FM).channels.fm is arctis.fm
+    assert widget.editor_panel.editor_for(FM).channels.fm is arctis.fm
 
 
-def test_the_grids_tab_hosts_it(qapp, experiment):
-    tab = GridsTabWidget(synchronous=True)
-    tab.set_experiment(experiment)
-    tab.protocol_widget.add_task(BEAM, "overview_sem")
-    assert "overview_sem" in experiment.grid_protocol.task_config
-    assert tab.sub_tabs.tabText(0) == "Protocol"
+def test_the_header_line_and_the_details_dialog(qapp, experiment):
+    protocol = experiment.task_protocol
+    protocol.name, protocol.version, protocol.description = "Screening", "1.2", "Arctis"
+    header = ProtocolHeaderWidget()
+    header.update_from_protocol(protocol)
+    assert header.label.text() == "Screening" and header.version_label.text() == "v1.2"
+    assert header.toolTip() == "Arctis"
+    dialog = ProtocolDetailsDialog(protocol)
+    dialog.edits["name"].setText("Screening 2 ")
+    assert dialog.values() == {
+        "name": "Screening 2",
+        "description": "Arctis",
+        "version": "1.2",
+    }
+
+
+@pytest.fixture
+def main_ui(qapp):
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+
+    original = module.AutoLamellaSingleWindowUI.add_minimap_tab
+    module.AutoLamellaSingleWindowUI.add_minimap_tab = lambda self: None
+    try:
+        window = module.AutoLamellaSingleWindowUI()
+    finally:
+        module.AutoLamellaSingleWindowUI.add_minimap_tab = original
+    yield window
+    if window.autolamella_ui.microscope is not None:
+        window.autolamella_ui.microscope.disconnect()
+    original_quit = qapp.quit
+    qapp.quit = lambda: None
+    try:
+        window.close()
+    finally:
+        qapp.quit = original_quit
+
+
+class _NoMinimap:
+    def set_experiment(self) -> None:
+        pass
+
+
+def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol.load(cfg.AUTOLAMELLA_TASK_PROTOCOL_PATH)
+    ui.experiment = exp
+    main_ui.minimap_widget = _NoMinimap()
+    main_ui._on_experiment_update()
+
+    editor = main_ui.task_widget
+    tabs = editor.protocol_tabs
+    assert [tabs.tabText(i) for i in range(tabs.count())] == ["Lamella", "Grid"]
+    assert editor.protocol_header.label.text() == exp.task_protocol.name
+    # the Grid page follows the flag, like the Grids tab
+    was = main_ui._preferences.features.grid_workflow
+    try:
+        main_ui._preferences.features.grid_workflow = False
+        main_ui._apply_grid_workflow_visibility()
+        assert not tabs.isTabVisible(1)
+        main_ui._preferences.features.grid_workflow = True
+        main_ui._apply_grid_workflow_visibility()
+        assert tabs.isTabVisible(1)
+
+        tabs.setCurrentIndex(1)
+        assert editor.grid_protocol_active
+        assert editor.grid_protocol.editor_panel.isVisibleTo(editor)
+        assert not editor.task_parameters_config_widget.isVisibleTo(editor)
+        assert not editor.milling_task_editor.isVisibleTo(editor)
+        config = editor.grid_protocol.add_task(BEAM, "overview_sem")
+        assert saved_protocol(exp)["grid_tasks"]["order"] == ["overview_sem"]
+        assert editor.grid_protocol.editor_panel.title.text() == (
+            "overview_sem · Beam overview"
+        )
+        assert isinstance(config, BeamOverviewGridTaskConfig)
+
+        tabs.setCurrentIndex(0)
+        assert not editor.grid_protocol.editor_panel.isVisibleTo(editor)
+        assert editor.task_parameters_config_widget.isVisibleTo(editor)
+        # the Grids tab no longer carries a protocol view
+        assert not hasattr(main_ui.grids_tab, "protocol_widget")
+    finally:
+        main_ui._preferences.features.grid_workflow = was

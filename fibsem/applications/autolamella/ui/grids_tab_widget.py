@@ -1,7 +1,7 @@
 """The Grids tab: the experiment's grid records, one card each.
 
-Mirrors the Lamella tab: cards on the left, Protocol and Results sub-tabs on the
-right. The tab's object is what grids are *available to this experiment*, not
+Mirrors the Lamella tab: cards on the left, the selected grid's results on the
+right; the grid protocol is edited on the Protocol tab beside the lamella one. The tab's object is what grids are *available to this experiment*, not
 what the hardware holds; empty magazine slots never appear here (that is
 Microscope → Sample). Slot, present and in-beam are read from the stage's
 inventory on every refresh and drawn as chips.
@@ -23,7 +23,6 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QScrollArea,
     QSplitter,
-    QTabWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -31,7 +30,6 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import Experiment, GridRecord
 from fibsem.applications.autolamella.ui.grid_card_widget import GridCardContainer
-from fibsem.applications.autolamella.ui.grid_protocol_widget import GridProtocolWidget
 from fibsem.applications.autolamella.ui.grid_results_widget import GridResultsWidget
 from fibsem.microscopes._stage import GridInventoryEntry, SampleGrid
 from fibsem.ui import stylesheets
@@ -135,14 +133,11 @@ class GridsTabWidget(QWidget):
         splitter.setStretchFactor(0, 0)
 
         # -- right: sub-tabs -----------------------------------------------------
-        self.sub_tabs = QTabWidget()
-        self.protocol_widget = GridProtocolWidget()
+        # -- right: the selected grid's results --------------------------------
+        # The grid protocol is edited on the Protocol tab, beside the lamella one.
         self.results_widget = GridResultsWidget()
-        self.sub_tabs.addTab(self.protocol_widget, "Protocol")
-        self.sub_tabs.addTab(self.results_widget, "Results")
-        # Results follows card selection; Protocol does not (one shared protocol).
         self.cards.grid_selected.connect(self.results_widget.set_grid)
-        splitter.addWidget(self.sub_tabs)
+        splitter.addWidget(self.results_widget)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([_STRIP_WIDTH, 99999])
         layout.addWidget(splitter)
@@ -151,13 +146,11 @@ class GridsTabWidget(QWidget):
 
     def set_experiment(self, experiment: Optional[Experiment]) -> None:
         self._experiment = experiment
-        self.protocol_widget.set_experiment(experiment)
         self.results_widget.set_experiment(experiment)
         self._rebuild()
 
     def set_microscope(self, microscope) -> None:
         self._microscope = microscope
-        self.protocol_widget.set_microscope(microscope)
         self.refresh()
 
     @property

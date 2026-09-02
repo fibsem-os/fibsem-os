@@ -150,6 +150,5 @@ def test_the_grids_tab_follows_card_selection(qapp, experiment, grid):
     tab.set_experiment(experiment)
     tab.cards._on_card_clicked(grid)
     assert tab.results_widget.grid is grid
-    assert tab.sub_tabs.tabText(1) == "Results"
     tab.cards._on_card_clicked(grid)
     assert tab.results_widget.grid is None

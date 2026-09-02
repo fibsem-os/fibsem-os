@@ -1,18 +1,23 @@
-"""Grids tab · Protocol: the tasks in the experiment's grid protocol, and their settings.
+"""The grid protocol's editor: the tasks in it, and the selected task's settings.
 
-One protocol shared by every grid, so this does not follow card selection.
-Which tasks run, and in what order, is chosen on Workflow → Grids; this is only
-what each task is set to. No form of its own: the beam task shows the canvas
-Overview tab's settings column, the fluorescence task the FM Overview tab's
-channel list and settings, so a setting means the same thing on both tabs.
+Hosted by the Protocol tab, under its Lamella | Grid selector: the task list
+(the same list widget the lamella tasks use, so the two read alike) goes in the
+first column and the settings panel in the second. One protocol shared by every
+grid; which tasks run, and in what order, is chosen on Workflow → Grids.
+
+Every edit is saved as it is made, like the rest of the app: there is no Save.
+Reset to defaults is the one deliberate action. No form of its own: the beam task
+shows the canvas Overview tab's settings column, the fluorescence task the FM
+Overview tab's channel list and settings, so a setting means the same thing on
+both tabs.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Dict, Optional, Tuple, Type
+from typing import Dict, List, Optional, Tuple, Type
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
@@ -21,13 +26,10 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QScrollArea,
     QSplitter,
     QStackedWidget,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -39,10 +41,12 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
     FluorescenceOverviewGridTaskConfig,
     GridTaskConfig,
 )
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR
-from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton, TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    TaskNameListWidget,
+    TitledPanel,
+)
 from fibsem.ui.widgets.fibsem_overview_settings_widget import (
     FibsemOverviewSettingsWidget,
 )
@@ -57,6 +61,7 @@ _DEFAULT_NAMES = {
     BeamOverviewGridTaskConfig.task_type: "overview_sem",
     FluorescenceOverviewGridTaskConfig.task_type: "overview_fm",
 }
+_BTN_SIZE = 28
 
 
 def _config_classes() -> Dict[str, Type[GridTaskConfig]]:
@@ -241,148 +246,142 @@ _EDITORS: Dict[str, Type[QWidget]] = {
 }
 
 
-_ROW_HEIGHT = 32
-_BTN_SIZE = 28
+class GridTaskEditorPanel(QWidget):
+    """The selected task's settings: a title, a hint, reset, and the form."""
 
+    changed = pyqtSignal()  # an edit in the showing form
+    reset_clicked = pyqtSignal()
 
-class _TaskRow(QWidget):
-    """One task in the list: its name, its kind, and a trash icon."""
-
-    clicked = pyqtSignal(str)
-    remove_clicked = pyqtSignal(str)
-
-    def __init__(self, config: GridTaskConfig, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.task_name = config.task_name
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedHeight(_ROW_HEIGHT)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 0, 4, 0)
-        layout.setSpacing(8)
-        # The name first: it is what the workflow, the outputs and the history
-        # call the task. The kind is the muted second word.
-        self.name_label = QLabel(config.task_name)
-        self.name_label.setTextFormat(Qt.PlainText)
-        self.name_label.setStyleSheet("background: transparent; font-weight: bold;")
-        layout.addWidget(self.name_label)
-        self.task_label = ElidedLabel(config.display_name)
-        self.task_label.setStyleSheet(
-            f"background: transparent; color: {TEXT_MUTED_COLOR}; font-size: 11px;"
+        self._editors: Dict[str, QWidget] = {}
+        self._microscope = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        header = QHBoxLayout()
+        self.title = QLabel()
+        self.title.setStyleSheet(
+            f"font-size: 13px; font-weight: bold; color: {NEUTRAL_200}; "
+            "background: transparent;"
         )
-        layout.addWidget(self.task_label, 1)
-        self.btn_remove = IconToolButton(
-            icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE
+        header.addWidget(self.title, 1)
+        self.btn_reset = IconToolButton(
+            icon="mdi:restore", tooltip="Reset to defaults", size=_BTN_SIZE
         )
-        self.btn_remove.clicked.connect(
-            lambda: self.remove_clicked.emit(self.task_name)
+        self.btn_reset.clicked.connect(self.reset_clicked)
+        header.addWidget(self.btn_reset)
+        layout.addLayout(header)
+        self.hint = QLabel()
+        self.hint.setWordWrap(True)
+        self.hint.setStyleSheet(
+            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
         )
-        layout.addWidget(self.btn_remove)
+        layout.addWidget(self.hint)
+        self.stack = QStackedWidget()
+        self._blank = QWidget()
+        self.stack.addWidget(self._blank)
+        layout.addWidget(self.stack, 1)
 
-    def mousePressEvent(self, event) -> None:
-        self.clicked.emit(self.task_name)
-        super().mousePressEvent(event)
+    def set_microscope(self, microscope) -> None:
+        self._microscope = microscope
+        fm = getattr(microscope, "fm", None)
+        editor = self._editors.get(FluorescenceOverviewGridTaskConfig.task_type)
+        if editor is not None:
+            editor.set_fm(fm)
+
+    def editor_for(self, task_type: str) -> Optional[QWidget]:
+        editor = self._editors.get(task_type)
+        if editor is None:
+            editor_cls = _EDITORS.get(task_type)
+            if editor_cls is None:
+                return None
+            editor = editor_cls()
+            editor.changed.connect(self.changed)
+            if hasattr(editor, "set_fm"):
+                editor.set_fm(getattr(self._microscope, "fm", None))
+            self._editors[task_type] = editor
+            self.stack.addWidget(editor)
+        return editor
+
+    def show_nothing(self, hint: str) -> None:
+        self.title.setText("")
+        self.hint.setText(hint)
+        self.btn_reset.setEnabled(False)
+        self.stack.setCurrentWidget(self._blank)
+
+    def show_config(self, config: GridTaskConfig) -> bool:
+        """Fill the form for `config`. Returns whether there is one for its type."""
+        editor = self.editor_for(config.task_type)
+        if editor is None:
+            self.title.setText(config.display_name)
+            self.hint.setText(f"No settings editor for {config.task_type}.")
+            self.btn_reset.setEnabled(False)
+            self.stack.setCurrentWidget(self._blank)
+            return False
+        self.title.setText(f"{config.task_name} · {config.display_name}")
+        self.hint.setText(
+            f"Saved as grids/<grid>/{config.task_name}/ under the experiment. "
+            "Same settings form as the Overview tab."
+        )
+        self.btn_reset.setEnabled(True)
+        editor.load(config)
+        self.stack.setCurrentWidget(editor)
+        return True
+
+    def apply_to(self, config: GridTaskConfig) -> None:
+        editor = self._editors.get(config.task_type)
+        if editor is not None:
+            editor.apply(config)
 
 
 class GridProtocolWidget(QWidget):
-    """The task list, and the selected task's settings.
+    """The grid protocol's task list and settings panel, and what ties them.
 
-    Every edit is saved as it is made, like the rest of the app: there is no
-    Save. Reset to defaults is the one deliberate action.
+    ``embedded=True`` builds the two panels without placing them, for a host
+    (the Protocol tab) that lays them into its own columns as ``task_list`` and
+    ``editor_panel``. Standalone, they sit either side of a splitter.
     """
 
     protocol_changed = pyqtSignal()
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None, embedded: bool = False):
         super().__init__(parent)
         self._experiment: Optional[Experiment] = None
         self._microscope = None
-        self._editors: Dict[str, QWidget] = {}
-        self._rows: Dict[str, _TaskRow] = {}
         self._loading = False
-        self._setup_ui()
+        self.task_list = TaskNameListWidget()
+        self.task_list.btn_add.setToolTip("Add grid task")
+        self.task_list.btn_remove.setToolTip("Remove grid task")
+        self.task_list.task_selected.connect(lambda _n: self._show_selected())
+        self.task_list.add_clicked.connect(self._on_add)
+        self.task_list.remove_clicked.connect(self._on_remove)
+        self.editor_panel = GridTaskEditorPanel()
+        self.editor_panel.changed.connect(self._on_editor_changed)
+        self.editor_panel.reset_clicked.connect(self.reset_selected)
+        if not embedded:
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(0, 0, 0, 0)
+            splitter = QSplitter(Qt.Horizontal)
+            splitter.setChildrenCollapsible(False)
+            left = QWidget()
+            left_layout = QVBoxLayout(left)
+            left_layout.setContentsMargins(8, 8, 4, 8)
+            left_layout.addWidget(self.task_list, 1)
+            left.setMinimumWidth(220)
+            left.setMaximumWidth(320)
+            splitter.addWidget(left)
+            right = QWidget()
+            right_layout = QVBoxLayout(right)
+            right_layout.setContentsMargins(4, 8, 8, 8)
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QScrollArea.NoFrame)
+            scroll.setWidget(self.editor_panel)
+            right_layout.addWidget(scroll)
+            splitter.addWidget(right)
+            splitter.setStretchFactor(1, 1)
+            layout.addWidget(splitter)
         self.refresh()
-
-    # -- layout ----------------------------------------------------------------
-
-    def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(8, 8, 4, 8)
-        header = QHBoxLayout()
-        header.setContentsMargins(6, 0, 4, 0)
-        title = QLabel("Grid tasks")
-        title.setStyleSheet(
-            f"font-size: 13px; font-weight: bold; color: {NEUTRAL_200}; "
-            "background: transparent;"
-        )
-        header.addWidget(title)
-        header.addStretch(1)
-        self.btn_add = IconToolButton(
-            icon="mdi:plus", tooltip="Add grid task", size=_BTN_SIZE
-        )
-        self.btn_add.clicked.connect(self._on_add)
-        header.addWidget(self.btn_add)
-        left_layout.addLayout(header)
-        subtitle = QLabel(
-            "Shared by every grid. Which tasks run, and in what order, is chosen "
-            "on the Workflow tab; this is only their settings."
-        )
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(
-            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
-        )
-        left_layout.addWidget(subtitle)
-        self.task_list = QListWidget()
-        self.task_list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
-        self.task_list.setSelectionMode(QListWidget.SingleSelection)
-        self.task_list.setResizeMode(QListWidget.Adjust)
-        self.task_list.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self.task_list.currentItemChanged.connect(lambda *_: self._show_selected())
-        left_layout.addWidget(self.task_list, 1)
-        left.setMinimumWidth(220)
-        left.setMaximumWidth(320)
-        splitter.addWidget(left)
-
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(4, 8, 8, 8)
-        header = QHBoxLayout()
-        self.editor_title = QLabel()
-        self.editor_title.setStyleSheet(
-            f"font-size: 13px; font-weight: bold; color: {NEUTRAL_200}; "
-            "background: transparent;"
-        )
-        header.addWidget(self.editor_title, 1)
-        self.btn_reset = IconToolButton(
-            icon="mdi:restore", tooltip="Reset to defaults", size=_BTN_SIZE
-        )
-        self.btn_reset.clicked.connect(self._on_reset)
-        header.addWidget(self.btn_reset)
-        right_layout.addLayout(header)
-        self.hint_label = QLabel()
-        self.hint_label.setWordWrap(True)
-        self.hint_label.setStyleSheet(
-            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
-        )
-        right_layout.addWidget(self.hint_label)
-        self.editor_stack = QStackedWidget()
-        self._blank = QWidget()
-        self.editor_stack.addWidget(self._blank)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
-        scroll.setWidget(self.editor_stack)
-        right_layout.addWidget(scroll, 1)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(1, 1)
-        layout.addWidget(splitter)
 
     # -- model -----------------------------------------------------------------
 
@@ -392,10 +391,7 @@ class GridProtocolWidget(QWidget):
 
     def set_microscope(self, microscope) -> None:
         self._microscope = microscope
-        fm = getattr(microscope, "fm", None)
-        editor = self._editors.get(FluorescenceOverviewGridTaskConfig.task_type)
-        if editor is not None:
-            editor.set_fm(fm)
+        self.editor_panel.set_microscope(microscope)
 
     @property
     def protocol(self) -> Optional[GridTaskProtocol]:
@@ -405,8 +401,7 @@ class GridProtocolWidget(QWidget):
 
     @property
     def selected_task_name(self) -> Optional[str]:
-        item = self.task_list.currentItem()
-        return item.data(Qt.UserRole) if item is not None else None
+        return self.task_list.selected_task or None
 
     def selected_config(self) -> Optional[GridTaskConfig]:
         protocol, name = self.protocol, self.selected_task_name
@@ -414,83 +409,38 @@ class GridProtocolWidget(QWidget):
             return None
         return protocol.task_config.get(name)
 
+    @property
+    def task_names(self) -> List[str]:
+        protocol = self.protocol
+        return list(protocol.ordered_task_names) if protocol is not None else []
+
     def refresh(self) -> None:
         protocol = self.protocol
-        current = self.selected_task_name
         self.task_list.blockSignals(True)
-        self.task_list.clear()
-        self._rows = {}
-        if protocol is not None:
-            for name in protocol.ordered_task_names:
-                config = protocol.task_config[name]
-                row = _TaskRow(config)
-                row.clicked.connect(self._select)
-                row.remove_clicked.connect(self._on_remove)
-                item = QListWidgetItem(self.task_list)
-                item.setData(Qt.UserRole, name)
-                item.setSizeHint(QSize(0, _ROW_HEIGHT))
-                self.task_list.addItem(item)
-                self.task_list.setItemWidget(item, row)
-                self._rows[name] = row
-                if name == current:
-                    self.task_list.setCurrentItem(item)
+        self.task_list.set_tasks(self.task_names)
         self.task_list.blockSignals(False)
-        if protocol is not None and self.task_list.currentItem() is None:
-            if self.task_list.count():
-                self.task_list.setCurrentRow(0)
-        self.btn_add.setEnabled(protocol is not None)
+        self.task_list.set_buttons_visible(protocol is not None, protocol is not None)
         self._show_selected()
 
     def _show_selected(self) -> None:
         protocol = self.protocol
         config = self.selected_config()
-        self.btn_reset.setEnabled(config is not None)
         if protocol is None:
-            self.editor_title.setText("")
-            self.hint_label.setText(
+            self.editor_panel.show_nothing(
                 "Load or create a task protocol first; the grid tasks live in it."
             )
-            self.editor_stack.setCurrentWidget(self._blank)
             return
         if config is None:
-            self.editor_title.setText("")
-            self.hint_label.setText(
-                "No grid tasks yet. Add one: an SEM or FIB overview, or a "
+            self.editor_panel.show_nothing(
+                "No grid tasks yet. Add one with +: an SEM or FIB overview, or a "
                 "fluorescence overview."
             )
-            self.editor_stack.setCurrentWidget(self._blank)
             return
-        editor = self._editor_for(config.task_type)
-        if editor is None:
-            self.editor_title.setText(config.display_name)
-            self.hint_label.setText(f"No settings editor for {config.task_type}.")
-            self.editor_stack.setCurrentWidget(self._blank)
-            return
-        self.editor_title.setText(f"{config.task_name} · {config.display_name}")
-        self.hint_label.setText(
-            f"Saved as grids/<grid>/{config.task_name}/ under the experiment. "
-            "Same settings form as the Overview tab."
-        )
         self._loading = True
         try:
-            editor.load(config)
+            self.editor_panel.show_config(config)
         finally:
             self._loading = False
-        self.editor_stack.setCurrentWidget(editor)
-
-    def _editor_for(self, task_type: str) -> Optional[QWidget]:
-        editor = self._editors.get(task_type)
-        if editor is None:
-            editor_cls = _EDITORS.get(task_type)
-            if editor_cls is None:
-                return None
-            editor = editor_cls()
-            editor.changed.connect(self._on_editor_changed)
-            if hasattr(editor, "set_fm"):
-                editor.set_fm(getattr(self._microscope, "fm", None))
-            self._editors[task_type] = editor
-            self.editor_stack.addWidget(editor)
-        return editor
 
     # -- edits -----------------------------------------------------------------
 
@@ -511,13 +461,16 @@ class GridProtocolWidget(QWidget):
         config_cls = _config_classes()[task_type]
         config = protocol.add(config_cls(task_name=name))
         self._save()
-        self.refresh()
-        self._select(name)
+        self.task_list.blockSignals(True)
+        self.task_list.set_tasks(self.task_names, preferred=name)
+        self.task_list.select(name)
+        self.task_list.blockSignals(False)
+        self._show_selected()
         return config
 
-    def _on_remove(self, name: str) -> None:
-        protocol = self.protocol
-        if protocol is None or name not in protocol.task_config:
+    def _on_remove(self) -> None:
+        name = self.selected_task_name
+        if name is None:
             return
         if (
             QMessageBox.question(
@@ -552,14 +505,9 @@ class GridProtocolWidget(QWidget):
         config = self.selected_config()
         if config is None:
             return None
-        editor = self._editor_for(config.task_type)
-        if editor is not None:
-            editor.apply(config)
+        self.editor_panel.apply_to(config)
         self._save()
         return config
-
-    def _on_reset(self) -> None:
-        self.reset_selected()
 
     def reset_selected(self) -> Optional[GridTaskConfig]:
         """Replace the selected task's settings with the type's defaults, and save."""
@@ -569,14 +517,8 @@ class GridProtocolWidget(QWidget):
         fresh = type(config)(task_name=config.task_name)
         protocol.task_config[config.task_name] = fresh
         self._save()
-        self.refresh()
+        self._show_selected()
         return fresh
-
-    def _select(self, name: str) -> None:
-        for i in range(self.task_list.count()):
-            if self.task_list.item(i).data(Qt.UserRole) == name:
-                self.task_list.setCurrentRow(i)
-                return
 
     def _save(self) -> None:
         if self._experiment is None:

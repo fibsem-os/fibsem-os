@@ -2635,6 +2635,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(self.grids_tab), False)
         self._apply_grid_workflow_visibility()
 
+    def _refresh_grid_protocol_editor(self) -> None:
+        """The task order changed on the Workflow tab: the Protocol tab's grid
+        list follows. Guarded: the editor builds lazily on the first connect."""
+        grid_protocol = getattr(self.task_widget, "grid_protocol", None)
+        if grid_protocol is not None:
+            grid_protocol.refresh()
+
     def _refresh_grids_tab_microscope(self):
         if getattr(self, "grids_tab", None) is None or self.autolamella_ui is None:
             return
@@ -2655,6 +2662,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         view = getattr(self, "grid_workflow_widget", None)
         if left is not None and view is not None:
             left.setTabVisible(left.indexOf(view), enabled)
+        editor = getattr(self, "task_widget", None)
+        if editor is not None:
+            editor.set_grid_protocol_visible(enabled)
 
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""
@@ -2739,7 +2749,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._on_screen_all_grids
         )
         self.grid_workflow_widget.protocol_changed.connect(
-            lambda: self.grids_tab.protocol_widget.refresh()
+            self._refresh_grid_protocol_editor
         )
         self.workflow_left_tabs.addTab(self.grid_workflow_widget, "Grids")
         self.workflow_left_tabs.currentChanged.connect(
