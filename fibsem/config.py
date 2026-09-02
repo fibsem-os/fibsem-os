@@ -116,6 +116,10 @@ COINCIDENCE_MILLING_CONFIG_PATH = os.path.join(
     CONFIG_PATH, "coincidence-milling-config.yaml"
 )  # milling default
 SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(CONFIG_PATH, "sample-holder.yaml")
+# Which grid is in which holder slot right now. Kept apart from the calibration
+# above because it changes every session while the calibration changes once per
+# holder; on an autoloader the hardware keeps this itself and the file is unused.
+SAMPLE_HOLDER_OCCUPANCY_PATH = os.path.join(CONFIG_PATH, "sample-holder-occupancy.yaml")
 DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "default-sample-holder.yaml"
 )

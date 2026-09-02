@@ -1,11 +1,23 @@
+"""The sample holder as hardware: its slots, whether each is calibrated, and what sits in it.
+
+Two things used to live here and now live elsewhere. Slot *positions* are set only
+by the calibration wizard (``holder_calibration_dialog``), which moves the stage to
+the right orientation first and writes a record saying so; the per-row capture
+button that took whatever the stage said is gone. Holder *geometry* -- the slot
+count -- is set in the wizard's first step, because changing it means recalibrating.
+
+What is left is what an operator needs at a glance: is each slot calibrated, when,
+against what, which grid is in it, and a way to drive to it. Pre-tilt and reference
+rotation come from the system configuration and are shown as facts, not as inputs.
+"""
+
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import List, Optional
 
-from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -17,22 +29,24 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
+from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
-from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, fibsem_icon
 from fibsem.ui.tokens import (
-    CANVAS_BG,
-    NEUTRAL_500,
     NEUTRAL_700,
+    OK_COLOR,
     SURFACE_COLOR,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueSpinBox
+from fibsem.ui.widgets.custom_widgets import TitledPanel, style_with_tooltip
 
 _ROW_HEIGHT = 40
-_BTN_SIZE = QSize(32, 32)
-_ACTIONS_BTN_SIZE = 24
-_SLOT_LABEL_WIDTH = 72
-
-_BTN_STYLE = """
+_SLOT_LABEL_WIDTH = 64
+_ICON_BTN = 26
+ICON_CALIBRATE = "mdi:pencil-outline"
+_ICON_BTN_STYLE = """
 QToolButton {
     background: transparent;
     border: none;
@@ -41,457 +55,376 @@ QToolButton {
 }
 QToolButton:hover { background: rgba(255, 255, 255, 30); }
 QToolButton:pressed { background: rgba(255, 255, 255, 15); }
+QToolButton:disabled { background: transparent; }
 """
+_NAME_FIELD_STYLE = (
+    "QLineEdit { background: transparent; border: 1px solid transparent;"
+    " border-radius: 3px; padding: 2px 6px; }"
+    "QLineEdit:hover, QLineEdit:focus { border-color: #3d4251; background: #1e2027; }"
+)
 
-_EMPTY_STYLE = f"color: {NEUTRAL_700}; font-style: italic; background: transparent;"
-_LOADED_STYLE = "background: transparent;"
+
+def _captured_when(slot: GridSlot) -> str:
+    """'2 Sep 2026 11:24' from the calibration record, or what there is of it."""
+    record = slot.calibration
+    if record is None:
+        return ""
+    when = record.captured_at
+    if len(when) >= 16 and when[10] == "T":
+        # 2026-09-02T11:24:09 -> 2 Sep 2026 11:24, without a datetime round trip
+        months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+        try:
+            when = f"{int(when[8:10])} {months[int(when[5:7]) - 1]} {when[:4]} {when[11:16]}"
+        except (ValueError, IndexError):
+            pass
+    return when
 
 
-class _GridSlotRowWidget(QWidget):
+def slot_status(slot: GridSlot) -> str:
+    """'available' (calibrated, holds a grid), 'calibrated' (no grid), 'unavailable'.
+
+    The dot on each row. Unavailable means nothing can move to the slot, because
+    it has no trusted position; a grid named in it is still recorded, just not
+    reachable until the slot is calibrated.
+    """
+    if not slot.is_calibrated:
+        return "unavailable"
+    return "available" if slot.loaded_grid is not None else "calibrated"
+
+
+_STATUS_COLOUR = {
+    "available": OK_COLOR,
+    "calibrated": TEXT_COLOR,
+    "unavailable": NEUTRAL_700,
+}
+_STATUS_TEXT = {
+    "available": "Available: calibrated, with a grid in it",
+    "calibrated": "Calibrated, no grid in it",
+    "unavailable": "Unavailable: not calibrated",
+}
+
+
+def calibration_tooltip(slot: GridSlot) -> str:
+    """Everything about a slot's calibration, for hovering; the row itself stays quiet."""
+    status = _STATUS_TEXT[slot_status(slot)]
+    if not slot.is_calibrated:
+        return (
+            f"{slot.name}: {status}.\nNo trusted position; use the pencil to run "
+            "the calibration."
+        )
+    record = slot.calibration
+    if record.is_builtin:
+        return (
+            f"{slot.name}: {status}.\nThe working slot: at the stage origin by "
+            f"construction, no capture needed.\n{slot.position.pretty}"
+        )
+    return (
+        f"{slot.name}: {status}.\nCalibrated {_captured_when(slot)}\n"
+        f"at the {record.orientation} orientation, pre-tilt {record.pre_tilt:g}°, "
+        f"reference rotation {record.rotation_reference:g}°\n"
+        f"{slot.position.pretty}"
+    )
+
+
+class _SlotRow(QWidget):
+    """One slot: name, the grid in it (editable inline), calibration, and Move."""
+
     move_clicked = pyqtSignal(object)  # GridSlot
-    capture_clicked = pyqtSignal(object)  # GridSlot
-    clear_clicked = pyqtSignal(object)  # GridSlot
-    row_clicked = pyqtSignal(object)  # GridSlot
+    grid_named = pyqtSignal(object, str)  # GridSlot, new name ("" clears it)
 
     def __init__(
         self,
         slot: GridSlot,
-        has_microscope: bool = False,
-        show_move: bool = True,
-        show_grid_edit: bool = False,
+        has_microscope: bool,
+        names_editable: bool = True,
         parent=None,
-    ):
+    ) -> None:
         super().__init__(parent)
         self.slot = slot
+        self._has_microscope = has_microscope
+        self._names_editable = names_editable
         self.setAttribute(Qt.WA_TranslucentBackground)
 
+        self.setFixedHeight(_ROW_HEIGHT)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
-        layout.setSpacing(4)
+        layout.setContentsMargins(8, 0, 6, 0)
+        layout.setSpacing(8)
+
+        self.dot = QLabel()
+        self.dot.setFixedSize(10, 10)
+        layout.addWidget(self.dot)
 
         self.slot_label = QLabel()
         self.slot_label.setFixedWidth(_SLOT_LABEL_WIDTH)
-        self.slot_label.setStyleSheet("font-weight: bold; background: transparent;")
         layout.addWidget(self.slot_label)
 
-        self.grid_label = QLabel()
-        layout.addWidget(self.grid_label, 1)
-
-        _show_move = has_microscope and show_move
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("empty")
+        self.name_edit.setStyleSheet(_NAME_FIELD_STYLE)
+        self.name_edit.setFixedHeight(26)
+        if names_editable:
+            self.name_edit.setToolTip("The grid in this slot; leave blank for none")
+            self.name_edit.setClearButtonEnabled(True)
+            self.name_edit.editingFinished.connect(self._on_name_edited)
+        else:
+            # An autoloader knows what is in its working slot; the name follows a load.
+            self.name_edit.setReadOnly(True)
+            self.name_edit.setToolTip(
+                "The grid the autoloader put here; set by loading, not by typing"
+            )
+        layout.addWidget(self.name_edit, 1)
 
         self.btn_move = QToolButton()
-        self.btn_move.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
-        self.btn_move.setStyleSheet(_BTN_STYLE)
+        self.btn_move.setFixedSize(_ICON_BTN, _ICON_BTN)
+        self.btn_move.setIconSize(QSize(18, 18))
+        self.btn_move.setStyleSheet(_ICON_BTN_STYLE)
         self.btn_move.setIcon(
             fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR)
         )
-        self.btn_move.setToolTip("Move to Position")
-        self.btn_move.setVisible(_show_move)
         self.btn_move.clicked.connect(lambda: self.move_clicked.emit(self.slot))
-        self.btn_move.installEventFilter(self)
         layout.addWidget(self.btn_move)
-
-        self.btn_capture = QToolButton()
-        self.btn_capture.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
-        self.btn_capture.setStyleSheet(_BTN_STYLE)
-        self.btn_capture.setIcon(
-            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR)
-        )
-        self.btn_capture.setToolTip("Update Position")
-        self.btn_capture.setVisible(_show_move)
-        self.btn_capture.clicked.connect(lambda: self.capture_clicked.emit(self.slot))
-        self.btn_capture.installEventFilter(self)
-        layout.addWidget(self.btn_capture)
-
-        # Clear button — always visible, enabled only when a grid is loaded
-        self.btn_clear = QToolButton()
-        self.btn_clear.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
-        self.btn_clear.setStyleSheet(_BTN_STYLE)
-        self.btn_clear.setIcon(
-            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR)
-        )
-        self.btn_clear.setToolTip("Remove grid from this slot")
-        self.btn_clear.setVisible(show_grid_edit)
-        self.btn_clear.clicked.connect(lambda: self.clear_clicked.emit(self.slot))
-        self.btn_clear.installEventFilter(self)
-        layout.addWidget(self.btn_clear)
 
         self.refresh()
 
-    def eventFilter(self, obj, event) -> bool:
-        if event.type() == QEvent.Type.FocusIn:
-            self.row_clicked.emit(self.slot)
-        return super().eventFilter(obj, event)
-
-    def mousePressEvent(self, event) -> None:
-        child = self.childAt(event.pos())
-        if child is None or child is self:
-            self.row_clicked.emit(self.slot)
-        super().mousePressEvent(event)
-
     def refresh(self) -> None:
-        self.slot_label.setText(self.slot.name)
-        if self.slot.loaded_grid is not None:
-            self.grid_label.setText(self.slot.loaded_grid.name)
-            self.grid_label.setStyleSheet(_LOADED_STYLE)
+        slot = self.slot
+        self.slot_label.setText(slot.name)
+        grid = slot.loaded_grid
+        if self.name_edit.text() != (grid.name if grid else ""):
+            self.name_edit.setText(grid.name if grid else "")
+
+        # Calibration state is in the tooltip and in the slot label's weight: a
+        # calibrated slot is bold, an uncalibrated one muted. No chip.
+        tooltip = calibration_tooltip(slot)
+        self.setToolTip(tooltip)
+        self.slot_label.setToolTip(tooltip)
+        self.status = slot_status(slot)
+        style_with_tooltip(
+            self.dot, f"background: {_STATUS_COLOUR[self.status]}; border-radius: 5px;"
+        )
+        self.dot.setToolTip(tooltip)
+        # Selector-less rules leak into the QToolTip (a bold label makes a bold
+        # tooltip), so these go through style_with_tooltip.
+        style_with_tooltip(
+            self.slot_label,
+            f"font-weight: bold; background: transparent; color: {TEXT_STRONG_COLOR};"
+            if slot.is_calibrated
+            else f"font-style: italic; background: transparent; color: {TEXT_MUTED_COLOR};",
+        )
+
+        movable = self._has_microscope and slot.is_calibrated
+        self.btn_move.setEnabled(movable)
+        if movable:
+            tip = f"Move to {slot.name}\n{slot.position.pretty}"
+        elif self._has_microscope:
+            tip = f"{slot.name} is not calibrated: nothing to move to"
         else:
-            self.grid_label.setText("Empty")
-            self.grid_label.setStyleSheet(_EMPTY_STYLE)
-        if self.btn_clear.isVisible():
-            self.btn_clear.setEnabled(self.slot.loaded_grid is not None)
+            tip = "No microscope connected"
+        self.btn_move.setToolTip(tip)
 
-
-class _GridListHeader(QWidget):
-    def __init__(self, title: str = "Slots", parent=None):
-        super().__init__(parent)
-        self.setStyleSheet(f"background: {CANVAS_BG};")
-        self.setFixedHeight(_BTN_SIZE.height() + 8)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 4, 4)
-        layout.setSpacing(4)
-
-        label = QLabel(title)
-        label.setStyleSheet("font-weight: bold; background: transparent;")
-        layout.addWidget(label, 1)
-
-
-# ---------------------------------------------------------------------------
-# Edit panel — shown whenever a slot row is selected
-# ---------------------------------------------------------------------------
-
-
-class _GridSlotEditPanel(QWidget):
-    """Inline edit panel for the SampleGrid assigned to a GridSlot.
-    Changes auto-apply when the user leaves a field (editingFinished)."""
-
-    slot_changed = pyqtSignal(object)  # GridSlot
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._slot: Optional[GridSlot] = None
-        self._updating = False
-        self._setup_ui()
-        self._connect_signals()
-        self.setVisible(False)
-
-    def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-
-        header_row = QHBoxLayout()
-        self.slot_name_label = QLabel()
-        self.slot_name_label.setStyleSheet("font-weight: bold;")
-        self.position_label = QLabel()
-        self.position_label.setStyleSheet(f"color: {NEUTRAL_500};")
-        header_row.addWidget(self.slot_name_label)
-        header_row.addWidget(self.position_label, 1)
-        layout.addLayout(header_row)
-
-        form = QFormLayout()
-        form.setSpacing(4)
-        self.grid_name_edit = QLineEdit()
-        self.grid_name_edit.setPlaceholderText("Grid name")
-        self.grid_description_edit = QLineEdit()
-        self.grid_description_edit.setPlaceholderText("Description (optional)")
-        form.addRow("Name", self.grid_name_edit)
-        form.addRow("Description", self.grid_description_edit)
-        layout.addLayout(form)
-
-    def _connect_signals(self) -> None:
-        self.grid_name_edit.editingFinished.connect(self._handle_apply)
-        self.grid_description_edit.editingFinished.connect(self._handle_apply)
-
-    def set_slot(self, slot: Optional[GridSlot]) -> None:
-        self._slot = slot
-        self.setVisible(slot is not None)
-        if slot is None:
-            return
-        self._updating = True
-        self.slot_name_label.setText(slot.name)
-        self.position_label.setText(slot.position.pretty if slot.position else "—")
-        loaded = slot.loaded_grid
-        self.grid_name_edit.setText(loaded.name if loaded else "")
-        self.grid_description_edit.setText(loaded.description if loaded else "")
-        self._updating = False
-
-    def _handle_apply(self) -> None:
-        if self._slot is None or self._updating:
-            return
-        name = self.grid_name_edit.text().strip() or "Grid"
-        description = self.grid_description_edit.text()
-        if self._slot.loaded_grid is None:
-            self._slot.loaded_grid = SampleGrid(name=name, description=description)
-        else:
-            self._slot.loaded_grid.name = name
-            self._slot.loaded_grid.description = description
-        self.slot_changed.emit(self._slot)
-
-
-# ---------------------------------------------------------------------------
-# SampleHolderWidget — hardware configuration + grid assignment
-# ---------------------------------------------------------------------------
+    def _on_name_edited(self) -> None:
+        name = self.name_edit.text().strip()
+        current = self.slot.loaded_grid.name if self.slot.loaded_grid else ""
+        if name != current:
+            self.grid_named.emit(self.slot, name)
 
 
 class SampleHolderWidget(QWidget):
-    """Sample holder configuration: metadata, slot positions, and grid assignment."""
+    """The holder's slots: calibration state, the grid in each, and Move.
+
+    ``holder_changed`` fires after a grid was named or cleared here and after the
+    wizard saved a calibration, for hosts that draw the holder. Nothing is saved
+    from here: the wizard writes the calibration file, and naming a grid goes
+    through ``Stage.assign_grid``, which writes the occupancy file (or, with a
+    loader, the hardware). ``set_holder`` swaps which holder is shown.
+    """
 
     holder_changed = pyqtSignal(object)  # SampleHolder
-    grid_selected = pyqtSignal(str, object)  # slot_name, GridSlot
+    # A request to drive to a calibrated slot. The host (the Movement widget) routes
+    # it through its own move path, so the position readout and the post-move
+    # images follow, exactly as for a saved position. Unhosted, `move_directly`
+    # sends the stage itself.
+    move_to_requested = pyqtSignal(object)  # FibsemStagePosition
 
-    def __init__(self, microscope=None, parent=None):
+    def __init__(self, microscope=None, parent=None, move_directly: bool = False):
         super().__init__(parent)
         self._microscope = microscope
+        self._move_directly = move_directly
+        stage = getattr(microscope, "_stage", None)
+        self._has_loader = getattr(stage, "loader", None) is not None
         self._holder: Optional[SampleHolder] = None
-        self._updating = False
+        self._calibration_dialog = None
+        self._rows: List[_SlotRow] = []
         self._setup_ui()
-        self._connect_signals()
         self.setEnabled(False)
+
+    # -- layout ----------------------------------------------------------------
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        form_widget = QWidget()
-        form = QFormLayout(form_widget)
-        form.setContentsMargins(4, 4, 4, 0)
-        form.setSpacing(4)
+        inner = QWidget()
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(6, 6, 6, 6)
+        inner_layout.setSpacing(6)
 
-        self.name_edit = QLineEdit()
-        self.description_edit = QLineEdit()
-        self.capacity_spin = ValueSpinBox(
-            minimum=1.0,
-            maximum=12.0,
-            step=1.0,
-            decimals=0,
-            tooltip="Number of slots on this holder",
+        # The pencil sits in the panel's title bar, where the app keeps a panel's
+        # edit action, rather than in the body beside the name.
+        self.btn_calibrate = QToolButton()
+        self.btn_calibrate.setFixedSize(_ICON_BTN, _ICON_BTN)
+        self.btn_calibrate.setIconSize(QSize(18, 18))
+        self.btn_calibrate.setStyleSheet(_ICON_BTN_STYLE)
+        self.btn_calibrate.setIcon(
+            fibsem_icon(ICON_CALIBRATE, color=stylesheets.GRAY_ICON_COLOR)
         )
-        self.pre_tilt_spin = ValueSpinBox(
-            suffix="°",
-            minimum=0.0,
-            maximum=90.0,
-            step=1.0,
-            decimals=0,
-            tooltip="Pre-tilt angle (read from system configuration)",
+        self.btn_calibrate.setToolTip(
+            "Edit the holder: name, slot count, and calibrate each slot's position"
         )
-        self.pre_tilt_spin.setEnabled(False)
-        self.reference_rotation_spin = ValueSpinBox(
-            suffix="°",
-            minimum=0.0,
-            maximum=360.0,
-            step=1.0,
-            decimals=0,
-            tooltip="Reference rotation (read from system configuration)",
-        )
-        self.reference_rotation_spin.setEnabled(False)
+        self.btn_calibrate.clicked.connect(self._on_calibrate)
 
-        form.addRow("Name", self.name_edit)
-        form.addRow("Description", self.description_edit)
-        form.addRow("Capacity", self.capacity_spin)
-        form.addRow("Pre-Tilt", self.pre_tilt_spin)
-        form.addRow("Ref. Rotation", self.reference_rotation_spin)
-
-        self._header = _GridListHeader("Slots")
+        self.facts_label = QLabel()
+        self.facts_label.setStyleSheet(
+            f"color: {TEXT_MUTED_COLOR}; font-size: 11px; background: transparent;"
+        )
+        inner_layout.addWidget(self.facts_label)
 
         self._list = QListWidget()
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
-        self._list.setMinimumHeight(3 * _ROW_HEIGHT)
-        self._list.setSelectionMode(QListWidget.SingleSelection)
-        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setSelectionMode(QListWidget.NoSelection)
         self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-
-        self._empty_label = QLabel("No slots defined.")
-        self._empty_label.setStyleSheet(
-            f"color: {NEUTRAL_700}; font-style: italic; padding: 8px;"
-        )
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self._edit_panel = _GridSlotEditPanel()
-
-        holder_inner = QWidget()
-        inner_layout = QVBoxLayout(holder_inner)
-        inner_layout.setContentsMargins(0, 0, 0, 4)
-        inner_layout.setSpacing(4)
-        inner_layout.addWidget(form_widget)
-        inner_layout.addWidget(self._header)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setMinimumHeight(2 * _ROW_HEIGHT)
         inner_layout.addWidget(self._list)
-        inner_layout.addWidget(self._empty_label)
-        inner_layout.addWidget(self._edit_panel)
 
-        self._holder_panel = TitledPanel(
-            "Sample Holder", content=holder_inner, collapsible=True
+        self.hint_label = QLabel(
+            "Some slots have no calibrated position: nothing can move to them and "
+            "overviews draw no outline for them. Use the pencil to calibrate."
         )
-        layout.addWidget(self._holder_panel)
+        self.hint_label.setWordWrap(True)
+        self.hint_label.setStyleSheet(
+            f"color: {TEXT_MUTED_COLOR}; font-size: 11px; background: transparent;"
+        )
+        inner_layout.addWidget(self.hint_label)
 
-        self._update_empty_state()
+        self._panel = TitledPanel("Sample Holder", content=inner, collapsible=True)
+        self._panel.add_header_widget(self.btn_calibrate)
+        layout.addWidget(self._panel)
 
-    def _connect_signals(self) -> None:
-        self.name_edit.editingFinished.connect(self._on_holder_form_changed)
-        self.description_edit.editingFinished.connect(self._on_holder_form_changed)
-        self.capacity_spin.valueChanged.connect(self._on_capacity_changed)
-        self.holder_changed.connect(self._auto_save)
-
-        self._list.currentRowChanged.connect(self._on_list_row_changed)
-        self._edit_panel.slot_changed.connect(self._on_slot_changed)
-
-    # -------------------------------------------------------------------------
-    # Public API
-    # -------------------------------------------------------------------------
+    # -- public API ------------------------------------------------------------
 
     def set_holder(self, holder: Optional[SampleHolder]) -> None:
         self._holder = holder
-        self._microscope._stage.holder = holder
         self.setEnabled(holder is not None)
-        self._edit_panel.setVisible(False)
+        self.refresh()
 
-        if holder is not None:
-            holder._parent = self._microscope
-
-        self._updating = True
-        if holder is None:
-            self.name_edit.clear()
-            self.description_edit.clear()
-            self.capacity_spin.setValue(2.0)
-            self.pre_tilt_spin.setValue(0.0)
-            self.reference_rotation_spin.setValue(0.0)
-        else:
-            self.name_edit.setText(holder.name)
-            self.description_edit.setText(holder.description or "")
-            self.capacity_spin.setValue(float(holder.capacity))
-            self.pre_tilt_spin.setValue(holder.pre_tilt)
-            self.reference_rotation_spin.setValue(holder.reference_rotation)
-        self._updating = False
-
-        self._refresh_slot_list()
-
+    @property
     def current_holder(self) -> Optional[SampleHolder]:
         return self._holder
 
     def refresh(self) -> None:
-        """Refresh row labels in-place after external slot mutations."""
-        for i in range(self._list.count()):
-            row = self._row_widget(i)
-            if row:
-                row.refresh()
-
-    # -------------------------------------------------------------------------
-    # Internal
-    # -------------------------------------------------------------------------
-
-    def _refresh_slot_list(self) -> None:
+        holder = self._holder
         self._list.clear()
-        if self._holder is None:
-            self._update_empty_state()
+        self._rows = []
+        if holder is None:
+            self._panel.set_title("Sample Holder")
+            self.facts_label.setText("")
             return
 
-        for slot in sorted(self._holder.slots.values(), key=lambda s: s.index):
-            row = _GridSlotRowWidget(
-                slot,
-                has_microscope=self._microscope is not None,
-                show_grid_edit=True,
-            )
-            row.row_clicked.connect(self._on_row_clicked)
-            row.move_clicked.connect(self._on_move_slot)
-            row.capture_clicked.connect(self._on_capture_slot)
-            row.clear_clicked.connect(self._on_clear_slot)
+        # One title, not two: the panel is named after the holder it shows. The
+        # name itself is set in the calibration wizard, with the slot count.
+        self._panel.set_title(holder.name)
+        slots = sorted(holder.slots.values(), key=lambda s: s.index)
+        calibrated = sum(1 for s in slots if s.is_calibrated)
+        self.btn_calibrate.setEnabled(self._microscope is not None)
+        self.hint_label.setVisible(calibrated < len(slots))
 
-            item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, slot)
+        plural = "" if len(slots) == 1 else "s"
+        self.facts_label.setText(
+            f"{len(slots)} slot{plural}, {calibrated} calibrated · "
+            f"pre-tilt {holder.pre_tilt:g}° · reference rotation "
+            f"{holder.reference_rotation:g}°   (system configuration)"
+        )
+
+        has_microscope = self._microscope is not None
+        for slot in slots:
+            row = _SlotRow(
+                slot,
+                has_microscope=has_microscope,
+                names_editable=not self._has_loader,
+            )
+            row.move_clicked.connect(self._on_move_slot)
+            row.grid_named.connect(self._on_grid_named)
+            item = QListWidgetItem(self._list)
             item.setSizeHint(QSize(0, _ROW_HEIGHT))
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self._list.addItem(item)
             self._list.setItemWidget(item, row)
+            self._rows.append(row)
+        self._list.setFixedHeight(
+            max(2, len(slots)) * _ROW_HEIGHT + 2 * self._list.frameWidth()
+        )
 
-        self._update_empty_state()
+    def _row_widget(self, i: int) -> Optional[_SlotRow]:
+        return self._rows[i] if 0 <= i < len(self._rows) else None
 
-    def _update_empty_state(self) -> None:
-        self._empty_label.setVisible(self._list.count() == 0)
+    # -- edits -----------------------------------------------------------------
 
-    def _row_widget(self, i: int) -> Optional[_GridSlotRowWidget]:
-        item = self._list.item(i)
-        return self._list.itemWidget(item) if item else None  # type: ignore
-
-    def _on_list_row_changed(self, row: int) -> None:
-        if row < 0:
-            self._edit_panel.setVisible(False)
+    def _on_grid_named(self, slot: GridSlot, name: str) -> None:
+        """Record the grid in a slot. Through the stage when there is one, so the
+        occupancy file is written and a restart still knows what is in the shuttle."""
+        if self._holder is None:
             return
-        item = self._list.item(row)
-        if item is None:
-            return
-        slot = item.data(Qt.ItemDataRole.UserRole)
-        if slot is not None:
-            self._edit_panel.set_slot(slot)
-            self.grid_selected.emit(slot.name, slot)
-
-    def _on_row_clicked(self, slot: GridSlot) -> None:
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            if item and item.data(Qt.ItemDataRole.UserRole) is slot:
-                self._list.setCurrentRow(i)
-                return
-
-    def _on_clear_slot(self, slot: GridSlot) -> None:
-        slot.loaded_grid = None
-        self._on_slot_changed(slot)
-        if self._edit_panel._slot is slot:
-            self._edit_panel.set_slot(slot)
-
-    def _on_slot_changed(self, slot: GridSlot) -> None:
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            if item and item.data(Qt.ItemDataRole.UserRole) is slot:
-                row = self._row_widget(i)
-                if row:
-                    row.refresh()
-                break
-        if self._holder is not None:
-            self.holder_changed.emit(self._holder)
-
-    def _on_holder_form_changed(self) -> None:
-        if self._holder is None or self._updating:
-            return
-        self._holder.name = self.name_edit.text()
-        self._holder.description = self.description_edit.text()
+        grid: Optional[SampleGrid]
+        if not name:
+            grid = None
+        elif slot.loaded_grid is not None:
+            grid = slot.loaded_grid
+            grid.name = name
+        else:
+            grid = SampleGrid(name=name)
+        if self._microscope is not None:
+            try:
+                self._microscope._stage.assign_grid(slot.name, grid)
+            except Exception as e:  # noqa: BLE001 - keep the in-memory change, say so
+                logging.warning(f"Could not record the grid in {slot.name}: {e}")
+                slot.loaded_grid = grid
+        else:
+            slot.loaded_grid = grid
         self.holder_changed.emit(self._holder)
-
-    def _on_capacity_changed(self) -> None:
-        if self._holder is None or self._updating:
-            return
-        self._holder.capacity = int(self.capacity_spin.value())
-        self._holder._ensure_slots()
-        self._refresh_slot_list()
-        self.holder_changed.emit(self._holder)
-
-    def _on_capture_slot(self, slot: GridSlot) -> None:
-        if self._microscope is None:
-            return
-        try:
-            pos = self._microscope.get_stage_position()
-            pos.name = slot.name
-            slot.position = pos
-            if self._holder is not None:
-                self.holder_changed.emit(self._holder)
-        except Exception as e:
-            logging.warning(f"Failed to capture stage position: {e}")
 
     def _on_move_slot(self, slot: GridSlot) -> None:
-        if self._microscope is None:
+        if self._microscope is None or slot.position is None:
             return
-        try:
-            self._microscope._stage.move_to_slot(slot.name)
-        except Exception as e:
-            logging.warning(f"Failed to move to slot '{slot.name}': {e}")
-
-    def _auto_save(self, holder: SampleHolder) -> None:
-        if holder is None:
+        position: FibsemStagePosition = slot.position
+        if self._move_directly:
+            try:
+                self._microscope._stage.move_to_slot(slot.name)
+            except Exception as e:  # noqa: BLE001 - a refused or failed move is reported
+                logging.warning(f"Failed to move to slot '{slot.name}': {e}")
             return
-        from fibsem import config as cfg
+        self.move_to_requested.emit(position)
 
-        try:
-            holder.save(cfg.SAMPLE_HOLDER_CONFIGURATION_PATH)
-        except Exception as e:
-            logging.warning(f"Auto-save of sample holder failed: {e}")
+    # -- calibration -----------------------------------------------------------
+
+    def _on_calibrate(self) -> None:
+        """Open the guided calibration beside the main window; refresh when it saves."""
+        if self._microscope is None or self._holder is None:
+            return
+        from fibsem.ui.widgets.holder_calibration_dialog import (
+            HolderCalibrationDialog,
+        )
+
+        dialog = HolderCalibrationDialog(self._microscope, self._holder, parent=self)
+        dialog.holder_saved.connect(self._on_calibration_saved)
+        self._calibration_dialog = dialog  # keep it alive; it is non-modal
+        dialog.show()
+
+    def _on_calibration_saved(self, holder: SampleHolder) -> None:
+        self.set_holder(holder)
+        # The dialog already wrote the calibration; this tells hosts the slots moved.
+        self.holder_changed.emit(holder)
 
 
 if __name__ == "__main__":
@@ -508,16 +441,16 @@ if __name__ == "__main__":
     microscope, settings = utils.setup_session(config_path=None)
     holder = microscope._stage.holder
 
-    widget = SampleHolderWidget(microscope=microscope)
+    widget = SampleHolderWidget(microscope=microscope, move_directly=True)
     widget.setStyleSheet(f"background: {SURFACE_COLOR}; color: #d1d2d4;")
     widget.set_holder(holder)
 
     def on_holder_changed(h: SampleHolder) -> None:
         for slot in h.slots.values():
             g = slot.loaded_grid.name if slot.loaded_grid else "Empty"
-            print(f"  {slot.name}: {g}")
+            print(f"  {slot.name}: {g}  calibrated={slot.is_calibrated}")
 
     widget.holder_changed.connect(on_holder_changed)
-    widget.resize(500, 700)
+    widget.resize(520, 320)
     widget.show()
     sys.exit(app.exec_())
