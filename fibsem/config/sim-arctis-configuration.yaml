@@ -70,7 +70,9 @@ sim:
     #     tilt_axis_offset: 0.0                              # surface height above the tilt axis (m); >0 makes the stage non-eucentric
     #     grid_pitch: 125.0e-6                               # mesh pitch (m)
     #     grid_bar_width: 35.0e-6                            # bar width (m)
-    #     n_clusters: 35                                     # cell clusters over the extent
+    #     cell_type: mammalian                               # mammalian (adherent, fried-egg) | yeast | bacteria | mixed | none
+    #     mammalian_density: 7.0                             # cells per 150 x 150 um; mammalian_radius / nucleus_radius set the sizes
+    #     n_clusters: 35                                     # yeast: cell clusters over the extent
     #     cell_size: [4.5e-6, 12.0e-6]                       # cell radius range (m)
     #     noise_sigma: 12.0                                  # gaussian noise on the beam images
     #     noise_fraction: 0.15                               # uniform-noise blend on the beam images

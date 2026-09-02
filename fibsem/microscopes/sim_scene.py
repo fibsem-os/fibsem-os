@@ -91,6 +91,9 @@ CELL_DYE = Fluorophore("gfp-like", 470.0, 510.0, excitation_width=30.0)
 SUBSET_DYE = Fluorophore("mcherry-like", 560.0, 610.0, excitation_width=30.0)
 # in reflection the bars dominate, the fiducial reflects, cells are faint
 REFLECTION_WEIGHTS = (1.0, 0.25, 0.0, 0.6)
+# the FM's fluorescence intensity for a fully-dyed part, on the beam
+# intensity scale the stamper uses
+FM_INTENSITY = 90.0
 # a faint outline of the bars leaks into every fluorescence channel
 BARS_IN_FLUORESCENCE = 0.05
 
@@ -133,10 +136,19 @@ class SceneFeature:
 
     x: float  # m
     y: float  # m
-    sigma: float  # m
+    sigma: float  # m, along the feature's long axis
     intensity: float
     sharpness: float = 1.0
     kind: str = "cell"  # "cell" | "fiducial" | "contamination"
+    # shape: minor/major axis ratio, orientation in the world plane, and an
+    # outline wobble (0 = a clean ellipse) with its own phase
+    eccentricity: float = 1.0
+    angle: float = 0.0  # rad
+    wobble: float = 0.0
+    wobble_phase: float = 0.0
+    # which part of a cell this is - the FM dyes by part
+    part: str = "body"  # "body" | "nucleus" | "organelle" | "bud"
+    cell_id: int = -1
 
 
 @dataclass
@@ -152,10 +164,23 @@ class SampleScene:
 
     coincidence_offset: float = 10e-6  # m, initial height error at boot
     seed: int = 24
+    # what grows on the film: "mammalian" (adherent, fried-egg: a wide flat
+    # body with an off-centre nuclear mound and organelle speckle, sparse),
+    # "yeast" (compact bright ovoids in clusters, some budding), "bacteria"
+    # (dense small rods), "mixed", or "none" for bare film
+    cell_type: str = "mammalian"
+    # yeast: clusters over the extent
     n_clusters: int = 35  # cell clusters scattered over the extent
     cells_per_cluster: Tuple[int, int] = (3, 8)  # inclusive range
     cell_size: Tuple[float, float] = (4.5e-6, 12.0e-6)  # m, sigma range per cell
     cluster_spread: float = 15e-6  # m, how far blobs scatter around a cluster
+    # mammalian: count per 150 x 150 um, body and nucleus radii
+    mammalian_density: float = 7.0
+    mammalian_radius: Tuple[float, float] = (18e-6, 30e-6)  # m
+    nucleus_radius: Tuple[float, float] = (5e-6, 7e-6)  # m
+    # bacteria: count per 150 x 150 um, rod length
+    bacteria_density: float = 160.0
+    bacteria_length: Tuple[float, float] = (2.0e-6, 3.5e-6)  # m
     extent: float = 400e-6  # m, features are scattered over +/- extent/2
     grid_pitch: float = 125e-6  # m, mesh pitch (~200 mesh)
     grid_bar_width: float = 35e-6  # m
@@ -208,19 +233,7 @@ class SampleScene:
                 rng.uniform(-self.grid_rotation_range, self.grid_rotation_range)
             )
         half = self.extent / 2
-        for _ in range(self.n_clusters):
-            cx, cy = rng.uniform(-half, half, size=2)
-            lo, hi = self.cells_per_cluster
-            for _ in range(int(rng.integers(lo, hi + 1))):
-                self.features.append(
-                    SceneFeature(
-                        x=float(cx + rng.normal(0, self.cluster_spread)),
-                        y=float(cy + rng.normal(0, self.cluster_spread)),
-                        sigma=float(rng.uniform(*self.cell_size)),
-                        intensity=float(rng.uniform(40, 110)),
-                        sharpness=3.0,
-                    )
-                )
+        self._generate_cells(rng, half)
         # fiducial-like cross at the world origin: a dense line of small
         # blobs along each arm, so it goes through the same projection as
         # every other feature
@@ -250,15 +263,183 @@ class SampleScene:
                 )
             )
 
+    def _generate_cells(self, rng: np.random.Generator, half: float) -> None:
+        kinds = {
+            "yeast": [("yeast", 1.0)],
+            "mammalian": [("mammalian", 1.0)],
+            "bacteria": [("bacteria", 1.0)],
+            "mixed": [("yeast", 0.5), ("mammalian", 0.4), ("bacteria", 0.3)],
+            "none": [],  # bare film: fiducial, bars and contamination only
+        }
+        if self.cell_type not in kinds:
+            raise ValueError(
+                f"cell_type must be one of {sorted(kinds)}, got {self.cell_type!r}"
+            )
+        fields = (self.extent / 150e-6) ** 2  # how many 150 um fields the extent is
+        next_id = 0
+        for kind, fraction in kinds[self.cell_type]:
+            if kind == "yeast":
+                next_id = self._generate_yeast(rng, half, fraction, next_id)
+            elif kind == "mammalian":
+                n = int(round(self.mammalian_density * fields * fraction))
+                next_id = self._generate_mammalian(rng, half, n, next_id)
+            else:
+                n = int(round(self.bacteria_density * fields * fraction))
+                next_id = self._generate_bacteria(rng, half, n, next_id)
+
+    def _generate_yeast(self, rng, half, fraction, next_id) -> int:
+        for _ in range(int(round(self.n_clusters * fraction))):
+            cx, cy = rng.uniform(-half, half, size=2)
+            lo, hi = self.cells_per_cluster
+            for _ in range(int(rng.integers(lo, hi + 1))):
+                x = float(cx + rng.normal(0, self.cluster_spread))
+                y = float(cy + rng.normal(0, self.cluster_spread))
+                sigma = float(rng.uniform(*self.cell_size))
+                angle = float(rng.uniform(0, np.pi))
+                self.features.append(
+                    SceneFeature(
+                        x=x,
+                        y=y,
+                        sigma=sigma,
+                        intensity=float(rng.uniform(40, 110)),
+                        sharpness=3.0,
+                        eccentricity=float(rng.uniform(0.8, 1.0)),
+                        angle=angle,
+                        cell_id=next_id,
+                    )
+                )
+                # a compact nucleus for the FM (the beams barely see it)
+                self.features.append(
+                    SceneFeature(
+                        x=x,
+                        y=y,
+                        sigma=sigma * 0.35,
+                        intensity=8.0,
+                        sharpness=2.0,
+                        part="nucleus",
+                        cell_id=next_id,
+                    )
+                )
+                if rng.random() < 0.3:  # budding daughter
+                    t = rng.uniform(0, 2 * np.pi)
+                    self.features.append(
+                        SceneFeature(
+                            x=x + 1.1 * sigma * np.cos(t),
+                            y=y + 1.1 * sigma * np.sin(t),
+                            sigma=sigma * 0.55,
+                            intensity=70.0,
+                            sharpness=3.0,
+                            part="bud",
+                            cell_id=next_id,
+                        )
+                    )
+                next_id += 1
+        return next_id
+
+    def _generate_mammalian(self, rng, half, n, next_id) -> int:
+        # adherent cells tile the film rather than cluster: keep them apart
+        placed: List[Tuple[float, float]] = []
+        min_distance = 1.6 * self.mammalian_radius[1]
+        for _ in range(60 * max(n, 1)):
+            if len(placed) >= n:
+                break
+            x, y = rng.uniform(-half, half, size=2)
+            if all(np.hypot(x - px_, y - py_) > min_distance for px_, py_ in placed):
+                placed.append((float(x), float(y)))
+        for x, y in placed:
+            radius = float(rng.uniform(*self.mammalian_radius))
+            angle = float(rng.uniform(0, np.pi))
+            ecc = float(rng.uniform(0.6, 1.0))
+            phase = float(rng.uniform(0, 2 * np.pi))
+            # the flat spread body: low, wide, irregular outline
+            self.features.append(
+                SceneFeature(
+                    x=x,
+                    y=y,
+                    sigma=radius,
+                    intensity=28.0,
+                    sharpness=2.5,
+                    eccentricity=ecc,
+                    angle=angle,
+                    wobble=0.25,
+                    wobble_phase=phase,
+                    cell_id=next_id,
+                )
+            )
+            # the nuclear mound, off centre
+            nx = x + float(rng.normal(0, 0.2 * radius))
+            ny = y + float(rng.normal(0, 0.2 * radius))
+            nucleus = float(rng.uniform(*self.nucleus_radius))
+            self.features.append(
+                SceneFeature(
+                    x=nx,
+                    y=ny,
+                    sigma=nucleus,
+                    intensity=75.0,
+                    sharpness=2.0,
+                    eccentricity=0.85,
+                    angle=angle,
+                    part="nucleus",
+                    cell_id=next_id,
+                )
+            )
+            # organelle speckle in the cytoplasm
+            for _ in range(int(rng.integers(15, 30))):
+                t = rng.uniform(0, 2 * np.pi)
+                r = rng.uniform(1.2 * nucleus, 0.9 * radius)
+                self.features.append(
+                    SceneFeature(
+                        x=x
+                        + r * np.cos(t) * np.cos(angle)
+                        - r * np.sin(t) * ecc * np.sin(angle),
+                        y=y
+                        + r * np.cos(t) * np.sin(angle)
+                        + r * np.sin(t) * ecc * np.cos(angle),
+                        sigma=1.2e-6,
+                        intensity=12.0,
+                        sharpness=2.0,
+                        part="organelle",
+                        cell_id=next_id,
+                    )
+                )
+            next_id += 1
+        return next_id
+
+    def _generate_bacteria(self, rng, half, n, next_id) -> int:
+        for _ in range(n):
+            x, y = rng.uniform(-half, half, size=2)
+            length = float(rng.uniform(*self.bacteria_length))
+            width = float(rng.uniform(0.5e-6, 0.7e-6))
+            self.features.append(
+                SceneFeature(
+                    x=float(x),
+                    y=float(y),
+                    sigma=length / 2,
+                    intensity=float(rng.uniform(60, 110)),
+                    sharpness=4.0,
+                    eccentricity=width / (length / 2),
+                    angle=float(rng.uniform(0, np.pi)),
+                    cell_id=next_id,
+                )
+            )
+            next_id += 1
+        return next_id
+
     # the configuration keys `sim: sample:` accepts, with their units
     CONFIG_KEYS = (
         "coincidence_offset",  # m
         "tilt_axis_offset",  # m
         "seed",
+        "cell_type",  # mammalian | yeast | bacteria | mixed
         "n_clusters",
         "cells_per_cluster",  # [min, max]
         "cell_size",  # [min, max] m
         "cluster_spread",  # m
+        "mammalian_density",  # per 150 x 150 um
+        "mammalian_radius",  # [min, max] m
+        "nucleus_radius",  # [min, max] m
+        "bacteria_density",  # per 150 x 150 um
+        "bacteria_length",  # [min, max] m
         "extent",  # m
         "grid_pitch",  # m
         "grid_bar_width",  # m
@@ -281,7 +462,14 @@ class SampleScene:
         if unknown:
             raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
-        for key in ("cells_per_cluster", "cell_size", "contamination_size"):
+        for key in (
+            "cells_per_cluster",
+            "cell_size",
+            "contamination_size",
+            "mammalian_radius",
+            "nucleus_radius",
+            "bacteria_length",
+        ):
             if key in kwargs:
                 kwargs[key] = tuple(kwargs[key])
         if "beam_offset" in kwargs:
@@ -420,11 +608,7 @@ class SampleScene:
             px_, py_ = f.x, f.y * fs
             u = cx + (px_ * cos_t - py_ * sin_t + ax) / pixel_size
             v = cy + (px_ * sin_t + py_ * cos_t + ay) / pixel_size
-            sigma_x = f.sigma / pixel_size
-            sigma_y = sigma_x * fs
-            self._stamp_blob(
-                canvas, u, v, sigma_x, sigma_y, f.intensity, f.sharpness, angle=theta
-            )
+            self._stamp_feature(canvas, f, u, v, pixel_size, fs, theta)
 
         if rng is None:
             rng = np.random.default_rng()
@@ -504,23 +688,30 @@ class SampleScene:
             ) | (np.abs((y_rot % self.grid_pitch) - self.grid_pitch / 2) < half)
             canvas[bar_mask] += bars * self.grid_intensity
 
-        red_rng = np.random.default_rng(self.seed + 1)
+        subset_rng = np.random.default_rng(self.seed + 1)
+        in_subset: Dict[int, bool] = {}
         for f in self.features:
             if f.kind == "fiducial":
-                weight = fiducial
+                weight = fiducial * f.intensity
             elif f.kind == "contamination":
-                weight = contamination
+                weight = contamination * f.intensity
             else:
-                in_subset = red_rng.random() < self.red_fraction
-                weight = cells + (red if in_subset else 0.0)
+                if f.cell_id not in in_subset:
+                    in_subset[f.cell_id] = subset_rng.random() < self.red_fraction
+                # dyes by part: the DNA dye lives in the nucleus, the
+                # cytoplasmic one everywhere; the subset dye follows the cell
+                body_dye = cells + (red if in_subset[f.cell_id] else 0.0)
+                if f.part == "nucleus":
+                    weight = FM_INTENSITY * (fiducial * 1.0 + body_dye * 0.5)
+                elif f.part == "organelle":
+                    weight = FM_INTENSITY * body_dye * 0.6
+                else:
+                    weight = FM_INTENSITY * body_dye
             if weight <= 0:
                 continue
             u = cx + (f.x + ax) / pixel_size
             v = cy + (f.y * fs + ay) / pixel_size
-            sigma_x = f.sigma / pixel_size
-            self._stamp_blob(
-                canvas, u, v, sigma_x, sigma_x * fs, weight * f.intensity, f.sharpness
-            )
+            self._stamp_feature(canvas, f, u, v, pixel_size, fs, 0.0, intensity=weight)
 
         if defocus:
             # a retracted objective is millimetres from focus: cap the blur so
@@ -598,6 +789,33 @@ class SampleScene:
         reference.z = (reference.z or 0.0) + dz
         return reference
 
+    def _stamp_feature(
+        self,
+        canvas: np.ndarray,
+        f: SceneFeature,
+        u: float,
+        v: float,
+        pixel_size: float,
+        fs: float,
+        scan_rotation: float,
+        intensity: Optional[float] = None,
+    ) -> None:
+        """Stamp one feature at view position (u, v): its ellipse in pixels,
+        foreshortened along the view's y, turned with the scan."""
+        sigma_x = f.sigma / pixel_size
+        self._stamp_blob(
+            canvas,
+            u,
+            v,
+            sigma_x,
+            sigma_x * f.eccentricity * fs,
+            f.intensity if intensity is None else intensity,
+            f.sharpness,
+            angle=f.angle + scan_rotation,
+            wobble=f.wobble,
+            wobble_phase=f.wobble_phase,
+        )
+
     @staticmethod
     def _stamp_blob(
         canvas: np.ndarray,
@@ -608,18 +826,21 @@ class SampleScene:
         intensity: float,
         sharpness: float = 1.0,
         angle: float = 0.0,
+        wobble: float = 0.0,
+        wobble_phase: float = 0.0,
     ) -> None:
         """Add one supergaussian blob, clipped to its bounding box.
 
         sharpness 1 = gaussian; higher = flat top with a sharp rim. `angle`
-        turns the (sigma_x, sigma_y) ellipse, for a scan-rotated view.
+        turns the (sigma_x, sigma_y) ellipse; `wobble` modulates its radius
+        with a few harmonics of the polar angle for an irregular outline.
         """
         height, width = canvas.shape
-        reach = 4 * max(sigma_x, sigma_y) if angle else None
-        x0 = max(0, int(u - (reach or 4 * sigma_x)))
-        x1 = min(width, int(u + (reach or 4 * sigma_x)) + 1)
-        y0 = max(0, int(v - (reach or 4 * sigma_y)))
-        y1 = min(height, int(v + (reach or 4 * sigma_y)) + 1)
+        reach = 4 * max(sigma_x, sigma_y) * (1 + wobble)
+        x0 = max(0, int(u - reach))
+        x1 = min(width, int(u + reach) + 1)
+        y0 = max(0, int(v - reach))
+        y1 = min(height, int(v + reach) + 1)
         if x0 >= x1 or y0 >= y1:
             return
         xs = np.arange(x0, x1, dtype=np.float32)
@@ -632,4 +853,11 @@ class SampleScene:
         rx = dx / max(sigma_x, 0.5)
         ry = dy / max(sigma_y, 0.5)
         r2 = rx**2 + ry**2
+        if wobble:
+            theta = np.arctan2(ry, rx)
+            mod = 1.0 + wobble * (
+                0.6 * np.sin(3 * theta + wobble_phase)
+                + 0.4 * np.sin(5 * theta + 2 * wobble_phase)
+            )
+            r2 = r2 / mod**2
         canvas[y0:y1, x0:x1] += intensity * np.exp(-0.5 * r2**sharpness)

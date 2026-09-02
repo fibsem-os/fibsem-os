@@ -77,7 +77,7 @@ def test_contamination_adds_fine_aperiodic_structure(microscope):
         _scene(
             microscope,
             coincidence_offset=0.0,
-            n_clusters=0,
+            cell_type="none",
             contamination_density=density,
         )
         image = microscope.acquire_image(image_settings=_settings(BeamType.ELECTRON))
@@ -102,7 +102,7 @@ def test_beam_shift_moves_the_content_the_way_the_alignment_expects(microscope):
     _scene(
         microscope,
         coincidence_offset=0.0,
-        n_clusters=0,
+        cell_type="none",
         grid_intensity=0.0,
         contamination_density=0.0,
     )
@@ -164,7 +164,7 @@ def test_changing_beam_current_moves_the_beam_reproducibly(microscope):
     _scene(
         microscope,
         coincidence_offset=0.0,
-        n_clusters=0,
+        cell_type="none",
         grid_intensity=0.0,
         contamination_density=0.0,
         current_offset_scale=2e-6,
@@ -197,7 +197,7 @@ def test_scan_rotation_turns_the_content(microscope):
     scene = _scene(
         microscope,
         coincidence_offset=0.0,
-        n_clusters=0,
+        cell_type="none",
         grid_intensity=0.0,
         contamination_density=0.0,
     )
@@ -229,3 +229,82 @@ def test_scan_rotation_turns_the_content(microscope):
     assert abs(x90) < 3 and abs(abs(y90) - 10e-6 / px) < 3
     x180, y180 = fiducial_px(np.pi)
     assert abs(x180 + x0) < 3 and abs(y180) < 3
+
+
+@pytest.mark.parametrize(
+    "cell_type, parts",
+    [
+        ("mammalian", {"body", "nucleus", "organelle"}),
+        ("yeast", {"body", "nucleus", "bud"}),
+        ("bacteria", {"body"}),
+        ("mixed", {"body", "nucleus", "organelle", "bud"}),
+    ],
+)
+def test_cell_types_generate_their_parts(cell_type, parts):
+    scene = SampleScene(cell_type=cell_type, contamination_density=0.0)
+    cells = [f for f in scene.features if f.kind == "cell"]
+    assert {f.part for f in cells} == parts
+    assert all(f.cell_id >= 0 for f in cells)
+
+
+def test_mammalian_is_the_default_and_unknown_types_are_rejected():
+    assert SampleScene().cell_type == "mammalian"
+    with pytest.raises(ValueError):
+        SampleScene(cell_type="tardigrade")
+    assert SampleScene.from_config({"cell_type": "bacteria"}).cell_type == "bacteria"
+
+
+def test_mammalian_cells_are_spread_out_with_the_nucleus_inside_the_body():
+    scene = SampleScene(cell_type="mammalian", contamination_density=0.0)
+    cells = [f for f in scene.features if f.kind == "cell"]
+    bodies = {f.cell_id: f for f in cells if f.part == "body"}
+    nuclei = {f.cell_id: f for f in cells if f.part == "nucleus"}
+    assert set(bodies) == set(nuclei)
+    for cell_id, body in bodies.items():
+        nucleus = nuclei[cell_id]
+        assert np.hypot(nucleus.x - body.x, nucleus.y - body.y) < 0.8 * body.sigma
+        assert nucleus.sigma < 0.5 * body.sigma
+    centres = np.array([(b.x, b.y) for b in bodies.values()])
+    for i, c in enumerate(centres):
+        others = np.delete(centres, i, axis=0)
+        assert np.hypot(*(others - c).T).min() > 1.5 * scene.mammalian_radius[1]
+
+
+def test_the_fm_dyes_the_nucleus_and_the_cytoplasm_differently(microscope):
+    """In the FM the DNA dye (365 excitation) lights the nucleus only; the
+    cytoplasmic dye (450) lights the whole body - so the DAPI image is a
+    subset of the GFP image, brightest where GFP is bright too."""
+    from fibsem.microscopes.sim_scene import fm_channel_weights
+    from fibsem.projection import FMStageProjection
+
+    scene = _scene(
+        microscope,
+        coincidence_offset=0.0,
+        cell_type="mammalian",
+        contamination_density=0.0,
+        grid_intensity=0.0,
+    )
+    res = (512, 512)
+    projection = FMStageProjection(
+        geometry=microscope.hardware_geometry(),
+        pixel_size=150e-6 / res[0],
+        shape=(res[1], res[0]),
+    )
+    pose = microscope.get_stage_position()
+    gfp = scene.render_fm(
+        pose, res, projection, weights=fm_channel_weights("Fluorescence", 450)
+    ).astype(np.float32)
+    dapi = scene.render_fm(
+        pose, res, projection, weights=fm_channel_weights("Fluorescence", 365)
+    ).astype(np.float32)
+
+    dapi_smooth = ndi.gaussian_filter(dapi, 2)
+    gfp_smooth = ndi.gaussian_filter(gfp, 2)
+    background = np.median(dapi_smooth)
+    nuclei = dapi_smooth > background + 0.3 * (dapi_smooth.max() - background)
+    assert 0 < nuclei.mean() < 0.05  # nuclei are small
+    # and they sit in cytoplasm: the GFP there is well above the bare film
+    # (large adherent cells cover most of the field, so the film is the
+    # dim tail of the GFP image, not its median)
+    film = np.percentile(gfp_smooth, 10)
+    assert gfp_smooth[nuclei].mean() > 3 * film

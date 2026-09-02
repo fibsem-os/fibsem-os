@@ -46,7 +46,7 @@ def microscope():
 def _fiducial_only(microscope) -> SampleScene:
     scene = SampleScene(
         coincidence_offset=0.0,
-        n_clusters=0,
+        cell_type="none",
         grid_intensity=0.0,
         noise_sigma=0.0,
         noise_fraction=0.0,

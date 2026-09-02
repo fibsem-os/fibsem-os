@@ -43,7 +43,7 @@ def microscope():
 
     microscope._sample_scene = SampleScene(
         coincidence_offset=0.0,
-        n_clusters=0,
+        cell_type="none",
         grid_intensity=0.0,
         noise_sigma=0.0,
         noise_fraction=0.0,
@@ -108,7 +108,7 @@ def test_vertical_move_closes_the_measured_coincidence_error(microscope):
     pose = microscope.get_stage_position()
     pose.t = np.deg2rad(12.0)
     microscope.move_stage_absolute(pose)
-    microscope._sample_scene.n_clusters = 35
+    microscope._sample_scene.cell_type = "mammalian"  # cells back on the film
     microscope._sample_scene.grid_intensity = 90.0
     microscope._sample_scene.features = []
     microscope._sample_scene.__post_init__()
