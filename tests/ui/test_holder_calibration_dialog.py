@@ -1,5 +1,7 @@
 """The guided slot calibration: orientation gate, capture, review, save."""
 
+import math
+
 import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
@@ -173,3 +175,18 @@ def test_live_position_follows_the_stage_signal(qapp, microscope, tmp_path):
     dialog._show_step(2)
     dialog._on_stage_moved(FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=0.0, t=0.0))
     assert "X:1.00" in dialog.live_position.text()
+
+
+def test_orientation_diagram_follows_the_stage(qapp, microscope, tmp_path):
+    dialog = _dialog(qapp, microscope, _holder(1), tmp_path)
+    microscope.move_to_orientation("FIB")
+    dialog._show_step(1)
+    assert dialog.stage_diagram._orientation == "FIB"
+    assert dialog.stage_diagram._mirrored is True
+
+    microscope.move_to_orientation(CALIBRATION_ORIENTATION)
+    dialog._on_stage_moved(microscope.get_stage_position())
+    assert dialog.stage_diagram._orientation == CALIBRATION_ORIENTATION
+    assert dialog.stage_diagram._mirrored is False
+    sem_tilt = microscope.get_orientation(CALIBRATION_ORIENTATION).t
+    assert abs(dialog.stage_diagram._stage_tilt - math.degrees(sem_tilt)) < 1e-6

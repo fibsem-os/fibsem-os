@@ -45,6 +45,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.utils import install_wheel_blocker_recursive
 from fibsem.ui.widgets.custom_widgets import ValueSpinBox
+from fibsem.ui.widgets.guided_setup_dialog import StageDiagram
 
 # Slot positions are stored at this orientation; every other pose is derived from
 # them by the stable-move projection, which is what the startup stamping in
@@ -264,6 +265,14 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         page = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(page)
         layout.setSpacing(10)
+        # The same side view the setup wizard draws, here read-only: it follows the
+        # stage, so the operator can see which orientation they are at before the
+        # dialog refuses a capture in words.
+        stage_settings = getattr(self._microscope.system, "stage", None)
+        self.stage_diagram = StageDiagram(
+            pre_tilt=float(getattr(stage_settings, "shuttle_pre_tilt", 0.0))
+        )
+        layout.addWidget(self.stage_diagram)
         self.button_orientation = QtWidgets.QPushButton(
             f"Move to {CALIBRATION_ORIENTATION} orientation"
         )
@@ -446,7 +455,25 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
     def _at_calibration_orientation(self) -> bool:
         return self._stage_orientation() == CALIBRATION_ORIENTATION
 
+    def _update_diagram(self, position: FibsemStagePosition) -> None:
+        """Draw the stage as it is: its tilt, and mirrored at the FIB orientation."""
+        if position is None or position.t is None:
+            return
+        try:
+            orientation = self._microscope.get_stage_orientation(position)
+        except Exception:  # noqa: BLE001 - r or t missing; nothing to name
+            orientation = ""
+        self.stage_diagram.set_orientation(
+            name=orientation or "",
+            stage_tilt=float(math.degrees(position.t)),
+            mirrored=orientation == "FIB",
+        )
+
     def _refresh_orientation_status(self) -> None:
+        try:
+            self._update_diagram(self._microscope.get_stage_position())
+        except Exception as e:  # noqa: BLE001 - the words below still say where we are
+            logging.debug(f"Could not read the stage position: {e}")
         orientation = self._stage_orientation()
         if orientation == CALIBRATION_ORIENTATION:
             self._set_status(
@@ -518,6 +545,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         if self._closed or position is None:
             return
         self.live_position.setText(position.pretty)
+        self._update_diagram(position)
 
     def _on_capture(self) -> None:
         """Read x/y/z from the stage; r/t come from the calibration orientation."""
