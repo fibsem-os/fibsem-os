@@ -74,18 +74,11 @@ class GridsTabWidget(QWidget):
         # -- left: the strip -----------------------------------------------------
         strip = QWidget()
         strip_layout = QVBoxLayout(strip)
-        strip_layout.setContentsMargins(8, 8, 4, 4)
+        strip_layout.setContentsMargins(0, 0, 0, 4)
         strip_layout.setSpacing(4)
 
-        header = QHBoxLayout()
-        header.setSpacing(6)
-        title = QLabel("Grids")
-        title.setStyleSheet(
-            f"font-size: 14px; font-weight: bold; color: {NEUTRAL_200}; "
-            "background: transparent;"
-        )
-        header.addWidget(title)
-        header.addStretch(1)
+        # No title over the strip: the cards start where the lamella strip's do.
+        # The count and the inventory action sit under the cards instead.
         self.btn_inventory = QToolButton()
         self.btn_inventory.setFixedSize(26, 26)
         self.btn_inventory.setIconSize(QSize(18, 18))
@@ -98,14 +91,6 @@ class GridsTabWidget(QWidget):
             "every grid it finds"
         )
         self.btn_inventory.clicked.connect(self._on_run_inventory)
-        header.addWidget(self.btn_inventory)
-        strip_layout.addLayout(header)
-
-        self.summary_label = QLabel()
-        self.summary_label.setStyleSheet(
-            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
-        )
-        strip_layout.addWidget(self.summary_label)
 
         self.cards = GridCardContainer()
         self.cards.grid_selected.connect(self.grid_selected)
@@ -121,11 +106,25 @@ class GridsTabWidget(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         strip_layout.addWidget(scroll, 1)
 
+        footer = QHBoxLayout()
+        footer.setContentsMargins(4, 0, 0, 0)
+        footer.setSpacing(6)
+        self.summary_label = QLabel()
+        self.summary_label.setStyleSheet(
+            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
+        )
+        footer.addWidget(self.summary_label, 1)
+        footer.addWidget(self.btn_inventory)
+        strip_layout.addLayout(footer)
+        # The inventory's or an exchange's state, under the count, only while
+        # there is something to say.
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet(
-            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
+            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent; "
+            "padding-left: 4px;"
         )
+        self.status_label.setVisible(False)
         strip_layout.addWidget(self.status_label)
 
         strip.setMaximumWidth(_STRIP_WIDTH)
@@ -378,3 +377,4 @@ class GridsTabWidget(QWidget):
             f"font-size: 11px; color: {colour}; background: transparent;"
         )
         self.status_label.setText(text)
+        self.status_label.setVisible(bool(text))
