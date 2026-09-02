@@ -156,10 +156,51 @@ def test_progress_reports_every_step_and_moves_are_counted(microscope, tmp_path)
     assert steps[2].iteration == 0 and steps[3].iteration == 1
     assert all(s.describe() for s in steps)
 
-    # each measurement keeps its pair, so the run is fully re-plottable
-    saved = save_coincidence_diagnostics(result, str(tmp_path))
-    assert len(saved) == len(result.measurements) == 2
-    assert saved[0].endswith("_01_fine.png")
+    # each measurement keeps its pair, so the run is saved as a replayable
+    # case: every pair as tif with metadata, the numbers, one summary figure
+    import os
+
+    from fibsem.alignment.plotting import load_coincidence_run
+
+    run_dir = save_coincidence_diagnostics(result, str(tmp_path), prefix="start_")
+    assert os.path.basename(run_dir).startswith("start_coincidence_")
+    saved = sorted(os.listdir(run_dir))
+    assert saved == [
+        "01_fine_fib.tif",
+        "01_fine_sem.tif",
+        "02_fine_fib.tif",
+        "02_fine_sem.tif",
+        "run.json",
+        "summary.png",
+    ]
+    replayed = load_coincidence_run(run_dir)
+    assert len(replayed) == 2
+    for record, _, _, fresh in replayed:
+        assert fresh.is_reliable == record["is_reliable"]
+        assert fresh.dz == pytest.approx(record["dz"], abs=0.5e-6)
+
+
+def test_a_coarse_run_replays_with_its_own_parameters(microscope, tmp_path):
+    """A coarse pair re-measured with the fine window reads differently;
+    the run records what each measurement was run with, and the replay
+    uses it, so the replay reproduces the run."""
+    from fibsem.alignment.plotting import (
+        load_coincidence_run,
+        save_coincidence_diagnostics,
+    )
+
+    microscope._coincidence_scene.coincidence_offset = 40e-6
+    microscope._coincidence_scene.reference_position = None
+    microscope._coincidence_scene.anchor(microscope.get_stage_position())
+    result = ensure_coincident(microscope, tolerance=1e-6)
+    assert result.coarse_used
+
+    replayed = load_coincidence_run(save_coincidence_diagnostics(result, str(tmp_path)))
+    assert [r["pass"] for r, *_ in replayed] == ["fine", "coarse", "fine"]
+    for record, _, _, fresh in replayed:
+        assert fresh.is_reliable == record["is_reliable"]
+        assert fresh.refusal_reason == record["refusal_reason"]
+        assert fresh.dz == pytest.approx(record["dz"], abs=0.5e-6)
 
 
 def test_coarse_measurements_do_not_count_as_moves(microscope):

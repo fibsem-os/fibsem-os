@@ -89,6 +89,12 @@ class CoincidenceMeasurement:
     # the FIB->SEM y stretch the pair was measured with: dy is in the FIB
     # plane, dy * y_stretch is the same displacement seen in the SEM plane
     y_stretch: float = 1.0
+    # what the measurement was run with, so a saved pair can be replayed
+    # with the same inputs
+    capture_range: float = DEFAULT_CAPTURE_RANGE
+    agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE
+    max_lateral_offset: float = DEFAULT_MAX_LATERAL_OFFSET
+    prior: Optional[Tuple[float, float]] = None
     # the pair this was measured from, kept for diagnostics (check_coincidence
     # fills them in; the pure array path leaves them None)
     sem_image: Optional[FibsemImage] = field(default=None, repr=False)
@@ -320,6 +326,10 @@ def measure_coincidence(
         is_reliable=refusal is None,
         refusal_reason=refusal,
         seeded=prior is not None,
+        capture_range=capture_range,
+        agreement_tolerance=agreement_tolerance,
+        max_lateral_offset=max_lateral_offset,
+        prior=None if prior is None else (float(prior[0]), float(prior[1])),
     )
     logging.debug(
         {

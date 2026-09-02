@@ -284,38 +284,233 @@ def plot_coincidence_measurement(
     return fig
 
 
-def save_coincidence_diagnostics(
-    result: "CoincidenceAlignment", path: str, prefix: str = ""
-) -> List[str]:
-    """Save one diagnostic figure per measurement of an ensure_coincident run.
+def plot_coincidence_alignment(
+    result: "CoincidenceAlignment", title: Optional[str] = None
+):
+    """One figure for a whole ensure_coincident run.
 
-    Files are numbered in run order (`<prefix>coincidence_<ts>_01_fine.png`,
-    `..._02_coarse.png`, ...) so a run reads as a sequence: the refusal that
-    escalated, the coarse lock, the post-move residual. Measurements without
-    their image pair (the pure array path) are skipped.
+    A row per measurement: the raw SEM and FIB pair (the context the
+    operator recognises), then what the correlator actually saw - both
+    images local-normalised, band-passed and reduced to gradient magnitude,
+    the FIB stretched to the SEM projection and shifted by the measured
+    residual, shown as a checkerboard against the SEM so a good lock reads
+    as continuous structure across the tiles and a wrong one as broken
+    edges. A single-panel residual plot at the top right carries the
+    convergence story, and the title the verdict. Measurements without
+    their image pair are skipped.
 
     Returns:
-        the saved file paths, in order.
+        matplotlib.figure.Figure
     """
     from datetime import datetime
 
-    os.makedirs(path, exist_ok=True)
-    ts = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    saved: List[str] = []
-    for i, m in enumerate(result.measurements, start=1):
-        if m.sem_image is None or m.fib_image is None:
-            continue
+    from matplotlib.figure import Figure
+    from matplotlib.gridspec import GridSpec
+    from scipy import ndimage as ndi
+
+    from fibsem.alignment.coincidence import (
+        AGREEMENT_BANDS,
+        _preprocess,
+        _stretch_y,
+        geometry_from_images,
+    )
+
+    rows = [
+        m
+        for m in result.measurements
+        if m.sem_image is not None and m.fib_image is not None
+    ]
+    n = max(len(rows), 1)
+    fig = Figure(figsize=(14.5, 3.3 * n + 0.7))
+    grid = GridSpec(n, 4, figure=fig, width_ratios=[1, 1, 1, 0.85])
+
+    verdict = "CONVERGED" if result.converged else f"NOT COINCIDENT ({result.reason})"
+    header = (
+        f"{title or 'Coincidence alignment'} — {verdict}, "
+        f"{result.moves_applied} move(s)"
+        f"{', coarse pass used' if result.coarse_used else ''} — "
+        f"{datetime.now().strftime(DATETIME_DISPLAY)}"
+    )
+    fig.suptitle(header, fontsize=12, color="lime" if result.converged else "orange")
+
+    s1, s2 = AGREEMENT_BANDS[0]
+    for i, m in enumerate(rows):
+        geometry = geometry_from_images(m.sem_image, m.fib_image)
+        px = geometry.pixel_size
+        stretch = geometry.y_stretch
+        sem = m.sem_image.data.astype(np.float32)
+        fib = m.fib_image.data.astype(np.float32)
         pass_name = "coarse" if m.coarse else "fine"
-        fig = plot_coincidence_measurement(
-            m.sem_image,
-            m.fib_image,
-            m,
-            title=f"Coincidence {i}/{len(result.measurements)} ({pass_name})",
-            save=False,
+        hfw_um = m.sem_image.metadata.image_settings.hfw * 1e6
+
+        ax = fig.add_subplot(grid[i, 0])
+        _plot_image_with_crosshair(
+            ax, sem, f"{i + 1}. SEM ({pass_name}, {hfw_um:.0f} um)"
         )
-        save_path = os.path.join(
-            path, f"{prefix}coincidence_{ts}_{i:02d}_{pass_name}.png"
+        ax = fig.add_subplot(grid[i, 1])
+        _plot_image_with_crosshair(ax, fib, f"{i + 1}. FIB")
+
+        # the correlator's view, FIB shifted by the measured residual
+        ref = _preprocess(sem, s1, s2)
+        other = _preprocess(_stretch_y(fib, stretch), s1, s2)
+        other = ndi.shift(
+            other, (m.dy / px * stretch, m.dx / px), order=1, mode="constant"
         )
-        fig.savefig(save_path, dpi=80)
-        saved.append(save_path)
-    return saved
+        tile = max(16, min(ref.shape) // 8)
+        yy, xx = np.mgrid[0 : ref.shape[0], 0 : ref.shape[1]]
+        checker = ((yy // tile) + (xx // tile)) % 2 == 0
+        board = np.where(checker, ref, other)
+        ax = fig.add_subplot(grid[i, 2])
+        lo, hi = np.percentile(board, [1, 99])
+        ax.imshow(board, cmap="gray", vmin=lo, vmax=hi)
+        ax.set_title("Correlator: SEM / aligned FIB checkerboard", fontsize=8)
+        ax.axis("off")
+        colour = "lime" if m.is_reliable else "red"
+        ax.text(
+            0.03,
+            0.04,
+            ("RELIABLE" if m.is_reliable else f"REFUSED ({m.refusal_reason})")
+            + f"\ndx={m.dx * 1e6:+.2f}  dy={m.dy * 1e6:+.2f}  dz={m.dz * 1e6:+.2f} um"
+            + f"\nband-disagreement={m.band_disagreement * 1e6:.2f} um",
+            transform=ax.transAxes,
+            color=colour,
+            fontsize=6.5,
+            va="bottom",
+            fontfamily="monospace",
+            bbox=dict(
+                boxstyle="round,pad=0.2", facecolor="black", alpha=0.6, edgecolor="none"
+            ),
+        )
+
+    # one panel's worth of residual plot, not a column-high one
+    ax = fig.add_subplot(grid[0, 3])
+    idx = np.arange(1, len(result.measurements) + 1)
+    dz = np.array([m.dz for m in result.measurements]) * 1e6
+    dx = np.array([m.dx for m in result.measurements]) * 1e6
+    reliable = np.array([m.is_reliable for m in result.measurements])
+    ax.plot(idx, dz, "o-", color="tab:blue", label="dz (height)")
+    ax.plot(idx, dx, "s--", color="tab:gray", label="dx (lateral)")
+    if (~reliable).any():
+        ax.plot(
+            idx[~reliable],
+            dz[~reliable],
+            "x",
+            color="red",
+            ms=12,
+            mew=2,
+            label="refused",
+        )
+    ax.axhline(0, color="k", lw=0.8)
+    ax.set_xticks(idx)
+    ax.set_xlabel("measurement")
+    ax.set_ylabel("um")
+    ax.set_title("Residuals", fontsize=10)
+    ax.legend(fontsize="x-small")
+    ax.grid(alpha=0.3)
+
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return fig
+
+
+def save_coincidence_diagnostics(
+    result: "CoincidenceAlignment", path: str, prefix: str = ""
+) -> str:
+    """Save an ensure_coincident run as a replayable case.
+
+    Writes a run directory `<path>/<prefix>coincidence_<ts>/` holding every
+    measured pair as `NN_<pass>_sem.tif` / `NN_<pass>_fib.tif` with full
+    metadata (so `load_coincidence_run` can re-measure them offline with
+    the same inputs), `run.json` with the verdict and every measurement's
+    numbers, and `summary.png`, the figure from plot_coincidence_alignment.
+    Measurements without their image pair (the pure array path) are skipped.
+
+    Returns:
+        the run directory.
+    """
+    import json
+    from datetime import datetime
+
+    ts = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    run_dir = os.path.join(path, f"{prefix}coincidence_{ts}")
+    os.makedirs(run_dir, exist_ok=True)
+
+    records = []
+    for i, m in enumerate(result.measurements, start=1):
+        pass_name = "coarse" if m.coarse else "fine"
+        record = {
+            "index": i,
+            "pass": pass_name,
+            "dx": m.dx,
+            "dy": m.dy,
+            "dz": m.dz,
+            "band_disagreement": m.band_disagreement,
+            "is_reliable": m.is_reliable,
+            "refusal_reason": m.refusal_reason,
+            "seeded": m.seeded,
+            "y_stretch": m.y_stretch,
+            "method": m.method,
+            "capture_range": m.capture_range,
+            "agreement_tolerance": m.agreement_tolerance,
+            "max_lateral_offset": m.max_lateral_offset,
+            "prior": m.prior,
+        }
+        if m.sem_image is not None and m.fib_image is not None:
+            record["sem"] = f"{i:02d}_{pass_name}_sem.tif"
+            record["fib"] = f"{i:02d}_{pass_name}_fib.tif"
+            m.sem_image.save(os.path.join(run_dir, record["sem"]))
+            m.fib_image.save(os.path.join(run_dir, record["fib"]))
+        records.append(record)
+
+    with open(os.path.join(run_dir, "run.json"), "w") as f:
+        json.dump(
+            {
+                "converged": result.converged,
+                "reason": result.reason,
+                "moves_applied": result.moves_applied,
+                "coarse_used": result.coarse_used,
+                "measurements": records,
+            },
+            f,
+            indent=2,
+        )
+
+    fig = plot_coincidence_alignment(result, title=f"{prefix}coincidence")
+    fig.savefig(os.path.join(run_dir, "summary.png"), dpi=80)
+    return run_dir
+
+
+def load_coincidence_run(run_dir: str) -> list:
+    """Replay a saved run: re-measure every saved pair with the same inputs.
+
+    Returns [(record, sem_image, fib_image, measurement)] in run order, where
+    `record` is the saved measurement and `measurement` a fresh one from the
+    current code, run with the saved parameters (window, tolerances, prior)
+    - the two disagreeing is the point of keeping the raw data.
+    """
+    import json
+
+    from fibsem.alignment.coincidence import measure_coincidence_from_images
+    from fibsem.structures import FibsemImage
+
+    with open(os.path.join(run_dir, "run.json")) as f:
+        run = json.load(f)
+    replayed = []
+    for record in run["measurements"]:
+        if "sem" not in record:
+            continue
+        sem_image = FibsemImage.load(os.path.join(run_dir, record["sem"]))
+        fib_image = FibsemImage.load(os.path.join(run_dir, record["fib"]))
+        prior = record.get("prior")
+        measurement = measure_coincidence_from_images(
+            sem_image,
+            fib_image,
+            prior=None if prior is None else tuple(prior),
+            capture_range=record["capture_range"],
+            agreement_tolerance=record["agreement_tolerance"],
+            max_lateral_offset=record["max_lateral_offset"],
+        )
+        measurement.coarse = record["pass"] == "coarse"
+        measurement.sem_image = sem_image
+        measurement.fib_image = fib_image
+        replayed.append((record, sem_image, fib_image, measurement))
+    return replayed
