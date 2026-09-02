@@ -219,13 +219,15 @@ class _TaskRow(QWidget):
 
     def refresh(self) -> None:
         available = self._reason is None
-        self.name_label.setText(self.config.display_name)
+        self.name_label.setText(self.task_name)
         style_with_tooltip(
             self.name_label,
             f"font-weight: bold; background: transparent; "
             f"color: {NEUTRAL_200 if available else NEUTRAL_550};",
         )
-        self.detail_label.setText(self.task_name if available else self._reason)
+        self.detail_label.setText(
+            self.config.display_name if available else self._reason
+        )
         self.detail_label.setStyleSheet(
             f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
         )
