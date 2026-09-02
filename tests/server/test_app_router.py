@@ -134,6 +134,30 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
     assert unknown.json()["detail"]["filenames"] == [fname]
 
 
+def test_task_config_reads_over_http(client, host):
+    from fibsem.applications.autolamella.workflows.tasks.rough import (
+        MillRoughTaskConfig,
+    )
+
+    config = MillRoughTaskConfig(task_name="Rough Milling")
+    host.experiment.task_protocol.task_config["Rough Milling"] = config
+    item = host.experiment.positions[0]
+    item.task_config["Rough Milling"] = config
+
+    doc = client.get("/app/protocol/task_config/Rough Milling", headers=AUTH).json()
+    assert doc["available"] is True and doc["level"] == "protocol"
+    assert "version" in doc and "config" in doc
+
+    item_doc = client.get(
+        f"/app/items/{item.name}/task_config/Rough Milling", headers=AUTH
+    ).json()
+    assert item_doc["level"] == "item"
+    assert item_doc["version"] == doc["version"]
+
+    unknown = client.get("/app/protocol/task_config/Nope", headers=AUTH).json()
+    assert "task_names" in unknown
+
+
 def test_summaries_and_protocol_over_http(client):
     for path in ("/app/experiment_summary", "/app/task_history", "/app/protocol"):
         body = client.get(path, headers=AUTH).json()

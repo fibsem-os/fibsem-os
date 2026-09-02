@@ -223,6 +223,27 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
+        name="get_protocol_task_config",
+        description="One task's protocol-level configuration document (the defaults new items copy), with a version token naming exactly this state of it. Full document, not a summary.",
+        method="GET",
+        path="/app/protocol/task_config/{task_name}",
+        scope="read",
+        router="app",
+        params={"task_name": "the task name, as listed by get_protocol"},
+    ),
+    ToolSpec(
+        name="get_item_task_config",
+        description="One item's own copy of a task configuration (what its run actually executes — tasks may have rewritten it mid-run), with a version token naming exactly this state of it.",
+        method="GET",
+        path="/app/items/{item_name}/task_config/{task_name}",
+        scope="read",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "task_name": "the task name, as listed by get_protocol",
+        },
+    ),
+    ToolSpec(
         name="get_events",
         description="Events after a sequence number: milling/acquisition progress, stage moves, task lifecycle. Long-polls up to timeout seconds.",
         method="GET",

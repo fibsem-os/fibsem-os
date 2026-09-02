@@ -252,6 +252,12 @@ def build_sidecar(client, capabilities):
     def get_item_detail(item_name: str):
         return _app_get(f"/app/items/{item_name}")
 
+    def get_protocol_task_config(task_name: str):
+        return _app_get(f"/app/protocol/task_config/{task_name}")
+
+    def get_item_task_config(item_name: str, task_name: str):
+        return _app_get(f"/app/items/{item_name}/task_config/{task_name}")
+
     def list_recent_experiments():
         return _app_get("/app/recent_experiments")
 
@@ -337,6 +343,8 @@ def build_sidecar(client, capabilities):
             get_protocol,
             get_task_outputs,
             get_item_detail,
+            get_protocol_task_config,
+            get_item_task_config,
             list_recent_experiments,
             get_events,
             get_display_images,

@@ -45,6 +45,10 @@ class AppContext(Protocol):
 
     def output_image(self, item_name: str, filename: str) -> Dict[str, Any]: ...
 
+    def protocol_task_config(self, task_name: str) -> Dict[str, Any]: ...
+
+    def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]: ...
+
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
@@ -109,6 +113,14 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/items/{item_name}")
     def item_detail(item_name: str):
         return context.item_detail(item_name)
+
+    @router.get("/protocol/task_config/{task_name}")
+    def protocol_task_config(task_name: str):
+        return context.protocol_task_config(task_name)
+
+    @router.get("/items/{item_name}/task_config/{task_name}")
+    def item_task_config(item_name: str, task_name: str):
+        return context.item_task_config(item_name, task_name)
 
     @router.get("/items/{item_name}/outputs/{filename}")
     def output_image(item_name: str, filename: str):

@@ -352,6 +352,82 @@ class AgentContext:
             "poses": poses,
         }
 
+    # --- task configs (FIB-864, read side) --------------------------------------
+
+    def protocol_task_config(self, task_name: str) -> Dict[str, Any]:
+        """One task's protocol-level defaults document — what new items copy."""
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        config_map = getattr(protocol, "task_config", None) if protocol else None
+        if config_map is None:
+            return {"available": False, "task_name": task_name}
+        config = dict(config_map).get(task_name)
+        if config is None:
+            return {
+                "available": True,
+                "task_name": task_name,
+                "error": f"No task named {task_name!r} in the protocol.",
+                "task_names": list(config_map.keys()),
+            }
+        return self._config_document(task_name, config, level="protocol")
+
+    def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]:
+        """One item's own copy of a task config — what its run executes."""
+        experiment = self._experiment
+        if experiment is None:
+            return {
+                "available": False,
+                "item_name": item_name,
+                "task_name": task_name,
+            }
+        lamella = experiment.get_lamella_by_name(item_name)
+        if lamella is None:
+            return {
+                "available": False,
+                "item_name": item_name,
+                "task_name": task_name,
+                "error": f"No item named {item_name!r} in this experiment.",
+            }
+        config = dict(lamella.task_config).get(task_name)
+        if config is None:
+            return {
+                "available": True,
+                "item_name": item_name,
+                "task_name": task_name,
+                "error": f"No task config named {task_name!r} on {item_name!r}.",
+                "task_names": list(lamella.task_config.keys()),
+            }
+        document = self._config_document(task_name, config, level="item")
+        document["item_name"] = item_name
+        return document
+
+    @staticmethod
+    def _config_document(task_name: str, config, level: str) -> Dict[str, Any]:
+        """One config as a wire document with its version token.
+
+        The full ``to_dict``, not a curated snapshot — the document is the
+        contract for editing (you cannot patch what you cannot read). The
+        ``version`` hashes the serialized content, so a later write can name
+        exactly the state it read: the config's nonce, refused as stale on
+        mismatch once the write side lands.
+        """
+        import hashlib
+        import json
+
+        from fibsem.applications.autolamella.server.events import to_plain
+
+        data = to_plain(config.to_dict())
+        version = hashlib.sha256(
+            json.dumps(data, sort_keys=True, default=str).encode()
+        ).hexdigest()[:16]
+        return {
+            "available": True,
+            "task_name": task_name,
+            "level": level,
+            "version": version,
+            "config": data,
+        }
+
     # --- instrument-adjacent (cached only, never a hardware call) --------------
 
     def stage_position(self) -> Dict[str, Any]:
