@@ -281,10 +281,18 @@ def test_the_tab_sits_behind_the_flag_between_lamella_and_workflow(main_ui):
     index = tabs.indexOf(main_ui.grids_tab)
     labels = [tabs.tabText(i) for i in range(tabs.count())]
     assert labels[index - 1] == "Lamella" and labels[index + 1] == "Workflow"
-    assert not tabs.isTabVisible(index)  # off by default
-    main_ui._preferences.features.grid_workflow = True
-    main_ui._apply_grid_workflow_visibility()
-    assert tabs.isTabVisible(index)
+    # Both states set outright: the window loads (and on close saves) the
+    # preference file, so "off by default" would read whatever the last run left.
+    was = main_ui._preferences.features.grid_workflow
+    try:
+        main_ui._preferences.features.grid_workflow = False
+        main_ui._apply_grid_workflow_visibility()
+        assert not tabs.isTabVisible(index)
+        main_ui._preferences.features.grid_workflow = True
+        main_ui._apply_grid_workflow_visibility()
+        assert tabs.isTabVisible(index)
+    finally:
+        main_ui._preferences.features.grid_workflow = was
 
 
 def test_the_tab_follows_the_connection_and_the_experiment(main_ui, tmp_path):

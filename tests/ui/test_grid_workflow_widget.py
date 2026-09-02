@@ -184,10 +184,16 @@ def test_the_grids_view_sits_beside_lamella_behind_the_flag(main_ui):
     left = main_ui.workflow_left_tabs
     index = left.indexOf(main_ui.grid_workflow_widget)
     assert left.tabText(index) == "Grids" and left.tabText(0) == "Lamella"
-    assert not left.isTabVisible(index)
-    main_ui._preferences.features.grid_workflow = True
-    main_ui._apply_grid_workflow_visibility()
-    assert left.isTabVisible(index)
+    was = main_ui._preferences.features.grid_workflow
+    try:
+        main_ui._preferences.features.grid_workflow = False
+        main_ui._apply_grid_workflow_visibility()
+        assert not left.isTabVisible(index)
+        main_ui._preferences.features.grid_workflow = True
+        main_ui._apply_grid_workflow_visibility()
+        assert left.isTabVisible(index)
+    finally:
+        main_ui._preferences.features.grid_workflow = was
 
 
 def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeypatch):
