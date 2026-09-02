@@ -57,6 +57,7 @@ from fibsem.ui import (
 )
 from fibsem.ui import utils as fui
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
+from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.qt.threading import FunctionWorker
 
@@ -222,6 +223,7 @@ class AutoLamellaUI(QMainWindow):
         self.movement_widget: Optional[FibsemMovementWidget] = None
         self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
         self.fm_control_widget: Optional[FMControlWidget] = None
+        self.sample_widget: Optional[FibsemSampleWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
 
@@ -709,6 +711,17 @@ class AutoLamellaUI(QMainWindow):
             )
             self.tabWidget.addTab(self.milling_task_config_widget, "Milling")
 
+            # The hardware view of the grids: the holder, and the magazine when
+            # there is one. Slot moves go through the Movement widget, the same
+            # route as a saved position, so the readout and post-move images follow.
+            self.sample_widget = FibsemSampleWidget(
+                microscope=self.microscope, parent=self
+            )
+            self.sample_widget.move_to_requested.connect(
+                self.movement_widget.move_to_position
+            )
+            self.tabWidget.addTab(self.sample_widget, "Sample")
+
             if self.microscope.fm is not None:
                 self.fm_control_widget = FMControlWidget(
                     microscope=self.microscope, parent=self
@@ -753,6 +766,10 @@ class AutoLamellaUI(QMainWindow):
                 return
 
             # remove tabs
+            if self.sample_widget is not None:
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.sample_widget))
+                self.sample_widget.deleteLater()
+                self.sample_widget = None
             if self.fm_control_widget is not None:
                 # deleteLater fires neither closeEvent nor close_widget, so tear
                 # down the FM widget's external signal connections explicitly
