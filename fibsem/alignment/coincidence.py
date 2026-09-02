@@ -30,6 +30,7 @@ full findings.
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
@@ -37,7 +38,7 @@ import numpy as np
 from scipy import ndimage as ndi
 from scipy.signal import fftconvolve
 
-from fibsem.structures import FibsemImage
+from fibsem.structures import FibsemImage, FibsemStagePosition
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -88,6 +89,12 @@ class CoincidenceMeasurement:
     # the FIB->SEM y stretch the pair was measured with: dy is in the FIB
     # plane, dy * y_stretch is the same displacement seen in the SEM plane
     y_stretch: float = 1.0
+    # what the measurement was run with, so a saved pair can be replayed
+    # with the same inputs
+    capture_range: float = DEFAULT_CAPTURE_RANGE
+    agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE
+    max_lateral_offset: float = DEFAULT_MAX_LATERAL_OFFSET
+    prior: Optional[Tuple[float, float]] = None
     # the pair this was measured from, kept for diagnostics (check_coincidence
     # fills them in; the pure array path leaves them None)
     sem_image: Optional[FibsemImage] = field(default=None, repr=False)
@@ -319,6 +326,10 @@ def measure_coincidence(
         is_reliable=refusal is None,
         refusal_reason=refusal,
         seeded=prior is not None,
+        capture_range=capture_range,
+        agreement_tolerance=agreement_tolerance,
+        max_lateral_offset=max_lateral_offset,
+        prior=None if prior is None else (float(prior[0]), float(prior[1])),
     )
     logging.debug(
         {
@@ -712,10 +723,67 @@ class TiltAlignment:
     alignments: List["CoincidenceAlignment"]
     converged: bool  # coincident AT the target tilt
     reason: str
+    # the height of the surface above the tilt axis, estimated from the sag
+    # each tilt segment cost (None when no segment could measure it)
+    tilt_axis_offset: Optional[float] = None
+    # the surface walk h * sin(dt) the tilt produced, and whether it was
+    # undone (a stable move back to the patch that was centred before)
+    walk: float = 0.0
+    walk_undone: bool = False
 
     @property
     def moves_applied(self) -> int:
         return sum(a.moves_applied for a in self.alignments)
+
+
+# a segment must change cos(t - apex) by at least this much to resolve h:
+# below it the height lever is too short and noise dominates (~2 deg near apex)
+MIN_HEIGHT_LEVER = 6e-4
+MIN_WALK_TO_UNDO = 0.2e-6  # m
+
+
+def tilt_swing(
+    tilt_axis_offset: float,
+    tilt_from: float,
+    tilt_to: float,
+    apex: float,
+    pretilt: float,
+) -> Tuple[float, float]:
+    """Where a tilt from `tilt_from` to `tilt_to` carries a surface point
+    sitting `tilt_axis_offset` above the tilt axis, as a (dy, dz)
+    displacement in stage axes.
+
+    The eucentric-height model, anchored at a physical `apex`: the tilt at
+    which the offset vector from axis to surface is vertical - the SEM
+    orientation, where the surface normal points up the column. Relative to
+    it the point sits at height h * cos(t - apex) and lateral h * sin(t -
+    apex); a segment changes those by the difference. Anchoring at an apex
+    rather than at "wherever the segment started" is what keeps h's sign
+    right on the way back: after a correction at the milling angle, the
+    return tilt sees the opposite height change, and a start-relative
+    h * (1 - cos dt) read that as a negative h and undid the walk backwards.
+
+    The walk follows the stable-move direction (cos p, -sin p) in stage y/z
+    for corrected pre-tilt p - not the stage y axis, which leaves the surface
+    plane on a pre-tilted shuttle; the height goes on the stage z axis,
+    where a coincidence height error lives. Shared with the simulator's
+    scene, which renders exactly this.
+    """
+    walk = tilt_axis_offset * (np.sin(tilt_to - apex) - np.sin(tilt_from - apex))
+    rise = tilt_axis_offset * (np.cos(tilt_to - apex) - np.cos(tilt_from - apex))
+    return float(walk * np.cos(pretilt)), float(-walk * np.sin(pretilt) + rise)
+
+
+def tilt_axis_offset_from_height_change(
+    dz: float, tilt_from: float, tilt_to: float, apex: float
+) -> Optional[float]:
+    """h from the height error a tilt segment produced (dz = the z move that
+    cancels it, so the surface moved by -dz). None when the segment is too
+    flat to tell."""
+    dcos = np.cos(tilt_to - apex) - np.cos(tilt_from - apex)
+    if abs(dcos) < MIN_HEIGHT_LEVER:
+        return None
+    return float(-dz / dcos)
 
 
 DEFAULT_MAX_TILT_SPLITS = 2
@@ -727,6 +795,7 @@ def tilt_coincident(
     reference: "BeamType" = None,
     max_splits: int = DEFAULT_MAX_TILT_SPLITS,
     on_progress: Optional[ProgressCallback] = None,
+    undo_walk: bool = True,
     **ensure_kwargs,
 ) -> TiltAlignment:
     """Tilt the stage to `target_tilt` (rad) and restore coincidence there.
@@ -744,9 +813,15 @@ def tilt_coincident(
 
     `reference` is passed through to ensure_coincident; ION (the default
     here, unlike ensure_coincident's) keeps what the operator centred in the
-    FIB view. Note this preserves coincidence, not identity: a large swing can
-    bring a different feature under the crosshair, and tracking the original
-    is a separate problem.
+    FIB view.
+
+    Coincidence is not identity: the same swing that costs the height also
+    walks the surface under the beams by h * sin(dt), so a different patch
+    is centred afterwards. The sag the alignment measures gives h directly
+    (sag = h * (1 - cos dt), assuming the stage was coincident before the
+    tilt), so the walk is known without any image tracking, and with
+    `undo_walk` one stable move at the end brings the original patch back
+    under the crosshair. The estimate is reported as `tilt_axis_offset`.
 
     Args:
         microscope: the microscope connection.
@@ -754,6 +829,8 @@ def tilt_coincident(
         reference: which view keeps its centre (see ensure_coincident).
         max_splits: how many times a refused segment may be halved.
         on_progress: forwarded to every ensure_coincident call.
+        undo_walk: after converging at the target, stable-move back by the
+            walk the tilt produced, so what was centred before stays centred.
         **ensure_kwargs: forwarded to ensure_coincident (tolerance, ranges...).
 
     Returns:
@@ -765,10 +842,14 @@ def tilt_coincident(
     if reference is None:
         reference = BeamType.ION
 
-    last_coincident_tilt = float(microscope.get_stage_position().t or 0.0)
+    start_pose = microscope.get_stage_position()
+    start_tilt = float(start_pose.t or 0.0)
+    last_coincident_tilt = start_tilt
+    apex = _tilt_apex(microscope)
     pending: List[float] = [float(target_tilt)]  # target stays at the bottom
     tilts: List[float] = []
     alignments: List[CoincidenceAlignment] = []
+    offset_estimates: List[float] = []
     splits = 0
 
     while pending:
@@ -784,6 +865,11 @@ def tilt_coincident(
         alignments.append(result)
 
         if result.converged:
+            estimate = _segment_offset_estimate(
+                result, last_coincident_tilt, goal, apex
+            )
+            if estimate is not None:
+                offset_estimates.append(estimate)
             pending.pop()
             last_coincident_tilt = goal
             continue
@@ -795,6 +881,17 @@ def tilt_coincident(
 
     converged = bool(alignments) and not pending and alignments[-1].converged
     reason = REASON_CONVERGED if converged else alignments[-1].reason
+
+    tilt_axis_offset = float(np.mean(offset_estimates)) if offset_estimates else None
+    walk = 0.0
+    walk_undone = False
+    if converged and tilt_axis_offset is not None:
+        walk = tilt_axis_offset * (
+            np.sin(float(target_tilt) - apex) - np.sin(start_tilt - apex)
+        )
+        if undo_walk and abs(walk) > MIN_WALK_TO_UNDO:
+            _undo_surface_walk(microscope, start_pose, tilt_axis_offset)
+            walk_undone = True
     logging.info(
         {
             "msg": "tilt_coincident",
@@ -803,8 +900,72 @@ def tilt_coincident(
             "converged": converged,
             "reason": reason,
             "splits": splits,
+            "tilt_axis_offset": tilt_axis_offset,
+            "walk": walk,
+            "walk_undone": walk_undone,
         }
     )
     return TiltAlignment(
-        tilts=tilts, alignments=alignments, converged=converged, reason=reason
+        tilts=tilts,
+        alignments=alignments,
+        converged=converged,
+        reason=reason,
+        tilt_axis_offset=tilt_axis_offset,
+        walk=walk,
+        walk_undone=walk_undone,
     )
+
+
+def _tilt_apex(microscope: "FibsemMicroscope") -> float:
+    """The tilt at which the surface normal is vertical: the SEM orientation."""
+    return float(microscope.get_orientation("SEM").t or 0.0)
+
+
+def _segment_offset_estimate(
+    alignment: CoincidenceAlignment, tilt_from: float, tilt_to: float, apex: float
+) -> Optional[float]:
+    """h from one tilt segment: the first reliable measurement at the new
+    tilt is the whole height error the segment produced (the stage was
+    coincident before it)."""
+    first = next((m for m in alignment.measurements if m.is_reliable), None)
+    if first is None:
+        return None
+    return tilt_axis_offset_from_height_change(first.dz, tilt_from, tilt_to, apex)
+
+
+def _undo_surface_walk(
+    microscope: "FibsemMicroscope",
+    start_pose: FibsemStagePosition,
+    tilt_axis_offset: float,
+) -> None:
+    """Bring the patch that was centred before the tilt back to the centre.
+
+    The h-model says where that patch now sits in stage coordinates (the
+    start pose carried by the swing); projecting it into the SEM view at the
+    ACTUAL current pose - after every correction the alignment made - gives
+    the displacement to undo, with no image tracking and no bookkeeping of
+    the individual moves. One stable move follows the surface, so it does
+    not cost the coincidence just restored.
+    """
+    from fibsem.projection import BeamStageProjection
+    from fibsem.structures import BeamType
+    from fibsem.transformations import _projection_terms
+
+    projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)
+    if projection is None:
+        logging.warning("Cannot undo the tilt walk: no SEM projection available")
+        return
+    now = microscope.get_stage_position()
+    _, pretilt, _ = _projection_terms(projection.geometry, now.r or 0.0, now.t or 0.0)
+    dy, dz = tilt_swing(
+        tilt_axis_offset,
+        float(start_pose.t or 0.0),
+        float(now.t or 0.0),
+        _tilt_apex(microscope),
+        pretilt,
+    )
+    patch = deepcopy(start_pose)
+    patch.y = (patch.y or 0.0) + dy
+    patch.z = (patch.z or 0.0) + dz
+    ax, ay = projection.to_plane(patch, now)
+    microscope.stable_move(dx=-ax, dy=-ay, beam_type=BeamType.ELECTRON)
