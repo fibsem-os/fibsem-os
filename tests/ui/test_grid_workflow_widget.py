@@ -9,6 +9,7 @@ import pytest
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from PyQt5.QtTest import QTest
+from PyQt5.QtWidgets import QDialog
 
 import fibsem.config as cfg
 from fibsem import utils
@@ -314,3 +315,72 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     assert len(grid_outputs(exp, grid, "overview_sem")) == 1
     assert main_ui.grids_tab.btn_inventory.isEnabled()
     assert ui._last_run_summary is not None  # the grid summary, for the agent server
+
+
+def test_adding_grids_to_a_running_queue_appends_their_blocks(
+    main_ui, tmp_path, monkeypatch
+):
+    """The Grids view's selection goes onto the end of a grid run's queue as
+    load-plus-tasks blocks, after a confirmation; a lamella run refuses it."""
+    from fibsem.applications.autolamella.ui import grid_workflow_widget as view_module
+    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        GridTaskManager,
+        plan_grid_run,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    microscope = ui.microscope
+    microscope.stage_is_compustage = False
+    microscope._stage = _create_sample_stage(microscope)
+    for i, name in enumerate(["grid-aspen", "grid-birch"]):
+        slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
+        slot.position = FibsemStagePosition(
+            name=slot.name, x=-4e-3 + i * 8e-3, y=1e-3, z=4e-3, r=0, t=0.61
+        )
+        slot.calibration = SlotCalibration("SEM", 35.0, 0.0, "2026-09-02T11:24:09", "t")
+        slot.loaded_grid = SampleGrid(name=name)
+    main_ui._refresh_grids_tab_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    exp.grid_protocol.add(
+        BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
+    )
+    exp.sync_grids_from_inventory(microscope._stage)
+    ui.experiment = exp
+    main_ui.grid_workflow_widget.set_experiment(exp)
+    main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)
+    monkeypatch.setattr(
+        view_module.GridRunPreflightDialog, "exec_", lambda self: QDialog.Accepted
+    )
+
+    # a grid run under way on grid-aspen, with the manager where the window looks
+    manager = GridTaskManager(microscope, exp, parent_ui=ui)
+    manager.queue.build_from_pairs(plan_grid_run(["overview_sem"], ["grid-aspen"]))
+    manager.queue.next()  # grid-aspen's load is active
+    ui._task_manager = manager
+
+    view = main_ui.grid_workflow_widget
+    view._grid_rows["grid-birch"].checkbox.setChecked(True)
+    main_ui._on_workflow_selection_changed()  # the Add button follows the selection
+    main_ui._on_add_to_queue(run_next=True)  # "run next" is still the end for grids
+    assert [(i.item_name, i.task_name) for i in manager.queue.items] == [
+        ("grid-aspen", LOAD_ENTRY_NAME),
+        ("grid-aspen", "overview_sem"),
+        ("grid-birch", LOAD_ENTRY_NAME),
+        ("grid-birch", "overview_sem"),
+    ]
+    assert not view._grid_rows["grid-birch"].checkbox.isChecked()  # cleared once added
+
+    # adding the same again: nothing new to queue
+    view._grid_rows["grid-birch"].checkbox.setChecked(True)
+    main_ui._on_add_to_queue(run_next=False)
+    assert len(manager.queue.items) == 4
+
+    # a lamella run refuses grid tasks
+    ui._task_manager = TaskManager(microscope, exp, parent_ui=ui)
+    main_ui._on_add_to_queue(run_next=False)
+    assert len(ui._task_manager.queue.items) == 0
+    ui._task_manager = None

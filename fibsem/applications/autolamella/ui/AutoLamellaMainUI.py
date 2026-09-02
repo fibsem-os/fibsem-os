@@ -1710,7 +1710,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
             if hasattr(self, "workflow_timeline"):
                 self.workflow_timeline.set_add_enabled(
-                    False, "Adding to a grid run mid-way is not supported yet"
+                    valid,
+                    f"Add to the end of the queue: {n_grid} grid"
+                    f"{'s' if n_grid != 1 else ''}, {n_task} task"
+                    f"{'s' if n_task != 1 else ''}"
+                    if valid
+                    else "Select a present grid and a task to add to the queue",
                 )
             return
         n_lam = len(self.lamella_workflow_widget.get_selected_lamella())
@@ -2869,6 +2874,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         manager = getattr(self.autolamella_ui, "_task_manager", None)
         if manager is None:
             return
+        if self._grid_workflow_active():
+            self._add_grids_to_queue(manager)
+            return
 
         lamellae = self.lamella_workflow_widget.get_selected_lamella()
         tasks = self.lamella_workflow_widget.get_selected_tasks()
@@ -2940,6 +2948,53 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # and leaving it ticked invites adding the same batch twice.
         self.lamella_workflow_widget.lamella_list.set_all_selected(False)
         self.lamella_workflow_widget.workflow.set_all_selected(False)
+
+    def _add_grids_to_queue(self, manager) -> None:
+        """The Grids view's selection onto the end of the running grid queue.
+
+        End only: a grid's block is a load and then its tasks, and "run next" would
+        put an exchange in front of the grid that is in the beam, then exchange
+        back. The block goes after everything queued, where it costs one exchange.
+        """
+        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+            GridTaskManager,
+            plan_grid_run,
+        )
+
+        if not isinstance(manager, GridTaskManager):
+            self._show_queue_message(
+                "A lamella run is going; grid tasks cannot join it."
+            )
+            return
+        grids = self.grid_workflow_widget.get_selected_grids()
+        task_names = self.grid_workflow_widget.get_selected_task_names()
+        if not grids or not task_names:
+            self._show_queue_message("Select at least one grid and one task to add.")
+            return
+        grid_names = [g.name for g in grids]
+        pending = {(i.item_name, i.task_name) for i in manager.queue.pending}
+        pairs = [p for p in plan_grid_run(task_names, grid_names) if p not in pending]
+        if not pairs:
+            self._show_queue_message("Everything selected is already queued.")
+            return
+        experiment = self.autolamella_ui.experiment
+        dialog = GridRunPreflightDialog(
+            task_names,
+            grid_names,
+            self.grid_workflow_widget.exchanges_for(grids),
+            str(experiment.path) if experiment is not None else "",
+            adding=True,
+            parent=self,
+        )
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        added = 0
+        for grid_name, step in pairs:
+            if manager.queue.add(grid_name, step) is not None:
+                added += 1
+        manager.notify_queue_changed()
+        self._show_queue_message(f"Added {added} step(s) to the queue.")
+        self.grid_workflow_widget.set_all_grids_selected(False)
 
     def _on_queue_changed(self, info: dict) -> None:
         """The queue was edited between tasks — no task lifecycle to hang it off."""

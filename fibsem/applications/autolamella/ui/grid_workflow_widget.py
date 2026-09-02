@@ -626,17 +626,28 @@ class GridRunPreflightDialog(QDialog):
         exchanges: int,
         output_root: str,
         screen_all: bool = False,
+        adding: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
+        """``adding``: the same plan, going onto the end of a running queue
+        rather than starting one."""
         super().__init__(parent)
-        self.setWindowTitle("Screen all grids" if screen_all else "Run grid workflow")
+        self.setWindowTitle(
+            "Add to the queue"
+            if adding
+            else "Screen all grids"
+            if screen_all
+            else "Run grid workflow"
+        )
         self.setMinimumWidth(460)
         self.setStyleSheet(f"background: {BACKGROUND};")
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
         title = QLabel(
-            "Run inventory, then the tasks on every present grid"
+            "Add the tasks on the selected grids after everything queued"
+            if adding
+            else "Run inventory, then the tasks on every present grid"
             if screen_all
             else "Run the tasks on the selected grids"
         )
@@ -687,7 +698,7 @@ class GridRunPreflightDialog(QDialog):
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.btn_cancel.clicked.connect(self.reject)
-        self.btn_run = QPushButton("Run")
+        self.btn_run = QPushButton("Add" if adding else "Run")
         self.btn_run.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.btn_run.clicked.connect(self.accept)
         self.btn_run.setDefault(True)
