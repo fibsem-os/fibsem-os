@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import Experiment, GridRecord
 from fibsem.applications.autolamella.ui.grid_card_widget import GridCardContainer
 from fibsem.applications.autolamella.ui.grid_protocol_widget import GridProtocolWidget
+from fibsem.applications.autolamella.ui.grid_results_widget import GridResultsWidget
 from fibsem.microscopes._stage import GridInventoryEntry, SampleGrid
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -136,11 +137,11 @@ class GridsTabWidget(QWidget):
         # -- right: sub-tabs -----------------------------------------------------
         self.sub_tabs = QTabWidget()
         self.protocol_widget = GridProtocolWidget()
-        self.results_tab = _placeholder(
-            "The selected grid's overviews and history. Coming next."
-        )
+        self.results_widget = GridResultsWidget()
         self.sub_tabs.addTab(self.protocol_widget, "Protocol")
-        self.sub_tabs.addTab(self.results_tab, "Results")
+        self.sub_tabs.addTab(self.results_widget, "Results")
+        # Results follows card selection; Protocol does not (one shared protocol).
+        self.cards.grid_selected.connect(self.results_widget.set_grid)
         splitter.addWidget(self.sub_tabs)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([_STRIP_WIDTH, 99999])
@@ -151,6 +152,7 @@ class GridsTabWidget(QWidget):
     def set_experiment(self, experiment: Optional[Experiment]) -> None:
         self._experiment = experiment
         self.protocol_widget.set_experiment(experiment)
+        self.results_widget.set_experiment(experiment)
         self._rebuild()
 
     def set_microscope(self, microscope) -> None:
@@ -205,6 +207,7 @@ class GridsTabWidget(QWidget):
         for card in self.cards.cards:
             card.set_inventory(self._inventory.get(card.grid.name), has_loader)
             card.set_controls_enabled(self._controls_enabled and not self._busy)
+        self.results_widget.refresh()
 
         n = len(self.cards.cards)
         present = sum(1 for c in self.cards.cards if c.is_present)
@@ -382,15 +385,3 @@ class GridsTabWidget(QWidget):
             f"font-size: 11px; color: {colour}; background: transparent;"
         )
         self.status_label.setText(text)
-
-
-def _placeholder(text: str) -> QWidget:
-    widget = QWidget()
-    layout = QVBoxLayout(widget)
-    label = QLabel(text)
-    label.setWordWrap(True)
-    label.setAlignment(Qt.AlignTop)
-    label.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; background: transparent;")
-    layout.addWidget(label)
-    layout.addStretch(1)
-    return widget
