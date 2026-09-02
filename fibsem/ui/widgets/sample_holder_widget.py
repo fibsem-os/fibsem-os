@@ -244,14 +244,15 @@ class SampleHolderWidget(QWidget):
         inner_layout.setContentsMargins(6, 6, 6, 6)
         inner_layout.setSpacing(6)
 
-        header = QHBoxLayout()
-        header.setSpacing(8)
         # The name is set in the calibration wizard, with the slot count: one place.
         self.name_label = QLabel()
         self.name_label.setStyleSheet(
             f"font-weight: bold; color: {TEXT_STRONG_COLOR}; background: transparent;"
         )
-        header.addWidget(self.name_label, 1)
+        inner_layout.addWidget(self.name_label)
+
+        # The pencil sits in the panel's title bar, where the app keeps a panel's
+        # edit action, rather than in the body beside the name.
         self.btn_calibrate = QToolButton()
         self.btn_calibrate.setFixedSize(_ICON_BTN, _ICON_BTN)
         self.btn_calibrate.setIconSize(QSize(18, 18))
@@ -263,8 +264,6 @@ class SampleHolderWidget(QWidget):
             "Edit the holder: name, slot count, and calibrate each slot's position"
         )
         self.btn_calibrate.clicked.connect(self._on_calibrate)
-        header.addWidget(self.btn_calibrate)
-        inner_layout.addLayout(header)
 
         self.facts_label = QLabel()
         self.facts_label.setStyleSheet(
@@ -291,6 +290,7 @@ class SampleHolderWidget(QWidget):
         inner_layout.addWidget(self.hint_label)
 
         self._panel = TitledPanel("Sample Holder", content=inner, collapsible=True)
+        self._panel.add_header_widget(self.btn_calibrate)
         layout.addWidget(self._panel)
 
     # -- public API ------------------------------------------------------------
