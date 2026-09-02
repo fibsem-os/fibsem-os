@@ -255,10 +255,11 @@ class CoincidenceScene:
         The projection tilts the world about the point the stage reports - a
         eucentric stage. On a real stage the surface sits `tilt_axis_offset`
         above the tilt axis, so a tilt change swings it about the axis. The
-        textbook eucentric-height model: a point h above the axis walks
-        h * sin(dt) ALONG THE SURFACE (the same in both views - only which
-        feature is centred changes) and sags h * (1 - cos(dt)) in height,
-        which is what costs coincidence.
+        textbook eucentric-height model, anchored at the SEM orientation
+        (the apex, where the offset vector is vertical): a point h above the
+        axis walks ALONG THE SURFACE (the same in both views - only which
+        feature is centred changes) and changes height, which is what costs
+        coincidence. See tilt_swing for the model.
 
         The walk follows the stable-move direction - on a pre-tilted shuttle
         that is not the stage y axis but (cos p, -sin p) in stage y/z, with p
@@ -267,18 +268,25 @@ class CoincidenceScene:
         The sag goes on the stage z axis exactly as the boot
         `coincidence_offset` does, so the same correction path restores it.
         """
+        from fibsem.alignment.coincidence import tilt_swing
         from fibsem.transformations import _projection_terms
 
-        h = self.tilt_axis_offset
-        dt = (stage_position.t or 0.0) - (self.reference_position.t or 0.0)
         _, pretilt, _ = _projection_terms(
             projection.geometry, stage_position.r or 0.0, stage_position.t or 0.0
         )
-        walk = h * np.sin(dt)
-        sag = h * (1.0 - np.cos(dt))
+        # the apex - where the offset vector is vertical - is the SEM
+        # orientation: tilt = shuttle pre-tilt (0 on a compustage)
+        apex = np.deg2rad(projection.geometry.shuttle_pre_tilt)
+        dy, dz = tilt_swing(
+            self.tilt_axis_offset,
+            self.reference_position.t or 0.0,
+            stage_position.t or 0.0,
+            apex,
+            pretilt,
+        )
         reference = deepcopy(self.reference_position)
-        reference.y = (reference.y or 0.0) + walk * np.cos(pretilt)
-        reference.z = (reference.z or 0.0) - walk * np.sin(pretilt) - sag
+        reference.y = (reference.y or 0.0) + dy
+        reference.z = (reference.z or 0.0) + dz
         return reference
 
     @staticmethod

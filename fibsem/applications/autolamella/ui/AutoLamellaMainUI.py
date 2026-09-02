@@ -1461,9 +1461,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_tilt_coincident_finished(self, result) -> None:
         tilts = ", ".join(f"{np.degrees(t):.1f}" for t in result.tilts)
         if result.converged:
+            offset = (
+                f" Surface {result.tilt_axis_offset * 1e6:+.0f} um off the tilt axis;"
+                f" walk of {abs(result.walk) * 1e6:.0f} um"
+                f"{' undone' if result.walk_undone else ' left'}."
+                if result.tilt_axis_offset is not None
+                else ""
+            )
             self.show_toast(
                 f"Coincident at {np.degrees(result.tilts[-1]):.1f} deg after "
-                f"{result.moves_applied} corrective move(s) (tilts visited: {tilts}).",
+                f"{result.moves_applied} corrective move(s) (tilts visited: {tilts})."
+                f"{offset}",
                 "success",
                 duration=10000,
             )
