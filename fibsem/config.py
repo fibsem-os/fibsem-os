@@ -394,7 +394,9 @@ class DisplayPreferences:
 @dataclass
 class FeatureFlags:
     coincidence_milling_enabled: bool = False
-    sample_holder_widget: bool = False
+    # `sample_holder_widget` retired 2026-09-02: the holder panel is the Microscope
+    # tab's Sample view now, shown on every machine. A saved preferences file that
+    # still names it loads fine; unknown keys are ignored.
     bug_report_enabled: bool = False
     # Tools -> Scripts. A user script runs with the application's own access to the
     # microscope and none of its guard rails, so the menu is not offered to anyone
@@ -435,6 +437,17 @@ class FeatureFlags:
     # A staging flag like `napari_overview_tab`, and it goes the same way: deleted
     # when the chip replaces the tab, not kept as a preference.
     connection_chip: bool = False
+    # The grid screening workflow (FIB-892): the Grids tab and the Workflow tab's
+    # Grids view. Off until the flow has run on the Arctis and on a fixed holder.
+    # The backend beneath it -- inventory, grid records, grid tasks, the grid run
+    # loop -- is not gated and is exercised headless either way. The hardware view,
+    # Microscope -> Sample, is not gated either: a holder reads as uncalibrated
+    # until the wizard has run, which is the safe thing for it to say.
+    #
+    # Off by default. Turning it on for everyone later is a new default, and a
+    # changed default reaches only fresh installs; the release that flips it needs
+    # a note, or a migration, not just this line.
+    grid_workflow: bool = False
 
 
 @dataclass
@@ -752,23 +765,6 @@ def get_last_experiment_file() -> Optional[str]:
     return None
 
 
-def apply_feature_flags(prefs: UserPreferences) -> None:
-    """Update module-level FEATURE_* constants from user preferences.
-
-    Down to one. The others either went away with their features or, in the case of
-    coincidence milling, turned out to have no reader -- that one gates on
-    `prefs.features.coincidence_milling_enabled` directly, which is the simpler
-    thing to do when the caller already holds a preferences object.
-
-    The global survives here because its caller does not: `FibsemMovementWidget`
-    reads it while building a widget, and the alternative is re-reading
-    user-preferences.yaml from disk on every construction.
-    """
-    global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
-    f = prefs.features
-    FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
-
-
 ### AUTOLAMELLA APPLICATION PATHS
 AUTOLAMELLA_BASE_PATH: Path = os.path.join(
     os.path.dirname(__file__), "applications", "autolamella"
@@ -784,6 +780,3 @@ AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(
 AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 
 os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
-
-####### FEATURE FLAGS
-FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False

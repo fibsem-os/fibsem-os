@@ -463,7 +463,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Load user preferences
         self._preferences = fibsem_cfg.load_user_preferences()
-        fibsem_cfg.apply_feature_flags(self._preferences)
 
         # Read once, here, because both the menu entry and the header chip are gated
         # on it and the menu is built before the tabs are.
@@ -959,7 +958,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if dialog.exec_() == QDialog.Accepted:
             self._preferences = dialog.get_preferences()
             fibsem_cfg.save_user_preferences(self._preferences)
-            fibsem_cfg.apply_feature_flags(self._preferences)
             self._apply_preferences()
 
     def _apply_preferences(self):

@@ -51,8 +51,6 @@ _TIP_COINCIDENCE = (
     "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
     "Restricted to ThermoFisher Arctis with the modified sample holder."
 )
-_LBL_SAMPLE_HOLDER = "Enable Sample Holder Widget"
-_TIP_SAMPLE_HOLDER = "Show the sample holder navigation widget in the main interface."
 _LBL_BUG_REPORT = "Enable Bug Reporter"
 _TIP_BUG_REPORT = (
     "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
@@ -71,6 +69,12 @@ _TIP_CONNECTION_CHIP = (
     "File > Connect to Microscope, which opens a dialog for connecting, "
     "reconnecting and disconnecting. The Connection tab still works and is still "
     "where connecting happens; this is the header half of replacing it."
+)
+_LBL_GRID_WORKFLOW = "Enable Grid Workflow"
+_TIP_GRID_WORKFLOW = (
+    "Show the Grids tab and the Workflow tab's Grids view: inventory the grids in "
+    "the holder or autoloader, and acquire SEM, FIB and fluorescence overviews of "
+    "each. In development; the Microscope tab's Sample view is available either way."
 )
 _LBL_SCRIPTS = "Enable User Scripts"
 _TIP_SCRIPTS = (
@@ -181,8 +185,6 @@ class PreferencesDialog(QDialog):
         features_form = QFormLayout(features_page)
         self._chk_coincidence_milling = QCheckBox()
         self._chk_coincidence_milling.setToolTip(_TIP_COINCIDENCE)
-        self._chk_sample_holder = QCheckBox()
-        self._chk_sample_holder.setToolTip(_TIP_SAMPLE_HOLDER)
         self._chk_bug_report = QCheckBox()
         self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
         self._chk_scripts = QCheckBox()
@@ -192,11 +194,13 @@ class PreferencesDialog(QDialog):
         self._chk_connection_chip = QCheckBox()
         self._chk_connection_chip.setToolTip(_TIP_CONNECTION_CHIP)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
-        features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
         features_form.addRow(_LBL_NAPARI_OVERVIEW, self._chk_napari_overview)
         features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
+        self._chk_grid_workflow = QCheckBox()
+        self._chk_grid_workflow.setToolTip(_TIP_GRID_WORKFLOW)
+        features_form.addRow(_LBL_GRID_WORKFLOW, self._chk_grid_workflow)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -288,12 +292,12 @@ class PreferencesDialog(QDialog):
 
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
-        self._chk_sample_holder.setChecked(f.sample_holder_widget)
         self._chk_bug_report.setChecked(f.bug_report_enabled)
         self._chk_scripts.setChecked(f.scripts_enabled)
         self._chk_agent_server.setChecked(f.agent_server_enabled)
         self._chk_napari_overview.setChecked(f.napari_overview_tab)
         self._chk_connection_chip.setChecked(f.connection_chip)
+        self._chk_grid_workflow.setChecked(f.grid_workflow)
 
         self._spin_watchdog.setValue(prefs.agent.watchdog_minutes)
 
@@ -363,12 +367,12 @@ class PreferencesDialog(QDialog):
             ),
             features=FeatureFlags(
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
-                sample_holder_widget=self._chk_sample_holder.isChecked(),
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
                 agent_server_enabled=self._chk_agent_server.isChecked(),
                 napari_overview_tab=self._chk_napari_overview.isChecked(),
                 connection_chip=self._chk_connection_chip.isChecked(),
+                grid_workflow=self._chk_grid_workflow.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
