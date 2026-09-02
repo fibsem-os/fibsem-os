@@ -88,6 +88,22 @@ sim:
     sem: null # "/path/to/sem/image/data"                   # the path to the SEM image data for simulation                 [USER]
     fib: null # "/path/to/fib/image/data"                   # the path to the FIB image data for simulation                 [USER]
     use_cycle: true                                         # infinitely cycle sem/fib dataset                              [USER]
+    # sample:                                               # synthetic cryo-grid both beams (and the FM) image through their projections (FIB-874); default off
+    #     enabled: true
+    #     coincidence_offset: 10.0e-6                        # height error at boot (m) - what the coincidence alignment corrects
+    #     tilt_axis_offset: 0.0                              # surface height above the tilt axis (m); >0 makes the stage non-eucentric
+    #     grid_pitch: 125.0e-6                               # mesh pitch (m)
+    #     grid_bar_width: 35.0e-6                            # bar width (m)
+    #     cell_type: mammalian                               # mammalian (adherent, fried-egg) | yeast | bacteria | mixed | none
+    #     mammalian_density: 7.0                             # cells per 150 x 150 um; mammalian_radius / nucleus_radius set the sizes
+    #     n_clusters: 35                                     # yeast: cell clusters over the extent
+    #     cell_size: [4.5e-6, 12.0e-6]                       # cell radius range (m)
+    #     noise_sigma: 12.0                                  # gaussian noise on the beam images
+    #     noise_fraction: 0.15                               # uniform-noise blend on the beam images
+    #     grid_rotation: null                                # degrees; null = random within +/- 45
+    #     contamination_density: 15.0                        # specks per 100 x 100 um (aperiodic content on film and bars)
+    #     beam_offset: {ion: [1.3e-6, 0.0]}                  # fixed per-beam misalignment (m): the coincidence measurement's dx
+    #     current_offset_scale: 1.5e-6                       # sigma (m) of a seeded per-beam-current offset; 0 = off
     is_compustage: false                                    # this stage rotates; the objective is off to the side          [USER]
     has_fm: true                                            # stand in for the hardware probe -- see below                  [USER]
 

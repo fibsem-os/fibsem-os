@@ -51,10 +51,23 @@ AGREEMENT_BANDS: Tuple[Tuple[float, float], Tuple[float, float]] = ((2, 8), (4, 
 DEFAULT_AGREEMENT_TOLERANCE = 0.75e-6  # m
 DEFAULT_CAPTURE_RANGE = 20e-6  # m
 WINDOW_EDGE_MARGIN_PX = 3
+RIVAL_LOBE_BANDS = 2.0  # lobe radius, in units of the band's wide sigma
 
 REFUSAL_BAND_DISAGREEMENT = "band-disagreement"
 REFUSAL_WINDOW_EDGE = "window-edge"
 REFUSAL_LATERAL_OFFSET = "lateral-offset"
+REFUSAL_RIVAL_PEAK = "rival-peak"
+# A second correlation candidate outside the chosen peak's lobe that is
+# nearly as good as the lock: on the simulator every false lock that
+# passed the other gates measured 0.98-1.00 here, every correct fine lock
+# 0.53-0.85 and every correct coarse lock at most 0.94. Calibrated on the
+# simulator only; the bench pairs (FIB-872) are the check.
+DEFAULT_MAX_RIVAL_RATIO = 0.96
+# ...but not at the coarse field of view: there a correct lock can read
+# 0.99 (the wide, smooth structure of large cells) while the wrong ones
+# were all caught by the band and lateral gates, and the fine pass that
+# follows re-verifies under the strict gate. Disabled (1.0) for coarse.
+DEFAULT_COARSE_MAX_RIVAL_RATIO = 1.0
 # A height error cannot produce dx, and a real beam misalignment is a few
 # microns at most (FIB-873 measured ~1.3 um) - a lock further out in x is a
 # rival peak, and both bands agreeing on it does not make it right. On the
@@ -66,10 +79,11 @@ DEFAULT_MAX_LATERAL_OFFSET = 5e-6  # m
 class CoincidenceMeasurement:
     """Result of one coincidence measurement.
 
-    Sign convention: dx/dy are where the FIB-view scene sits relative to the
-    SEM-view scene, in the SEM image convention (x right, y down), after the
-    geometric perspective correction. dz is the inferred height error along
-    the chamber-vertical axis (dz = dy / sin(column_tilt)).
+    Sign convention: dx/dy are the shift that brings the FIB-view scene onto
+    the SEM-view scene - minus the FIB scene's displacement - in the SEM
+    image convention (x right, y down), after the geometric perspective
+    correction; dy is what vertical_move is handed. dz is the inferred
+    height error along the chamber-vertical axis (the z move to apply).
 
     dx is diagnostic only: a height error cannot produce it. A persistent dx
     indicates beam misalignment (correctable by beam shift, see FIB-873),
@@ -82,6 +96,9 @@ class CoincidenceMeasurement:
     dz: float  # m, inferred height error
     band_disagreement: float  # m, distance between the two band estimates
     is_reliable: bool
+    # best correlation outside the chosen peak's lobe, relative to it (max
+    # over bands); a rival near 1 is a second candidate as good as the lock
+    rival_ratio: float = 0.0
     refusal_reason: Optional[str] = None  # set when is_reliable is False
     seeded: bool = False
     method: str = "crossbeam-xcorr"
@@ -94,6 +111,7 @@ class CoincidenceMeasurement:
     capture_range: float = DEFAULT_CAPTURE_RANGE
     agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE
     max_lateral_offset: float = DEFAULT_MAX_LATERAL_OFFSET
+    max_rival_ratio: float = DEFAULT_MAX_RIVAL_RATIO
     prior: Optional[Tuple[float, float]] = None
     # the pair this was measured from, kept for diagnostics (check_coincidence
     # fills them in; the pure array path leaves them None)
@@ -134,12 +152,13 @@ def geometry_from_images(
     the projections the images record - so a saved pair is self-sufficient,
     usable offline with no microscope connection.
 
+    A pair taken nearer the flipped (rotation_180 / FIB-orientation) side
+    than the reference side is measured - the projections carry the
+    half-turn - but logged: validated on the simulator only, where the loop
+    converges exactly at the FIB orientation, and not yet on hardware.
+
     Raises:
-        ValueError: when the pair's metadata cannot supply the projections,
-            or the stage rotation is nearer the flipped (rotation_180 /
-            FIB-orientation) side than the reference side - unvalidated
-            territory where the measurement should refuse rather than
-            silently mis-scale (FIB-868 follow-up).
+        ValueError: when the pair's metadata cannot supply the projections.
     """
     from copy import deepcopy
 
@@ -156,9 +175,9 @@ def geometry_from_images(
     if angle_difference(stage_rotation, rotation_180) < angle_difference(
         stage_rotation, rotation_reference
     ):
-        raise ValueError(
-            "Stage rotation is on the flipped (FIB-orientation) side; "
-            "coincidence measurement there is not validated yet (FIB-868)."
+        logging.warning(
+            "Coincidence measurement on the flipped (FIB-orientation) side: "
+            "validated on the simulator only, not yet on hardware (FIB-868)."
         )
 
     sem_projection = BeamStageProjection.from_image(sem_image)
@@ -218,12 +237,18 @@ def _windowed_xcorr(
     other: np.ndarray,
     center_yx: Tuple[float, float],
     half_yx: Tuple[float, float],
-) -> Tuple[Tuple[int, int], bool]:
+    lobe_px: float = 0.0,
+) -> Tuple[Tuple[int, int], bool, float]:
     """Cross-correlate with a Hann window, peak restricted near center_yx.
 
-    Returns ((dy, dx) in pixels, peak_on_window_edge). The Hann window also
-    centre-weights the measurement, so structure near the frame centre (the
-    point whose height matters) dominates over peripheral features.
+    Returns ((dy, dx) in pixels, peak_on_window_edge, rival_ratio). The
+    Hann window also centre-weights the measurement, so structure near the
+    frame centre (the point whose height matters) dominates over peripheral
+    features. `rival_ratio` is the best correlation OUTSIDE the primary
+    peak's own lobe (radius `lobe_px`) relative to the primary - 1 means a
+    second candidate as good as the chosen one, 0 means none. Excluding
+    the lobe is what makes it meaningful in a tight window, where the
+    second-highest pixel is otherwise the primary's own shoulder.
     """
     window = np.outer(np.hanning(ref.shape[0]), np.hanning(ref.shape[1]))
     corr = fftconvolve(ref * window, (other * window)[::-1, ::-1], mode="same")
@@ -240,7 +265,14 @@ def _windowed_xcorr(
         or py >= search.shape[0] - WINDOW_EDGE_MARGIN_PX
         or px >= search.shape[1] - WINDOW_EDGE_MARGIN_PX
     )
-    return (py + y0 - cy, px + x0 - cx), on_edge
+    rival_ratio = 0.0
+    primary = float(search[py, px])
+    if lobe_px > 0 and primary > 0:
+        yy, xx = np.ogrid[0 : search.shape[0], 0 : search.shape[1]]
+        outside = (yy - py) ** 2 + (xx - px) ** 2 > lobe_px**2
+        if outside.any():
+            rival_ratio = max(0.0, float(search[outside].max()) / primary)
+    return (py + y0 - cy, px + x0 - cx), on_edge, rival_ratio
 
 
 def measure_coincidence(
@@ -253,6 +285,7 @@ def measure_coincidence(
     capture_range: float = DEFAULT_CAPTURE_RANGE,
     agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE,
     max_lateral_offset: float = DEFAULT_MAX_LATERAL_OFFSET,
+    max_rival_ratio: float = DEFAULT_MAX_RIVAL_RATIO,
 ) -> CoincidenceMeasurement:
     """Measure the SEM/FIB coincidence residual from one image pair.
 
@@ -275,6 +308,8 @@ def measure_coincidence(
             band estimates for the result to be reliable.
         max_lateral_offset: |dx| (m) beyond which a lock is refused as a
             rival peak - a height error cannot move x.
+        max_rival_ratio: refuse when a second candidate outside the chosen
+            peak's lobe correlates at least this fraction as well.
 
     Returns:
         CoincidenceMeasurement. When is_reliable is False the residuals are
@@ -296,12 +331,17 @@ def measure_coincidence(
 
     shifts = []
     on_edge_any = False
+    rival_ratio = 0.0
     for s1, s2 in AGREEMENT_BANDS:
         ref = _preprocess(sem, s1, s2)
         other = _preprocess(fib_stretched, s1, s2)
-        (dy_px, dx_px), on_edge = _windowed_xcorr(ref, other, center, half_yx)
+        # a correlation peak's own lobe is a few band widths across
+        (dy_px, dx_px), on_edge, ratio = _windowed_xcorr(
+            ref, other, center, half_yx, lobe_px=RIVAL_LOBE_BANDS * s2
+        )
         shifts.append((dy_px, dx_px))
         on_edge_any = on_edge_any or on_edge
+        rival_ratio = max(rival_ratio, ratio)
 
     (dy_a, dx_a), (dy_b, dx_b) = shifts
     disagreement = np.hypot((dy_a - dy_b) / stretch, dx_a - dx_b) * pixel_size
@@ -316,6 +356,8 @@ def measure_coincidence(
         refusal = REFUSAL_BAND_DISAGREEMENT
     elif abs(dx) > max_lateral_offset:
         refusal = REFUSAL_LATERAL_OFFSET
+    elif rival_ratio > max_rival_ratio:
+        refusal = REFUSAL_RIVAL_PEAK
 
     measurement = CoincidenceMeasurement(
         dx=float(dx),
@@ -323,12 +365,14 @@ def measure_coincidence(
         y_stretch=float(stretch),
         dz=float(dz),
         band_disagreement=float(disagreement),
+        rival_ratio=float(rival_ratio),
         is_reliable=refusal is None,
         refusal_reason=refusal,
         seeded=prior is not None,
         capture_range=capture_range,
         agreement_tolerance=agreement_tolerance,
         max_lateral_offset=max_lateral_offset,
+        max_rival_ratio=max_rival_ratio,
         prior=None if prior is None else (float(prior[0]), float(prior[1])),
     )
     logging.debug(
@@ -338,6 +382,7 @@ def measure_coincidence(
             "dy": measurement.dy,
             "dz": measurement.dz,
             "band_disagreement": measurement.band_disagreement,
+            "rival_ratio": measurement.rival_ratio,
             "is_reliable": measurement.is_reliable,
             "refusal_reason": measurement.refusal_reason,
             "seeded": measurement.seeded,
@@ -354,6 +399,7 @@ def measure_coincidence_from_images(
     capture_range: float = DEFAULT_CAPTURE_RANGE,
     agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE,
     max_lateral_offset: float = DEFAULT_MAX_LATERAL_OFFSET,
+    max_rival_ratio: float = DEFAULT_MAX_RIVAL_RATIO,
 ) -> CoincidenceMeasurement:
     """measure_coincidence for a FibsemImage pair.
 
@@ -373,6 +419,7 @@ def measure_coincidence_from_images(
         capture_range=capture_range,
         agreement_tolerance=agreement_tolerance,
         max_lateral_offset=max_lateral_offset,
+        max_rival_ratio=max_rival_ratio,
     )
 
 
@@ -490,6 +537,7 @@ def check_coincidence(
     capture_range: float = DEFAULT_CAPTURE_RANGE,
     agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE,
     max_lateral_offset: float = DEFAULT_MAX_LATERAL_OFFSET,
+    max_rival_ratio: float = DEFAULT_MAX_RIVAL_RATIO,
 ) -> CoincidenceMeasurement:
     """Acquire an eb/ib pair at the current position and measure coincidence.
 
@@ -512,6 +560,7 @@ def check_coincidence(
         capture_range=capture_range,
         agreement_tolerance=agreement_tolerance,
         max_lateral_offset=max_lateral_offset,
+        max_rival_ratio=max_rival_ratio,
     )
     measurement.sem_image = sem_image
     measurement.fib_image = fib_image
@@ -530,6 +579,7 @@ def ensure_coincident(
     coarse_capture_range: float = DEFAULT_COARSE_CAPTURE_RANGE,
     coarse_agreement_tolerance: float = DEFAULT_COARSE_AGREEMENT_TOLERANCE,
     coarse_max_lateral_offset: float = DEFAULT_COARSE_MAX_LATERAL_OFFSET,
+    coarse_max_rival_ratio: float = DEFAULT_COARSE_MAX_RIVAL_RATIO,
     on_progress: Optional[ProgressCallback] = None,
     reference: "BeamType" = None,
 ) -> CoincidenceAlignment:
@@ -582,6 +632,8 @@ def ensure_coincident(
         coarse_max_lateral_offset: |dx| bound for the coarse pass (looser:
             it only has to land within the fine pass's reach, and the fine
             measurement that follows re-verifies under the strict bound).
+        coarse_max_rival_ratio: rival-peak bound for the coarse pass; 1.0
+            (the default) disables it there - see DEFAULT_COARSE_MAX_RIVAL_RATIO.
         on_progress: called with a CoincidenceProgress before every
             acquisition, after every measurement and before every move, from
             the calling thread - a GUI must marshal it across itself.
@@ -640,6 +692,7 @@ def ensure_coincident(
             capture_range=coarse_capture_range,
             agreement_tolerance=coarse_agreement_tolerance,
             max_lateral_offset=coarse_max_lateral_offset,
+            max_rival_ratio=coarse_max_rival_ratio,
         )
         measurement.coarse = True
         measurements.append(measurement)

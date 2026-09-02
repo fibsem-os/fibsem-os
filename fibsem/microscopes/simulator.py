@@ -17,12 +17,14 @@ import numpy as np
 from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
-from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.fm.microscope import Camera, FluorescenceMicroscope
 from fibsem.microscope import (
     FibsemMicroscope,
     ThermoMicroscope,
 )
+from fibsem.microscopes.sim_scene import fm_channel_weights
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.projection import FMStageProjection
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamSettings,
@@ -265,6 +267,52 @@ CHAMBER_ACTIVE_VIEW = 4
 CHAMBER_ACTIVE_DEVICE = 3
 
 
+class SceneCamera(Camera):
+    """The simulated FM camera, imaging the sample scene when there is one.
+
+    Renders the same synthetic sample the beams image, through the FM's
+    projection, for the channel the microscope is configured to and with
+    the objective's defocus; falls back to the stock noise/counter frames
+    when no scene is enabled.
+    """
+
+    def acquire_image(self) -> np.ndarray:
+        fm = self.parent
+        microscope = getattr(fm, "parent", None)
+        scene = getattr(microscope, "_sample_scene", None)
+        if scene is None:
+            return super().acquire_image()
+        projection = FMStageProjection.from_microscope(microscope)
+        if projection is None:
+            return super().acquire_image()
+        sim_sleep(self.exposure_time)
+        weights = fm_channel_weights(
+            fm.filter_set.emission_wavelength, fm.filter_set.excitation_wavelength
+        )
+        focus = fm.objective.focus_position
+        defocus = 0.0 if focus is None else fm.objective.position - focus
+        # the projection carries the unbinned camera shape; render at the
+        # binned resolution with the matching pixel size
+        projection = FMStageProjection(
+            geometry=projection.geometry,
+            pixel_size=self.pixel_size[0],
+            shape=(self.resolution[1], self.resolution[0]),
+        )
+        self._index += 1
+        frame = scene.render_fm(
+            microscope.get_stage_position(),
+            self.resolution,
+            projection,
+            weights=weights,
+            defocus=defocus,
+        )
+        # the projection speaks in displayed-image coordinates, but a camera
+        # frame goes through the mount and user transforms before display:
+        # pre-apply their inverse (flips are self-inverse; reversed order)
+        frame = fm._transform_array(frame, fm._transform)
+        return fm._transform_array(frame, fm.mount_transform)
+
+
 class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
     """The FM half of the one imaging channel a TFS system shares (FIB-518).
 
@@ -284,6 +332,7 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
 
     def __init__(self, parent: Optional["FibsemMicroscope"] = None):
         super().__init__(parent=parent)
+        self.camera = SceneCamera(parent=self)
         self._active_view = FM_ACTIVE_VIEW
         self._active_device = FM_ACTIVE_DEVICE
         # The parent's lock, as the driver takes it: an FM scope and a beam acquisition
@@ -506,7 +555,7 @@ class DemoMicroscope(FibsemMicroscope):
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
         self._image_cache: dict = {}
-        self._setup_coincidence_projection()
+        self._setup_sample_scene()
         logging.debug(
             {
                 "msg": "create_microscope_client",
@@ -675,18 +724,25 @@ class DemoMicroscope(FibsemMicroscope):
         )
 
         # shared-scene projection takes precedence when enabled (FIB-874)
-        if self._coincidence_scene is not None:
+        if self._sample_scene is not None:
             from fibsem.projection import BeamStageProjection
 
             projection = BeamStageProjection.from_microscope(
                 self, beam_type=effective_beam_type
             )
-            image.data = self._coincidence_scene.render(
+            shift = self.get_beam_shift(effective_beam_type)
+            try:
+                current = float(self.get("current", effective_beam_type))
+            except Exception:
+                current = None
+            image.data = self._sample_scene.render(
                 beam_type=effective_beam_type,
                 stage_position=self.get_stage_position(),
                 hfw=effective_image_settings.hfw,
                 resolution=effective_image_settings.resolution,
                 projection=projection,
+                beam_shift=(float(shift.x), float(shift.y)),
+                beam_current=current,
             )
         # generate the next image from the sequence iterator
         elif self.use_image_sequence:
@@ -736,41 +792,50 @@ class DemoMicroscope(FibsemMicroscope):
 
         return image
 
-    def _setup_coincidence_projection(self) -> None:
-        """Opt-in shared-scene projection rendering (FIB-874), default off.
+    def _setup_sample_scene(self) -> None:
+        """Opt-in synthetic-sample imaging (FIB-874), default off.
 
-        When `sim: coincidence_projection: true`, both beams image one
-        synthetic scene, with the FIB view foreshortened and displaced by the
-        current height error - so SEM/FIB coincidence can be measured and
-        corrected on the simulator. `sim: coincidence_offset` (metres) sets
-        how far off-coincidence the simulator boots (default 10e-6).
+        `sim: sample: {enabled: true, ...}` makes both beams (and the FM,
+        where present) image one synthetic cryo-grid through their
+        projections, so geometry between the views - coincidence above all -
+        is measurable and correctable on the simulator. The block's other
+        keys are the scene's options (see SampleScene.CONFIG_KEYS). The
+        older flat keys `coincidence_projection`, `coincidence_offset` and
+        `tilt_axis_offset` are still honoured when there is no `sample` block.
         """
-        from fibsem.microscopes.sim_scene import CoincidenceScene
+        from fibsem.microscopes.sim_scene import SampleScene
 
-        self._coincidence_scene: Optional[CoincidenceScene] = None
-        if not self.system.sim.get("coincidence_projection", False):
+        self._sample_scene: Optional[SampleScene] = None
+        sim = self.system.sim
+        config = sim.get("sample")
+        if config is None:
+            if not sim.get("coincidence_projection", False):
+                return
+            config = {
+                "coincidence_offset": sim.get("coincidence_offset", 10e-6),
+                "tilt_axis_offset": sim.get("tilt_axis_offset", 0.0),
+            }
+        elif not config.get("enabled", False):
             return
-        offset = float(self.system.sim.get("coincidence_offset", 10e-6))
-        # `sim: tilt_axis_offset` (metres) makes the stage non-eucentric: a
-        # tilt change then costs coincidence, as on real hardware (FIB-899)
-        tilt_axis_offset = float(self.system.sim.get("tilt_axis_offset", 0.0))
-        self._coincidence_scene = CoincidenceScene(
-            coincidence_offset=offset, tilt_axis_offset=tilt_axis_offset
+        self._sample_scene = SampleScene.from_config(
+            {k: v for k, v in config.items() if k != "enabled"}
         )
         try:
             # anchor the world NOW, at the connect pose - so moving straight
             # to a saved position and acquiring shows that position's
             # surroundings rather than anchoring the world there
-            self._coincidence_scene.anchor(self.get_stage_position())
+            self._sample_scene.anchor(self.get_stage_position())
         except Exception as e:
             logging.warning(
-                "Could not anchor the coincidence scene at connect (%s); "
+                "Could not anchor the sample scene at connect (%s); "
                 "it will anchor at the first acquisition instead.",
                 e,
             )
         logging.info(
-            "Simulator coincidence projection enabled (initial offset: %.2f um)",
-            offset * 1e6,
+            "Simulator sample scene enabled (coincidence offset %.2f um, "
+            "tilt axis offset %.1f um)",
+            self._sample_scene.coincidence_offset * 1e6,
+            self._sample_scene.tilt_axis_offset * 1e6,
         )
 
     def _generate_next_image(

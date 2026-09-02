@@ -382,7 +382,7 @@ def plot_coincidence_alignment(
             0.04,
             ("RELIABLE" if m.is_reliable else f"REFUSED ({m.refusal_reason})")
             + f"\ndx={m.dx * 1e6:+.2f}  dy={m.dy * 1e6:+.2f}  dz={m.dz * 1e6:+.2f} um"
-            + f"\nband-disagreement={m.band_disagreement * 1e6:.2f} um",
+            + f"\nband-disagreement={m.band_disagreement * 1e6:.2f} um  rival={m.rival_ratio:.2f}",
             transform=ax.transAxes,
             color=colour,
             fontsize=6.5,
@@ -461,6 +461,8 @@ def save_coincidence_diagnostics(
             "capture_range": m.capture_range,
             "agreement_tolerance": m.agreement_tolerance,
             "max_lateral_offset": m.max_lateral_offset,
+            "max_rival_ratio": m.max_rival_ratio,
+            "rival_ratio": m.rival_ratio,
             "prior": m.prior,
         }
         if m.sem_image is not None and m.fib_image is not None:
@@ -502,6 +504,7 @@ def load_coincidence_run(run_dir: str) -> list:
         DEFAULT_AGREEMENT_TOLERANCE,
         DEFAULT_CAPTURE_RANGE,
         DEFAULT_MAX_LATERAL_OFFSET,
+        DEFAULT_MAX_RIVAL_RATIO,
         measure_coincidence_from_images,
     )
     from fibsem.structures import FibsemImage
@@ -527,6 +530,7 @@ def load_coincidence_run(run_dir: str) -> list:
             max_lateral_offset=record.get(
                 "max_lateral_offset", DEFAULT_MAX_LATERAL_OFFSET
             ),
+            max_rival_ratio=record.get("max_rival_ratio", DEFAULT_MAX_RIVAL_RATIO),
         )
         measurement.coarse = record["pass"] == "coarse"
         measurement.sem_image = sem_image

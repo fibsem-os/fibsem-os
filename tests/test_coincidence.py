@@ -246,20 +246,6 @@ def test_measure_from_images_and_diagnostic_plot(tmp_path):
     assert len(pngs) == 1
 
 
-def test_flipped_rotation_is_rejected():
-    from fibsem.alignment.coincidence import geometry_from_images
-
-    blank = np.zeros(SHAPE, dtype=np.uint8)
-    sem_image, fib_image = _image_pair(blank, blank)
-    # stage rotated to the flipped (FIB-orientation) side: unvalidated
-    # territory, so the derivation must refuse loudly
-    for image in (sem_image, fib_image):
-        image.metadata.microscope_state.stage_position.r = np.deg2rad(180.0)
-
-    with pytest.raises(ValueError, match="FIB-orientation"):
-        geometry_from_images(sem_image, fib_image)
-
-
 def test_large_lateral_offset_is_refused_as_a_rival_peak():
     """A height error cannot move x, so a lock far out in x is a wrong peak
     even when both bands agree on it - it must not be acted on."""
@@ -279,3 +265,52 @@ def test_large_lateral_offset_is_refused_as_a_rival_peak():
         sem, fib, PIXEL_SIZE, Y_STRETCH, DZ_PER_DY, max_lateral_offset=20e-6
     )
     assert m.is_reliable
+
+
+def test_a_rival_peak_as_good_as_the_lock_is_refused():
+    """One structure in the SEM, two identical copies of it in the FIB: the
+    correlation has two equal peaks, and the correlator has no business
+    choosing between them."""
+    from fibsem.alignment.coincidence import REFUSAL_RIVAL_PEAK
+
+    rng = np.random.default_rng(3)
+    motif = ndi.gaussian_filter(rng.uniform(0, 1, (60, 60)).astype(np.float32), 2)
+    cy, cx = SHAPE[0] // 2, SHAPE[1] // 2
+    sem = np.zeros(SHAPE, dtype=np.float32)
+    sem[cy - 30 : cy + 30, cx - 30 : cx + 30] = motif * 150
+    # the FIB carries two identical copies, 60 px either side of centre, so
+    # the two candidate shifts are equally weighted by the centre-weighting
+    # window and neither is the better lock
+    left = make_fib_view(np.roll(sem, -60, axis=1), 0.0, 0.0, Y_STRETCH)
+    right = make_fib_view(np.roll(sem, 60, axis=1), 0.0, 0.0, Y_STRETCH)
+    fib = np.minimum(left, right)  # FIB contrast is inverted: darker wins
+
+    window = 150 * PIXEL_SIZE
+    m = measure_coincidence(
+        sem, fib, PIXEL_SIZE, Y_STRETCH, DZ_PER_DY, capture_range=window
+    )
+    assert m.rival_ratio > 0.9
+    assert not m.is_reliable
+    assert m.refusal_reason == REFUSAL_RIVAL_PEAK
+
+    # the bound is a parameter: with it open the same pair measures
+    m = measure_coincidence(
+        sem,
+        fib,
+        PIXEL_SIZE,
+        Y_STRETCH,
+        DZ_PER_DY,
+        capture_range=window,
+        max_rival_ratio=1.0,
+    )
+    assert m.is_reliable
+
+
+def test_a_single_structure_has_no_serious_rival():
+    sem = make_sem_scene()
+    fib = make_fib_view(sem, 12.0, -6.0, Y_STRETCH)
+
+    m = measure_coincidence(sem, fib, PIXEL_SIZE, Y_STRETCH, DZ_PER_DY)
+
+    assert m.is_reliable, m.refusal_reason
+    assert m.rival_ratio < 0.9
