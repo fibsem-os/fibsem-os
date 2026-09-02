@@ -272,7 +272,10 @@ class GridTask(ABC):
         filepath = getattr(output, "filepath", output)
         if filepath is None:
             return
-        relative = os.path.relpath(str(filepath), str(self.path))
+        # Forward slashes whatever the platform: the record is a description of
+        # files that travels with the experiment, not a path for this OS to open,
+        # and `os.path.join` reads it back correctly on either.
+        relative = Path(os.path.relpath(str(filepath), str(self.path))).as_posix()
         paths = self.grid.task_state.outputs.setdefault(role, [])
         if relative not in paths:
             paths.append(relative)

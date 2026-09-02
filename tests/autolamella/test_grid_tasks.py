@@ -5,6 +5,7 @@ role relative to the grid's directory, hooks and the stop token. The operation
 inside `_run` is the test's own, so nothing here touches a runner.
 """
 
+import os
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
@@ -323,7 +324,7 @@ class TestReadingOutputs:
         run_grid_task(microscope, "echo", experiment, grid)
         run_grid_task(microscope, "echo", experiment, grid)  # same files again
         paths = grid_outputs(experiment, grid, "echo")
-        assert [p.rsplit("/", 1)[-1] for p in paths] == ["hello-0.txt", "hello-1.txt"]
+        assert [os.path.basename(p) for p in paths] == ["hello-0.txt", "hello-1.txt"]
         assert grid_outputs(experiment, grid, "nothing") == []
         assert latest_grid_output(experiment, grid, "echo").endswith("hello-1.txt")
 
@@ -339,4 +340,4 @@ class TestReadingOutputs:
         run_grid_task(microscope, "echo2", experiment, grid)
         assert len(grid_outputs(experiment, grid, "echo")) == 2
         only = grid_outputs(experiment, grid, "echo", task_name="echo2")
-        assert [p.rsplit("/", 1)[-1] for p in only] == ["other-0.txt"]
+        assert [os.path.basename(p) for p in only] == ["other-0.txt"]
