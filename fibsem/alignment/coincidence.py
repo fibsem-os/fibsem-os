@@ -51,20 +51,24 @@ AGREEMENT_BANDS: Tuple[Tuple[float, float], Tuple[float, float]] = ((2, 8), (4, 
 DEFAULT_AGREEMENT_TOLERANCE = 0.75e-6  # m
 DEFAULT_CAPTURE_RANGE = 20e-6  # m
 WINDOW_EDGE_MARGIN_PX = 3
-RIVAL_LOBE_BANDS = 2.0  # lobe radius, in units of the band's wide sigma
+# the primary peak's own lobe, excluded when looking for a rival: a physical
+# size, so the gate reads the same at any field width (in pixels the lobe
+# would shrink relative to the search window as the field narrows, and the
+# ratio would climb for the same true lock)
+RIVAL_LOBE = 3.2e-6  # m (~2x the wide band sigma at the 150 um alignment field)
 
 REFUSAL_BAND_DISAGREEMENT = "band-disagreement"
 REFUSAL_WINDOW_EDGE = "window-edge"
 REFUSAL_LATERAL_OFFSET = "lateral-offset"
 REFUSAL_RIVAL_PEAK = "rival-peak"
 # A second correlation candidate outside the chosen peak's lobe that is
-# nearly as good as the lock: on the simulator every correct fine lock
-# measured 0.53-0.85 here (mammalian, yeast, bacteria scenes) and every
-# false fine lock that passed the other gates 0.94-1.00 - the 0.94 one
-# moved the stage 15 um the wrong way before the next measurement caught
-# it. Calibrated on the simulator only; the bench pairs (FIB-872) are the
-# check.
-DEFAULT_MAX_RIVAL_RATIO = 0.92
+# nearly as good as the lock. With the lobe a physical size (RIVAL_LOBE)
+# the ratio reads the same at any field width; on the simulator's scenes
+# (mammalian, yeast, bacteria; 80-300 um fields; with and without noise)
+# every correct fine lock measured 0.35-0.72 and every false fine lock
+# 0.86-0.99. Calibrated on the simulator only; the bench pairs (FIB-872)
+# are the check.
+DEFAULT_MAX_RIVAL_RATIO = 0.80
 # ...but not at the coarse field of view: there a correct lock can read
 # 0.99 (the wide, smooth structure of large cells) while the wrong ones
 # were all caught by the band and lateral gates, and the fine pass that
@@ -337,9 +341,8 @@ def measure_coincidence(
     for s1, s2 in AGREEMENT_BANDS:
         ref = _preprocess(sem, s1, s2)
         other = _preprocess(fib_stretched, s1, s2)
-        # a correlation peak's own lobe is a few band widths across
         (dy_px, dx_px), on_edge, ratio = _windowed_xcorr(
-            ref, other, center, half_yx, lobe_px=RIVAL_LOBE_BANDS * s2
+            ref, other, center, half_yx, lobe_px=RIVAL_LOBE / pixel_size
         )
         shifts.append((dy_px, dx_px))
         on_edge_any = on_edge_any or on_edge
@@ -579,6 +582,8 @@ def ensure_coincident(
     relaxation: float = 1.0,
     coarse_hfw: Optional[float] = DEFAULT_COARSE_HFW,
     coarse_capture_range: float = DEFAULT_COARSE_CAPTURE_RANGE,
+    max_lateral_offset: float = DEFAULT_MAX_LATERAL_OFFSET,
+    max_rival_ratio: float = DEFAULT_MAX_RIVAL_RATIO,
     coarse_agreement_tolerance: float = DEFAULT_COARSE_AGREEMENT_TOLERANCE,
     coarse_max_lateral_offset: float = DEFAULT_COARSE_MAX_LATERAL_OFFSET,
     coarse_max_rival_ratio: float = DEFAULT_COARSE_MAX_RIVAL_RATIO,
@@ -623,6 +628,8 @@ def ensure_coincident(
         capture_range: fine search half-width (m), centred on zero every
             iteration - never re-seeded at a previous lock.
         agreement_tolerance: band-agreement gate for fine measurements.
+        max_lateral_offset: |dx| bound for fine measurements.
+        max_rival_ratio: rival-peak bound for fine measurements.
         relaxation: under-relaxation passed to vertical_move; 1.0 is exact.
         coarse_hfw: field width (m) for the coarse escalation; None disables
             it, making a fine refusal terminal.
@@ -679,6 +686,8 @@ def ensure_coincident(
             prior=prior,
             capture_range=capture_range,
             agreement_tolerance=agreement_tolerance,
+            max_lateral_offset=max_lateral_offset,
+            max_rival_ratio=max_rival_ratio,
         )
         measurements.append(measurement)
         report(PROGRESS_MEASURED, measurement=measurement)
