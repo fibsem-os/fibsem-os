@@ -766,9 +766,24 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             "Measure the SEM/FIB coincidence at the current position and "
             "correct it with vertical moves until within tolerance (FIB-868)"
         )
-        self.action_ensure_coincidence.triggered.connect(self._on_ensure_coincidence)
-        self.coincidence_progress.connect(self._on_coincidence_progress)
+        self.action_ensure_coincidence.triggered.connect(
+            lambda: self._on_ensure_coincidence(reference=BeamType.ELECTRON)
+        )
         dev_menu.addAction(self.action_ensure_coincidence)
+
+        self.action_ensure_coincidence_fib = QAction(
+            "Run SEM/FIB Coincidence Alignment (keep FIB view)", self
+        )
+        self.action_ensure_coincidence_fib.setToolTip(
+            "As above, but what is centred in the FIB view stays put and the "
+            "SEM view is the one corrected - the case after choosing a site "
+            "in the FIB view"
+        )
+        self.action_ensure_coincidence_fib.triggered.connect(
+            lambda: self._on_ensure_coincidence(reference=BeamType.ION)
+        )
+        dev_menu.addAction(self.action_ensure_coincidence_fib)
+        self.coincidence_progress.connect(self._on_coincidence_progress)
 
         self._dev_menu = dev_menu
         self._dev_menu.menuAction().setVisible(self.dev_mode)
@@ -1282,23 +1297,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.autolamella_ui is not None:
             self.autolamella_ui.export_fm_configuration()
 
-    def _on_ensure_coincidence(self) -> None:
+    def _on_ensure_coincidence(self, reference: BeamType = BeamType.ELECTRON) -> None:
         """Run the coincidence align loop at the current position (dev tool).
 
         The loop acquires its own image pairs and may move the stage
-        vertically several times; runs off the GUI thread, reports by toast.
+        several times; runs off the GUI thread, reports by toast. `reference`
+        is the view whose centre is preserved.
         """
         microscope = getattr(self.autolamella_ui, "microscope", None)
         if microscope is None:
             self.show_toast("Not connected to a microscope.", "warning")
             return
-        self.action_ensure_coincidence.setEnabled(False)
-        worker = self._ensure_coincidence_worker()
+        actions = (self.action_ensure_coincidence, self.action_ensure_coincidence_fib)
+        for action in actions:
+            action.setEnabled(False)
+        worker = self._ensure_coincidence_worker(reference)
         worker.returned.connect(self._on_ensure_coincidence_finished)
         worker.errored.connect(
             lambda exc: self.show_toast(f"Coincidence alignment failed: {exc}", "error")
         )
-        worker.finished.connect(lambda: self.action_ensure_coincidence.setEnabled(True))
+        worker.finished.connect(lambda: [a.setEnabled(True) for a in actions])
         worker.start()
 
     def _coincidence_diagnostics_path(self) -> str:
@@ -1310,7 +1328,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         base = experiment.path if experiment is not None else cfg.LOG_PATH
         return os.path.join(base, ALIGNMENT_SUBDIR)
 
-    def _ensure_coincidence_worker(self):
+    def _ensure_coincidence_worker(self, reference: BeamType):
         from fibsem.ui.qt.threading import thread_worker
 
         microscope = self.autolamella_ui.microscope
@@ -1323,7 +1341,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             from fibsem.alignment.coincidence import ensure_coincident
             from fibsem.alignment.plotting import save_coincidence_diagnostics
 
-            result = ensure_coincident(microscope, on_progress=on_progress)
+            result = ensure_coincident(
+                microscope, on_progress=on_progress, reference=reference
+            )
             save_coincidence_diagnostics(result, diagnostics_path)
             return result
 

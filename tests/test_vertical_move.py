@@ -12,12 +12,19 @@ projection-true scene, at more than one tilt: the bug family being pinned
 here is exact at t=0 and wrong everywhere else.
 """
 
+import os
+
 import numpy as np
 import pytest
 
+import fibsem.config as cfg
 from fibsem import utils
 from fibsem.alignment.coincidence import measure_coincidence_from_images
 from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
+
+# The geometry under test is a pre-tilted TFS shuttle; pin it rather than
+# inherit whatever configuration an earlier test left as the default
+TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 HFW = 150e-6
 RESOLUTION = (1536, 1024)
@@ -26,7 +33,9 @@ PIXEL_SIZE = HFW / RESOLUTION[0]
 
 @pytest.fixture
 def microscope():
-    microscope, settings = utils.setup_session(manufacturer="Demo")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
+    )
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = 0.0
     microscope._setup_coincidence_projection()
@@ -61,9 +70,9 @@ def _fiducial(microscope, beam_type):
 @pytest.mark.parametrize("tilt_deg", [12.0, 35.0])
 def test_vertical_move_is_invisible_to_the_sem(microscope, tilt_deg):
     """The whole premise: correcting the FIB view must not drag the SEM."""
-    microscope.move_stage_relative(
-        FibsemStagePosition(x=0, y=0, z=0, r=0, t=np.deg2rad(tilt_deg))
-    )
+    pose = microscope.get_stage_position()
+    pose.t = np.deg2rad(tilt_deg)
+    microscope.move_stage_absolute(pose)
     sx0, sy0 = _fiducial(microscope, BeamType.ELECTRON)
 
     microscope.vertical_move(dy=-20e-6, dx=0)
@@ -76,9 +85,9 @@ def test_vertical_move_is_invisible_to_the_sem(microscope, tilt_deg):
 @pytest.mark.parametrize("tilt_deg", [12.0, 35.0])
 def test_vertical_move_delivers_the_requested_fib_shift(microscope, tilt_deg):
     """The contract: the FIB view shifts by exactly the requested dy."""
-    microscope.move_stage_relative(
-        FibsemStagePosition(x=0, y=0, z=0, r=0, t=np.deg2rad(tilt_deg))
-    )
+    pose = microscope.get_stage_position()
+    pose.t = np.deg2rad(tilt_deg)
+    microscope.move_stage_absolute(pose)
     fx0, fy0 = _fiducial(microscope, BeamType.ION)
 
     requested = -20e-6
@@ -96,9 +105,9 @@ def test_vertical_move_closes_the_measured_coincidence_error(microscope):
     vertical move, re-measure - the residual must be near zero."""
     microscope._coincidence_scene.coincidence_offset = 8e-6
     microscope._coincidence_scene.reference_position = None  # re-anchor with offset
-    microscope.move_stage_relative(
-        FibsemStagePosition(x=0, y=0, z=0, r=0, t=np.deg2rad(12.0))
-    )
+    pose = microscope.get_stage_position()
+    pose.t = np.deg2rad(12.0)
+    microscope.move_stage_absolute(pose)
     microscope._coincidence_scene.n_clusters = 35
     microscope._coincidence_scene.grid_intensity = 90.0
     microscope._coincidence_scene.features = []

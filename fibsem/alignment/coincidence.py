@@ -79,6 +79,9 @@ class CoincidenceMeasurement:
     seeded: bool = False
     method: str = "crossbeam-xcorr"
     coarse: bool = False  # taken at the wide coarse field of view
+    # the FIB->SEM y stretch the pair was measured with: dy is in the FIB
+    # plane, dy * y_stretch is the same displacement seen in the SEM plane
+    y_stretch: float = 1.0
     # the pair this was measured from, kept for diagnostics (check_coincidence
     # fills them in; the pure array path leaves them None)
     sem_image: Optional[FibsemImage] = field(default=None, repr=False)
@@ -299,6 +302,7 @@ def measure_coincidence(
     measurement = CoincidenceMeasurement(
         dx=float(dx),
         dy=float(dy),
+        y_stretch=float(stretch),
         dz=float(dz),
         band_disagreement=float(disagreement),
         is_reliable=refusal is None,
@@ -499,8 +503,17 @@ def ensure_coincident(
     coarse_capture_range: float = DEFAULT_COARSE_CAPTURE_RANGE,
     coarse_agreement_tolerance: float = DEFAULT_COARSE_AGREEMENT_TOLERANCE,
     on_progress: Optional[ProgressCallback] = None,
+    reference: "BeamType" = None,
 ) -> CoincidenceAlignment:
     """Measure the SEM/FIB coincidence and correct it until within tolerance.
+
+    `reference` says which view keeps its centre. ELECTRON (the default):
+    the height correction moves the stage along the SEM axis, so what sits
+    at the SEM centre stays there and the FIB view slides onto it. ION: what
+    sits at the FIB centre stays there - the case in the workflow, where the
+    operator chose the site in the FIB view - achieved by first recentring
+    the SEM on the FIB-centred feature with a stable move, then applying the
+    same height correction.
 
     The loop: measure -> vertical move by the measured residual -> re-measure,
     stopping when a FRESH measurement is within tolerance, an iteration limit
@@ -541,12 +554,20 @@ def ensure_coincident(
         on_progress: called with a CoincidenceProgress before every
             acquisition, after every measurement and before every move, from
             the calling thread - a GUI must marshal it across itself.
+        reference: the view whose centre is preserved (ELECTRON or ION).
 
     Returns:
         CoincidenceAlignment with the full measurement history (coarse
         measurements included) and whether the coarse pass was needed.
     """
     from copy import deepcopy
+
+    from fibsem.structures import BeamType
+
+    if reference is None:
+        reference = BeamType.ELECTRON
+    if reference not in (BeamType.ELECTRON, BeamType.ION):
+        raise ValueError(f"reference must be ELECTRON or ION, got {reference}")
 
     measurements: List[CoincidenceMeasurement] = []
     coarse_used = False
@@ -613,6 +634,16 @@ def ensure_coincident(
             # a coarse move only needs to land within the fine pass's reach
 
         report(PROGRESS_MOVING, coarse=measurement.coarse, measurement=measurement)
+        if reference is BeamType.ION:
+            # bring the FIB-centred feature to the SEM centre first: the
+            # height correction preserves the SEM centre, so this is what
+            # leaves the FIB view where the operator put it. A stable move
+            # follows the surface and leaves the height error unchanged
+            microscope.stable_move(
+                dx=-measurement.dx,
+                dy=-measurement.dy * measurement.y_stretch,
+                beam_type=BeamType.ELECTRON,
+            )
         microscope.vertical_move(dy=measurement.dy, dx=0, relaxation=relaxation)
         moves += 1
 
