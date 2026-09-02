@@ -3442,10 +3442,11 @@ class TestTwoRunsCannotLandOnEachOther:
         raced: two real runs are minutes apart, and a test that acquires twice in the
         same second would pass for the wrong reason either way.
 
-        The clock is read where the stamping lives, which is now shared with the
-        fluorescence tab rather than private to this one.
+        The clock is read where the stamping lives, `fibsem.imaging.tiled`, which is
+        shared with the fluorescence tab and the grid tasks rather than private to
+        this one.
         """
-        from fibsem.ui.widgets import overview_acquisition_settings_widget as module
+        from fibsem.imaging import tiled as module
 
         times = iter(["14-23-05", "14-31-40"])
         monkeypatch.setattr(

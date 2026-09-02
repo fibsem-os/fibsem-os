@@ -12,9 +12,14 @@ from __future__ import annotations
 
 import glob
 import os
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskState,
+    Experiment,
+    GridRecord,
+    Lamella,
+)
 
 
 def _recorded(
@@ -83,3 +88,40 @@ def final_reference_images(lamella: Lamella, *tasks: AutoLamellaTaskState) -> Li
             )
         }
     )
+
+
+def grid_outputs(
+    experiment: Experiment,
+    grid: GridRecord,
+    *roles: str,
+    task_name: Optional[str] = None,
+) -> List[str]:
+    """Absolute, existing, de-duplicated paths a grid's task runs recorded under `roles`.
+
+    The grid-side read model (FIB-876): a results card, the Overview tab and the
+    agent server all read the history's `outputs`, and nothing globs the grid's
+    directory. Paths are recorded relative to `experiment.grid_path(grid)`, so a
+    copied experiment still resolves. Pass `task_name` to read one task's runs
+    only; by default every run on the grid contributes.
+    """
+    root = experiment.grid_path(grid)
+    runs = [t for t in grid.task_history if task_name is None or t.name == task_name]
+    paths = (
+        os.path.join(root, relpath)
+        for task in runs
+        for role in roles
+        for relpath in task.outputs.get(role, [])
+    )
+    return sorted({path for path in paths if os.path.isfile(path)})
+
+
+def latest_grid_output(
+    experiment: Experiment, grid: GridRecord, role: str
+) -> Optional[str]:
+    """The most recently recorded file under `role`, or None. What a card shows."""
+    for task in reversed(grid.task_history):
+        for relpath in reversed(task.outputs.get(role, [])):
+            path = os.path.join(experiment.grid_path(grid), relpath)
+            if os.path.isfile(path):
+                return path
+    return None

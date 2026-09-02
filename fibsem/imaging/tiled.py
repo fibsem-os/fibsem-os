@@ -57,6 +57,7 @@ from fibsem.structures import (
     Point,
     TileOrderStrategy,
 )
+from fibsem.utils import current_timestamp_v3
 
 ##### TILE GRID
 
@@ -74,6 +75,20 @@ def _check_cancelled(stop_event: Optional[threading.Event]) -> None:
 
 
 ##### TILED ACQUISITION
+
+
+def stamped_overview_name(name: str) -> str:
+    """`overview-image` -> `overview-image-14-23-05`, the time the run was started.
+
+    The name is not a label, it is a location: both overview runners make the tile
+    sub-folder from it and write the stitch keyed on the same name. Two runs called
+    the same thing therefore land on each other -- the second overwrites the first's
+    tiles *and* its mosaic. Time rather than date and time: the experiment directory
+    is already dated, so inside it the time of day is what distinguishes one run
+    from another. Applied to whatever a caller asks for, not only to a default: a
+    name someone typed is no less prone to being reused.
+    """
+    return f"{name}-{current_timestamp_v3(timeonly=True)}"
 
 
 class TiledAcquisitionRunner:
