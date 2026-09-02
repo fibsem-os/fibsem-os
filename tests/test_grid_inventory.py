@@ -446,3 +446,26 @@ class TestRunInventory:
         microscope._stage.holder.slots["Slot-01"].loaded_grid = SampleGrid(name="g")
         rows = microscope._stage.run_inventory()
         assert [r.name for r in rows if r.present] == ["g"]
+
+
+# ---------------------------------------------------------------------------
+# current_slot / current_grid before the position cache is filled
+# ---------------------------------------------------------------------------
+
+
+def test_current_grid_is_none_before_the_first_position_read():
+    """A fresh connection has no cached stage position. Asking which grid the
+    stage is at then means "not known", not an AttributeError."""
+    microscope = _compustage_demo()
+    _with_magazine(microscope)
+    stage = microscope._stage
+    stage.ensure_loaded("Grid-01")
+    microscope._stage_position = None
+
+    assert stage.current_slot is None
+    assert stage.current_grid is None
+
+    stage.position  # the first read fills the cache
+    stage.move_to_slot("Slot-01")
+    assert stage.current_grid is not None
+    assert stage.current_grid.name == "Grid-01"
