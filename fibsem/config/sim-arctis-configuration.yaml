@@ -63,5 +63,9 @@ milling:
 sim:
     sem: null # "/path/to/sem/image/data"                   
     fib: null # "/path/to/fib/image/data"                   
-    use_cycle: true                                         
-    is_compustage: true                                   
+    use_cycle: true
+    is_compustage: true
+    loader:                                               # the simulated autoloader magazine
+        capacity: 12
+        occupied: [1, 2, 3]                               # 1-based slot numbers holding a grid
+        names: {}                                         # slot number -> grid name; unnamed slots read as Grid-NN

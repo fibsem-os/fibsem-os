@@ -321,6 +321,12 @@ class FibsemMicroscope(ABC):
 
         self._stage = _create_sample_stage(self)
 
+    def _create_grid_loader(self) -> "SampleGridLoader":
+        """The grid loader for a compustage system. Backends wrap their own hardware."""
+        from fibsem.microscopes._stage import SampleGridLoader
+
+        return SampleGridLoader(parent=self)
+
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the stage axis limits from the microscope."""
 
