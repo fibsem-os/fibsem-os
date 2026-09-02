@@ -76,7 +76,24 @@ def view(qapp, arctis, experiment):
 
 
 class TestSelection:
+    def test_empty_lists_say_what_to_do(self, qapp, arctis, tmp_path):
+        exp = Experiment(path=tmp_path, name="exp")
+        (tmp_path / "exp").mkdir()
+        exp.task_protocol = AutoLamellaTaskProtocol()
+        widget = GridWorkflowWidget()
+        widget.set_microscope(arctis)
+        widget.set_experiment(exp)
+        assert (
+            not widget.grid_empty.isHidden() and "inventory" in widget.grid_empty.text()
+        )
+        assert (
+            not widget.task_empty.isHidden()
+            and "Protocol tab" in widget.task_empty.text()
+        )
+        assert not widget.btn_screen_all.isEnabled()  # nothing to run yet
+
     def test_rows_and_defaults(self, view):
+        assert view.grid_empty.isHidden() and view.task_empty.isHidden()
         assert list(view._grid_rows) == ["Grid-01", "Grid-02", "Grid-03", "grid-oak"]
         assert view.grid_header.trailing.text() == "3 of 4 present"
         assert not view._grid_rows["grid-oak"].checkbox.isEnabled()

@@ -270,6 +270,17 @@ def _list() -> QListWidget:
     return widget
 
 
+def _empty_line(text: str) -> QLabel:
+    """What an empty list means and what to do about it; hidden once it fills."""
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setStyleSheet(
+        f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent; "
+        "padding: 6px 8px;"
+    )
+    return label
+
+
 def _add_row(widget: QListWidget, row: QWidget) -> None:
     item = QListWidgetItem(widget)
     item.setSizeHint(QSize(0, _ROW_HEIGHT))
@@ -311,6 +322,11 @@ class GridWorkflowWidget(QWidget):
         root.addWidget(self.grid_header)
         self.grid_list = _list()
         root.addWidget(self.grid_list, 1)
+        self.grid_empty = _empty_line(
+            "No grids in this experiment yet. Run an inventory on the Grids tab, "
+            "or press Screen all grids to inventory and run in one go."
+        )
+        root.addWidget(self.grid_empty)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
@@ -322,8 +338,12 @@ class GridWorkflowWidget(QWidget):
         root.addWidget(self.task_header)
         self.task_list = _list()
         root.addWidget(self.task_list, 1)
+        self.task_empty = _empty_line(
+            "No grid tasks in the protocol. Add them on the Protocol tab's Grid page."
+        )
+        root.addWidget(self.task_empty)
         self.task_hint = QLabel(
-            "Settings are on the Grids tab's Protocol view. The order here is the "
+            "Settings are on the Protocol tab's Grid page. The order here is the "
             "order they run on each grid."
         )
         self.task_hint.setWordWrap(True)
@@ -435,6 +455,8 @@ class GridWorkflowWidget(QWidget):
             row.set_inventory(inventory.get(row.grid.name))
         for row in self._task_rows.values():
             row.set_unavailable(task_unavailable_reason(row.config, self._microscope))
+        self.grid_empty.setVisible(not self._grid_rows)
+        self.task_empty.setVisible(not self._task_rows)
         present = sum(1 for r in self._grid_rows.values() if r.is_present)
         self.grid_header.trailing.setText(
             f"{present} of {len(self._grid_rows)} present" if self._grid_rows else ""
