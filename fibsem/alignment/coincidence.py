@@ -53,6 +53,12 @@ WINDOW_EDGE_MARGIN_PX = 3
 
 REFUSAL_BAND_DISAGREEMENT = "band-disagreement"
 REFUSAL_WINDOW_EDGE = "window-edge"
+REFUSAL_LATERAL_OFFSET = "lateral-offset"
+# A height error cannot produce dx, and a real beam misalignment is a few
+# microns at most (FIB-873 measured ~1.3 um) - a lock further out in x is a
+# rival peak, and both bands agreeing on it does not make it right. On the
+# simulator's mesh, rival locks at 9 um passed a 10 um bound.
+DEFAULT_MAX_LATERAL_OFFSET = 5e-6  # m
 
 
 @dataclass
@@ -239,6 +245,7 @@ def measure_coincidence(
     prior: Optional[Tuple[float, float]] = None,
     capture_range: float = DEFAULT_CAPTURE_RANGE,
     agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE,
+    max_lateral_offset: float = DEFAULT_MAX_LATERAL_OFFSET,
 ) -> CoincidenceMeasurement:
     """Measure the SEM/FIB coincidence residual from one image pair.
 
@@ -259,6 +266,8 @@ def measure_coincidence(
             correlation peaks one pitch apart (FIB-711).
         agreement_tolerance: max distance (m) between the two independent
             band estimates for the result to be reliable.
+        max_lateral_offset: |dx| (m) beyond which a lock is refused as a
+            rival peak - a height error cannot move x.
 
     Returns:
         CoincidenceMeasurement. When is_reliable is False the residuals are
@@ -298,6 +307,8 @@ def measure_coincidence(
         refusal = REFUSAL_WINDOW_EDGE
     elif disagreement > agreement_tolerance:
         refusal = REFUSAL_BAND_DISAGREEMENT
+    elif abs(dx) > max_lateral_offset:
+        refusal = REFUSAL_LATERAL_OFFSET
 
     measurement = CoincidenceMeasurement(
         dx=float(dx),
@@ -331,6 +342,7 @@ def measure_coincidence_from_images(
     prior: Optional[Tuple[float, float]] = None,
     capture_range: float = DEFAULT_CAPTURE_RANGE,
     agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE,
+    max_lateral_offset: float = DEFAULT_MAX_LATERAL_OFFSET,
 ) -> CoincidenceMeasurement:
     """measure_coincidence for a FibsemImage pair.
 
@@ -349,6 +361,7 @@ def measure_coincidence_from_images(
         prior=prior,
         capture_range=capture_range,
         agreement_tolerance=agreement_tolerance,
+        max_lateral_offset=max_lateral_offset,
     )
 
 
@@ -368,6 +381,7 @@ DEFAULT_MAX_ITERATIONS = 3
 DEFAULT_COARSE_HFW = 900e-6  # m
 DEFAULT_COARSE_CAPTURE_RANGE = 100e-6  # m, just under one 125 um grid pitch
 DEFAULT_COARSE_AGREEMENT_TOLERANCE = 2e-6  # m, looser: coarse pixels are ~4x bigger
+DEFAULT_COARSE_MAX_LATERAL_OFFSET = 20e-6  # m
 
 REASON_CONVERGED = "converged"
 REASON_MAX_ITERATIONS = "max-iterations"
@@ -464,6 +478,7 @@ def check_coincidence(
     prior: Optional[Tuple[float, float]] = None,
     capture_range: float = DEFAULT_CAPTURE_RANGE,
     agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE,
+    max_lateral_offset: float = DEFAULT_MAX_LATERAL_OFFSET,
 ) -> CoincidenceMeasurement:
     """Acquire an eb/ib pair at the current position and measure coincidence.
 
@@ -485,6 +500,7 @@ def check_coincidence(
         prior=prior,
         capture_range=capture_range,
         agreement_tolerance=agreement_tolerance,
+        max_lateral_offset=max_lateral_offset,
     )
     measurement.sem_image = sem_image
     measurement.fib_image = fib_image
@@ -502,6 +518,7 @@ def ensure_coincident(
     coarse_hfw: Optional[float] = DEFAULT_COARSE_HFW,
     coarse_capture_range: float = DEFAULT_COARSE_CAPTURE_RANGE,
     coarse_agreement_tolerance: float = DEFAULT_COARSE_AGREEMENT_TOLERANCE,
+    coarse_max_lateral_offset: float = DEFAULT_COARSE_MAX_LATERAL_OFFSET,
     on_progress: Optional[ProgressCallback] = None,
     reference: "BeamType" = None,
 ) -> CoincidenceAlignment:
@@ -531,17 +548,17 @@ def ensure_coincident(
     belong in here.
 
     dx is never corrected here - a persistent lateral offset is not a height
-    error (beam misalignment, FIB-873) and correcting it belongs to a
-    different actuator. It rides along in every measurement as a diagnostic,
-    and seeds the next iteration's search window.
+    error (beam misalignment, FIB-873) and no stage move can change it: the
+    stage carries both views together. It rides along as a diagnostic, and a
+    large one refuses the measurement outright (a rival peak, not an offset).
 
     Args:
         microscope: the microscope connection.
         tolerance: height error (m) below which the views count as coincident.
         max_iterations: maximum number of corrective moves.
         image_settings: per-acquisition settings; a low-dose default when omitted.
-        capture_range: fine search half-width (m); later iterations search a
-            window this size seeded at the expected (dx, ~0) residual.
+        capture_range: fine search half-width (m), centred on zero every
+            iteration - never re-seeded at a previous lock.
         agreement_tolerance: band-agreement gate for fine measurements.
         relaxation: under-relaxation passed to vertical_move; 1.0 is exact.
         coarse_hfw: field width (m) for the coarse escalation; None disables
@@ -551,6 +568,9 @@ def ensure_coincident(
             pitch apart.
         coarse_agreement_tolerance: band-agreement gate for the coarse pass
             (looser: its pixels are ~4x larger).
+        coarse_max_lateral_offset: |dx| bound for the coarse pass (looser:
+            it only has to land within the fine pass's reach, and the fine
+            measurement that follows re-verifies under the strict bound).
         on_progress: called with a CoincidenceProgress before every
             acquisition, after every measurement and before every move, from
             the calling thread - a GUI must marshal it across itself.
@@ -608,6 +628,7 @@ def ensure_coincident(
             image_settings=settings,
             capture_range=coarse_capture_range,
             agreement_tolerance=coarse_agreement_tolerance,
+            max_lateral_offset=coarse_max_lateral_offset,
         )
         measurement.coarse = True
         measurements.append(measurement)
@@ -639,17 +660,20 @@ def ensure_coincident(
             # height correction preserves the SEM centre, so this is what
             # leaves the FIB view where the operator put it. A stable move
             # follows the surface and leaves the height error unchanged
+            # y only: a stage move shifts both views together, so it cannot
+            # change dx - chasing dx walked the stage sideways on a false lock
             microscope.stable_move(
-                dx=-measurement.dx,
+                dx=0.0,
                 dy=-measurement.dy * measurement.y_stretch,
                 beam_type=BeamType.ELECTRON,
             )
         microscope.vertical_move(dy=measurement.dy, dx=0, relaxation=relaxation)
         moves += 1
 
-        # after a correction the residual should be near zero in y; dx is
-        # uncorrected and persists, so seed the fine window there
-        measurement = fine_check(prior=(measurement.dx, 0.0))
+        # after a correction the residual should be near zero; the window is
+        # NOT re-seeded at the previous dx - that made a rival peak
+        # self-confirming (the window followed the alias)
+        measurement = fine_check()
     else:
         # loop exhausted: the final measurement still decides the verdict
         if measurement.is_reliable and abs(measurement.dz) <= tolerance:
@@ -677,3 +701,110 @@ def ensure_coincident(
         }
     )
     return result
+
+
+@dataclass
+class TiltAlignment:
+    """The record of one tilt_coincident run: every tilt visited, in order,
+    with the coincidence alignment run there."""
+
+    tilts: List[float]  # rad
+    alignments: List["CoincidenceAlignment"]
+    converged: bool  # coincident AT the target tilt
+    reason: str
+
+    @property
+    def moves_applied(self) -> int:
+        return sum(a.moves_applied for a in self.alignments)
+
+
+DEFAULT_MAX_TILT_SPLITS = 2
+
+
+def tilt_coincident(
+    microscope: "FibsemMicroscope",
+    target_tilt: float,
+    reference: "BeamType" = None,
+    max_splits: int = DEFAULT_MAX_TILT_SPLITS,
+    on_progress: Optional[ProgressCallback] = None,
+    **ensure_kwargs,
+) -> TiltAlignment:
+    """Tilt the stage to `target_tilt` (rad) and restore coincidence there.
+
+    A stage is rarely eucentric: the surface sits some height h off the tilt
+    axis, so tilting swings it - mostly a walk along the surface, plus a
+    height change that costs coincidence. Both are small relative to the
+    measurement's reach (~h * sin(dt): even 100 um over 23 deg lands inside
+    the coarse window), so the loop tilts straight to the target and measures
+    there. Stepping is the fallback, not the cadence: when the alignment at a
+    tilt refuses, the segment from the last coincident tilt is halved - align
+    at the midpoint, then try the target again - at most `max_splits` times.
+    Nothing here needs a reference image from the starting tilt, which is
+    what made the stepped-and-correlate predecessor drift.
+
+    `reference` is passed through to ensure_coincident; ION (the default
+    here, unlike ensure_coincident's) keeps what the operator centred in the
+    FIB view. Note this preserves coincidence, not identity: a large swing can
+    bring a different feature under the crosshair, and tracking the original
+    is a separate problem.
+
+    Args:
+        microscope: the microscope connection.
+        target_tilt: stage tilt to end at, in radians (absolute).
+        reference: which view keeps its centre (see ensure_coincident).
+        max_splits: how many times a refused segment may be halved.
+        on_progress: forwarded to every ensure_coincident call.
+        **ensure_kwargs: forwarded to ensure_coincident (tolerance, ranges...).
+
+    Returns:
+        TiltAlignment; `converged` means the LAST alignment, at the target
+        tilt, measured coincident.
+    """
+    from fibsem.structures import BeamType
+
+    if reference is None:
+        reference = BeamType.ION
+
+    last_coincident_tilt = float(microscope.get_stage_position().t or 0.0)
+    pending: List[float] = [float(target_tilt)]  # target stays at the bottom
+    tilts: List[float] = []
+    alignments: List[CoincidenceAlignment] = []
+    splits = 0
+
+    while pending:
+        goal = pending[-1]
+        pose = microscope.get_stage_position()
+        pose.t = goal
+        microscope.move_stage_absolute(pose)
+
+        result = ensure_coincident(
+            microscope, reference=reference, on_progress=on_progress, **ensure_kwargs
+        )
+        tilts.append(goal)
+        alignments.append(result)
+
+        if result.converged:
+            pending.pop()
+            last_coincident_tilt = goal
+            continue
+        if result.reason == REASON_MAX_ITERATIONS or splits >= max_splits:
+            # not a refusal we can shrink our way out of, or out of splits
+            break
+        splits += 1
+        pending.append((last_coincident_tilt + goal) / 2)
+
+    converged = bool(alignments) and not pending and alignments[-1].converged
+    reason = REASON_CONVERGED if converged else alignments[-1].reason
+    logging.info(
+        {
+            "msg": "tilt_coincident",
+            "target_tilt": target_tilt,
+            "tilts": tilts,
+            "converged": converged,
+            "reason": reason,
+            "splits": splits,
+        }
+    )
+    return TiltAlignment(
+        tilts=tilts, alignments=alignments, converged=converged, reason=reason
+    )

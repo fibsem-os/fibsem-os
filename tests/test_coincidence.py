@@ -258,3 +258,24 @@ def test_flipped_rotation_is_rejected():
 
     with pytest.raises(ValueError, match="FIB-orientation"):
         geometry_from_images(sem_image, fib_image)
+
+
+def test_large_lateral_offset_is_refused_as_a_rival_peak():
+    """A height error cannot move x, so a lock far out in x is a wrong peak
+    even when both bands agree on it - it must not be acted on."""
+    from fibsem.alignment.coincidence import REFUSAL_LATERAL_OFFSET
+
+    dx_px = 200.0  # 13 um at this pixel size, well inside the search window
+    sem = make_sem_scene()
+    fib = make_fib_view(sem, 0.0, dx_px, Y_STRETCH)
+
+    m = measure_coincidence(sem, fib, PIXEL_SIZE, Y_STRETCH, DZ_PER_DY)
+    assert not m.is_reliable
+    assert m.refusal_reason == REFUSAL_LATERAL_OFFSET
+    assert m.dx == pytest.approx(dx_px * PIXEL_SIZE, abs=2 * PIXEL_SIZE)
+
+    # the bound is a parameter: a caller expecting a large beam offset can widen it
+    m = measure_coincidence(
+        sem, fib, PIXEL_SIZE, Y_STRETCH, DZ_PER_DY, max_lateral_offset=20e-6
+    )
+    assert m.is_reliable

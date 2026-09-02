@@ -95,10 +95,12 @@ def test_under_relaxed_loop_hits_the_iteration_limit(microscope):
     assert abs(result.final.dz) < abs(result.measurements[0].dz)
 
 
-@pytest.mark.parametrize("offset", [40e-6, 80e-6])
+@pytest.mark.parametrize("offset", [40e-6, 50e-6])
 def test_coarse_pass_rescues_errors_beyond_the_fine_window(microscope, offset):
     """Errors past the fine capture range refuse at fine FOV, escalate to
-    the coarse pass, and still converge - up to ~100 um of height error."""
+    the coarse pass, and still converge. The honest reach on this mesh is
+    ~50 um - about half a grid pitch, where rival peaks start to compete;
+    an 80 um "rescue" this test once claimed was a false-lock chain."""
     microscope._coincidence_scene.coincidence_offset = offset
     microscope._coincidence_scene.reference_position = None
     microscope._coincidence_scene.anchor(microscope.get_stage_position())
@@ -111,19 +113,14 @@ def test_coarse_pass_rescues_errors_beyond_the_fine_window(microscope, offset):
     assert not result.measurements[0].is_reliable  # fine pass refused first
 
 
-@pytest.mark.xfail(
-    reason="on a purely periodic mesh, correlation cannot distinguish true "
-    "coincidence from a grid-pitch alias: with the error beyond ~one pitch "
-    "both bands agree on the alias and the loop converges onto it (FIB-711 "
-    "taken to its logical end - real physics, same on hardware over bare "
-    "mesh). Defences are contextual: bound the plausible error from 'how "
-    "far since last aligned', or anchor on aperiodic features. FIB-868.",
-    strict=False,
-)
-def test_error_beyond_the_coarse_window_does_not_claim_success(microscope):
-    """The desired property - never claim success on an aliased lock -
-    cannot be guaranteed by correlation alone on a periodic scene."""
-    microscope._coincidence_scene.coincidence_offset = 250e-6
+@pytest.mark.parametrize("offset", [80e-6, 250e-6])
+def test_error_beyond_the_coarse_window_does_not_claim_success(microscope, offset):
+    """Beyond ~one grid pitch the periodic mesh offers an alias both bands
+    agree on, and the loop used to converge onto it (this test was an xfail
+    recording that). The alias is caught by its lateral offset instead: a
+    height error cannot move x, and on the rotated mesh the rival peak sits
+    well off-axis - so the lock is refused rather than acted on."""
+    microscope._coincidence_scene.coincidence_offset = offset
     microscope._coincidence_scene.reference_position = None
     microscope._coincidence_scene.anchor(microscope.get_stage_position())
 
@@ -131,6 +128,7 @@ def test_error_beyond_the_coarse_window_does_not_claim_success(microscope):
 
     assert not result.converged
     assert result.coarse_used  # it tried
+    assert result.moves_applied == 0  # and did not act on the alias
 
 
 def test_progress_reports_every_step_and_moves_are_counted(microscope, tmp_path):

@@ -17,6 +17,7 @@ import warnings
 from datetime import datetime
 
 import napari
+import numpy as np
 from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QPixmap
 from PyQt5.QtWidgets import (
@@ -759,6 +760,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         dev_menu.addAction(self.action_open_coincidence_viewer)
 
+        coincidence_menu = dev_menu.addMenu("Coincidence Alignment")
+        if coincidence_menu is None:
+            raise RuntimeError("Failed to create Coincidence Alignment menu.")
+
         self.action_ensure_coincidence = QAction(
             "Run SEM/FIB Coincidence Alignment", self
         )
@@ -769,7 +774,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_ensure_coincidence.triggered.connect(
             lambda: self._on_ensure_coincidence(reference=BeamType.ELECTRON)
         )
-        dev_menu.addAction(self.action_ensure_coincidence)
+        coincidence_menu.addAction(self.action_ensure_coincidence)
 
         self.action_ensure_coincidence_fib = QAction(
             "Run SEM/FIB Coincidence Alignment (keep FIB view)", self
@@ -782,8 +787,32 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_ensure_coincidence_fib.triggered.connect(
             lambda: self._on_ensure_coincidence(reference=BeamType.ION)
         )
-        dev_menu.addAction(self.action_ensure_coincidence_fib)
+        coincidence_menu.addAction(self.action_ensure_coincidence_fib)
         self.coincidence_progress.connect(self._on_coincidence_progress)
+
+        self.action_tilt_coincident_milling = QAction(
+            "Tilt to Milling Angle (Coincident)", self
+        )
+        self.action_tilt_coincident_milling.setToolTip(
+            "Tilt straight to the configured milling angle and restore "
+            "SEM/FIB coincidence there, keeping the FIB view (FIB-899)"
+        )
+        self.action_tilt_coincident_milling.triggered.connect(
+            lambda: self._on_tilt_coincident("milling")
+        )
+        coincidence_menu.addAction(self.action_tilt_coincident_milling)
+
+        self.action_tilt_coincident_sem = QAction(
+            "Tilt to SEM Orientation (Coincident)", self
+        )
+        self.action_tilt_coincident_sem.setToolTip(
+            "Tilt straight to the SEM orientation and restore SEM/FIB "
+            "coincidence there, keeping the FIB view (FIB-899)"
+        )
+        self.action_tilt_coincident_sem.triggered.connect(
+            lambda: self._on_tilt_coincident("sem")
+        )
+        coincidence_menu.addAction(self.action_tilt_coincident_sem)
 
         self._dev_menu = dev_menu
         self._dev_menu.menuAction().setVisible(self.dev_mode)
@@ -1308,7 +1337,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if microscope is None:
             self.show_toast("Not connected to a microscope.", "warning")
             return
-        actions = (self.action_ensure_coincidence, self.action_ensure_coincidence_fib)
+        actions = self._coincidence_actions()
         for action in actions:
             action.setEnabled(False)
         worker = self._ensure_coincidence_worker(reference)
@@ -1377,6 +1406,71 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 f"Not coincident: {result.reason} "
                 f"(last measured dz {final_dz:+.2f} um, "
                 f"{result.moves_applied} move(s) applied).{where}",
+                "warning",
+                duration=10000,
+            )
+
+    def _coincidence_actions(self):
+        return (
+            self.action_ensure_coincidence,
+            self.action_ensure_coincidence_fib,
+            self.action_tilt_coincident_milling,
+            self.action_tilt_coincident_sem,
+        )
+
+    def _on_tilt_coincident(self, where: str) -> None:
+        """Tilt to the milling angle or the SEM orientation, coincident (dev tool).
+
+        Tilts straight there and runs the coincidence loop at the target,
+        stepping only if the measurement refuses; keeps the FIB view.
+        """
+        from fibsem.ui.qt.threading import thread_worker
+
+        microscope = getattr(self.autolamella_ui, "microscope", None)
+        if microscope is None:
+            self.show_toast("Not connected to a microscope.", "warning")
+            return
+        actions = self._coincidence_actions()
+        for action in actions:
+            action.setEnabled(False)
+        on_progress = self.coincidence_progress.emit
+
+        @thread_worker
+        def _run():
+            from fibsem.alignment.coincidence import tilt_coincident
+            from fibsem.transformations import get_stage_tilt_from_milling_angle
+
+            if where == "milling":
+                target = get_stage_tilt_from_milling_angle(
+                    microscope, np.radians(microscope.system.stage.milling_angle)
+                )
+            else:
+                target = microscope.get_orientation("SEM").t
+            return tilt_coincident(
+                microscope, target, reference=BeamType.ION, on_progress=on_progress
+            )
+
+        worker = _run()
+        worker.returned.connect(self._on_tilt_coincident_finished)
+        worker.errored.connect(
+            lambda exc: self.show_toast(f"Coincident tilt failed: {exc}", "error")
+        )
+        worker.finished.connect(lambda: [a.setEnabled(True) for a in actions])
+        worker.start()
+
+    def _on_tilt_coincident_finished(self, result) -> None:
+        tilts = ", ".join(f"{np.degrees(t):.1f}" for t in result.tilts)
+        if result.converged:
+            self.show_toast(
+                f"Coincident at {np.degrees(result.tilts[-1]):.1f} deg after "
+                f"{result.moves_applied} corrective move(s) (tilts visited: {tilts}).",
+                "success",
+                duration=10000,
+            )
+        else:
+            self.show_toast(
+                f"Not coincident at the target tilt: {result.reason} "
+                f"(tilts visited: {tilts}, {result.moves_applied} move(s) applied).",
                 "warning",
                 duration=10000,
             )
