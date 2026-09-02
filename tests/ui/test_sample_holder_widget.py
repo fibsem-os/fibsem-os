@@ -39,12 +39,12 @@ def _calibrate(slot, x=-5e-3):
 def test_uncalibrated_holder_reads_as_such(qapp, microscope):
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(microscope._stage.holder)
-    assert widget.status_chip.text() == "not calibrated"
     assert widget.hint_label.isVisibleTo(widget)
     row = widget._row_widget(0)
-    assert row.calibration_chip.text() == "not calibrated"
+    assert row.status == "unavailable"
+    assert "not calibrated" in row.toolTip()
     assert not row.btn_move.isEnabled()
-    assert "2 slots" in widget.facts_label.text()
+    assert "2 slots, 0 calibrated" in widget.facts_label.text()
     assert "pre-tilt 35°" in widget.facts_label.text()
 
 
@@ -53,12 +53,18 @@ def test_calibrated_slot_shows_when_and_can_move(qapp, microscope):
     _calibrate(holder.slots["Slot-01"])
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
-    assert widget.status_chip.text() == "1 of 2 calibrated"
+    assert "2 slots, 1 calibrated" in widget.facts_label.text()
     row = widget._row_widget(0)
-    assert row.calibration_chip.text() == "SEM · 2 Sep 11:24"
+    assert row.status == "calibrated"  # trusted position, nothing in it yet
+    assert "Calibrated 2 Sep 2026 11:24" in row.toolTip()
+    assert "SEM orientation, pre-tilt 35°" in row.toolTip()
     assert row.btn_move.isEnabled()
+    requested = []
+    widget.move_to_requested.connect(requested.append)
     row.btn_move.click()
-    assert abs(microscope.get_stage_position().x + 5e-3) < 1e-9
+    # hosted: a request the Movement widget routes through its own move path
+    assert len(requested) == 1 and abs(requested[0].x + 5e-3) < 1e-9
+    assert abs(microscope.get_stage_position().x + 5e-3) > 1e-6  # not moved here
 
 
 def test_fully_calibrated_hides_the_hint(qapp, microscope):
@@ -67,7 +73,7 @@ def test_fully_calibrated_hides_the_hint(qapp, microscope):
     _calibrate(holder.slots["Slot-02"], x=5e-3)
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
-    assert widget.status_chip.text() == "2 of 2 calibrated"
+    assert "2 slots, 2 calibrated" in widget.facts_label.text()
     assert not widget.hint_label.isVisibleTo(widget)
 
 
@@ -89,6 +95,17 @@ def test_naming_a_grid_inline_updates_the_holder_and_emits(qapp, microscope):
     assert len(changed) == 2
 
 
+def test_status_dot_is_available_only_when_calibrated_with_a_grid(qapp, microscope):
+    holder = microscope._stage.holder
+    holder.slots["Slot-01"].loaded_grid = SampleGrid(name="grid-aspen")
+    _calibrate(holder.slots["Slot-01"])
+    holder.slots["Slot-02"].loaded_grid = SampleGrid(name="grid-birch")  # uncalibrated
+    widget = SampleHolderWidget(microscope=microscope)
+    widget.set_holder(holder)
+    assert widget._row_widget(0).status == "available"
+    assert widget._row_widget(1).status == "unavailable"
+
+
 def test_unchanged_name_does_not_emit(qapp, microscope):
     holder = microscope._stage.holder
     holder.slots["Slot-01"].loaded_grid = SampleGrid(name="grid-aspen")
@@ -102,16 +119,20 @@ def test_unchanged_name_does_not_emit(qapp, microscope):
     assert changed == []
 
 
-def test_renaming_the_holder(qapp, microscope):
+def test_holder_name_is_read_only_here(qapp, microscope):
     holder = microscope._stage.holder
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
-    widget.name_edit.setText("Two-grid shuttle")
-    widget.name_edit.editingFinished.emit()
-    assert holder.name == "Two-grid shuttle"
-    widget.name_edit.setText("   ")
-    widget.name_edit.editingFinished.emit()
-    assert widget.name_edit.text() == "Two-grid shuttle"  # blank is refused
+    assert widget.name_label.text() == holder.name  # set in the wizard, shown here
+
+
+def test_unhosted_widget_moves_the_stage_itself(qapp, microscope):
+    holder = microscope._stage.holder
+    _calibrate(holder.slots["Slot-01"])
+    widget = SampleHolderWidget(microscope=microscope, move_directly=True)
+    widget.set_holder(holder)
+    widget._row_widget(0).btn_move.click()
+    assert abs(microscope.get_stage_position().x + 5e-3) < 1e-9
 
 
 def test_calibrate_opens_the_wizard_non_modal(qapp, microscope):

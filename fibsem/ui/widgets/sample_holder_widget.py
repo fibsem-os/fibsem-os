@@ -16,26 +16,47 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
+from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
-from fibsem.ui.tokens import OK_COLOR, SURFACE_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, fibsem_icon
+from fibsem.ui.tokens import (
+    NEUTRAL_700,
+    OK_COLOR,
+    SURFACE_COLOR,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
+)
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 
-_ROW_HEIGHT = 36
+_ROW_HEIGHT = 40
 _SLOT_LABEL_WIDTH = 64
+_ICON_BTN = 26
+ICON_CALIBRATE = "mdi:pencil-outline"
+_ICON_BTN_STYLE = """
+QToolButton {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 1px;
+}
+QToolButton:hover { background: rgba(255, 255, 255, 30); }
+QToolButton:pressed { background: rgba(255, 255, 255, 15); }
+QToolButton:disabled { background: transparent; }
+"""
 _NAME_FIELD_STYLE = (
     "QLineEdit { background: transparent; border: 1px solid transparent;"
     " border-radius: 3px; padding: 2px 6px; }"
@@ -43,31 +64,61 @@ _NAME_FIELD_STYLE = (
 )
 
 
-def _set_chip(label: QLabel, text: str, colour: str) -> None:
-    """Restyle a pill label in place: text on a tint of its own colour."""
-    rgb = QColor(colour)
-    label.setText(text)
-    label.setStyleSheet(
-        f"background-color: rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15);"
-        f" color: {colour}; padding: 2px 9px; border-radius: 10px; font-size: 11px;"
-    )
-
-
 def _captured_when(slot: GridSlot) -> str:
-    """'SEM · 2 Sep 11:24' from the calibration record, or what there is of it."""
+    """'2 Sep 2026 11:24' from the calibration record, or what there is of it."""
     record = slot.calibration
     if record is None:
         return ""
     when = record.captured_at
     if len(when) >= 16 and when[10] == "T":
-        # 2026-09-02T11:24:09 -> 2 Sep 11:24, without a datetime round trip
+        # 2026-09-02T11:24:09 -> 2 Sep 2026 11:24, without a datetime round trip
         months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
         try:
-            month = months[int(when[5:7]) - 1]
-            when = f"{int(when[8:10])} {month} {when[11:16]}"
+            when = f"{int(when[8:10])} {months[int(when[5:7]) - 1]} {when[:4]} {when[11:16]}"
         except (ValueError, IndexError):
             pass
-    return f"{record.orientation} · {when}" if when else record.orientation
+    return when
+
+
+def slot_status(slot: GridSlot) -> str:
+    """'available' (calibrated, holds a grid), 'calibrated' (no grid), 'unavailable'.
+
+    The dot on each row. Unavailable means nothing can move to the slot, because
+    it has no trusted position; a grid named in it is still recorded, just not
+    reachable until the slot is calibrated.
+    """
+    if not slot.is_calibrated:
+        return "unavailable"
+    return "available" if slot.loaded_grid is not None else "calibrated"
+
+
+_STATUS_COLOUR = {
+    "available": OK_COLOR,
+    "calibrated": TEXT_COLOR,
+    "unavailable": NEUTRAL_700,
+}
+_STATUS_TEXT = {
+    "available": "Available: calibrated, with a grid in it",
+    "calibrated": "Calibrated, no grid in it",
+    "unavailable": "Unavailable: not calibrated",
+}
+
+
+def calibration_tooltip(slot: GridSlot) -> str:
+    """Everything about a slot's calibration, for hovering; the row itself stays quiet."""
+    status = _STATUS_TEXT[slot_status(slot)]
+    if not slot.is_calibrated:
+        return (
+            f"{slot.name}: {status}.\nNo trusted position; use the pencil to run "
+            "the calibration."
+        )
+    record = slot.calibration
+    return (
+        f"{slot.name}: {status}.\nCalibrated {_captured_when(slot)}\n"
+        f"at the {record.orientation} orientation, pre-tilt {record.pre_tilt:g}°, "
+        f"reference rotation {record.rotation_reference:g}°\n"
+        f"{slot.position.pretty}"
+    )
 
 
 class _SlotRow(QWidget):
@@ -86,6 +137,10 @@ class _SlotRow(QWidget):
         layout.setContentsMargins(8, 2, 6, 2)
         layout.setSpacing(8)
 
+        self.dot = QLabel()
+        self.dot.setFixedSize(10, 10)
+        layout.addWidget(self.dot)
+
         self.slot_label = QLabel()
         self.slot_label.setFixedWidth(_SLOT_LABEL_WIDTH)
         self.slot_label.setStyleSheet("font-weight: bold; background: transparent;")
@@ -99,12 +154,13 @@ class _SlotRow(QWidget):
         self.name_edit.editingFinished.connect(self._on_name_edited)
         layout.addWidget(self.name_edit, 1)
 
-        self.calibration_chip = QLabel()
-        layout.addWidget(self.calibration_chip)
-
-        self.btn_move = QPushButton("Move")
-        self.btn_move.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_move.setFixedHeight(24)
+        self.btn_move = QToolButton()
+        self.btn_move.setFixedSize(_ICON_BTN, _ICON_BTN)
+        self.btn_move.setIconSize(QSize(18, 18))
+        self.btn_move.setStyleSheet(_ICON_BTN_STYLE)
+        self.btn_move.setIcon(
+            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_move.clicked.connect(lambda: self.move_clicked.emit(self.slot))
         layout.addWidget(self.btn_move)
 
@@ -117,26 +173,28 @@ class _SlotRow(QWidget):
         if self.name_edit.text() != (grid.name if grid else ""):
             self.name_edit.setText(grid.name if grid else "")
 
-        if slot.is_calibrated:
-            _set_chip(self.calibration_chip, _captured_when(slot), OK_COLOR)
-            self.calibration_chip.setToolTip(
-                f"Calibrated at the {slot.calibration.orientation} orientation, "
-                f"pre-tilt {slot.calibration.pre_tilt:g}°, reference rotation "
-                f"{slot.calibration.rotation_reference:g}°\n"
-                f"{slot.position.pretty}"
-            )
-        else:
-            _set_chip(self.calibration_chip, "not calibrated", WARN_COLOR)
-            self.calibration_chip.setToolTip(
-                "No trusted position: run Calibrate slot positions"
-            )
+        # Calibration state is in the tooltip and in the slot label's weight: a
+        # calibrated slot is bold, an uncalibrated one muted. No chip.
+        tooltip = calibration_tooltip(slot)
+        self.setToolTip(tooltip)
+        self.slot_label.setToolTip(tooltip)
+        self.status = slot_status(slot)
+        self.dot.setStyleSheet(
+            f"background: {_STATUS_COLOUR[self.status]}; border-radius: 5px;"
+        )
+        self.dot.setToolTip(tooltip)
+        self.slot_label.setStyleSheet(
+            f"font-weight: bold; background: transparent; color: {TEXT_STRONG_COLOR};"
+            if slot.is_calibrated
+            else f"font-style: italic; background: transparent; color: {TEXT_MUTED_COLOR};"
+        )
 
         movable = self._has_microscope and slot.is_calibrated
         self.btn_move.setEnabled(movable)
         if movable:
-            tip = "Drive the stage to this slot"
+            tip = f"Move to {slot.name}\n{slot.position.pretty}"
         elif self._has_microscope:
-            tip = "Not calibrated: nothing to move to"
+            tip = f"{slot.name} is not calibrated: nothing to move to"
         else:
             tip = "No microscope connected"
         self.btn_move.setToolTip(tip)
@@ -157,10 +215,16 @@ class SampleHolderWidget(QWidget):
     """
 
     holder_changed = pyqtSignal(object)  # SampleHolder
+    # A request to drive to a calibrated slot. The host (the Movement widget) routes
+    # it through its own move path, so the position readout and the post-move
+    # images follow, exactly as for a saved position. Unhosted, `move_directly`
+    # sends the stage itself.
+    move_to_requested = pyqtSignal(object)  # FibsemStagePosition
 
-    def __init__(self, microscope=None, parent=None):
+    def __init__(self, microscope=None, parent=None, move_directly: bool = False):
         super().__init__(parent)
         self._microscope = microscope
+        self._move_directly = move_directly
         self._holder: Optional[SampleHolder] = None
         self._calibration_dialog = None
         self._rows: List[_SlotRow] = []
@@ -182,20 +246,21 @@ class SampleHolderWidget(QWidget):
 
         header = QHBoxLayout()
         header.setSpacing(8)
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Holder name")
-        self.name_edit.setToolTip("What this holder is called in the configuration")
-        self.name_edit.setStyleSheet(
-            _NAME_FIELD_STYLE + " QLineEdit { font-weight: bold; }"
+        # The name is set in the calibration wizard, with the slot count: one place.
+        self.name_label = QLabel()
+        self.name_label.setStyleSheet(
+            f"font-weight: bold; color: {TEXT_STRONG_COLOR}; background: transparent;"
         )
-        self.name_edit.editingFinished.connect(self._on_name_edited)
-        header.addWidget(self.name_edit, 1)
-        self.status_chip = QLabel()
-        header.addWidget(self.status_chip)
-        self.btn_calibrate = QPushButton("Calibrate…")
+        header.addWidget(self.name_label, 1)
+        self.btn_calibrate = QToolButton()
+        self.btn_calibrate.setFixedSize(_ICON_BTN, _ICON_BTN)
+        self.btn_calibrate.setIconSize(QSize(18, 18))
+        self.btn_calibrate.setStyleSheet(_ICON_BTN_STYLE)
+        self.btn_calibrate.setIcon(
+            fibsem_icon(ICON_CALIBRATE, color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_calibrate.setToolTip(
-            "Walk through each slot at the SEM orientation and capture its centre.\n"
-            "Also where the slot count is set."
+            "Edit the holder: name, slot count, and calibrate each slot's position"
         )
         self.btn_calibrate.clicked.connect(self._on_calibrate)
         header.addWidget(self.btn_calibrate)
@@ -216,8 +281,8 @@ class SampleHolderWidget(QWidget):
         inner_layout.addWidget(self._list)
 
         self.hint_label = QLabel(
-            "Slot positions come from the calibration wizard. Until a slot is "
-            "calibrated nothing can move to it, and overviews draw no outline for it."
+            "Some slots have no calibrated position: nothing can move to them and "
+            "overviews draw no outline for them. Use the pencil to calibrate."
         )
         self.hint_label.setWordWrap(True)
         self.hint_label.setStyleSheet(
@@ -244,40 +309,21 @@ class SampleHolderWidget(QWidget):
         self._list.clear()
         self._rows = []
         if holder is None:
-            self.name_edit.setText("")
+            self.name_label.setText("")
             self.facts_label.setText("")
-            _set_chip(self.status_chip, "no holder", TEXT_MUTED_COLOR)
             return
 
-        if self.name_edit.text() != holder.name:
-            self.name_edit.setText(holder.name)
-
+        self.name_label.setText(holder.name)
         slots = sorted(holder.slots.values(), key=lambda s: s.index)
         calibrated = sum(1 for s in slots if s.is_calibrated)
-        if slots and calibrated == len(slots):
-            _set_chip(
-                self.status_chip, f"{calibrated} of {len(slots)} calibrated", OK_COLOR
-            )
-        elif calibrated:
-            _set_chip(
-                self.status_chip,
-                f"{calibrated} of {len(slots)} calibrated",
-                WARN_COLOR,
-            )
-        else:
-            _set_chip(self.status_chip, "not calibrated", WARN_COLOR)
-        self.btn_calibrate.setStyleSheet(
-            stylesheets.PRIMARY_BUTTON_STYLESHEET
-            if calibrated < len(slots)
-            else stylesheets.SECONDARY_BUTTON_STYLESHEET
-        )
         self.btn_calibrate.setEnabled(self._microscope is not None)
         self.hint_label.setVisible(calibrated < len(slots))
 
         plural = "" if len(slots) == 1 else "s"
         self.facts_label.setText(
-            f"{len(slots)} slot{plural} · pre-tilt {holder.pre_tilt:g}° · "
-            f"reference rotation {holder.reference_rotation:g}°   (system configuration)"
+            f"{len(slots)} slot{plural}, {calibrated} calibrated · "
+            f"pre-tilt {holder.pre_tilt:g}° · reference rotation "
+            f"{holder.reference_rotation:g}°   (system configuration)"
         )
 
         has_microscope = self._microscope is not None
@@ -298,16 +344,6 @@ class SampleHolderWidget(QWidget):
 
     # -- edits -----------------------------------------------------------------
 
-    def _on_name_edited(self) -> None:
-        if self._holder is None:
-            return
-        name = self.name_edit.text().strip()
-        if name and name != self._holder.name:
-            self._holder.name = name
-            self.holder_changed.emit(self._holder)
-        elif not name:
-            self.name_edit.setText(self._holder.name)
-
     def _on_grid_named(self, slot: GridSlot, name: str) -> None:
         if self._holder is None:
             return
@@ -320,12 +356,16 @@ class SampleHolderWidget(QWidget):
         self.holder_changed.emit(self._holder)
 
     def _on_move_slot(self, slot: GridSlot) -> None:
-        if self._microscope is None:
+        if self._microscope is None or slot.position is None:
             return
-        try:
-            self._microscope._stage.move_to_slot(slot.name)
-        except Exception as e:  # noqa: BLE001 - a refused or failed move is reported
-            logging.warning(f"Failed to move to slot '{slot.name}': {e}")
+        position: FibsemStagePosition = slot.position
+        if self._move_directly:
+            try:
+                self._microscope._stage.move_to_slot(slot.name)
+            except Exception as e:  # noqa: BLE001 - a refused or failed move is reported
+                logging.warning(f"Failed to move to slot '{slot.name}': {e}")
+            return
+        self.move_to_requested.emit(position)
 
     # -- calibration -----------------------------------------------------------
 
@@ -372,7 +412,7 @@ if __name__ == "__main__":
     microscope, settings = utils.setup_session(config_path=None)
     holder = microscope._stage.holder
 
-    widget = SampleHolderWidget(microscope=microscope)
+    widget = SampleHolderWidget(microscope=microscope, move_directly=True)
     widget.setStyleSheet(f"background: {SURFACE_COLOR}; color: #d1d2d4;")
     widget.set_holder(holder)
 

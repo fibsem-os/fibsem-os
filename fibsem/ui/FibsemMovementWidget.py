@@ -134,6 +134,9 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
             self.sample_holder_widget = SampleHolderWidget(microscope=self.microscope)
             self.sample_holder_widget.set_holder(self.microscope._stage.holder)
+            # Same route as a saved position, so the readout and the post-move
+            # images follow the stage to the slot.
+            self.sample_holder_widget.move_to_requested.connect(self.move_to_position)
             self.gridLayout_2.addWidget(self.sample_holder_widget, 3, 0)
 
         self.control_widget.update_ui()
