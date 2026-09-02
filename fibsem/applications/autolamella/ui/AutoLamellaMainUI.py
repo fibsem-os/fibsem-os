@@ -2647,6 +2647,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         self.grids_tab.set_microscope(self.autolamella_ui.microscope)
         self.grid_workflow_widget.set_microscope(self.autolamella_ui.microscope)
+        # An exchange from Microscope -> Sample changes what is in the beam; the
+        # Grids tab's chips and the run view's rows follow. The Sample view is
+        # rebuilt on every connect, so this is wired here, on every connect.
+        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        loader = getattr(sample, "loader_widget", None)
+        if loader is not None:
+            loader.loader_changed.connect(self.grids_tab.refresh)
+            loader.loader_changed.connect(self.grid_workflow_widget.refresh)
 
     def _apply_grid_workflow_visibility(self) -> None:
         """`features.grid_workflow` shows or hides the Grids tab.
@@ -2752,6 +2760,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._refresh_grid_protocol_editor
         )
         self.workflow_left_tabs.addTab(self.grid_workflow_widget, "Grids")
+        # An inventory, a rename, a manual load on the Grids tab: the run view's
+        # rows and chips follow. Built after the Grids tab, so the signal exists.
+        self.grids_tab.experiment_changed.connect(self.grid_workflow_widget.refresh)
         self.workflow_left_tabs.currentChanged.connect(
             self._on_workflow_selection_changed
         )

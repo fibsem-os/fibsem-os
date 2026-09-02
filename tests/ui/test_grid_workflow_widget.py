@@ -213,6 +213,42 @@ def test_the_grids_view_sits_beside_lamella_behind_the_flag(main_ui):
         main_ui._preferences.features.grid_workflow = was
 
 
+def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):
+    """The Grids tab creates the records; the Workflow view's rows must follow
+    without a reload."""
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    microscope = ui.microscope
+    microscope.stage_is_compustage = False
+    microscope._stage = _create_sample_stage(microscope)
+    slot = microscope._stage.holder.slots["Slot-01"]
+    slot.position = FibsemStagePosition(
+        name=slot.name, x=-4e-3, y=1e-3, z=4e-3, r=0, t=0.61
+    )
+    slot.calibration = SlotCalibration("SEM", 35.0, 0.0, "2026-09-02T11:24:09", "test")
+    slot.loaded_grid = SampleGrid(name="grid-aspen")
+    main_ui._refresh_grids_tab_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    ui.experiment = exp
+    main_ui.grids_tab.set_experiment(exp)
+    main_ui.grid_workflow_widget.set_experiment(exp)
+    # the app enables the tab on experiment load; a click on a disabled tab's
+    # button is swallowed
+    main_ui.tab_widget.setTabEnabled(
+        main_ui.tab_widget.indexOf(main_ui.grids_tab), True
+    )
+    assert main_ui.grid_workflow_widget._grid_rows == {}
+
+    main_ui.grids_tab._synchronous = True
+    assert main_ui.grids_tab.btn_inventory.isEnabled()
+    main_ui.grids_tab.btn_inventory.click()
+    assert [g.name for g in exp.grids] == ["grid-aspen"]
+    assert list(main_ui.grid_workflow_widget._grid_rows) == ["grid-aspen"]
+    assert main_ui.grid_workflow_widget.grid_empty.isHidden()
+
+
 def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeypatch):
     """End to end: the Run button on the Grids view, the worker, the manager, the
     shared timeline and the record. A fixed holder, so no exchange."""
