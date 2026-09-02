@@ -209,9 +209,10 @@ def test_the_grids_view_sits_beside_lamella_behind_the_flag(main_ui):
         main_ui._preferences.features.grid_workflow = False
         main_ui._apply_grid_workflow_visibility()
         assert not left.isTabVisible(index)
+        assert left.tabBar().isHidden()  # one page: no bar, as the tab was before
         main_ui._preferences.features.grid_workflow = True
         main_ui._apply_grid_workflow_visibility()
-        assert left.isTabVisible(index)
+        assert left.isTabVisible(index) and not left.tabBar().isHidden()
     finally:
         main_ui._preferences.features.grid_workflow = was
 

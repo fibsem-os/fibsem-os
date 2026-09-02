@@ -261,10 +261,10 @@ def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
     try:
         main_ui._preferences.features.grid_workflow = False
         main_ui._apply_grid_workflow_visibility()
-        assert not tabs.isTabVisible(1)
+        assert not tabs.isTabVisible(1) and tabs.tabBar().isHidden()
         main_ui._preferences.features.grid_workflow = True
         main_ui._apply_grid_workflow_visibility()
-        assert tabs.isTabVisible(1)
+        assert tabs.isTabVisible(1) and not tabs.tabBar().isHidden()
 
         tabs.setCurrentIndex(1)
         assert editor.grid_protocol_active

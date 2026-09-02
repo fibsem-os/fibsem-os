@@ -2681,6 +2681,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         view = getattr(self, "grid_workflow_widget", None)
         if left is not None and view is not None:
             left.setTabVisible(left.indexOf(view), enabled)
+            # With the flag off the selector has one page; a tab bar with a lone
+            # "Lamella" tab is chrome the lamella workflow never had.
+            left.tabBar().setVisible(enabled)
         editor = getattr(self, "task_widget", None)
         if editor is not None:
             editor.set_grid_protocol_visible(enabled)

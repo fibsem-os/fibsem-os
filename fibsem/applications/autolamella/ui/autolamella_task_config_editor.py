@@ -363,6 +363,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             lambda _i: self._on_protocol_kind_changed()
         )
         self.protocol_tabs.setTabVisible(1, self._grid_protocol_visible)
+        self.protocol_tabs.tabBar().setVisible(self._grid_protocol_visible)
 
         # --- Column 1: Protocol info + task selector ---
         col1_content = QWidget()
@@ -832,6 +833,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         tabs = getattr(self, "protocol_tabs", None)
         if tabs is not None:
             tabs.setTabVisible(1, visible)
+            # One page with the flag off: no tab bar over the task list, as before.
+            tabs.tabBar().setVisible(visible)
             if not visible and tabs.currentIndex() == 1:
                 tabs.setCurrentIndex(0)
 
