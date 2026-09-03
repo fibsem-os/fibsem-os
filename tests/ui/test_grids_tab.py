@@ -335,3 +335,24 @@ def test_an_experiment_with_no_lamella_tasks_loads(main_ui, tmp_path):
     editor = main_ui.task_widget
     assert not editor.task_parameters_config_widget.isVisibleTo(editor)
     assert not editor.milling_task_editor.isVisibleTo(editor)
+
+
+def test_a_grid_task_added_on_the_protocol_tab_reaches_the_run_view(main_ui, tmp_path):
+    """The Workflow tab's Grids view lists the protocol's grid tasks; a task
+    added on the Protocol tab's Grid page used to appear there only after an
+    inventory or an experiment reload."""
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    ui.experiment = exp
+    main_ui.minimap_widget = _NoMinimap()
+    main_ui._on_experiment_update()
+    run_view = main_ui.grid_workflow_widget
+    assert list(run_view._task_rows) == []
+
+    main_ui.task_widget.grid_protocol.add_task("BEAM_OVERVIEW_GRID", "SEM Overview")
+
+    assert list(run_view._task_rows) == ["SEM Overview"]
+    assert run_view.get_selected_task_names() == ["SEM Overview"]

@@ -191,6 +191,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
     workflow_config_changed = pyqtSignal(object)  # AutoLamellaWorkflowConfig
+    # The grid protocol changed on this editor's Grid page (a task added,
+    # removed, or edited and saved). Re-emitted here because the Grid page is
+    # built inside this editor, after the window has wired its signals.
+    grid_protocol_changed = pyqtSignal()
 
     def __init__(self, parent: "AutoLamellaUI"):
         super().__init__(parent)
@@ -272,6 +276,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.grid_protocol = GridProtocolWidget(parent=self, embedded=True)
         self.grid_protocol.set_experiment(self.experiment)
         self.grid_protocol.set_microscope(self.microscope)
+        self.grid_protocol.protocol_changed.connect(self.grid_protocol_changed)
         self._grid_protocol_visible = getattr(self, "_grid_protocol_visible", False)
 
         # Task parameters (Column 2)

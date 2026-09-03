@@ -2827,6 +2827,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.task_widget.workflow_config_changed.connect(
             self.lamella_workflow_widget.set_workflow_config
         )
+        # And the Grid page → Workflow → Grids: a task added on the Protocol tab
+        # gets its row in the run view without an inventory or a reload.
+        self.task_widget.grid_protocol_changed.connect(
+            self.grid_workflow_widget.refresh
+        )
 
     def _on_lamella_card_selected(self, lamella: Lamella | None):
         """Update task image panel and protocol editor for selected lamella card."""
