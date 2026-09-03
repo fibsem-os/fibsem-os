@@ -47,6 +47,7 @@ def _anchor_scene(microscope, tilt_axis_offset: float) -> None:
     scene = SampleScene(
         coincidence_offset=0.0,
         tilt_axis_offset=tilt_axis_offset,
+        fiducial=True,
         noise_sigma=0.0,
         noise_fraction=0.0,
     )

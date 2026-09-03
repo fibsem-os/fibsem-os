@@ -526,9 +526,9 @@ class SampleScene:
     # ice crystals: flat bright plates with a bright rim, per 100 x 100 um
     ice_density: float = 0.4
     ice_size: Tuple[float, float] = (6e-6, 16e-6)  # m, plate radius
-    # the fiducial-like cross at the world origin: handy for eyeballing
-    # navigation, absent on a real grid - off for realistic imaging
-    fiducial: bool = True
+    # a fiducial-like cross at each grid centre: a landmark for eyeballing
+    # navigation and for tests, absent on a real grid - off by default
+    fiducial: bool = False
     # the grid's usable radius; beyond it the metal rim, then the holder
     grid_radius: float = 1.4e-3  # m
     grid_rim_width: float = 150e-6  # m

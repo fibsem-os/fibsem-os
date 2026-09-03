@@ -102,7 +102,7 @@ sim:
     #     noise_sigma: 12.0                                  # gaussian noise on the beam images
     #     noise_fraction: 0.15                               # uniform-noise blend on the beam images
     #     grid_rotation: null                                # degrees; null = random within +/- 45
-    #     fiducial: true                                     # the central X at the world origin; off for realistic imaging
+    #     fiducial: false                                    # a cross at each grid centre, a navigation landmark; absent on a real grid
     #     contamination_density: 15.0                        # specks per 100 x 100 um (aperiodic content on film and bars)
     #     film: continuous                                   # continuous | holey (Quantifoil-style lattice: hole_diameter, hole_pitch; the coincidence measurement does not handle the lattice yet)
     #     rip_fraction: 0.03                                 # squares with the film torn away

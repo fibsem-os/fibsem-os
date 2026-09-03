@@ -34,7 +34,11 @@ BLUE = ChannelSettings(
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo")
     assert microscope.fm is not None, "the fm package config must carry an FM"
-    microscope.system.sim["sample"] = {"enabled": True, "coincidence_offset": 0.0}
+    microscope.system.sim["sample"] = {
+        "enabled": True,
+        "coincidence_offset": 0.0,
+        "fiducial": True,
+    }
     microscope._setup_sample_scene()
     microscope.move_to_device("FM")
     # the FM images with the objective inserted and at focus; it boots retracted
@@ -46,6 +50,7 @@ def microscope():
 def _fiducial_only(microscope) -> SampleScene:
     scene = SampleScene(
         coincidence_offset=0.0,
+        fiducial=True,
         cell_type="none",
         grid_intensity=0.0,
         noise_sigma=0.0,

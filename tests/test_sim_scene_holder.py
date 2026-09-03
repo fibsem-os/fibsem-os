@@ -26,6 +26,7 @@ def microscope():
     microscope._setup_sample_scene()
     scene = microscope._sample_scene
     # a quiet scene: the fiducial is the landmark, nothing else in the way
+    scene.fiducial = True
     scene.cell_type = "none"
     scene.contamination_density = 0.0
     scene.ice_density = 0.0

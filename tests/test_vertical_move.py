@@ -43,6 +43,7 @@ def microscope():
 
     microscope._sample_scene = SampleScene(
         coincidence_offset=0.0,
+        fiducial=True,
         cell_type="none",
         grid_intensity=0.0,
         contamination_density=0.0,
