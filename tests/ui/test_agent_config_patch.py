@@ -232,3 +232,27 @@ def test_a_protocol_level_patch_lands_and_is_recorded(ui, qapp):
             {"patch": {DEPTH: 3.1e-6}, "version": doc["version"]},
         )
         assert stale.status_code == 409
+
+
+def test_a_patch_is_durable_on_disk(ui, qapp):
+    import yaml
+
+    item = ui.experiment.positions[0].name
+    with _client(ui) as client:
+        doc = client.get(f"/app/items/{item}/task_config/{TASK}", headers=AUTH).json()
+        resp = _post_on_worker(
+            qapp,
+            client,
+            f"/app/items/{item}/task_config/{TASK}",
+            {"patch": {DEPTH: 2.2e-6}, "version": doc["version"]},
+        )
+        assert resp.json()["saved"] is True
+
+    # The write survives the process: read the file, not the object.
+    with open(os.path.join(ui.experiment.path, "experiment.yaml")) as f:
+        saved = yaml.safe_load(f)
+    lamella = next(p for p in saved["positions"] if p["petname"] == item)
+    depth = lamella["task_config"][TASK]["milling"]["mill_rough"]["stages"][0][
+        "pattern"
+    ]["depth"]
+    assert depth == 2.2e-6

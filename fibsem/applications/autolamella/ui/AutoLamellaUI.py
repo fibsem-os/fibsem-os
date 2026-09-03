@@ -1350,9 +1350,24 @@ class AutoLamellaUI(QMainWindow):
             f"agent config patch applied ({level}): {where}: "
             + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
         )
+        # Persist now: an operator edit rides the editor's debounced save, but
+        # a patch has no editor session to coalesce with — without this write
+        # the change lives only in memory and a restart silently reverts it
+        # (observed live). One request, one write; protocol-level edits also
+        # rewrite protocol.yaml, exactly as the protocol editor's saves do.
+        saved = True
+        try:
+            experiment.save(save_protocol=(level == "protocol"))
+        except Exception:
+            saved = False
+            logging.exception(
+                "save after agent config patch failed; the change is applied "
+                "in memory but not yet on disk"
+            )
         self._show_agent_config_patch(level, item_name, task_name, changes)
         result = {
             "applied": True,
+            "saved": saved,
             "task_name": task_name,
             "changes": [
                 {"path": p, "old": to_plain(old), "new": to_plain(new)}
