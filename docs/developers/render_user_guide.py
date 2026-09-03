@@ -282,14 +282,29 @@ class Harness:
         target = target or self.window
         self.pump(150)
         region = QRect(QPoint(0, 0), target.size())
+        pad = QPoint(0, 0)
         if crop:
-            region = (
-                self._occupied(target).adjusted(
-                    -CALLOUT_PAD * 2, -CALLOUT_PAD * 2, CALLOUT_PAD * 2, CALLOUT_PAD * 2
-                )
-                & region
-            )
+            # room for a badge outside the outermost box; a target with no
+            # such room of its own is padded with its background instead
+            margin = CALLOUT_PAD + 14
+            wanted = self._occupied(target).adjusted(-margin, -margin, margin, margin)
+            region = wanted & region
+            pad = region.topLeft() - wanted.topLeft()
+            region_size = wanted.size()
         pixmap = target.grab(region)
+        if crop and (pad.x() or pad.y() or region.size() != region_size):
+            ratio = pixmap.devicePixelRatio()
+            padded = QPixmap(
+                int(region_size.width() * ratio), int(region_size.height() * ratio)
+            )
+            padded.setDevicePixelRatio(ratio)
+            padded.fill(QColor(pixmap.toImage().pixel(0, 0)))
+            painter = QPainter(padded)
+            painter.drawPixmap(pad, pixmap)
+            painter.end()
+            pixmap = padded
+            region = wanted
+        shift = -region.topLeft()
         marks: List[Tuple[QRect, bool]] = []
         if callouts:
             marks += self._callout_rects(target, callouts)
@@ -297,14 +312,10 @@ class Harness:
             marks += [(r, True) for r in callout_rects]
         if marks:
             self._draw_callouts(
-                pixmap,
-                [(r.translated(-region.topLeft()), boxed) for r, boxed in marks],
-                numbered,
+                pixmap, [(r.translated(shift), boxed) for r, boxed in marks], numbered
             )
         if clicks:
-            self._draw_clicks(
-                pixmap, [(r.translated(-region.topLeft()), t) for r, t in clicks]
-            )
+            self._draw_clicks(pixmap, [(r.translated(shift), t) for r, t in clicks])
         if self.scale == 1 and pixmap.devicePixelRatio() != 1:
             # a retina grab is 2x; the guide serves 1x
             image = pixmap.toImage().scaled(
@@ -771,6 +782,147 @@ def render_movement(h: Harness) -> None:
     h.wait_move(ctrl, iw)
     microscope.system.sim["sample"]["fiducial"] = False
     microscope._setup_sample_scene()
+
+
+@page("milling")
+def render_milling(h: Harness) -> None:
+    """The Milling tab: a stage, its pattern on the FIB view, a run, the trench."""
+    from fibsem import conversions
+    from fibsem.structures import Point
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    iw = h.ui.image_widget
+    ctrl = h.ui.movement_widget.control_widget
+    mv = h.ui.milling_task_config_widget
+    cw = mv.config_widget
+    stages_w = cw.milling_stages_widget
+    stage_list = stages_w._list
+    runner = mv.milling_widget
+    panels = h.window.view_controller.widget._all_panels
+    fib_panel = panels[2]
+    fib_canvas = h.window.view_controller.fib_canvas
+
+    # at the milling angle, with fresh images
+    ctrl.move_to_orientation("MILLING")
+    h.wait_move(ctrl, iw)
+    iw.acquire_reference_images()
+    h.wait_acquisition(iw)
+    h.ui.tabWidget.setCurrentWidget(mv)
+    h.pump(300)
+
+    # the tab before any stage exists
+    h.shot(
+        "milling-tab",
+        target=mv,
+        callouts=[
+            Box(cw.core_panel),
+            Box(cw.alignment_panel),
+            Box(cw.acquisition_panel),
+            Box(stages_w),
+            runner.pushButton_run_milling,
+        ],
+        numbered=True,
+        crop=True,
+    )
+
+    # one stage, added with the + button: a rectangle at the beam centre
+    stage_list._header.btn_add.click()
+    h.pump(500)
+    row = stage_list._list.itemWidget(stage_list._list.item(0))
+    stage = stage_list.get_stages()[0]
+    # a rectangle big enough to see at this field of view
+    stage.pattern.width = 20e-6
+    stage.pattern.height = 8e-6
+    stage_list.select_stage(stage)
+    h.pump(300)
+    stages_w._pattern_widget.set_pattern(stage.pattern)
+    stages_w._on_pattern_changed(stage.pattern)
+    h.pump(500)
+    from fibsem.ui.widgets.custom_widgets import TitledPanel
+
+    def panel_of(widget):
+        while widget is not None and not isinstance(widget, TitledPanel):
+            widget = widget.parentWidget()
+        return widget
+
+    editor_panels = [
+        panel_of(stages_w._milling_widget),
+        panel_of(stages_w._pattern_widget),
+        panel_of(stages_w._strategy_widget),
+    ]
+    for panel in editor_panels:
+        panel.expand()
+    h.pump(300)
+    h.shot(
+        "stage-row",
+        target=stages_w,
+        callouts=[
+            row.checkbox,
+            row.name_edit,
+            row.depth_spin,
+            row.current_combo,
+            row.strategy_combo,
+            row.btn_remove,
+            stage_list._header.btn_add,
+        ],
+        numbered=True,
+        crop=True,
+    )
+    h.shot("pattern-on-fib", target=fib_panel)
+    h.shot(
+        "stage-editor",
+        target=stages_w._detail_widget,
+        callouts=[Box(panel) for panel in editor_panels],
+        numbered=True,
+        crop=True,
+    )
+
+    # moving the pattern: right-click > Move All Patterns Here
+    image = iw.ib_image
+    hgt, wid = image.data.shape[:2]
+    x, y = int(wid * 0.62), int(hgt * 0.42)
+    h.shot(
+        "pattern-move-click",
+        target=fib_panel,
+        clicks=[(h.image_point_rect(fib_canvas, fib_panel, x, y), "Right click")],
+    )
+    point = conversions.image_to_microscope_image_coordinates(
+        coord=Point(x=x, y=y), image=image.data, pixelsize=image.metadata.pixel_size.x
+    )
+    mv._move_patterns(point, move_all=True)
+    h.pump(500)
+    h.shot("pattern-moved", target=fib_panel)
+
+    # run it: the progress bars and Stop while it mills, then the trench
+    runner.run_milling()
+    h.pump(2500)
+    h.shot("milling-running", callouts=[runner.pushButton_stop_milling])
+    waited = 0
+    while runner.is_milling and waited < 120000:
+        h.pump(250)
+        waited += 250
+    if runner.is_milling:
+        raise RuntimeError("milling did not finish")
+    h.pump(500)
+    # the trench itself: pattern overlay hidden (the eye button), fresh images
+    stage_list._header.btn_eye.setChecked(True)
+    h.pump(300)
+    iw.acquire_reference_images()
+    h.wait_acquisition(iw)
+    h.shot("after-milling")
+    h.shot("after-milling-fib", target=fib_panel)
+    stage_list._header.btn_eye.setChecked(False)
+    h.pump(300)
+
+    # back to a clean state for whoever renders next
+    stage_list.remove_stage(row_stage) if (
+        row_stage := stage_list.get_stages()[0]
+    ) else None
+    h.pump()
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
 
 
 # -- entry point --------------------------------------------------------------
