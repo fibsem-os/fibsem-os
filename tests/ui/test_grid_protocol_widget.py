@@ -179,6 +179,7 @@ def test_the_fluorescence_editor_round_trips_channels_and_z(widget, experiment):
     widget.refresh()  # reload the form from the record
     editor = widget.editor_panel.editor_for(FM)
     assert [c.name for c in editor.channels.channel_settings] == ["GFP", "mCherry"]
+    assert editor.channels.maximumHeight() <= 220  # four rows, not the column
     assert editor.settings.parameters.rows == 2
     assert editor.settings.z_widget.z_parameters.zstep == pytest.approx(1e-6)
 
