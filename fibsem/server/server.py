@@ -41,7 +41,11 @@ from fastapi.responses import JSONResponse, Response
 
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
-from fibsem.server.app_routes import build_app_control_router, build_app_router
+from fibsem.server.app_routes import (
+    build_app_config_router,
+    build_app_control_router,
+    build_app_router,
+)
 from fibsem.server.auth import AuthConfig, Scope, command_slot, require_scope
 from fibsem.server.discovery import (
     DISCOVERY_FILE,
@@ -694,6 +698,10 @@ def build_server(
         app.include_router(
             build_app_control_router(app_context),
             dependencies=[Depends(require_scope(Scope.CONTROL))],
+        )
+        app.include_router(
+            build_app_config_router(app_context),
+            dependencies=[Depends(require_scope(Scope.CONFIGURE))],
         )
     return app
 

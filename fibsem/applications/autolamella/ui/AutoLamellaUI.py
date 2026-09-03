@@ -189,6 +189,8 @@ class AutoLamellaUI(QMainWindow):
     # A remote (agent) start request, marshalled to the GUI thread the same
     # way agent answers are: (task_names, item_names, Future[dict]).
     _agent_start_workflow = pyqtSignal(list, object, object)
+    # (item_name, task_name, patch, version, Future) — the config-patch marshal
+    _agent_config_patch = pyqtSignal(str, str, str, object, str, object)
 
     def __init__(
         self,
@@ -206,6 +208,7 @@ class AutoLamellaUI(QMainWindow):
         # widget itself is built in _setup_ui, before the responder exists.
         self.ui_responder.add_question_observer(self.question_timeline.record)
         self._agent_start_workflow.connect(self._apply_agent_start_workflow)
+        self._agent_config_patch.connect(self._apply_agent_config_patch)
 
         self._protocol_lock = threading.RLock()
 
@@ -1221,6 +1224,514 @@ class AutoLamellaUI(QMainWindow):
             except Exception:
                 logging.exception("window chrome after agent start failed")
         return {"started": started}
+
+    def request_apply_task_config_patch(
+        self, item_name: str, task_name: str, patch: dict, version: str
+    ) -> "Future":
+        """Patch an item's task config as an operator edit would land; any thread.
+
+        Marshalled to the GUI thread — the thread that owns the editor and the
+        experiment's writer seat — resolving to a plain dict: the applied
+        changes, or a structured refusal (stale version, invalid patch,
+        unknown names). Configure-scope arming is the consent.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_config_patch.emit(
+            "item", item_name, task_name, patch, version, outcome
+        )
+        return outcome
+
+    def request_apply_item_patch(
+        self, item_name: str, patch: dict, version: str
+    ) -> "Future":
+        """Patch an item's own document (geometry, verdict, notes); any thread.
+
+        Same marshal as the config patches; the editable set is
+        ITEM_PATCH_FIELDS, and the version comes from item_detail.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_config_patch.emit(
+            "item_fields", item_name, "", patch, version, outcome
+        )
+        return outcome
+
+    def request_reorder_milling_stages(
+        self,
+        level: str,
+        item_name: str,
+        task_name: str,
+        milling_key: str,
+        order,
+        version: str,
+    ) -> "Future":
+        """Reorder one milling config's stages; any thread.
+
+        Structure, so a verb: the same elements in a new sequence, named by
+        stage name, against the config version the caller read. ``level`` is
+        "item" or "protocol".
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_config_patch.emit(
+            "reorder_stages",
+            item_name,
+            task_name,
+            {"level": level, "milling_key": milling_key, "order": list(order)},
+            version,
+            outcome,
+        )
+        return outcome
+
+    def request_apply_protocol_to_item(self, item_name: str, task_names) -> "Future":
+        """Re-copy protocol task configs onto an existing item; any thread.
+
+        The agent's form of the editor's apply dialog: protocol-level edits
+        only reach items created after them, and this is the verb that brings
+        an existing item up to date. ``task_names`` of None means every task
+        the protocol defines.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_config_patch.emit(
+            "apply_protocol", item_name, "", {"task_names": task_names}, "", outcome
+        )
+        return outcome
+
+    def request_apply_protocol_task_config_patch(
+        self, task_name: str, patch: dict, version: str
+    ) -> "Future":
+        """Patch a task's protocol-level defaults; any thread.
+
+        Same marshal and rules as the per-item form; the document edited is
+        what new items copy, so a running task is never affected (it holds
+        its item's copy) and no task-running guard applies.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_config_patch.emit(
+            "protocol", "", task_name, patch, version, outcome
+        )
+        return outcome
+
+    def _apply_agent_config_patch(
+        self,
+        level: str,
+        item_name: str,
+        task_name: str,
+        patch,
+        version: str,
+        outcome: "Future",
+    ) -> None:
+        """GUI thread. Complete ``outcome`` with the patch result."""
+        try:
+            result = self._apply_task_config_patch_for_agent(
+                level, item_name, task_name, patch, version
+            )
+        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
+            outcome.set_exception(exc)
+            return
+        outcome.set_result(result)
+
+    def _apply_task_config_patch_for_agent(
+        self, level: str, item_name: str, task_name: str, patch: dict, version: str
+    ) -> dict:
+        """Validate against the live config and apply, all on the GUI thread.
+
+        The version check sits beside the apply on the one thread that edits
+        configs, so nothing can change between check and set. Before checking,
+        any edit still sitting in the editors is flushed (the FIB-683
+        one-writer rule, same as the agent workflow start): if the operator's
+        pending edit changes this config, the agent's version goes stale and
+        the refusal — not a silent merge — resolves the race. After a
+        successful apply, whichever editor is displaying this config is
+        rebuilt (no stale form survives to write old values back) and a toast
+        tells the operator what changed.
+        """
+        from fibsem.applications.autolamella.server.context import config_version
+        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.server.config_patch import PatchError, apply_patch
+
+        parent = self.parent_widget
+        if parent is not None:
+            try:
+                parent.lamella_widget.flush_pending_save()
+            except Exception:
+                logging.exception("flush before agent config patch failed; continuing")
+
+        experiment = self.experiment
+        if experiment is None:
+            return {"applied": False, "error": "no experiment is loaded"}
+        if level == "item_fields":
+            return self._apply_item_fields_patch(experiment, item_name, patch, version)
+        if level == "reorder_stages":
+            return self._reorder_milling_stages(
+                experiment, item_name, task_name, patch, version
+            )
+        if level == "apply_protocol":
+            return self._apply_protocol_to_item(
+                experiment, item_name, patch.get("task_names")
+            )
+        if level == "protocol":
+            protocol = getattr(experiment, "task_protocol", None)
+            config_map = getattr(protocol, "task_config", None)
+            if config_map is None:
+                return {"applied": False, "error": "no protocol is loaded"}
+            config = dict(config_map).get(task_name)
+            if config is None:
+                return {
+                    "applied": False,
+                    "error": f"No task named {task_name!r} in the protocol.",
+                    "task_names": list(config_map.keys()),
+                }
+        else:
+            lamella = experiment.get_lamella_by_name(item_name)
+            if lamella is None:
+                return {
+                    "applied": False,
+                    "error": f"No item named {item_name!r} in this experiment.",
+                    "item_names": [p.name for p in experiment.positions],
+                }
+            config = dict(lamella.task_config).get(task_name)
+            if config is None:
+                return {
+                    "applied": False,
+                    "error": f"No task config named {task_name!r} on {item_name!r}.",
+                    "task_names": list(lamella.task_config.keys()),
+                }
+        if config_version(config) != version:
+            return {"applied": False, "stale": True}
+        try:
+            changes = apply_patch(config, patch)
+        except PatchError as exc:
+            return {
+                "applied": False,
+                "invalid_patch": str(exc),
+                "path": exc.path,
+            }
+        where = f"{item_name} / {task_name}" if level == "item" else task_name
+        logging.info(
+            f"agent config patch applied ({level}): {where}: "
+            + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
+        )
+        # Persist now: an operator edit rides the editor's debounced save, but
+        # a patch has no editor session to coalesce with — without this write
+        # the change lives only in memory and a restart silently reverts it
+        # (observed live). One request, one write; protocol-level edits also
+        # rewrite protocol.yaml, exactly as the protocol editor's saves do.
+        saved = True
+        try:
+            experiment.save(save_protocol=(level == "protocol"))
+        except Exception:
+            saved = False
+            logging.exception(
+                "save after agent config patch failed; the change is applied "
+                "in memory but not yet on disk"
+            )
+        self._show_agent_config_patch(level, item_name, task_name, changes)
+        result = {
+            "applied": True,
+            "saved": saved,
+            "task_name": task_name,
+            "changes": [
+                {"path": p, "old": to_plain(old), "new": to_plain(new)}
+                for p, old, new in changes
+            ],
+            "version": config_version(config),
+        }
+        if level == "item":
+            result["item_name"] = item_name
+        return result
+
+    def _apply_item_fields_patch(
+        self, experiment, item_name: str, patch: dict, version: str
+    ) -> dict:
+        """Patch the lamella's own editable fields. GUI thread.
+
+        Allowlisted to ITEM_PATCH_FIELDS — poses, ids, paths and history are
+        not editable through any agent surface. Alignment validity is checked
+        after the apply and reverted on failure (the engine's own checks are
+        per-field; a rectangle is only judgeable whole). A defect edit stamps
+        ``updated_at``, so the verdict record carries when it was changed.
+        """
+        import time as _time
+
+        from fibsem.applications.autolamella.server.context import (
+            ITEM_PATCH_FIELDS,
+            item_fields_version,
+        )
+        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.server.config_patch import PatchError, apply_patch
+
+        lamella = experiment.get_lamella_by_name(item_name)
+        if lamella is None:
+            return {
+                "applied": False,
+                "error": f"No item named {item_name!r} in this experiment.",
+                "item_names": [p.name for p in experiment.positions],
+            }
+        for path in patch:
+            if path.split(".", 1)[0] not in ITEM_PATCH_FIELDS:
+                return {
+                    "applied": False,
+                    "invalid_patch": f"{path!r} is not an editable item field; "
+                    f"editable: {sorted(ITEM_PATCH_FIELDS)}",
+                    "path": path,
+                }
+        if item_fields_version(lamella) != version:
+            return {"applied": False, "stale": True}
+        try:
+            changes = apply_patch(
+                lamella,
+                patch,
+                none_types={"description": str},
+            )
+        except PatchError as exc:
+            return {"applied": False, "invalid_patch": str(exc), "path": exc.path}
+        area = lamella.alignment_area
+        if area is not None and not area.is_valid_reduced_area:
+            for path, old, _new in reversed(changes):
+                apply_patch(
+                    lamella, {path: old if not hasattr(old, "name") else old.name}
+                )
+            return {
+                "applied": False,
+                "invalid_patch": "the patched alignment area is out of bounds "
+                "(left/top >= 0, width/height > 0, inside the frame); "
+                "nothing was applied.",
+                "path": None,
+            }
+        if any(p.split(".", 1)[0] == "defect" for p, _o, _n in changes):
+            lamella.defect.updated_at = _time.time()
+        # Moving the POI moves what is attached to it: the GUI's move path
+        # calls sync_tasks_to_poi (patterns with sync_to_poi follow the
+        # point); a patch that bypassed it left rough/polishing patterns
+        # detached from the new POI — found live. Same domain call, same
+        # ordering (poi first, then sync).
+        synced_tasks = []
+        if any(p.split(".", 1)[0] == "poi" for p, _o, _n in changes):
+            try:
+                synced_tasks = list(lamella.sync_tasks_to_poi())
+            except Exception:
+                logging.exception("pattern sync after POI patch failed")
+        logging.info(
+            f"agent item patch applied: {item_name}: "
+            + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
+            + (f" (patterns synced: {', '.join(synced_tasks)})" if synced_tasks else "")
+        )
+        saved = True
+        try:
+            experiment.save()
+        except Exception:
+            saved = False
+            logging.exception(
+                "save after agent item patch failed; the change is applied "
+                "in memory but not yet on disk"
+            )
+        self._show_agent_config_patch("item_fields", item_name, item_name, changes)
+        return {
+            "applied": True,
+            "saved": saved,
+            "item_name": item_name,
+            "synced_tasks": synced_tasks,
+            "changes": [
+                {"path": p, "old": to_plain(old), "new": to_plain(new)}
+                for p, old, new in changes
+            ],
+            "version": item_fields_version(lamella),
+        }
+
+    def _reorder_milling_stages(
+        self, experiment, item_name: str, task_name: str, payload: dict, version: str
+    ) -> dict:
+        """Reorder stages inside one milling config. GUI thread.
+
+        Same-set-by-name and version-guarded: this can never add, drop, or
+        duplicate a stage, and never reorders a config the caller hasn't
+        seen. Stage names must be unique to reorder by name at all.
+        """
+        from fibsem.applications.autolamella.server.context import config_version
+
+        level = payload.get("level", "item")
+        milling_key = payload.get("milling_key")
+        order = payload.get("order") or []
+        if level == "protocol":
+            protocol = getattr(experiment, "task_protocol", None)
+            config_map = getattr(protocol, "task_config", None)
+            if config_map is None:
+                return {"applied": False, "error": "no protocol is loaded"}
+            config = dict(config_map).get(task_name)
+        else:
+            lamella = experiment.get_lamella_by_name(item_name)
+            if lamella is None:
+                return {
+                    "applied": False,
+                    "error": f"No item named {item_name!r} in this experiment.",
+                    "item_names": [p.name for p in experiment.positions],
+                }
+            config = dict(lamella.task_config).get(task_name)
+        if config is None:
+            return {
+                "applied": False,
+                "error": f"No task config named {task_name!r}.",
+            }
+        milling = getattr(config, "milling", None) or {}
+        if milling_key not in milling:
+            return {
+                "applied": False,
+                "invalid_patch": f"{milling_key!r} is not a milling config of "
+                f"{task_name!r}; known: {sorted(milling.keys())}",
+                "path": milling_key,
+            }
+        if config_version(config) != version:
+            return {"applied": False, "stale": True}
+        stages = milling[milling_key].stages
+        names = [s.name for s in stages]
+        if len(set(names)) != len(names):
+            return {
+                "applied": False,
+                "invalid_patch": "stage names are not unique; reorder by "
+                "name is ambiguous — rename the stages first.",
+                "path": milling_key,
+            }
+        if sorted(order) != sorted(names):
+            return {
+                "applied": False,
+                "invalid_patch": f"order must be exactly the current stages "
+                f"in a new sequence; current: {names}",
+                "path": milling_key,
+            }
+        by_name = {s.name: s for s in stages}
+        milling[milling_key].stages = [by_name[n] for n in order]
+        logging.info(
+            f"agent reordered stages ({level}): "
+            f"{item_name or 'protocol'} / {task_name} / {milling_key}: "
+            f"{names} -> {order}"
+        )
+        saved = True
+        try:
+            experiment.save(save_protocol=(level == "protocol"))
+        except Exception:
+            saved = False
+            logging.exception("save after stage reorder failed")
+        changes = [(f"milling.{milling_key}.stages", names, list(order))]
+        self._show_agent_config_patch(level, item_name, task_name, changes)
+        return {
+            "applied": True,
+            "saved": saved,
+            "task_name": task_name,
+            "milling_key": milling_key,
+            "order": list(order),
+            "version": config_version(config),
+        }
+
+    def _apply_protocol_to_item(self, experiment, item_name: str, task_names) -> dict:
+        """Deep-copy protocol task configs onto one item. GUI thread.
+
+        Mirrors what creation does: the copy, then ``_sync_imaging_paths`` so
+        the copied milling acquisitions write into this lamella's directory
+        rather than wherever the protocol document pointed. Wholesale by
+        design — this verb IS "replace with the defaults" — so no version
+        dance; the refusals are unknown names and running tasks.
+        """
+        from copy import deepcopy as _deepcopy
+
+        lamella = experiment.get_lamella_by_name(item_name)
+        if lamella is None:
+            return {
+                "applied": False,
+                "error": f"No item named {item_name!r} in this experiment.",
+                "item_names": [p.name for p in experiment.positions],
+            }
+        protocol = getattr(experiment, "task_protocol", None)
+        config_map = getattr(protocol, "task_config", None)
+        if config_map is None:
+            return {"applied": False, "error": "no protocol is loaded"}
+        names = list(task_names) if task_names else list(config_map.keys())
+        unknown = [n for n in names if n not in config_map]
+        if unknown:
+            return {
+                "applied": False,
+                "error": f"Not in the protocol: {unknown!r}.",
+                "task_names": list(config_map.keys()),
+            }
+        for name in names:
+            lamella.task_config[name] = _deepcopy(config_map[name])
+        lamella._sync_imaging_paths()
+        logging.info(f"agent applied protocol to {item_name}: {', '.join(names)}")
+        saved = True
+        try:
+            experiment.save()
+        except Exception:
+            saved = False
+            logging.exception(
+                "save after protocol apply failed; the change is applied "
+                "in memory but not yet on disk"
+            )
+        parent = self.parent_widget
+        try:
+            notification_service.show(
+                f"Agent applied protocol to {item_name} — {', '.join(names)}",
+                "info",
+            )
+        except Exception:
+            logging.exception("toast after protocol apply failed")
+        if parent is not None:
+            try:
+                parent.lamella_widget.refresh_if_showing(item_name)
+            except Exception:
+                logging.exception("editor refresh after protocol apply failed")
+        return {
+            "applied": True,
+            "saved": saved,
+            "item_name": item_name,
+            "task_names": names,
+        }
+
+    def _show_agent_config_patch(
+        self, level: str, item_name: str, task_name: str, changes
+    ) -> None:
+        """Rebuild the editor showing this config and toast the change.
+
+        GUI thread, after a successful apply. The rebuild is what stops a
+        stale open form writing old values back on the operator's next edit;
+        the toast is what stops the form appearing to change by itself.
+        Chrome only — a failure here must never fail the applied patch.
+        """
+        try:
+            leaf = changes[0][0].rsplit(".", 1)[-1]
+            summary = f"{leaf}: {changes[0][1]!r} → {changes[0][2]!r}"
+            if len(changes) > 1:
+                summary += f" (+{len(changes) - 1} more)"
+            if level == "item":
+                target = f"{task_name} for {item_name}"
+            elif level == "item_fields":
+                target = item_name
+            else:
+                target = task_name
+            # show(), not show_toast(): agent changes are workflow events —
+            # they persist in the notification bell, not just flash for 3 s
+            # while the operator is looking at the canvas (found live: the
+            # toasts fired and left no trace).
+            notification_service.show(f"Agent edited {target} — {summary}", "info")
+        except Exception:
+            logging.exception("toast after agent config patch failed")
+        parent = self.parent_widget
+        if parent is None:
+            return
+        try:
+            if level in ("item", "item_fields"):
+                parent.lamella_widget.refresh_if_showing(item_name)
+            else:
+                parent.task_widget.refresh_if_showing_task(task_name)
+        except Exception:
+            logging.exception("editor refresh after agent config patch failed")
 
     def _run_tasks_worker(
         self, task_names: List[str], lamella_names: Optional[List[str]] = None

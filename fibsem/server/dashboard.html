@@ -298,6 +298,8 @@ function eventLine(e) {
   }
   if (k === "prompt_raised")
     return `<span class="ts">${ts}</span><span class="kind">?</span> ${esc(p.type)} <span class="muted">n${esc(p.nonce)}</span>`;
+  if (k === "agent_note")
+    return `<span class="ts">${ts}</span><span class="who-agent">note</span> ${esc(p.text)}${p.item_name ? ` · ${esc(p.item_name)}` : ""}`;
   if (k === "prompt_cancelled")
     return `<span class="ts">${ts}</span><span class="muted">withdrawn</span> ${esc(p.type)}`;
   if (["task_started", "task_completed", "task_failed", "task_skipped"].includes(k)) {

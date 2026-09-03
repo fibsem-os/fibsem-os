@@ -473,6 +473,20 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         task_names = list(self.experiment.task_protocol.task_config.keys())
         self.task_list_widget.set_tasks(task_names)
 
+    def refresh_if_showing_task(self, task_name: str) -> None:
+        """Rebuild the panel if it is displaying ``task_name``.
+
+        Called (on the GUI thread) after an outside writer — the agent's
+        protocol-level config patch — changed the config under an open form,
+        so no stale form survives to write old values back.
+        """
+        try:
+            selected = self.task_list_widget.selected_task
+        except Exception:
+            return
+        if selected == task_name:
+            self._on_selected_task_changed()
+
     def _on_selected_task_changed(self):
         """Callback when the selected milling stage changes."""
         selected_task_name = self.task_list_widget.selected_task

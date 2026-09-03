@@ -25,6 +25,7 @@ the real ``AutoLamellaUI`` in production, a plain holder of real domain objects
 in tests.
 """
 
+import logging
 import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -32,7 +33,54 @@ from typing import Any, Dict, List, Optional
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
-__all__ = ["AgentContext"]
+__all__ = ["AgentContext", "ITEM_PATCH_FIELDS", "config_version", "item_fields_version"]
+
+# The item-document fields an agent may patch: what a lamella IS — geometry,
+# verdict, notes. Everything else on the object (poses, ids, paths, history)
+# is either derived, hardware-adjacent, an *outcome* rather than an input
+# (milling_angle is recorded from where Setup put the stage — writing it
+# would move nothing), or the record itself.
+ITEM_PATCH_FIELDS = ("poi", "alignment_area", "description", "defect")
+
+
+def _content_hash(data) -> str:
+    import hashlib
+    import json
+
+    return hashlib.sha256(
+        json.dumps(data, sort_keys=True, default=str).encode()
+    ).hexdigest()[:16]
+
+
+def item_fields_version(lamella) -> str:
+    """A content hash naming the state of an item's patchable fields.
+
+    The item document's nonce, hashing exactly the ITEM_PATCH_FIELDS — so a
+    task re-recording geometry rotates it (stales a pending patch, correctly),
+    while poses moving or history growing does not (they are not patchable,
+    so they cannot invalidate what a patch was written against).
+    """
+    from fibsem.applications.autolamella.server.events import to_plain
+
+    return _content_hash(
+        {name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS}
+    )
+
+
+def config_version(config) -> str:
+    """A content hash naming exactly this state of a task config.
+
+    The config's nonce (FIB-864): reads serve it, writes echo it, and a
+    mismatch is refused as stale — a patch can never apply against a state
+    its author did not see. Computed from the serialized document so the
+    same content hashes identically wherever it is held.
+    """
+    import hashlib
+    import json
+
+    from fibsem.applications.autolamella.server.events import to_plain
+
+    return _content_hash(to_plain(config.to_dict()))
 
 
 def _json_safe(value: Any) -> Any:
@@ -332,6 +380,8 @@ class AgentContext:
                 "item_name": item_name,
                 "error": f"No item named {item_name!r} in this experiment.",
             }
+        from fibsem.applications.autolamella.server.events import to_plain
+
         poses = {}
         for pose_name, pose in dict(lamella.poses).items():
             position = getattr(pose, "stage_position", None)
@@ -349,8 +399,346 @@ class AgentContext:
             if lamella.alignment_area is not None
             else None,
             "milling_angle": lamella.milling_angle,
+            "defect": to_plain(lamella.defect.to_dict())
+            if getattr(lamella, "defect", None) is not None
+            else None,
             "poses": poses,
+            # The item document's nonce: patches echo it (see apply_item_patch).
+            "version": item_fields_version(lamella),
         }
+
+    # --- task configs (FIB-864, read side) --------------------------------------
+
+    def protocol_task_config(self, task_name: str) -> Dict[str, Any]:
+        """One task's protocol-level defaults document — what new items copy."""
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        config_map = getattr(protocol, "task_config", None) if protocol else None
+        if config_map is None:
+            return {"available": False, "task_name": task_name}
+        config = dict(config_map).get(task_name)
+        if config is None:
+            return {
+                "available": True,
+                "task_name": task_name,
+                "error": f"No task named {task_name!r} in the protocol.",
+                "task_names": list(config_map.keys()),
+            }
+        return self._config_document(task_name, config, level="protocol")
+
+    def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]:
+        """One item's own copy of a task config — what its run executes."""
+        experiment = self._experiment
+        if experiment is None:
+            return {
+                "available": False,
+                "item_name": item_name,
+                "task_name": task_name,
+            }
+        lamella = experiment.get_lamella_by_name(item_name)
+        if lamella is None:
+            return {
+                "available": False,
+                "item_name": item_name,
+                "task_name": task_name,
+                "error": f"No item named {item_name!r} in this experiment.",
+            }
+        config = dict(lamella.task_config).get(task_name)
+        if config is None:
+            return {
+                "available": True,
+                "item_name": item_name,
+                "task_name": task_name,
+                "error": f"No task config named {task_name!r} on {item_name!r}.",
+                "task_names": list(lamella.task_config.keys()),
+            }
+        document = self._config_document(task_name, config, level="item")
+        document["item_name"] = item_name
+        return document
+
+    def apply_item_patch(
+        self,
+        item_name: str,
+        patch: Dict[str, Any],
+        version: str,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Patch an item's own document — geometry, verdict, notes.
+
+        The item-level counterpart of the task-config patches: same engine,
+        same version dance (``version`` comes from :meth:`item_detail`), but
+        the document is what the lamella IS rather than how a step runs, and
+        only the ITEM_PATCH_FIELDS are editable. Tasks re-record geometry at
+        their own moments (a fiducial task rewrites the alignment area at its
+        end) — that rotation stales pending patches, which is the correct
+        outcome, and it means an edit here is the value the NEXT run starts
+        from, not a permanent override.
+        """
+        host = self._host
+        if not hasattr(host, "request_apply_item_patch"):
+            return {"available": False, "applied": False}
+        outcome = host.request_apply_item_patch(item_name, dict(patch), str(version))
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        if result.get("applied") and self._event_buffer is not None:
+            self._event_buffer.append(
+                "config_edited",
+                {
+                    "level": "item_fields",
+                    "item_name": item_name,
+                    "changes": result.get("changes", []),
+                },
+            )
+        return result
+
+    def add_note(self, text: str, item_name: Optional[str] = None) -> Dict[str, Any]:
+        """Put an agent observation on the record.
+
+        The agent's judgments otherwise live only in its chat: this writes
+        them where the run's story is told — the event stream (live consumers:
+        timeline, dashboard, other agents) and the experiment log (durable).
+        Notes are observations, not actions: nothing changes state.
+        """
+        text = str(text).strip()
+        if not text:
+            return {"available": True, "recorded": False, "error": "empty note"}
+        if item_name is not None:
+            experiment = self._experiment
+            if experiment is None or experiment.get_lamella_by_name(item_name) is None:
+                names = [p.name for p in experiment.positions] if experiment else []
+                return {
+                    "available": True,
+                    "recorded": False,
+                    "error": f"No item named {item_name!r} in this experiment.",
+                    "item_names": names,
+                }
+        logging.info(
+            "agent note%s: %s",
+            f" [{item_name}]" if item_name else "",
+            text,
+        )
+        if self._event_buffer is not None:
+            self._event_buffer.append(
+                "agent_note", {"text": text, "item_name": item_name}
+            )
+        return {"available": True, "recorded": True}
+
+    def reorder_milling_stages(
+        self,
+        level: str,
+        item_name: str,
+        task_name: str,
+        milling_key: str,
+        order: List[str],
+        version: str,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Reorder one milling config's stages — structure, so a verb.
+
+        Same rules as the config patches: version-guarded on the GUI thread,
+        refused while that task runs for that item, recorded on the event
+        stream. Same-set-by-name: this can never add, drop, or duplicate a
+        stage.
+        """
+        host = self._host
+        if not hasattr(host, "request_reorder_milling_stages"):
+            return {"available": False, "applied": False}
+        if level == "item":
+            manager = self._manager
+            if manager is not None:
+                running = any(
+                    item.item_name == item_name
+                    and item.task_name == task_name
+                    and item.status is AutoLamellaTaskStatus.InProgress
+                    for item in manager.queue.items
+                )
+                if running:
+                    return {
+                        "available": True,
+                        "applied": False,
+                        "error_type": "task_running",
+                        "error": f"{task_name!r} is running for {item_name!r} "
+                        "and has already copied its config.",
+                    }
+        outcome = host.request_reorder_milling_stages(
+            level, item_name, task_name, milling_key, list(order), str(version)
+        )
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        if result.get("applied") and self._event_buffer is not None:
+            self._event_buffer.append(
+                "config_edited",
+                {
+                    "level": level,
+                    "item_name": item_name or None,
+                    "task_name": task_name,
+                    "reorder": {"milling_key": milling_key, "order": list(order)},
+                },
+            )
+        return result
+
+    def apply_protocol_to_item(
+        self,
+        item_name: str,
+        task_names: Optional[List[str]] = None,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Re-copy protocol task configs onto an existing item.
+
+        Protocol-level edits only reach items created after them; this verb
+        brings an existing item up to date — the agent's form of the editor's
+        apply dialog. Wholesale by design (it IS "replace with the defaults"),
+        so no version dance; a task currently running for this item is
+        refused like any other config write.
+        """
+        host = self._host
+        if not hasattr(host, "request_apply_protocol_to_item"):
+            return {"available": False, "applied": False}
+        manager = self._manager
+        if manager is not None:
+            experiment = self._experiment
+            protocol = (
+                getattr(experiment, "task_protocol", None) if experiment else None
+            )
+            config_map = getattr(protocol, "task_config", None) if protocol else {}
+            guard_names = (
+                list(task_names) if task_names else list((config_map or {}).keys())
+            )
+            running = any(
+                item.item_name == item_name
+                and item.task_name in guard_names
+                and item.status is AutoLamellaTaskStatus.InProgress
+                for item in manager.queue.items
+            )
+            if running:
+                return {
+                    "available": True,
+                    "applied": False,
+                    "error_type": "task_running",
+                    "error": f"A task in {guard_names!r} is running for "
+                    f"{item_name!r} right now and has already copied its "
+                    "config. Apply after it finishes.",
+                }
+        outcome = host.request_apply_protocol_to_item(item_name, task_names)
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        if result.get("applied") and self._event_buffer is not None:
+            self._event_buffer.append(
+                "config_edited",
+                {
+                    "level": "protocol_applied",
+                    "item_name": item_name,
+                    "task_names": result.get("task_names", []),
+                },
+            )
+        return result
+
+    def apply_protocol_task_config_patch(
+        self,
+        task_name: str,
+        patch: Dict[str, Any],
+        version: str,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Patch a task's protocol-level defaults — what new items copy.
+
+        Same version-guarded, GUI-thread apply as the per-item patch. No
+        running-task guard: a running task holds its item's copy, so a
+        protocol edit can never touch it — the edit reaches items created
+        (or re-copied) after it lands.
+        """
+        host = self._host
+        if not hasattr(host, "request_apply_protocol_task_config_patch"):
+            return {"available": False, "applied": False}
+        outcome = host.request_apply_protocol_task_config_patch(
+            task_name, dict(patch), str(version)
+        )
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        if result.get("applied") and self._event_buffer is not None:
+            self._event_buffer.append(
+                "config_edited",
+                {
+                    "level": "protocol",
+                    "task_name": task_name,
+                    "changes": result.get("changes", []),
+                },
+            )
+        return result
+
+    @staticmethod
+    def _config_document(task_name: str, config, level: str) -> Dict[str, Any]:
+        """One config as a wire document with its version token.
+
+        The full ``to_dict``, not a curated snapshot — the document is the
+        contract for editing (you cannot patch what you cannot read). The
+        ``version`` hashes the serialized content, so a write names exactly
+        the state it read: the config's nonce, refused as stale on mismatch.
+        """
+        from fibsem.applications.autolamella.server.events import to_plain
+
+        return {
+            "available": True,
+            "task_name": task_name,
+            "level": level,
+            "version": config_version(config),
+            "config": to_plain(config.to_dict()),
+        }
+
+    def apply_item_task_config_patch(
+        self,
+        item_name: str,
+        task_name: str,
+        patch: Dict[str, Any],
+        version: str,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Patch one item's task config, as an operator edit would land.
+
+        The version (from :meth:`item_task_config`) names the state the patch
+        was written against; the check happens on the GUI thread beside the
+        apply, so an edit landing in between is refused as stale, never
+        half-merged. A task currently running for this item is refused too —
+        it already copied its config, so the edit would take effect never,
+        and a refusal is more honest than a silent no-op. Pending tasks pick
+        the change up when they start (the ``set_supervision`` semantics).
+        """
+        host = self._host
+        if not hasattr(host, "request_apply_task_config_patch"):
+            return {"available": False, "applied": False}
+        manager = self._manager
+        if manager is not None:
+            running = any(
+                item.item_name == item_name
+                and item.task_name == task_name
+                and item.status is AutoLamellaTaskStatus.InProgress
+                for item in manager.queue.items
+            )
+            if running:
+                return {
+                    "available": True,
+                    "applied": False,
+                    "error_type": "task_running",
+                    "error": f"{task_name!r} is running for {item_name!r} right "
+                    "now and has already copied its config — the edit would "
+                    "never take effect. Patch it after the task finishes.",
+                }
+        outcome = host.request_apply_task_config_patch(
+            item_name, task_name, dict(patch), str(version)
+        )
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        if result.get("applied") and self._event_buffer is not None:
+            self._event_buffer.append(
+                "config_edited",
+                {
+                    "level": "item",
+                    "item_name": item_name,
+                    "task_name": task_name,
+                    "changes": result.get("changes", []),
+                },
+            )
+        return result
 
     # --- instrument-adjacent (cached only, never a hardware call) --------------
 
@@ -481,6 +869,72 @@ class AgentContext:
                     "task_name": task_name,
                     "supervise": bool(supervise),
                     "supervisor": getattr(task, "supervisor", "human"),
+                }
+        return {
+            "available": True,
+            "applied": False,
+            "error": f"No task named {task_name!r} in the protocol.",
+            "task_names": [t.name for t in config.tasks],
+        }
+
+    def set_task_schedule(
+        self, task_name: str, scheduled_at: Optional[str]
+    ) -> Dict[str, Any]:
+        """Set (or clear) when ``task_name`` may start, in the live workflow.
+
+        The workflow reads the schedule at each task start (never a snapshot),
+        so a change takes effect at the next start — the ``set_supervision``
+        semantics, and like it this mutates the live config directly (an
+        atomic field rebind; no GUI marshal needed). Unlike supervision,
+        a schedule is plan data, so it is persisted immediately.
+
+        ``scheduled_at`` is ISO-8601 (naive = local time; an offset is
+        normalized by the workflow) or ``None`` to clear.
+        """
+        parsed = None
+        if scheduled_at is not None:
+            try:
+                parsed = datetime.fromisoformat(scheduled_at)
+            except ValueError:
+                return {
+                    "available": True,
+                    "applied": False,
+                    "invalid_value": f"{scheduled_at!r} is not an ISO-8601 "
+                    "timestamp (e.g. '2026-09-04T06:00:00'); null clears "
+                    "the schedule.",
+                }
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        config = getattr(protocol, "workflow_config", None) if protocol else None
+        if config is None:
+            return {"available": False, "applied": False}
+        for task in config.tasks:
+            if task.name == task_name:
+                task.scheduled_at = parsed
+                saved = True
+                try:
+                    experiment.save(save_protocol=True)
+                except Exception:
+                    saved = False
+                    logging.exception(
+                        "save after schedule change failed; the change is "
+                        "applied in memory but not yet on disk"
+                    )
+                if self._event_buffer is not None:
+                    self._event_buffer.append(
+                        "workflow_changed",
+                        {
+                            "field": "scheduled_at",
+                            "task_name": task_name,
+                            "scheduled_at": parsed.isoformat() if parsed else None,
+                        },
+                    )
+                return {
+                    "available": True,
+                    "applied": True,
+                    "saved": saved,
+                    "task_name": task_name,
+                    "scheduled_at": parsed.isoformat() if parsed else None,
                 }
         return {
             "available": True,

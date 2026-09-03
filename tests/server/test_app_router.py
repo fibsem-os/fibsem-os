@@ -134,6 +134,30 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
     assert unknown.json()["detail"]["filenames"] == [fname]
 
 
+def test_task_config_reads_over_http(client, host):
+    from fibsem.applications.autolamella.workflows.tasks.rough import (
+        MillRoughTaskConfig,
+    )
+
+    config = MillRoughTaskConfig(task_name="Rough Milling")
+    host.experiment.task_protocol.task_config["Rough Milling"] = config
+    item = host.experiment.positions[0]
+    item.task_config["Rough Milling"] = config
+
+    doc = client.get("/app/protocol/task_config/Rough Milling", headers=AUTH).json()
+    assert doc["available"] is True and doc["level"] == "protocol"
+    assert "version" in doc and "config" in doc
+
+    item_doc = client.get(
+        f"/app/items/{item.name}/task_config/Rough Milling", headers=AUTH
+    ).json()
+    assert item_doc["level"] == "item"
+    assert item_doc["version"] == doc["version"]
+
+    unknown = client.get("/app/protocol/task_config/Nope", headers=AUTH).json()
+    assert "task_names" in unknown
+
+
 def test_summaries_and_protocol_over_http(client):
     for path in ("/app/experiment_summary", "/app/task_history", "/app/protocol"):
         body = client.get(path, headers=AUTH).json()
@@ -185,3 +209,112 @@ def test_events_unavailable_without_a_buffer(microscope, host):
     with TestClient(app, raise_server_exceptions=False) as bare:
         body = bare.get("/app/events", headers=AUTH).json()
     assert body["available"] is False
+
+
+def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buffer):
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.rough import (
+        MillRoughTaskConfig,
+    )
+
+    # A real workflow entry to schedule.
+    protocol = host.experiment.task_protocol
+    protocol.task_config["Rough Milling"] = MillRoughTaskConfig(
+        task_name="Rough Milling"
+    )
+    protocol.workflow_config.tasks.append(
+        AutoLamellaTaskDescription(name="Rough Milling", supervise=True, required=True)
+    )
+
+    armed = build_server(
+        microscope,
+        app_context=AgentContext(host, event_buffer=event_buffer),
+        auth=AuthConfig.generate(arm_configure=True, token=TOKEN),
+    )
+    with TestClient(armed, raise_server_exceptions=False) as client:
+        when = "2026-09-04T06:00:00"
+        resp = client.post(
+            "/app/workflow/schedule",
+            headers=AUTH,
+            json={"task_name": "Rough Milling", "scheduled_at": when},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["applied"] is True and body["saved"] is True
+        assert body["scheduled_at"] == when
+        # The live protocol shows it, and protocol.yaml has it.
+        shown = client.get("/app/protocol", headers=AUTH).json()["tasks"]
+        assert (
+            next(t for t in shown if t["name"] == "Rough Milling")["scheduled_at"]
+            == when
+        )
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        assert [e for e in events if e["kind"] == "workflow_changed"]
+
+        cleared = client.post(
+            "/app/workflow/schedule",
+            headers=AUTH,
+            json={"task_name": "Rough Milling", "scheduled_at": None},
+        )
+        assert cleared.json()["scheduled_at"] is None
+
+        bad = client.post(
+            "/app/workflow/schedule",
+            headers=AUTH,
+            json={"task_name": "Rough Milling", "scheduled_at": "6am tomorrow"},
+        )
+        assert bad.status_code == 422
+        assert bad.json()["detail"]["error_type"] == "invalid_value"
+
+        unknown = client.post(
+            "/app/workflow/schedule",
+            headers=AUTH,
+            json={"task_name": "Nope", "scheduled_at": when},
+        )
+        assert unknown.status_code == 404
+        assert "Rough Milling" in unknown.json()["detail"]["task_names"]
+
+
+def test_task_schedule_needs_the_configure_scope(client):
+    resp = client.post(
+        "/app/workflow/schedule",
+        headers=AUTH,
+        json={"task_name": "X", "scheduled_at": None},
+    )
+    assert resp.status_code in (403, 404)  # unarmed configure scope
+    assert resp.status_code == 403
+
+
+def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
+    armed = build_server(
+        microscope,
+        app_context=AgentContext(host, event_buffer=event_buffer),
+        auth=AuthConfig.generate(arm_control=True, token=TOKEN),
+    )
+    with TestClient(armed, raise_server_exceptions=False) as client:
+        item = host.experiment.positions[0].name
+        ok = client.post(
+            "/app/agent/notes",
+            headers=AUTH,
+            json={"text": "curtaining on the face, accepted anyway", "item_name": item},
+        )
+        assert ok.status_code == 200 and ok.json()["recorded"] is True
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        note = [e for e in events if e["kind"] == "agent_note"][-1]
+        assert note["payload"]["item_name"] == item
+
+        unknown = client.post(
+            "/app/agent/notes",
+            headers=AUTH,
+            json={"text": "x", "item_name": "nope"},
+        )
+        assert unknown.status_code == 404
+        empty = client.post("/app/agent/notes", headers=AUTH, json={"text": "   "})
+        assert empty.status_code == 422
+
+
+def test_agent_notes_need_the_control_scope(client):
+    resp = client.post("/app/agent/notes", headers=AUTH, json={"text": "x"})
+    assert resp.status_code == 403

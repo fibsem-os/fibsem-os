@@ -183,6 +183,46 @@ def test_output_image_renders_recorded_outputs_only(experiment):
     ]
 
 
+def test_task_config_documents_carry_the_full_config_and_a_version(experiment):
+    from fibsem.applications.autolamella.workflows.tasks.rough import (
+        MillRoughTaskConfig,
+    )
+
+    host = Host()
+    host.experiment = experiment
+    ctx = AgentContext(host)
+    config = MillRoughTaskConfig(task_name="Rough Milling")
+    experiment.task_protocol.task_config["Rough Milling"] = config
+    lamella = experiment.positions[0]
+    lamella.task_config["Rough Milling"] = config
+
+    doc = ctx.protocol_task_config("Rough Milling")
+    assert doc["available"] is True
+    assert doc["level"] == "protocol"
+    assert doc["config"]["task_type"] == config.to_dict()["task_type"]
+    assert len(doc["version"]) == 16
+    _assert_json_safe(doc)
+
+    item_doc = ctx.item_task_config(lamella.name, "Rough Milling")
+    assert item_doc["level"] == "item"
+    assert item_doc["item_name"] == lamella.name
+    # Same content hashes to the same version: the token names the state.
+    assert item_doc["version"] == doc["version"]
+    _assert_json_safe(item_doc)
+
+    # A content change changes the version — the write side's stale check.
+    config.sync_polishing_position = not config.sync_polishing_position
+    assert ctx.protocol_task_config("Rough Milling")["version"] != doc["version"]
+
+    unknown = ctx.protocol_task_config("No Such Task")
+    assert unknown["available"] is True
+    assert "task_names" in unknown
+    missing_item = ctx.item_task_config("no-such-item", "Rough Milling")
+    assert missing_item["available"] is False
+    no_config = ctx.item_task_config(lamella.name, "No Such Task")
+    assert no_config["task_names"] == ["Rough Milling"]
+
+
 def test_item_detail_serves_the_durable_item_facts(experiment):
     """One read for what a supervisor judges an item by — the exemplar-mode
     seam: after the operator answers, the accepted POI/alignment area are

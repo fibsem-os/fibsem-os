@@ -202,6 +202,45 @@ The argument selects a variation on the same loop:
 - `POST /app/queue/requeue {"item_name", "task_name"}` — re-runs a completed
   pair inside a running workflow.
 
+## Editing configuration (configure permission)
+
+A separate permission from *Act* — the operator arms **Configure** in
+Tools → Agent Server. With it you can change task parameters; without it
+you can still read them (`get_protocol_task_config`,
+`get_item_task_config`).
+
+Two levels, one dance:
+
+- **Per-item** (`update_item_task_config`): the config this item's next run
+  of that task will execute.
+- **Protocol** (`update_protocol_task_config`): the defaults new items
+  copy. Never affects existing items — they hold their own copies.
+
+The dance: **read, patch against that read's `version`, report**. A
+`409 stale_config` means the config changed since you read it (often: the
+operator edited) — that refusal is correct; re-read and decide again on
+the current state. A `409 task_running` means the task already copied its
+config for the run in progress — patch after it finishes. Values are SI
+(metres, amps); bounds are validated for you and refusals name the
+failing path.
+
+Scheduling rides the same permission: `set_task_schedule` sets or clears
+when a task may start (ISO-8601, instrument-local when naive; null
+clears). The workflow reads it at each task start, so it never interrupts
+anything running.
+
+Etiquette:
+
+- **Change what was asked, exactly.** "Make the fiducial 2 µm deeper" is
+  one dotted path, not an opinion about the neighbouring fields. Patches
+  are small and named; never rewrite a document wholesale.
+- **Unprompted edits follow the trust ladder**: propose in chat first
+  unless the operator has delegated parameter changes to you.
+- **Report every applied change** old → new (the response echoes it; the
+  timeline records it; your report should match both).
+- The operator sees your change land: the open editor rebuilds and a
+  toast names the edit. Nothing you change is silent.
+
 ## Report
 
 Keep the operator oriented without flooding them: say what you answered and

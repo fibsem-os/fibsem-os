@@ -252,6 +252,90 @@ def build_sidecar(client, capabilities):
     def get_item_detail(item_name: str):
         return _app_get(f"/app/items/{item_name}")
 
+    def get_protocol_task_config(task_name: str):
+        return _app_get(f"/app/protocol/task_config/{task_name}")
+
+    def get_item_task_config(item_name: str, task_name: str):
+        return _app_get(f"/app/items/{item_name}/task_config/{task_name}")
+
+    def add_note(text: str, item_name=None):
+        data, err = _call(
+            client,
+            "POST",
+            "/app/agent/notes",
+            {"text": str(text), "item_name": item_name},
+        )
+        return err if err else data
+
+    def apply_protocol_to_item(item_name: str, task_names=None):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/items/{item_name}/apply_protocol",
+            {"task_names": list(task_names) if task_names else None},
+        )
+        return err if err else data
+
+    def reorder_item_milling_stages(
+        item_name: str, task_name: str, milling_key: str, order: list, version: str
+    ):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/items/{item_name}/task_config/{task_name}/stages/reorder",
+            {"milling_key": milling_key, "order": list(order), "version": version},
+        )
+        return err if err else data
+
+    def reorder_protocol_milling_stages(
+        task_name: str, milling_key: str, order: list, version: str
+    ):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/protocol/task_config/{task_name}/stages/reorder",
+            {"milling_key": milling_key, "order": list(order), "version": version},
+        )
+        return err if err else data
+
+    def set_task_schedule(task_name: str, scheduled_at=None):
+        data, err = _call(
+            client,
+            "POST",
+            "/app/workflow/schedule",
+            {"task_name": task_name, "scheduled_at": scheduled_at},
+        )
+        return err if err else data
+
+    def update_item_detail(item_name: str, patch: dict, version: str):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/items/{item_name}",
+            {"patch": dict(patch), "version": str(version)},
+        )
+        return err if err else data
+
+    def update_protocol_task_config(task_name: str, patch: dict, version: str):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/protocol/task_config/{task_name}",
+            {"patch": dict(patch), "version": str(version)},
+        )
+        return err if err else data
+
+    def update_item_task_config(
+        item_name: str, task_name: str, patch: dict, version: str
+    ):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/items/{item_name}/task_config/{task_name}",
+            {"patch": dict(patch), "version": str(version)},
+        )
+        return err if err else data
+
     def list_recent_experiments():
         return _app_get("/app/recent_experiments")
 
@@ -337,6 +421,16 @@ def build_sidecar(client, capabilities):
             get_protocol,
             get_task_outputs,
             get_item_detail,
+            get_protocol_task_config,
+            get_item_task_config,
+            update_item_task_config,
+            update_protocol_task_config,
+            update_item_detail,
+            set_task_schedule,
+            apply_protocol_to_item,
+            add_note,
+            reorder_item_milling_stages,
+            reorder_protocol_milling_stages,
             list_recent_experiments,
             get_events,
             get_display_images,

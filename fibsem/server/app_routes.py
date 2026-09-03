@@ -21,7 +21,12 @@ try:  # Protocol is typing-only; keep import robust on the 3.8 floor
 except ImportError:  # pragma: no cover
     Protocol = object  # type: ignore[assignment]
 
-__all__ = ["AppContext", "build_app_control_router", "build_app_router"]
+__all__ = [
+    "AppContext",
+    "build_app_config_router",
+    "build_app_control_router",
+    "build_app_router",
+]
 
 
 class AppContext(Protocol):
@@ -45,6 +50,40 @@ class AppContext(Protocol):
 
     def output_image(self, item_name: str, filename: str) -> Dict[str, Any]: ...
 
+    def protocol_task_config(self, task_name: str) -> Dict[str, Any]: ...
+
+    def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]: ...
+
+    def apply_item_task_config_patch(
+        self, item_name: str, task_name: str, patch: Dict[str, Any], version: str
+    ) -> Dict[str, Any]: ...
+
+    def apply_protocol_task_config_patch(
+        self, task_name: str, patch: Dict[str, Any], version: str
+    ) -> Dict[str, Any]: ...
+
+    def apply_item_patch(
+        self, item_name: str, patch: Dict[str, Any], version: str
+    ) -> Dict[str, Any]: ...
+
+    def set_task_schedule(
+        self, task_name: str, scheduled_at: Optional[str]
+    ) -> Dict[str, Any]: ...
+
+    def apply_protocol_to_item(
+        self, item_name: str, task_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]: ...
+
+    def reorder_milling_stages(
+        self,
+        level: str,
+        item_name: str,
+        task_name: str,
+        milling_key: str,
+        order: List[str],
+        version: str,
+    ) -> Dict[str, Any]: ...
+
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
@@ -55,6 +94,10 @@ class AppContext(Protocol):
 
     def answer_prompt(
         self, response: bool, nonce: int, value: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]: ...
+
+    def add_note(
+        self, text: str, item_name: Optional[str] = None
     ) -> Dict[str, Any]: ...
 
     def stop_workflow(self) -> Dict[str, Any]: ...
@@ -109,6 +152,14 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/items/{item_name}")
     def item_detail(item_name: str):
         return context.item_detail(item_name)
+
+    @router.get("/protocol/task_config/{task_name}")
+    def protocol_task_config(task_name: str):
+        return context.protocol_task_config(task_name)
+
+    @router.get("/items/{item_name}/task_config/{task_name}")
+    def item_task_config(item_name: str, task_name: str):
+        return context.item_task_config(item_name, task_name)
 
     @router.get("/items/{item_name}/outputs/{filename}")
     def output_image(item_name: str, filename: str):
@@ -241,6 +292,38 @@ def build_app_control_router(context: AppContext) -> APIRouter:
             )
         return context.start_workflow(task_names, item_names)
 
+    @router.post("/agent/notes")
+    def add_note(body: Dict[str, Any]):
+        # Observations for the record — event stream + experiment log. On the
+        # control scope: an agent trusted to answer is trusted to annotate.
+        text = body.get("text")
+        item_name = body.get("item_name")
+        if (
+            not isinstance(text, str)
+            or not text.strip()
+            or len(text) > 4000
+            or (item_name is not None and not isinstance(item_name, str))
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass text (a non-empty string, at most 4000 "
+                    "characters); item_name (string) is optional.",
+                },
+            )
+        result = context.add_note(text, item_name)
+        if not result.get("recorded") and result.get("error"):
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_type": "not_found",
+                    "message": result["error"],
+                    "item_names": result.get("item_names", []),
+                },
+            )
+        return result
+
     @router.post("/supervision")
     def set_supervision(body: Dict[str, Any]):
         task_name = body.get("task_name")
@@ -276,5 +359,193 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         return context.requeue_task(
             item_name, task_name, front=bool(body.get("front", False))
         )
+
+    return router
+
+
+def build_app_config_router(context: AppContext) -> APIRouter:
+    """Routes that edit configuration — the ``configure`` scope's own router.
+
+    Deliberately not on the control router: answering a question with
+    geometry (control) and editing protocols (configure) are different
+    grants, and the arming dialog shows them as separate rungs (FIB-864).
+    """
+    router = APIRouter(prefix="/app")
+
+    def _validated(body: Dict[str, Any]):
+        patch = body.get("patch")
+        version = body.get("version")
+        if (
+            not isinstance(patch, dict)
+            or not patch
+            or not all(isinstance(k, str) for k in patch)
+            or not isinstance(version, str)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass patch (a non-empty object of dotted-path: "
+                    "value entries) and version (from the config read it was "
+                    "written against).",
+                },
+            )
+        return patch, version
+
+    @router.post("/protocol/task_config/{task_name}")
+    def patch_protocol_task_config(task_name: str, body: Dict[str, Any]):
+        patch, version = _validated(body)
+        return _refused_or(
+            context.apply_protocol_task_config_patch(task_name, patch, version)
+        )
+
+    @router.post("/items/{item_name}/task_config/{task_name}")
+    def patch_item_task_config(item_name: str, task_name: str, body: Dict[str, Any]):
+        patch, version = _validated(body)
+        return _refused_or(
+            context.apply_item_task_config_patch(item_name, task_name, patch, version)
+        )
+
+    @router.post("/workflow/schedule")
+    def set_task_schedule(body: Dict[str, Any]):
+        # Workflow structure, not a config document: a verb like /app/supervision,
+        # on the configure scope. scheduled_at is ISO-8601 or null to clear.
+        task_name = body.get("task_name")
+        scheduled_at = body.get("scheduled_at")
+        if not isinstance(task_name, str) or (
+            scheduled_at is not None and not isinstance(scheduled_at, str)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass task_name (string) and scheduled_at "
+                    "(ISO-8601 string, or null to clear).",
+                },
+            )
+        result = context.set_task_schedule(task_name, scheduled_at)
+        if result.get("invalid_value"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_value",
+                    "message": result["invalid_value"],
+                },
+            )
+        if not result.get("applied") and result.get("error"):
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_type": "not_found",
+                    "message": result["error"],
+                    "task_names": result.get("task_names", []),
+                },
+            )
+        return result
+
+    def _validated_reorder(body: Dict[str, Any]):
+        milling_key = body.get("milling_key")
+        order = body.get("order")
+        version = body.get("version")
+        if (
+            not isinstance(milling_key, str)
+            or not isinstance(order, list)
+            or not order
+            or not all(isinstance(n, str) for n in order)
+            or not isinstance(version, str)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass milling_key (string), order (the current "
+                    "stage names in their new sequence), and version (from "
+                    "the config read).",
+                },
+            )
+        return milling_key, order, version
+
+    @router.post("/items/{item_name}/task_config/{task_name}/stages/reorder")
+    def reorder_item_stages(item_name: str, task_name: str, body: Dict[str, Any]):
+        milling_key, order, version = _validated_reorder(body)
+        return _refused_or(
+            context.reorder_milling_stages(
+                "item", item_name, task_name, milling_key, order, version
+            )
+        )
+
+    @router.post("/protocol/task_config/{task_name}/stages/reorder")
+    def reorder_protocol_stages(task_name: str, body: Dict[str, Any]):
+        milling_key, order, version = _validated_reorder(body)
+        return _refused_or(
+            context.reorder_milling_stages(
+                "protocol", "", task_name, milling_key, order, version
+            )
+        )
+
+    @router.post("/items/{item_name}/apply_protocol")
+    def apply_protocol_to_item(item_name: str, body: Dict[str, Any]):
+        # Wholesale by design — the verb IS "replace with the protocol
+        # defaults" — so no version field; refusals ride _refused_or.
+        task_names = body.get("task_names")
+        if task_names is not None and not (
+            isinstance(task_names, list) and all(isinstance(t, str) for t in task_names)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "task_names, when given, is a list of task "
+                    "name strings; omitted means every task the protocol "
+                    "defines.",
+                },
+            )
+        return _refused_or(context.apply_protocol_to_item(item_name, task_names))
+
+    @router.post("/items/{item_name}")
+    def patch_item(item_name: str, body: Dict[str, Any]):
+        # The item's own document (geometry, verdict, notes) — the write-side
+        # mirror of GET /app/items/{item_name}, whose payload carries the
+        # version this patch must echo.
+        patch, version = _validated(body)
+        return _refused_or(context.apply_item_patch(item_name, patch, version))
+
+    def _refused_or(result: Dict[str, Any]):
+        if result.get("stale"):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_type": "stale_config",
+                    "message": "The config changed since your read; re-read "
+                    "it and write the patch against the current version.",
+                },
+            )
+        if result.get("error_type") == "task_running":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_type": "task_running",
+                    "message": result.get("error", "That task is running."),
+                },
+            )
+        if result.get("invalid_patch"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_patch",
+                    "message": result["invalid_patch"],
+                    "path": result.get("path"),
+                },
+            )
+        if not result.get("applied") and result.get("error"):
+            detail: Dict[str, Any] = {
+                "error_type": "not_found",
+                "message": result["error"],
+            }
+            for key in ("item_names", "task_names"):
+                if key in result:
+                    detail[key] = result[key]
+            raise HTTPException(status_code=404, detail=detail)
+        return result
 
     return router
