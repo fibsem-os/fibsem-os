@@ -276,6 +276,28 @@ def build_sidecar(client, capabilities):
         )
         return err if err else data
 
+    def reorder_item_milling_stages(
+        item_name: str, task_name: str, milling_key: str, order: list, version: str
+    ):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/items/{item_name}/task_config/{task_name}/stages/reorder",
+            {"milling_key": milling_key, "order": list(order), "version": version},
+        )
+        return err if err else data
+
+    def reorder_protocol_milling_stages(
+        task_name: str, milling_key: str, order: list, version: str
+    ):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/protocol/task_config/{task_name}/stages/reorder",
+            {"milling_key": milling_key, "order": list(order), "version": version},
+        )
+        return err if err else data
+
     def set_task_schedule(task_name: str, scheduled_at=None):
         data, err = _call(
             client,
@@ -407,6 +429,8 @@ def build_sidecar(client, capabilities):
             set_task_schedule,
             apply_protocol_to_item,
             add_note,
+            reorder_item_milling_stages,
+            reorder_protocol_milling_stages,
             list_recent_experiments,
             get_events,
             get_display_images,

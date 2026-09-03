@@ -1259,6 +1259,34 @@ class AutoLamellaUI(QMainWindow):
         )
         return outcome
 
+    def request_reorder_milling_stages(
+        self,
+        level: str,
+        item_name: str,
+        task_name: str,
+        milling_key: str,
+        order,
+        version: str,
+    ) -> "Future":
+        """Reorder one milling config's stages; any thread.
+
+        Structure, so a verb: the same elements in a new sequence, named by
+        stage name, against the config version the caller read. ``level`` is
+        "item" or "protocol".
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_config_patch.emit(
+            "reorder_stages",
+            item_name,
+            task_name,
+            {"level": level, "milling_key": milling_key, "order": list(order)},
+            version,
+            outcome,
+        )
+        return outcome
+
     def request_apply_protocol_to_item(self, item_name: str, task_names) -> "Future":
         """Re-copy protocol task configs onto an existing item; any thread.
 
@@ -1342,6 +1370,10 @@ class AutoLamellaUI(QMainWindow):
             return {"applied": False, "error": "no experiment is loaded"}
         if level == "item_fields":
             return self._apply_item_fields_patch(experiment, item_name, patch, version)
+        if level == "reorder_stages":
+            return self._reorder_milling_stages(
+                experiment, item_name, task_name, patch, version
+            )
         if level == "apply_protocol":
             return self._apply_protocol_to_item(
                 experiment, item_name, patch.get("task_names")
@@ -1513,6 +1545,90 @@ class AutoLamellaUI(QMainWindow):
                 for p, old, new in changes
             ],
             "version": item_fields_version(lamella),
+        }
+
+    def _reorder_milling_stages(
+        self, experiment, item_name: str, task_name: str, payload: dict, version: str
+    ) -> dict:
+        """Reorder stages inside one milling config. GUI thread.
+
+        Same-set-by-name and version-guarded: this can never add, drop, or
+        duplicate a stage, and never reorders a config the caller hasn't
+        seen. Stage names must be unique to reorder by name at all.
+        """
+        from fibsem.applications.autolamella.server.context import config_version
+
+        level = payload.get("level", "item")
+        milling_key = payload.get("milling_key")
+        order = payload.get("order") or []
+        if level == "protocol":
+            protocol = getattr(experiment, "task_protocol", None)
+            config_map = getattr(protocol, "task_config", None)
+            if config_map is None:
+                return {"applied": False, "error": "no protocol is loaded"}
+            config = dict(config_map).get(task_name)
+        else:
+            lamella = experiment.get_lamella_by_name(item_name)
+            if lamella is None:
+                return {
+                    "applied": False,
+                    "error": f"No item named {item_name!r} in this experiment.",
+                    "item_names": [p.name for p in experiment.positions],
+                }
+            config = dict(lamella.task_config).get(task_name)
+        if config is None:
+            return {
+                "applied": False,
+                "error": f"No task config named {task_name!r}.",
+            }
+        milling = getattr(config, "milling", None) or {}
+        if milling_key not in milling:
+            return {
+                "applied": False,
+                "invalid_patch": f"{milling_key!r} is not a milling config of "
+                f"{task_name!r}; known: {sorted(milling.keys())}",
+                "path": milling_key,
+            }
+        if config_version(config) != version:
+            return {"applied": False, "stale": True}
+        stages = milling[milling_key].stages
+        names = [s.name for s in stages]
+        if len(set(names)) != len(names):
+            return {
+                "applied": False,
+                "invalid_patch": "stage names are not unique; reorder by "
+                "name is ambiguous — rename the stages first.",
+                "path": milling_key,
+            }
+        if sorted(order) != sorted(names):
+            return {
+                "applied": False,
+                "invalid_patch": f"order must be exactly the current stages "
+                f"in a new sequence; current: {names}",
+                "path": milling_key,
+            }
+        by_name = {s.name: s for s in stages}
+        milling[milling_key].stages = [by_name[n] for n in order]
+        logging.info(
+            f"agent reordered stages ({level}): "
+            f"{item_name or 'protocol'} / {task_name} / {milling_key}: "
+            f"{names} -> {order}"
+        )
+        saved = True
+        try:
+            experiment.save(save_protocol=(level == "protocol"))
+        except Exception:
+            saved = False
+            logging.exception("save after stage reorder failed")
+        changes = [(f"milling.{milling_key}.stages", names, list(order))]
+        self._show_agent_config_patch(level, item_name, task_name, changes)
+        return {
+            "applied": True,
+            "saved": saved,
+            "task_name": task_name,
+            "milling_key": milling_key,
+            "order": list(order),
+            "version": config_version(config),
         }
 
     def _apply_protocol_to_item(self, experiment, item_name: str, task_names) -> dict:

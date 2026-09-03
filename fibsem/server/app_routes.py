@@ -74,6 +74,16 @@ class AppContext(Protocol):
         self, item_name: str, task_names: Optional[List[str]] = None
     ) -> Dict[str, Any]: ...
 
+    def reorder_milling_stages(
+        self,
+        level: str,
+        item_name: str,
+        task_name: str,
+        milling_key: str,
+        order: List[str],
+        version: str,
+    ) -> Dict[str, Any]: ...
+
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
@@ -432,6 +442,46 @@ def build_app_config_router(context: AppContext) -> APIRouter:
                 },
             )
         return result
+
+    def _validated_reorder(body: Dict[str, Any]):
+        milling_key = body.get("milling_key")
+        order = body.get("order")
+        version = body.get("version")
+        if (
+            not isinstance(milling_key, str)
+            or not isinstance(order, list)
+            or not order
+            or not all(isinstance(n, str) for n in order)
+            or not isinstance(version, str)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass milling_key (string), order (the current "
+                    "stage names in their new sequence), and version (from "
+                    "the config read).",
+                },
+            )
+        return milling_key, order, version
+
+    @router.post("/items/{item_name}/task_config/{task_name}/stages/reorder")
+    def reorder_item_stages(item_name: str, task_name: str, body: Dict[str, Any]):
+        milling_key, order, version = _validated_reorder(body)
+        return _refused_or(
+            context.reorder_milling_stages(
+                "item", item_name, task_name, milling_key, order, version
+            )
+        )
+
+    @router.post("/protocol/task_config/{task_name}/stages/reorder")
+    def reorder_protocol_stages(task_name: str, body: Dict[str, Any]):
+        milling_key, order, version = _validated_reorder(body)
+        return _refused_or(
+            context.reorder_milling_stages(
+                "protocol", "", task_name, milling_key, order, version
+            )
+        )
 
     @router.post("/items/{item_name}/apply_protocol")
     def apply_protocol_to_item(item_name: str, body: Dict[str, Any]):

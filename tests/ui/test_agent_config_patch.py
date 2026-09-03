@@ -401,3 +401,66 @@ def test_a_poi_patch_moves_the_attached_patterns_with_it(ui, qapp):
         assert (pattern_before.x, pattern_before.y) != (6e-6, 2e-6)
         assert stage.pattern.point.x == pytest.approx(6e-6)
         assert stage.pattern.point.y == pytest.approx(2e-6)
+
+
+def test_stage_reorder_is_same_set_versioned_and_recorded(ui, qapp):
+    buffer = EventBuffer()
+    lamella = ui.experiment.positions[0]
+    stages = lamella.task_config[TASK].milling["mill_rough"].stages
+    names = [s.name for s in stages]
+    assert len(names) >= 2
+    new_order = list(reversed(names))
+
+    item = lamella.name
+    base = f"/app/items/{item}/task_config/{TASK}"
+    with _client(ui, buffer=buffer) as client:
+        doc = client.get(base, headers=AUTH).json()
+        resp = _post_on_worker(
+            qapp,
+            client,
+            f"{base}/stages/reorder",
+            {
+                "milling_key": "mill_rough",
+                "order": new_order,
+                "version": doc["version"],
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["applied"] is True and body["order"] == new_order
+        assert [
+            s.name for s in lamella.task_config[TASK].milling["mill_rough"].stages
+        ] == new_order
+        assert body["version"] != doc["version"]
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        assert [e for e in events if (e["payload"].get("reorder") or {}).get("order")]
+
+        # Same-set enforcement: dropping a stage is refused.
+        fresh = client.get(base, headers=AUTH).json()
+        bad = _post_on_worker(
+            qapp,
+            client,
+            f"{base}/stages/reorder",
+            {
+                "milling_key": "mill_rough",
+                "order": new_order[:-1],
+                "version": fresh["version"],
+            },
+        )
+        assert bad.status_code == 422
+        # Stale version refused.
+        stale = _post_on_worker(
+            qapp,
+            client,
+            f"{base}/stages/reorder",
+            {"milling_key": "mill_rough", "order": names, "version": doc["version"]},
+        )
+        assert stale.status_code == 409
+        # Unknown milling key refused with the known ones.
+        wrong = _post_on_worker(
+            qapp,
+            client,
+            f"{base}/stages/reorder",
+            {"milling_key": "nope", "order": new_order, "version": fresh["version"]},
+        )
+        assert wrong.status_code == 422

@@ -523,6 +523,60 @@ class AgentContext:
             )
         return {"available": True, "recorded": True}
 
+    def reorder_milling_stages(
+        self,
+        level: str,
+        item_name: str,
+        task_name: str,
+        milling_key: str,
+        order: List[str],
+        version: str,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Reorder one milling config's stages — structure, so a verb.
+
+        Same rules as the config patches: version-guarded on the GUI thread,
+        refused while that task runs for that item, recorded on the event
+        stream. Same-set-by-name: this can never add, drop, or duplicate a
+        stage.
+        """
+        host = self._host
+        if not hasattr(host, "request_reorder_milling_stages"):
+            return {"available": False, "applied": False}
+        if level == "item":
+            manager = self._manager
+            if manager is not None:
+                running = any(
+                    item.item_name == item_name
+                    and item.task_name == task_name
+                    and item.status is AutoLamellaTaskStatus.InProgress
+                    for item in manager.queue.items
+                )
+                if running:
+                    return {
+                        "available": True,
+                        "applied": False,
+                        "error_type": "task_running",
+                        "error": f"{task_name!r} is running for {item_name!r} "
+                        "and has already copied its config.",
+                    }
+        outcome = host.request_reorder_milling_stages(
+            level, item_name, task_name, milling_key, list(order), str(version)
+        )
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        if result.get("applied") and self._event_buffer is not None:
+            self._event_buffer.append(
+                "config_edited",
+                {
+                    "level": level,
+                    "item_name": item_name or None,
+                    "task_name": task_name,
+                    "reorder": {"milling_key": milling_key, "order": list(order)},
+                },
+            )
+        return result
+
     def apply_protocol_to_item(
         self,
         item_name: str,
