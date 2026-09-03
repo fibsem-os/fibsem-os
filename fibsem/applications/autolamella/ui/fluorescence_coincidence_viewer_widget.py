@@ -28,14 +28,16 @@ import math
 import os
 import time
 from collections import deque
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
+    QCheckBox,
     QDialog,
     QFileDialog,
     QFrame,
@@ -100,6 +102,7 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
     from fibsem.microscope import FibsemMicroscope
     from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.structures import FibsemRectangle
 
 # Short local names for the shared palette. These appear inside dozens of
 # f-strings below, where the full names would wrap every one of them.
@@ -504,6 +507,17 @@ class _InfoWidget(QWidget):
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class _SetupSession:
+    """What enter_setup_mode holds while a task has the viewer."""
+
+    lamella: "Lamella"
+    config: object  # SetupCoincidenceMillingTaskConfig
+    manual_milling_config: Optional["FibsemMillingTaskConfig"]
+    on_continue: Optional[Callable[[], None]]
+    on_skip: Optional[Callable[[], None]]
+
+
 class FluorescenceCoincidenceViewerWidget(QWidget):
     """Four-quadrant viewer + control tabs for FIB/FM coincidence milling.
 
@@ -571,6 +585,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._last_timelapse_time: float = 0.0
         self._is_scrubbing: bool = False
         self._is_milling_active: bool = False
+        # Setup mode: a Setup Coincidence Milling task has handed the viewer one
+        # site to place the boxes for (see enter_setup_mode). None otherwise.
+        self._setup: Optional["_SetupSession"] = None
 
         # Optional sub-widgets (created only when microscope/fm is available)
         self.fib_beam_widget = None
@@ -1094,6 +1111,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def closeEvent(self, event):  # noqa: N802 (Qt override)
         """Persist the FM working state + milling config when the window closes."""
+        if self.in_setup_mode:
+            # closing the window mid-setup answers the task: nothing saved for
+            # this site. exit_setup_mode restores the manual controls first so
+            # the persisted milling config below is the operator's, not the task's.
+            self._on_setup_skip_clicked()
         if self.microscope is not None and self.microscope.fm is not None:
             self._save_fm_configuration()
         self._save_milling_config()
@@ -1132,6 +1154,30 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_milling.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
+
+        # setup-mode controls: shown in place of Start Milling while a task holds
+        # the viewer (enter_setup_mode); the task's question is what they answer
+        self.chk_copy_setup = QCheckBox("Copy boxes to unset sites")
+        self.chk_copy_setup.setToolTip(
+            "On Save, seed every other lamella without a coincidence setup with "
+            "this FM region, milling box position, channel and drop fraction. "
+            "The objective height stays per site."
+        )
+        self.chk_copy_setup.setVisible(False)
+        self.btn_setup_skip = QPushButton("Skip Site")
+        self.btn_setup_skip.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.btn_setup_skip.setToolTip(
+            "Record nothing for this site; the coincidence mill will hold it back."
+        )
+        self.btn_setup_skip.setVisible(False)
+        self.btn_setup_continue = QPushButton("Save and Continue")
+        self.btn_setup_continue.setIcon(
+            fibsem_icon("mdi:content-save", color=stylesheets.WHITE_ICON_COLOR)
+        )
+        self.btn_setup_continue.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
+        self.btn_setup_continue.setVisible(False)
+        self.btn_setup_skip.clicked.connect(self._on_setup_skip_clicked)
+        self.btn_setup_continue.clicked.connect(self._on_setup_continue_clicked)
 
         # The last words a producer supplied, so a backend's messageless tick still has
         # a label to show. See `MillingMessageTracker`.
@@ -1205,6 +1251,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self.btn_pause,
             self.btn_supervised,
             self.btn_milling,
+            self.btn_setup_skip,
+            self.btn_setup_continue,
         ):
             w.setFixedHeight(28)
 
@@ -1214,6 +1262,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         layout.addWidget(self.spin_drop_threshold)
         layout.addWidget(self.btn_pause)
         layout.addWidget(self.btn_supervised)
+        layout.addWidget(self.chk_copy_setup)
+        layout.addWidget(self.btn_setup_skip)
+        layout.addWidget(self.btn_setup_continue)
         layout.addWidget(self.btn_milling)
 
         return bar
@@ -2318,7 +2369,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return
         cx_m = (info["cx"] - img_w / 2) * pixel_size
         cy_m = (info["cy"] - img_h / 2) * -pixel_size  # Y axis is flipped
-        self.milling_viewer_widget._move_patterns(Point(cx_m, cy_m), move_all=False)
+        # In setup mode every stage shares one position: a two-stage mill (top to
+        # bottom, then bottom to top) must not have its boxes drift apart.
+        self.milling_viewer_widget._move_patterns(
+            Point(cx_m, cy_m), move_all=self.in_setup_mode
+        )
         self._update_fib_rect_from_pattern()
 
     # ------------------------------------------------------------------
@@ -2442,6 +2497,211 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         worker = FunctionWorker(self.microscope.fm_stable_move, dx=px, dy=py)
         worker.start()
 
+    # ------------------------------------------------------------------
+    # Setup mode: a Setup Coincidence Milling task hands the viewer one site
+    # ------------------------------------------------------------------
+
+    @property
+    def in_setup_mode(self) -> bool:
+        return self._setup is not None
+
+    def enter_setup_mode(
+        self,
+        lamella: "Lamella",
+        config,
+        milling_config: "FibsemMillingTaskConfig",
+        fib_image: Optional[FibsemImage] = None,
+        fm_image: Optional[FluorescenceImage] = None,
+        on_continue: Optional[Callable[[], None]] = None,
+        on_skip: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Lock the viewer to one site and show its stored boxes for adjustment.
+
+        The task has already put the microscope where the mill will happen. Here
+        the operator drags the FM region and the milling box, focuses with the FM
+        tab's objective controls, picks the channel and the drop fraction. Save and
+        Continue (or Skip Site) fire the callbacks; :meth:`read_setup_result` is
+        what the answer is built from.
+
+        Additive: the manual path is untouched, and :meth:`exit_setup_mode` puts
+        everything back.
+        """
+        if self._is_milling_active:
+            raise RuntimeError("Cannot enter setup mode while a mill is running.")
+        if self.in_setup_mode:
+            self.exit_setup_mode()
+
+        # what the manual path had, to restore on exit
+        manual_milling_config = (
+            self.milling_viewer_widget.get_config()
+            if self.milling_viewer_widget is not None
+            else None
+        )
+        self._setup = _SetupSession(
+            lamella=lamella,
+            config=config,
+            manual_milling_config=manual_milling_config,
+            on_continue=on_continue,
+            on_skip=on_skip,
+        )
+
+        # the site: selected and locked. The task owns the stage, so nothing here
+        # may move it.
+        self.lamella_list_widget.select(lamella.name)
+        self._on_lamella_selected(lamella)
+        self.lamella_list_widget.setEnabled(False)
+        self.selected_lamella_widget.setEnabled(False)
+
+        # the boxes' frames
+        if fib_image is not None:
+            self.set_fib_image(fib_image)
+        if fm_image is not None:
+            self.set_fm_image(fm_image)
+
+        # the milling box: the site's own config, offset already on every stage
+        if self.milling_viewer_widget is not None:
+            self.milling_viewer_widget.set_config(milling_config)
+            self._update_fib_rect_from_pattern()
+
+        # the FM region, from fractions of the frame to pixels
+        self._show_stored_fm_roi(config.fm_roi)
+
+        # the drop fraction, editable before any run (FIB-377)
+        self.spin_drop_threshold.blockSignals(True)
+        self.spin_drop_threshold.setValue(
+            int(round(config.intensity_drop_fraction * 100))
+        )
+        self.spin_drop_threshold.blockSignals(False)
+        self.spin_drop_threshold.setVisible(True)
+
+        self.btn_milling.setVisible(False)
+        self.chk_copy_setup.setChecked(False)
+        self.chk_copy_setup.setVisible(True)
+        self.btn_setup_skip.setVisible(True)
+        self.btn_setup_continue.setVisible(True)
+        self.label_selected_lamella.setText(f"Setup · {lamella.name}")
+        self._set_border_state("waiting")
+        self.tab_widget.setCurrentIndex(3)  # Fluorescence: objective + channel
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def read_setup_result(self):
+        """What the operator left: the answer to the task's question."""
+        from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
+            CoincidenceSetup,
+        )
+
+        session = self._setup
+        if session is None:
+            raise RuntimeError("Not in setup mode.")
+
+        # the position, not gated on the reported state: the task inserted the
+        # objective before handing off, and the simulator derives its state from
+        # the position (a focused objective there reads "Retracted")
+        objective_position = None
+        if self.microscope is not None and self.microscope.fm is not None:
+            objective_position = self.microscope.fm.objective.position
+
+        channel_name = session.config.channel_name
+        channel = getattr(self, "fm_channel_widget", None)
+        selected = channel.selected_channel if channel is not None else None
+        if selected is not None and selected.name:
+            channel_name = selected.name
+
+        return CoincidenceSetup(
+            objective_position=objective_position,
+            fm_roi=self._read_fm_roi(),
+            pattern_offset=self._read_pattern_offset(session.config.pattern_offset),
+            channel_name=channel_name,
+            intensity_drop_fraction=self.spin_drop_threshold.value() / 100.0,
+            copy_to_unset=self.chk_copy_setup.isChecked(),
+        )
+
+    def exit_setup_mode(self) -> None:
+        """Put the manual controls back; the task no longer holds the viewer."""
+        session = self._setup
+        if session is None:
+            return
+        self._setup = None
+        self.lamella_list_widget.setEnabled(True)
+        self.selected_lamella_widget.setEnabled(True)
+        if (
+            self.milling_viewer_widget is not None
+            and session.manual_milling_config is not None
+        ):
+            self.milling_viewer_widget.set_config(session.manual_milling_config)
+            self._update_fib_rect_from_pattern()
+        self.spin_drop_threshold.setVisible(False)
+        self.chk_copy_setup.setVisible(False)
+        self.btn_setup_skip.setVisible(False)
+        self.btn_setup_continue.setVisible(False)
+        self.btn_milling.setVisible(True)
+        name = self._selected_lamella.name if self._selected_lamella else "None"
+        self.label_selected_lamella.setText(f"Lamella: {name}")
+        self._set_border_state("idle")
+
+    def _on_setup_continue_clicked(self) -> None:
+        session = self._setup
+        if session is None:
+            return
+        # the callback answers the question; the answer's reader exits the mode
+        if session.on_continue is not None:
+            session.on_continue()
+        else:
+            self.exit_setup_mode()
+
+    def _on_setup_skip_clicked(self) -> None:
+        session = self._setup
+        if session is None:
+            return
+        if session.on_skip is not None:
+            session.on_skip()
+        else:
+            self.exit_setup_mode()
+
+    def _show_stored_fm_roi(self, roi: Optional["FibsemRectangle"]) -> None:
+        shape = self.fm_canvas._img_shape
+        if roi is None or shape is None:
+            return
+        H, W = shape
+        self.fm_canvas.rect_overlay.set_rect(
+            roi.left * W, roi.top * H, roi.width * W, roi.height * H
+        )
+
+    def _read_fm_roi(self) -> Optional["FibsemRectangle"]:
+        """The FM rectangle as a fraction of the frame, None when there is none."""
+        shape = self.fm_canvas._img_shape
+        if shape is None:
+            return None
+        try:
+            info = self.fm_canvas.rect_overlay.get_rect()
+        except Exception:
+            return None
+        if not info:
+            return None
+        H, W = shape
+        w, h = info.get("width", 0), info.get("height", 0)
+        if w <= 0 or h <= 0:
+            return None
+        from fibsem.structures import FibsemRectangle
+
+        return FibsemRectangle(
+            left=info["x0"] / W, top=info["y0"] / H, width=w / W, height=h / H
+        )
+
+    def _read_pattern_offset(self, fallback: Point) -> Point:
+        """Where the milling box sits: the first enabled stage's pattern point."""
+        if self.milling_viewer_widget is None:
+            return fallback
+        config = self.milling_viewer_widget.get_config()
+        stages = config.enabled_stages
+        if not stages:
+            return fallback
+        point = stages[0].pattern.point
+        return Point(float(point.x), float(point.y))
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 

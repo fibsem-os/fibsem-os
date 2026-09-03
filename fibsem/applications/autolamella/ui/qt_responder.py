@@ -43,6 +43,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     SetFluorescenceChannels,
     SetImages,
     SetMillingConfig,
+    SetupCoincidenceMilling,
     StalePromptError,
 )
 from fibsem.applications.autolamella.workflows.tasks.status import (
@@ -86,6 +87,7 @@ class QtResponder(QObject):
             PickPOI: self._pick_poi,
             RunMillingTask: self._run_milling_task,
             RunSpotBurn: self._run_spot_burn,
+            SetupCoincidenceMilling: self._setup_coincidence_milling,
         }
         # (request, future, nonce): one attribute so a cross-thread reader sees
         # a question and its nonce as a single consistent pair. The nonce names
@@ -662,6 +664,53 @@ class QtResponder(QObject):
                 {"type": type(pending[0]).__name__, "nonce": pending[2]},
             )
 
+    def _setup_coincidence_milling(
+        self, request: SetupCoincidenceMilling, future: "Future"
+    ) -> None:
+        """Open the coincidence viewer in setup mode; the click answers with the setup.
+
+        The viewer is the existing non-modal window: reused if the operator already
+        has it open, opened otherwise. Its own Save and Continue / Skip Site buttons
+        route to :meth:`answer_confirm`, the same click the main window's prompt
+        makes, so either surface answers the one question.
+        """
+        viewer = self._coincidence_viewer()
+        if viewer is None:
+            raise RuntimeError(
+                "No coincidence viewer available (a fluorescence microscope and a "
+                "loaded experiment are required)."
+            )
+        viewer.enter_setup_mode(
+            lamella=request.lamella,
+            config=request.config,
+            milling_config=request.milling_config,
+            fib_image=request.fib_image,
+            fm_image=request.fm_image,
+            on_continue=lambda: self.answer_confirm(True),
+            on_skip=lambda: self.answer_confirm(False),
+        )
+        self._park_question(
+            request, future, request.message, "Save and Continue", "Skip Site"
+        )
+
+    def _coincidence_viewer(self):
+        """The main window's coincidence viewer, opened if it is not up."""
+        viewer = getattr(self._ui, "_coincidence_viewer_window", None)
+        if viewer is None or not viewer.isVisible():
+            self._ui._open_coincidence_milling_viewer()
+            viewer = getattr(self._ui, "_coincidence_viewer_window", None)
+        return viewer
+
+    def _finish_coincidence_setup(self, clicked_yes: bool):
+        """The answer: what the viewer holds on Save, None on Skip; viewer released."""
+        viewer = getattr(self._ui, "_coincidence_viewer_window", None)
+        if viewer is None:
+            return None
+        try:
+            return viewer.read_setup_result() if clicked_yes else None
+        finally:
+            viewer.exit_setup_mode()
+
     def _run_spot_burn(self, request: RunSpotBurn, future: "Future") -> None:
         """Place-points-and-burn, mirroring the milling question.
 
@@ -802,6 +851,8 @@ class QtResponder(QObject):
         if isinstance(request, RunSpotBurn):
             # Only Continue reaches here; Run Spot Burn is intercepted above.
             return self._finish_spot_burn_question()
+        if isinstance(request, SetupCoincidenceMilling):
+            return self._finish_coincidence_setup(clicked_yes)
         if isinstance(request, ConfirmDetection):
             # Both the read-back and the save used to straddle threads: the
             # workflow thread called _get_detected_features across the seam, then
