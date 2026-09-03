@@ -299,6 +299,7 @@ class SceneCamera(Camera):
             shape=(self.resolution[1], self.resolution[0]),
         )
         self._index += 1
+        scene.holder_slots = microscope._scene_holder_slots()
         frame = scene.render_fm(
             microscope.get_stage_position(),
             self.resolution,
@@ -735,6 +736,7 @@ class DemoMicroscope(FibsemMicroscope):
                 current = float(self.get("current", effective_beam_type))
             except Exception:
                 current = None
+            self._sample_scene.holder_slots = self._scene_holder_slots()
             image.data = self._sample_scene.render(
                 beam_type=effective_beam_type,
                 stage_position=self.get_stage_position(),
@@ -1384,6 +1386,24 @@ class DemoMicroscope(FibsemMicroscope):
                 "asynch": asynch,
             }
         )
+
+    def _scene_holder_slots(self) -> list:
+        """The holder's occupied slots with a position, for the scene to put
+        a grid at each: (grid name, grid radius, stage position)."""
+        scene = getattr(self, "_sample_scene", None)
+        if scene is None or not scene.grids_from_holder:
+            return []
+        holder = getattr(getattr(self, "_stage", None), "holder", None)
+        if holder is None:
+            return []
+        try:
+            return [
+                (slot.loaded_grid.name, slot.loaded_grid.radius, slot.position)
+                for slot in holder.occupied_slots
+                if slot.position is not None
+            ]
+        except Exception:
+            return []
 
     def _mill_into_sample_scene(self, milling_current: float) -> None:
         """Commit the drawn patterns to the sample scene, when there is one:

@@ -146,6 +146,7 @@ BEAM_LAYERS = {
         "bars": 90.0,
         "holes": -45.0,
         "hole_rim": 25.0,
+        "rip_rim": 45.0,
         "rips": -70.0,  # absolute offset from film where the film is gone
         "rim": 120.0,
         "holder": 0.0,
@@ -162,6 +163,7 @@ BEAM_LAYERS = {
         "bars": 50.0,
         "holes": -80.0,
         "hole_rim": 10.0,
+        "rip_rim": 25.0,
         "rips": -90.0,
         "rim": 150.0,
         "holder": 0.0,
@@ -178,6 +180,7 @@ BEAM_LAYERS = {
 EDGE_INTENSITY = 45.0
 EDGE_GRADIENT_SCALE = 4.0
 # the FM reflection's view of the support, on the same scale
+RIP_FLAP_WIDTH = 1.5e-6  # m, the curled film edge round a rip
 HOLE_DEPTH = 45.0
 RIP_DEPTH = 80.0
 RIM_INTENSITY = 120.0
@@ -222,6 +225,21 @@ class SceneFeature:
     # additive (a mound on top), 1 replaces the background inside its
     # outline - a cell body or an ice plate is opaque, a nucleus sits on top
     opacity: float = 0.0
+
+
+@dataclass
+class SceneGrid:
+    """One grid on the holder: where it sits in the world, how it lies, and
+    the seed its content grows from. A grid's seed comes from its name, so
+    the same grid shows the same cells whichever slot it is loaded in."""
+
+    name: str
+    x: float  # m, world position of the grid centre
+    y: float
+    rotation: float  # rad
+    radius: float  # m, the usable film area
+    seed: int
+    extent: float  # m, content is grown over +/- extent/2 about the centre
 
 
 @dataclass
@@ -548,6 +566,21 @@ class SampleScene:
     reference_position: Optional[FibsemStagePosition] = None
     features: List[SceneFeature] = field(default_factory=list)
     milled: List[MilledRegion] = field(default_factory=list)
+    # the grids on the holder. With no calibrated, occupied slot handed in
+    # (`holder_slots`, set by the simulator from its sample holder before
+    # each acquisition) there is one grid, centred on the world anchor -
+    # the scene as it always was. With slots, one grid per occupied slot,
+    # centred where that slot's stage position falls in the world; an empty
+    # or uncalibrated slot shows the holder
+    grids: List[SceneGrid] = field(default_factory=list)
+    # opt-in: the sample holder's slot positions are an operator file shared
+    # by every configuration in the directory, so a test-drive holder must
+    # not move the grids under every test that runs the Demo
+    grids_from_holder: bool = False
+    holder_slots: List[Tuple[str, float, FibsemStagePosition]] = field(
+        default_factory=list, repr=False, compare=False
+    )
+    _holder_signature: Optional[tuple] = field(default=None, repr=False, compare=False)
     # fraction of cells that also carry the red fluorophore (seeded subset)
     red_fraction: float = 0.4
     # defocus model for the FM: blur sigma grows by this many pixels per
@@ -563,9 +596,41 @@ class SampleScene:
             self.grid_rotation = float(
                 rng.uniform(-self.grid_rotation_range, self.grid_rotation_range)
             )
-        half = self.extent / 2
+        if not self.grids:
+            self.grids = [self._default_grid()]
+        # the default grid grows from the generator that drew its rotation,
+        # as it always did, so a seed still means the same scene
+        self._populate(rng)
+
+    def _default_grid(self) -> SceneGrid:
+        """The one grid at the world anchor: the scene as it always was."""
+        return SceneGrid(
+            name="default",
+            x=0.0,
+            y=0.0,
+            rotation=float(self.grid_rotation or 0.0),
+            radius=self.grid_radius,
+            seed=self.seed,
+            extent=self.extent,
+        )
+
+    def _populate(self, rng: Optional[np.random.Generator] = None) -> None:
+        """Grow every grid's content from its own seed (`rng` for the first
+        grid, when given)."""
+        self.features = []
+        for grid in self.grids:
+            self._generate_grid(grid, rng)
+            rng = None
+
+    def _generate_grid(
+        self, grid: SceneGrid, rng: Optional[np.random.Generator] = None
+    ) -> None:
+        if rng is None:
+            rng = np.random.default_rng(grid.seed)
+        half = grid.extent / 2
+        start = len(self.features)
         self._generate_cells(rng, half)
-        # fiducial-like cross at the world origin: a dense line of small
+        # fiducial-like cross at the grid centre: a dense line of small
         # blobs along each arm, so it goes through the same projection as
         # every other feature
         n_arm = int(2 * FIDUCIAL_ARM_LENGTH / FIDUCIAL_POINT_SPACING) + 1
@@ -581,7 +646,7 @@ class SampleScene:
                     )
                 )
         # contamination: everywhere, film and bars alike
-        n_specks = int(self.contamination_density * (self.extent / 100e-6) ** 2)
+        n_specks = int(self.contamination_density * (grid.extent / 100e-6) ** 2)
         for _ in range(n_specks):
             x, y = rng.uniform(-half, half, size=2)
             self.features.append(
@@ -595,7 +660,7 @@ class SampleScene:
                 )
             )
         # ice crystals: sparse flat plates, irregular outline, bright rim
-        n_ice = int(self.ice_density * (self.extent / 100e-6) ** 2)
+        n_ice = int(self.ice_density * (grid.extent / 100e-6) ** 2)
         for _ in range(n_ice):
             x, y = rng.uniform(-half, half, size=2)
             self.features.append(
@@ -613,6 +678,80 @@ class SampleScene:
                     opacity=0.9,
                 )
             )
+        # grown about the origin; carried to where the grid sits
+        for f in self.features[start:]:
+            f.x += grid.x
+            f.y += grid.y
+
+    def place_grids(self, projection: BeamStageProjection) -> None:
+        """Lay the grids out from the holder's slots, when they changed.
+
+        Each occupied slot with a position puts a grid where that stage
+        position falls in the world (the plane offset from the anchor, at
+        the anchor's pose, un-foreshortened), turned by its own seeded
+        rotation. Content is seeded from the grid's name, so exchanging
+        grids between slots moves their cells with them. With no such slot
+        the single default grid at the anchor stays.
+        """
+        signature = tuple(
+            (name, float(radius), float(pos.x or 0.0), float(pos.y or 0.0))
+            for name, radius, pos in self.holder_slots
+            if pos is not None
+        )
+        if signature == self._holder_signature:
+            return
+        had_holder_grids = bool(self._holder_signature)
+        self._holder_signature = signature
+        if not signature:
+            # no slot to place: the default grid from construction stands,
+            # with whatever features were set on it. Regrow only when
+            # holder grids are being taken away
+            if had_holder_grids:
+                self.grids = [self._default_grid()]
+                self._populate()
+            return
+        else:
+            reference = self.reference_position
+            fs = max(surface_foreshortening(projection, reference), MIN_FORESHORTENING)
+            grids = []
+            for name, radius, pos in self.holder_slots:
+                if pos is None:
+                    continue
+                at = deepcopy(reference)
+                at.x, at.y = float(pos.x or 0.0), float(pos.y or 0.0)
+                px, py = projection.to_plane(at, reference)
+                seed = zlib.crc32(f"{self.seed}:{name}".encode()) & 0x7FFFFFFF
+                rotation = float(
+                    np.random.default_rng(seed).uniform(
+                        -self.grid_rotation_range, self.grid_rotation_range
+                    )
+                )
+                grids.append(
+                    SceneGrid(
+                        name=name,
+                        x=float(px),
+                        y=float(py) / fs,
+                        rotation=rotation,
+                        radius=float(radius),
+                        seed=seed,
+                        # a holder grid is populated edge to edge
+                        extent=2 * float(radius),
+                    )
+                )
+        self.grids = grids
+        self._populate()
+        # trenches were cut in grids that are no longer where they were
+        self.milled = []
+        logging.info(
+            {
+                "msg": "sample_scene_grids_placed",
+                "grids": [
+                    {"name": g.name, "x": g.x, "y": g.y, "radius": g.radius}
+                    for g in grids
+                ],
+                "features": len(self.features),
+            }
+        )
 
     def view_to_world(
         self,
@@ -740,15 +879,48 @@ class SampleScene:
         """What the support is at each world point: (bars, holes, rips,
         rim, beyond) boolean masks, from broadcastable world coordinates.
 
-        The mesh and the hole lattice are rotated together; holes exist
-        only on film (not on bars), a seeded fraction of them broken into
-        larger openings; a seeded fraction of squares is ripped (film gone
-        inside an irregular patch). Past `grid_radius` is the metal rim,
-        past that the holder.
+        Per grid, in the grid's own frame (centre, rotation): the mesh and
+        the hole lattice are rotated together; holes exist only on film
+        (not on bars), a seeded fraction of them broken into larger
+        openings; a seeded fraction of squares is ripped (film gone inside
+        an irregular patch). Past the grid's radius is the metal rim; past
+        every rim, the holder.
         """
-        cos_r, sin_r = np.cos(self.grid_rotation), np.sin(self.grid_rotation)
-        x_rot = xs_world * cos_r + ys_world * sin_r
-        y_rot = -xs_world * sin_r + ys_world * cos_r
+        shape = np.broadcast(xs_world, ys_world).shape
+        bars = np.zeros(shape, dtype=bool)
+        holes = np.zeros(shape, dtype=bool)
+        rips = np.zeros(shape, dtype=bool)
+        rim = np.zeros(shape, dtype=bool)
+        inside_any = np.zeros(shape, dtype=bool)
+        x_lo, x_hi = float(np.min(xs_world)), float(np.max(xs_world))
+        y_lo, y_hi = float(np.min(ys_world)), float(np.max(ys_world))
+        for grid in self.grids:
+            reach = grid.radius + self.grid_rim_width
+            if (
+                grid.x + reach < x_lo
+                or grid.x - reach > x_hi
+                or grid.y + reach < y_lo
+                or grid.y - reach > y_hi
+            ):
+                continue
+            g_bars, g_holes, g_rips, inside, ring = self._grid_masks(
+                grid, xs_world - grid.x, ys_world - grid.y
+            )
+            bars |= g_bars & inside
+            holes |= g_holes & inside
+            rips |= g_rips & inside
+            rim |= ring
+            inside_any |= inside
+        rim &= ~inside_any
+        beyond = ~(inside_any | rim)
+        return bars, holes, rips, rim, beyond
+
+    def _grid_masks(self, grid: SceneGrid, xs: np.ndarray, ys: np.ndarray):
+        """One grid's (bars, holes, rips, inside, rim) from coordinates
+        relative to its centre."""
+        cos_r, sin_r = np.cos(grid.rotation), np.sin(grid.rotation)
+        x_rot = xs * cos_r + ys * sin_r
+        y_rot = -xs * sin_r + ys * cos_r
 
         def _near_bar(w):
             return np.abs((w % self.grid_pitch) - self.grid_pitch / 2) < (
@@ -756,25 +928,54 @@ class SampleScene:
             )
 
         bars = _near_bar(x_rot) | _near_bar(y_rot)
-        radius = np.hypot(xs_world, ys_world)
-        rim = radius > self.grid_radius
-        beyond = radius > self.grid_radius + self.grid_rim_width
+        radius = np.hypot(xs, ys)
+        inside = radius <= grid.radius
+        rim = (radius > grid.radius) & (radius <= grid.radius + self.grid_rim_width)
 
         # a per-square seeded draw, from the square's lattice index. The
-        # bars sit at half-pitch (the world origin is a square's centre), so
+        # bars sit at half-pitch (the grid centre is a square's centre), so
         # the square frame is the bar frame shifted by half a pitch
         half_pitch = self.grid_pitch / 2
         sq_i = np.floor((x_rot + half_pitch) / self.grid_pitch).astype(np.int64)
         sq_j = np.floor((y_rot + half_pitch) / self.grid_pitch).astype(np.int64)
-        square_draw = _lattice_draw(sq_i, sq_j, self.seed)
+        square_draw = _lattice_draw(sq_i, sq_j, grid.seed)
         # local coordinates within the square, zero at its centre
         lx = ((x_rot + half_pitch) % self.grid_pitch) - half_pitch
         ly = ((y_rot + half_pitch) % self.grid_pitch) - half_pitch
-        # the rip: an irregular patch in the ripped squares
-        angle = np.arctan2(ly, lx)
-        wob = 1 + 0.3 * np.sin(3 * angle + 6.0 * square_draw) + 0.2 * np.sin(5 * angle)
-        patch = np.hypot(lx / (0.55 * self.grid_pitch), ly / (0.4 * self.grid_pitch))
-        rips = (square_draw < self.rip_fraction) & (patch < 0.6 * wob) & ~bars
+
+        # the rip: each ripped square its own tear. Every quantity is a
+        # seeded per-square draw, so a rip is the same from every view:
+        # its size (a tear at one edge to most of the square gone), its
+        # orientation, where it starts (usually at a bar, running inward)
+        # and how ragged its outline is. Rips cluster: a square beside a
+        # ripped one rips more readily
+        def draw(k):
+            return _lattice_draw(sq_i, sq_j, grid.seed + k)
+
+        torn = square_draw < self.rip_fraction
+        beside_torn = np.zeros_like(torn)
+        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            beside_torn |= (
+                _lattice_draw(sq_i + di, sq_j + dj, grid.seed) < self.rip_fraction
+            )
+        torn |= beside_torn & (square_draw < 3 * self.rip_fraction)
+        size = self.grid_pitch * (0.15 + 0.35 * draw(11))  # semi-major axis
+        aspect = 0.4 + 0.6 * draw(12)
+        phi = np.pi * draw(13)
+        # the tear starts somewhere between the square's centre and a bar
+        psi = 2 * np.pi * draw(14)
+        start = (half_pitch - 0.7 * size) * (0.3 + 0.7 * draw(15))
+        ux, uy = lx - start * np.cos(psi), ly - start * np.sin(psi)
+        cos_p, sin_p = np.cos(phi), np.sin(phi)
+        ex = (ux * cos_p + uy * sin_p) / size
+        ey = (-ux * sin_p + uy * cos_p) / (size * aspect)
+        angle = np.arctan2(ey, ex)
+        ragged = 0.1 + 0.35 * draw(16)
+        phase = 2 * np.pi * draw(17)
+        wob = 1 + ragged * (
+            np.sin(3 * angle + phase) + 0.6 * np.sin(5 * angle + 2 * phase)
+        )
+        rips = torn & (np.hypot(ex, ey) < wob) & ~bars
 
         holes = np.zeros_like(bars)
         if self.film == "holey":
@@ -782,10 +983,10 @@ class SampleScene:
             hj = np.floor(y_rot / self.hole_pitch).astype(np.int64)
             hx = (x_rot % self.hole_pitch) - self.hole_pitch / 2
             hy = (y_rot % self.hole_pitch) - self.hole_pitch / 2
-            broken = _lattice_draw(hi, hj, self.seed + 7) < self.broken_hole_fraction
+            broken = _lattice_draw(hi, hj, grid.seed + 7) < self.broken_hole_fraction
             r_hole = np.where(broken, 0.8 * self.hole_diameter, self.hole_diameter / 2)
             holes = (np.hypot(hx, hy) < r_hole) & ~bars
-        return bars, holes, rips, rim, beyond
+        return bars, holes, rips, inside, rim
 
     def _generate_cells(self, rng: np.random.Generator, half: float) -> None:
         kinds = {
@@ -799,7 +1000,7 @@ class SampleScene:
             raise ValueError(
                 f"cell_type must be one of {sorted(kinds)}, got {self.cell_type!r}"
             )
-        fields = (self.extent / 150e-6) ** 2  # how many 150 um fields the extent is
+        fields = (2 * half / 150e-6) ** 2  # how many 150 um fields the extent is
         next_id = 0
         for kind, fraction in kinds[self.cell_type]:
             if kind == "yeast":
@@ -864,15 +1065,22 @@ class SampleScene:
 
     def _generate_mammalian(self, rng, half, n, next_id) -> int:
         # adherent cells tile the film rather than cluster: keep them apart
-        placed: List[Tuple[float, float]] = []
         min_distance = 1.6 * self.mammalian_radius[1]
+        # one distance check per try, over every cell placed so far
+        px = np.empty(n, dtype=np.float64)
+        py = np.empty(n, dtype=np.float64)
+        count = 0
         for _ in range(60 * max(n, 1)):
-            if len(placed) >= n:
+            if count >= n:
                 break
             x, y = rng.uniform(-half, half, size=2)
-            if all(np.hypot(x - px_, y - py_) > min_distance for px_, py_ in placed):
-                placed.append((float(x), float(y)))
-        for x, y in placed:
+            if (
+                count == 0
+                or (np.hypot(x - px[:count], y - py[:count]) > min_distance).all()
+            ):
+                px[count], py[count] = x, y
+                count += 1
+        for x, y in zip(px[:count].tolist(), py[:count].tolist()):
             radius = float(rng.uniform(*self.mammalian_radius))
             angle = float(rng.uniform(0, np.pi))
             ecc = float(rng.uniform(0.6, 1.0))
@@ -957,6 +1165,7 @@ class SampleScene:
     CONFIG_KEYS = (
         "coincidence_offset",  # m
         "tilt_axis_offset",  # m
+        "grids_from_holder",
         "seed",
         "cell_type",  # mammalian | yeast | bacteria | mixed
         "n_clusters",
@@ -1086,6 +1295,7 @@ class SampleScene:
 
         if self.reference_position is None:
             self.anchor(stage_position)
+        self.place_grids(projection)
 
         # where the world anchor appears in the CURRENT view. Asked this way
         # round (anchor projected into the current pose, not the current
@@ -1134,11 +1344,15 @@ class SampleScene:
 
         bars, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
         hole_rim = ndi_binary_dilation(holes, iterations=2) & ~holes & ~bars
+        # the curled flap of film round a rip: a bright edge ~1.5 um wide
+        flap = int(np.clip(np.ceil(RIP_FLAP_WIDTH / pixel_size), 1, 12))
+        rip_rim = ndi_binary_dilation(rips, iterations=flap) & ~rips & ~bars
         for b, canvas in canvases.items():
             t = layers[b]
             canvas[bars] += t["bars"] * (self.grid_intensity / 90.0)
             canvas[holes] += t["holes"]
             canvas[hole_rim] += t["hole_rim"]
+            canvas[rip_rim] += t["rip_rim"]
 
         # the features, from the world texture at the same world coordinates
         # - the shift, scan rotation and foreshortening are in the sampling
@@ -1218,6 +1432,7 @@ class SampleScene:
         cx, cy = width / 2, height / 2
         if self.reference_position is None:
             self.anchor(stage_position)
+        self.place_grids(projection)
 
         reference = self.reference_position
         if self.tilt_axis_offset:
