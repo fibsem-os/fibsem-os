@@ -10,8 +10,8 @@ The error is 2 x the distance from the centre, so it vanishes for a pattern on
 the centre line. Symmetric, centred fixtures cannot see it — these are
 deliberately off-centre and asymmetric.
 
-The converters live in `fibsem/ui/pattern_shapes.py`, which needs no napari, so
-these run on CI too.
+The converters live in `fibsem/milling/patterning/shapes.py`, which needs neither
+napari nor Qt, so these run on every CI job.
 """
 
 import numpy as np
@@ -19,19 +19,19 @@ import pytest
 
 from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.milling.patterning.plotting import _polygon_pattern_to_image_pixels
+from fibsem.milling.patterning.shapes import (
+    convert_pattern_to_napari_circle,
+    convert_pattern_to_napari_line,
+    convert_pattern_to_napari_polygon,
+    convert_pattern_to_napari_rect,
+    convert_point_to_napari,
+)
 from fibsem.structures import (
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     Point,
-)
-from fibsem.ui.pattern_shapes import (
-    convert_pattern_to_napari_circle,
-    convert_pattern_to_napari_line,
-    convert_pattern_to_napari_polygon,
-    convert_pattern_to_napari_rect,
-    convert_point_to_napari,
 )
 
 SHAPE = (512, 1024)  # (height, width) -> centre (256, 512)

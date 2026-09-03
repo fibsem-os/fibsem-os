@@ -20,20 +20,7 @@ from fibsem.milling.patterning.patterns2 import (
     BasePattern,
     FiducialPattern,
 )
-from fibsem.structures import (
-    FibsemBitmapSettings,
-    FibsemCircleSettings,
-    FibsemImage,
-    FibsemLineSettings,
-    FibsemPatternSettings,
-    FibsemPolygonSettings,
-    FibsemRectangle,
-    FibsemRectangleSettings,
-    Point,
-    calculate_fiducial_area_v2,
-)
-from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES
-from fibsem.ui.pattern_shapes import (  # noqa: F401
+from fibsem.milling.patterning.shapes import (  # noqa: F401
     COLOURS,
     IMAGE_PATTERN_TYPES,
     NAPARI_DRAWING_DICT,
@@ -51,9 +38,22 @@ from fibsem.ui.pattern_shapes import (  # noqa: F401
     validate_pattern_image_placement,
     validate_pattern_shape_placement,
 )
+from fibsem.structures import (
+    FibsemBitmapSettings,
+    FibsemCircleSettings,
+    FibsemImage,
+    FibsemLineSettings,
+    FibsemPatternSettings,
+    FibsemPolygonSettings,
+    FibsemRectangle,
+    FibsemRectangleSettings,
+    Point,
+    calculate_fiducial_area_v2,
+)
+from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES
 
-# The colour wheel and every shape converter live in `fibsem.ui.pattern_shapes`, which
-# needs no napari; re-exported here so existing imports keep working.
+# The colour wheel and every shape converter live in `fibsem.milling.patterning.shapes`,
+# which needs neither napari nor Qt; re-exported here so existing imports keep working.
 COLOURMAPS = {
     c: NapariColormap([to_rgba(c, alpha=0), to_rgba(c, alpha=1)]) for c in COLOURS
 }

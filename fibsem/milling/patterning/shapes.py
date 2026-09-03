@@ -10,6 +10,10 @@ level -- so every widget that wanted a colour name or a placement check dragged 
 napari modules into the main application, and the conversion tests skipped on CI
 (which installs no napari). The napari half -- layer properties, `NapariPattern`,
 `draw_milling_patterns_in_napari` -- stays there and imports from here.
+
+Under `fibsem.milling.patterning` rather than `fibsem.ui` on purpose: importing
+anything under `fibsem.ui` runs that package's eager widget imports and so needs Qt,
+and this is geometry -- it has no business needing either.
 """
 
 from __future__ import annotations

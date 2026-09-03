@@ -28,6 +28,12 @@ import matplotlib.patches as mpatches
 from matplotlib.colors import to_rgba
 
 from fibsem.conversions import microscope_image_to_image_coordinates
+from fibsem.milling.patterning.shapes import (
+    COLOURS,
+    convert_pattern_to_napari_line,
+    convert_pattern_to_napari_polygon,
+    convert_pattern_to_napari_rect,
+)
 from fibsem.structures import (
     FibsemCircleSettings,
     FibsemImage,
@@ -35,12 +41,6 @@ from fibsem.structures import (
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     Point,
-)
-from fibsem.ui.pattern_shapes import (
-    COLOURS,
-    convert_pattern_to_napari_line,
-    convert_pattern_to_napari_polygon,
-    convert_pattern_to_napari_rect,
 )
 from fibsem.ui.tokens import (
     CANVAS_BG,

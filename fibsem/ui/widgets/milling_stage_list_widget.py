@@ -22,10 +22,10 @@ from PyQt5.QtWidgets import (
 
 from fibsem.milling.base import FibsemMillingStage, get_strategy
 from fibsem.milling.patterning import get_pattern, get_pattern_names
+from fibsem.milling.patterning.shapes import COLOURS
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
-from fibsem.ui.pattern_shapes import COLOURS
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_700,
