@@ -804,12 +804,15 @@ def render_milling(h: Harness) -> None:
     fib_panel = panels[2]
     fib_canvas = h.window.view_controller.fib_canvas
 
-    # at the milling angle, with fresh images
+    # at the milling angle, with fresh images at the field of view the task
+    # will mill at: lamella-sized patterns are hard to see at 150 um
     ctrl.move_to_orientation("MILLING")
     h.wait_move(ctrl, iw)
+    iw.image_settings_widget.hfw_spinbox.setValue(80.0)
     iw.acquire_reference_images()
     h.wait_acquisition(iw)
     h.ui.tabWidget.setCurrentWidget(mv)
+    cw.field_of_view_spinbox.setValue(80.0)
     h.pump(300)
 
     # the tab before any stage exists
@@ -871,6 +874,48 @@ def render_milling(h: Harness) -> None:
         crop=True,
     )
     h.shot("pattern-on-fib", target=fib_panel)
+
+    # a few of the shapes, each at its shipped size, at the beam centre
+    from fibsem.milling.patterning import get_pattern
+
+    for name in ("Rectangle", "Trench", "Fiducial", "MicroExpansion"):
+        pattern = get_pattern(name)
+        stages_w._pattern_widget.set_pattern(pattern)
+        stages_w._on_pattern_changed(pattern)
+        h.pump(400)
+        h.shot(f"pattern-{name.lower()}", target=fib_panel)
+    # a task with two stages: trenches, then micro-expansion cuts beside them
+    stage_list._header.btn_add.click()
+    h.pump(400)
+    stages = stage_list.get_stages()
+    for stage_, name, label in (
+        (stages[0], "Trench", "Trench"),
+        (stages[1], "MicroExpansion", "Micro-expansion"),
+    ):
+        stage_.name = label
+        stage_list.select_stage(stage_)
+        h.pump(300)
+        pattern = get_pattern(name)
+        stages_w._pattern_widget.set_pattern(pattern)
+        stages_w._on_pattern_changed(pattern)
+        h.pump(400)
+    stage_list.refresh_stage(stages[0])
+    stage_list.refresh_stage(stages[1])
+    h.pump(400)
+    h.shot("multi-stage-list", target=stage_list, crop=True)
+    h.shot("multi-stage-fib", target=fib_panel)
+
+    # back to the single rectangle for the move and the run
+    stage_list.remove_stage(stages[1])
+    stage = stages[0]
+    stage.name = "Milling Stage 1"
+    stage_list.select_stage(stage)
+    h.pump(300)
+    pattern = get_pattern("Rectangle")
+    pattern.width, pattern.height = 20e-6, 8e-6
+    stages_w._pattern_widget.set_pattern(pattern)
+    stages_w._on_pattern_changed(pattern)
+    h.pump(400)
     h.shot(
         "stage-editor",
         target=stages_w._detail_widget,
@@ -917,9 +962,9 @@ def render_milling(h: Harness) -> None:
     h.pump(300)
 
     # back to a clean state for whoever renders next
-    stage_list.remove_stage(row_stage) if (
-        row_stage := stage_list.get_stages()[0]
-    ) else None
+    for stage_ in list(stage_list.get_stages()):
+        stage_list.remove_stage(stage_)
+    iw.image_settings_widget.hfw_spinbox.setValue(150.0)
     h.pump()
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
