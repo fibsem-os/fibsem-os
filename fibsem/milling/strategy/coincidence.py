@@ -4,6 +4,7 @@ import datetime
 import logging
 import os
 import time
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
@@ -190,6 +191,21 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self.post_fib_acq: Optional["FibsemImage"] = None
         self._stop_event: Optional["threading.Event"] = None
         self.parent_ui: Optional["FibsemMillingWidget2"] = None
+        # why the last run's monitor loop ended: "stopped", "drop", "timeout"
+        self.end_reason: Optional[str] = None
+
+    def __deepcopy__(self, memo: dict) -> "CoincidenceMillingStrategy":
+        """Copy the configuration and the outcome, not the run.
+
+        After a run the strategy holds the microscope, the stop event and the
+        parent widget, none of which can be deep-copied (thread locks) and none of
+        which belong to a config being stored on a lamella. What a copy needs is
+        what the strategy *is* -- its config -- plus how the last run ended, so a
+        record made from the copy still says why the mill stopped.
+        """
+        copied = type(self)(config=deepcopy(self.config, memo))
+        copied.end_reason = self.end_reason
+        return copied
 
     def _setup_strategy_components(
         self,
@@ -284,6 +300,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self._setup_milling()
 
         # reset detection state before acquisition starts
+        self.end_reason = None
         self._peak_rolling_mean = 0.0
         self._consecutive_trigger_count = 0
         self._warmup_complete = False
@@ -373,12 +390,14 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             # check for stop event
             if self.is_cancelled:
                 logging.info("Milling stop event set. Stopping milling.")
+                self.end_reason = "stopped"
                 self.microscope.stop_milling()
                 break
 
             # unsupervised runs: automatically stop on intensity drop
             if not self.config.supervised and self._drop_detected:
                 logging.info("Unsupervised: intensity drop detected. Stopping milling.")
+                self.end_reason = "drop"
                 self.microscope.stop_milling()
                 break
 
@@ -410,6 +429,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                 logging.info(
                     f"Max End Time reached: {max_end_time - start_time} seconds have passed. Stopping milling."
                 )
+                self.end_reason = "timeout"
                 break
 
             continue
