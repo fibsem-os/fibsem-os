@@ -44,6 +44,7 @@ class FibsemMillingWidget2(QWidget):
 
         self._milling_thread: Optional[FunctionWorker] = None
         self._milling_stop_event = threading.Event()
+        self._running_config: Optional[FibsemMillingTaskConfig] = None
         self._has_stages = False
         # The last words a producer supplied, so a backend's messageless tick still
         # has a label to show. See `MillingMessageTracker`.
@@ -159,6 +160,11 @@ class FibsemMillingWidget2(QWidget):
                 f"{label} - {format_duration(remaining_time)} remaining"
             )
 
+    @property
+    def running_config(self) -> Optional[FibsemMillingTaskConfig]:
+        """The config the current (or last) run mills; None before any run."""
+        return self._running_config
+
     def run_milling(self, config: Optional[FibsemMillingTaskConfig] = None):
         """Start the milling task in a separate thread.
 
@@ -177,6 +183,11 @@ class FibsemMillingWidget2(QWidget):
 
         if config is None:
             config = self.parent_widget.get_config()
+        # The config this run actually mills, for anyone who needs to attach to
+        # it while it runs -- the coincidence viewer's monitor mode reads the
+        # strategies' live signals off it. Kept after the run ends so the last
+        # run's outcome can still be read.
+        self._running_config = config
 
         # Start the milling task in a separate thread
         self._milling_thread = FunctionWorker(
