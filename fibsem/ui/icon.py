@@ -21,6 +21,7 @@ Usage mirrors the previous ``QIconifyIcon`` call sites::
 Extra keyword arguments pass straight through to ``qtawesome.icon`` (e.g.
 ``color_active``, ``color_disabled`` for per-state colouring).
 """
+
 from __future__ import annotations
 
 import logging
@@ -43,7 +44,7 @@ _MDI = "mdi6"
 
 # Names that exist in Iconify's MDI but not under the same key in MDI6.
 _REMAP = {
-    "add": "plus",            # iconify aliases "add" -> "plus"; MDI6 has no "add"
+    "add": "plus",  # iconify aliases "add" -> "plus"; MDI6 has no "add"
     "file-transfer": "file-send",  # MDI6 has no "file-transfer"
 }
 
@@ -72,8 +73,10 @@ def fibsem_icon(key: str, color: Optional[str] = None, **kwargs) -> QIcon:
 # ── Canonical icon keys for shared actions ───────────────────────────────────
 # Reference these instead of hardcoding "mdi:..." so the same action reads the same
 # everywhere (moving to / updating a saved stage/objective position).
-ICON_MOVE_TO_POSITION = "mdi:crosshairs-gps"   # go to a saved/target position
-ICON_UPDATE_POSITION = "mdi:map-marker-check"  # overwrite a saved position with the current one
+ICON_MOVE_TO_POSITION = "mdi:crosshairs-gps"  # go to a saved/target position
+ICON_UPDATE_POSITION = (
+    "mdi:map-marker-check"  # overwrite a saved position with the current one
+)
 
 
 # ── Bundled SVG assets ───────────────────────────────────────────────────────
