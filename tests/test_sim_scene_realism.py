@@ -368,6 +368,57 @@ def test_some_squares_are_ripped_and_rips_are_square_sized():
     assert not SampleScene(rip_fraction=0.0).film_masks(xs, ys)[2].any()
 
 
+def test_rips_differ_in_size_orientation_and_position():
+    """Every square torn, and no two tears alike: areas spread widely, the
+    long axes point every way, and the tears sit off their squares' centres."""
+    scene = SampleScene(rip_fraction=1.0, seed=3, grid_rotation=0.0)
+    xs, ys, px = _world_grid(hfw=1200e-6, shape=(1024, 1024))
+    bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
+    labels, n = ndi.label(rips)
+    assert n > 30
+    areas = ndi.sum(rips, labels, range(1, n + 1)) * px**2
+    assert np.std(areas) / np.mean(areas) > 0.3
+    angles, offsets = [], []
+    for k in range(1, n + 1):
+        rows, cols = np.nonzero(labels == k)
+        if rows.size < 200:
+            continue
+        cov = np.cov(np.vstack([cols, rows]))
+        w, v = np.linalg.eigh(cov)
+        angles.append(np.arctan2(v[1, -1], v[0, -1]) % np.pi)
+        # the tear's centre against its square's centre, in pitches
+        cx_, cy_ = cols.mean() * px + xs.min(), rows.mean() * px + ys.min()
+        half = scene.grid_pitch / 2
+        offsets.append(
+            np.hypot(
+                ((cx_ + half) % scene.grid_pitch) - half,
+                ((cy_ + half) % scene.grid_pitch) - half,
+            )
+            / scene.grid_pitch
+        )
+    assert np.std(angles) > 0.4
+    assert np.median(offsets) > 0.08
+
+
+def test_a_rip_has_a_bright_curled_edge_in_the_sem(microscope):
+    scene = _scene(
+        microscope,
+        coincidence_offset=0.0,
+        cell_type="none",
+        contamination_density=0.0,
+        fiducial=False,
+        grid_intensity=0.0,
+        rip_fraction=1.0,
+    )
+    frame = microscope.acquire_image(_settings(BeamType.ELECTRON, hfw=150e-6)).data
+    film = np.median(frame)
+    dark = frame < film - 40
+    assert dark.mean() > 0.02, "no rip in view"
+    edge = ndi.binary_dilation(dark, iterations=6) & ~dark
+    assert np.percentile(frame[edge], 90) > film + 25
+    assert scene.rip_fraction == 1.0
+
+
 def test_ice_plates_are_generated_and_render_bright(microscope):
     scene = _scene(
         microscope,
@@ -399,7 +450,8 @@ def test_beyond_the_grid_is_rim_then_holder():
     xs = np.array([[0.0, 1.45e-3, 1.7e-3]])
     ys = np.array([[0.0]])
     bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
-    assert rim.tolist() == [[False, True, True]]
+    # the rim is the ring round the film; past it, the holder
+    assert rim.tolist() == [[False, True, False]]
     assert beyond.tolist() == [[False, False, True]]
 
 
