@@ -150,6 +150,16 @@ class Harness:
         cfg.USER_CONFIGURATIONS_PATH = str(tmp / "user-configurations.yaml")
         cfg.USER_PREFERENCES_PATH = str(tmp / "user-preferences.yaml")
         cfg.POSITION_PATH = str(tmp / "saved-positions.yaml")
+        # the stage module imports the holder paths by name, so rebinding
+        # cfg's is not enough: a calibration would land in the real file
+        from fibsem.microscopes import _stage as stage_module
+
+        holder_path = str(tmp / "sample-holder.yaml")
+        occupancy_path = str(tmp / "sample-holder-occupancy.yaml")
+        cfg.SAMPLE_HOLDER_CONFIGURATION_PATH = holder_path
+        cfg.SAMPLE_HOLDER_OCCUPANCY_PATH = occupancy_path
+        stage_module.SAMPLE_HOLDER_CONFIGURATION_PATH = holder_path
+        stage_module.SAMPLE_HOLDER_OCCUPANCY_PATH = occupancy_path
         for name, filename in SIM_CONFIGURATIONS.items():
             cfg.USER_CONFIGURATIONS[name] = {
                 "path": os.path.join(cfg.CONFIG_PATH, filename)
@@ -267,6 +277,7 @@ class Harness:
         crop: bool = False,
         callout_rects: Optional[Sequence[QRect]] = None,
         clicks: Optional[Sequence[Tuple[QRect, str]]] = None,
+        height: Optional[int] = None,
     ) -> Path:
         """Grab ``target`` (the window by default) and write ``<page>/<name>.png``.
 
@@ -288,6 +299,9 @@ class Harness:
             # such room of its own is padded with its background instead
             margin = CALLOUT_PAD + 14
             wanted = self._occupied(target).adjusted(-margin, -margin, margin, margin)
+            if height is not None:
+                # a list that stretches to fill its tab is mostly empty rows
+                wanted.setHeight(min(wanted.height(), height))
             region = wanted & region
             pad = region.topLeft() - wanted.topLeft()
             region_size = wanted.size()
@@ -1009,6 +1023,108 @@ def render_milling(h: Harness) -> None:
     h.pump()
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
+
+
+@page("sample-holder")
+def render_sample_holder(h: Harness) -> None:
+    """The Sample tab: the holder's slots, naming grids, calibrating, moving."""
+    from fibsem.structures import FibsemStagePosition
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-iflm")
+    iw = h.ui.image_widget
+    ctrl = h.ui.movement_widget.control_widget
+    sw = h.ui.sample_widget
+    hw = sw.holder_widget
+    microscope = h.connection.microscope
+    h.ui.tabWidget.setCurrentWidget(sw)
+    h.pump(300)
+
+    # the shuttle as shipped: two slots, nothing loaded, nothing calibrated
+    row0, row1 = hw._row_widget(0), hw._row_widget(1)
+    h.shot(
+        "sample-tab",
+        target=sw,
+        callouts=[hw.facts_label, row0.name_edit, row0.btn_move, hw.btn_calibrate],
+        numbered=True,
+        crop=True,
+        height=220,
+    )
+
+    # name the grids in each slot
+    for row, name in ((row0, "Grid A"), (row1, "Grid B")):
+        row.name_edit.setText(name)
+        row.name_edit.editingFinished.emit()
+        h.pump(200)
+    h.shot("grids-named", target=sw, crop=True, height=220)
+
+    # the calibration wizard, step by step
+    hw._on_calibrate()
+    dialog = hw._calibration_dialog
+    h.pump(300)
+    h.shot("calibrate-1-holder", target=dialog)
+    dialog._on_next()
+    h.pump(200)
+    dialog._on_move_to_orientation()
+    waited = 0
+    while dialog._worker is not None and dialog._worker.is_alive() and waited < 30000:
+        h.pump(200)
+        waited += 200
+    h.pump(500)
+    dialog._refresh_orientation_status()
+    h.pump(200)
+    h.shot("calibrate-2-orientation", target=dialog)
+    dialog._on_next()
+    h.pump(300)
+    dialog._on_capture()
+    h.pump(300)
+    h.shot("calibrate-3-slot-1", target=dialog)
+    dialog._on_next()
+    h.pump(300)
+    # the second grid sits 4 mm along the shuttle
+    microscope.move_stage_relative(FibsemStagePosition(x=4e-3))
+    h.pump(500)
+    dialog._on_capture()
+    h.pump(300)
+    h.shot("calibrate-4-slot-2", target=dialog)
+    dialog._on_next()
+    h.pump(300)
+    h.shot("calibrate-5-review", target=dialog)
+    dialog._on_next()  # save
+    h.pump(500)
+    h.shot("slots-calibrated", target=sw, crop=True, height=220)
+
+    # with a grid at every calibrated, occupied slot, a slot move shows the
+    # other grid (and the holder between them) at a wide field of view
+    microscope._sample_scene.grids_from_holder = True
+    iw.image_settings_widget.hfw_spinbox.setValue(2000.0)
+    holder = hw.current_holder
+    slots = sorted(holder.slots.values(), key=lambda s_: s_.index)
+    for slot, name in ((slots[0], "slot-1"), (slots[1], "slot-2")):
+        hw._on_move_slot(slot)
+        h.wait_move(ctrl, iw)
+        iw.acquire_reference_images()
+        h.wait_acquisition(iw)
+        h.shot(f"at-{name}")
+    microscope._sample_scene.grids_from_holder = False
+    iw.image_settings_widget.hfw_spinbox.setValue(150.0)
+    hw._on_move_slot(slots[0])
+    h.wait_move(ctrl, iw)
+
+    # the Arctis: holder plus the autoloader magazine
+    h.connect("sim-arctis")
+    sw = h.ui.sample_widget
+    h.ui.tabWidget.setCurrentWidget(sw)
+    h.pump(300)
+    h.shot(
+        "sample-tab-arctis",
+        target=sw,
+        callouts=[Box(sw.holder_widget), Box(sw.loader_widget)],
+        numbered=True,
+        crop=True,
+        height=760,
+    )
 
 
 # -- entry point --------------------------------------------------------------
