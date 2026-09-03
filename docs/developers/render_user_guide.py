@@ -28,7 +28,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 # render the code this file lives with, not an installed copy elsewhere
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,11 +74,26 @@ SIM_CONFIGURATIONS = {
 EXAMPLE_CONFIG_DIR = r"C:\fibsemOS\config"
 EXAMPLE_EXPERIMENT_DIR = r"D:\fibsemOS\experiments"
 
-CALLOUT_COLOUR = QColor(230, 57, 70)  # the guide's red
-CALLOUT_WIDTH = 3
+CALLOUT_COLOUR = QColor(230, 57, 70)  # the guide's red: the badges
+CALLOUT_LINE = QColor(230, 57, 70, 170)  # the boxes, lighter so they do not shout
+CALLOUT_WIDTH = 2
 CALLOUT_PAD = 4
 
-Widgets = Union[QWidget, Sequence[QWidget]]
+
+class Box:
+    """A callout drawn as a region: a light box round the widget plus its badge.
+
+    A bare widget in a callout list gets the badge alone. Regions (a panel, a
+    tab bar) want the box, because it says "this area"; a single control does
+    not, because the box only repeats the control's own edge.
+    """
+
+    def __init__(self, widget: QWidget):
+        self.widget = widget
+
+
+Callout = Union[QWidget, Box]
+Widgets = Union[Callout, Sequence[Callout]]
 
 # page name -> render function, in the order the guide lists them
 PAGES: Dict[str, Callable[["Harness"], None]] = {}
@@ -254,9 +269,10 @@ class Harness:
     ) -> Path:
         """Grab ``target`` (the window by default) and write ``<page>/<name>.png``.
 
-        ``callouts`` are widgets to box in red, in ``target``'s coordinate space;
-        with ``numbered`` each box carries its 1-based index for the prose to
-        refer to. A callout that is not visible raises: the guide must not
+        ``callouts`` are widgets to mark, in ``target``'s coordinate space: a
+        bare widget gets a numbered badge, a ``Box(widget)`` a light box as
+        well. With ``numbered`` each carries its 1-based index for the prose
+        to refer to. A callout that is not visible raises: the guide must not
         describe a control the reader cannot see. ``crop`` trims a panel to
         the area its visible children occupy, so a tall tab with three rows
         of controls is not mostly empty.
@@ -273,14 +289,16 @@ class Harness:
                 & region
             )
         pixmap = target.grab(region)
-        rects = []
+        marks: List[Tuple[QRect, bool]] = []
         if callouts:
-            rects += self._callout_rects(target, callouts)
+            marks += self._callout_rects(target, callouts)
         if callout_rects:
-            rects += list(callout_rects)
-        if rects:
+            marks += [(r, True) for r in callout_rects]
+        if marks:
             self._draw_callouts(
-                pixmap, [r.translated(-region.topLeft()) for r in rects], numbered
+                pixmap,
+                [(r.translated(-region.topLeft()), boxed) for r, boxed in marks],
+                numbered,
             )
         if self.scale == 1 and pixmap.devicePixelRatio() != 1:
             # a retina grab is 2x; the guide serves 1x
@@ -310,29 +328,37 @@ class Harness:
         return rect if rect.isValid() else QRect(QPoint(0, 0), target.size())
 
     @staticmethod
-    def _callout_rects(target: QWidget, callouts: Widgets) -> List[QRect]:
-        """Each callout widget's rectangle in ``target``'s coordinates.
+    def _callout_rects(target: QWidget, callouts: Widgets) -> List[Tuple[QRect, bool]]:
+        """Each callout's rectangle in ``target``'s coordinates, and whether
+        it is boxed.
 
         A callout that is not visible raises: the guide must not describe a
         control the reader cannot see.
         """
-        if isinstance(callouts, QWidget):
+        if isinstance(callouts, (QWidget, Box)):
             callouts = [callouts]
-        rects = []
-        for i, widget in enumerate(callouts, start=1):
+        marks = []
+        for i, callout in enumerate(callouts, start=1):
+            boxed = isinstance(callout, Box)
+            widget = callout.widget if boxed else callout
             if not widget.isVisible():
                 raise RuntimeError(
                     f"callout {i} ({type(widget).__name__}) is not visible"
                 )
-            rects.append(QRect(widget.mapTo(target, QPoint(0, 0)), widget.size()))
-        return rects
+            marks.append(
+                (QRect(widget.mapTo(target, QPoint(0, 0)), widget.size()), boxed)
+            )
+        return marks
 
     @staticmethod
-    def _draw_callouts(pixmap: QPixmap, rects: Sequence[QRect], numbered: bool) -> None:
+    def _draw_callouts(
+        pixmap: QPixmap, marks: Sequence[Tuple[QRect, bool]], numbered: bool
+    ) -> None:
+        """Badge each mark at its top-left corner, and box the ones flagged."""
         # QPainter paints a high-DPI pixmap in logical coordinates already
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
-        pen = QPen(CALLOUT_COLOUR, CALLOUT_WIDTH)
+        pen = QPen(CALLOUT_LINE, CALLOUT_WIDTH)
         painter.setPen(pen)
         font = QFont()
         font.setBold(True)
@@ -343,12 +369,13 @@ class Harness:
         bounds = QRect(0, 0, int(pixmap.width() / ratio), int(pixmap.height() / ratio))
         inset = CALLOUT_WIDTH // 2 + 1
         bounds = bounds.adjusted(inset, inset, -inset, -inset)
-        for i, box in enumerate(rects, start=1):
+        for i, (box, boxed) in enumerate(marks, start=1):
             rect = box.adjusted(-CALLOUT_PAD, -CALLOUT_PAD, CALLOUT_PAD, CALLOUT_PAD)
             # a box that runs off the grab (a menu item filling its menu) is
             # pulled inside it, so all four sides stay visible
             rect = rect.intersected(bounds)
-            painter.drawRoundedRect(rect, 3, 3)
+            if boxed:
+                painter.drawRoundedRect(rect, 3, 3)
             if numbered:
                 badge = QRect(rect.left() - 12, rect.top() - 12, 24, 24)
                 # a box on the grab's edge would put its badge off the image
@@ -464,7 +491,7 @@ def render_getting_started(h: Harness) -> None:
     h.connect("sim-arctis")
     h.shot(
         "connected",
-        callouts=[conn._frame_status, h.ui.tabWidget.tabBar()],
+        callouts=[Box(conn._frame_status), Box(h.ui.tabWidget.tabBar())],
         numbered=True,
     )
 
@@ -472,11 +499,11 @@ def render_getting_started(h: Harness) -> None:
     h.shot(
         "around-the-window",
         callouts=[
-            h.window.menuBar(),
-            h.window.tab_widget.tabBar(),
-            h.window.view_controller.widget,
-            h.ui.tabWidget.tabBar(),
-            h.window.status_bar,
+            Box(h.window.menuBar()),
+            Box(h.window.tab_widget.tabBar()),
+            Box(h.window.view_controller.widget),
+            Box(h.ui.tabWidget.tabBar()),
+            Box(h.window.status_bar),
             h.window.run_workflow_btn,
         ],
         numbered=True,
@@ -504,8 +531,8 @@ def render_imaging(h: Harness) -> None:
         "image-tab",
         target=iw,
         callouts=[
-            iw.dual_beam_widget,
-            iw.image_group,
+            Box(iw.dual_beam_widget),
+            Box(iw.image_group),
             iw.pushButton_take_all_images,
             iw.pushButton_start_acquisition,
         ],
@@ -608,13 +635,13 @@ def render_movement(h: Harness) -> None:
         "movement-tab",
         target=mw,
         callouts=[
-            mw.position_widget,
+            Box(mw.position_widget),
             ctrl.pushButton_move,
             ctrl.pushButton_move_to_sem_orientation,
             ctrl.pushButton_move_to_fib_orientation,
             ctrl.doubleSpinBox_milling_angle,
             ctrl.pushButton_move_to_milling_angle,
-            mw.saved_positions_panel,
+            Box(mw.saved_positions_panel),
         ],
         numbered=True,
         crop=True,
