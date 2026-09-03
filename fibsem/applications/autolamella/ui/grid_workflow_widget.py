@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -71,7 +72,10 @@ from fibsem.ui.widgets.preflight import (
 # The lamella list's metrics, so the two run views read alike.
 _ROW_HEIGHT = 40
 _NAME_MIN_WIDTH = 160
-_SIDE_COLUMN_WIDTH = 170  # the muted right-hand column: the slot, or the task's kind
+_SIDE_COLUMN_WIDTH = 170  # the muted right-hand column: the task's kind, or why not
+# The slot column is narrower: "slot 02" is all it ever says, and at the task
+# column's width a row carrying the Loaded pill overran the list and lost it.
+_SLOT_COLUMN_WIDTH = 56
 _SIDE_FONT_PX = 10
 _HEADER_STYLE = "font-weight: bold; background: transparent;"
 
@@ -124,7 +128,7 @@ class _GridRow(QWidget):
         # The slot, in its own right-aligned column like the lamella list's
         # dependencies: read down the list, not hunted for after each name.
         self.slot_label = QLabel()
-        self.slot_label.setFixedWidth(_SIDE_COLUMN_WIDTH)
+        self.slot_label.setFixedWidth(_SLOT_COLUMN_WIDTH)
         self.slot_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.slot_label.setStyleSheet(
             f"background: transparent; color: {NEUTRAL_700}; "
@@ -208,18 +212,25 @@ class _TaskRow(QWidget):
         self.name_label.setTextFormat(Qt.PlainText)
         layout.addWidget(self.name_label)
         layout.addStretch(1)
-        # The kind, or why this system cannot run it: the muted right column.
-        self.detail_label = QLabel()
+        # The kind, or why this system cannot run it: the muted right column. A
+        # reason can be longer than the column; elided from the right it keeps
+        # its start, where a plain right-aligned label lost it off the left edge.
+        self.detail_label = ElidedLabel()
         self.detail_label.setFixedWidth(_SIDE_COLUMN_WIDTH)
+        # ElidedLabel is Ignored horizontally so a stretching column cannot be
+        # driven wide by its text. This column is fixed, and left Ignored the
+        # layout placed it as if it had no width and let the stretch push it
+        # past the row's edge; Fixed makes it a proper 170 px column.
+        self.detail_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         self.detail_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(self.detail_label)
         # Reordered by dragging the handle, as the lamella task list is.
-        handle = QLabel()
-        handle.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
-        handle.setPixmap(drag_handle_pixmap())
-        handle.setStyleSheet("background: transparent;")
-        handle.setCursor(Qt.CursorShape.OpenHandCursor)
-        layout.addWidget(handle)
+        self.drag_handle = QLabel()
+        self.drag_handle.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
+        self.drag_handle.setPixmap(drag_handle_pixmap())
+        self.drag_handle.setStyleSheet("background: transparent;")
+        self.drag_handle.setCursor(Qt.CursorShape.OpenHandCursor)
+        layout.addWidget(self.drag_handle)
         self.refresh()
 
     @property
@@ -406,7 +417,8 @@ class GridWorkflowWidget(QWidget):
 
         bottom = QHBoxLayout()
         self.btn_screen_all = QPushButton("Screen all grids")
-        self.btn_screen_all.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        # Secondary: Run, on the shared footer, is the primary action of the tab.
+        self.btn_screen_all.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.btn_screen_all.setIcon(
             fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
         )

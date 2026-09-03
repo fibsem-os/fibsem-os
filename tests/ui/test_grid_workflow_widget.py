@@ -8,8 +8,9 @@ import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
+from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QDialog
+from PyQt5.QtWidgets import QDialog, QLabel
 
 import fibsem.config as cfg
 from fibsem import utils
@@ -124,6 +125,15 @@ class TestSelection:
         assert [c.text() for c in row._chip_widgets] == ["Loaded"]
         assert row.slot_label.text() == "slot 02"
 
+    def test_a_loaded_row_keeps_its_slot_inside_the_list(self, view, arctis):
+        """The Loaded pill once pushed the slot column past the list's edge, and
+        the slot read as "s". The row must ask for less than the panel gives."""
+        arctis._stage.ensure_loaded("Grid-02")
+        view.refresh()
+        row = view._grid_rows["Grid-02"]
+        assert [c.text() for c in row._chip_widgets] == ["Loaded"]
+        assert row.sizeHint().width() <= 380
+
     def test_the_fm_task_is_greyed_without_a_fluorescence_microscope(
         self, qapp, experiment
     ):
@@ -139,6 +149,23 @@ class TestSelection:
         assert not row.checkbox.isEnabled()
         assert "no fluorescence microscope" in row.detail_label.text()
         assert widget.get_selected_task_names() == ["overview_sem"]
+        # The reason is longer than its column. It is elided from the right so
+        # the start survives; a plain right-aligned label lost it off the left.
+        widget.resize(420, 600)  # the Workflow tab's left panel, near enough
+        widget.show()
+        QTest.qWait(50)
+        drawn = QLabel.text(row.detail_label)
+        assert drawn != row.detail_label.text() and drawn.endswith("\u2026")
+        assert drawn.startswith(row.detail_label.text()[:8])
+        assert (
+            QFontMetrics(row.detail_label.font()).horizontalAdvance(drawn)
+            <= row.detail_label.width()
+        )
+        # And the column sits inside the row, before the drag handle: left to
+        # its Ignored policy the layout pushed it past the row's right edge.
+        assert row.detail_label.geometry().right() <= row.drag_handle.geometry().left()
+        assert row.drag_handle.geometry().right() <= row.width()
+        widget.close()
 
     def test_reordering_tasks_writes_the_protocol(self, view, experiment):
         view._on_reordered(["overview_fm", "overview_sem"])  # what a drop reports
