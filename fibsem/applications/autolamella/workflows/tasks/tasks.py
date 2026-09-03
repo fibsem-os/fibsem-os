@@ -30,6 +30,8 @@ __all__ = [
     "MillFiducialTask",
     # spot burn
     "SpotBurnFiducialTaskConfig",
+    "SetupCoincidenceMillingTask",
+    "SetupCoincidenceMillingTaskConfig",
     "SpotBurnFiducialTask",
     # reference image
     "AcquireReferenceImageConfig",
@@ -91,6 +93,10 @@ from fibsem.applications.autolamella.workflows.tasks.select_fluorescence_positio
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
+    SetupCoincidenceMillingTask,
+    SetupCoincidenceMillingTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTask,
