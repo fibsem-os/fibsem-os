@@ -163,7 +163,16 @@ class Harness:
         self.pump()
 
     def connect(self, name: str = "sim-arctis") -> None:
-        """Connect to a simulator configuration the way the Connection tab does."""
+        """Connect to a simulator configuration the way the Connection tab does.
+
+        Idempotent: a page that finds the previous page's connection still up
+        keeps it if it is the right one. The Connection button toggles, so
+        pressing it while connected would disconnect.
+        """
+        if self.connection.microscope is not None:
+            if self.connection.comboBox_configuration.currentText() == name:
+                return
+            self.disconnect()
         self.select_configuration(name)
         self.connection.connect_to_microscope()
         # the connect builds the microscope tabs; let them lay out and paint,
@@ -312,6 +321,9 @@ class Harness:
             painter.drawRoundedRect(rect, 3, 3)
             if numbered:
                 badge = QRect(rect.left() - 12, rect.top() - 12, 24, 24)
+                # a box on the grab's edge would put its badge off the image
+                badge.moveLeft(max(badge.left(), bounds.left()))
+                badge.moveTop(max(badge.top(), bounds.top()))
                 painter.setBrush(CALLOUT_COLOUR)
                 painter.setPen(Qt.NoPen)
                 painter.drawEllipse(badge)
@@ -423,6 +435,20 @@ def render_getting_started(h: Harness) -> None:
     h.shot(
         "connected",
         callouts=[conn._frame_status, h.ui.tabWidget.tabBar()],
+        numbered=True,
+    )
+
+    # the lie of the land, once connected: every region the guide will name
+    h.shot(
+        "around-the-window",
+        callouts=[
+            h.window.menuBar(),
+            h.window.tab_widget.tabBar(),
+            h.window.view_controller.widget,
+            h.ui.tabWidget.tabBar(),
+            h.window.status_bar,
+            h.window.run_workflow_btn,
+        ],
         numbered=True,
     )
 
