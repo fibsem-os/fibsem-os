@@ -1,4 +1,3 @@
-
 # Backwards-compatible re-exports — do not remove
 # This file re-exports all public symbols from the split task modules so that
 # existing callers importing from this module continue to work without changes.
@@ -28,6 +27,8 @@ __all__ = [
     "MillFiducialTask",
     # spot burn
     "SpotBurnFiducialTaskConfig",
+    "SetupCoincidenceMillingTask",
+    "SetupCoincidenceMillingTaskConfig",
     "SpotBurnFiducialTask",
     # reference image
     "AcquireReferenceImageConfig",
@@ -85,6 +86,10 @@ from fibsem.applications.autolamella.workflows.tasks.select_fluorescence_positio
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
+    SetupCoincidenceMillingTask,
+    SetupCoincidenceMillingTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTask,
