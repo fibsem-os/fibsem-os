@@ -184,6 +184,17 @@ def test_the_stage_step_is_prefilled_from_the_chosen_model(dialog):
     assert dialog._pre_tilt_spin.value() == pytest.approx(0.0)
 
 
+def test_the_default_model_opens_the_stage_step_on_its_shipped_values(dialog):
+    """The first model is selected while step 1 is still being built, before the
+    stage controls exist, so its prefill ran into nothing. Opening the wizard and
+    pressing Next twice then showed the spin box's generic 35° and a pre-tilted
+    holder in the diagram, under a blurb saying the compustage holder is flat."""
+    assert not dialog.choices.stage_is_editable, "the default model is a compustage"
+    dialog._show_step(STEP_STAGE)
+    assert dialog._pre_tilt_spin.value() == pytest.approx(0.0)
+    assert dialog._stage_diagram._pre_tilt == pytest.approx(0.0)
+
+
 def test_a_prefilled_value_is_still_written_as_an_answer(dialog):
     """Leaving the prefill alone is a confirmation, not a skip -- it has to be written.
 
