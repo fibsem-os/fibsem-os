@@ -162,8 +162,19 @@ def test_mill_coincident_requires_objective_position(
     fm_microscope: FibsemMicroscope, tmp_path: Path
 ) -> None:
     """MillCoincidentTask raises a clear ValueError (not AttributeError) when the
-    lamella has no configured objective position."""
+    lamella's coincidence setup has no recorded objective position.
+
+    Since FIB-910 the objective height lives on the Setup Coincidence Milling
+    record rather than the fluorescence pose; a lamella whose setup never ran is
+    refused before anything moves."""
+    from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
+        SetupCoincidenceMillingTaskConfig,
+    )
+
     lamella = _make_lamella(tmp_path, None, with_fluorescence_pose=False)
+    lamella.task_config["Setup Coincidence Milling"] = (
+        SetupCoincidenceMillingTaskConfig(task_name="Setup Coincidence Milling")
+    )
     task = MillCoincidentTask(
         microscope=fm_microscope, config=MillCoincidentTaskConfig(), lamella=lamella
     )
