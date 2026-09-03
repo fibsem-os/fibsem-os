@@ -119,7 +119,7 @@ jobs:
       # exists to end. Because every file guards on importorskip, a broken install
       # does not turn the run red -- it empties it, and empty reads as passing.
       # So check the imports directly, where absence is an error.
-      run: python -c "import PyQt5, qtawesome"
+      run: python -c "import PyQt5, qtawesome, superqt"
     - name: Test with pytest
       env:
         QT_QPA_PLATFORM: offscreen
