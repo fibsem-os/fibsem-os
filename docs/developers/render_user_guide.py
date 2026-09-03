@@ -587,7 +587,6 @@ def render_movement(h: Harness) -> None:
 
     from fibsem import utils
     from fibsem.structures import BeamType
-    from fibsem.transformations import convert_milling_angle_to_stage_tilt
     from fibsem.ui.widgets.guided_setup_dialog import StageDiagram
 
     h.first_run(False)
@@ -621,44 +620,33 @@ def render_movement(h: Harness) -> None:
         crop=True,
     )
 
-    # the three orientations, drawn by the app's own stage diagram from the
-    # shipped configurations' numbers: a pre-tilted shuttle and a compustage
+    # the three orientations, drawn by the app's own stage diagram at the
+    # poses the app itself derives from the shipped configurations: a
+    # pre-tilted shuttle and a compustage
     for kind, filename in (
         ("shuttle", "sim-iflm-configuration.yaml"),
         ("compustage", "sim-arctis-configuration.yaml"),
     ):
-        settings = utils.load_microscope_configuration(
-            os.path.join(cfg.CONFIG_PATH, filename)
+        demo, _ = utils.setup_session(
+            config_path=os.path.join(cfg.CONFIG_PATH, filename),
+            manufacturer="Demo",
+            setup_logging=False,
         )
-        stage, ion = settings.system.stage, settings.system.ion
-        pre_tilt = float(stage.shuttle_pre_tilt)
-        column = float(ion.column_tilt)
-        milling_tilt = np.degrees(
-            convert_milling_angle_to_stage_tilt(
-                np.radians(float(stage.milling_angle)),
-                np.radians(pre_tilt),
-                np.radians(column),
-            )
-        )
-        half_turn = (
-            abs(
-                (float(stage.rotation_180) - float(stage.rotation_reference)) % 360
-                - 180
-            )
-            < 1
-        )
-        for name, tilt, mirrored in (
-            ("SEM", pre_tilt, False),
-            ("MILLING", milling_tilt, False),
-            ("FIB", column - pre_tilt, half_turn),
-        ):
+        pre_tilt = float(demo.system.stage.shuttle_pre_tilt)
+        reference = demo.get_orientation("SEM")
+        for name in ("SEM", "MILLING", "FIB"):
+            pose = demo.get_orientation(name)
+            half_turn = abs(abs(np.degrees(pose.r - reference.r)) % 360 - 180) < 1
             diagram = StageDiagram(pre_tilt=pre_tilt, orientation=name)
-            diagram.set_orientation(name, stage_tilt=tilt, mirrored=mirrored)
+            diagram.set_orientation(
+                name, stage_tilt=float(np.degrees(pose.t)), mirrored=half_turn
+            )
             diagram.resize(560, 240)
             diagram.show()
             h.pump(200)
             h.shot(f"orientation-{kind}-{name.lower()}", target=diagram)
             diagram.close()
+        demo.disconnect()
 
     # click to move: a feature off-centre in the SEM, double-clicked, is centred
     iw.acquire_reference_images()
