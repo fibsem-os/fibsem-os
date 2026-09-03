@@ -43,6 +43,18 @@ The server binds `127.0.0.1` by default. Exposing it on the LAN
 HTTP, which keeps strangers out but is not sniff-proof — see the AutoLamella
 Agent Server design doc for the trust model.
 
+### App route naming
+
+App routes address session resources directly — `/app/items/{name}`,
+`/app/protocol/...`, `/app/workflow/...` — without an `/app/experiment/`
+prefix, even though all of them belong to an experiment. This is deliberate
+and rests on an invariant: **exactly one experiment is open per session**, so
+"the app's items" and "the open experiment's items" are the same set and the
+shorter paths are unambiguous. If that invariant ever breaks (multiple
+experiments addressable at once, or experiment switching over the API), the
+migration is mechanical: mount the same routers under `/app/experiment` as
+well and deprecate the short forms.
+
 ---
 
 ## Using the Client
