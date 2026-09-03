@@ -56,8 +56,13 @@ from typing import (
 )
 
 if TYPE_CHECKING:
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
+        CoincidenceSetup,
+        SetupCoincidenceMillingTaskConfig,
+    )
     from fibsem.detection.detection import DetectedFeatures
-    from fibsem.fm.structures import ChannelSettings
+    from fibsem.fm.structures import ChannelSettings, FluorescenceImage
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.milling.tasks import FibsemMillingTaskConfig
     from fibsem.structures import FibsemImage, FibsemRectangle, Point
@@ -70,6 +75,7 @@ __all__ = [
     "PickPOI",
     "RunMillingTask",
     "RunSpotBurn",
+    "SetupCoincidenceMilling",
     "SetImages",
     "SetMillingConfig",
     "ClearMillingConfig",
@@ -190,6 +196,27 @@ class RunSpotBurn(Request[Optional["SpotBurnSettings"]]):
 
     settings: "SpotBurnSettings"
     message: str = "Run Spot Burn"
+
+
+@dataclass(frozen=True)
+class SetupCoincidenceMilling(Request[Optional["CoincidenceSetup"]]):
+    """Hand the operator the coincidence viewer to place the boxes for one site;
+    answer with what they left -- or None when they skipped the site.
+
+    The task has already put the microscope where the mill will happen (milling
+    pose, objective in and focused) and acquired the frames to draw on. The
+    viewer opens in setup mode locked to ``lamella``, seeded from ``config`` and
+    ``milling_config``; Save and Continue reads the boxes, the objective height,
+    the channel and the drop fraction back. Same shape as
+    :class:`EditAlignmentArea`: a widget shown, a click that reads it.
+    """
+
+    lamella: "Lamella"
+    config: "SetupCoincidenceMillingTaskConfig"
+    milling_config: "FibsemMillingTaskConfig"
+    fib_image: Optional["FibsemImage"] = None
+    fm_image: Optional["FluorescenceImage"] = None
+    message: str = "Place the boxes, then Save and Continue"
 
 
 # --- instructions: one-way, answered with a bare acknowledgement ------------------
