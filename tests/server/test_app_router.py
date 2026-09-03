@@ -285,3 +285,36 @@ def test_task_schedule_needs_the_configure_scope(client):
     )
     assert resp.status_code in (403, 404)  # unarmed configure scope
     assert resp.status_code == 403
+
+
+def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
+    armed = build_server(
+        microscope,
+        app_context=AgentContext(host, event_buffer=event_buffer),
+        auth=AuthConfig.generate(arm_control=True, token=TOKEN),
+    )
+    with TestClient(armed, raise_server_exceptions=False) as client:
+        item = host.experiment.positions[0].name
+        ok = client.post(
+            "/app/agent/notes",
+            headers=AUTH,
+            json={"text": "curtaining on the face, accepted anyway", "item_name": item},
+        )
+        assert ok.status_code == 200 and ok.json()["recorded"] is True
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        note = [e for e in events if e["kind"] == "agent_note"][-1]
+        assert note["payload"]["item_name"] == item
+
+        unknown = client.post(
+            "/app/agent/notes",
+            headers=AUTH,
+            json={"text": "x", "item_name": "nope"},
+        )
+        assert unknown.status_code == 404
+        empty = client.post("/app/agent/notes", headers=AUTH, json={"text": "   "})
+        assert empty.status_code == 422
+
+
+def test_agent_notes_need_the_control_scope(client):
+    resp = client.post("/app/agent/notes", headers=AUTH, json={"text": "x"})
+    assert resp.status_code == 403

@@ -86,6 +86,10 @@ class AppContext(Protocol):
         self, response: bool, nonce: int, value: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]: ...
 
+    def add_note(
+        self, text: str, item_name: Optional[str] = None
+    ) -> Dict[str, Any]: ...
+
     def stop_workflow(self) -> Dict[str, Any]: ...
 
     def start_workflow(
@@ -277,6 +281,38 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 },
             )
         return context.start_workflow(task_names, item_names)
+
+    @router.post("/agent/notes")
+    def add_note(body: Dict[str, Any]):
+        # Observations for the record — event stream + experiment log. On the
+        # control scope: an agent trusted to answer is trusted to annotate.
+        text = body.get("text")
+        item_name = body.get("item_name")
+        if (
+            not isinstance(text, str)
+            or not text.strip()
+            or len(text) > 4000
+            or (item_name is not None and not isinstance(item_name, str))
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass text (a non-empty string, at most 4000 "
+                    "characters); item_name (string) is optional.",
+                },
+            )
+        result = context.add_note(text, item_name)
+        if not result.get("recorded") and result.get("error"):
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_type": "not_found",
+                    "message": result["error"],
+                    "item_names": result.get("item_names", []),
+                },
+            )
+        return result
 
     @router.post("/supervision")
     def set_supervision(body: Dict[str, Any]):

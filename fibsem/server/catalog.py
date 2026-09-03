@@ -244,6 +244,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="add_note",
+        description="Put an observation on the record — the event stream and the experiment log. Use it for judgments worth keeping ('curtaining on 02's face, accepted anyway'); notes change nothing. Optionally name the item it concerns.",
+        method="POST",
+        path="/app/agent/notes",
+        scope="control",
+        router="app",
+        params={
+            "text": "the note, at most 4000 characters",
+            "item_name": "optional: the item this note concerns",
+        },
+    ),
+    ToolSpec(
         name="apply_protocol_to_item",
         description="Re-copy protocol task configs onto an existing item (protocol-level edits only reach items created after them; this brings an existing item up to date). Wholesale replace of that item's copies for the named tasks — omit task_names for all. Running tasks are refused. Needs the configure permission.",
         method="POST",

@@ -258,6 +258,15 @@ def build_sidecar(client, capabilities):
     def get_item_task_config(item_name: str, task_name: str):
         return _app_get(f"/app/items/{item_name}/task_config/{task_name}")
 
+    def add_note(text: str, item_name=None):
+        data, err = _call(
+            client,
+            "POST",
+            "/app/agent/notes",
+            {"text": str(text), "item_name": item_name},
+        )
+        return err if err else data
+
     def apply_protocol_to_item(item_name: str, task_names=None):
         data, err = _call(
             client,
@@ -397,6 +406,7 @@ def build_sidecar(client, capabilities):
             update_item_detail,
             set_task_schedule,
             apply_protocol_to_item,
+            add_note,
             list_recent_experiments,
             get_events,
             get_display_images,

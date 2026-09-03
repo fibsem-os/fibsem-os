@@ -491,6 +491,38 @@ class AgentContext:
             )
         return result
 
+    def add_note(self, text: str, item_name: Optional[str] = None) -> Dict[str, Any]:
+        """Put an agent observation on the record.
+
+        The agent's judgments otherwise live only in its chat: this writes
+        them where the run's story is told — the event stream (live consumers:
+        timeline, dashboard, other agents) and the experiment log (durable).
+        Notes are observations, not actions: nothing changes state.
+        """
+        text = str(text).strip()
+        if not text:
+            return {"available": True, "recorded": False, "error": "empty note"}
+        if item_name is not None:
+            experiment = self._experiment
+            if experiment is None or experiment.get_lamella_by_name(item_name) is None:
+                names = [p.name for p in experiment.positions] if experiment else []
+                return {
+                    "available": True,
+                    "recorded": False,
+                    "error": f"No item named {item_name!r} in this experiment.",
+                    "item_names": names,
+                }
+        logging.info(
+            "agent note%s: %s",
+            f" [{item_name}]" if item_name else "",
+            text,
+        )
+        if self._event_buffer is not None:
+            self._event_buffer.append(
+                "agent_note", {"text": text, "item_name": item_name}
+            )
+        return {"available": True, "recorded": True}
+
     def apply_protocol_to_item(
         self,
         item_name: str,
