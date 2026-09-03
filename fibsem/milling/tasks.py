@@ -220,6 +220,7 @@ class FibsemMillingTask:
         microscope: FibsemMicroscope,
         config: FibsemMillingTaskConfig,
         parent_ui: Optional["FibsemMillingWidget2"] = None,
+        stop_event: Optional[threading.Event] = None,
     ):
         self.config = config
         self.microscope = microscope
@@ -230,8 +231,11 @@ class FibsemMillingTask:
         # exact pre-milling state (not a config default) even if the task is cancelled.
         self.initial_imaging_current: Optional[float] = None
         self.initial_imaging_voltage: Optional[float] = None
-        self._stop_event: Optional[threading.Event] = None
-        if self.parent_ui and hasattr(self.parent_ui, "_milling_stop_event"):
+        # An explicit stop event wins; otherwise borrow the widget's. Before this
+        # parameter existed a headless run (parent_ui=None) had no stop event at
+        # all, so the cancel checks between stages and inside a strategy were no-ops.
+        self._stop_event: Optional[threading.Event] = stop_event
+        if self._stop_event is None and hasattr(self.parent_ui, "_milling_stop_event"):
             self._stop_event = self.parent_ui._milling_stop_event
 
     @property
@@ -538,15 +542,20 @@ def run_milling_task(
     microscope: FibsemMicroscope,
     config: FibsemMillingTaskConfig,
     parent_ui: Optional["FibsemMillingWidget2"] = None,
+    stop_event: Optional[threading.Event] = None,
 ) -> FibsemMillingTask:
     """Run a milling task with the given configuration.
     Args:
         microscope (FibsemMicroscope): The microscope to use for milling.
         config (FibsemMillingTaskConfig): The configuration for the milling task.
         parent_ui (Optional[FibsemMillingWidget2]): The parent UI widget for progress updates.
+        stop_event (Optional[threading.Event]): Set to cancel the run. Falls back to
+            the parent widget's stop event when not given.
     Returns:
         FibsemMillingTask: The milling task that was run.
     """
-    task = FibsemMillingTask(microscope=microscope, config=config, parent_ui=parent_ui)
+    task = FibsemMillingTask(
+        microscope=microscope, config=config, parent_ui=parent_ui, stop_event=stop_event
+    )
     task.run()
     return task
