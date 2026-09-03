@@ -256,3 +256,70 @@ def test_a_patch_is_durable_on_disk(ui, qapp):
         "pattern"
     ]["depth"]
     assert depth == 2.2e-6
+
+
+def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp):
+    buffer = EventBuffer()
+    lamella = ui.experiment.positions[0]
+    from fibsem.structures import Point
+
+    lamella.poi = Point(x=1e-6, y=2e-6)
+    item = lamella.name
+    with _client(ui, buffer=buffer) as client:
+        doc = client.get(f"/app/items/{item}", headers=AUTH).json()
+        assert "version" in doc and doc["defect"]["state"] == "NONE"
+        resp = _post_on_worker(
+            qapp,
+            client,
+            f"/app/items/{item}",
+            {
+                "patch": {
+                    "poi.x": 5e-6,
+                    "milling_angle": 17.0,
+                    "defect.state": "REWORK",
+                    "defect.description": "curtained face",
+                },
+                "version": doc["version"],
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["applied"] is True and body["saved"] is True
+        assert lamella.poi.x == 5e-6
+        assert lamella.milling_angle == 17.0
+        assert lamella.defect.state.name == "REWORK"
+        assert lamella.defect.updated_at is not None
+        # New version serves on the next read; the event stream records it.
+        reread = client.get(f"/app/items/{item}", headers=AUTH).json()
+        assert reread["version"] == body["version"] != doc["version"]
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        edited = [e for e in events if e["kind"] == "config_edited"][-1]
+        assert edited["payload"]["level"] == "item_fields"
+
+
+def test_item_fields_allowlist_and_alignment_validity(ui, qapp):
+    lamella = ui.experiment.positions[0]
+    from fibsem.structures import FibsemRectangle
+
+    lamella.alignment_area = FibsemRectangle(left=0.6, top=0.3, width=0.3, height=0.4)
+    item = lamella.name
+    with _client(ui) as client:
+        doc = client.get(f"/app/items/{item}", headers=AUTH).json()
+        off_list = _post_on_worker(
+            qapp,
+            client,
+            f"/app/items/{item}",
+            {"patch": {"path": "/tmp/evil"}, "version": doc["version"]},
+        )
+        assert off_list.status_code == 422
+        assert "editable" in off_list.json()["detail"]["message"]
+
+        # A rectangle pushed out of the frame is reverted whole.
+        bad = _post_on_worker(
+            qapp,
+            client,
+            f"/app/items/{item}",
+            {"patch": {"alignment_area.left": 0.9}, "version": doc["version"]},
+        )
+        assert bad.status_code == 422
+        assert lamella.alignment_area.left == 0.6

@@ -32,7 +32,36 @@ from typing import Any, Dict, List, Optional
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
-__all__ = ["AgentContext", "config_version"]
+__all__ = ["AgentContext", "ITEM_PATCH_FIELDS", "config_version", "item_fields_version"]
+
+# The item-document fields an agent may patch: what a lamella IS — geometry,
+# verdict, notes. Everything else on the object (poses, ids, paths, history)
+# is either derived, hardware-adjacent, or the record itself.
+ITEM_PATCH_FIELDS = ("poi", "alignment_area", "milling_angle", "description", "defect")
+
+
+def _content_hash(data) -> str:
+    import hashlib
+    import json
+
+    return hashlib.sha256(
+        json.dumps(data, sort_keys=True, default=str).encode()
+    ).hexdigest()[:16]
+
+
+def item_fields_version(lamella) -> str:
+    """A content hash naming the state of an item's patchable fields.
+
+    The item document's nonce, hashing exactly the ITEM_PATCH_FIELDS — so a
+    task re-recording geometry rotates it (stales a pending patch, correctly),
+    while poses moving or history growing does not (they are not patchable,
+    so they cannot invalidate what a patch was written against).
+    """
+    from fibsem.applications.autolamella.server.events import to_plain
+
+    return _content_hash(
+        {name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS}
+    )
 
 
 def config_version(config) -> str:
@@ -48,10 +77,7 @@ def config_version(config) -> str:
 
     from fibsem.applications.autolamella.server.events import to_plain
 
-    data = to_plain(config.to_dict())
-    return hashlib.sha256(
-        json.dumps(data, sort_keys=True, default=str).encode()
-    ).hexdigest()[:16]
+    return _content_hash(to_plain(config.to_dict()))
 
 
 def _json_safe(value: Any) -> Any:
@@ -351,6 +377,8 @@ class AgentContext:
                 "item_name": item_name,
                 "error": f"No item named {item_name!r} in this experiment.",
             }
+        from fibsem.applications.autolamella.server.events import to_plain
+
         poses = {}
         for pose_name, pose in dict(lamella.poses).items():
             position = getattr(pose, "stage_position", None)
@@ -368,7 +396,12 @@ class AgentContext:
             if lamella.alignment_area is not None
             else None,
             "milling_angle": lamella.milling_angle,
+            "defect": to_plain(lamella.defect.to_dict())
+            if getattr(lamella, "defect", None) is not None
+            else None,
             "poses": poses,
+            # The item document's nonce: patches echo it (see apply_item_patch).
+            "version": item_fields_version(lamella),
         }
 
     # --- task configs (FIB-864, read side) --------------------------------------
@@ -419,6 +452,41 @@ class AgentContext:
         document = self._config_document(task_name, config, level="item")
         document["item_name"] = item_name
         return document
+
+    def apply_item_patch(
+        self,
+        item_name: str,
+        patch: Dict[str, Any],
+        version: str,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Patch an item's own document — geometry, verdict, notes.
+
+        The item-level counterpart of the task-config patches: same engine,
+        same version dance (``version`` comes from :meth:`item_detail`), but
+        the document is what the lamella IS rather than how a step runs, and
+        only the ITEM_PATCH_FIELDS are editable. Tasks re-record geometry at
+        their own moments (a fiducial task rewrites the alignment area at its
+        end) — that rotation stales pending patches, which is the correct
+        outcome, and it means an edit here is the value the NEXT run starts
+        from, not a permanent override.
+        """
+        host = self._host
+        if not hasattr(host, "request_apply_item_patch"):
+            return {"available": False, "applied": False}
+        outcome = host.request_apply_item_patch(item_name, dict(patch), str(version))
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        if result.get("applied") and self._event_buffer is not None:
+            self._event_buffer.append(
+                "config_edited",
+                {
+                    "level": "item_fields",
+                    "item_name": item_name,
+                    "changes": result.get("changes", []),
+                },
+            )
+        return result
 
     def apply_protocol_task_config_patch(
         self,

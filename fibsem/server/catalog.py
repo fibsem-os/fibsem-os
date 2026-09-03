@@ -244,6 +244,19 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="update_item_detail",
+        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), milling_angle (degrees), description, defect.state (NONE/FAILURE/REWORK) and defect.description. Echo the version from get_item_detail — a mismatch is refused (409 stale_config). Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override. Needs the configure permission.",
+        method="POST",
+        path="/app/items/{item_name}",
+        scope="configure",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "patch": "object of dotted-path: value entries to set",
+            "version": "the version token from get_item_detail",
+        },
+    ),
+    ToolSpec(
         name="update_protocol_task_config",
         description="Patch a task's protocol-level defaults (what new items copy) with dotted-path edits. Echo the version from get_protocol_task_config — a mismatch is refused (409 stale_config). Running tasks are never affected: they hold their item's copy; the edit reaches items created after. Needs the configure permission.",
         method="POST",

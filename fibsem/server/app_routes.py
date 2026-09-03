@@ -62,6 +62,10 @@ class AppContext(Protocol):
         self, task_name: str, patch: Dict[str, Any], version: str
     ) -> Dict[str, Any]: ...
 
+    def apply_item_patch(
+        self, item_name: str, patch: Dict[str, Any], version: str
+    ) -> Dict[str, Any]: ...
+
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
@@ -347,6 +351,14 @@ def build_app_config_router(context: AppContext) -> APIRouter:
         return _refused_or(
             context.apply_item_task_config_patch(item_name, task_name, patch, version)
         )
+
+    @router.post("/items/{item_name}")
+    def patch_item(item_name: str, body: Dict[str, Any]):
+        # The item's own document (geometry, verdict, notes) — the write-side
+        # mirror of GET /app/items/{item_name}, whose payload carries the
+        # version this patch must echo.
+        patch, version = _validated(body)
+        return _refused_or(context.apply_item_patch(item_name, patch, version))
 
     def _refused_or(result: Dict[str, Any]):
         if result.get("stale"):

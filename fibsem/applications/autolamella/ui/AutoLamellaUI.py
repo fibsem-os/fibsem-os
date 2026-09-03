@@ -1243,6 +1243,22 @@ class AutoLamellaUI(QMainWindow):
         )
         return outcome
 
+    def request_apply_item_patch(
+        self, item_name: str, patch: dict, version: str
+    ) -> "Future":
+        """Patch an item's own document (geometry, verdict, notes); any thread.
+
+        Same marshal as the config patches; the editable set is
+        ITEM_PATCH_FIELDS, and the version comes from item_detail.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_config_patch.emit(
+            "item_fields", item_name, "", patch, version, outcome
+        )
+        return outcome
+
     def request_apply_protocol_task_config_patch(
         self, task_name: str, patch: dict, version: str
     ) -> "Future":
@@ -1308,6 +1324,8 @@ class AutoLamellaUI(QMainWindow):
         experiment = self.experiment
         if experiment is None:
             return {"applied": False, "error": "no experiment is loaded"}
+        if level == "item_fields":
+            return self._apply_item_fields_patch(experiment, item_name, patch, version)
         if level == "protocol":
             protocol = getattr(experiment, "task_protocol", None)
             config_map = getattr(protocol, "task_config", None)
@@ -1379,6 +1397,89 @@ class AutoLamellaUI(QMainWindow):
             result["item_name"] = item_name
         return result
 
+    def _apply_item_fields_patch(
+        self, experiment, item_name: str, patch: dict, version: str
+    ) -> dict:
+        """Patch the lamella's own editable fields. GUI thread.
+
+        Allowlisted to ITEM_PATCH_FIELDS — poses, ids, paths and history are
+        not editable through any agent surface. Alignment validity is checked
+        after the apply and reverted on failure (the engine's own checks are
+        per-field; a rectangle is only judgeable whole). A defect edit stamps
+        ``updated_at``, so the verdict record carries when it was changed.
+        """
+        import time as _time
+
+        from fibsem.applications.autolamella.server.context import (
+            ITEM_PATCH_FIELDS,
+            item_fields_version,
+        )
+        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.server.config_patch import PatchError, apply_patch
+
+        lamella = experiment.get_lamella_by_name(item_name)
+        if lamella is None:
+            return {
+                "applied": False,
+                "error": f"No item named {item_name!r} in this experiment.",
+                "item_names": [p.name for p in experiment.positions],
+            }
+        for path in patch:
+            if path.split(".", 1)[0] not in ITEM_PATCH_FIELDS:
+                return {
+                    "applied": False,
+                    "invalid_patch": f"{path!r} is not an editable item field; "
+                    f"editable: {sorted(ITEM_PATCH_FIELDS)}",
+                    "path": path,
+                }
+        if item_fields_version(lamella) != version:
+            return {"applied": False, "stale": True}
+        try:
+            changes = apply_patch(
+                lamella,
+                patch,
+                none_types={"milling_angle": float, "description": str},
+            )
+        except PatchError as exc:
+            return {"applied": False, "invalid_patch": str(exc), "path": exc.path}
+        area = lamella.alignment_area
+        if area is not None and not area.is_valid_reduced_area:
+            for path, old, _new in reversed(changes):
+                apply_patch(lamella, {path: old if not hasattr(old, "name") else old.name})
+            return {
+                "applied": False,
+                "invalid_patch": "the patched alignment area is out of bounds "
+                "(left/top >= 0, width/height > 0, inside the frame); "
+                "nothing was applied.",
+                "path": None,
+            }
+        if any(p.split(".", 1)[0] == "defect" for p, _o, _n in changes):
+            lamella.defect.updated_at = _time.time()
+        logging.info(
+            f"agent item patch applied: {item_name}: "
+            + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
+        )
+        saved = True
+        try:
+            experiment.save()
+        except Exception:
+            saved = False
+            logging.exception(
+                "save after agent item patch failed; the change is applied "
+                "in memory but not yet on disk"
+            )
+        self._show_agent_config_patch("item_fields", item_name, item_name, changes)
+        return {
+            "applied": True,
+            "saved": saved,
+            "item_name": item_name,
+            "changes": [
+                {"path": p, "old": to_plain(old), "new": to_plain(new)}
+                for p, old, new in changes
+            ],
+            "version": item_fields_version(lamella),
+        }
+
     def _show_agent_config_patch(
         self, level: str, item_name: str, task_name: str, changes
     ) -> None:
@@ -1394,7 +1495,12 @@ class AutoLamellaUI(QMainWindow):
             summary = f"{leaf}: {changes[0][1]!r} → {changes[0][2]!r}"
             if len(changes) > 1:
                 summary += f" (+{len(changes) - 1} more)"
-            target = f"{task_name} for {item_name}" if level == "item" else task_name
+            if level == "item":
+                target = f"{task_name} for {item_name}"
+            elif level == "item_fields":
+                target = item_name
+            else:
+                target = task_name
             notification_service.show_toast(
                 f"Agent edited {target} — {summary}", "info"
             )
@@ -1404,7 +1510,7 @@ class AutoLamellaUI(QMainWindow):
         if parent is None:
             return
         try:
-            if level == "item":
+            if level in ("item", "item_fields"):
                 parent.lamella_widget.refresh_if_showing(item_name)
             else:
                 parent.task_widget.refresh_if_showing_task(task_name)

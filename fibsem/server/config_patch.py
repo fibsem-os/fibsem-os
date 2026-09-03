@@ -29,7 +29,7 @@ Qt-free and py3.8-clean; the GUI-thread caller owns marshalling.
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 from enum import Enum
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 __all__ = ["PatchError", "apply_patch"]
 
@@ -42,13 +42,24 @@ class PatchError(ValueError):
         super().__init__(message)
 
 
-def apply_patch(root: Any, patch: Dict[str, Any]) -> List[Tuple[str, Any, Any]]:
+def apply_patch(
+    root: Any,
+    patch: Dict[str, Any],
+    none_types: Optional[Dict[str, type]] = None,
+) -> List[Tuple[str, Any, Any]]:
     """Validate every entry against the live object, then apply them all.
 
     Returns ``[(path, old, new), ...]`` in patch order. Raises
     :class:`PatchError` before anything is set if any entry is invalid.
+
+    ``none_types`` declares the type of fields that may legitimately hold
+    ``None`` (e.g. an unset milling angle): a ``None`` leaf is otherwise
+    refused, because its type cannot be inferred from the value it holds.
     """
-    resolved = [_resolve(root, path, value) for path, value in patch.items()]
+    resolved = [
+        _resolve(root, path, value, (none_types or {}).get(path))
+        for path, value in patch.items()
+    ]
     changes: List[Tuple[str, Any, Any]] = []
     for setter, path, old, new in resolved:
         setter(new)
@@ -56,7 +67,7 @@ def apply_patch(root: Any, patch: Dict[str, Any]) -> List[Tuple[str, Any, Any]]:
     return changes
 
 
-def _resolve(root: Any, path: str, value: Any):
+def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None):
     parts = path.split(".")
     if not all(parts):
         raise PatchError(path, f"malformed path {path!r}")
@@ -70,7 +81,11 @@ def _resolve(root: Any, path: str, value: Any):
             path,
             f"{path!r} names a section, not a value; patch the fields inside it.",
         )
-    new = _coerce(old, value, path)
+    if old is None and none_type is not None:
+        old_for_coerce = none_type()  # a stand-in of the declared type
+        new = _coerce(old_for_coerce, value, path)
+    else:
+        new = _coerce(old, value, path)
     _check_bounds(obj, leaf, new, path)
 
     def setter(coerced: Any, obj=obj, leaf=leaf) -> None:
