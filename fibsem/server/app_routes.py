@@ -58,6 +58,10 @@ class AppContext(Protocol):
         self, item_name: str, task_name: str, patch: Dict[str, Any], version: str
     ) -> Dict[str, Any]: ...
 
+    def apply_protocol_task_config_patch(
+        self, task_name: str, patch: Dict[str, Any], version: str
+    ) -> Dict[str, Any]: ...
+
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
@@ -310,8 +314,7 @@ def build_app_config_router(context: AppContext) -> APIRouter:
     """
     router = APIRouter(prefix="/app")
 
-    @router.post("/items/{item_name}/task_config/{task_name}")
-    def patch_item_task_config(item_name: str, task_name: str, body: Dict[str, Any]):
+    def _validated(body: Dict[str, Any]):
         patch = body.get("patch")
         version = body.get("version")
         if (
@@ -329,9 +332,23 @@ def build_app_config_router(context: AppContext) -> APIRouter:
                     "written against).",
                 },
             )
-        result = context.apply_item_task_config_patch(
-            item_name, task_name, patch, version
+        return patch, version
+
+    @router.post("/protocol/task_config/{task_name}")
+    def patch_protocol_task_config(task_name: str, body: Dict[str, Any]):
+        patch, version = _validated(body)
+        return _refused_or(
+            context.apply_protocol_task_config_patch(task_name, patch, version)
         )
+
+    @router.post("/items/{item_name}/task_config/{task_name}")
+    def patch_item_task_config(item_name: str, task_name: str, body: Dict[str, Any]):
+        patch, version = _validated(body)
+        return _refused_or(
+            context.apply_item_task_config_patch(item_name, task_name, patch, version)
+        )
+
+    def _refused_or(result: Dict[str, Any]):
         if result.get("stale"):
             raise HTTPException(
                 status_code=409,

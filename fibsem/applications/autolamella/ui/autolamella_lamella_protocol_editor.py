@@ -87,6 +87,7 @@ _SAVE_DEBOUNCE_MS = 400
 POI_OVERLAY_ID = "poi"
 ALIGNMENT_OVERLAY_ID = "alignment_area"
 
+
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
@@ -408,6 +409,19 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             and self.parent_widget.experiment.positions
         ):  # type: ignore
             self._selected_lamella = self.parent_widget.experiment.positions[0]
+            self._on_selected_lamella_changed()
+
+    def refresh_if_showing(self, item_name: str) -> None:
+        """Rebuild the panel if it is displaying ``item_name``.
+
+        Called (on the GUI thread) after an outside writer — the agent's
+        config patch — changed the item's state under an open form. The
+        rebuild is what prevents the stale form writing old values back on
+        the operator's next edit; pending operator edits were flushed before
+        the outside write was allowed to apply.
+        """
+        selected = self._selected_lamella
+        if selected is not None and selected.name == item_name:
             self._on_selected_lamella_changed()
 
     def _refresh_experiment_positions(self):
@@ -1182,7 +1196,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         text = self.line_edit_description.text()
         if lamella.description == text:
             return
-        lamella.description = text  # fires events.description -> updates read-only mirrors
+        lamella.description = (
+            text  # fires events.description -> updates read-only mirrors
+        )
         self._save_experiment()
 
     def _save_experiment(self):

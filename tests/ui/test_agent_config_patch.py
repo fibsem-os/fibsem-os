@@ -60,6 +60,7 @@ def ui(qapp, monkeypatch, tmp_path):
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     exp.positions[0].task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
+    exp.task_protocol.task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
     widget.experiment = exp
     yield widget
     if widget.microscope is not None:
@@ -200,3 +201,34 @@ def test_the_configure_scope_gates_the_route(ui, qapp):
         )
         assert resp.status_code == 403
         assert resp.json()["detail"]["scope"] == "configure"
+
+
+def test_a_protocol_level_patch_lands_and_is_recorded(ui, qapp):
+    buffer = EventBuffer()
+    with _client(ui, buffer=buffer) as client:
+        doc = client.get(f"/app/protocol/task_config/{TASK}", headers=AUTH).json()
+        resp = _post_on_worker(
+            qapp,
+            client,
+            f"/app/protocol/task_config/{TASK}",
+            {"patch": {DEPTH: 2.8e-6}, "version": doc["version"]},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["applied"] is True and "item_name" not in body
+        config = ui.experiment.task_protocol.task_config[TASK]
+        assert config.milling["mill_rough"].stages[0].pattern.depth == 2.8e-6
+        # The item's own copy is untouched: protocol edits reach future items.
+        item_config = ui.experiment.positions[0].task_config[TASK]
+        assert item_config.milling["mill_rough"].stages[0].pattern.depth != 2.8e-6
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        edited = [e for e in events if e["kind"] == "config_edited"][-1]
+        assert edited["payload"]["level"] == "protocol"
+
+        stale = _post_on_worker(
+            qapp,
+            client,
+            f"/app/protocol/task_config/{TASK}",
+            {"patch": {DEPTH: 3.1e-6}, "version": doc["version"]},
+        )
+        assert stale.status_code == 409

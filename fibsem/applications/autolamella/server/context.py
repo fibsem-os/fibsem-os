@@ -420,6 +420,39 @@ class AgentContext:
         document["item_name"] = item_name
         return document
 
+    def apply_protocol_task_config_patch(
+        self,
+        task_name: str,
+        patch: Dict[str, Any],
+        version: str,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Patch a task's protocol-level defaults — what new items copy.
+
+        Same version-guarded, GUI-thread apply as the per-item patch. No
+        running-task guard: a running task holds its item's copy, so a
+        protocol edit can never touch it — the edit reaches items created
+        (or re-copied) after it lands.
+        """
+        host = self._host
+        if not hasattr(host, "request_apply_protocol_task_config_patch"):
+            return {"available": False, "applied": False}
+        outcome = host.request_apply_protocol_task_config_patch(
+            task_name, dict(patch), str(version)
+        )
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        if result.get("applied") and self._event_buffer is not None:
+            self._event_buffer.append(
+                "config_edited",
+                {
+                    "level": "protocol",
+                    "task_name": task_name,
+                    "changes": result.get("changes", []),
+                },
+            )
+        return result
+
     @staticmethod
     def _config_document(task_name: str, config, level: str) -> Dict[str, Any]:
         """One config as a wire document with its version token.

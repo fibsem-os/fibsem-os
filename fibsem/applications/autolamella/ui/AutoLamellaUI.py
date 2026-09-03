@@ -190,7 +190,7 @@ class AutoLamellaUI(QMainWindow):
     # way agent answers are: (task_names, item_names, Future[dict]).
     _agent_start_workflow = pyqtSignal(list, object, object)
     # (item_name, task_name, patch, version, Future) — the config-patch marshal
-    _agent_config_patch = pyqtSignal(str, str, object, str, object)
+    _agent_config_patch = pyqtSignal(str, str, str, object, str, object)
 
     def __init__(
         self,
@@ -1238,16 +1238,41 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(item_name, task_name, patch, version, outcome)
+        self._agent_config_patch.emit(
+            "item", item_name, task_name, patch, version, outcome
+        )
+        return outcome
+
+    def request_apply_protocol_task_config_patch(
+        self, task_name: str, patch: dict, version: str
+    ) -> "Future":
+        """Patch a task's protocol-level defaults; any thread.
+
+        Same marshal and rules as the per-item form; the document edited is
+        what new items copy, so a running task is never affected (it holds
+        its item's copy) and no task-running guard applies.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_config_patch.emit(
+            "protocol", "", task_name, patch, version, outcome
+        )
         return outcome
 
     def _apply_agent_config_patch(
-        self, item_name: str, task_name: str, patch, version: str, outcome: "Future"
+        self,
+        level: str,
+        item_name: str,
+        task_name: str,
+        patch,
+        version: str,
+        outcome: "Future",
     ) -> None:
         """GUI thread. Complete ``outcome`` with the patch result."""
         try:
             result = self._apply_task_config_patch_for_agent(
-                item_name, task_name, patch, version
+                level, item_name, task_name, patch, version
             )
         except Exception as exc:  # noqa: BLE001 - the requester owns the failure
             outcome.set_exception(exc)
@@ -1255,16 +1280,19 @@ class AutoLamellaUI(QMainWindow):
         outcome.set_result(result)
 
     def _apply_task_config_patch_for_agent(
-        self, item_name: str, task_name: str, patch: dict, version: str
+        self, level: str, item_name: str, task_name: str, patch: dict, version: str
     ) -> dict:
         """Validate against the live config and apply, all on the GUI thread.
 
         The version check sits beside the apply on the one thread that edits
         configs, so nothing can change between check and set. Before checking,
-        any edit still sitting in the editor is flushed (the FIB-683
+        any edit still sitting in the editors is flushed (the FIB-683
         one-writer rule, same as the agent workflow start): if the operator's
         pending edit changes this config, the agent's version goes stale and
-        the refusal — not a silent merge — resolves the race.
+        the refusal — not a silent merge — resolves the race. After a
+        successful apply, whichever editor is displaying this config is
+        rebuilt (no stale form survives to write old values back) and a toast
+        tells the operator what changed.
         """
         from fibsem.applications.autolamella.server.context import config_version
         from fibsem.applications.autolamella.server.events import to_plain
@@ -1280,20 +1308,33 @@ class AutoLamellaUI(QMainWindow):
         experiment = self.experiment
         if experiment is None:
             return {"applied": False, "error": "no experiment is loaded"}
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "applied": False,
-                "error": f"No item named {item_name!r} in this experiment.",
-                "item_names": [p.name for p in experiment.positions],
-            }
-        config = dict(lamella.task_config).get(task_name)
-        if config is None:
-            return {
-                "applied": False,
-                "error": f"No task config named {task_name!r} on {item_name!r}.",
-                "task_names": list(lamella.task_config.keys()),
-            }
+        if level == "protocol":
+            protocol = getattr(experiment, "task_protocol", None)
+            config_map = getattr(protocol, "task_config", None)
+            if config_map is None:
+                return {"applied": False, "error": "no protocol is loaded"}
+            config = dict(config_map).get(task_name)
+            if config is None:
+                return {
+                    "applied": False,
+                    "error": f"No task named {task_name!r} in the protocol.",
+                    "task_names": list(config_map.keys()),
+                }
+        else:
+            lamella = experiment.get_lamella_by_name(item_name)
+            if lamella is None:
+                return {
+                    "applied": False,
+                    "error": f"No item named {item_name!r} in this experiment.",
+                    "item_names": [p.name for p in experiment.positions],
+                }
+            config = dict(lamella.task_config).get(task_name)
+            if config is None:
+                return {
+                    "applied": False,
+                    "error": f"No task config named {task_name!r} on {item_name!r}.",
+                    "task_names": list(lamella.task_config.keys()),
+                }
         if config_version(config) != version:
             return {"applied": False, "stale": True}
         try:
@@ -1304,13 +1345,14 @@ class AutoLamellaUI(QMainWindow):
                 "invalid_patch": str(exc),
                 "path": exc.path,
             }
+        where = f"{item_name} / {task_name}" if level == "item" else task_name
         logging.info(
-            f"agent config patch applied: {item_name} / {task_name}: "
+            f"agent config patch applied ({level}): {where}: "
             + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
         )
-        return {
+        self._show_agent_config_patch(level, item_name, task_name, changes)
+        result = {
             "applied": True,
-            "item_name": item_name,
             "task_name": task_name,
             "changes": [
                 {"path": p, "old": to_plain(old), "new": to_plain(new)}
@@ -1318,6 +1360,41 @@ class AutoLamellaUI(QMainWindow):
             ],
             "version": config_version(config),
         }
+        if level == "item":
+            result["item_name"] = item_name
+        return result
+
+    def _show_agent_config_patch(
+        self, level: str, item_name: str, task_name: str, changes
+    ) -> None:
+        """Rebuild the editor showing this config and toast the change.
+
+        GUI thread, after a successful apply. The rebuild is what stops a
+        stale open form writing old values back on the operator's next edit;
+        the toast is what stops the form appearing to change by itself.
+        Chrome only — a failure here must never fail the applied patch.
+        """
+        try:
+            leaf = changes[0][0].rsplit(".", 1)[-1]
+            summary = f"{leaf}: {changes[0][1]!r} → {changes[0][2]!r}"
+            if len(changes) > 1:
+                summary += f" (+{len(changes) - 1} more)"
+            target = f"{task_name} for {item_name}" if level == "item" else task_name
+            notification_service.show_toast(
+                f"Agent edited {target} — {summary}", "info"
+            )
+        except Exception:
+            logging.exception("toast after agent config patch failed")
+        parent = self.parent_widget
+        if parent is None:
+            return
+        try:
+            if level == "item":
+                parent.lamella_widget.refresh_if_showing(item_name)
+            else:
+                parent.task_widget.refresh_if_showing_task(task_name)
+        except Exception:
+            logging.exception("editor refresh after agent config patch failed")
 
     def _run_tasks_worker(
         self, task_names: List[str], lamella_names: Optional[List[str]] = None
