@@ -2615,6 +2615,8 @@ class AutoLamellaUI(QMainWindow):
         viewer = getattr(self, "_coincidence_viewer_window", None)
         if viewer is not None and viewer.in_setup_mode:
             viewer.exit_setup_mode()
+        if viewer is not None and viewer.in_monitor_mode:
+            viewer.exit_monitor_mode()
 
         # clear detection layers
         if self.det_widget is not None:
