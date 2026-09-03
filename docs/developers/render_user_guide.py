@@ -134,6 +134,7 @@ class Harness:
         """
         cfg.USER_CONFIGURATIONS_PATH = str(tmp / "user-configurations.yaml")
         cfg.USER_PREFERENCES_PATH = str(tmp / "user-preferences.yaml")
+        cfg.POSITION_PATH = str(tmp / "saved-positions.yaml")
         for name, filename in SIM_CONFIGURATIONS.items():
             cfg.USER_CONFIGURATIONS[name] = {
                 "path": os.path.join(cfg.CONFIG_PATH, filename)
@@ -201,6 +202,35 @@ class Harness:
         if getattr(widget, "is_acquiring", False):
             raise RuntimeError("acquisition did not finish")
         self.pump(300)
+
+    def wait_move(self, control, image_widget, timeout_ms: int = 60000) -> None:
+        """Pump until a stage move and the images it retakes have finished."""
+        waited = 0
+        while waited < timeout_ms:
+            self.pump(200)
+            waited += 200
+            if control.pushButton_move.isEnabled() and not getattr(
+                image_widget, "is_acquiring", False
+            ):
+                break
+        else:
+            raise RuntimeError("stage move did not finish")
+        self.pump(500)
+
+    @staticmethod
+    def image_point_rect(
+        canvas, panel: QWidget, x: int, y: int, radius: int = 16
+    ) -> QRect:
+        """A box around image pixel (x, y) of ``canvas``, in ``panel`` coordinates.
+
+        matplotlib's display coordinates are physical pixels with y upwards;
+        Qt's are logical with y downwards.
+        """
+        ratio = canvas.devicePixelRatioF()
+        dx, dy = canvas._ax.transData.transform((x, y))
+        qx, qy = dx / ratio, canvas.height() - dy / ratio
+        origin = canvas.mapTo(panel, QPoint(int(qx), int(qy)))
+        return QRect(origin.x() - radius, origin.y() - radius, 2 * radius, 2 * radius)
 
     def show_tab(self, index: int) -> None:
         self.window.tab_widget.setCurrentIndex(index)
@@ -548,6 +578,129 @@ def render_imaging(h: Harness) -> None:
     h.shot("live", callouts=[iw.pushButton_start_acquisition])
     iw.toggle_live_acquisition()
     h.pump(500)
+
+
+@page("movement")
+def render_movement(h: Harness) -> None:
+    """The Movement tab, the orientations, click-to-move, and coincidence."""
+    import numpy as np
+
+    from fibsem import utils
+    from fibsem.structures import BeamType
+    from fibsem.transformations import convert_milling_angle_to_stage_tilt
+    from fibsem.ui.widgets.guided_setup_dialog import StageDiagram
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    mw = h.ui.movement_widget
+    iw = h.ui.image_widget
+    ctrl = mw.control_widget
+    h.ui.tabWidget.setCurrentWidget(mw)
+    h.pump(300)
+    panels = h.window.view_controller.widget._all_panels
+    sem_panel, fib_panel = panels[0], panels[2]
+    sem_canvas = h.window.view_controller.sem_canvas
+    fib_canvas = h.window.view_controller.fib_canvas
+    microscope = h.connection.microscope
+
+    # the tab
+    h.shot(
+        "movement-tab",
+        target=mw,
+        callouts=[
+            mw.position_widget,
+            ctrl.pushButton_move,
+            ctrl.pushButton_move_to_sem_orientation,
+            ctrl.pushButton_move_to_fib_orientation,
+            ctrl.doubleSpinBox_milling_angle,
+            ctrl.pushButton_move_to_milling_angle,
+            mw.saved_positions_panel,
+        ],
+        numbered=True,
+        crop=True,
+    )
+
+    # the three orientations, drawn by the app's own stage diagram from the
+    # shipped configurations' numbers: a pre-tilted shuttle and a compustage
+    for kind, filename in (
+        ("shuttle", "sim-iflm-configuration.yaml"),
+        ("compustage", "sim-arctis-configuration.yaml"),
+    ):
+        settings = utils.load_microscope_configuration(
+            os.path.join(cfg.CONFIG_PATH, filename)
+        )
+        stage, ion = settings.system.stage, settings.system.ion
+        pre_tilt = float(stage.shuttle_pre_tilt)
+        column = float(ion.column_tilt)
+        milling_tilt = np.degrees(
+            convert_milling_angle_to_stage_tilt(
+                np.radians(float(stage.milling_angle)),
+                np.radians(pre_tilt),
+                np.radians(column),
+            )
+        )
+        half_turn = (
+            abs(
+                (float(stage.rotation_180) - float(stage.rotation_reference)) % 360
+                - 180
+            )
+            < 1
+        )
+        for name, tilt, mirrored in (
+            ("SEM", pre_tilt, False),
+            ("MILLING", milling_tilt, False),
+            ("FIB", column - pre_tilt, half_turn),
+        ):
+            diagram = StageDiagram(pre_tilt=pre_tilt, orientation=name)
+            diagram.set_orientation(name, stage_tilt=tilt, mirrored=mirrored)
+            diagram.resize(560, 240)
+            diagram.show()
+            h.pump(200)
+            h.shot(f"orientation-{kind}-{name.lower()}", target=diagram)
+            diagram.close()
+
+    # click to move: a feature off-centre in the SEM, double-clicked, is centred
+    iw.acquire_reference_images()
+    h.wait_acquisition(iw)
+    image = iw.eb_image
+    hgt, wid = image.data.shape[:2]
+    x, y = int(wid * 0.70), int(hgt * 0.30)
+    h.shot(
+        "click-before",
+        target=sem_panel,
+        callout_rects=[h.image_point_rect(sem_canvas, sem_panel, x, y)],
+    )
+    ctrl._on_canvas_double_click(BeamType.ELECTRON, x, y, [])
+    h.wait_move(ctrl, iw)
+    h.shot("click-after", target=sem_panel)
+
+    # coincidence: the fiducial cross, centred in the SEM, sits off-centre in
+    # the FIB by the boot height error; Alt + double-click on it in the FIB
+    # brings the two views into coincidence
+    microscope.system.sim["sample"]["fiducial"] = True
+    microscope._setup_sample_scene()
+    iw.acquire_reference_images()
+    h.wait_acquisition(iw)
+    h.shot("coincidence-before")
+    # where the cross sits in the FIB view: the boot height error, seen at the
+    # ion column's angle (vertical_move inverts exactly this), below centre
+    ib_image = iw.ib_image
+    hgt, wid = ib_image.data.shape[:2]
+    dy = microscope._sample_scene.coincidence_offset * np.sin(
+        np.radians(microscope.system.ion.column_tilt)
+    )
+    y_cross = int(hgt / 2 + dy / ib_image.metadata.pixel_size.y)
+    h.shot(
+        "coincidence-click",
+        target=fib_panel,
+        callout_rects=[h.image_point_rect(fib_canvas, fib_panel, wid // 2, y_cross)],
+    )
+    ctrl._on_canvas_double_click(BeamType.ION, wid // 2, y_cross, ["Alt"])
+    h.wait_move(ctrl, iw)
+    h.shot("coincidence-after")
+    microscope.system.sim["sample"]["fiducial"] = False
+    microscope._setup_sample_scene()
 
 
 # -- entry point --------------------------------------------------------------
