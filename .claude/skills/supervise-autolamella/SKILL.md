@@ -193,7 +193,13 @@ The argument selects a variation on the same loop:
   source pixels with their status — use it for "which items sit near the
   edge / off the grid" judgments, never re-derive stage geometry yourself.
   `quality` is the operator's verdict, not yours: say what you see, propose,
-  and leave the verdict to them.
+  and leave the verdict to them. Starting a screening run is a control
+  action: `POST /app/workflow/grids/plan` first and show the operator the
+  plan (every step, one load per grid — an exchange is the most physical
+  thing this server commands), then `POST /app/workflow/grids/start` with
+  the same body; `screen_all: true` inventories and runs every present grid.
+  One run at a time: it is refused while a lamella run is live, and a
+  lamella start is refused while a grid run is.
 
 ## Acting beyond answers (control permission)
 

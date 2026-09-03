@@ -96,6 +96,11 @@ questions and rewriting protocols are different levels of trust.
 Permissions last the session only. They are granted in the dialog, die when
 the app closes, and never persist — every session starts read-only.
 
+With Control the agent can also start a **grid screening run** — the Grids
+view's Run or Screen all grids, remotely — over the grid tasks in your
+protocol. It is refused while any run is going, and a good agent shows you
+the plan (every grid, its load, its tasks) before it starts one.
+
 ## What the agent cannot do
 
 Command hardware. There is no permission that lets an agent move the stage,

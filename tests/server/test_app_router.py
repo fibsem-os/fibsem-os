@@ -457,3 +457,63 @@ def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview)
     ).json()
     assert unknown["markers"] == []
     assert unknown["filenames"] == ["overview.tif"]
+
+
+def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
+    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+        BeamOverviewGridTaskConfig,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        LOAD_ENTRY_NAME,
+    )
+
+    experiment = host.experiment
+    experiment.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_sem"))
+    experiment.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_fib"))
+    experiment.add_grid(GridRecord(name="grid-aspen"))
+    experiment.add_grid(GridRecord(name="grid-birch"))
+
+    body = client.post(
+        "/app/workflow/grids/plan",
+        headers=AUTH,
+        json={
+            "task_names": ["overview_fib", "overview_sem"],
+            "grid_names": ["grid-birch"],
+        },
+    ).json()
+    assert body["valid"] is True
+    assert body["steps"] == [
+        {"grid": "grid-birch", "step": LOAD_ENTRY_NAME},
+        {"grid": "grid-birch", "step": "overview_fib"},
+        {"grid": "grid-birch", "step": "overview_sem"},
+    ]
+
+    every = client.post(
+        "/app/workflow/grids/plan", headers=AUTH, json={"task_names": ["overview_sem"]}
+    ).json()
+    assert every["grid_names"] == ["grid-aspen", "grid-birch"]
+    assert len(every["steps"]) == 4
+
+    screen = client.post(
+        "/app/workflow/grids/plan",
+        headers=AUTH,
+        json={"task_names": ["overview_sem"], "screen_all": True},
+    ).json()
+    assert screen["valid"] is True and screen["screen_all"] is True
+    assert "inventory" in screen["note"]
+
+    bad_task = client.post(
+        "/app/workflow/grids/plan", headers=AUTH, json={"task_names": ["nope"]}
+    ).json()
+    assert bad_task["valid"] is False
+    assert bad_task["task_names"] == ["overview_sem", "overview_fib"]
+    bad_grid = client.post(
+        "/app/workflow/grids/plan",
+        headers=AUTH,
+        json={"task_names": ["overview_sem"], "grid_names": ["grid-oak"]},
+    ).json()
+    assert bad_grid["valid"] is False
+    assert bad_grid["grid_names"] == ["grid-aspen", "grid-birch"]
+    malformed = client.post("/app/workflow/grids/plan", headers=AUTH, json={})
+    assert malformed.status_code == 422

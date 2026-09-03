@@ -114,6 +114,20 @@ class AppContext(Protocol):
         self, task_names: List[str], item_names: Optional[List[str]] = None
     ) -> Dict[str, Any]: ...
 
+    def grid_workflow_plan(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]] = None,
+        screen_all: bool = False,
+    ) -> Dict[str, Any]: ...
+
+    def start_grid_workflow(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]] = None,
+        screen_all: bool = False,
+    ) -> Dict[str, Any]: ...
+
     def set_supervision(
         self,
         task_name: str,
@@ -124,6 +138,38 @@ class AppContext(Protocol):
     def requeue_task(
         self, item_name: str, task_name: str, front: bool = False
     ) -> Dict[str, Any]: ...
+
+
+def _grid_run_body(body: Dict[str, Any]):
+    """Validate the shared body of the grid plan/start verbs, or raise 422."""
+    task_names = body.get("task_names")
+    grid_names = body.get("grid_names")
+    screen_all = body.get("screen_all", False)
+    ok = (
+        isinstance(task_names, list)
+        and bool(task_names)
+        and all(isinstance(t, str) for t in task_names)
+        and (
+            grid_names is None
+            or (
+                isinstance(grid_names, list)
+                and all(isinstance(g, str) for g in grid_names)
+            )
+        )
+        and isinstance(screen_all, bool)
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_type": "missing_field",
+                "message": "Pass task_names (non-empty list of grid task names); "
+                "grid_names (list of strings) is optional — omitted means every "
+                "recorded grid; screen_all (bool) inventories first and runs over "
+                "every present grid, and takes no grid_names.",
+            },
+        )
+    return task_names, grid_names, screen_all
 
 
 def _jpeg_or_404(result: Dict[str, Any]) -> Response:
@@ -219,6 +265,14 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/prompt")
     def pending_prompt():
         return context.pending_prompt()
+
+    @router.post("/workflow/grids/plan")
+    def grid_workflow_plan(body: Dict[str, Any]):
+        # A POST on the read router because it computes, never acts: the
+        # preflight dialog's content for a grid run, from a body a GET could
+        # not carry cleanly. No hardware is read.
+        task_names, grid_names, screen_all = _grid_run_body(body)
+        return context.grid_workflow_plan(task_names, grid_names, screen_all)
 
     @router.post("/workflow/stop")
     def stop_workflow():
@@ -321,6 +375,13 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 },
             )
         return context.start_workflow(task_names, item_names)
+
+    @router.post("/workflow/grids/start")
+    def start_grid_workflow(body: Dict[str, Any]):
+        # The Grids view's Run / Screen all grids, remotely. Shares the lamella
+        # run's worker slot, so the context refuses it while any run is live.
+        task_names, grid_names, screen_all = _grid_run_body(body)
+        return context.start_grid_workflow(task_names, grid_names, screen_all)
 
     @router.post("/agent/notes")
     def add_note(body: Dict[str, Any]):

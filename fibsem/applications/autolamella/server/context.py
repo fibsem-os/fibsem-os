@@ -282,9 +282,19 @@ class AgentContext:
         if task_protocol is None:
             return {"available": False, "tasks": []}
         config = task_protocol.workflow_config
+        grid_protocol = experiment.grid_protocol
         return {
             "available": True,
             "name": config.name,
+            # The grid protocol beside the lamella workflow: what a grid run
+            # can name. Kind is the registered task type (beam vs FM overview).
+            "grid_tasks": [
+                {
+                    "name": name,
+                    "type": getattr(grid_protocol.task_config[name], "task_type", None),
+                }
+                for name in grid_protocol.ordered_task_names
+            ],
             "tasks": [
                 {
                     "name": task.name,
@@ -1101,6 +1111,109 @@ class AgentContext:
         if not hasattr(host, "request_start_workflow"):
             return {"available": False, "started": False}
         outcome = host.request_start_workflow(list(task_names), item_names)
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        return result
+
+    def grid_workflow_plan(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]] = None,
+        screen_all: bool = False,
+    ) -> Dict[str, Any]:
+        """What a grid run would execute, for a confirmation — no hardware.
+
+        The ``(grid, step)`` sequence the manager builds, grid-outer with each
+        grid's load first, validated against the grid protocol and the
+        recorded grids exactly as :meth:`start_grid_workflow` will. For
+        ``screen_all`` the grids are whatever the inventory finds at run time,
+        so the plan names the known grids and says so rather than guessing.
+        Exchanges are deliberately not counted: whether a grid is in the beam
+        is a live stage fact this facade does not read.
+        """
+        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+            plan_grid_run,
+        )
+
+        experiment = self._experiment
+        if experiment is None or experiment.task_protocol is None:
+            return {
+                "available": False,
+                "valid": False,
+                "reason": "no experiment is loaded",
+            }
+        known_tasks = list(experiment.grid_protocol.ordered_task_names)
+        unknown = [t for t in task_names if t not in known_tasks]
+        if not task_names or unknown:
+            return {
+                "available": True,
+                "valid": False,
+                "reason": f"unknown grid tasks: {unknown!r}" if unknown else "no tasks",
+                "task_names": known_tasks,
+            }
+        known_grids = [g.name for g in experiment.grids]
+        if screen_all:
+            if grid_names is not None:
+                return {
+                    "available": True,
+                    "valid": False,
+                    "reason": "screen_all runs over every present grid; "
+                    "do not name grids with it",
+                }
+            return {
+                "available": True,
+                "valid": True,
+                "screen_all": True,
+                "task_names": list(task_names),
+                "grid_names": known_grids,
+                "note": "inventory first; the grids run are those present at run time",
+                "steps": [
+                    {"grid": grid, "step": step}
+                    for grid, step in plan_grid_run(list(task_names), known_grids)
+                ],
+            }
+        if grid_names is None:
+            grid_names = known_grids
+        missing = [n for n in grid_names if n not in known_grids]
+        if missing:
+            return {
+                "available": True,
+                "valid": False,
+                "reason": f"unknown grids: {missing!r}",
+                "grid_names": known_grids,
+            }
+        return {
+            "available": True,
+            "valid": True,
+            "screen_all": False,
+            "task_names": list(task_names),
+            "grid_names": list(grid_names),
+            "steps": [
+                {"grid": grid, "step": step}
+                for grid, step in plan_grid_run(list(task_names), list(grid_names))
+            ],
+        }
+
+    def start_grid_workflow(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]] = None,
+        screen_all: bool = False,
+        timeout: float = 15.0,
+    ) -> Dict[str, Any]:
+        """Start a grid run as the Grids view's Run (or Screen all grids) would.
+
+        Marshalled to the GUI thread like :meth:`start_workflow`; shares its
+        worker slot, so it is refused while any workflow — lamella or grid —
+        is running. Control-scope arming stands in for the preflight dialog's
+        Run click; :meth:`grid_workflow_plan` is that dialog's content.
+        """
+        host = self._host
+        if not hasattr(host, "request_start_grid_workflow"):
+            return {"available": False, "started": False}
+        outcome = host.request_start_grid_workflow(
+            list(task_names), grid_names, inventory_first=screen_all
+        )
         result = outcome.result(timeout=timeout)
         result["available"] = True
         return result

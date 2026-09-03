@@ -189,6 +189,8 @@ class AutoLamellaUI(QMainWindow):
     # A remote (agent) start request, marshalled to the GUI thread the same
     # way agent answers are: (task_names, item_names, Future[dict]).
     _agent_start_workflow = pyqtSignal(list, object, object)
+    # The grid twin: (task_names, grid_names, inventory_first, Future[dict]).
+    _agent_start_grid_workflow = pyqtSignal(list, object, bool, object)
     # (item_name, task_name, patch, version, Future) — the config-patch marshal
     _agent_config_patch = pyqtSignal(str, str, str, object, str, object)
 
@@ -208,6 +210,7 @@ class AutoLamellaUI(QMainWindow):
         # widget itself is built in _setup_ui, before the responder exists.
         self.ui_responder.add_question_observer(self.question_timeline.record)
         self._agent_start_workflow.connect(self._apply_agent_start_workflow)
+        self._agent_start_grid_workflow.connect(self._apply_agent_start_grid_workflow)
         self._agent_config_patch.connect(self._apply_agent_config_patch)
 
         self._protocol_lock = threading.RLock()
@@ -1224,6 +1227,115 @@ class AutoLamellaUI(QMainWindow):
             except Exception:
                 logging.exception("window chrome after agent start failed")
         return {"started": started}
+
+    def request_start_grid_workflow(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]] = None,
+        inventory_first: bool = False,
+    ) -> "Future":
+        """Start a grid run as the Grids view's Run (or Screen all grids) would;
+        any thread. Same marshal as :meth:`request_start_workflow`."""
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_start_grid_workflow.emit(
+            list(task_names), grid_names, bool(inventory_first), outcome
+        )
+        return outcome
+
+    def _apply_agent_start_grid_workflow(
+        self, task_names: List[str], grid_names, inventory_first: bool, outcome
+    ) -> None:
+        """GUI thread. Complete ``outcome`` with the start result."""
+        try:
+            result = self._start_grid_workflow_for_agent(
+                task_names, grid_names, inventory_first
+            )
+        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
+            outcome.set_exception(exc)
+            return
+        outcome.set_result(result)
+
+    def _start_grid_workflow_for_agent(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]],
+        inventory_first: bool,
+    ) -> dict:
+        """Validate and start, mirroring the Grids view's Run path (GUI thread).
+
+        One worker slot serves lamella and grid runs alike, so "a workflow is
+        already running" refuses either kind. ``inventory_first`` is "Screen
+        all grids": the worker inventories and runs over every present grid,
+        so ``grid_names`` must be omitted; otherwise omitted grids means every
+        grid the experiment records, as the manager's own default does.
+        """
+        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+            plan_grid_run,
+        )
+
+        if self.is_workflow_running:
+            return {"started": False, "reason": "a workflow is already running"}
+        if self.microscope is None:
+            return {"started": False, "reason": "no microscope is connected"}
+        experiment = self.experiment
+        if experiment is None or experiment.task_protocol is None:
+            return {"started": False, "reason": "no experiment is loaded"}
+        known_tasks = list(experiment.grid_protocol.ordered_task_names)
+        unknown = [t for t in task_names if t not in known_tasks]
+        if not task_names or unknown:
+            return {
+                "started": False,
+                "reason": f"unknown grid tasks: {unknown!r}" if unknown else "no tasks",
+                "task_names": known_tasks,
+            }
+        known_grids = [g.name for g in experiment.grids]
+        if inventory_first:
+            if grid_names is not None:
+                return {
+                    "started": False,
+                    "reason": "screen_all runs over every present grid; "
+                    "do not name grids with it",
+                }
+        elif grid_names is None:
+            grid_names = known_grids
+        else:
+            missing = [n for n in grid_names if n not in known_grids]
+            if missing:
+                return {
+                    "started": False,
+                    "reason": f"unknown grids: {missing!r}",
+                    "grid_names": known_grids,
+                }
+        if not inventory_first and not grid_names:
+            return {"started": False, "reason": "no grids", "grid_names": known_grids}
+        parent = self.parent_widget
+        if parent is not None:
+            try:
+                # FIB-683 one-writer rule, as the Grids view's Run does.
+                parent.lamella_widget.flush_pending_save()
+            except Exception:
+                logging.exception("flush before agent grid start failed; continuing")
+        self._start_run_grid_workflow_thread(
+            task_names,
+            list(grid_names) if grid_names is not None else None,
+            inventory_first,
+        )
+        started = self.is_workflow_running
+        if started and parent is not None:
+            try:
+                parent._set_border_state("automated")
+                parent.set_workflow_running()
+            except Exception:
+                logging.exception("window chrome after agent grid start failed")
+        result = {"started": started, "screen_all": inventory_first}
+        if not inventory_first:
+            result["plan"] = [
+                {"grid": grid, "step": step}
+                for grid, step in plan_grid_run(task_names, grid_names or [])
+            ]
+        return result
 
     def request_apply_task_config_patch(
         self, item_name: str, task_name: str, patch: dict, version: str
