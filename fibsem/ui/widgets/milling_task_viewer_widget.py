@@ -19,7 +19,7 @@ from fibsem.ui import notification_service
 # — it validates a pattern against the image bounds and never touches a Viewer or Layer.
 # It is the last thing keeping this module coupled to that package, and it moves out with
 # the geometry extraction tracked on FIB-407 §1.
-from fibsem.ui.napari.patterns import is_pattern_placement_valid
+from fibsem.ui.pattern_shapes import is_pattern_placement_valid
 from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
@@ -80,7 +80,9 @@ class MillingTaskViewerWidget(QWidget):
         self._controller = None
         self._fib_canvas = None
         self._background_milling_stages: List[FibsemMillingStage] = []
-        self._patterns_visible = True  # eye-toggle state (mirrored onto MillingSpec.visible)
+        self._patterns_visible = (
+            True  # eye-toggle state (mirrored onto MillingSpec.visible)
+        )
         self._pattern_update_pending = False
         self._settings_emit_pending: bool = False
         self._pending_settings: Optional[FibsemMillingTaskConfig] = None
@@ -198,7 +200,9 @@ class MillingTaskViewerWidget(QWidget):
     def closeEvent(self, event) -> None:
         if self._controller is not None and self._fib_canvas is not None:
             try:
-                self._fib_canvas.canvas_right_clicked.disconnect(self._on_canvas_right_click)
+                self._fib_canvas.canvas_right_clicked.disconnect(
+                    self._on_canvas_right_click
+                )
             except Exception:
                 pass
             try:

@@ -1,0 +1,450 @@
+"""Milling patterns as image-space shapes, with no napari behind them.
+
+The converters here turn a pattern's settings into the vertex arrays the canvas
+overlays draw and the placement checks validate. They keep their `_to_napari_` names
+because the shapes are in napari's (row, column) convention and every caller and test
+was written against those names; what changed is only where they live.
+
+They used to sit in `fibsem/ui/napari/patterns.py`, which imports napari at module
+level -- so every widget that wanted a colour name or a placement check dragged 194
+napari modules into the main application, and the conversion tests skipped on CI
+(which installs no napari). The napari half -- layer properties, `NapariPattern`,
+`draw_milling_patterns_in_napari` -- stays there and imports from here.
+"""
+
+from __future__ import annotations
+
+import logging
+from copy import deepcopy
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+from skimage.transform import resize
+
+from fibsem.conversions import microscope_image_to_image_coordinates
+from fibsem.milling.patterning.patterns2 import (
+    BasePattern,
+    FiducialPattern,
+)
+from fibsem.structures import (
+    FibsemBitmapSettings,
+    FibsemCircleSettings,
+    FibsemImage,
+    FibsemLineSettings,
+    FibsemPatternSettings,
+    FibsemPolygonSettings,
+    FibsemRectangle,
+    FibsemRectangleSettings,
+    Point,
+    calculate_fiducial_area_v2,
+)
+
+# colour wheel
+COLOURS = [
+    "yellow",
+    "cyan",
+    "magenta",
+    "lime",
+    "orange",
+    "hotpink",
+    "green",
+    "blue",
+    "red",
+    "purple",
+]
+IMAGE_PATTERN_TYPES = ("bitmap",)
+
+
+def create_affine_matrix(
+    scale: Tuple[float, float] = (1, 1),
+    rotation: float = 0,
+    centre: Tuple[float, float] = (0, 0),
+    translation: Tuple[float, float] = (0, 0),
+) -> np.ndarray:
+    cos_theta = np.cos(-rotation)
+    sin_theta = np.sin(-rotation)
+
+    centre_image = np.asarray(
+        [[1, 0, -centre[0]], [0, 1, -centre[1]], [0, 0, 1]], dtype=float
+    )
+
+    scale_image = np.asarray(
+        [[scale[0], 0, 0], [0, scale[1], 0], [0, 0, 1]], dtype=float
+    )
+
+    rotate_image = np.asarray(
+        [[cos_theta, -sin_theta, 0], [sin_theta, cos_theta, 0], [0, 0, 1]], dtype=float
+    )
+
+    translate_image = np.asarray(
+        [[1, 0, translation[0]], [0, 1, translation[1]], [0, 0, 1]], dtype=float
+    )
+
+    transform = translate_image @ scale_image @ rotate_image @ centre_image
+
+    return transform
+
+
+def convert_pattern_to_napari_circle(
+    pattern_settings: FibsemCircleSettings,
+    shape: Tuple[int, int],
+    pixelsize: float,
+    translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    if not isinstance(pattern_settings, FibsemCircleSettings):
+        raise ValueError(f"Pattern is not a Circle: {pattern_settings}")
+
+    # pattern to pixel coords
+    r = int(pattern_settings.radius / pixelsize)
+    centre = microscope_image_to_image_coordinates(
+        Point(x=pattern_settings.centre_x, y=pattern_settings.centre_y),
+        shape,
+        pixelsize,
+    )
+    cx, cy = int(centre.x), int(centre.y)
+
+    # create corner coords
+    xmin, ymin = cx - r, cy - r
+    xmax, ymax = cx + r, cy + r
+
+    # create circle
+    circle = [[ymin, xmin], [ymin, xmax], [ymax, xmax], [ymax, xmin]]  # ??
+    return np.array(circle), {"translate": translation}
+
+
+def convert_pattern_to_napari_line(
+    pattern_settings: FibsemLineSettings,
+    shape: Tuple[int, int],
+    pixelsize: float,
+    translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    if not isinstance(pattern_settings, FibsemLineSettings):
+        raise ValueError(f"Pattern is not a Line: {pattern_settings}")
+
+    # extract pattern information from settings
+    start_x = pattern_settings.start_x
+    start_y = pattern_settings.start_y
+    end_x = pattern_settings.end_x
+    end_y = pattern_settings.end_y
+
+    # pattern to pixel coords
+    start = microscope_image_to_image_coordinates(
+        Point(x=start_x, y=start_y), shape, pixelsize
+    )
+    end = microscope_image_to_image_coordinates(
+        Point(x=end_x, y=end_y), shape, pixelsize
+    )
+    px0, py0 = int(start.x), int(start.y)
+    px1, py1 = int(end.x), int(end.y)
+
+    # napari shape format [[y_start, x_start], [y_end, x_end]])
+    line = [[py0, px0], [py1, px1]]
+    return np.array(line), {"translate": translation}
+
+
+def convert_pattern_to_napari_rect(
+    pattern_settings: FibsemRectangleSettings,
+    shape: Tuple[int, int],
+    pixelsize: float,
+    translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    if not isinstance(pattern_settings, FibsemRectangleSettings):
+        raise ValueError(f"Pattern is not a Rectangle: {pattern_settings}")
+
+    # extract pattern information from settings
+    pattern_width = pattern_settings.width
+    pattern_height = pattern_settings.height
+    pattern_centre_x = pattern_settings.centre_x
+    pattern_centre_y = pattern_settings.centre_y
+    pattern_rotation = pattern_settings.rotation
+
+    # pattern to pixel coords
+    w = int(pattern_width / pixelsize)
+    h = int(pattern_height / pixelsize)
+    centre = microscope_image_to_image_coordinates(
+        Point(x=pattern_centre_x, y=pattern_centre_y), shape, pixelsize
+    )
+    cx, cy = int(centre.x), int(centre.y)
+    r = -pattern_rotation  #
+    xmin, xmax = -w / 2, w / 2
+    ymin, ymax = -h / 2, h / 2
+    px0 = cx + (xmin * np.cos(r) - ymin * np.sin(r))
+    py0 = cy + (xmin * np.sin(r) + ymin * np.cos(r))
+    px1 = cx + (xmax * np.cos(r) - ymin * np.sin(r))
+    py1 = cy + (xmax * np.sin(r) + ymin * np.cos(r))
+    px2 = cx + (xmax * np.cos(r) - ymax * np.sin(r))
+    py2 = cy + (xmax * np.sin(r) + ymax * np.cos(r))
+    px3 = cx + (xmin * np.cos(r) - ymax * np.sin(r))
+    py3 = cy + (xmin * np.sin(r) + ymax * np.cos(r))
+    # napari shape format
+    rect = [[py0, px0], [py1, px1], [py2, px2], [py3, px3]]
+    return np.array(rect), {"translate": translation}
+
+
+def create_crosshair_shape(
+    centre_point: Point,
+    shape: Tuple[int, int],
+    pixelsize: float,
+    translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    pattern_centre_x = centre_point.x
+    pattern_centre_y = centre_point.y
+
+    centre = microscope_image_to_image_coordinates(
+        Point(x=pattern_centre_x, y=pattern_centre_y), shape, pixelsize
+    )
+    cx, cy = int(centre.x), int(centre.y)
+
+    r_angles = [0, np.deg2rad(90)]  #
+    w = 40
+    h = 1
+    crosshair_shapes = []
+
+    for r in r_angles:
+        xmin, xmax = -w / 2, w / 2
+        ymin, ymax = -h / 2, h / 2
+        px0 = cx + (xmin * np.cos(r) - ymin * np.sin(r))
+        py0 = cy + (xmin * np.sin(r) + ymin * np.cos(r))
+        px1 = cx + (xmax * np.cos(r) - ymin * np.sin(r))
+        py1 = cy + (xmax * np.sin(r) + ymin * np.cos(r))
+        px2 = cx + (xmax * np.cos(r) - ymax * np.sin(r))
+        py2 = cy + (xmax * np.sin(r) + ymax * np.cos(r))
+        px3 = cx + (xmin * np.cos(r) - ymax * np.sin(r))
+        py3 = cy + (xmin * np.sin(r) + ymax * np.cos(r))
+        # napari shape format
+        rect = [[py0, px0], [py1, px1], [py2, px2], [py3, px3]]
+        crosshair_shapes.append(rect)
+
+    return np.array(crosshair_shapes), {"translate": translation}
+
+
+def convert_bitmap_pattern_to_napari_image(
+    pattern_settings: FibsemBitmapSettings,
+    shape: Tuple[int, int],
+    pixelsize: float,
+    translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    centre = microscope_image_to_image_coordinates(
+        Point(x=pattern_settings.centre_x, y=pattern_settings.centre_y),
+        shape,
+        pixelsize,
+    )
+
+    resize_x = int(pattern_settings.width / pixelsize)
+    resize_y = int(pattern_settings.height / pixelsize)
+
+    if pattern_settings.bitmap is None:
+        img_array = np.zeros((resize_y, resize_x), dtype=float)
+    else:
+        # Resize here so that the border displays correctly
+        img_array = resize(
+            pattern_settings.bitmap[:, :, 0].astype(float), (resize_y, resize_x)
+        )
+
+    # scale = (img_array.shape[1] / resize_y, img_array.shape[0] / resize_x)
+    # Add border
+    ew = SHAPES_LAYER_PROPERTIES["image_edge_width"]
+    img_array[:ew, :] = 1
+    img_array[:, :ew] = 1
+    img_array[img_array.shape[0] - ew - 1 :, :] = 1
+    img_array[:, img_array.shape[1] - ew - 1 :] = 1
+
+    return img_array, {
+        "affine": create_affine_matrix(
+            rotation=-pattern_settings.rotation,
+            centre=(
+                img_array.shape[0] / 2,
+                img_array.shape[1] / 2,
+            ),
+            # (row, column) for the affine, so y first
+            translation=(centre.y, centre.x),
+        ),
+        "translate": translation,
+    }
+
+
+def convert_pattern_to_napari_polygon(
+    pattern_settings: FibsemPolygonSettings,
+    shape: Tuple[int, int],
+    pixelsize: float,
+    translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    if not isinstance(pattern_settings, FibsemPolygonSettings):
+        raise ValueError(f"Pattern is not a Polygon: {pattern_settings}")
+
+    # Vertices are (x, y) in microscope metres, the same frame as every other
+    # pattern's centre_x / centre_y. This previously added the image centre to
+    # both axes, which drew the polygon mirrored about it: microscope +y is up
+    # and image rows go down, so y has to be subtracted, not added (FIB-692).
+    points = [
+        microscope_image_to_image_coordinates(
+            Point(x=float(vx), y=float(vy)), shape, pixelsize
+        )
+        for vx, vy in pattern_settings.vertices
+    ]
+
+    # napari wants (row, column) — i.e. (y, x) — so the swap happens after the
+    # conversion, not before it
+    vertices = np.array([[p.y, p.x] for p in points], dtype=float).reshape(-1, 2)
+
+    return vertices, {"translate": translation}
+
+
+NAPARI_DRAWING_DICT = {
+    FibsemRectangleSettings: (convert_pattern_to_napari_rect, "rectangle"),
+    FibsemCircleSettings: (convert_pattern_to_napari_circle, "ellipse"),
+    FibsemLineSettings: (convert_pattern_to_napari_line, "line"),
+    FibsemBitmapSettings: (convert_bitmap_pattern_to_napari_image, "bitmap"),
+    FibsemPolygonSettings: (convert_pattern_to_napari_polygon, "polygon"),
+}
+
+
+def convert_point_to_napari(resolution: list, pixel_size: float, centre: Point):
+    # `resolution` is [x, y] (structures.py: "resolution of the acquired image
+    # in pixels, [x, y]"), the opposite order to a numpy `shape`. Swap it here
+    # rather than at the reader: the old code indexed [1] then [0] to compensate,
+    # which reads like a bug and is not one.
+    pt = microscope_image_to_image_coordinates(
+        centre, (resolution[1], resolution[0]), pixel_size
+    )
+
+    return Point(int(pt.x), int(pt.y))
+
+
+def validate_pattern_image_placement(
+    image_shape: Tuple[int, int], image: np.ndarray, affine: Optional[np.ndarray] = None
+) -> bool:
+    corners = [
+        [0, 0],
+        [image.shape[0], 0],
+        [image.shape[0], image.shape[1]],
+        [0, image.shape[1]],
+    ]
+
+    return validate_pattern_shape_placement(
+        image_shape=image_shape, shape=corners, affine=affine
+    )
+
+
+def validate_pattern_shape_placement(
+    image_shape: Tuple[int, int],
+    shape: List[List[Union[float, int]]],
+    affine: Optional[np.ndarray] = None,
+):
+    """Validate that the pattern shapes are within the image resolution"""
+    x_lim = image_shape[1]
+    y_lim = image_shape[0]
+
+    shape_array = np.asarray(shape, dtype=float)
+    if affine is not None:
+        # A bit fiddly but this applies the affine array to the 2D coordinates
+        # without broadcasting issues.
+        coords = np.pad(shape_array, ((0, 0), (0, 1)), constant_values=1)
+        shape_array = (affine[:2, :] @ coords[:, :, np.newaxis]).squeeze(-1)
+    ymin = np.min(shape_array[:, 0])
+    ymax = np.max(shape_array[:, 0])
+    xmin = np.min(shape_array[:, 1])
+    xmax = np.max(shape_array[:, 1])
+
+    if xmin < 0 or xmax > x_lim:
+        return False
+    if ymin < 0 or ymax > y_lim:
+        return False
+
+    return True
+
+
+def is_pattern_placement_valid(pattern: BasePattern, image: FibsemImage) -> bool:
+    """Check if the pattern is within the image bounds."""
+
+    if isinstance(pattern, FiducialPattern):
+        _, is_not_valid_placement = calculate_fiducial_area_v2(
+            image=image,
+            fiducial_centre=deepcopy(pattern.point),
+            fiducial_length=pattern.height,
+        )
+        return not is_not_valid_placement
+
+    for pattern_settings in pattern.define():
+        draw_func, shape_type = NAPARI_DRAWING_DICT.get(
+            type(pattern_settings), (None, None)
+        )
+        if draw_func is None:
+            logging.warning(f"Pattern type {type(pattern_settings)} not supported")
+            return False
+
+        napari_shape, kwargs = draw_func(
+            pattern_settings=pattern_settings,
+            shape=image.data.shape,
+            pixelsize=image.metadata.pixel_size.x,
+        )
+        if shape_type in IMAGE_PATTERN_TYPES:
+            is_valid_placement = validate_pattern_image_placement(
+                image_shape=image.data.shape,
+                image=napari_shape,
+                affine=kwargs.get("affine"),
+            )
+        else:
+            is_valid_placement = validate_pattern_shape_placement(
+                image_shape=image.data.shape,
+                shape=napari_shape,
+                affine=kwargs.get("affine"),
+            )
+
+        if not is_valid_placement:
+            return False
+
+    return True
+
+
+def convert_reduced_area_to_napari_shape(
+    reduced_area: FibsemRectangle, image_shape: Tuple[int, int]
+) -> np.ndarray:
+    """Convert a reduced area to a napari shape."""
+    x0 = reduced_area.left * image_shape[1]
+    y0 = reduced_area.top * image_shape[0]
+    x1 = x0 + reduced_area.width * image_shape[1]
+    y1 = y0 + reduced_area.height * image_shape[0]
+    data = [[y0, x0], [y0, x1], [y1, x1], [y1, x0]]
+    return np.array(data)
+
+
+def convert_shape_to_image_area(
+    shape: List[List[int]], image_shape: Tuple[int, int]
+) -> FibsemRectangle:
+    """Convert a napari shape (rectangle) to  a FibsemRectangle expressed as a percentage of the image (reduced area)
+    shape: the coordinates of the shape
+    image_shape: the shape of the image (usually the ion beam image)
+    """
+    # get limits of rectangle
+    y0, x0 = shape[0]
+    y1, x1 = shape[1]
+    """
+        0################1
+        |               |
+        |               |
+        |               |
+        3################2
+    """
+    # get min/max coordinates
+    x_coords = [x[1] for x in shape]
+    y_coords = [x[0] for x in shape]
+    x0, x1 = min(x_coords), max(x_coords)
+    y0, y1 = min(y_coords), max(y_coords)
+
+    logging.debug(
+        f"convert shape data: {x0}, {x1}, {y0}, {y1}, fib shape: {image_shape}"
+    )
+
+    # convert to percentage of image
+    x0 = float(x0 / image_shape[1])
+    x1 = float(x1 / image_shape[1])
+    y0 = float(y0 / image_shape[0])
+    y1 = float(y1 / image_shape[0])
+    w = x1 - x0
+    h = y1 - y0
+
+    reduced_area = FibsemRectangle(left=x0, top=y0, width=w, height=h)
+    logging.debug(f"reduced area: {reduced_area}")
+
+    return reduced_area

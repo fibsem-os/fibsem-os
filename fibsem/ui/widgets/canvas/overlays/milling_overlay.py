@@ -17,6 +17,7 @@ milling.
 Deferred (see design doc): direct drag-to-move, FOV rect, alignment area,
 selected-stage highlight, background stages, annulus / bitmap shapes.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,7 +36,7 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     Point,
 )
-from fibsem.ui.napari.patterns import (
+from fibsem.ui.pattern_shapes import (
     COLOURS,
     convert_pattern_to_napari_line,
     convert_pattern_to_napari_polygon,
@@ -90,7 +91,11 @@ class MillingPatternOverlay(CanvasOverlay):
     def on_content_changed(self, rect: "ContentRect") -> None:
         # ax was cleared + new content drawn; re-create artists from cached stages
         self._remove_artists()
-        if not rect.is_empty and (self._stages or self._background_stages) and self._image is not None:
+        if (
+            not rect.is_empty
+            and (self._stages or self._background_stages)
+            and self._image is not None
+        ):
             self._draw()
 
     # ── public API ────────────────────────────────────────────────────────
@@ -156,11 +161,17 @@ class MillingPatternOverlay(CanvasOverlay):
         for stage in self._background_stages:
             try:
                 self._draw_stage(
-                    stage, shape, pixelsize, _BACKGROUND_COLOUR,
-                    linewidth=_LINEWIDTH, zorder=_PATTERN_ZORDER - 2,
+                    stage,
+                    shape,
+                    pixelsize,
+                    _BACKGROUND_COLOUR,
+                    linewidth=_LINEWIDTH,
+                    zorder=_PATTERN_ZORDER - 2,
                 )
             except Exception:
-                _logger.exception("MillingPatternOverlay: failed to draw background stage")
+                _logger.exception(
+                    "MillingPatternOverlay: failed to draw background stage"
+                )
 
         # foreground stages (per-colour; selected is thicker and on top)
         for i, stage in enumerate(self._stages):
@@ -202,8 +213,16 @@ class MillingPatternOverlay(CanvasOverlay):
         )
         self._legend.set_zorder(10)
 
-    def _draw_stage(self, stage, shape, pixelsize: float, colour: str,
-                    *, linewidth: float, zorder: float) -> None:
+    def _draw_stage(
+        self,
+        stage,
+        shape,
+        pixelsize: float,
+        colour: str,
+        *,
+        linewidth: float,
+        zorder: float,
+    ) -> None:
         for pattern_settings in stage.define_patterns():
             artist = self._shape_to_artist(
                 pattern_settings, shape, pixelsize, colour, linewidth, zorder
@@ -211,10 +230,13 @@ class MillingPatternOverlay(CanvasOverlay):
             if artist is not None:
                 self._ax.add_artist(artist)
                 self._artists.append(artist)
-        self._draw_crosshair(stage.pattern.point, shape, pixelsize, colour, zorder + 0.5)
+        self._draw_crosshair(
+            stage.pattern.point, shape, pixelsize, colour, zorder + 0.5
+        )
 
-    def _shape_to_artist(self, ps, shape, pixelsize: float, colour: str,
-                         linewidth: float, zorder: float):
+    def _shape_to_artist(
+        self, ps, shape, pixelsize: float, colour: str, linewidth: float, zorder: float
+    ):
         # Solid edge + same-colour fill at _FILL_ALPHA. Independent face/edge
         # alphas via RGBA (a patch-level ``alpha`` would dim the edge too).
         patch_kw = dict(
@@ -225,7 +247,9 @@ class MillingPatternOverlay(CanvasOverlay):
         )
         if isinstance(ps, FibsemRectangleSettings):
             verts, _ = convert_pattern_to_napari_rect(ps, shape, pixelsize)
-            return mpatches.Polygon(verts[:, ::-1], closed=True, **patch_kw)  # (y,x)→(x,y)
+            return mpatches.Polygon(
+                verts[:, ::-1], closed=True, **patch_kw
+            )  # (y,x)→(x,y)
         if isinstance(ps, FibsemCircleSettings):
             centre = microscope_image_to_image_coordinates(
                 Point(x=ps.centre_x, y=ps.centre_y), shape, pixelsize
@@ -237,15 +261,20 @@ class MillingPatternOverlay(CanvasOverlay):
             verts, _ = convert_pattern_to_napari_line(ps, shape, pixelsize)
             (y0, x0), (y1, x1) = verts
             return mlines.Line2D(
-                [x0, x1], [y0, y1], color=colour, linewidth=linewidth, zorder=zorder,
+                [x0, x1],
+                [y0, y1],
+                color=colour,
+                linewidth=linewidth,
+                zorder=zorder,
             )
         if isinstance(ps, FibsemPolygonSettings):
             verts, _ = convert_pattern_to_napari_polygon(ps, shape, pixelsize)
             return mpatches.Polygon(verts[:, ::-1], closed=True, **patch_kw)
         return None  # bitmap / annulus / unknown — deferred
 
-    def _draw_crosshair(self, point, shape, pixelsize: float, colour: str,
-                        zorder: float) -> None:
+    def _draw_crosshair(
+        self, point, shape, pixelsize: float, colour: str, zorder: float
+    ) -> None:
         centre = microscope_image_to_image_coordinates(point, shape, pixelsize)
         cx, cy = centre.x, centre.y
         h = _CROSSHAIR_HALF_PX
