@@ -477,7 +477,20 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         """Callback when the selected milling stage changes."""
         selected_task_name = self.task_list_widget.selected_task
 
-        task_config = self.experiment.task_protocol.task_config[selected_task_name]
+        task_config = self.experiment.task_protocol.task_config.get(selected_task_name)
+        if task_config is None:
+            # No lamella task to show: a protocol with none yet (a grid-only
+            # experiment, or one being built from an empty protocol). The
+            # columns wait for a task rather than the editor failing to open.
+            self.task_parameters_config_widget.setVisible(False)
+            self.ref_image_params_widget.setVisible(False)
+            self._current_milling_key = None
+            self.milling_task_editor.clear()
+            self.milling_task_editor.setVisible(False)
+            self.fluorescence_acquisition_task_config_widget.setVisible(False)
+            return
+        self.task_parameters_config_widget.setVisible(True)
+        self.ref_image_params_widget.setVisible(True)
         self.task_parameters_config_widget.set_task_config(task_config)
         self.ref_image_params_widget.update_from_settings(task_config.reference_imaging)
 
