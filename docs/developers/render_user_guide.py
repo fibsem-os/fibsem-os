@@ -183,6 +183,16 @@ class Harness:
         self.connection.refresh_first_run_offer()
         self.pump()
 
+    def wait_acquisition(self, widget, timeout_ms: int = 30000) -> None:
+        """Pump until the image widget's acquisition worker has finished."""
+        waited = 0
+        while getattr(widget, "is_acquiring", False) and waited < timeout_ms:
+            self.pump(100)
+            waited += 100
+        if getattr(widget, "is_acquiring", False):
+            raise RuntimeError("acquisition did not finish")
+        self.pump(300)
+
     def show_tab(self, index: int) -> None:
         self.window.tab_widget.setCurrentIndex(index)
         self.pump()
@@ -415,6 +425,81 @@ def render_getting_started(h: Harness) -> None:
         callouts=[conn._frame_status, h.ui.tabWidget.tabBar()],
         numbered=True,
     )
+
+
+@page("imaging")
+def render_imaging(h: Harness) -> None:
+    """The Image tab: the two panels, the first images, field of view, saving, live."""
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    iw = h.ui.image_widget
+    h.ui.tabWidget.setCurrentWidget(iw)
+    h.pump(300)
+    panels = h.window.view_controller.widget._all_panels
+    sem_panel, fib_panel = panels[0], panels[2]
+    settings = iw.image_settings_widget
+    # the save path defaults to this checkout's log directory; the example's
+    settings.path_edit.setText(EXAMPLE_EXPERIMENT_DIR)
+    h.pump()
+
+    # the tab before anything is acquired: beam panel, image panel, the buttons
+    h.shot(
+        "image-tab",
+        target=iw,
+        callouts=[
+            iw.dual_beam_widget,
+            iw.image_group,
+            iw.pushButton_take_all_images,
+            iw.pushButton_start_acquisition,
+        ],
+        numbered=True,
+        crop=True,
+    )
+
+    # first images of the grid, both beams, at the shipped field of view
+    iw.acquire_reference_images()
+    h.wait_acquisition(iw)
+    h.shot("first-images")
+
+    # the same place at three fields of view, SEM only
+    for hfw in (400.0, 150.0, 50.0):
+        settings.hfw_spinbox.setValue(hfw)
+        iw.acquire_sem_image()
+        h.wait_acquisition(iw)
+        h.shot(f"sem-{int(hfw)}um", target=sem_panel)
+    settings.hfw_spinbox.setValue(150.0)
+    iw.acquire_reference_images()
+    h.wait_acquisition(iw)
+    h.shot("fib-150um", target=fib_panel)
+
+    # the two panels on their own
+    h.shot("beam-panel", target=iw.dual_beam_widget)
+    h.shot("image-panel", target=iw.image_group)
+
+    # saving: tick save, name the file, box the three controls
+    settings.save_image_check.setChecked(True)
+    settings.filename_edit.setText("grid-overview")
+    h.pump()
+    h.shot(
+        "save-settings",
+        target=iw.image_group,
+        callouts=[
+            settings.save_image_check,
+            settings.path_edit,
+            settings.filename_edit,
+        ],
+        numbered=True,
+    )
+    settings.save_image_check.setChecked(False)
+    h.pump()
+
+    # live acquisition: the green border and the LIVE badge
+    iw.toggle_live_acquisition()
+    h.pump(2500)
+    h.shot("live", callouts=[iw.pushButton_start_acquisition])
+    iw.toggle_live_acquisition()
+    h.pump(500)
 
 
 # -- entry point --------------------------------------------------------------
