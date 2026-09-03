@@ -20,8 +20,9 @@ Two reasons, both of which have produced confidently wrong reports:
 - **napari cannot be constructed under `QT_QPA_PLATFORM=offscreen`** — its GL canvas
   aborts the process with no traceback. Any test of a napari path is therefore against a
   stub, and proves nothing about the real widget.
-- **CI installs `.[test]`, not `.[ui]`.** The Qt tests `importorskip` there. A UI test you
-  watched pass locally may not have run in CI at all.
+- **CI's build matrix installs `.[test]`, not `.[ui]`.** The Qt tests `importorskip` there
+  and run only in the `ui-tests` job; nothing installs `[labelling]`, so napari paths never
+  run on CI. A UI test you watched pass locally may not have run in CI at all.
 
 For anything about wiring, say plainly that you have not run the application, or run it.
 

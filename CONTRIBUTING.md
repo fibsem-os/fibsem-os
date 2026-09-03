@@ -123,9 +123,10 @@ minutes; run it before pushing rather than after every edit.
 QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_something.py -q
 ```
 
-**CI is thinner than a development environment.** It installs `.[test]`, not `.[ui]`, so
-the napari and PyQt5 tests `importorskip` and are skipped there. A UI test passing locally
-is not evidence CI ran it.
+**CI is thinner than a development environment.** The build matrix installs `.[test]`, not
+`.[ui]`, so the PyQt5 tests `importorskip` and are skipped there; only the `ui-tests` job
+runs them. No job installs `[labelling]`, so nothing that needs napari runs on CI at all. A
+UI test passing locally is not evidence CI ran it.
 
 **Prefer real objects to stand-ins.** A fake encodes the author's assumption about the
 collaborator, so the test can only confirm that assumption and never contradict it. Before

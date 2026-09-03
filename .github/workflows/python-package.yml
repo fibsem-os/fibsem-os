@@ -53,11 +53,10 @@ jobs:
         python -m pip install --upgrade pip
         # UI deps (the [ui] extra) are intentionally not installed *here*. Not
         # because the tests that need them do not matter -- the `ui-tests` job
-        # below runs every one of them -- but because installing napari adds 100
-        # packages and 116 MB to a job that runs eight times, and registers three
-        # pytest plugins (napari, napari-plugin-engine, npe2) into the session,
-        # one of them an autouse fixture that would run around all 2000-odd tests
-        # here to serve none of them.
+        # below runs every one of them -- but because Qt is dead weight on a job
+        # that runs eight times. (napari used to be the bigger reason: 100
+        # packages, 116 MB and three pytest plugins. It is in [labelling] now and
+        # no CI job installs it.)
         python -m pip install ".[test]"
     - name: Install the plugin entry point fixture
       # A packaged plugin is the only way into two of the three extension
@@ -93,10 +92,10 @@ jobs:
       with:
         # One version, not the matrix. What this job answers -- does the UI code
         # import, and does it behave -- does not vary across Python versions, so
-        # running it six times would repeat the same answer. 3.11 rather than the
-        # ends of the range because the `ui` extra resolves differently at both:
-        # 3.8 gets napari 0.4.x, a different codebase to the 0.5.x everyone
-        # develops against.
+        # running it six times would repeat the same answer. 3.11 because it is
+        # what everyone develops against. (It used to also be that the `ui` extra
+        # resolved differently at the ends of the range -- 3.8 got napari 0.4.x --
+        # but napari is in [labelling] now and this job does not install it.)
         python-version: "3.11"
         cache: 'pip'
     - name: Install the libraries Qt's offscreen platform plugin links against
@@ -120,7 +119,7 @@ jobs:
       # exists to end. Because every file guards on importorskip, a broken install
       # does not turn the run red -- it empties it, and empty reads as passing.
       # So check the imports directly, where absence is an error.
-      run: python -c "import PyQt5, napari, qtawesome"
+      run: python -c "import PyQt5, qtawesome, superqt"
     - name: Test with pytest
       env:
         QT_QPA_PLATFORM: offscreen

@@ -39,6 +39,13 @@ conda activate fibsem
 pip install -e '.[ui]'
 ```
 
+Image labelling (`fibsem_label`) draws in napari, which is not part of `[ui]`; add
+the `[labelling]` extra for it:
+
+```bash
+pip install -e '.[ui,labelling]'
+```
+
 To run:
 ```bash
 fibsem-autolamella-ui

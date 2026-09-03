@@ -1,5 +1,10 @@
-
-import napari
+try:
+    import napari
+except ImportError as _e:  # pragma: no cover - exercised only on a napari-less install
+    raise ImportError(
+        "Image labelling draws in napari, which is no longer part of the [ui] extra. "
+        "Install it with: pip install 'fibsem[labelling]'"
+    ) from _e
 import napari.utils.notifications
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
@@ -25,6 +30,7 @@ AVAILABLE_MODELS = ["SegmentationModel"]
 if SEGMENT_ANYTHING_AVAIABLE:
     AVAILABLE_MODELS.append("SegmentAnythingModel")
 RECOMMENDED_SAM_CHECKPOINTS = ["facebook/sam-vit-base", "Zigeng/SlimSAM-uniform-50"]
+
 
 class FibsemSegmentationModelWidget(QtWidgets.QDialog):
     continue_signal = pyqtSignal(DetectedFeatures)
@@ -94,7 +100,6 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
             self.lineEdit_checkpoint.setToolTip("Please use a pretrained model.")
             self.checkpoint_seg_button.setEnabled(True)
         elif model_type == "SegmentAnythingModel":
-
             self.lineEdit_checkpoint.setText(RECOMMENDED_SAM_CHECKPOINTS[0])
             self.lineEdit_checkpoint.setToolTip(f"""Any supported transformer SAM model from HuggingFace can be used. 
                                                 \nRecommended: 
@@ -110,17 +115,20 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
 
         self.pushButton_load_model.setEnabled(False)
         self.pushButton_load_model.setText("Loading...")
-        self.pushButton_load_model.setStyleSheet(stylesheets.USER_ATTENTION_BUTTON_STYLESHEET)
-        self.pushButton_load_model.setToolTip("Downloading model... check terminal for progress...")
+        self.pushButton_load_model.setStyleSheet(
+            stylesheets.USER_ATTENTION_BUTTON_STYLESHEET
+        )
+        self.pushButton_load_model.setToolTip(
+            "Downloading model... check terminal for progress..."
+        )
 
         worker = self.load_model_worker(model_type=model_type, checkpoint=checkpoint)
         worker.finished.connect(self.load_model_finished)
         worker.start()
 
-
     @thread_worker
     def load_model_worker(self, model_type: str, checkpoint: str):
-        
+
         if model_type == "SegmentationModel":
             self.model = load_model(checkpoint=checkpoint)
 
@@ -143,16 +151,16 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
             print(f"Loaded: {self.model}, {self.model.device}, {self.model.checkpoint}")
             self.model_loaded.emit()
 
+
 def main():
 
-    viewer  = napari.Viewer()
+    viewer = napari.Viewer()
     widget = FibsemSegmentationModelWidget()
-    viewer.window.add_dock_widget(widget, 
-                                  area="right", 
-                                  name="Fibsem Segmentation Model")
+    viewer.window.add_dock_widget(
+        widget, area="right", name="Fibsem Segmentation Model"
+    )
 
     napari.run()
-    
 
 
 if __name__ == "__main__":

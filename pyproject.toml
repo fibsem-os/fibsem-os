@@ -32,6 +32,9 @@ dependencies = [
     "pyyaml>=6.0",
     "psygnal",
     "ome_types",
+    # Imported directly in 16 modules (server context, labelling, FM viewers). Present
+    # via matplotlib all along, but a dependency we import ourselves gets named.
+    "pillow>=9.0",
     # lxml 6.1.2 (2026-08-19) shipped no cp38 wheel for Windows, so pip falls back to
     # building from source and the runner has no libxml2 headers -- every Windows 3.8
     # job fails at install, on any commit. Capped for 3.8 alone; everything newer stays
@@ -57,14 +60,28 @@ ml = [
     "kaleido==0.2.0",
     "transformers>=4.36.2",
 ]
+# The application UI. napari is NOT here any more: since #778 the main window
+# imports none of it, and it costs ~100 packages and 116 MB. It lives in
+# [labelling] below, for the two widgets that still draw with it.
 ui = [
-    "napari>=0.4.17; python_version < '3.9'",         # Python 3.8 support stops after 0.4.19
-    "napari>=0.5.1,<=0.5.6; python_version >= '3.9'", # NumPy 2 well supported from 0.5.1
     "pyqt5>=5.15.9",
+    # `ensure_main_thread`, used across the widgets. It arrived as one of napari's
+    # requirements and was never declared; with napari gone it has to be.
+    "superqt>=0.6.0",
     "pyqt5-qt5 == 5.15.2 ; platform_system == 'Windows'",
     "qtawesome>=1.4.0", # bundled Material Design Icons font (offline icon rendering); >=1.4.0 guards Spin.start/stop before first paint
 ]
 odemis = ["pylibtiff", "shapely"]
+
+# Image labelling and model-assisted segmentation (`fibsem_label`,
+# FibsemLabellingUI, FibsemSegmentationModelWidget) -- the one part of the tree
+# that still draws in napari (FIB-407). Pulls in [ui] for Qt and [ml] for the
+# models, since the labelling UI imports torch at module level.
+labelling = [
+    "fibsem[ui,ml]",
+    "napari>=0.4.17; python_version < '3.9'",         # Python 3.8 support stops after 0.4.19
+    "napari>=0.5.1,<=0.5.6; python_version >= '3.9'", # NumPy 2 well supported from 0.5.1
+]
 
 reporting = [
     "reportlab<3.6.13; python_version < '3.9'",
@@ -129,7 +146,7 @@ addopts = "-ra --strict-markers --strict-config"
 markers = [
     "slow: tests dominated by simulated-hardware timing (deselect with -m 'not slow')",
     "hardware_sim: drives the Demo microscope simulator end-to-end",
-    "ui: requires the [ui] extra (napari/pyqt5); auto-skipped when absent",
+    "ui: requires the [ui] extra (pyqt5); auto-skipped when absent",
     "integration: exercises multiple components together",
 ]
 # Treat warnings as errors so new deprecations fail fast. Add targeted `ignore`
