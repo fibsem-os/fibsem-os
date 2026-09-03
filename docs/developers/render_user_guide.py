@@ -72,7 +72,6 @@ SIM_CONFIGURATIONS = {
 # may show the path of the machine the harness ran on.
 EXAMPLE_CONFIG_DIR = r"C:\fibsemOS\config"
 EXAMPLE_EXPERIMENT_DIR = r"D:\fibsemOS\experiments"
-EXAMPLE_CONFIG_NAME = "Arctis Bay 2"
 
 CALLOUT_COLOUR = QColor(230, 57, 70)  # the guide's red
 CALLOUT_WIDTH = 3
@@ -201,6 +200,7 @@ class Harness:
         callouts: Optional[Widgets] = None,
         numbered: bool = False,
         crop: bool = False,
+        callout_rects: Optional[Sequence[QRect]] = None,
     ) -> Path:
         """Grab ``target`` (the window by default) and write ``<page>/<name>.png``.
 
@@ -223,8 +223,15 @@ class Harness:
                 & region
             )
         pixmap = target.grab(region)
+        rects = []
         if callouts:
-            self._draw_callouts(pixmap, target, region.topLeft(), callouts, numbered)
+            rects += self._callout_rects(target, callouts)
+        if callout_rects:
+            rects += list(callout_rects)
+        if rects:
+            self._draw_callouts(
+                pixmap, [r.translated(-region.topLeft()) for r in rects], numbered
+            )
         if self.scale == 1 and pixmap.devicePixelRatio() != 1:
             # a retina grab is 2x; the guide serves 1x
             image = pixmap.toImage().scaled(
@@ -253,15 +260,25 @@ class Harness:
         return rect if rect.isValid() else QRect(QPoint(0, 0), target.size())
 
     @staticmethod
-    def _draw_callouts(
-        pixmap: QPixmap,
-        target: QWidget,
-        offset: QPoint,
-        callouts: Widgets,
-        numbered: bool,
-    ) -> None:
+    def _callout_rects(target: QWidget, callouts: Widgets) -> List[QRect]:
+        """Each callout widget's rectangle in ``target``'s coordinates.
+
+        A callout that is not visible raises: the guide must not describe a
+        control the reader cannot see.
+        """
         if isinstance(callouts, QWidget):
             callouts = [callouts]
+        rects = []
+        for i, widget in enumerate(callouts, start=1):
+            if not widget.isVisible():
+                raise RuntimeError(
+                    f"callout {i} ({type(widget).__name__}) is not visible"
+                )
+            rects.append(QRect(widget.mapTo(target, QPoint(0, 0)), widget.size()))
+        return rects
+
+    @staticmethod
+    def _draw_callouts(pixmap: QPixmap, rects: Sequence[QRect], numbered: bool) -> None:
         # QPainter paints a high-DPI pixmap in logical coordinates already
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -271,16 +288,16 @@ class Harness:
         font.setBold(True)
         font.setPixelSize(16)
         painter.setFont(font)
-        for i, widget in enumerate(callouts, start=1):
-            if not widget.isVisible():
-                raise RuntimeError(
-                    f"callout {i} ({type(widget).__name__}) is not visible"
-                )
-            origin = widget.mapTo(target, QPoint(0, 0)) - offset
-            rect = QRect(origin, widget.size()).adjusted(
-                -CALLOUT_PAD, -CALLOUT_PAD, CALLOUT_PAD, CALLOUT_PAD
-            )
-            painter.save()
+        # logical size: a high-DPI pixmap is painted in logical coordinates
+        ratio = pixmap.devicePixelRatio()
+        bounds = QRect(0, 0, int(pixmap.width() / ratio), int(pixmap.height() / ratio))
+        inset = CALLOUT_WIDTH // 2 + 1
+        bounds = bounds.adjusted(inset, inset, -inset, -inset)
+        for i, box in enumerate(rects, start=1):
+            rect = box.adjusted(-CALLOUT_PAD, -CALLOUT_PAD, CALLOUT_PAD, CALLOUT_PAD)
+            # a box that runs off the grab (a menu item filling its menu) is
+            # pulled inside it, so all four sides stay visible
+            rect = rect.intersected(bounds)
             painter.drawRoundedRect(rect, 3, 3)
             if numbered:
                 badge = QRect(rect.left() - 12, rect.top() - 12, 24, 24)
@@ -291,7 +308,6 @@ class Harness:
                 painter.drawText(badge, Qt.AlignCenter, str(i))
                 painter.setPen(pen)
                 painter.setBrush(Qt.NoBrush)
-            painter.restore()
         painter.end()
 
     # -- lifecycle ----------------------------------------------------------
@@ -318,6 +334,19 @@ def render_installation(h: Harness) -> None:
     h.show_tab(0)
     h.shot("first-launch")
 
+    # Tools > Create Desktop Shortcut: the menu, open, with the item boxed.
+    # A QMenu is its own top-level window, so it is grabbed on its own; the
+    # action is not a widget, so its box comes from the menu's own geometry.
+    tools = next(a.menu() for a in h.window.menuBar().actions() if a.text() == "Tools")
+    tools.popup(h.window.mapToGlobal(QPoint(0, 0)))
+    h.pump(300)
+    shortcut = next(
+        a for a in tools.actions() if a.text().startswith("Create Desktop Shortcut")
+    )
+    h.shot("tools-menu", target=tools, callout_rects=[tools.actionGeometry(shortcut)])
+    tools.close()
+    h.pump(200)
+
 
 @page("getting-started")
 def render_getting_started(h: Harness) -> None:
@@ -341,24 +370,30 @@ def render_getting_started(h: Harness) -> None:
     )
 
     # the wizard, one step at a time (modeless, so it can be photographed),
-    # filled in as the worked example the page walks through. The folders are
-    # the example's, not this machine's: the defaults would show the checkout
-    # and the home directory of whoever ran the harness.
-    dialog = GuidedSetupDialog(parent=h.window)
-    dialog._configuration_dir.setText(EXAMPLE_CONFIG_DIR)
-    dialog._experiment_dir.setText(EXAMPLE_EXPERIMENT_DIR)
-    dialog.choices.configuration_directory = EXAMPLE_CONFIG_DIR
-    dialog.choices.experiment_directory = EXAMPLE_EXPERIMENT_DIR
-    dialog._name_edit.setText(EXAMPLE_CONFIG_NAME)
-    dialog.show()
-    h.pump(300)
-    for index, title in enumerate(STEP_TITLES):
-        dialog._show_step(index)
+    # filled in as the worked examples the page walks through: an Arctis
+    # (compustage) and a pre-tilted-shuttle instrument. The folders are the
+    # example's, not this machine's: the defaults would show the checkout and
+    # the home directory of whoever ran the harness.
+    for prefix, model, config_name in (
+        ("arctis", "tfs-arctis", "Arctis Bay 2"),
+        ("standard", "tfs-hydra", "Hydra Bay 1"),
+    ):
+        dialog = GuidedSetupDialog(parent=h.window)
+        dialog._select_model(model)
+        dialog._configuration_dir.setText(EXAMPLE_CONFIG_DIR)
+        dialog._experiment_dir.setText(EXAMPLE_EXPERIMENT_DIR)
+        dialog.choices.configuration_directory = EXAMPLE_CONFIG_DIR
+        dialog.choices.experiment_directory = EXAMPLE_EXPERIMENT_DIR
+        dialog._name_edit.setText(config_name)
+        dialog.show()
+        h.pump(300)
+        for index, title in enumerate(STEP_TITLES):
+            dialog._show_step(index)
+            h.pump(200)
+            slug = title.lower().replace(" ", "-")
+            h.shot(f"guided-setup-{prefix}-{index + 1}-{slug}", target=dialog)
+        dialog.close()
         h.pump(200)
-        slug = title.lower().replace(" ", "-")
-        h.shot(f"guided-setup-{index + 1}-{slug}", target=dialog)
-    dialog.close()
-    h.pump(200)
 
     # the manual route: pick a shipped configuration and connect
     h.first_run(False)
