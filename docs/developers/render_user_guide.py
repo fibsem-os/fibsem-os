@@ -43,6 +43,7 @@ from PyQt5.QtWidgets import QApplication, QWidget
 
 import fibsem.config as cfg
 from fibsem import guided_setup
+from fibsem.guided_setup import LOCATION_MICROSCOPE, LOCATION_SUPPORT
 
 
 def _find_site() -> Path:
@@ -374,12 +375,15 @@ def render_getting_started(h: Harness) -> None:
     # (compustage) and a pre-tilted-shuttle instrument. The folders are the
     # example's, not this machine's: the defaults would show the checkout and
     # the home directory of whoever ran the harness.
-    for prefix, model, config_name in (
-        ("arctis", "tfs-arctis", "Arctis Bay 2"),
-        ("standard", "tfs-hydra", "Hydra Bay 1"),
+    # The Arctis example runs on the microscope PC (the usual arrangement,
+    # address localhost); the shuttle example on a support PC.
+    for prefix, model, location, config_name in (
+        ("standard", "tfs-hydra", LOCATION_SUPPORT, "Hydra Bay 1"),
+        ("arctis", "tfs-arctis", LOCATION_MICROSCOPE, "Arctis Bay 2"),
     ):
         dialog = GuidedSetupDialog(parent=h.window)
         dialog._select_model(model)
+        dialog._select_location(location)
         dialog._configuration_dir.setText(EXAMPLE_CONFIG_DIR)
         dialog._experiment_dir.setText(EXAMPLE_EXPERIMENT_DIR)
         dialog.choices.configuration_directory = EXAMPLE_CONFIG_DIR
