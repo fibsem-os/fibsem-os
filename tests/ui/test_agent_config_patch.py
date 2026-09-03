@@ -370,3 +370,34 @@ def test_apply_protocol_recopies_configs_and_repoints_paths(ui, qapp):
         )
         assert unknown.status_code == 404
         assert TASK in unknown.json()["detail"]["task_names"]
+
+
+def test_a_poi_patch_moves_the_attached_patterns_with_it(ui, qapp):
+    """The GUI's POI move syncs sync_to_poi patterns; the patch path must too
+    (found live: a patched POI left rough patterns detached)."""
+    from fibsem.structures import Point
+
+    lamella = ui.experiment.positions[0]
+    lamella.poi = Point(x=1e-6, y=2e-6)
+    stage = lamella.task_config[TASK].milling["mill_rough"].stages[0]
+    pattern_before = Point(x=stage.pattern.point.x, y=stage.pattern.point.y)
+    assert lamella.task_config[TASK].sync_to_poi is True
+
+    item = lamella.name
+    with _client(ui) as client:
+        doc = client.get(f"/app/items/{item}", headers=AUTH).json()
+        resp = _post_on_worker(
+            qapp,
+            client,
+            f"/app/items/{item}",
+            {"patch": {"poi.x": 6e-6, "poi.y": 2e-6}, "version": doc["version"]},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert TASK in body["synced_tasks"]
+        # The pattern followed the POI: the first stage anchors ON the point
+        # (inter-stage offsets preserved) — the same semantics as the GUI's
+        # move, via the same sync_tasks_to_poi call.
+        assert (pattern_before.x, pattern_before.y) != (6e-6, 2e-6)
+        assert stage.pattern.point.x == pytest.approx(6e-6)
+        assert stage.pattern.point.y == pytest.approx(2e-6)

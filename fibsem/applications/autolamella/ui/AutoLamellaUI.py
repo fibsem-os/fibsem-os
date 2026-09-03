@@ -1477,9 +1477,21 @@ class AutoLamellaUI(QMainWindow):
             }
         if any(p.split(".", 1)[0] == "defect" for p, _o, _n in changes):
             lamella.defect.updated_at = _time.time()
+        # Moving the POI moves what is attached to it: the GUI's move path
+        # calls sync_tasks_to_poi (patterns with sync_to_poi follow the
+        # point); a patch that bypassed it left rough/polishing patterns
+        # detached from the new POI — found live. Same domain call, same
+        # ordering (poi first, then sync).
+        synced_tasks = []
+        if any(p.split(".", 1)[0] == "poi" for p, _o, _n in changes):
+            try:
+                synced_tasks = list(lamella.sync_tasks_to_poi())
+            except Exception:
+                logging.exception("pattern sync after POI patch failed")
         logging.info(
             f"agent item patch applied: {item_name}: "
             + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
+            + (f" (patterns synced: {', '.join(synced_tasks)})" if synced_tasks else "")
         )
         saved = True
         try:
@@ -1495,6 +1507,7 @@ class AutoLamellaUI(QMainWindow):
             "applied": True,
             "saved": saved,
             "item_name": item_name,
+            "synced_tasks": synced_tasks,
             "changes": [
                 {"path": p, "old": to_plain(old), "new": to_plain(new)}
                 for p, old, new in changes
