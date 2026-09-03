@@ -406,6 +406,9 @@ class FMOverviewWidget(QWidget):
             stage_context.context_overlay_entries(self.microscope)
         )
         self.overlay_controls.toggled.connect(lambda *_: self._refresh_stage_metadata())
+        self._context_defaults_for_calibrated = stage_context.holder_is_calibrated(
+            self.microscope
+        )
         self.btn_overlays = self.canvas.canvas.add_toolbar_button(
             "mdi:eye-outline",
             "Overlays",
@@ -1458,6 +1461,19 @@ class FMOverviewWidget(QWidget):
     def _toggle_overlays(self) -> None:
         """Show or hide the overlays popover, anchored under its button."""
         self.overlay_popover.set_open(self.btn_overlays.isChecked(), self.btn_overlays)
+
+    def reset_context_overlay_defaults(self) -> None:
+        """Re-resolve the holder-dependent overlay defaults, as the beam tab does:
+        a slot calibrated mid-session turns the boundary and slot markers on
+        without a reconnect, and only when the answer changed."""
+        calibrated = stage_context.holder_is_calibrated(self.microscope)
+        if calibrated == self._context_defaults_for_calibrated:
+            return
+        self._context_defaults_for_calibrated = calibrated
+        for key, _label, shown in stage_context.context_overlay_entries(
+            self.microscope
+        ):
+            self.overlay_controls.set_visible(key, shown)
 
     def _refresh_stage_metadata(self) -> None:
         """Draw where the sample and the stage can physically go.

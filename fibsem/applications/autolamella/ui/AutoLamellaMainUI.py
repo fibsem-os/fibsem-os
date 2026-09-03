@@ -2674,6 +2674,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if loader is not None:
             loader.loader_changed.connect(self.grids_tab.refresh)
             loader.loader_changed.connect(self.grid_workflow_widget.refresh)
+        # Calibrating a slot from the Sample view changes what the Overview
+        # tabs should draw by default; they re-resolve rather than wait for a
+        # reconnect.
+        holder_panel = getattr(sample, "holder_widget", None)
+        if holder_panel is not None:
+            holder_panel.holder_changed.connect(self._on_holder_changed)
+
+    def _on_holder_changed(self, _holder) -> None:
+        for tab in (
+            getattr(self, "beam_overview_tab", None),
+            getattr(self, "fm_overview_tab", None),
+        ):
+            if tab is not None and hasattr(tab, "reset_context_overlay_defaults"):
+                tab.reset_context_overlay_defaults()
 
     def _apply_grid_workflow_visibility(self) -> None:
         """`features.grid_workflow` shows or hides the Grids tab.

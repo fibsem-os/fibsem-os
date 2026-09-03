@@ -4252,7 +4252,9 @@ class TestItOnlyDrawsItsOwnRuns:
 
 def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
     """Off describes a holder that is not there; on a holder with a calibrated
-    slot they draw where the grid is, and that is worth having on by default."""
+    slot they draw where the grid is, and that is worth having on by default.
+    A slot calibrated mid-session turns them on in the tab already built, and a
+    holder change that leaves calibration as it was leaves the switches alone."""
     from fibsem.microscopes._stage import SlotCalibration, _create_sample_stage
     from fibsem.structures import FibsemStagePosition
     from fibsem.ui.widgets.canvas.overlays import stage_context
@@ -4261,21 +4263,33 @@ def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
     microscope.stage_is_compustage = False
     microscope._stage = _create_sample_stage(microscope)
     assert not stage_context.holder_is_calibrated(microscope)
-    before = FibsemOverviewWidget(microscope)
-    try:
-        assert not before.overlay_controls.is_visible(stage_context.OVERLAY_BOUNDARIES)
-        assert not before.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS)
-    finally:
-        before.deleteLater()
-    slot = microscope._stage.holder.slots["Slot-01"]
-    slot.position = FibsemStagePosition(
-        name=slot.name, x=-4e-3, y=1e-3, z=4e-3, r=0, t=0.61
-    )
-    slot.calibration = SlotCalibration("SEM", 35.0, 0.0, "2026-09-02T11:24:09", "test")
-    assert stage_context.holder_is_calibrated(microscope)
     widget = FibsemOverviewWidget(microscope)
     try:
+        assert not widget.overlay_controls.is_visible(stage_context.OVERLAY_BOUNDARIES)
+        assert not widget.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS)
+
+        slot = microscope._stage.holder.slots["Slot-01"]
+        slot.position = FibsemStagePosition(
+            name=slot.name, x=-4e-3, y=1e-3, z=4e-3, r=0, t=0.61
+        )
+        slot.calibration = SlotCalibration(
+            "SEM", 35.0, 0.0, "2026-09-02T11:24:09", "test"
+        )
+        assert stage_context.holder_is_calibrated(microscope)
+        widget.reset_context_overlay_defaults()
         assert widget.overlay_controls.is_visible(stage_context.OVERLAY_BOUNDARIES)
         assert widget.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS)
+
+        # The user's toggle survives a holder change that is not a calibration.
+        widget.overlay_controls.set_visible(stage_context.OVERLAY_BOUNDARIES, False)
+        widget.reset_context_overlay_defaults()
+        assert not widget.overlay_controls.is_visible(stage_context.OVERLAY_BOUNDARIES)
     finally:
         widget.deleteLater()
+
+    fresh = FibsemOverviewWidget(microscope)
+    try:
+        assert fresh.overlay_controls.is_visible(stage_context.OVERLAY_BOUNDARIES)
+        assert fresh.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS)
+    finally:
+        fresh.deleteLater()

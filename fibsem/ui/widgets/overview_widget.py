@@ -827,6 +827,9 @@ class FibsemOverviewWidget(QWidget):
             ]
         )
         self.overlay_controls.toggled.connect(self._on_overlay_toggled)
+        self._context_defaults_for_calibrated = stage_context.holder_is_calibrated(
+            self.microscope
+        )
         self.spin_gridbar_spacing = ValueSpinBox(
             suffix=" um", minimum=1.0, maximum=10000.0, step=10.0, decimals=1
         )
@@ -1184,6 +1187,24 @@ class FibsemOverviewWidget(QWidget):
         section = getattr(self, "display_section", None)
         if section is not None:
             section.setVisible(visible)
+
+    def reset_context_overlay_defaults(self) -> None:
+        """Re-resolve the holder-dependent overlay defaults.
+
+        The switches were resolved when the tab was built, against the holder as it
+        was then. Calibrating a slot mid-session changes the answer, and the
+        boundary and slot markers should come on without a reconnect. Only when
+        the answer changed: a rename fires the same holder signal, and must not
+        undo a toggle the user made.
+        """
+        calibrated = stage_context.holder_is_calibrated(self.microscope)
+        if calibrated == self._context_defaults_for_calibrated:
+            return
+        self._context_defaults_for_calibrated = calibrated
+        for key, _label, shown in stage_context.context_overlay_entries(
+            self.microscope
+        ):
+            self.overlay_controls.set_visible(key, shown)
 
     def _on_overlay_toggled(self, key: str, checked: bool) -> None:
         """One overlay turned on or off.
