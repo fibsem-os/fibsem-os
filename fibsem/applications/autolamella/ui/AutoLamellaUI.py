@@ -1438,7 +1438,7 @@ class AutoLamellaUI(QMainWindow):
             changes = apply_patch(
                 lamella,
                 patch,
-                none_types={"milling_angle": float, "description": str},
+                none_types={"description": str},
             )
         except PatchError as exc:
             return {"applied": False, "invalid_patch": str(exc), "path": exc.path}

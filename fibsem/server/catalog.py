@@ -245,7 +245,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="update_item_detail",
-        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), milling_angle (degrees), description, defect.state (NONE/FAILURE/REWORK) and defect.description. Echo the version from get_item_detail — a mismatch is refused (409 stale_config). Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override. Needs the configure permission.",
+        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description, defect.state (NONE/FAILURE/REWORK) and defect.description. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from get_item_detail — a mismatch is refused (409 stale_config). Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override. Needs the configure permission.",
         method="POST",
         path="/app/items/{item_name}",
         scope="configure",

@@ -36,8 +36,10 @@ __all__ = ["AgentContext", "ITEM_PATCH_FIELDS", "config_version", "item_fields_v
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
 # verdict, notes. Everything else on the object (poses, ids, paths, history)
-# is either derived, hardware-adjacent, or the record itself.
-ITEM_PATCH_FIELDS = ("poi", "alignment_area", "milling_angle", "description", "defect")
+# is either derived, hardware-adjacent, an *outcome* rather than an input
+# (milling_angle is recorded from where Setup put the stage — writing it
+# would move nothing), or the record itself.
+ITEM_PATCH_FIELDS = ("poi", "alignment_area", "description", "defect")
 
 
 def _content_hash(data) -> str:

@@ -275,7 +275,6 @@ def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp):
             {
                 "patch": {
                     "poi.x": 5e-6,
-                    "milling_angle": 17.0,
                     "defect.state": "REWORK",
                     "defect.description": "curtained face",
                 },
@@ -286,7 +285,6 @@ def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp):
         body = resp.json()
         assert body["applied"] is True and body["saved"] is True
         assert lamella.poi.x == 5e-6
-        assert lamella.milling_angle == 17.0
         assert lamella.defect.state.name == "REWORK"
         assert lamella.defect.updated_at is not None
         # New version serves on the next read; the event stream records it.
@@ -313,6 +311,15 @@ def test_item_fields_allowlist_and_alignment_validity(ui, qapp):
         )
         assert off_list.status_code == 422
         assert "editable" in off_list.json()["detail"]["message"]
+
+        # milling_angle is an outcome of Setup, not an input — not editable.
+        angle = _post_on_worker(
+            qapp,
+            client,
+            f"/app/items/{item}",
+            {"patch": {"milling_angle": 17.0}, "version": doc["version"]},
+        )
+        assert angle.status_code == 422
 
         # A rectangle pushed out of the frame is reverted whole.
         bad = _post_on_worker(
