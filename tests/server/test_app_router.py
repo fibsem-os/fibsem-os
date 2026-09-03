@@ -318,3 +318,332 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
 def test_agent_notes_need_the_control_scope(client):
     resp = client.post("/app/agent/notes", headers=AUTH, json={"text": "x"})
     assert resp.status_code == 403
+
+
+# --- grids: the screening read model (FIB-876) -------------------------------
+
+
+@pytest.fixture
+def grid_with_overview(host, microscope):
+    """A grid whose history recorded a real Demo SEM overview, one lamella
+    linked to it posed at the overview's centre and one posed far outside."""
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+        GridRecord,
+    )
+    from fibsem.structures import (
+        BeamType,
+        FibsemStagePosition,
+        ImageSettings,
+        MicroscopeState,
+    )
+
+    experiment = host.experiment
+    grid = experiment.add_grid(GridRecord(name="grid-aspen"))
+    outdir = experiment.grid_path(grid) / "overview_sem"
+    outdir.mkdir(parents=True)
+    image = microscope.acquire_image(
+        ImageSettings(resolution=(128, 128), hfw=200e-6, beam_type=BeamType.ELECTRON)
+    )
+    image.save(str(outdir / "overview.tif"))
+    grid.task_history.append(
+        AutoLamellaTaskState(
+            name="overview_sem",
+            status=AutoLamellaTaskStatus.Completed,
+            outputs={"overview_sem": ["overview_sem/overview.tif"]},
+        )
+    )
+    centre = image.metadata.microscope_state.stage_position
+    inside = experiment.positions[0]
+    inside.grid_id = grid.id
+    inside.milling_pose = MicroscopeState(stage_position=centre)
+    experiment.add_new_lamella(MicroscopeState(), EventedDict())
+    outside = experiment.positions[-1]
+    outside.grid_id = grid.id
+    outside.milling_pose = MicroscopeState(
+        stage_position=FibsemStagePosition(
+            x=centre.x + 5e-3, y=centre.y, z=centre.z, r=centre.r, t=centre.t
+        )
+    )
+    return grid
+
+
+def test_grids_list_and_detail_over_http(client, host, grid_with_overview):
+    listed = client.get("/app/grids", headers=AUTH).json()
+    assert listed["available"] is True
+    (summary,) = listed["items"]
+    assert summary["name"] == "grid-aspen"
+    assert summary["quality"] == "UNASSESSED"
+    assert summary["completed_tasks"] == ["overview_sem"]
+    assert summary["last_completed_task"] == "overview_sem"
+    assert summary["num_items"] == 2
+    assert summary["overviews"] == {"overview_sem": "overview.tif"}
+
+    detail = client.get("/app/grids/grid-aspen", headers=AUTH).json()
+    assert detail["tasks"] == [
+        {
+            "name": "overview_sem",
+            "status": "Completed",
+            "files": {"overview_sem": ["overview.tif"]},
+        }
+    ]
+    assert sorted(detail["items"]) == sorted(p.name for p in host.experiment.positions)
+
+    missing = client.get("/app/grids/nope", headers=AUTH).json()
+    assert missing["available"] is False
+    assert missing["grid_names"] == ["grid-aspen"]
+
+
+def test_grid_overview_serves_jpeg_and_refuses_unlisted_names(
+    client, grid_with_overview
+):
+    served = client.get("/app/grids/grid-aspen/outputs/overview.tif", headers=AUTH)
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/jpeg"
+    assert served.content[:2] == b"\xff\xd8"
+
+    unknown = client.get("/app/grids/grid-aspen/outputs/nope.tif", headers=AUTH)
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["filenames"] == ["overview.tif"]
+
+    no_grid = client.get("/app/grids/nope/outputs/overview.tif", headers=AUTH)
+    assert no_grid.status_code == 404
+    assert no_grid.json()["detail"]["grid_names"] == ["grid-aspen"]
+
+
+def test_grid_markers_place_items_in_source_pixels(client, host, grid_with_overview):
+    body = client.get(
+        "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
+    ).json()
+    assert body["available"] is True
+    assert body["linked"] is True
+    assert body["image"]["width"] == 128 and body["image"]["height"] == 128
+    assert body["image"]["hfw"] == pytest.approx(200e-6)
+    assert body["image"]["pixel_size"] == pytest.approx(200e-6 / 128)
+    assert body["unplaced"] == []
+    by_name = {m["item_name"]: m for m in body["markers"]}
+    inside, outside = host.experiment.positions
+    # the item posed where the overview was taken sits at the image centre
+    assert by_name[inside.name]["x"] == pytest.approx(64.0)
+    assert by_name[inside.name]["y"] == pytest.approx(64.0)
+    assert by_name[inside.name]["inside"] is True
+    assert by_name[inside.name]["is_failure"] is False
+    assert by_name[inside.name]["last_completed_task"] is None
+    # 5 mm to the right at 1.5625 um/px is well past the 128 px edge
+    assert by_name[outside.name]["inside"] is False
+    assert by_name[outside.name]["x"] > 128
+
+
+def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview):
+    from fibsem.structures import MicroscopeState
+
+    host.experiment.add_new_lamella(MicroscopeState(), EventedDict())
+    poseless = host.experiment.positions[-1]
+    poseless.grid_id = grid_with_overview.id
+    poseless.milling_pose = MicroscopeState()
+    body = client.get(
+        "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
+    ).json()
+    # a default MicroscopeState carries a position with no r: unplaceable, with
+    # the reprojection's own reason rather than a silent drop
+    (unplaced,) = body["unplaced"]
+    assert unplaced["item_name"] == poseless.name
+    assert "r coordinate" in unplaced["reason"]
+    assert len(body["markers"]) == 2
+
+    unknown = client.get(
+        "/app/grids/grid-aspen/outputs/nope.tif/markers", headers=AUTH
+    ).json()
+    assert unknown["markers"] == []
+    assert unknown["filenames"] == ["overview.tif"]
+
+
+def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
+    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+        BeamOverviewGridTaskConfig,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        LOAD_ENTRY_NAME,
+    )
+
+    experiment = host.experiment
+    experiment.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_sem"))
+    experiment.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_fib"))
+    experiment.add_grid(GridRecord(name="grid-aspen"))
+    experiment.add_grid(GridRecord(name="grid-birch"))
+
+    body = client.post(
+        "/app/workflow/grids/plan",
+        headers=AUTH,
+        json={
+            "task_names": ["overview_fib", "overview_sem"],
+            "grid_names": ["grid-birch"],
+        },
+    ).json()
+    assert body["valid"] is True
+    assert body["steps"] == [
+        {"grid": "grid-birch", "step": LOAD_ENTRY_NAME},
+        {"grid": "grid-birch", "step": "overview_fib"},
+        {"grid": "grid-birch", "step": "overview_sem"},
+    ]
+
+    every = client.post(
+        "/app/workflow/grids/plan", headers=AUTH, json={"task_names": ["overview_sem"]}
+    ).json()
+    assert every["grid_names"] == ["grid-aspen", "grid-birch"]
+    assert len(every["steps"]) == 4
+
+    screen = client.post(
+        "/app/workflow/grids/plan",
+        headers=AUTH,
+        json={"task_names": ["overview_sem"], "screen_all": True},
+    ).json()
+    assert screen["valid"] is True and screen["screen_all"] is True
+    assert "inventory" in screen["note"]
+
+    bad_task = client.post(
+        "/app/workflow/grids/plan", headers=AUTH, json={"task_names": ["nope"]}
+    ).json()
+    assert bad_task["valid"] is False
+    assert bad_task["task_names"] == ["overview_sem", "overview_fib"]
+    bad_grid = client.post(
+        "/app/workflow/grids/plan",
+        headers=AUTH,
+        json={"task_names": ["overview_sem"], "grid_names": ["grid-oak"]},
+    ).json()
+    assert bad_grid["valid"] is False
+    assert bad_grid["grid_names"] == ["grid-aspen", "grid-birch"]
+    malformed = client.post("/app/workflow/grids/plan", headers=AUTH, json={})
+    assert malformed.status_code == 422
+
+
+def test_fm_overview_previews_in_colour_and_places_markers(
+    client, host, grid_with_overview
+):
+    """A fluorescence overview is an OME-TIFF stack: the preview composites it
+    channel-by-colour (a grey max-projection loses the channels), and markers
+    go through the FM canvas's own reprojection, which reads the stage
+    position and hardware geometry the mosaic recorded."""
+    import numpy as np
+    from PIL import Image
+
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+    )
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+    from fibsem.structures import FibsemHardwareGeometry, FibsemStagePosition
+
+    experiment = host.experiment
+    grid = grid_with_overview
+    centre = FibsemStagePosition(x=1e-3, y=-2e-3, z=0.0, r=0.0, t=0.0)
+    outdir = experiment.grid_path(grid) / "overview_fm"
+    outdir.mkdir(parents=True)
+    # Two channels, red and green, in separate corners: the composite must
+    # carry both hues, which a single-plane grey projection cannot.
+    data = np.zeros((2, 3, 64, 64), dtype=np.uint16)
+    data[0, :, :32, :32] = 4000
+    data[1, :, 32:, 32:] = 4000
+    channels = [
+        FluorescenceChannelMetadata(
+            name=f"Channel-{i:02d}",
+            excitation_wavelength=488.0,
+            power=0.5,
+            exposure_time=0.1,
+            gain=1.0,
+            offset=0.0,
+            color=colour,
+        )
+        for i, colour in enumerate(("red", "green"))
+    ]
+    metadata = FluorescenceImageMetadata(
+        acquisition_date="2026-01-01T00:00:00",
+        pixel_size_x=1e-7,
+        pixel_size_y=1e-7,
+        resolution=(64, 64),
+        channels=channels,
+        z_positions=[-1e-6, 0.0, 1e-6],
+        stage_position=centre,
+        geometry=FibsemHardwareGeometry(
+            column_tilt=0,
+            fib_column_tilt=52,
+            shuttle_pre_tilt=0,
+            rotation_reference=0,
+            rotation_180=0,
+            is_compustage=True,
+            camera_tilt=180.0,
+        ),
+    )
+    # The linked items sit at the beam overview's centre (the stage origin);
+    # put one at this mosaic's centre instead so it lands mid-image.
+    experiment.positions[0].milling_pose.stage_position = centre
+    FluorescenceImage(data=data, metadata=metadata).save(
+        str(outdir / "overview.ome.tiff")
+    )
+    grid.task_history.append(
+        AutoLamellaTaskState(
+            name="overview_fm",
+            status=AutoLamellaTaskStatus.Completed,
+            outputs={"overview_fm": ["overview_fm/overview.ome.tiff"]},
+        )
+    )
+
+    served = client.get("/app/grids/grid-aspen/outputs/overview.ome.tiff", headers=AUTH)
+    assert served.status_code == 200
+    import io
+
+    rgb = np.asarray(Image.open(io.BytesIO(served.content)).convert("RGB")).astype(int)
+    top_left, bottom_right = rgb[8, 8], rgb[56, 56]
+    assert top_left[0] > 150 and top_left[1] < 80  # red corner
+    assert bottom_right[1] > 150 and bottom_right[0] < 80  # green corner
+
+    markers = client.get(
+        "/app/grids/grid-aspen/outputs/overview.ome.tiff/markers", headers=AUTH
+    ).json()
+    assert markers["image"]["beam_type"] == "FM"
+    assert markers["image"]["width"] == 64 and markers["image"]["pixel_size"] == 1e-7
+    assert markers["unplaced"] == []
+    by_name = {m["item_name"]: m for m in markers["markers"]}
+    at_centre = by_name[experiment.positions[0].name]
+    assert at_centre["x"] == pytest.approx(32.0) and at_centre["y"] == pytest.approx(
+        32.0
+    )
+    assert at_centre["inside"] is True
+    assert by_name[experiment.positions[1].name]["inside"] is False
+
+    listed = client.get("/app/grids", headers=AUTH).json()["items"][0]["overviews"]
+    assert listed == {
+        "overview_sem": "overview.tif",
+        "overview_fm": "overview.ome.tiff",
+    }
+
+
+def test_unlinked_items_fall_back_only_on_a_single_grid_experiment(
+    client, host, grid_with_overview
+):
+    from fibsem.applications.autolamella.structures import GridRecord
+
+    experiment = host.experiment
+    for lamella in experiment.positions:
+        lamella.grid_id = None
+    # One grid recorded: every posed item is shown, flagged as unlinked.
+    body = client.get(
+        "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
+    ).json()
+    assert body["linked"] is False
+    assert len(body["markers"]) == 2
+
+    # A second grid: the same items would paint both grids, so neither gets them.
+    experiment.add_grid(GridRecord(name="grid-birch"))
+    body = client.get(
+        "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
+    ).json()
+    assert body["linked"] is False
+    assert body["markers"] == [] and body["unplaced"] == []
+    assert "several grids" in body["reason"]

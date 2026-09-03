@@ -50,6 +50,14 @@ class AppContext(Protocol):
 
     def output_image(self, item_name: str, filename: str) -> Dict[str, Any]: ...
 
+    def grids(self) -> Dict[str, Any]: ...
+
+    def grid_detail(self, grid_name: str) -> Dict[str, Any]: ...
+
+    def grid_output_image(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
+
+    def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
+
     def protocol_task_config(self, task_name: str) -> Dict[str, Any]: ...
 
     def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]: ...
@@ -106,6 +114,20 @@ class AppContext(Protocol):
         self, task_names: List[str], item_names: Optional[List[str]] = None
     ) -> Dict[str, Any]: ...
 
+    def grid_workflow_plan(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]] = None,
+        screen_all: bool = False,
+    ) -> Dict[str, Any]: ...
+
+    def start_grid_workflow(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]] = None,
+        screen_all: bool = False,
+    ) -> Dict[str, Any]: ...
+
     def set_supervision(
         self,
         task_name: str,
@@ -116,6 +138,54 @@ class AppContext(Protocol):
     def requeue_task(
         self, item_name: str, task_name: str, front: bool = False
     ) -> Dict[str, Any]: ...
+
+
+def _grid_run_body(body: Dict[str, Any]):
+    """Validate the shared body of the grid plan/start verbs, or raise 422."""
+    task_names = body.get("task_names")
+    grid_names = body.get("grid_names")
+    screen_all = body.get("screen_all", False)
+    ok = (
+        isinstance(task_names, list)
+        and bool(task_names)
+        and all(isinstance(t, str) for t in task_names)
+        and (
+            grid_names is None
+            or (
+                isinstance(grid_names, list)
+                and all(isinstance(g, str) for g in grid_names)
+            )
+        )
+        and isinstance(screen_all, bool)
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_type": "missing_field",
+                "message": "Pass task_names (non-empty list of grid task names); "
+                "grid_names (list of strings) is optional — omitted means every "
+                "recorded grid; screen_all (bool) inventories first and runs over "
+                "every present grid, and takes no grid_names.",
+            },
+        )
+    return task_names, grid_names, screen_all
+
+
+def _jpeg_or_404(result: Dict[str, Any]) -> Response:
+    """An image context answer as a real image/jpeg response (so a browser
+    ``<img>`` can consume it), or a structured 404 carrying the valid names."""
+    jpeg = result.get("jpeg")
+    if jpeg is None:
+        detail: Dict[str, Any] = {
+            "error_type": "not_found",
+            "message": result.get("error", "No such output image."),
+        }
+        for key in ("filenames", "grid_names"):
+            if key in result:
+                detail[key] = result[key]
+        raise HTTPException(status_code=404, detail=detail)
+    return Response(content=jpeg, media_type="image/jpeg")
 
 
 def build_app_router(context: AppContext) -> APIRouter:
@@ -166,17 +236,23 @@ def build_app_router(context: AppContext) -> APIRouter:
         # Serves actual image/jpeg (not a JSON payload) so a browser <img>
         # can consume it; filename must be a basename the item's own
         # task_outputs listing names — the context refuses anything else.
-        result = context.output_image(item_name, filename)
-        jpeg = result.get("jpeg")
-        if jpeg is None:
-            detail: Dict[str, Any] = {
-                "error_type": "not_found",
-                "message": result.get("error", "No such output image."),
-            }
-            if "filenames" in result:
-                detail["filenames"] = result["filenames"]
-            raise HTTPException(status_code=404, detail=detail)
-        return Response(content=jpeg, media_type="image/jpeg")
+        return _jpeg_or_404(context.output_image(item_name, filename))
+
+    @router.get("/grids")
+    def grids():
+        return context.grids()
+
+    @router.get("/grids/{grid_name}")
+    def grid_detail(grid_name: str):
+        return context.grid_detail(grid_name)
+
+    @router.get("/grids/{grid_name}/outputs/{filename}")
+    def grid_output_image(grid_name: str, filename: str):
+        return _jpeg_or_404(context.grid_output_image(grid_name, filename))
+
+    @router.get("/grids/{grid_name}/outputs/{filename}/markers")
+    def grid_markers(grid_name: str, filename: str):
+        return context.grid_markers(grid_name, filename)
 
     @router.get("/recent_experiments")
     def recent_experiments():
@@ -189,6 +265,14 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/prompt")
     def pending_prompt():
         return context.pending_prompt()
+
+    @router.post("/workflow/grids/plan")
+    def grid_workflow_plan(body: Dict[str, Any]):
+        # A POST on the read router because it computes, never acts: the
+        # preflight dialog's content for a grid run, from a body a GET could
+        # not carry cleanly. No hardware is read.
+        task_names, grid_names, screen_all = _grid_run_body(body)
+        return context.grid_workflow_plan(task_names, grid_names, screen_all)
 
     @router.post("/workflow/stop")
     def stop_workflow():
@@ -291,6 +375,13 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 },
             )
         return context.start_workflow(task_names, item_names)
+
+    @router.post("/workflow/grids/start")
+    def start_grid_workflow(body: Dict[str, Any]):
+        # The Grids view's Run / Screen all grids, remotely. Shares the lamella
+        # run's worker slot, so the context refuses it while any run is live.
+        task_names, grid_names, screen_all = _grid_run_body(body)
+        return context.start_grid_workflow(task_names, grid_names, screen_all)
 
     @router.post("/agent/notes")
     def add_note(body: Dict[str, Any]):

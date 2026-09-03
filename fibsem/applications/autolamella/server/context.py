@@ -112,6 +112,124 @@ def _records(df) -> List[Dict[str, Any]]:
     ]
 
 
+# The overview roles the grid tasks record (imaging.py ROLE_BY_BEAM, the FM
+# task). Listed here so a summary can say which overviews a grid has without
+# a client knowing the role vocabulary.
+GRID_OVERVIEW_ROLES = ("overview_sem", "overview_fib", "overview_fm")
+
+
+def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any]:
+    """One recorded output file as a downscaled JPEG, or the reason it is not.
+
+    Fluorescence stacks (``.ome.tiff``) composite through the FM canvas's own
+    projection, so each channel keeps its colour; plain TIFFs (every
+    FibsemImage) read through tifffile; anything else (the PNG thumbnails grid
+    tasks write beside their overviews) through PIL. Stacks are max-projected
+    to something viewable; this is a preview, not the data.
+    """
+    try:
+        import numpy as np
+
+        from fibsem.fm.preview import is_fluorescence_image, load_projection
+        from fibsem.server.images import preview_jpeg_bytes
+
+        if is_fluorescence_image(path):
+            data, _ = load_projection(path)
+        elif filename.lower().endswith((".tif", ".tiff")):
+            import tifffile
+
+            data = np.squeeze(np.asarray(tifffile.imread(path)))
+        else:
+            from PIL import Image
+
+            with Image.open(path) as im:
+                data = np.asarray(im.convert("RGB"))
+        # z-stacks / channel stacks project on leading axes; a trailing
+        # RGB(A) axis is colour, not a stack, and stays.
+        while data.ndim > 2 and data.shape[-1] not in (3, 4):
+            data = data.max(axis=0)
+        if data.ndim == 3 and data.shape[-1] == 4:
+            data = data[..., :3]
+        jpeg, width, height = preview_jpeg_bytes(data, max_width=max_width)
+    except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+        return {
+            "available": True,
+            "jpeg": None,
+            "error": f"Could not render {filename!r}: {exc}",
+        }
+    return {
+        "available": True,
+        "jpeg": jpeg,
+        "width": width,
+        "height": height,
+        "filename": filename,
+    }
+
+
+def _overview_projector(path: str):
+    """Open a recorded overview and return its scale block plus a projector.
+
+    The projector maps one stage position to a source-pixel Point through the
+    canvas's own reprojection for that kind of image: beam overviews
+    (FibsemImage) through ``reproject_stage_positions_onto_image2``,
+    fluorescence overviews (OME-TIFF) through
+    ``reproject_stage_positions_onto_fm_image``. Both raise, per position, when
+    the image lacks the metadata a projection needs; the caller records the
+    reason against the item rather than guessing. The scale block is what a
+    client needs to place the points on its rendition: source size, pixel size
+    (m), field width (m), the acquisition's stage position.
+    """
+    from fibsem.fm.preview import is_fluorescence_image
+
+    if is_fluorescence_image(path):
+        from fibsem.fm.reprojection import reproject_stage_positions_onto_fm_image
+        from fibsem.fm.structures import FluorescenceImage
+
+        image = FluorescenceImage.load(path)
+        height, width = image.data.shape[-2:]
+        metadata = image.metadata
+        stage = getattr(metadata, "stage_position", None)
+        block = {
+            "width": int(width),
+            "height": int(height),
+            "pixel_size": metadata.pixel_size_x if metadata else None,
+            "hfw": metadata.pixel_size_x * width if metadata else None,
+            "beam_type": "FM",
+            "stage_position": stage.to_dict() if stage is not None else None,
+        }
+
+        def project(position):
+            (point,) = reproject_stage_positions_onto_fm_image(image, [position])
+            return point
+
+        return block, project
+
+    from fibsem.imaging.tiling.reprojection import (
+        reproject_stage_positions_onto_image2,
+    )
+    from fibsem.structures import FibsemImage
+
+    image = FibsemImage.load(path)
+    height, width = image.data.shape[:2]
+    metadata = image.metadata
+    state = getattr(metadata, "microscope_state", None) if metadata else None
+    stage = state.stage_position if state is not None else None
+    block = {
+        "width": int(width),
+        "height": int(height),
+        "pixel_size": metadata.pixel_size.x if metadata else None,
+        "hfw": metadata.image_settings.hfw if metadata else None,
+        "beam_type": metadata.image_settings.beam_type.name if metadata else None,
+        "stage_position": stage.to_dict() if stage is not None else None,
+    }
+
+    def project(position):
+        (point,) = reproject_stage_positions_onto_image2(image, [position])
+        return point
+
+    return block, project
+
+
 class AgentContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
@@ -232,9 +350,19 @@ class AgentContext:
         if task_protocol is None:
             return {"available": False, "tasks": []}
         config = task_protocol.workflow_config
+        grid_protocol = experiment.grid_protocol
         return {
             "available": True,
             "name": config.name,
+            # The grid protocol beside the lamella workflow: what a grid run
+            # can name. Kind is the registered task type (beam vs FM overview).
+            "grid_tasks": [
+                {
+                    "name": name,
+                    "type": getattr(grid_protocol.task_config[name], "task_type", None),
+                }
+                for name in grid_protocol.ordered_task_names
+            ],
             "tasks": [
                 {
                     "name": task.name,
@@ -332,33 +460,249 @@ class AgentContext:
                 "error": f"No output named {filename!r} for {item_name!r}.",
                 "filenames": [os.path.basename(p) for p in paths],
             }
-        try:
-            import numpy as np
-            import tifffile
+        return _rendered_preview(match, filename, max_width)
 
-            from fibsem.server.images import preview_jpeg_bytes
+    # --- grids: the screening read model (FIB-876) ----------------------------
 
-            data = np.squeeze(np.asarray(tifffile.imread(match)))
-            # z-stacks / channel stacks project on leading axes; a trailing
-            # RGB(A) axis is colour, not a stack, and stays.
-            while data.ndim > 2 and data.shape[-1] not in (3, 4):
-                data = data.max(axis=0)
-            if data.ndim == 3 and data.shape[-1] == 4:
-                data = data[..., :3]
-            jpeg, width, height = preview_jpeg_bytes(data, max_width=max_width)
-        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+    def grids(self) -> Dict[str, Any]:
+        """Every grid the experiment knows, with its latest recorded overviews.
+
+        Records only — never the hardware inventory. Which slot a grid sits in
+        and whether it is in the beam are live stage facts, and this facade
+        does not ask the instrument on an observer's behalf.
+        """
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "items": []}
+        return {
+            "available": True,
+            "items": [
+                self._grid_summary(experiment, grid) for grid in experiment.grids
+            ],
+        }
+
+    def grid_detail(self, grid_name: str) -> Dict[str, Any]:
+        """One grid: its summary plus every task run and the files each recorded.
+
+        ``tasks`` mirrors :meth:`task_outputs` — one entry per history entry in
+        run order, files by role as basenames servable through
+        :meth:`grid_output_image`. ``items`` names the lamellae linked to the
+        grid (``Lamella.grid_id``); an experiment made before grids existed has
+        none, which is a fact about the data, not a failure.
+        """
+        import os
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "grid_name": grid_name}
+        grid = experiment.get_grid_by_name(grid_name)
+        if grid is None:
+            return self._no_such_grid(experiment, grid_name)
+        root = experiment.grid_path(grid)
+        tasks = []
+        for state in grid.task_history:
+            files: Dict[str, List[str]] = {}
+            for role, relpaths in dict(state.outputs).items():
+                names = [
+                    os.path.basename(rp)
+                    for rp in relpaths
+                    if os.path.isfile(os.path.join(root, rp))
+                ]
+                if names:
+                    files[role] = names
+            tasks.append(
+                {
+                    "name": state.name,
+                    "status": state.status.name,
+                    "files": files,
+                }
+            )
+        detail = self._grid_summary(experiment, grid)
+        detail["tasks"] = tasks
+        detail["items"] = [p.name for p in experiment.get_lamellae_for_grid(grid)]
+        return detail
+
+    def grid_output_image(
+        self, grid_name: str, filename: str, max_width: int = 768
+    ) -> Dict[str, Any]:
+        """One recorded grid output (overview or thumbnail), rendered as JPEG.
+
+        Same contract as :meth:`output_image`: ``filename`` must be a basename
+        the grid's own history recorded, anything else is refused with the
+        valid names. Overviews are large; this is the downscaled preview.
+        """
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "jpeg": None}
+        grid = experiment.get_grid_by_name(grid_name)
+        if grid is None:
+            return dict(self._no_such_grid(experiment, grid_name), jpeg=None)
+        match = self._recorded_grid_file(experiment, grid, filename)
+        if match is None:
             return {
                 "available": True,
                 "jpeg": None,
-                "error": f"Could not render {filename!r}: {exc}",
+                "error": f"No output named {filename!r} for grid {grid_name!r}.",
+                "filenames": self._recorded_grid_basenames(experiment, grid),
             }
-        return {
+        return _rendered_preview(match, filename, max_width)
+
+    def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]:
+        """Where the experiment's items fall on one recorded overview.
+
+        Computed here, in source-image pixels, through the same reprojections
+        the overview canvases use — the beam one for SEM/FIB overviews, the FM
+        one for fluorescence overviews — so no client ever re-derives stage
+        geometry (the compucentric offset and canvas-origin traps live in one
+        place). ``image`` carries the scale contract: source size, pixel size,
+        field width, the stage position the overview was taken from. Items
+        that cannot be placed (no pose, or an image without the metadata its
+        projection needs) are listed under ``unplaced`` with the reason, never
+        dropped silently.
+
+        Which items: the lamellae linked to the grid when any are. With none
+        linked, an experiment that records a single grid falls back to every
+        posed lamella, flagged ``linked: false`` — an experiment from before
+        grids were recorded still gets its glance view; with several grids
+        that fallback would paint every grid with the same unrelated items, so
+        nothing is placed and the payload says why.
+        """
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "grid_name": grid_name, "markers": []}
+        grid = experiment.get_grid_by_name(grid_name)
+        if grid is None:
+            return dict(self._no_such_grid(experiment, grid_name), markers=[])
+        match = self._recorded_grid_file(experiment, grid, filename)
+        if match is None:
+            return {
+                "available": True,
+                "grid_name": grid_name,
+                "markers": [],
+                "error": f"No output named {filename!r} for grid {grid_name!r}.",
+                "filenames": self._recorded_grid_basenames(experiment, grid),
+            }
+        try:
+            image_block, project = _overview_projector(match)
+        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+            return {
+                "available": True,
+                "grid_name": grid_name,
+                "filename": filename,
+                "markers": [],
+                "error": f"Could not read {filename!r}: {exc}",
+            }
+        payload: Dict[str, Any] = {
             "available": True,
-            "jpeg": jpeg,
-            "width": width,
-            "height": height,
+            "grid_name": grid_name,
             "filename": filename,
+            "image": image_block,
+            "convention": "source-image pixels, origin top-left, +y down",
+            "markers": [],
+            "unplaced": [],
         }
+        linked = experiment.get_lamellae_for_grid(grid)
+        payload["linked"] = bool(linked)
+        if linked:
+            lamellae = linked
+        elif len(experiment.grids) <= 1:
+            lamellae = list(experiment.positions)
+        else:
+            lamellae = []
+            payload["reason"] = (
+                "no items are linked to this grid, and with several grids "
+                "recorded the experiment's items are not assumed to be on it"
+            )
+        width, height = image_block["width"], image_block["height"]
+        workflow = experiment.task_protocol.workflow_config
+        for lamella in lamellae:
+            pose = lamella.milling_pose
+            position = pose.stage_position if pose is not None else None
+            if position is None:
+                payload["unplaced"].append(
+                    {"item_name": lamella.name, "reason": "item has no pose"}
+                )
+                continue
+            try:
+                point = project(position)
+            except Exception as exc:  # noqa: BLE001 - one bad pose must not hide the rest
+                payload["unplaced"].append(
+                    {"item_name": lamella.name, "reason": str(exc)}
+                )
+                continue
+            last = lamella.last_completed_task
+            payload["markers"].append(
+                {
+                    "item_name": lamella.name,
+                    "x": float(point.x),
+                    "y": float(point.y),
+                    "inside": bool(0 <= point.x < width and 0 <= point.y < height),
+                    "last_completed_task": last.name if last is not None else None,
+                    "is_completed": workflow.is_completed(lamella),
+                    "is_failure": lamella.is_failure,
+                }
+            )
+        return payload
+
+    @staticmethod
+    def _grid_summary(experiment, grid) -> Dict[str, Any]:
+        import os
+
+        history = list(grid.task_history)
+        completed = [
+            t.name for t in history if t.status is AutoLamellaTaskStatus.Completed
+        ]
+        overviews = {}
+        for role in GRID_OVERVIEW_ROLES:
+            path = _task_outputs.latest_grid_output(experiment, grid, role)
+            if path is not None:
+                overviews[role] = os.path.basename(path)
+        return {
+            "name": grid.name,
+            "id": grid.id,
+            "description": grid.description,
+            "quality": grid.quality.name,
+            "status": grid.task_state.status.name,
+            "current_task": grid.task_state.name or None,
+            "is_failure": grid.is_failure,
+            "completed_tasks": completed,
+            "last_completed_task": completed[-1] if completed else None,
+            "num_items": len(experiment.get_lamellae_for_grid(grid)),
+            "overviews": overviews,
+        }
+
+    @staticmethod
+    def _no_such_grid(experiment, grid_name: str) -> Dict[str, Any]:
+        return {
+            "available": False,
+            "grid_name": grid_name,
+            "error": f"No grid named {grid_name!r} in this experiment.",
+            "grid_names": [g.name for g in experiment.grids],
+        }
+
+    @staticmethod
+    def _recorded_grid_paths(experiment, grid) -> List[str]:
+        roles = {role for state in grid.task_history for role in state.outputs}
+        return _task_outputs.grid_outputs(experiment, grid, *sorted(roles))
+
+    @classmethod
+    def _recorded_grid_basenames(cls, experiment, grid) -> List[str]:
+        import os
+
+        return [os.path.basename(p) for p in cls._recorded_grid_paths(experiment, grid)]
+
+    @classmethod
+    def _recorded_grid_file(cls, experiment, grid, filename: str) -> Optional[str]:
+        import os
+
+        return next(
+            (
+                p
+                for p in cls._recorded_grid_paths(experiment, grid)
+                if os.path.basename(p) == filename
+            ),
+            None,
+        )
 
     def item_detail(self, item_name: str) -> Dict[str, Any]:
         """The durable facts about one item, as a curated snapshot.
@@ -823,6 +1167,109 @@ class AgentContext:
         if not hasattr(host, "request_start_workflow"):
             return {"available": False, "started": False}
         outcome = host.request_start_workflow(list(task_names), item_names)
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        return result
+
+    def grid_workflow_plan(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]] = None,
+        screen_all: bool = False,
+    ) -> Dict[str, Any]:
+        """What a grid run would execute, for a confirmation — no hardware.
+
+        The ``(grid, step)`` sequence the manager builds, grid-outer with each
+        grid's load first, validated against the grid protocol and the
+        recorded grids exactly as :meth:`start_grid_workflow` will. For
+        ``screen_all`` the grids are whatever the inventory finds at run time,
+        so the plan names the known grids and says so rather than guessing.
+        Exchanges are deliberately not counted: whether a grid is in the beam
+        is a live stage fact this facade does not read.
+        """
+        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+            plan_grid_run,
+        )
+
+        experiment = self._experiment
+        if experiment is None or experiment.task_protocol is None:
+            return {
+                "available": False,
+                "valid": False,
+                "reason": "no experiment is loaded",
+            }
+        known_tasks = list(experiment.grid_protocol.ordered_task_names)
+        unknown = [t for t in task_names if t not in known_tasks]
+        if not task_names or unknown:
+            return {
+                "available": True,
+                "valid": False,
+                "reason": f"unknown grid tasks: {unknown!r}" if unknown else "no tasks",
+                "task_names": known_tasks,
+            }
+        known_grids = [g.name for g in experiment.grids]
+        if screen_all:
+            if grid_names is not None:
+                return {
+                    "available": True,
+                    "valid": False,
+                    "reason": "screen_all runs over every present grid; "
+                    "do not name grids with it",
+                }
+            return {
+                "available": True,
+                "valid": True,
+                "screen_all": True,
+                "task_names": list(task_names),
+                "grid_names": known_grids,
+                "note": "inventory first; the grids run are those present at run time",
+                "steps": [
+                    {"grid": grid, "step": step}
+                    for grid, step in plan_grid_run(list(task_names), known_grids)
+                ],
+            }
+        if grid_names is None:
+            grid_names = known_grids
+        missing = [n for n in grid_names if n not in known_grids]
+        if missing:
+            return {
+                "available": True,
+                "valid": False,
+                "reason": f"unknown grids: {missing!r}",
+                "grid_names": known_grids,
+            }
+        return {
+            "available": True,
+            "valid": True,
+            "screen_all": False,
+            "task_names": list(task_names),
+            "grid_names": list(grid_names),
+            "steps": [
+                {"grid": grid, "step": step}
+                for grid, step in plan_grid_run(list(task_names), list(grid_names))
+            ],
+        }
+
+    def start_grid_workflow(
+        self,
+        task_names: List[str],
+        grid_names: Optional[List[str]] = None,
+        screen_all: bool = False,
+        timeout: float = 15.0,
+    ) -> Dict[str, Any]:
+        """Start a grid run as the Grids view's Run (or Screen all grids) would.
+
+        Marshalled to the GUI thread like :meth:`start_workflow`; shares its
+        worker slot, so it is refused while any workflow — lamella or grid —
+        is running. Control-scope arming stands in for the preflight dialog's
+        Run click; :meth:`grid_workflow_plan` is that dialog's content.
+        """
+        host = self._host
+        if not hasattr(host, "request_start_grid_workflow"):
+            return {"available": False, "started": False}
+        outcome = host.request_start_grid_workflow(
+            list(task_names), grid_names, inventory_first=screen_all
+        )
         result = outcome.result(timeout=timeout)
         result["available"] = True
         return result

@@ -45,6 +45,11 @@ Reading is on for any connected agent — it is the point of the feature:
 - **Run history** — the run summary and each item's produced files.
 - **Each item's details** — status, failure flag, point of interest,
   alignment area, milling angle, and where its poses put the stage.
+- **Grids** — each grid the experiment records, its quality verdict and task
+  history, its SEM/FIB/FM overviews as previews, and where your items fall on
+  an overview (computed in the app, in that image's pixels, with each item's
+  status). Records only: which slot a grid is in is a live hardware fact the
+  agent does not get here.
 
 Every image travels as a downscaled preview that carries its own scale: the
 preview's size, the source image's size, the field width, and the physical
@@ -90,6 +95,11 @@ questions and rewriting protocols are different levels of trust.
 
 Permissions last the session only. They are granted in the dialog, die when
 the app closes, and never persist — every session starts read-only.
+
+With Control the agent can also start a **grid screening run** — the Grids
+view's Run or Screen all grids, remotely — over the grid tasks in your
+protocol. It is refused while any run is going, and a good agent shows you
+the plan (every grid, its load, its tasks) before it starts one.
 
 ## What the agent cannot do
 

@@ -223,6 +223,35 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
+        name="get_grids",
+        description="Every grid the experiment records: quality verdict, task status, completed tasks, linked item count, and the basename of its latest SEM/FIB/FM overview by role. Records only — not the live slot inventory.",
+        method="GET",
+        path="/app/grids",
+        scope="read",
+        router="app",
+    ),
+    ToolSpec(
+        name="get_grid_detail",
+        description="One grid: its summary plus every task run with the files it recorded by role, and the names of the items linked to it.",
+        method="GET",
+        path="/app/grids/{grid_name}",
+        scope="read",
+        router="app",
+        params={"grid_name": "the grid name"},
+    ),
+    ToolSpec(
+        name="get_grid_markers",
+        description="Where the experiment's items fall on one recorded overview, in source-image pixels with each item's status, plus the image's scale block (size, pixel size, field width, stage position). Computed server-side; never re-derive stage geometry. Items that cannot be placed are listed with the reason.",
+        method="GET",
+        path="/app/grids/{grid_name}/outputs/{filename}/markers",
+        scope="read",
+        router="app",
+        params={
+            "grid_name": "the grid name",
+            "filename": "an overview basename from get_grids / get_grid_detail",
+        },
+    ),
+    ToolSpec(
         name="get_protocol_task_config",
         description="One task's protocol-level configuration document (the defaults new items copy), with a version token naming exactly this state of it. Full document, not a summary.",
         method="GET",
@@ -378,6 +407,32 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "task_names": "the tasks to run, from the protocol's task names",
             "item_names": "the items (lamellae) to run them for; omit for all",
+        },
+    ),
+    ToolSpec(
+        name="plan_grid_workflow",
+        description="What a grid run would execute — the preflight dialog's content: the (grid, step) sequence with each grid's load first, validated against the grid protocol and the recorded grids. screen_all plans over the known grids and says the run will use whatever the inventory finds. Computes only; reads no hardware.",
+        method="POST",
+        path="/app/workflow/grids/plan",
+        scope="read",
+        router="app",
+        params={
+            "task_names": "grid tasks to run, from the protocol's grid_tasks names",
+            "grid_names": "grids to run them on; omit for every recorded grid",
+            "screen_all": "true = inventory first, then every present grid (no grid_names)",
+        },
+    ),
+    ToolSpec(
+        name="start_grid_workflow",
+        description="Start a grid run — the Grids view's Run button, remotely; with screen_all, its Screen all grids button (inventory, then every present grid). Refused while any workflow, lamella or grid, is running. Call plan_grid_workflow first and show the plan.",
+        method="POST",
+        path="/app/workflow/grids/start",
+        scope="control",
+        router="app",
+        params={
+            "task_names": "grid tasks to run, from the protocol's grid_tasks names",
+            "grid_names": "grids to run them on; omit for every recorded grid",
+            "screen_all": "true = inventory first, then every present grid (no grid_names)",
         },
     ),
     ToolSpec(

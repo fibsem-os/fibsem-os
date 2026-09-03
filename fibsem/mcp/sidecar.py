@@ -252,6 +252,15 @@ def build_sidecar(client, capabilities):
     def get_item_detail(item_name: str):
         return _app_get(f"/app/items/{item_name}")
 
+    def get_grids():
+        return _app_get("/app/grids")
+
+    def get_grid_detail(grid_name: str):
+        return _app_get(f"/app/grids/{grid_name}")
+
+    def get_grid_markers(grid_name: str, filename: str):
+        return _app_get(f"/app/grids/{grid_name}/outputs/{filename}/markers")
+
     def get_protocol_task_config(task_name: str):
         return _app_get(f"/app/protocol/task_config/{task_name}")
 
@@ -353,6 +362,24 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/workflow/start", payload)
         return err if err else data
 
+    def plan_grid_workflow(
+        task_names: list, grid_names: list = None, screen_all: bool = False
+    ):  # noqa: RUF013
+        payload = {"task_names": list(task_names), "screen_all": bool(screen_all)}
+        if grid_names is not None:
+            payload["grid_names"] = list(grid_names)
+        data, err = _call(client, "POST", "/app/workflow/grids/plan", payload)
+        return err if err else data
+
+    def start_grid_workflow(
+        task_names: list, grid_names: list = None, screen_all: bool = False
+    ):  # noqa: RUF013
+        payload = {"task_names": list(task_names), "screen_all": bool(screen_all)}
+        if grid_names is not None:
+            payload["grid_names"] = list(grid_names)
+        data, err = _call(client, "POST", "/app/workflow/grids/start", payload)
+        return err if err else data
+
     def set_task_supervision(task_name: str, supervise: bool, supervisor: str = None):  # noqa: RUF013
         payload = {"task_name": task_name, "supervise": bool(supervise)}
         if supervisor is not None:
@@ -421,6 +448,9 @@ def build_sidecar(client, capabilities):
             get_protocol,
             get_task_outputs,
             get_item_detail,
+            get_grids,
+            get_grid_detail,
+            get_grid_markers,
             get_protocol_task_config,
             get_item_task_config,
             update_item_task_config,
@@ -437,6 +467,8 @@ def build_sidecar(client, capabilities):
             get_pending_prompt,
             answer_prompt,
             stop_workflow,
+            plan_grid_workflow,
+            start_grid_workflow,
             set_task_supervision,
             requeue_task,
             start_workflow,

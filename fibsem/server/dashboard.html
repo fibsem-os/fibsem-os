@@ -70,6 +70,29 @@
   .rrow img { display:block; width:100%; aspect-ratio:3/2; object-fit:cover;
     background:var(--canvas); }
 
+  /* grid overviews: one row per screened grid, SEM · FIB · FM left to right,
+     the experiment's items drawn over each in status colour */
+  .grids { margin-top:10px; padding:8px 12px 10px; display:flex; flex-direction:column; gap:10px; }
+  .grow { display:flex; flex-direction:column; gap:6px; }
+  .grow-head { display:flex; align-items:baseline; gap:10px; }
+  .grow-head .name { font-weight:600; color:var(--strong); }
+  .grow-head .q { font-size:10.5px; letter-spacing:0.05em; color:var(--muted); }
+  .grow-head .q.good { color:var(--ok); } .grow-head .q.poor { color:var(--err); }
+  .grow-head .n { margin-left:auto; font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  /* capped column width: a 3:2 overview at 440px is ~290px tall, so two grids
+     still leave the item cards above the fold on a laptop */
+  .ovs { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,440px)); gap:8px; }
+  .ov { position:relative; background:var(--canvas); min-height:80px; }
+  .ov img { display:block; width:100%; height:auto; }
+  .ov svg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .ov svg circle { pointer-events:auto; }
+  .ov .tag { position:absolute; left:0; top:0; font-size:10px; letter-spacing:0.05em;
+    color:var(--muted); background:rgba(20,21,24,.8); padding:1px 6px; }
+  .ov .note { position:absolute; right:0; bottom:0; font-size:10px; color:var(--muted);
+    background:rgba(20,21,24,.8); padding:1px 6px; }
+  .legend { display:flex; gap:12px; font-size:10.5px; color:var(--muted); }
+  .legend i { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
+
   .side { display:flex; flex-direction:column; gap:10px; min-width:0; }
   .queue-body { font-size:12px; padding:4px 0; max-height:30vh; overflow-y:auto; }
   .qrow { padding:2.5px 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -267,6 +290,86 @@ async function renderCard(name) {
   }
 }
 
+/* ── grid overviews ────────────────────────────────────────────────── */
+
+const OVERVIEW_ROLES = [["overview_sem", "sem"], ["overview_fib", "fib"], ["overview_fm", "fm"]];
+const MARKER = {
+  failed: "var(--err)", done: "var(--ok)", started: "var(--accent)", idle: "var(--muted)",
+};
+function markerClass(m) {
+  if (m.is_failure) return "failed";
+  if (m.is_completed) return "done";
+  return m.last_completed_task ? "started" : "idle";
+}
+
+async function fetchBlobUrl(path) {
+  const r = await fetch(path, { headers: { Authorization: "Bearer " + TOKEN } });
+  return r.ok ? URL.createObjectURL(await r.blob()) : null;
+}
+
+// Markers arrive in source pixels; an SVG with the source size as its viewBox
+// scales with the <img> beneath it, so nothing here knows the display size.
+function markerSvg(markers, image) {
+  const w = image.width, h = image.height;
+  const r = Math.max(w, h) * 0.012;
+  const dots = markers.filter(m => m.inside).map(m => {
+    const cls = markerClass(m);
+    const title = `${m.item_name}${m.last_completed_task ? " · " + m.last_completed_task : ""}`;
+    return `<circle cx="${m.x}" cy="${m.y}" r="${r}" fill="${MARKER[cls]}" fill-opacity="0.35"
+      stroke="${MARKER[cls]}" stroke-width="${r * 0.35}"><title>${esc(title)}</title></circle>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${dots}</svg>`;
+}
+
+async function renderOverview(gridName, role, label, filename) {
+  const base = "/app/grids/" + encodeURIComponent(gridName) + "/outputs/" + encodeURIComponent(filename);
+  const [url, markers] = await Promise.all([
+    fetchBlobUrl(base),
+    api(base + "/markers").catch(() => ({ markers: [], unplaced: [] })),
+  ]);
+  if (!url) return "";
+  const placed = (markers.markers || []);
+  const outside = placed.filter(m => !m.inside).length;
+  const unplaced = (markers.unplaced || []).length;
+  const notes = [];
+  if (outside) notes.push(`${outside} off image`);
+  if (unplaced) notes.push(`${unplaced} unplaced`);
+  const svg = markers.image ? markerSvg(placed, markers.image) : "";
+  return `<div class="ov"><img src="${url}" alt="">${svg}
+    <span class="tag">${esc(label)}</span>
+    ${notes.length ? `<span class="note">${esc(notes.join(" · "))}</span>` : ""}</div>`;
+}
+
+async function refreshGrids() {
+  const panel = document.getElementById("grids");
+  let body;
+  try { body = await api("/app/grids"); } catch (e) { panel.style.display = "none"; return; }
+  const grids = (body.items || []).filter(g => Object.keys(g.overviews || {}).length);
+  if (!grids.length) { panel.style.display = "none"; return; }
+  const rows = await Promise.all(grids.map(async g => {
+    const ovs = (await Promise.all(OVERVIEW_ROLES
+      .filter(([role]) => g.overviews[role])
+      .map(([role, label]) => renderOverview(g.name, role, label, g.overviews[role])))).join("");
+    const q = (g.quality || "").toLowerCase();
+    const state = g.is_failure ? `<span class="err">failed</span>`
+      : g.status === "InProgress" ? `<span style="color:var(--accent)">${esc(g.current_task || "running")}</span>`
+      : `${g.completed_tasks.length} tasks`;
+    return `<div class="grow">
+      <div class="grow-head"><span class="name">${esc(g.name)}</span>
+        <span class="q ${q}">${esc(q === "unassessed" ? "" : q)}</span>
+        <span class="n">${g.num_items} items · ${state}</span></div>
+      <div class="ovs">${ovs}</div></div>`;
+  }));
+  // Revoke the previous object URLs before the DOM drops them.
+  for (const img of panel.querySelectorAll("img[src^=blob]")) URL.revokeObjectURL(img.src);
+  panel.innerHTML = rows.join("") + `<div class="legend">
+    <span><i style="background:${MARKER.done}"></i>complete</span>
+    <span><i style="background:${MARKER.started}"></i>in progress</span>
+    <span><i style="background:${MARKER.idle}"></i>not started</span>
+    <span><i style="background:${MARKER.failed}"></i>failed</span></div>`;
+  panel.style.display = "";
+}
+
 /* ── workflow queue ────────────────────────────────────────────────── */
 
 async function refreshQueue() {
@@ -355,7 +458,7 @@ async function refreshCards() {
   await Promise.all(itemNames.map(renderCard));
 }
 
-const REFRESHING = { top: false, cards: false, queue: false };
+const REFRESHING = { top: false, cards: false, queue: false, grids: false };
 async function throttled(kind, fn) {
   if (REFRESHING[kind]) return;
   REFRESHING[kind] = true;
@@ -372,6 +475,7 @@ async function liveLoop() {
         // Fell behind the ring buffer: reseed everything rather than pretend.
         latestSeq = body.latest_seq || latestSeq;
         await throttled("top", refreshTop);
+        await throttled("grids", refreshGrids);
         await throttled("cards", refreshCards);
         continue;
       }
@@ -381,6 +485,7 @@ async function liveLoop() {
         appendEvents(events);
         await throttled("top", refreshTop);
         if (events.some(e => e.kind.startsWith("task_") || e.kind.startsWith("workflow_"))) {
+          await throttled("grids", refreshGrids);
           await throttled("cards", refreshCards);
           await throttled("queue", refreshQueue);
         }
@@ -410,6 +515,7 @@ async function boot() {
   $app.innerHTML = `
     <header class="panel" id="hdr"></header>
     <div class="ladder panel" id="ladder"></div>
+    <div class="grids panel" id="grids" style="display:none"></div>
     <div class="main">
       <div class="cards" id="cards"></div>
       <div class="side">
@@ -428,6 +534,7 @@ async function boot() {
   latestSeq = seed.available ? (seed.latest_seq || 0) : 0;
   if (seed.available) appendEvents(seed.events || []);
   await refreshTop();
+  await refreshGrids();
   await refreshCards();
   await refreshQueue();
   liveLoop();
