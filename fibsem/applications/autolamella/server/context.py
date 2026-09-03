@@ -25,6 +25,7 @@ the real ``AutoLamellaUI`` in production, a plain holder of real domain objects
 in tests.
 """
 
+import logging
 import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -726,6 +727,72 @@ class AgentContext:
                     "task_name": task_name,
                     "supervise": bool(supervise),
                     "supervisor": getattr(task, "supervisor", "human"),
+                }
+        return {
+            "available": True,
+            "applied": False,
+            "error": f"No task named {task_name!r} in the protocol.",
+            "task_names": [t.name for t in config.tasks],
+        }
+
+    def set_task_schedule(
+        self, task_name: str, scheduled_at: Optional[str]
+    ) -> Dict[str, Any]:
+        """Set (or clear) when ``task_name`` may start, in the live workflow.
+
+        The workflow reads the schedule at each task start (never a snapshot),
+        so a change takes effect at the next start — the ``set_supervision``
+        semantics, and like it this mutates the live config directly (an
+        atomic field rebind; no GUI marshal needed). Unlike supervision,
+        a schedule is plan data, so it is persisted immediately.
+
+        ``scheduled_at`` is ISO-8601 (naive = local time; an offset is
+        normalized by the workflow) or ``None`` to clear.
+        """
+        parsed = None
+        if scheduled_at is not None:
+            try:
+                parsed = datetime.fromisoformat(scheduled_at)
+            except ValueError:
+                return {
+                    "available": True,
+                    "applied": False,
+                    "invalid_value": f"{scheduled_at!r} is not an ISO-8601 "
+                    "timestamp (e.g. '2026-09-04T06:00:00'); null clears "
+                    "the schedule.",
+                }
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        config = getattr(protocol, "workflow_config", None) if protocol else None
+        if config is None:
+            return {"available": False, "applied": False}
+        for task in config.tasks:
+            if task.name == task_name:
+                task.scheduled_at = parsed
+                saved = True
+                try:
+                    experiment.save(save_protocol=True)
+                except Exception:
+                    saved = False
+                    logging.exception(
+                        "save after schedule change failed; the change is "
+                        "applied in memory but not yet on disk"
+                    )
+                if self._event_buffer is not None:
+                    self._event_buffer.append(
+                        "workflow_changed",
+                        {
+                            "field": "scheduled_at",
+                            "task_name": task_name,
+                            "scheduled_at": parsed.isoformat() if parsed else None,
+                        },
+                    )
+                return {
+                    "available": True,
+                    "applied": True,
+                    "saved": saved,
+                    "task_name": task_name,
+                    "scheduled_at": parsed.isoformat() if parsed else None,
                 }
         return {
             "available": True,

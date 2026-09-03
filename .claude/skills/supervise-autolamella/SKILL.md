@@ -224,6 +224,11 @@ config for the run in progress — patch after it finishes. Values are SI
 (metres, amps); bounds are validated for you and refusals name the
 failing path.
 
+Scheduling rides the same permission: `set_task_schedule` sets or clears
+when a task may start (ISO-8601, instrument-local when naive; null
+clears). The workflow reads it at each task start, so it never interrupts
+anything running.
+
 Etiquette:
 
 - **Change what was asked, exactly.** "Make the fiducial 2 µm deeper" is

@@ -258,6 +258,15 @@ def build_sidecar(client, capabilities):
     def get_item_task_config(item_name: str, task_name: str):
         return _app_get(f"/app/items/{item_name}/task_config/{task_name}")
 
+    def set_task_schedule(task_name: str, scheduled_at=None):
+        data, err = _call(
+            client,
+            "POST",
+            "/app/workflow/schedule",
+            {"task_name": task_name, "scheduled_at": scheduled_at},
+        )
+        return err if err else data
+
     def update_item_detail(item_name: str, patch: dict, version: str):
         data, err = _call(
             client,
@@ -377,6 +386,7 @@ def build_sidecar(client, capabilities):
             update_item_task_config,
             update_protocol_task_config,
             update_item_detail,
+            set_task_schedule,
             list_recent_experiments,
             get_events,
             get_display_images,

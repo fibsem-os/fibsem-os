@@ -209,3 +209,79 @@ def test_events_unavailable_without_a_buffer(microscope, host):
     with TestClient(app, raise_server_exceptions=False) as bare:
         body = bare.get("/app/events", headers=AUTH).json()
     assert body["available"] is False
+
+
+def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buffer):
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.rough import (
+        MillRoughTaskConfig,
+    )
+
+    # A real workflow entry to schedule.
+    protocol = host.experiment.task_protocol
+    protocol.task_config["Rough Milling"] = MillRoughTaskConfig(
+        task_name="Rough Milling"
+    )
+    protocol.workflow_config.tasks.append(
+        AutoLamellaTaskDescription(name="Rough Milling", supervise=True, required=True)
+    )
+
+    armed = build_server(
+        microscope,
+        app_context=AgentContext(host, event_buffer=event_buffer),
+        auth=AuthConfig.generate(arm_configure=True, token=TOKEN),
+    )
+    with TestClient(armed, raise_server_exceptions=False) as client:
+        when = "2026-09-04T06:00:00"
+        resp = client.post(
+            "/app/workflow/schedule",
+            headers=AUTH,
+            json={"task_name": "Rough Milling", "scheduled_at": when},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["applied"] is True and body["saved"] is True
+        assert body["scheduled_at"] == when
+        # The live protocol shows it, and protocol.yaml has it.
+        shown = client.get("/app/protocol", headers=AUTH).json()["tasks"]
+        assert (
+            next(t for t in shown if t["name"] == "Rough Milling")["scheduled_at"]
+            == when
+        )
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        assert [e for e in events if e["kind"] == "workflow_changed"]
+
+        cleared = client.post(
+            "/app/workflow/schedule",
+            headers=AUTH,
+            json={"task_name": "Rough Milling", "scheduled_at": None},
+        )
+        assert cleared.json()["scheduled_at"] is None
+
+        bad = client.post(
+            "/app/workflow/schedule",
+            headers=AUTH,
+            json={"task_name": "Rough Milling", "scheduled_at": "6am tomorrow"},
+        )
+        assert bad.status_code == 422
+        assert bad.json()["detail"]["error_type"] == "invalid_value"
+
+        unknown = client.post(
+            "/app/workflow/schedule",
+            headers=AUTH,
+            json={"task_name": "Nope", "scheduled_at": when},
+        )
+        assert unknown.status_code == 404
+        assert "Rough Milling" in unknown.json()["detail"]["task_names"]
+
+
+def test_task_schedule_needs_the_configure_scope(client):
+    resp = client.post(
+        "/app/workflow/schedule",
+        headers=AUTH,
+        json={"task_name": "X", "scheduled_at": None},
+    )
+    assert resp.status_code in (403, 404)  # unarmed configure scope
+    assert resp.status_code == 403

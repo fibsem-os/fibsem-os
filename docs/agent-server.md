@@ -77,7 +77,9 @@ In **Tools → Agent Server**, the *Act* switch lets the agent:
   agent-supervised, mid-run;
 - **re-queue a task** — "run 03's fiducial again" during a run.
 
-A separate **Configure** switch lets the agent edit task parameters — an
+A separate **Configure** switch lets the agent edit an item's details
+(point of interest, alignment area, description, defect verdict), schedule
+tasks ("start polishing at 6am"), and edit task parameters — an
 item's milling depths, currents, imaging settings — as targeted patches
 against exactly the state it last read (a concurrent edit of yours makes the
 agent's write stale, and it is refused, never merged). A task already

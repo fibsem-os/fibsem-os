@@ -244,6 +244,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="set_task_schedule",
+        description="Set (or clear) when a task may start: ISO-8601 timestamp (naive = instrument-local time), or null to clear. The workflow reads schedules at each task start, so a change takes effect at the next start; the schedule persists with the protocol. Needs the configure permission.",
+        method="POST",
+        path="/app/workflow/schedule",
+        scope="configure",
+        router="app",
+        params={
+            "task_name": "the task name, as listed by get_protocol",
+            "scheduled_at": "ISO-8601 timestamp, or null to clear",
+        },
+    ),
+    ToolSpec(
         name="update_item_detail",
         description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description, defect.state (NONE/FAILURE/REWORK) and defect.description. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from get_item_detail — a mismatch is refused (409 stale_config). Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override. Needs the configure permission.",
         method="POST",

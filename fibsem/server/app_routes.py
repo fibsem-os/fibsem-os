@@ -66,6 +66,10 @@ class AppContext(Protocol):
         self, item_name: str, patch: Dict[str, Any], version: str
     ) -> Dict[str, Any]: ...
 
+    def set_task_schedule(
+        self, task_name: str, scheduled_at: Optional[str]
+    ) -> Dict[str, Any]: ...
+
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
@@ -351,6 +355,43 @@ def build_app_config_router(context: AppContext) -> APIRouter:
         return _refused_or(
             context.apply_item_task_config_patch(item_name, task_name, patch, version)
         )
+
+    @router.post("/workflow/schedule")
+    def set_task_schedule(body: Dict[str, Any]):
+        # Workflow structure, not a config document: a verb like /app/supervision,
+        # on the configure scope. scheduled_at is ISO-8601 or null to clear.
+        task_name = body.get("task_name")
+        scheduled_at = body.get("scheduled_at")
+        if not isinstance(task_name, str) or (
+            scheduled_at is not None and not isinstance(scheduled_at, str)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass task_name (string) and scheduled_at "
+                    "(ISO-8601 string, or null to clear).",
+                },
+            )
+        result = context.set_task_schedule(task_name, scheduled_at)
+        if result.get("invalid_value"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_value",
+                    "message": result["invalid_value"],
+                },
+            )
+        if not result.get("applied") and result.get("error"):
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_type": "not_found",
+                    "message": result["error"],
+                    "task_names": result.get("task_names", []),
+                },
+            )
+        return result
 
     @router.post("/items/{item_name}")
     def patch_item(item_name: str, body: Dict[str, Any]):
