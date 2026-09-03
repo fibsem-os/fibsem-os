@@ -1259,6 +1259,22 @@ class AutoLamellaUI(QMainWindow):
         )
         return outcome
 
+    def request_apply_protocol_to_item(self, item_name: str, task_names) -> "Future":
+        """Re-copy protocol task configs onto an existing item; any thread.
+
+        The agent's form of the editor's apply dialog: protocol-level edits
+        only reach items created after them, and this is the verb that brings
+        an existing item up to date. ``task_names`` of None means every task
+        the protocol defines.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_config_patch.emit(
+            "apply_protocol", item_name, "", {"task_names": task_names}, "", outcome
+        )
+        return outcome
+
     def request_apply_protocol_task_config_patch(
         self, task_name: str, patch: dict, version: str
     ) -> "Future":
@@ -1326,6 +1342,10 @@ class AutoLamellaUI(QMainWindow):
             return {"applied": False, "error": "no experiment is loaded"}
         if level == "item_fields":
             return self._apply_item_fields_patch(experiment, item_name, patch, version)
+        if level == "apply_protocol":
+            return self._apply_protocol_to_item(
+                experiment, item_name, patch.get("task_names")
+            )
         if level == "protocol":
             protocol = getattr(experiment, "task_protocol", None)
             config_map = getattr(protocol, "task_config", None)
@@ -1480,6 +1500,69 @@ class AutoLamellaUI(QMainWindow):
                 for p, old, new in changes
             ],
             "version": item_fields_version(lamella),
+        }
+
+    def _apply_protocol_to_item(self, experiment, item_name: str, task_names) -> dict:
+        """Deep-copy protocol task configs onto one item. GUI thread.
+
+        Mirrors what creation does: the copy, then ``_sync_imaging_paths`` so
+        the copied milling acquisitions write into this lamella's directory
+        rather than wherever the protocol document pointed. Wholesale by
+        design — this verb IS "replace with the defaults" — so no version
+        dance; the refusals are unknown names and running tasks.
+        """
+        from copy import deepcopy as _deepcopy
+
+        lamella = experiment.get_lamella_by_name(item_name)
+        if lamella is None:
+            return {
+                "applied": False,
+                "error": f"No item named {item_name!r} in this experiment.",
+                "item_names": [p.name for p in experiment.positions],
+            }
+        protocol = getattr(experiment, "task_protocol", None)
+        config_map = getattr(protocol, "task_config", None)
+        if config_map is None:
+            return {"applied": False, "error": "no protocol is loaded"}
+        names = list(task_names) if task_names else list(config_map.keys())
+        unknown = [n for n in names if n not in config_map]
+        if unknown:
+            return {
+                "applied": False,
+                "error": f"Not in the protocol: {unknown!r}.",
+                "task_names": list(config_map.keys()),
+            }
+        for name in names:
+            lamella.task_config[name] = _deepcopy(config_map[name])
+        lamella._sync_imaging_paths()
+        logging.info(f"agent applied protocol to {item_name}: {', '.join(names)}")
+        saved = True
+        try:
+            experiment.save()
+        except Exception:
+            saved = False
+            logging.exception(
+                "save after protocol apply failed; the change is applied "
+                "in memory but not yet on disk"
+            )
+        parent = self.parent_widget
+        try:
+            notification_service.show_toast(
+                f"Agent applied protocol to {item_name} — {', '.join(names)}",
+                "info",
+            )
+        except Exception:
+            logging.exception("toast after protocol apply failed")
+        if parent is not None:
+            try:
+                parent.lamella_widget.refresh_if_showing(item_name)
+            except Exception:
+                logging.exception("editor refresh after protocol apply failed")
+        return {
+            "applied": True,
+            "saved": saved,
+            "item_name": item_name,
+            "task_names": names,
         }
 
     def _show_agent_config_patch(

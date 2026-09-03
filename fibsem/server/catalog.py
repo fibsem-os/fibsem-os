@@ -244,6 +244,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="apply_protocol_to_item",
+        description="Re-copy protocol task configs onto an existing item (protocol-level edits only reach items created after them; this brings an existing item up to date). Wholesale replace of that item's copies for the named tasks — omit task_names for all. Running tasks are refused. Needs the configure permission.",
+        method="POST",
+        path="/app/items/{item_name}/apply_protocol",
+        scope="configure",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "task_names": "optional list of task names; omitted = every task in the protocol",
+        },
+    ),
+    ToolSpec(
         name="set_task_schedule",
         description="Set (or clear) when a task may start: ISO-8601 timestamp (naive = instrument-local time), or null to clear. The workflow reads schedules at each task start, so a change takes effect at the next start; the schedule persists with the protocol. Needs the configure permission.",
         method="POST",

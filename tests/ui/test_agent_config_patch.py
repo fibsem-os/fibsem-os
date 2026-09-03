@@ -330,3 +330,43 @@ def test_item_fields_allowlist_and_alignment_validity(ui, qapp):
         )
         assert bad.status_code == 422
         assert lamella.alignment_area.left == 0.6
+
+
+def test_apply_protocol_recopies_configs_and_repoints_paths(ui, qapp):
+    from fibsem.applications.autolamella.server.context import config_version
+
+    buffer = EventBuffer()
+    lamella = ui.experiment.positions[0]
+    protocol_config = ui.experiment.task_protocol.task_config[TASK]
+    # Diverge the two, as real runs do.
+    lamella.task_config[TASK].milling["mill_rough"].stages[0].pattern.depth = 9e-6
+    assert config_version(lamella.task_config[TASK]) != config_version(protocol_config)
+
+    item = lamella.name
+    with _client(ui, buffer=buffer) as client:
+        resp = _post_on_worker(
+            qapp,
+            client,
+            f"/app/items/{item}/apply_protocol",
+            {"task_names": [TASK]},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["applied"] is True and body["task_names"] == [TASK]
+        # The item's copy now matches the protocol (fresh deepcopy, not shared)...
+        copied = lamella.task_config[TASK]
+        assert copied is not protocol_config
+        # ...except the imaging paths, which point at the lamella's own dir.
+        for mtc in copied.milling.values():
+            assert str(mtc.acquisition.imaging.path) == str(lamella.path)
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        assert [e for e in events if e["payload"].get("level") == "protocol_applied"]
+
+        unknown = _post_on_worker(
+            qapp,
+            client,
+            f"/app/items/{item}/apply_protocol",
+            {"task_names": ["Nope"]},
+        )
+        assert unknown.status_code == 404
+        assert TASK in unknown.json()["detail"]["task_names"]

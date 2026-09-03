@@ -258,6 +258,15 @@ def build_sidecar(client, capabilities):
     def get_item_task_config(item_name: str, task_name: str):
         return _app_get(f"/app/items/{item_name}/task_config/{task_name}")
 
+    def apply_protocol_to_item(item_name: str, task_names=None):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/items/{item_name}/apply_protocol",
+            {"task_names": list(task_names) if task_names else None},
+        )
+        return err if err else data
+
     def set_task_schedule(task_name: str, scheduled_at=None):
         data, err = _call(
             client,
@@ -387,6 +396,7 @@ def build_sidecar(client, capabilities):
             update_protocol_task_config,
             update_item_detail,
             set_task_schedule,
+            apply_protocol_to_item,
             list_recent_experiments,
             get_events,
             get_display_images,

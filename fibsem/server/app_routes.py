@@ -70,6 +70,10 @@ class AppContext(Protocol):
         self, task_name: str, scheduled_at: Optional[str]
     ) -> Dict[str, Any]: ...
 
+    def apply_protocol_to_item(
+        self, item_name: str, task_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]: ...
+
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
@@ -392,6 +396,25 @@ def build_app_config_router(context: AppContext) -> APIRouter:
                 },
             )
         return result
+
+    @router.post("/items/{item_name}/apply_protocol")
+    def apply_protocol_to_item(item_name: str, body: Dict[str, Any]):
+        # Wholesale by design — the verb IS "replace with the protocol
+        # defaults" — so no version field; refusals ride _refused_or.
+        task_names = body.get("task_names")
+        if task_names is not None and not (
+            isinstance(task_names, list) and all(isinstance(t, str) for t in task_names)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "task_names, when given, is a list of task "
+                    "name strings; omitted means every task the protocol "
+                    "defines.",
+                },
+            )
+        return _refused_or(context.apply_protocol_to_item(item_name, task_names))
 
     @router.post("/items/{item_name}")
     def patch_item(item_name: str, body: Dict[str, Any]):

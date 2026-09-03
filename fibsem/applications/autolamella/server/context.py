@@ -491,6 +491,62 @@ class AgentContext:
             )
         return result
 
+    def apply_protocol_to_item(
+        self,
+        item_name: str,
+        task_names: Optional[List[str]] = None,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Re-copy protocol task configs onto an existing item.
+
+        Protocol-level edits only reach items created after them; this verb
+        brings an existing item up to date — the agent's form of the editor's
+        apply dialog. Wholesale by design (it IS "replace with the defaults"),
+        so no version dance; a task currently running for this item is
+        refused like any other config write.
+        """
+        host = self._host
+        if not hasattr(host, "request_apply_protocol_to_item"):
+            return {"available": False, "applied": False}
+        manager = self._manager
+        if manager is not None:
+            experiment = self._experiment
+            protocol = (
+                getattr(experiment, "task_protocol", None) if experiment else None
+            )
+            config_map = getattr(protocol, "task_config", None) if protocol else {}
+            guard_names = (
+                list(task_names) if task_names else list((config_map or {}).keys())
+            )
+            running = any(
+                item.item_name == item_name
+                and item.task_name in guard_names
+                and item.status is AutoLamellaTaskStatus.InProgress
+                for item in manager.queue.items
+            )
+            if running:
+                return {
+                    "available": True,
+                    "applied": False,
+                    "error_type": "task_running",
+                    "error": f"A task in {guard_names!r} is running for "
+                    f"{item_name!r} right now and has already copied its "
+                    "config. Apply after it finishes.",
+                }
+        outcome = host.request_apply_protocol_to_item(item_name, task_names)
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        if result.get("applied") and self._event_buffer is not None:
+            self._event_buffer.append(
+                "config_edited",
+                {
+                    "level": "protocol_applied",
+                    "item_name": item_name,
+                    "task_names": result.get("task_names", []),
+                },
+            )
+        return result
+
     def apply_protocol_task_config_patch(
         self,
         task_name: str,
