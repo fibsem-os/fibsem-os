@@ -10,6 +10,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
     AutoLamellaTaskStatus,
     Experiment,
@@ -317,3 +318,20 @@ def test_the_tab_follows_the_connection_and_the_experiment(main_ui, tmp_path):
     assert main_ui.tab_widget.isTabEnabled(
         main_ui.tab_widget.indexOf(main_ui.grids_tab)
     )
+
+
+def test_an_experiment_with_no_lamella_tasks_loads(main_ui, tmp_path):
+    """A grid-only experiment, or one built from an empty protocol: the lamella
+    task editor has nothing to show and says so by hiding its columns, where it
+    used to raise on the empty selection and stop the whole experiment load."""
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    ui.experiment = exp
+    main_ui.minimap_widget = _NoMinimap()
+    main_ui._on_experiment_update()
+    editor = main_ui.task_widget
+    assert not editor.task_parameters_config_widget.isVisibleTo(editor)
+    assert not editor.milling_task_editor.isVisibleTo(editor)

@@ -134,13 +134,21 @@ def update_status_ui(
     msg: str,
     workflow_info: Optional[str] = None,
     status_bar: Optional[str] = None,
+    check_abort: bool = True,
 ) -> None:
+    """Put a line on the workflow-information label or the status bar.
 
+    A status point doubles as a cancellation point: a task that reports progress
+    is interrupted here once Stop has been pressed. ``check_abort=False`` is for
+    the manager's closing line after a Stop -- "Workflow cancelled by user." -- which is
+    the one status that has to get out precisely because the run was aborted.
+    """
     if parent_ui is None:
         logging.info(msg or status_bar or "")
         return
 
-    _check_for_abort(parent_ui)
+    if check_abort:
+        _check_for_abort(parent_ui)
 
     # Local import: the tasks package pulls this module in through its manager,
     # so a top-level import of tasks.status is a cycle.

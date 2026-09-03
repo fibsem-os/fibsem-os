@@ -37,7 +37,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import BaseTaskManager
 from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
-from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatusEvent
+from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
 from fibsem.hooks import HookEvent, HookManager
 from fibsem.microscopes._stage import GridExchangeError
@@ -130,7 +130,13 @@ class GridTaskManager(BaseTaskManager):
                     "grid_name": item.item_name,
                     "task_name": item.task_name,
                     "task_status": item.status.name,
-                    "loaded": item.item_name not in self._not_loaded,
+                    # A task that never ran has no answer to "was the grid in
+                    # the beam for it": blank, not the last load's outcome.
+                    "loaded": (
+                        None
+                        if item.status is AutoLamellaTaskStatus.NotStarted
+                        else item.item_name not in self._not_loaded
+                    ),
                     "completed_at": completed_at,
                     "duration": duration,
                 }
@@ -222,7 +228,7 @@ class GridTaskManager(BaseTaskManager):
         # finished workflow.
         if self.is_stopped:
             self._fire_workflow_hook(HookEvent.WORKFLOW_CANCELLED)
-            self._say(workflow_info="Grid workflow cancelled.")
+            self._say(workflow_info="Grid workflow cancelled by user.")
         else:
             self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
             self._say(workflow_info=self._completion_message())
@@ -337,18 +343,14 @@ class GridTaskManager(BaseTaskManager):
     def _say(
         self, workflow_info: Optional[str] = None, status_bar: Optional[str] = None
     ) -> None:
-        """A line for the workflow-information label or the status bar.
-
-        Straight onto the status channel rather than through `update_status_ui`:
-        that helper re-checks for abort and raises once Stop has been pressed,
-        which is exactly when the closing "cancelled" line has to get out.
-        """
-        text = workflow_info or status_bar or ""
-        if self.parent_ui is None:
-            logging.info(text)
-            return
-        self.parent_ui.workflow_status_signal.emit(
-            WorkflowStatusEvent(workflow_info=workflow_info, status_bar=status_bar)
+        """A line for the workflow-information label or the status bar, that
+        gets out after a Stop too: the closing "cancelled" line is the point."""
+        update_status_ui(
+            self.parent_ui,
+            "",
+            workflow_info=workflow_info,
+            status_bar=status_bar,
+            check_abort=False,
         )
 
     def _task_type(self, task_name: str) -> str:

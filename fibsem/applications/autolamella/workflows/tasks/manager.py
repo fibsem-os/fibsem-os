@@ -415,7 +415,14 @@ class TaskManager(BaseTaskManager):
         # completion for both is what made an abort look like a finished workflow.
         if self.is_stopped:
             self._fire_workflow_hook(HookEvent.WORKFLOW_CANCELLED)
-            update_status_ui(self.parent_ui, "", workflow_info="Workflow cancelled.")
+            # After a Stop the abort predicate is true, so this line must not
+            # be a cancellation point itself: it is the report of one.
+            update_status_ui(
+                self.parent_ui,
+                "",
+                workflow_info="Workflow cancelled by user.",
+                check_abort=False,
+            )
         else:
             self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
             update_status_ui(

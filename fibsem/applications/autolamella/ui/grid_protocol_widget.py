@@ -195,6 +195,9 @@ class _FluorescenceOverviewEditor(QWidget):
         form.addRow("Filename", self.filename)
         layout.addLayout(form)
         self.channels = ChannelListWidget(fm=None, channel_settings=[])
+        # Four 40 px rows and the header. The list is Expanding, and left to it
+        # the Channels panel took the column and pushed the settings down.
+        self.channels.setMaximumHeight(220)
         layout.addWidget(TitledPanel("Channels", content=self.channels))
         self.settings = FMOverviewSettingsWidget()
         # The task files its output under the grid; the widget's own output panel

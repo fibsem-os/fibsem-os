@@ -323,7 +323,12 @@ class TestStopAndStatus:
         assert executed == [("Grid-01", "overview_sem")]
         # load + first task consumed; the other four still pending
         assert manager.queue.counts == (4, 6)
-        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled."
+        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled by user."
+        # The rows that never ran say nothing about the load, rather than
+        # repeating the last load's outcome.
+        df = manager.build_run_summary_dataframe()
+        assert df.loc[df.task_status == "NotStarted", "loaded"].isna().all()
+        assert df.loc[df.task_status != "NotStarted", "loaded"].notna().all()
 
     def test_reports_name_the_grid_and_track_the_queue(self, manager):
         run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
