@@ -961,6 +961,47 @@ def render_milling(h: Harness) -> None:
     stage_list._header.btn_eye.setChecked(False)
     h.pump(300)
 
+    # the two-stage task run for real, on clean film to the left
+    stage_list._header.btn_add.click()
+    h.pump(400)
+    stages = stage_list.get_stages()
+    for stage_, name, label in (
+        (stages[0], "Trench", "Trench"),
+        (stages[1], "MicroExpansion", "Micro-expansion"),
+    ):
+        stage_.name = label
+        stage_list.select_stage(stage_)
+        h.pump(300)
+        pattern = get_pattern(name)
+        stages_w._pattern_widget.set_pattern(pattern)
+        stages_w._on_pattern_changed(pattern)
+        stage_list.refresh_stage(stage_)
+        h.pump(400)
+    stage_list.select_stage(stages[0])
+    h.pump(300)
+    x, y = int(wid * 0.35), int(hgt * 0.55)
+    point = conversions.image_to_microscope_image_coordinates(
+        coord=Point(x=x, y=y), image=image.data, pixelsize=image.metadata.pixel_size.x
+    )
+    mv._move_patterns(point, move_all=True)
+    h.pump(500)
+    h.shot("multi-stage-before", target=fib_panel)
+    runner.run_milling()
+    waited = 0
+    while (runner.is_milling or waited < 1000) and waited < 240000:
+        h.pump(250)
+        waited += 250
+    if runner.is_milling:
+        raise RuntimeError("milling did not finish")
+    stage_list._header.btn_eye.setChecked(True)
+    h.pump(300)
+    iw.acquire_reference_images()
+    h.wait_acquisition(iw)
+    h.shot("multi-stage-after", target=fib_panel)
+    h.shot("multi-stage-after-window")
+    stage_list._header.btn_eye.setChecked(False)
+    h.pump(300)
+
     # back to a clean state for whoever renders next
     for stage_ in list(stage_list.get_stages()):
         stage_list.remove_stage(stage_)
