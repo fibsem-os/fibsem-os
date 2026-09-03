@@ -33,12 +33,7 @@ def window(qapp):
     """A real main window, connected (Demo), minimap stubbed."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
-    original = module.AutoLamellaSingleWindowUI.add_minimap_tab
-    module.AutoLamellaSingleWindowUI.add_minimap_tab = lambda self: None
-    try:
-        win = module.AutoLamellaSingleWindowUI()
-    finally:
-        module.AutoLamellaSingleWindowUI.add_minimap_tab = original
+    win = module.AutoLamellaSingleWindowUI()
     win.autolamella_ui.system_widget.connect_to_microscope()
     # The main window's _on_workflow_update reads _border_state unconditionally,
     # and it is first assigned on the Run click (the latent init gap

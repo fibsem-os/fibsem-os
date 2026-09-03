@@ -30,12 +30,7 @@ TASK = "Rough Milling"
 def window(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
-    original = module.AutoLamellaSingleWindowUI.add_minimap_tab
-    module.AutoLamellaSingleWindowUI.add_minimap_tab = lambda self: None
-    try:
-        win = module.AutoLamellaSingleWindowUI()
-    finally:
-        module.AutoLamellaSingleWindowUI.add_minimap_tab = original
+    win = module.AutoLamellaSingleWindowUI()
     win.autolamella_ui.system_widget.connect_to_microscope()
     win._set_border_state("idle")
     yield win

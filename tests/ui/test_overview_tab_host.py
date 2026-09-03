@@ -503,7 +503,7 @@ def locked_pair(tab, fm_tab):
         _overviews_allowed = _Real._overviews_allowed
         _apply_overview_locks = _Real._apply_overview_locks
         _overview_may_work = _Real._overview_may_work
-        _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
+        _set_overviews_allowed = _Real._set_overviews_allowed
 
         def __init__(self, beam, fluorescence):
             self.beam_overview_tab = beam
@@ -577,10 +577,10 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         own half of the truth is how a control gets stuck on: the workflow says "you may
         work again" while a tileset is still walking the grid."""
         host, beam, fluorescence = locked_pair
-        host._set_minimap_workflow_enabled(False)
+        host._set_overviews_allowed(False)
         fluorescence.overview._set_running(True)
         try:
-            host._set_minimap_workflow_enabled(True)
+            host._set_overviews_allowed(True)
             assert beam.overview._may_move() is False, (
                 "the workflow finishing unlocked a tab the other run still owns"
             )

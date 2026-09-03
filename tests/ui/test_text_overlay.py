@@ -1,10 +1,18 @@
 """No microscope is a normal state for the text overlay, not an error.
 
-`AutoLamellaMainUI` builds `FibsemMinimapWidget` during setup, before any
-connection. That widget's `microscope` property reads through to its parent, so it
-is None at that point -- which the widget already handles everywhere else with
-`if self.microscope is None: return`. `update_text_overlay` was the one path that
-passed it through to be dereferenced, so every launch logged:
+**`update_text_overlay` has no live caller left.** It wrote onto a napari viewer, and
+the last one outside labelling/segmentation went with `FibsemMinimapWidget`. Its one
+remaining import, `objective_control_widget`, calls it behind
+`if getattr(self.parent_widget, "viewer", None) is not None` -- and no host sets a
+viewer any more, so that branch cannot be reached. The function, this test and the rest
+of `fibsem/ui/napari/utilities.py` go together in FIB-407 §1; kept green until then
+rather than deleted piecemeal.
+
+What it pins, from when it was live: the minimap was built during window setup, before
+any connection, and its `microscope` property read through to its parent -- so it was
+None at that point. The widget handled that everywhere else with
+`if self.microscope is None: return`; this was the one path that passed it through to be
+dereferenced, so every launch logged:
 
     WARNING:root:Error updating text overlay: 'NoneType' object has no attribute
     '_stage_position'

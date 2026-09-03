@@ -408,24 +408,6 @@ class FeatureFlags:
     # when a microscope connects. Nothing can move hardware through it until the
     # control/hardware scopes are armed, which no configuration file can do.
     agent_server_enabled: bool = False
-    # The old napari Minimap tab, beside the Overview tab that replaced it. **Off**: the
-    # canvas Overview ships to everyone and holds both modalities (FIB-780), so the old
-    # tab is not what anyone should land on -- it is here to be turned back on by anyone
-    # who finds something the new tab cannot do yet, for the one release before it goes.
-    #
-    # This hides the tab; it does not stop it being built. The widget owns a
-    # `napari.Viewer` that cannot be rebuilt safely mid-session, so it is constructed
-    # either way -- see `_apply_napari_overview_visibility`. Off means "not in the tab
-    # bar", not "not paid for".
-    #
-    # It replaces `overview_canvas_tab`, retired rather than flipped: that flag gated the
-    # *new* tab, and a flag that changes which tab it points at while keeping its name is
-    # a flag nobody can reason about from a preferences file. A new name also gets the
-    # new default on every install, including the ones with a saved preferences file --
-    # a changed default alone reaches only fresh ones.
-    #
-    # Deleted with the tab itself before the full release (FIB-405, FIB-413).
-    napari_overview_tab: bool = False
     # The connection chip in the tab-corner header, and the experiment buttons
     # waiting for a microscope alongside it. Off while the Connection tab is still
     # how people connect: this is the header half of FIB-775, landing ahead of the
@@ -434,7 +416,7 @@ class FeatureFlags:
     # The dialog it opens is NOT gated -- File -> Connect to Microscope reaches it
     # either way, which is how it gets exercised while this is off.
     #
-    # A staging flag like `napari_overview_tab`, and it goes the same way: deleted
+    # A staging flag, and it goes the same way `napari_overview_tab` did: deleted
     # when the chip replaces the tab, not kept as a preference.
     connection_chip: bool = False
     # The grid screening workflow (FIB-892): the Grids tab and the Workflow tab's

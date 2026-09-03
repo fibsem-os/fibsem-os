@@ -24,12 +24,7 @@ from PyQt5.QtWidgets import QFileDialog, QMessageBox
 def main_ui(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
-    original = module.AutoLamellaSingleWindowUI.add_minimap_tab
-    module.AutoLamellaSingleWindowUI.add_minimap_tab = lambda self: None
-    try:
-        window = module.AutoLamellaSingleWindowUI()
-    finally:
-        module.AutoLamellaSingleWindowUI.add_minimap_tab = original
+    window = module.AutoLamellaSingleWindowUI()
     yield window
     # closeEvent ends in app.quit(); on the shared test QApplication that latches
     # and breaks later QEventLoop.exec_() calls — run close with quit stubbed.
