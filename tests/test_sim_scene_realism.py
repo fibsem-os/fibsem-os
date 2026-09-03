@@ -33,7 +33,11 @@ def microscope():
     microscope, _ = utils.setup_session(
         manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
     )
-    microscope.system.sim["sample"] = {"enabled": True, "coincidence_offset": 8e-6}
+    microscope.system.sim["sample"] = {
+        "enabled": True,
+        "coincidence_offset": 8e-6,
+        "fiducial": True,
+    }
     microscope._setup_sample_scene()
     pose = microscope.get_stage_position()
     pose.t = MILLING_TILT
@@ -45,7 +49,7 @@ def microscope():
 def _scene(microscope, **kwargs) -> SampleScene:
     """A deterministic scene: no noise, and no ice or rips unless asked -
     the fiducial finders here look for the darkest/brightest pixels."""
-    kwargs = {"ice_density": 0.0, "rip_fraction": 0.0, **kwargs}
+    kwargs = {"ice_density": 0.0, "rip_fraction": 0.0, "fiducial": True, **kwargs}
     scene = SampleScene(noise_sigma=0.0, noise_fraction=0.0, **kwargs)
     scene.anchor(microscope.get_stage_position())
     microscope._sample_scene = scene
@@ -522,10 +526,11 @@ def test_milled_patterns_persist_in_the_world(microscope):
 
 
 def test_the_fiducial_can_be_switched_off():
-    assert any(f.kind == "fiducial" for f in SampleScene().features)
-    scene = SampleScene(fiducial=False)
-    assert not any(f.kind == "fiducial" for f in scene.features)
-    assert SampleScene.from_config({"fiducial": False}).fiducial is False
+    # off by default - no real grid has one - and on when asked
+    assert not any(f.kind == "fiducial" for f in SampleScene().features)
+    scene = SampleScene(fiducial=True)
+    assert any(f.kind == "fiducial" for f in scene.features)
+    assert SampleScene.from_config({"fiducial": True}).fiducial is True
 
 
 def test_a_rotated_pattern_mills_the_footprint_it_was_drawn_with(microscope):

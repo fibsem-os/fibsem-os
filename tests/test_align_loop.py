@@ -35,7 +35,9 @@ def microscope():
     from fibsem.microscopes.sim_scene import SampleScene
 
     # deterministic scene: the loop is about control flow and geometry
-    scene = SampleScene(coincidence_offset=8e-6, noise_sigma=0.0, noise_fraction=0.0)
+    scene = SampleScene(
+        coincidence_offset=8e-6, fiducial=True, noise_sigma=0.0, noise_fraction=0.0
+    )
     scene.anchor(microscope.get_stage_position())
     microscope._sample_scene = scene
     pose = microscope.get_stage_position()

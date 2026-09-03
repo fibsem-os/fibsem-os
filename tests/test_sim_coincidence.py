@@ -54,12 +54,12 @@ def _enable_projection(microscope, offset: float = COINCIDENCE_OFFSET, **scene_k
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = offset
     microscope._setup_sample_scene()
-    if scene_kwargs:
-        from fibsem.microscopes.sim_scene import SampleScene
+    from fibsem.microscopes.sim_scene import SampleScene
 
-        microscope._sample_scene = SampleScene(
-            coincidence_offset=offset, **scene_kwargs
-        )
+    # the fiducial is the landmark these tests navigate by
+    microscope._sample_scene = SampleScene(
+        coincidence_offset=offset, **{"fiducial": True, **scene_kwargs}
+    )
     # a realistic milling pose: stage tilt 12 deg -> milling angle 15 deg
     # (the Demo boots at the SEM orientation, tilt 35; set the tilt
     # absolutely so the pose does not depend on where it booted)
@@ -207,7 +207,9 @@ def test_views_share_the_scene_but_not_the_contrast():
     from fibsem.projection import BeamStageProjection
     from fibsem.structures import FibsemHardwareGeometry
 
-    scene = SampleScene(coincidence_offset=0.0, noise_sigma=0.0, noise_fraction=0.0)
+    scene = SampleScene(
+        coincidence_offset=0.0, fiducial=True, noise_sigma=0.0, noise_fraction=0.0
+    )
     geometry = FibsemHardwareGeometry(
         column_tilt=0, fib_column_tilt=52.0, shuttle_pre_tilt=35.0
     )

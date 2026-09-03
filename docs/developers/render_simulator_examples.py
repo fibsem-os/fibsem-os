@@ -62,7 +62,7 @@ DESCRIPTIONS = {
     "rip_fraction": "fraction of squares with the film torn; neighbours rip more readily",
     "ice_density": "ice crystals per 100 x 100 um",
     "ice_size": "ice plate radius range (m)",
-    "fiducial": "a cross at each grid centre, handy for navigation; absent on a real grid",
+    "fiducial": "a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default",
     "grid_radius": "usable film radius (m); past it the rim, then the holder",
     "grid_rim_width": "the metal rim's width (m)",
     "noise_sigma": "gaussian noise on the final image",
@@ -222,7 +222,8 @@ def main():
     rng = np.random.default_rng(1)
 
     def scene(**kwargs):
-        scene = SampleScene(**kwargs)
+        # the figures keep the fiducial as a landmark; it is off by default
+        scene = SampleScene(**{"fiducial": True, **kwargs})
         scene.anchor(pose)
         microscope._sample_scene = scene
         return scene
@@ -299,7 +300,7 @@ def main():
     arctis, _ = utils.setup_session(
         config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
     )
-    fm_scene = SampleScene(seed=5)
+    fm_scene = SampleScene(seed=5, fiducial=True)
     fm_scene.anchor(arctis.get_stage_position())
     fm = arctis.fm
     camera = fm.camera

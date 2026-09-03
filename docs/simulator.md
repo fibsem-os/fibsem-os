@@ -153,7 +153,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `hole_diameter` | 2e-06 | holey film: hole diameter (m) |
 | `hole_pitch` | 4e-06 | holey film: hole pitch (m) |
 | `broken_hole_fraction` | 0.02 | holey film: fraction of holes broken into larger openings |
-| `fiducial` | True | a cross at each grid centre, handy for navigation; absent on a real grid |
+| `fiducial` | False | a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default |
 
 ### Cells
 
@@ -219,7 +219,8 @@ are in degrees, ranges are two-element lists, lengths in metres.
 - The scene is generated fresh from its seed on every connect. The same seed gives the
   same grid; milled trenches do not survive a reconnect.
 
-The figures on this page are rendered by
+The figures on this page are rendered with `fiducial: true` (a landmark for the eye;
+off by default) by
 [`render_simulator_examples.py`](developers/render_simulator_examples.py) from the current
 code, and the key tables are read from the scene's defaults; rerun it after changing the
 simulator.
