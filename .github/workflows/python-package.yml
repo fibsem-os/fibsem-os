@@ -53,11 +53,10 @@ jobs:
         python -m pip install --upgrade pip
         # UI deps (the [ui] extra) are intentionally not installed *here*. Not
         # because the tests that need them do not matter -- the `ui-tests` job
-        # below runs every one of them -- but because installing napari adds 100
-        # packages and 116 MB to a job that runs eight times, and registers three
-        # pytest plugins (napari, napari-plugin-engine, npe2) into the session,
-        # one of them an autouse fixture that would run around all 2000-odd tests
-        # here to serve none of them.
+        # below runs every one of them -- but because Qt is dead weight on a job
+        # that runs eight times. (napari used to be the bigger reason: 100
+        # packages, 116 MB and three pytest plugins. It is in [labelling] now and
+        # no CI job installs it.)
         python -m pip install ".[test]"
     - name: Install the plugin entry point fixture
       # A packaged plugin is the only way into two of the three extension

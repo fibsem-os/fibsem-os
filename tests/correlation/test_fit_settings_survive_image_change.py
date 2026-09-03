@@ -9,6 +9,7 @@ Not cosmetic: the config is read back when the dialog is accepted and written to
 `protocol.correlation` for every lamella, so a reset before close discarded the
 user's fit settings into the saved experiment.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -17,7 +18,7 @@ import numpy as np
 import pytest
 
 pytest.importorskip("PyQt5")
-pytest.importorskip("napari")
+pytest.importorskip("PyQt5")
 
 from fibsem.correlation.config import CorrelationConfig, FitSettings
 from fibsem.fm.structures import (
@@ -40,9 +41,14 @@ def _fm_image(channel_names, nz: int = 5) -> FluorescenceImage:
         resolution=(_SIZE, _SIZE),
         channels=[
             FluorescenceChannelMetadata(
-                name=name, color="#00ff00", excitation_wavelength=488,
-                emission_wavelength=509, power=1.0, exposure_time=0.1,
-                gain=1.0, offset=0.0,
+                name=name,
+                color="#00ff00",
+                excitation_wavelength=488,
+                emission_wavelength=509,
+                power=1.0,
+                exposure_time=0.1,
+                gain=1.0,
+                offset=0.0,
             )
             for name in channel_names
         ],
@@ -86,8 +92,12 @@ def test_a_new_volume_with_the_same_channels_changes_nothing(widget):
     """
     widget.set_fm_image(_fm_image(["GFP", "mCherry"]))
     _set_all_five(
-        widget, fib="Gaussian", fid_method="Hole", poi_method="None",
-        fid_ch="mCherry", poi_ch="GFP",
+        widget,
+        fib="Gaussian",
+        fid_method="Hole",
+        poi_method="None",
+        fid_ch="mCherry",
+        poi_ch="GFP",
     )
     before = _read_all_five(widget)
 
@@ -102,8 +112,12 @@ def test_the_method_combos_are_never_touched_by_an_image_change(widget):
     channels must leave them alone."""
     widget.set_fm_image(_fm_image(["GFP", "mCherry"]))
     _set_all_five(
-        widget, fib="Gaussian", fid_method="Hole", poi_method="None",
-        fid_ch="GFP", poi_ch="mCherry",
+        widget,
+        fib="Gaussian",
+        fid_method="Hole",
+        poi_method="None",
+        fid_ch="GFP",
+        poi_ch="mCherry",
     )
 
     widget.set_fm_image(_fm_image(["DAPI", "Cy5", "TxRed"]))
@@ -164,8 +178,12 @@ def test_what_is_read_back_for_the_protocol_reflects_the_user(widget):
     back on accept is persisted to protocol.correlation for every lamella."""
     widget.set_fm_image(_fm_image(["GFP", "mCherry"]))
     _set_all_five(
-        widget, fib="Gaussian", fid_method="Hole", poi_method="None",
-        fid_ch="mCherry", poi_ch="GFP",
+        widget,
+        fib="Gaussian",
+        fid_method="Hole",
+        poi_method="None",
+        fid_ch="mCherry",
+        poi_ch="GFP",
     )
 
     widget.set_fm_image(_fm_image(["GFP", "mCherry"]))

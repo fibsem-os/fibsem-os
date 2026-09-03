@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 pytest.importorskip("PyQt5")
-pytest.importorskip("napari")
+pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QGridLayout
 
@@ -96,7 +96,9 @@ def _render(tmp_path, resolution):
         pixel_size=Point(1e-7, 1e-7),
         microscope_state=MicroscopeState(),
     )
-    image = FibsemImage(data=np.zeros((height, width), dtype=np.uint8), metadata=metadata)
+    image = FibsemImage(
+        data=np.zeros((height, width), dtype=np.uint8), metadata=metadata
+    )
     path = image.save(str(tmp_path / f"ref_{width}x{height}.tif"))
 
     arr, _ = _load_and_resize(path)
@@ -104,7 +106,9 @@ def _render(tmp_path, resolution):
     return w, h
 
 
-@pytest.mark.parametrize("resolution", [(1536, 1024), (1024, 1024), (2048, 2048), (512, 1024)])
+@pytest.mark.parametrize(
+    "resolution", [(1536, 1024), (1024, 1024), (2048, 2048), (512, 1024)]
+)
 def test_every_tile_fits_the_placeholder_box(app, tmp_path, resolution):
     """A tile must never exceed the placeholder it replaces.
 
