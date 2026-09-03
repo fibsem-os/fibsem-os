@@ -631,7 +631,12 @@ class Stage:
         """Get the slot the stage is currently positioned at, if any."""
         if self.holder is None:
             return None
+        # The cached position, never a hardware read: this is called from UI
+        # paint paths. It is None until the first read or move after connecting,
+        # and then the answer is "not known to be at any slot", not a crash.
         stage_position = self.parent._stage_position
+        if stage_position is None:
+            return None
         for slot in self.holder.slots.values():
             if slot.position is None:
                 continue
