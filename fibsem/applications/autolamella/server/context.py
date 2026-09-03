@@ -566,7 +566,7 @@ class AgentContext:
         manager = self._manager
         if manager is not None:
             running = any(
-                item.lamella_name == item_name
+                item.item_name == item_name
                 and item.task_name == task_name
                 and item.status is AutoLamellaTaskStatus.InProgress
                 for item in manager.queue.items
