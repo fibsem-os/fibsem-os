@@ -2609,6 +2609,13 @@ class AutoLamellaUI(QMainWindow):
             self.spot_burn_widget.set_workflow_mode(False)
             self.spot_burn_widget.clear_points_layer()
 
+        # release the coincidence viewer: an aborted setup step leaves it locked to
+        # the site it was handed (no-op after a normal completion, where the answer
+        # already released it)
+        viewer = getattr(self, "_coincidence_viewer_window", None)
+        if viewer is not None and viewer.in_setup_mode:
+            viewer.exit_setup_mode()
+
         # clear detection layers
         if self.det_widget is not None:
             self.det_widget.clear_layers()

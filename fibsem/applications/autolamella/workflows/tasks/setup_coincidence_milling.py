@@ -25,12 +25,20 @@ from __future__ import annotations
 
 import logging
 import os
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import ClassVar, Optional, Type
 
 from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.workflows.interaction import (
+    SetupCoincidenceMilling,
+    ask,
+)
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+from fibsem.applications.autolamella.workflows.ui import _abort_requested
+from fibsem.fm.structures import FluorescenceImage
+from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemRectangle, Point, field_meta
 
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
@@ -40,6 +48,26 @@ SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
 # ``_acquire_channels`` under this stem with the beam suffix appended.
 COINCIDENCE_SETUP_REFERENCE_STEM = "ref_coincidence_setup"
 COINCIDENCE_SETUP_REFERENCE_FILENAME = f"{COINCIDENCE_SETUP_REFERENCE_STEM}_ib.tif"
+
+
+@dataclass
+class CoincidenceSetup:
+    """What the operator left in the viewer for one site.
+
+    The answer to :class:`SetupCoincidenceMilling`. ``objective_position`` is
+    where the objective actually is on Save, not a typed value; ``fm_roi`` is a
+    fraction of the FM frame, ``pattern_offset`` metres from the FIB image centre.
+    ``copy_to_unset`` asks the task to seed every other site that has no setup
+    yet with the boxes, channel and drop fraction -- never the objective height,
+    which is per site by nature.
+    """
+
+    objective_position: Optional[float] = None
+    fm_roi: Optional[FibsemRectangle] = None
+    pattern_offset: Point = field(default_factory=lambda: Point(0.0, 0.0))
+    channel_name: Optional[str] = None
+    intensity_drop_fraction: Optional[float] = None
+    copy_to_unset: bool = False
 
 
 @dataclass
@@ -129,6 +157,24 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
         total += timing.stage_move_cost(1)  # objective insert stands in for a move
         return total
 
+    def apply_setup(self, setup: CoincidenceSetup) -> None:
+        """Take the operator's answer onto this record."""
+        if setup.objective_position is not None:
+            self.objective_position = float(setup.objective_position)
+        self.fm_roi = deepcopy(setup.fm_roi)
+        self.pattern_offset = deepcopy(setup.pattern_offset)
+        if setup.channel_name:
+            self.channel_name = setup.channel_name
+        if setup.intensity_drop_fraction is not None:
+            self.intensity_drop_fraction = float(setup.intensity_drop_fraction)
+
+    def copy_boxes_from(self, other: "SetupCoincidenceMillingTaskConfig") -> None:
+        """Seed this (unset) site's boxes from another site's. Not the objective."""
+        self.fm_roi = deepcopy(other.fm_roi)
+        self.pattern_offset = deepcopy(other.pattern_offset)
+        self.channel_name = other.channel_name
+        self.intensity_drop_fraction = other.intensity_drop_fraction
+
     def to_dict(self) -> dict:
         ddict = super().to_dict()
         ddict["fm_roi"] = self.fm_roi.to_dict() if self.fm_roi is not None else None
@@ -216,16 +262,28 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
                 acquire_sem=False,
                 acquire_fib=True,
             )
-            self._acquire_fm_frame()
+            fm_image = self._acquire_fm_frame()
 
             # 4. hand-off. Without a UI there is nobody to hand to: record what we
-            # used and move on. The viewer's setup mode (FIB-911) plugs in here.
+            # used and move on.
+            setup: Optional[CoincidenceSetup] = None
             if self.parent_ui is not None:
-                self._hand_off()
+                setup = self._hand_off(fm_image)
+                if setup is None:
+                    # skipped: no record, so the mill task's `requires` holds
+                    # this site back and says why
+                    self.log_status_message(
+                        "SETUP_SKIPPED",
+                        f"Coincidence setup skipped for {self.lamella.name}.",
+                    )
+                    return
+                self.config.apply_setup(setup)
 
             # 5. the record. Whatever the operator left is now this site's setup.
             self.config.objective_position = self._current_objective_position(
-                objective_position
+                self.config.objective_position
+                if self.config.objective_position is not None
+                else objective_position
             )
             self.log_status_message(
                 "RECORD_SETUP",
@@ -233,6 +291,8 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
                 f"objective {self.config.objective_position * 1e6:.1f} µm, "
                 f"channel {self.config.channel_name}.",
             )
+            if setup is not None and setup.copy_to_unset:
+                self._copy_boxes_to_unset_sites()
         finally:
             # on every exit, including abort: an inserted objective blocks the next
             # stage move, and the end-of-queue retract is too late for that (FIB-376)
@@ -267,9 +327,14 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
         objective.move_absolute(position)
 
     def _current_objective_position(self, fallback: Optional[float]) -> float:
-        """Where the objective is now: what the operator left, or what we set."""
+        """Where the objective is now: what the operator left, or what we set.
+
+        Read off the position, not gated on the reported state: the objective was
+        inserted by this task, and the simulator derives its state from the
+        position, so a focused objective there reads "Retracted".
+        """
         objective = self.microscope.fm.objective
-        position = objective.position if objective.state == "Inserted" else None
+        position = objective.position
         if position is None:
             position = fallback
         if position is None:
@@ -280,7 +345,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             )
         return float(position)
 
-    def _acquire_fm_frame(self) -> None:
+    def _acquire_fm_frame(self) -> Optional[FluorescenceImage]:
         """One frame on the configured channel, for the viewer to open on.
 
         The frame is not recorded: it is a preview, and the FM tasks own the
@@ -294,11 +359,13 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
         try:
             image = fm.acquire_image(channel)
             fm.acquisition_signal.emit(image)
+            return image
         except Exception as e:
             # a missing frame costs the operator a click on Acquire, not the task
             logging.warning(
                 f"{self.task_name}: could not acquire a fluorescence frame: {e}"
             )
+            return None
 
     def _find_channel(self):
         """The configured channel, from the lamella's fluorescence task if it has one."""
@@ -331,15 +398,82 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
                 f"{self.lamella.name}: {result.reason}. Continuing at the milling pose."
             )
 
-    def _hand_off(self) -> None:
-        """Give the operator the viewer to place the boxes. Wired in FIB-911.
+    def _hand_off(
+        self, fm_image: Optional[FluorescenceImage]
+    ) -> Optional[CoincidenceSetup]:
+        """Give the operator the viewer to place the boxes; None when they skip.
 
-        Until then a supervised run is the same as a headless one: the defaults and
-        the objective position are recorded, and the operator adjusts nothing.
+        The milling config the boxes are drawn with is the lamella's own
+        Coincident Milling task's, so the pattern the operator positions is the
+        pattern that will mill. No timeout: this is the operator's time.
         """
-        logging.info(
-            f"{self.task_name}: viewer hand-off not yet available; recording defaults "
-            f"for {self.lamella.name}."
+        self.log_status_message(
+            "SETUP_COINCIDENCE",
+            f"Place the boxes for {self.lamella.name}, then Save and Continue.",
+        )
+        return ask(
+            self.parent_ui.ui_responder,
+            SetupCoincidenceMilling(
+                lamella=self.lamella,
+                config=deepcopy(self.config),
+                milling_config=self._milling_config_for_boxes(),
+                fib_image=self._last_fib_image,
+                fm_image=fm_image,
+                message=(
+                    f"Place the milling box and FM region for {self.lamella.name}. "
+                    "Save and Continue when done, or Skip Site."
+                ),
+            ),
+            abort=lambda: _abort_requested(self.parent_ui),
+        )
+
+    def _milling_config_for_boxes(self) -> FibsemMillingTaskConfig:
+        """A copy of the lamella's coincident milling config, offset pre-applied."""
+        # local: mill_coincident imports this module
+        from fibsem.applications.autolamella.workflows._default_milling_config import (
+            DEFAULT_MILLING_CONFIG,
+        )
+        from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
+            MILL_COINCIDENT_KEY,
+            MillCoincidentTaskConfig,
+        )
+
+        milling_config = None
+        for task_config in self.lamella.task_config.values():
+            if isinstance(task_config, MillCoincidentTaskConfig):
+                milling_config = task_config.milling.get(MILL_COINCIDENT_KEY)
+                break
+        if milling_config is None:
+            milling_config = DEFAULT_MILLING_CONFIG[MILL_COINCIDENT_KEY]
+        milling_config = deepcopy(milling_config)
+        milling_config.field_of_view = self.config.field_of_view
+        for stage in milling_config.enabled_stages:
+            stage.pattern.point = deepcopy(self.config.pattern_offset)
+        return milling_config
+
+    def _copy_boxes_to_unset_sites(self) -> None:
+        """Seed every other site without a setup from this one's boxes."""
+        manager = self.task_manager
+        experiment = getattr(manager, "experiment", None)
+        if experiment is None:
+            logging.info(
+                f"{self.task_name}: no experiment on the task manager; cannot copy "
+                "the setup to other sites."
+            )
+            return
+        count = 0
+        for lamella in experiment.positions:
+            if lamella is self.lamella:
+                continue
+            other = lamella.task_config.get(self.task_name)
+            if not isinstance(other, SetupCoincidenceMillingTaskConfig):
+                continue
+            if other.is_set_up:
+                continue
+            other.copy_boxes_from(self.config)
+            count += 1
+        self.log_status_message(
+            "COPY_SETUP", f"Copied the coincidence boxes to {count} unset site(s)."
         )
 
     @property
