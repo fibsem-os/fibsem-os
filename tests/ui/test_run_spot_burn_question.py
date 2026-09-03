@@ -61,12 +61,7 @@ def ui(qapp):
 
     original_run = sbw.run_spot_burn
     sbw.run_spot_burn = fake_run_spot_burn
-    original_minimap = module.AutoLamellaSingleWindowUI.add_minimap_tab
-    module.AutoLamellaSingleWindowUI.add_minimap_tab = lambda self: None
-    try:
-        window = module.AutoLamellaSingleWindowUI()
-    finally:
-        module.AutoLamellaSingleWindowUI.add_minimap_tab = original_minimap
+    window = module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
     # The main window's _on_workflow_update reads _border_state unconditionally,
     # first assigned on the Run click (the latent init gap documented in

@@ -56,13 +56,6 @@ _TIP_BUG_REPORT = (
     "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
     "optionally submitting experiment data privately to the maintainers."
 )
-_LBL_NAPARI_OVERVIEW = "Show the old Minimap Tab"
-_TIP_NAPARI_OVERVIEW = (
-    "Bring back the previous napari-based overview, beside the Overview tab that "
-    "replaced it. The Overview tab places tiles where they were acquired rather than "
-    "stitching them first, and holds both the FIB/SEM and fluorescence overviews. This "
-    "is here for anyone still relying on the old tab, and is removed in the next release."
-)
 _LBL_CONNECTION_CHIP = "Enable Connection Chip"
 _TIP_CONNECTION_CHIP = (
     "Show the connected instrument in the tab bar, beside the experiment, and add "
@@ -189,14 +182,11 @@ class PreferencesDialog(QDialog):
         self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
         self._chk_scripts = QCheckBox()
         self._chk_scripts.setToolTip(_TIP_SCRIPTS)
-        self._chk_napari_overview = QCheckBox()
-        self._chk_napari_overview.setToolTip(_TIP_NAPARI_OVERVIEW)
         self._chk_connection_chip = QCheckBox()
         self._chk_connection_chip.setToolTip(_TIP_CONNECTION_CHIP)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
-        features_form.addRow(_LBL_NAPARI_OVERVIEW, self._chk_napari_overview)
         features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
         self._chk_grid_workflow = QCheckBox()
         self._chk_grid_workflow.setToolTip(_TIP_GRID_WORKFLOW)
@@ -295,7 +285,6 @@ class PreferencesDialog(QDialog):
         self._chk_bug_report.setChecked(f.bug_report_enabled)
         self._chk_scripts.setChecked(f.scripts_enabled)
         self._chk_agent_server.setChecked(f.agent_server_enabled)
-        self._chk_napari_overview.setChecked(f.napari_overview_tab)
         self._chk_connection_chip.setChecked(f.connection_chip)
         self._chk_grid_workflow.setChecked(f.grid_workflow)
 
@@ -370,7 +359,6 @@ class PreferencesDialog(QDialog):
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
                 agent_server_enabled=self._chk_agent_server.isChecked(),
-                napari_overview_tab=self._chk_napari_overview.isChecked(),
                 connection_chip=self._chk_connection_chip.isChecked(),
                 grid_workflow=self._chk_grid_workflow.isChecked(),
             ),

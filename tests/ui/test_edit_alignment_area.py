@@ -35,12 +35,7 @@ def ui(qapp):
     """The embedded AutoLamellaUI of a real main window, connected (Demo)."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
-    original = module.AutoLamellaSingleWindowUI.add_minimap_tab
-    module.AutoLamellaSingleWindowUI.add_minimap_tab = lambda self: None
-    try:
-        window = module.AutoLamellaSingleWindowUI()
-    finally:
-        module.AutoLamellaSingleWindowUI.add_minimap_tab = original
+    window = module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
     # What _on_run_workflow_clicked does before any prompt can arrive: the main
     # window's _on_workflow_update reads _border_state unconditionally, and it is

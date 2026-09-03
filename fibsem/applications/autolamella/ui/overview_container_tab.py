@@ -67,11 +67,10 @@ UI did not actually make.
 # No flag on either modality
 
 This tab ships to everyone, and so do both of its chips. `features.overview_canvas_tab`
-gated the beam side while the canvas overview sat beside the napari one; it is retired
-here rather than carried, because there is nothing left for it to gate -- the canvas
-overview *is* the Overview tab now. What survives is `features.napari_overview_tab`,
-pointing at the old tab instead: off by default, it brings the Minimap tab back for
-anyone who needs it, and goes with that tab before the full release.
+gated the beam side while the canvas overview sat beside the napari one; it was retired
+rather than carried, because there was nothing left for it to gate -- the canvas
+overview *is* the Overview tab now. `features.napari_overview_tab` replaced it,
+pointing at the old Minimap tab instead, and has gone with that tab.
 
 A modality is therefore unavailable only when there is no hardware behind it, which is
 the FM tab's existing capability check and nothing new.

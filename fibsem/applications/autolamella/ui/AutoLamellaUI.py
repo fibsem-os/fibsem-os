@@ -56,7 +56,6 @@ from fibsem.ui import (
     stylesheets,
 )
 from fibsem.ui import utils as fui
-from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.qt.threading import FunctionWorker
@@ -434,15 +433,26 @@ class AutoLamellaUI(QMainWindow):
         self.update_ui()
 
     @property
-    def minimap_widget(self) -> Optional[FibsemMinimapWidget]:
-        if self.parent_widget is None:
-            return None
-        return self.parent_widget.minimap_widget
+    def _overview_is_acquiring(self) -> bool:
+        """Whether either overview modality is mid-tileset.
+
+        Asked of the Overview tab rather than of a widget held here: the tab owns both
+        modalities and rebuilds its widgets on every reconnection, so anything holding
+        one of them directly would be answering for a widget that had been replaced.
+
+        This used to ask the napari minimap, which means it stopped being true the
+        moment the Overview tab took over acquisition -- a run from there did not
+        suppress anything.
+        """
+        tab = getattr(self.parent_widget, "overview_tab", None)
+        return tab is not None and tab.is_acquiring
 
     @ensure_main_thread
     def _on_stage_position_updated(self, stage_position: FibsemStagePosition) -> None:
         """Callback for when the stage position is updated."""
-        if self.minimap_widget is not None and self.minimap_widget.is_acquiring:
+        if self._overview_is_acquiring:
+            # Mid-tileset the stage moves once per tile, and refreshing the readout on
+            # each is churn nobody reads.
             return
         if self.movement_widget is not None:
             # pass the position from the signal; re-querying the microscope here races

@@ -242,19 +242,6 @@ def test_every_selection_handler_reaches_the_new_tab(methods_calling):
     assert not missing, f"the new tab is not synced from: {sorted(missing)}"
 
 
-def test_the_napari_tab_is_behind_the_flag(window_source):
-    """The flag points at the *old* tab now. The Overview tab ships to everyone.
-
-    Read from the window's own preferences, not from a module-level `FEATURE_*` global.
-    FIB-609 removed five of those; the one it kept exists because its caller is a widget
-    constructor with no preferences to hand, which is not the case here.
-    """
-    assert "self._preferences.features.napari_overview_tab" in window_source
-    assert "FEATURE_NAPARI_OVERVIEW_TAB_ENABLED" not in window_source, (
-        "the flag went back to a module global; read the preference directly"
-    )
-
-
 def test_the_retired_flag_is_gone_everywhere(window_source):
     """`overview_canvas_tab` was retired rather than flipped.
 
@@ -290,42 +277,45 @@ def test_the_overview_tab_is_not_behind_any_flag(window_source):
     )
 
 
-def test_the_flag_exists_and_is_off_by_default():
-    """Off by default: the Overview tab is what a user lands on, and this flag is what
-    brings the superseded napari tab back for the one release before it is removed.
+def test_the_napari_tab_and_its_flag_are_gone(window_source):
+    """The Minimap tab was the fallback while the Overview tab earned its place; it has
+    now been removed, and `features.napari_overview_tab` with it.
 
-    Asserted rather than left to the dataclass because the default is the whole of what
-    this flag does for almost everyone -- nobody opens Preferences to leave a checkbox
-    where it already was."""
-    import fibsem.config as fibsem_cfg
+    Flag and tab together, in one test, because either alone is a defect: a flag with
+    nothing to gate is a checkbox that does nothing, and a tab still built with no flag
+    to hide it would come back for everyone.
 
-    assert fibsem_cfg.FeatureFlags().napari_overview_tab is False
-
-
-def test_the_flag_survives_a_preferences_round_trip(tmp_path):
-    """A flag that does not persist cannot be turned on by the person who wants it back.
-
-    Through `to_dict`/`from_dict`: saving and reloading is what the preferences dialog
-    actually does, and it is the step that would silently drop an unknown field.
+    `_sub_from_dict` drops unknown keys, so a saved preferences file still carrying
+    `napari_overview_tab: true` loads without complaint -- checked here rather than
+    assumed, because the failure would be at every startup for exactly the users who had
+    turned it on.
     """
     import fibsem.config as fibsem_cfg
 
-    prefs = fibsem_cfg.UserPreferences()
-    prefs.features.napari_overview_tab = False
-    reloaded = fibsem_cfg.UserPreferences.from_dict(prefs.to_dict())
-    assert reloaded.features.napari_overview_tab is False
+    assert not hasattr(fibsem_cfg.FeatureFlags(), "napari_overview_tab")
+    for gone in (
+        "add_minimap_tab",
+        "FibsemMinimapWidget",
+        "napari_overview_tab",
+        '"Minimap"',
+    ):
+        assert gone not in window_source, f"{gone} survived the tab removal"
+    # Read from disk rather than imported: this is one of the few CI runs *without*
+    # PyQt5, and importing the dialog would take the module down at collection.
+    assert "napari_overview" not in PREFERENCES_DIALOG.read_text(encoding="utf-8")
+
+    stale = {"features": {"napari_overview_tab": True}}
+    assert fibsem_cfg.UserPreferences.from_dict(stale) is not None
 
 
-def test_the_napari_tab_is_still_built(window_source):
-    """This change merges two tabs; it does not remove the third. The old tab is what a
-    user falls back to, and removing it is its own change (FIB-405).
+def test_the_window_no_longer_imports_napari(window_source):
+    """The tab was the window's only use of it.
 
-    It is renamed, though: "Minimap", because the canvas tab took the name "Overview" and
-    two tabs called Overview would leave a user guessing which is which.
+    Worth pinning: napari stays installed for labelling and segmentation, so an import
+    creeping back here would cost nothing visible and would quietly re-couple the main
+    window to it (FIB-407).
     """
-    assert "self.add_minimap_tab()" in window_source
-    assert "FibsemMinimapWidget(" in window_source
-    assert '"Minimap"' in window_source
+    assert "import napari" not in window_source
 
 
 def test_the_done_state_in_the_status_bar_clears_itself(window_source):

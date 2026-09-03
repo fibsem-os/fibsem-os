@@ -2115,7 +2115,7 @@ class _StubHost:
     # The builder wires both pages' lists, so the beam handler is reached here too even
     # though nothing in this file clicks it.
     _on_beam_overview_lamella_selected = _Real._on_beam_overview_lamella_selected
-    _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
+    _set_overviews_allowed = _Real._set_overviews_allowed
     _apply_overview_locks = _Real._apply_overview_locks
     _overview_may_work = _Real._overview_may_work
     _overviews_allowed = _Real._overviews_allowed
@@ -2404,10 +2404,10 @@ def test_a_workflow_lock_reaches_the_fm_tab(qapp):
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
 
-    host._set_minimap_workflow_enabled(False)
+    host._set_overviews_allowed(False)
     assert not host.fm_overview_widget.button_acquire.isEnabled()
 
-    host._set_minimap_workflow_enabled(True)
+    host._set_overviews_allowed(True)
     assert host.fm_overview_widget.button_acquire.isEnabled()
 
     host._teardown_fm_overview_widget()
@@ -2418,7 +2418,7 @@ def test_the_workflow_lock_survives_there_being_no_fm_tab(qapp):
     host = _StubHost(microscope=_plain_microscope())
     host._build_fm_overview_widget()
 
-    host._set_minimap_workflow_enabled(False)  # must not raise
+    host._set_overviews_allowed(False)  # must not raise
 
 
 def test_everything_tolerates_the_tab_being_dead(qapp):
@@ -2432,7 +2432,7 @@ def test_everything_tolerates_the_tab_being_dead(qapp):
 
     host._build_fm_overview_widget()  # must not raise
     host._update_fm_overview_experiment()  # must not raise
-    host._set_minimap_workflow_enabled(False)  # must not raise
+    host._set_overviews_allowed(False)  # must not raise
     host._refresh_overview_microscope()  # must not raise
 
     assert getattr(host, "fm_overview_widget", None) is None

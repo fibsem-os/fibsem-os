@@ -9,11 +9,10 @@ lifecycle tests now hold the same observable behaviour on the new channel, plus
 that the dict channel ignores a straggling status key.
 
 This is the first test to construct the real main window offscreen. The only
-thing that ever prevented it is `add_minimap_tab`, which builds a `napari.Viewer`
-whose vispy canvas calls `glGetIntegerv` with no GL context and takes the process
-down with SIGSEGV — so the fixture stubs that one method out. Nothing here goes
-near the minimap; every other tab is real. When the minimap tab is deleted
-(#585/#586) the stub can go.
+thing that ever prevented it was the napari Minimap tab, whose vispy canvas called
+`glGetIntegerv` with no GL context and took the process down with SIGSEGV; the
+fixture used to stub that one method out. The tab is gone (#585/#586), so every
+tab here is real.
 
 Latent init gap, found by these tests and now fixed: `_border_state` used to be
 first assigned on the Run-workflow click, never in `__init__`, and every workflow
@@ -42,12 +41,7 @@ from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
 def main_ui(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
-    original = module.AutoLamellaSingleWindowUI.add_minimap_tab
-    module.AutoLamellaSingleWindowUI.add_minimap_tab = lambda self: None
-    try:
-        window = module.AutoLamellaSingleWindowUI()
-    finally:
-        module.AutoLamellaSingleWindowUI.add_minimap_tab = original
+    window = module.AutoLamellaSingleWindowUI()
     # First connect builds the protocol editor's full UI (its lock path runs on
     # every lifecycle report); Demo, so no hardware.
     window.autolamella_ui.system_widget.connect_to_microscope()

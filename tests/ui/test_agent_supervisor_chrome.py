@@ -30,12 +30,7 @@ from fibsem.structures import MicroscopeState
 def main_ui(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
-    original = module.AutoLamellaSingleWindowUI.add_minimap_tab
-    module.AutoLamellaSingleWindowUI.add_minimap_tab = lambda self: None
-    try:
-        window = module.AutoLamellaSingleWindowUI()
-    finally:
-        module.AutoLamellaSingleWindowUI.add_minimap_tab = original
+    window = module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
     yield window
     if window.autolamella_ui.microscope is not None:

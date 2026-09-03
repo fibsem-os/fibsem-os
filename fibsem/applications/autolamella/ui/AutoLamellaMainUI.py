@@ -13,10 +13,8 @@ try:
 except Exception:
     pass
 
-import warnings
 from datetime import datetime
 
-import napari
 import numpy as np
 from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QPixmap
@@ -100,7 +98,6 @@ from fibsem.milling.progress import (
 )
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
-from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
@@ -131,14 +128,6 @@ from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.utils import format_duration
 from fibsem.versioning import get_version_string
-
-# Suppress a specific upstream Napari/NumPy warning from shapes miter computation.
-warnings.filterwarnings(
-    "ignore",
-    message=r"'where' used without 'out', expect unit?ialized memory in output\. If this is intentional, use out=None\.",
-    category=UserWarning,
-    module=r"napari\.layers\.shapes\._shapes_utils",
-)
 
 # How wide the experiment name button in the tab corner is allowed to grow. Wide
 # enough that a default name -- "AutoLamella-" plus a date stamp -- is never elided;
@@ -427,7 +416,12 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
 
 
 class AutoLamellaSingleWindowUI(QMainWindow):
-    """Main window for AutoLamella UI with embedded napari viewers."""
+    """Main window for AutoLamella UI.
+
+    No napari viewer of its own any more: every tab here renders on the matplotlib
+    canvas. napari survives in this application only in labelling and segmentation,
+    which open windows of their own (FIB-407).
+    """
 
     # Whether a workflow currently permits the overview tabs to work. Held rather than
     # applied where it arrives, because each tab's interactivity is derived from this
@@ -461,10 +455,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         _frame_layout.addWidget(self.tab_widget)
         self.setCentralWidget(self._border_frame)
 
-        self.viewers: list[napari.Viewer] = []
         self.autolamella_ui: AutoLamellaUI
-        self.minimap_widget: FibsemMinimapWidget
-        self.minimap_viewer: napari.Viewer
 
         # Toast notification manager
         self.toast_manager = ToastManager(self)
@@ -576,22 +567,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_show_minimap.setCheckable(True)
         self.action_show_minimap.setChecked(False)
         self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
-        # Hidden pending rework of the minimap widget itself.
+        # `MinimapPlotWidget` -- a matplotlib window, and nothing to do with the napari
+        # Minimap tab that used to sit beside the Overview one. That tab is gone; this
+        # stays, hidden pending a rework of the plot widget itself.
         self.action_show_minimap.setVisible(False)
-
-        layer_controls_menu = view_menu.addMenu("Show Layer Controls")
-
-        self.action_layer_controls_overview = QAction("Overview", self)
-        self.action_layer_controls_overview.setCheckable(True)
-        self.action_layer_controls_overview.setChecked(True)
-        self.action_layer_controls_overview.triggered.connect(
-            lambda checked: self._on_toggle_viewer_layer_controls(checked, "overview")
-        )
-
-        # Overview is the only entry left: the Lamella Editor and now the Microscope tab
-        # both render on the matplotlib canvas and have no napari layer docks to show.
-        # The submenu goes entirely when the minimap migrates (FIB-405).
-        layer_controls_menu.addAction(self.action_layer_controls_overview)
 
         view_menu.addAction(self.action_show_minimap)
 
@@ -997,10 +976,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_report_issue.setVisible(
             self._preferences.features.bug_report_enabled
         )
-        # Show or hide the old napari Minimap tab. The Overview tab is not here: it
-        # ships to everyone, and which of its modalities can be reached follows the
-        # instrument rather than a flag.
-        self._apply_napari_overview_visibility()
+        # Which of the grid-workflow surfaces are shown follows its flag. The Overview
+        # tab is not here: it ships to everyone, and which of its modalities can be
+        # reached follows the instrument rather than a flag.
         self._apply_grid_workflow_visibility()
         # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
         # only route to the manager dialog, and the dialog is the only thing that runs
@@ -1284,24 +1262,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             logging.info("F11 autofocus: only SEM/FIB supported")
             return
         image_widget.run_autofocus()
-
-    def _on_toggle_viewer_layer_controls(self, checked: bool, viewer_key: str):
-        """Toggle the layer list and layer controls for a specific viewer.
-
-        getattr, not attribute access: tabs move off napari one at a time, so a tab that
-        has already migrated never sets its viewer attribute. A dict literal would
-        dereference all three eagerly and raise AttributeError for *every* entry, not
-        just the migrated one — and an exception escaping a Qt slot aborts the process
-        under PyQt5 (FIB-329).
-        """
-        viewer_map = {
-            "overview": getattr(self, "minimap_viewer", None),
-        }
-        viewer = viewer_map.get(viewer_key)
-        if viewer is not None:
-            qt_viewer = viewer.window._qt_viewer
-            qt_viewer.dockLayerList.setVisible(checked)
-            qt_viewer.dockLayerControls.setVisible(checked)
 
     def _on_generate_report(self):
         """Handle Generate Report action."""
@@ -1762,7 +1722,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.stop_workflow_btn.show()
         if message and self.status_bar is not None:
             self.status_bar.showMessage(message)
-        self._set_minimap_workflow_enabled(False)
+        self._set_overviews_allowed(False)
         # A run owns the loader: no manual exchange from the Grids tab meanwhile.
         if getattr(self, "grids_tab", None) is not None:
             self.grids_tab.set_controls_enabled(False)
@@ -1781,13 +1741,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.stop_workflow_btn.hide()
         self.supervised_status_btn.hide()
         self.run_workflow_btn.show()
-        self._set_minimap_workflow_enabled(True)
+        self._set_overviews_allowed(True)
         # The timeline stays on screen after a run, but there is no longer a
         # queue behind it — offering to reorder one would be a lie.
         if hasattr(self, "workflow_timeline"):
             self.workflow_timeline.set_actions_enabled(False)
 
-    def _set_minimap_workflow_enabled(self, enabled: bool):
+    def _set_overviews_allowed(self, enabled: bool):
         """Record whether a workflow currently permits the overviews to work.
 
         A running workflow owns the instrument, so neither tab should be able to start
@@ -1798,9 +1758,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         The answer is recorded rather than applied: `_apply_overview_locks` is what
         reaches the tabs, because it is not the only fact that decides.
         """
-        if hasattr(self, "minimap_widget"):
-            self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
-            self.minimap_widget.pushButton_load_image.setEnabled(enabled)
         self._overviews_allowed = bool(enabled)
         self._apply_overview_locks()
 
@@ -2147,31 +2104,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return ProgressUpdate(finished=True, message=message)
         return ProgressUpdate.done()
 
-    def _on_tile_acquisition_finished(self, result: dict) -> None:
-        self.progress_widget.reset()
-        tiles = result.get("tiles", 0)
-        total = result.get("total", 0)
-        elapsed = result.get("elapsed", 0.0)
-        cancelled = result.get("cancelled", False)
-        error: Exception | None = result.get("error", None)
-
-        tile_info = f"{tiles}/{total} tiles" if total else ""
-        elapsed_info = f" in {format_duration(elapsed)}" if elapsed else ""
-
-        if error is not None:
-            if cancelled:
-                self.show_toast(
-                    f"Tile acquisition cancelled. {tile_info} collected.", "warning"
-                )
-            else:
-                self.show_toast(
-                    f"Tile acquisition failed. {tile_info} collected. {error}", "error"
-                )
-        else:
-            self.show_toast(
-                f"Tile acquisition complete. {tile_info}{elapsed_info}.", "success"
-            )
-
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
         self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
@@ -2184,7 +2116,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Viewer-less: the quad-view controller is the display, so no napari viewer is
-        # created here. (The minimap keeps its own until FIB-405.)
+        # created here.
         self.main_viewer = None
 
         # Create the AutoLamellaUI widget
@@ -2240,8 +2172,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # The F5/Esc (View) and F2/F6/F9/F11 (Imaging) shortcuts are defined on QActions —
         # one source of truth for the menu item and its keybinding. Adding those actions to
         # the Microscope-tab container makes their WidgetWithChildrenShortcut scope resolve
-        # against this tab, so the keys only fire when focus is inside it (not the minimap,
-        # editor or workflow tabs).
+        # against this tab, so the keys only fire when focus is inside it (not the
+        # overview, editor or workflow tabs).
         for action in (
             self.action_toggle_fullscreen,
             self.action_exit_fullscreen,
@@ -2252,7 +2184,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def create_tabs(self):
         """Create the tabs for the AutoLamella UI."""
         self._create_main_tab()
-        self.add_minimap_tab()
         self.add_overview_tab()
         self.add_protocol_editor_tab()
         self.add_lamella_editor_tab()
@@ -2271,7 +2202,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.autolamella_ui.experiment is None:
             return
 
-        self.minimap_widget.set_experiment()
         self.fm_overview_tab.refresh_experiment()
         self.beam_overview_tab.refresh_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
@@ -2843,13 +2773,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self._syncing_selection = True
                 try:
                     self.autolamella_ui.lamella_list.select(lamella.name)
-                    if hasattr(self, "minimap_widget"):
-                        self.minimap_widget.lamella_list.select(lamella.name)
                 finally:
                     self._syncing_selection = False
 
     def _on_experiment_lamella_selected(self, lamella):
-        """Sync card container and minimap when experiment-tab list selection changes."""
+        """Sync card container and overviews when experiment-tab list selection changes."""
         self.fm_overview_tab.set_selected(lamella)
         self.beam_overview_tab.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
@@ -2859,22 +2787,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._syncing_selection = True
         try:
             self.lamella_card_container.select_lamella(lamella.name)
-            if hasattr(self, "minimap_widget"):
-                self.minimap_widget.lamella_list.select(lamella.name)
-        finally:
-            self._syncing_selection = False
-
-    def _on_minimap_lamella_selected(self, lamella):
-        """Sync experiment list and card container when minimap list selection changes."""
-        self.fm_overview_tab.set_selected(lamella)
-        self.beam_overview_tab.set_selected(lamella)
-        if getattr(self, "_syncing_selection", False) or lamella is None:
-            return
-        self._syncing_selection = True
-        try:
-            self.autolamella_ui.lamella_list.select(lamella.name)
-            if hasattr(self, "lamella_card_container"):
-                self.lamella_card_container.select_lamella(lamella.name)
         finally:
             self._syncing_selection = False
 
@@ -3599,55 +3511,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
         self._set_border_state("idle")
 
-    def add_minimap_tab(self):
-        """Add the minimap as a separate tab with its own viewer."""
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Create separate napari viewer for minimap
-        self.minimap_viewer = napari.Viewer(show=False, title="AutoLamella Minimap")
-        self.minimap_viewer.window._qt_window.menuBar().hide()
-        self.minimap_viewer.window._qt_window.statusBar().hide()
-        self.viewers.append(self.minimap_viewer)
-
-        # Create the minimap widget
-        self.minimap_widget = FibsemMinimapWidget(
-            viewer=self.minimap_viewer, parent=self.autolamella_ui
-        )
-        self.minimap_widget.setMinimumWidth(500)
-        self.minimap_widget._acquisition_finished.connect(
-            self._on_tile_acquisition_finished
-        )
-        self.minimap_widget.lamella_list.lamella_selected.connect(
-            self._on_minimap_lamella_selected
-        )
-
-        # Layout: napari viewer (left) | minimap controls (right) via splitter
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-
-        splitter.addWidget(self.minimap_viewer.window._qt_window)
-        splitter.addWidget(self.minimap_widget)
-
-        splitter.setSizes([700, 500])
-        layout.addWidget(splitter)
-        # "Minimap", not "Overview" any more: the canvas Overview tab replaced this one
-        # and took the name. Two tabs both called Overview would leave a user guessing
-        # which is which for exactly as long as this tab survives, and the internal name
-        # for it has always been the minimap (`add_minimap_tab`, `FibsemMinimapWidget`).
-        self.tab_widget.insertTab(
-            1, container, fibsem_icon("mdi:map", color=GRAY_ICON_COLOR), "Minimap"
-        )
-        # Kept on the window so `_apply_napari_overview_visibility` can find the tab. It
-        # goes with the tab (FIB-405).
-        self._minimap_tab_container = container
-
-        # disable the tab by default
-        self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
-        self._apply_napari_overview_visibility()
-        self._apply_grid_workflow_visibility()
-
     def add_overview_tab(self):
         """Reserve the Overview tab: both modalities, one tab.
 
@@ -3699,33 +3562,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Emits availability either way, which is what puts the reason on the tab.
         self._refresh_overview_microscope()
 
-    def _apply_napari_overview_visibility(self) -> None:
-        """Show or hide the old napari Minimap tab.
-
-        `features.napari_overview_tab`, off by default and on its way out: the canvas
-        Overview replaced this tab, and the flag is what brings the old one back for
-        anyone who needs it for the one release before it goes. Both it and this method
-        go with the tab before the full release (FIB-405, FIB-413).
-
-        Visibility only, unlike the flag it replaced. The overview host tabs are built
-        and dropped because their widgets subscribe to the microscope for their lifetime;
-        this one owns a `napari.Viewer` that cannot be rebuilt safely mid-session, and it
-        is the tab that is going away rather than the one being staged in, so hidden is
-        the whole of what off has to mean.
-
-        Read straight off `self._preferences` rather than through a module-level
-        `FEATURE_*` global. FIB-609 removed five of those and kept the one whose caller
-        is a widget constructor with no preferences to hand; this one is a method on the
-        window that owns them, so a global would only be a second copy to keep in step.
-        """
-        container = getattr(self, "_minimap_tab_container", None)
-        if container is None:
-            return
-        self.tab_widget.setTabVisible(
-            self.tab_widget.indexOf(container),
-            self._preferences.features.napari_overview_tab,
-        )
-
     def _on_overview_availability(self, available: bool) -> None:
         """Enable the tab when either modality has something to drive, and say why not.
 
@@ -3765,7 +3601,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_beam_overview_lamella_selected(self, lamella):
         """Sync the other lists when the rebuilt Overview tab's list changes.
 
-        The same shape as `_on_minimap_lamella_selected`, minus the call back into the
+        The same shape as its fluorescence twin below, minus the call back into the
         tab that raised it -- that list already shows the selection.
         """
         self.fm_overview_tab.set_selected(lamella)
@@ -3776,15 +3612,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.lamella_list.select(lamella.name)
             if hasattr(self, "lamella_card_container"):
                 self.lamella_card_container.select_lamella(lamella.name)
-            if hasattr(self, "minimap_widget"):
-                self.minimap_widget.lamella_list.select(lamella.name)
         finally:
             self._syncing_selection = False
 
     def _on_fm_overview_lamella_selected(self, lamella):
         """Sync the other lists when the FM overview's list selection changes.
 
-        The same shape as `_on_minimap_lamella_selected`, minus the call back into the
+        The same shape as its beam-side twin above, minus the call back into the
         FM tab: it raised this, and it has already highlighted what was clicked.
         """
         if getattr(self, "_syncing_selection", False) or lamella is None:
@@ -3825,7 +3659,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.show_toast(message, notification_type, temporary=temporary)
 
     def closeEvent(self, event):
-        """Clean up viewers on close."""
+        """Flush what is still pending, then let the application go."""
         # The editor holds edits for a moment before writing them (FIB-683); this is
         # the last chance to get the final one onto disk.
         if getattr(self, "lamella_widget", None) is not None:
@@ -3850,11 +3684,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
         except RuntimeError:
             pass
-        for viewer in self.viewers:
-            try:
-                viewer.close()
-            except Exception:
-                pass
         super().closeEvent(event)
         # Force the event loop to exit even if another top-level window (e.g. a stray
         # matplotlib pyplot figure) would otherwise keep the app alive once this window
