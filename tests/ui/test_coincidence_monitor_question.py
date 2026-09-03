@@ -42,12 +42,19 @@ def ui(qapp, tmp_path, monkeypatch):
         fconfig, "COINCIDENCE_MILLING_CONFIG_PATH", str(tmp_path / "cmc.yaml")
     )
 
+    # The stubbed mill holds until the test lets it finish. A fixed sleep raced
+    # the viewer's construction on CI: opening the window took longer than the
+    # sleep, so the finished signal released monitor mode before the test's
+    # first look at it.
+    mill_gate = threading.Event()
+
     def fake_run_milling_task(microscope, config, parent_ui=None, **kwargs):
-        time.sleep(0.3)  # long enough to observe the viewer attached
+        mill_gate.wait(timeout=20.0)
 
     monkeypatch.setattr(mw, "run_milling_task", fake_run_milling_task)
 
     widget = AutoLamellaUI(parent_ui=None)
+    widget._mill_gate = mill_gate
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",
@@ -138,6 +145,7 @@ def test_supervised_mill_opens_the_viewer_attached_then_releases_it(ui, qapp):
     ]
 
     # the (stubbed) mill finishes: the viewer is released, the prompt is re-parked
+    ui._mill_gate.set()
     _pump_until(qapp, lambda: not viewer.in_monitor_mode, what="monitor released")
     _pump_until(
         qapp,
@@ -154,6 +162,7 @@ def test_unsupervised_mill_never_opens_the_viewer(ui, qapp):
     request = RunMillingTask(
         config=_coincidence_config(), enabled=True, confirm=lambda: False, message=MSG
     )
+    ui._mill_gate.set()  # nothing to observe mid-run: let the mill finish at once
     thread, outcome = _ask_on_worker_thread(ui, request)
     _pump_until(qapp, lambda: not thread.is_alive(), what="the waiter to return")
     assert "error" not in outcome, outcome.get("error")
