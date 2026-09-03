@@ -518,6 +518,14 @@ class _SetupSession:
     on_skip: Optional[Callable[[], None]]
 
 
+@dataclass
+class _MonitorSession:
+    """What enter_monitor_mode holds while a task's mill has the viewer."""
+
+    on_stop: Optional[Callable[[], None]]
+    manual_milling_config: Optional["FibsemMillingTaskConfig"]
+
+
 class FluorescenceCoincidenceViewerWidget(QWidget):
     """Four-quadrant viewer + control tabs for FIB/FM coincidence milling.
 
@@ -588,6 +596,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # Setup mode: a Setup Coincidence Milling task has handed the viewer one
         # site to place the boxes for (see enter_setup_mode). None otherwise.
         self._setup: Optional["_SetupSession"] = None
+        # Monitor mode: a supervised queued coincidence mill is running through
+        # the main window's milling widget and the viewer is attached to it (see
+        # enter_monitor_mode). None otherwise.
+        self._monitor: Optional["_MonitorSession"] = None
 
         # Optional sub-widgets (created only when microscope/fm is available)
         self.fib_beam_widget = None
@@ -1116,6 +1128,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             # this site. exit_setup_mode restores the manual controls first so
             # the persisted milling config below is the operator's, not the task's.
             self._on_setup_skip_clicked()
+        if self.in_monitor_mode:
+            # the run is the main window's and carries on; only the watching stops
+            self.exit_monitor_mode()
         if self.microscope is not None and self.microscope.fm is not None:
             self._save_fm_configuration()
         self._save_milling_config()
@@ -2059,7 +2074,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         """Start milling if idle, stop if running."""
         if self.btn_milling.text() == "Stop Milling":
             self._set_border_state("stopping")
-            if self.milling_viewer_widget is not None:
+            if self._monitor is not None:
+                # the run is the main window's; its Stop is the one that counts
+                if self._monitor.on_stop is not None:
+                    self._monitor.on_stop()
+            elif self.milling_viewer_widget is not None:
                 self.milling_viewer_widget.milling_widget.stop_milling()
         else:
             self._run_milling()
@@ -2218,6 +2237,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         progress "finished" state, so the stage/controls stay locked until the
         post-stop final image has actually landed.
         """
+        self._reset_run_chrome()
+        self._record_coincidence_result()
+        self.milling_finished_signal.emit()
+        self._restack_after_run()
+
+    def _reset_run_chrome(self) -> None:
+        """Put the run-time controls away and unlock the widgets."""
         self._set_border_state("idle")
         self.progressBar_stage.setVisible(False)
         self.progressBar_stages.setVisible(False)
@@ -2233,9 +2259,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._is_milling_active = False
         self._set_widgets_enabled(True)
         self.label_threshold_chip.setVisible(False)
-        self._record_coincidence_result()
-        self.milling_finished_signal.emit()
-        self._restack_after_run()
 
     def _restack_after_run(self) -> None:
         """Put this window back in front once a run ends, unless the operator has
@@ -2700,6 +2723,105 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return fallback
         point = stages[0].pattern.point
         return Point(float(point.x), float(point.y))
+
+    # ------------------------------------------------------------------
+    # Monitor mode: a supervised queued mill, run by the main window, watched here
+    # ------------------------------------------------------------------
+
+    @property
+    def in_monitor_mode(self) -> bool:
+        return self._monitor is not None
+
+    def enter_monitor_mode(
+        self,
+        milling_config: "FibsemMillingTaskConfig",
+        on_stop: Optional[Callable[[], None]] = None,
+        title: str = "",
+    ) -> None:
+        """Attach to a coincidence mill that is running elsewhere.
+
+        ``milling_config`` is the config the main window's milling widget is
+        actually running: its strategies are the live ones, and their
+        ``intensity_stats_signal`` drives the plot, the chip and the info panel
+        exactly as a manual run's do. The FM region and the milling box are drawn
+        from it. Stop is ``on_stop`` (the widget's Stop); the Supervised toggle and
+        the drop % act on the live strategies as today. Nothing else is editable.
+
+        The run's chrome (progress bars, Stop, the chip) is driven by the
+        microscope's milling_progress_signal, which the viewer already listens to
+        for any mill; this attaches, it never launches.
+        """
+        if self._is_milling_active and self._monitor is None:
+            raise RuntimeError("A manual mill is running in this viewer.")
+        if self.in_setup_mode:
+            self.exit_setup_mode()
+        if self.in_monitor_mode:
+            self.exit_monitor_mode()
+
+        manual_milling_config = (
+            self.milling_viewer_widget.get_config()
+            if self.milling_viewer_widget is not None
+            else None
+        )
+        self._monitor = _MonitorSession(
+            on_stop=on_stop, manual_milling_config=manual_milling_config
+        )
+
+        # the boxes, as the run has them
+        if self.milling_viewer_widget is not None:
+            self.milling_viewer_widget.set_config(milling_config)
+            self._update_fib_rect_from_pattern()
+        bbox = next(
+            (
+                stage.strategy.config.bbox
+                for stage in milling_config.enabled_stages
+                if isinstance(stage.strategy, CoincidenceMillingStrategy)
+            ),
+            None,
+        )
+        self._show_stored_fm_roi(bbox)
+
+        # attach: the strategies' live stats, the controls seeded from their config
+        self._reset_timelapse()
+        self._connect_coincidence_strategies(milling_config)
+
+        self._is_milling_active = True
+        self._set_widgets_enabled(False)
+        self.lamella_list_widget.setEnabled(False)
+        self.selected_lamella_widget.setEnabled(False)
+        self.btn_setup_skip.setVisible(False)
+        self.btn_setup_continue.setVisible(False)
+        self.chk_copy_setup.setVisible(False)
+        self.label_selected_lamella.setText(f"Monitor · {title or milling_config.name}")
+        self._set_border_state("supervised" if self._supervised else "automated")
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def exit_monitor_mode(self) -> None:
+        """Detach from the run and put the manual controls back."""
+        session = self._monitor
+        if session is None:
+            return
+        self._monitor = None
+        for strategy in self._active_strategies:
+            try:
+                strategy.intensity_stats_signal.disconnect(self._on_intensity_stats)
+            except Exception:
+                pass
+        self._active_strategies = []
+        self._reset_run_chrome()
+        self.lamella_list_widget.setEnabled(True)
+        self.selected_lamella_widget.setEnabled(True)
+        if (
+            self.milling_viewer_widget is not None
+            and session.manual_milling_config is not None
+        ):
+            self.milling_viewer_widget.set_config(session.manual_milling_config)
+            self._update_fib_rect_from_pattern()
+        name = self._selected_lamella.name if self._selected_lamella else "None"
+        self.label_selected_lamella.setText(f"Lamella: {name}")
+        self._restack_after_run()
 
     # ------------------------------------------------------------------
     # Public API
