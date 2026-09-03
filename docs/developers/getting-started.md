@@ -53,6 +53,10 @@ hardware needed; every workflow runs against it. That launch-and-click
 loop is the ground truth here: green tests are weaker evidence than usual
 (see AGENTS.md), so run the app for anything about wiring.
 
+The simulator can image a synthetic cryo-grid, with cells, film, rips and a
+holder full of grids, so navigation, alignment and milling can be exercised for
+real; see [the simulator page](../simulator.md).
+
 Run tests per affected file, never the whole suite by default:
 
 ```bash
