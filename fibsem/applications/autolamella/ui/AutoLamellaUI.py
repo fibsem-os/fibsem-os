@@ -1445,7 +1445,9 @@ class AutoLamellaUI(QMainWindow):
         area = lamella.alignment_area
         if area is not None and not area.is_valid_reduced_area:
             for path, old, _new in reversed(changes):
-                apply_patch(lamella, {path: old if not hasattr(old, "name") else old.name})
+                apply_patch(
+                    lamella, {path: old if not hasattr(old, "name") else old.name}
+                )
             return {
                 "applied": False,
                 "invalid_patch": "the patched alignment area is out of bounds "
