@@ -203,7 +203,8 @@ tasks:
     Coincidence Milling:
         task_type: MILL_COINCIDENT
         parameters:
-            orientation: MILLING
+            setup_task: Setup Coincidence Milling
+            acquire_fluorescence_images: true
         reference_imaging:
             acquire_sem: false
             acquire_fib: true
@@ -298,7 +299,7 @@ workflow:
         requires:
         - Rough Milling
     -   name: Coincidence Milling
-        supervise: true
+        supervise: false
         required: true
         requires:
         - Setup Coincidence Milling

@@ -39,6 +39,8 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AutoLamellaTask,
     BasicMillingTask,
     BasicMillingTaskConfig,
+    MillCoincidentTask,
+    MillCoincidentTaskConfig,
     MillFiducialTask,
     MillFiducialTaskConfig,
     MillPolishingTask,
@@ -87,6 +89,7 @@ BUILTIN_TASKS: Dict[str, Type[AutoLamellaTask]] = {
     SelectFluorescencePositionConfig.task_type: SelectFluorescencePositionTask,
     AcquireFluorescenceImageConfig.task_type: AcquireFluorescenceImageTask,
     SetupCoincidenceMillingTaskConfig.task_type: SetupCoincidenceMillingTask,
+    MillCoincidentTaskConfig.task_type: MillCoincidentTask,
 }
 
 # Runtime registered tasks
