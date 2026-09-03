@@ -488,6 +488,28 @@ def render_imaging(h: Harness) -> None:
     h.wait_acquisition(iw)
     h.shot("first-images")
 
+    # the view's toolbar, left to right, and the contrast popover it opens
+    sem_canvas = h.window.view_controller.sem_canvas
+    h.shot(
+        "view-toolbar",
+        target=sem_panel,
+        callouts=[
+            sem_canvas.btn_toggle_ruler,
+            sem_canvas.btn_contrast,
+            sem_canvas.btn_toggle_crosshair,
+            sem_canvas.btn_toggle_scalebar,
+            sem_canvas.btn_reset_view,
+        ],
+        numbered=True,
+    )
+    sem_canvas.btn_contrast.setChecked(True)
+    sem_canvas.toggle_contrast()
+    h.pump(300)
+    h.shot("view-contrast", target=sem_panel)
+    sem_canvas.btn_contrast.setChecked(False)
+    sem_canvas.toggle_contrast()
+    h.pump()
+
     # the same place at three fields of view, SEM only
     for hfw in (400.0, 150.0, 50.0):
         settings.hfw_spinbox.setValue(hfw)
