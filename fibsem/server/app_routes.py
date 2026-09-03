@@ -50,6 +50,14 @@ class AppContext(Protocol):
 
     def output_image(self, item_name: str, filename: str) -> Dict[str, Any]: ...
 
+    def grids(self) -> Dict[str, Any]: ...
+
+    def grid_detail(self, grid_name: str) -> Dict[str, Any]: ...
+
+    def grid_output_image(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
+
+    def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
+
     def protocol_task_config(self, task_name: str) -> Dict[str, Any]: ...
 
     def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]: ...
@@ -118,6 +126,22 @@ class AppContext(Protocol):
     ) -> Dict[str, Any]: ...
 
 
+def _jpeg_or_404(result: Dict[str, Any]) -> Response:
+    """An image context answer as a real image/jpeg response (so a browser
+    ``<img>`` can consume it), or a structured 404 carrying the valid names."""
+    jpeg = result.get("jpeg")
+    if jpeg is None:
+        detail: Dict[str, Any] = {
+            "error_type": "not_found",
+            "message": result.get("error", "No such output image."),
+        }
+        for key in ("filenames", "grid_names"):
+            if key in result:
+                detail[key] = result[key]
+        raise HTTPException(status_code=404, detail=detail)
+    return Response(content=jpeg, media_type="image/jpeg")
+
+
 def build_app_router(context: AppContext) -> APIRouter:
     router = APIRouter(prefix="/app")
 
@@ -166,17 +190,23 @@ def build_app_router(context: AppContext) -> APIRouter:
         # Serves actual image/jpeg (not a JSON payload) so a browser <img>
         # can consume it; filename must be a basename the item's own
         # task_outputs listing names — the context refuses anything else.
-        result = context.output_image(item_name, filename)
-        jpeg = result.get("jpeg")
-        if jpeg is None:
-            detail: Dict[str, Any] = {
-                "error_type": "not_found",
-                "message": result.get("error", "No such output image."),
-            }
-            if "filenames" in result:
-                detail["filenames"] = result["filenames"]
-            raise HTTPException(status_code=404, detail=detail)
-        return Response(content=jpeg, media_type="image/jpeg")
+        return _jpeg_or_404(context.output_image(item_name, filename))
+
+    @router.get("/grids")
+    def grids():
+        return context.grids()
+
+    @router.get("/grids/{grid_name}")
+    def grid_detail(grid_name: str):
+        return context.grid_detail(grid_name)
+
+    @router.get("/grids/{grid_name}/outputs/{filename}")
+    def grid_output_image(grid_name: str, filename: str):
+        return _jpeg_or_404(context.grid_output_image(grid_name, filename))
+
+    @router.get("/grids/{grid_name}/outputs/{filename}/markers")
+    def grid_markers(grid_name: str, filename: str):
+        return context.grid_markers(grid_name, filename)
 
     @router.get("/recent_experiments")
     def recent_experiments():

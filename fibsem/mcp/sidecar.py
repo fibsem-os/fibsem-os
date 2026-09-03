@@ -252,6 +252,15 @@ def build_sidecar(client, capabilities):
     def get_item_detail(item_name: str):
         return _app_get(f"/app/items/{item_name}")
 
+    def get_grids():
+        return _app_get("/app/grids")
+
+    def get_grid_detail(grid_name: str):
+        return _app_get(f"/app/grids/{grid_name}")
+
+    def get_grid_markers(grid_name: str, filename: str):
+        return _app_get(f"/app/grids/{grid_name}/outputs/{filename}/markers")
+
     def get_protocol_task_config(task_name: str):
         return _app_get(f"/app/protocol/task_config/{task_name}")
 
@@ -421,6 +430,9 @@ def build_sidecar(client, capabilities):
             get_protocol,
             get_task_outputs,
             get_item_detail,
+            get_grids,
+            get_grid_detail,
+            get_grid_markers,
             get_protocol_task_config,
             get_item_task_config,
             update_item_task_config,
