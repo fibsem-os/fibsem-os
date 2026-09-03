@@ -15,7 +15,7 @@ import shutil
 import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
-pytest.importorskip("napari")
+pytest.importorskip("PyQt5")
 
 import fibsem.config as cfg
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
@@ -72,8 +72,12 @@ def setup_widget(qapp, tmp_path, monkeypatch):
 
 def _import_file(widget, monkeypatch, path: str, set_as_default: bool = False):
     """Drive import_configuration_from_file with the dialogs answered for us."""
-    monkeypatch.setattr(widget_module, "open_existing_file_dialog", lambda **kwargs: path)
-    monkeypatch.setattr(widget_module, "message_box_ui", lambda **kwargs: set_as_default)
+    monkeypatch.setattr(
+        widget_module, "open_existing_file_dialog", lambda **kwargs: path
+    )
+    monkeypatch.setattr(
+        widget_module, "message_box_ui", lambda **kwargs: set_as_default
+    )
     widget.import_configuration_from_file()
 
 
@@ -82,7 +86,9 @@ def _items(widget) -> list:
     return [combo.itemText(i) for i in range(combo.count())]
 
 
-def test_imported_configuration_is_selectable(setup_widget, monkeypatch, configuration_file):
+def test_imported_configuration_is_selectable(
+    setup_widget, monkeypatch, configuration_file
+):
     """The reported crash: import a configuration, then select it."""
     widget = setup_widget
     path = configuration_file("meteor.yaml")
@@ -100,7 +106,9 @@ def test_imported_configuration_is_selectable(setup_widget, monkeypatch, configu
     assert not [t for t in widget.toasts if t[0] == "error"]
 
 
-def test_every_offered_name_resolves_to_a_path(setup_widget, monkeypatch, configuration_file):
+def test_every_offered_name_resolves_to_a_path(
+    setup_widget, monkeypatch, configuration_file
+):
     """The invariant the combo box depends on -- no entry may be unregistered."""
     widget = setup_widget
 
@@ -112,7 +120,9 @@ def test_every_offered_name_resolves_to_a_path(setup_widget, monkeypatch, config
         assert cfg.USER_CONFIGURATIONS.get(name, {}).get("path") is not None
 
 
-def test_reimporting_the_same_file_adds_no_duplicate(setup_widget, monkeypatch, configuration_file):
+def test_reimporting_the_same_file_adds_no_duplicate(
+    setup_widget, monkeypatch, configuration_file
+):
     widget = setup_widget
     path = configuration_file("meteor.yaml")
 
@@ -155,7 +165,9 @@ def test_declining_the_default_prompt_still_leaves_it_selectable(
     """Answering No to "make this the default?" must not strand the entry."""
     widget = setup_widget
 
-    _import_file(widget, monkeypatch, configuration_file("meteor.yaml"), set_as_default=False)
+    _import_file(
+        widget, monkeypatch, configuration_file("meteor.yaml"), set_as_default=False
+    )
 
     assert cfg.USER_CONFIGURATIONS_YAML["default"] == "default-configuration"
     assert cfg.USER_CONFIGURATIONS.get("meteor", {}).get("path") is not None

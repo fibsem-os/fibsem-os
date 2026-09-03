@@ -808,7 +808,7 @@ def test_a_save_that_fails_leaves_the_dialog_open(dialog, monkeypatch):
 @pytest.fixture
 def connection_tab(qapp, isolated_state, monkeypatch):
     """The connection tab on a fresh install, since that is what most of these test."""
-    pytest.importorskip("napari")
+    pytest.importorskip("PyQt5")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     monkeypatch.setattr(
@@ -832,7 +832,7 @@ def test_writing_preferences_does_not_suppress_the_offer(
     that file -- for any preference -- also ended the first run, and the callout could
     not be reached at all.
     """
-    pytest.importorskip("napari")
+    pytest.importorskip("PyQt5")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     monkeypatch.setattr(
@@ -852,7 +852,7 @@ def test_writing_preferences_does_not_suppress_the_offer(
 
 def test_a_dismissed_offer_stays_dismissed(qapp, isolated_state, monkeypatch):
     """Dismissal is its own answer, not a side effect of anything else."""
-    pytest.importorskip("napari")
+    pytest.importorskip("PyQt5")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     monkeypatch.setattr(
@@ -889,7 +889,7 @@ def test_the_offer_is_absent_once_a_configuration_is_registered(
     monkeypatch.setattr(
         "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
     )
-    pytest.importorskip("napari")
+    pytest.importorskip("PyQt5")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     cfg.register_configuration(

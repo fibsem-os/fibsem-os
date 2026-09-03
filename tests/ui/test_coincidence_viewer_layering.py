@@ -22,7 +22,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 pytest.importorskip("PyQt5")
-pytest.importorskip("napari")
+pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 

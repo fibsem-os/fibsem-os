@@ -31,6 +31,7 @@ check that used to be each caller's problem. So the second property is now
 pinned on what each row ends up drawing, plus a guard that no module goes back
 to naming the asset itself.
 """
+
 from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Tuple
@@ -38,7 +39,7 @@ from typing import List, Tuple
 import pytest
 
 pytest.importorskip("PyQt5")
-pytest.importorskip("napari")
+pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import (  # noqa: E402
     Qt,

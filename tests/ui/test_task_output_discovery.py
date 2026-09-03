@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("PyQt5")
-pytest.importorskip("napari")
+pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import final_reference_images
