@@ -6,8 +6,7 @@ same geometry model as the hardware drivers (pre-tilted shuttle or compustage), 
 holder with slots and, when configured, an autoloader magazine. Every workflow, task and
 UI runs against it unchanged, which is how most of fibsem-os is developed and tested.
 
-By default the beams return random noise. Turn on the **sample scene** and they image a
-synthetic cryo-grid instead: a mesh of bars and film with cells, contamination, ice and
+With the **sample scene** on, the beams image a synthetic cryo-grid instead of noise: a mesh of bars and film with cells, contamination, ice and
 rips on it, that both beams and the fluorescence camera see through their own
 projections. The same world persists across stage moves, tilts, scan rotations and beam
 shifts, so navigation, tiling, alignment and milling can be exercised for real.
@@ -21,10 +20,11 @@ sim:
         coincidence_offset: 8.0e-6      # height error at boot (m)
 ```
 
-Everything else has a default. The two example configurations that ship,
-`sim-arctis-configuration.yaml` (compustage, with FM) and `sim-iflm-configuration.yaml`,
-carry a commented `sample:` block listing every key ([sim-arctis](../fibsem/config/sim-arctis-configuration.yaml),
-[sim-iflm](../fibsem/config/sim-iflm-configuration.yaml)).
+Everything else has a default. The two development configurations that ship,
+[sim-arctis](../fibsem/config/sim-arctis-configuration.yaml) (compustage, with FM) and
+[sim-iflm](../fibsem/config/sim-iflm-configuration.yaml), have the scene on with the
+common keys spelled out; `microscope-configuration.yaml` (the shuttle Demo the tests run
+on) leaves it off, so its beams return noise.
 
 ## What the beams see
 

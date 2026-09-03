@@ -40,6 +40,7 @@ import numpy as np
 from scipy.ndimage import binary_dilation as ndi_binary_dilation
 from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import map_coordinates as ndi_map_coordinates
+from scipy.ndimage import zoom as ndi_zoom
 
 from fibsem.projection import (
     BeamStageProjection,
@@ -123,6 +124,24 @@ def fm_channel_weights(emission, excitation=None) -> Tuple[float, float, float, 
         SUBSET_DYE.response(excitation, emission),
         FIDUCIAL_DYE.response(excitation, emission),
     )
+
+
+def _blur(image: np.ndarray, sigma_px: float) -> np.ndarray:
+    """A gaussian blur that stays cheap when it is wide: past a few pixels the
+    frame is block-averaged by `step`, blurred at sigma / step, and scaled
+    back with a linear zoom, which is indistinguishable from the direct blur
+    at that width and costs step^2 less."""
+    step = int(min(8, sigma_px // 4)) if sigma_px >= 12 else 1
+    if step == 1:
+        return ndi_gaussian(image, sigma_px)
+    h, w = image.shape
+    hh, ww = (h // step) * step, (w // step) * step
+    small = (
+        image[:hh, :ww].reshape(hh // step, step, ww // step, step).mean(axis=(1, 3))
+    )
+    small = ndi_gaussian(small, sigma_px / step)
+    back = ndi_zoom(small, (h / small.shape[0], w / small.shape[1]), order=1)
+    return back[:h, :w]
 
 
 def _lattice_draw(i: np.ndarray, j: np.ndarray, seed: int) -> np.ndarray:
@@ -1497,10 +1516,13 @@ class SampleScene:
 
         if defocus:
             # a retracted objective is millimetres from focus: cap the blur so
-            # the render stays cheap and the frame reads as "out of focus"
+            # the frame reads as "out of focus" without costing more than the
+            # rest of the render. A wide blur is done on a decimated frame and
+            # scaled back - what a 40 px gaussian removes, decimating by 8
+            # already removed
             sigma_px = min(abs(defocus) * 1e6 * self.fm_blur_px_per_um, 40.0)
             if sigma_px > 0.3:
-                canvas = ndi_gaussian(canvas, sigma_px)
+                canvas = _blur(canvas, sigma_px)
 
         if rng is None:
             rng = np.random.default_rng()
