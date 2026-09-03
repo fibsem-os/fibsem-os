@@ -98,5 +98,7 @@ def test_the_closing_line_gets_out_after_a_stop(ui):
     ui._workflow_stop_event.set()
     with pytest.raises(InterruptedError):
         update_status_ui(ui, "", workflow_info="Workflow cancelled by user.")
-    update_status_ui(ui, "", workflow_info="Workflow cancelled by user.", check_abort=False)
+    update_status_ui(
+        ui, "", workflow_info="Workflow cancelled by user.", check_abort=False
+    )
     assert seen == ["Workflow cancelled by user."]
