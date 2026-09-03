@@ -121,17 +121,21 @@ GRID_OVERVIEW_ROLES = ("overview_sem", "overview_fib", "overview_fm")
 def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any]:
     """One recorded output file as a downscaled JPEG, or the reason it is not.
 
-    TIFFs (every FibsemImage) read through tifffile; anything else (the PNG
-    thumbnails grid tasks write beside their overviews) through PIL. Stacks
-    and multi-channel images are max-projected to something viewable; this
-    is a preview, not the data.
+    Fluorescence stacks (``.ome.tiff``) composite through the FM canvas's own
+    projection, so each channel keeps its colour; plain TIFFs (every
+    FibsemImage) read through tifffile; anything else (the PNG thumbnails grid
+    tasks write beside their overviews) through PIL. Stacks are max-projected
+    to something viewable; this is a preview, not the data.
     """
     try:
         import numpy as np
 
+        from fibsem.fm.preview import is_fluorescence_image, load_projection
         from fibsem.server.images import preview_jpeg_bytes
 
-        if filename.lower().endswith((".tif", ".tiff")):
+        if is_fluorescence_image(path):
+            data, _ = load_projection(path)
+        elif filename.lower().endswith((".tif", ".tiff")):
             import tifffile
 
             data = np.squeeze(np.asarray(tifffile.imread(path)))
@@ -490,9 +494,16 @@ class AgentContext:
         cannot be placed (no pose, or an image without reprojection metadata)
         are listed under ``unplaced`` with the reason, never dropped silently.
 
-        Which items: the lamellae linked to the grid when any are; otherwise
-        every lamella with a pose, flagged ``linked: false`` — an experiment
-        from before grids were recorded still gets its glance view.
+        Which items: the lamellae linked to the grid when any are. With none
+        linked, an experiment that records a single grid falls back to every
+        posed lamella, flagged ``linked: false`` — an experiment from before
+        grids were recorded still gets its glance view; with several grids
+        that fallback would paint every grid with the same unrelated items, so
+        nothing is placed and the payload says why.
+
+        Fluorescence overviews carry the FM stack's own metadata, not a beam
+        state, so nothing can be reprojected onto them: markers are for SEM
+        and FIB overviews, and an FM file answers with that reason.
         """
         experiment = self._experiment
         if experiment is None:
@@ -508,6 +519,19 @@ class AgentContext:
                 "markers": [],
                 "error": f"No output named {filename!r} for grid {grid_name!r}.",
                 "filenames": self._recorded_grid_basenames(experiment, grid),
+            }
+        from fibsem.fm.preview import is_fluorescence_image
+
+        if is_fluorescence_image(match):
+            return {
+                "available": True,
+                "grid_name": grid_name,
+                "filename": filename,
+                "placeable": False,
+                "reason": "a fluorescence overview carries no beam reprojection "
+                "metadata; markers are placed on SEM and FIB overviews",
+                "markers": [],
+                "unplaced": [],
             }
         try:
             from fibsem.structures import FibsemImage
@@ -541,12 +565,22 @@ class AgentContext:
                 else None,
             },
             "convention": "source-image pixels, origin top-left, +y down",
+            "placeable": True,
             "markers": [],
             "unplaced": [],
         }
         linked = experiment.get_lamellae_for_grid(grid)
-        lamellae = linked if linked else list(experiment.positions)
         payload["linked"] = bool(linked)
+        if linked:
+            lamellae = linked
+        elif len(experiment.grids) <= 1:
+            lamellae = list(experiment.positions)
+        else:
+            lamellae = []
+            payload["reason"] = (
+                "no items are linked to this grid, and with several grids "
+                "recorded the experiment's items are not assumed to be on it"
+            )
         if state is None or state.stage_position is None:
             payload["unplaced"] = [
                 {"item_name": p.name, "reason": "image has no reprojection metadata"}

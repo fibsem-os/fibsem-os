@@ -517,3 +517,110 @@ def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
     assert bad_grid["grid_names"] == ["grid-aspen", "grid-birch"]
     malformed = client.post("/app/workflow/grids/plan", headers=AUTH, json={})
     assert malformed.status_code == 422
+
+
+def test_fm_overview_previews_in_colour_and_markers_decline(
+    client, host, grid_with_overview
+):
+    """A fluorescence overview is an OME-TIFF stack: the preview composites it
+    channel-by-colour (a grey max-projection loses the channels), and markers
+    say why nothing can be reprojected onto it instead of a loader error."""
+    import numpy as np
+    from PIL import Image
+
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+    )
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    experiment = host.experiment
+    grid = grid_with_overview
+    outdir = experiment.grid_path(grid) / "overview_fm"
+    outdir.mkdir(parents=True)
+    # Two channels, red and green, in separate corners: the composite must
+    # carry both hues, which a single-plane grey projection cannot.
+    data = np.zeros((2, 3, 64, 64), dtype=np.uint16)
+    data[0, :, :32, :32] = 4000
+    data[1, :, 32:, 32:] = 4000
+    channels = [
+        FluorescenceChannelMetadata(
+            name=f"Channel-{i:02d}",
+            excitation_wavelength=488.0,
+            power=0.5,
+            exposure_time=0.1,
+            gain=1.0,
+            offset=0.0,
+            color=colour,
+        )
+        for i, colour in enumerate(("red", "green"))
+    ]
+    metadata = FluorescenceImageMetadata(
+        acquisition_date="2026-01-01T00:00:00",
+        pixel_size_x=1e-7,
+        pixel_size_y=1e-7,
+        resolution=(64, 64),
+        channels=channels,
+        z_positions=[-1e-6, 0.0, 1e-6],
+    )
+    FluorescenceImage(data=data, metadata=metadata).save(
+        str(outdir / "overview.ome.tiff")
+    )
+    grid.task_history.append(
+        AutoLamellaTaskState(
+            name="overview_fm",
+            status=AutoLamellaTaskStatus.Completed,
+            outputs={"overview_fm": ["overview_fm/overview.ome.tiff"]},
+        )
+    )
+
+    served = client.get("/app/grids/grid-aspen/outputs/overview.ome.tiff", headers=AUTH)
+    assert served.status_code == 200
+    import io
+
+    rgb = np.asarray(Image.open(io.BytesIO(served.content)).convert("RGB")).astype(int)
+    top_left, bottom_right = rgb[8, 8], rgb[56, 56]
+    assert top_left[0] > 150 and top_left[1] < 80  # red corner
+    assert bottom_right[1] > 150 and bottom_right[0] < 80  # green corner
+
+    markers = client.get(
+        "/app/grids/grid-aspen/outputs/overview.ome.tiff/markers", headers=AUTH
+    ).json()
+    assert markers["placeable"] is False
+    assert markers["markers"] == [] and "error" not in markers
+    assert "fluorescence" in markers["reason"]
+
+    listed = client.get("/app/grids", headers=AUTH).json()["items"][0]["overviews"]
+    assert listed == {
+        "overview_sem": "overview.tif",
+        "overview_fm": "overview.ome.tiff",
+    }
+
+
+def test_unlinked_items_fall_back_only_on_a_single_grid_experiment(
+    client, host, grid_with_overview
+):
+    from fibsem.applications.autolamella.structures import GridRecord
+
+    experiment = host.experiment
+    for lamella in experiment.positions:
+        lamella.grid_id = None
+    # One grid recorded: every posed item is shown, flagged as unlinked.
+    body = client.get(
+        "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
+    ).json()
+    assert body["linked"] is False and body["placeable"] is True
+    assert len(body["markers"]) == 2
+
+    # A second grid: the same items would paint both grids, so neither gets them.
+    experiment.add_grid(GridRecord(name="grid-birch"))
+    body = client.get(
+        "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
+    ).json()
+    assert body["linked"] is False
+    assert body["markers"] == [] and body["unplaced"] == []
+    assert "several grids" in body["reason"]
