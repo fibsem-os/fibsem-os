@@ -80,7 +80,7 @@ For a complete walkthrough of the AutoLamella workflow, see the [Getting Started
 
 To get started with the fibsemOS API, see the example/example.py:
 
-You can start an offline demo microscope by specifying manufacturer: "Demo" in the configuration yaml file (fibsem/config/microscope-configuration.yaml). This will start a demo microscope that you can use to test the API without connecting to a real microscope. To connect to a real microscope, set the ip_address and manufacturer of your microscope in the configuration file or alternatively, you can pass these arguments to utils.setup_session() directly.
+You can start an offline demo microscope by specifying manufacturer: "Demo" in the configuration yaml file (fibsem/config/microscope-configuration.yaml). This will start a demo microscope that you can use to test the API without connecting to a real microscope. To connect to a real microscope, set the ip_address and manufacturer of your microscope in the configuration file or alternatively, you can pass these arguments to utils.setup_session() directly. The simulator can also image a synthetic cryo-grid instead of noise; see [docs/simulator.md](docs/simulator.md).
 
 This example shows you how to connect to the microscope, take an image with both beams, and plot the results.
 
