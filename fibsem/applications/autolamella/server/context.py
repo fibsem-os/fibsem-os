@@ -166,6 +166,70 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
     }
 
 
+def _overview_projector(path: str):
+    """Open a recorded overview and return its scale block plus a projector.
+
+    The projector maps one stage position to a source-pixel Point through the
+    canvas's own reprojection for that kind of image: beam overviews
+    (FibsemImage) through ``reproject_stage_positions_onto_image2``,
+    fluorescence overviews (OME-TIFF) through
+    ``reproject_stage_positions_onto_fm_image``. Both raise, per position, when
+    the image lacks the metadata a projection needs; the caller records the
+    reason against the item rather than guessing. The scale block is what a
+    client needs to place the points on its rendition: source size, pixel size
+    (m), field width (m), the acquisition's stage position.
+    """
+    from fibsem.fm.preview import is_fluorescence_image
+
+    if is_fluorescence_image(path):
+        from fibsem.fm.reprojection import reproject_stage_positions_onto_fm_image
+        from fibsem.fm.structures import FluorescenceImage
+
+        image = FluorescenceImage.load(path)
+        height, width = image.data.shape[-2:]
+        metadata = image.metadata
+        stage = getattr(metadata, "stage_position", None)
+        block = {
+            "width": int(width),
+            "height": int(height),
+            "pixel_size": metadata.pixel_size_x if metadata else None,
+            "hfw": metadata.pixel_size_x * width if metadata else None,
+            "beam_type": "FM",
+            "stage_position": stage.to_dict() if stage is not None else None,
+        }
+
+        def project(position):
+            (point,) = reproject_stage_positions_onto_fm_image(image, [position])
+            return point
+
+        return block, project
+
+    from fibsem.imaging.tiling.reprojection import (
+        reproject_stage_positions_onto_image2,
+    )
+    from fibsem.structures import FibsemImage
+
+    image = FibsemImage.load(path)
+    height, width = image.data.shape[:2]
+    metadata = image.metadata
+    state = getattr(metadata, "microscope_state", None) if metadata else None
+    stage = state.stage_position if state is not None else None
+    block = {
+        "width": int(width),
+        "height": int(height),
+        "pixel_size": metadata.pixel_size.x if metadata else None,
+        "hfw": metadata.image_settings.hfw if metadata else None,
+        "beam_type": metadata.image_settings.beam_type.name if metadata else None,
+        "stage_position": stage.to_dict() if stage is not None else None,
+    }
+
+    def project(position):
+        (point,) = reproject_stage_positions_onto_image2(image, [position])
+        return point
+
+    return block, project
+
+
 class AgentContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
@@ -486,13 +550,15 @@ class AgentContext:
     def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]:
         """Where the experiment's items fall on one recorded overview.
 
-        Computed here, in source-image pixels, through the same reprojection
-        the overview canvas uses — so no client ever re-derives stage geometry
-        (the compucentric offset and canvas-origin traps live in one place).
-        ``image`` carries the scale contract: source size, pixel size, field
-        width, the stage position the overview was taken from. Items that
-        cannot be placed (no pose, or an image without reprojection metadata)
-        are listed under ``unplaced`` with the reason, never dropped silently.
+        Computed here, in source-image pixels, through the same reprojections
+        the overview canvases use — the beam one for SEM/FIB overviews, the FM
+        one for fluorescence overviews — so no client ever re-derives stage
+        geometry (the compucentric offset and canvas-origin traps live in one
+        place). ``image`` carries the scale contract: source size, pixel size,
+        field width, the stage position the overview was taken from. Items
+        that cannot be placed (no pose, or an image without the metadata its
+        projection needs) are listed under ``unplaced`` with the reason, never
+        dropped silently.
 
         Which items: the lamellae linked to the grid when any are. With none
         linked, an experiment that records a single grid falls back to every
@@ -500,10 +566,6 @@ class AgentContext:
         grids were recorded still gets its glance view; with several grids
         that fallback would paint every grid with the same unrelated items, so
         nothing is placed and the payload says why.
-
-        Fluorescence overviews carry the FM stack's own metadata, not a beam
-        state, so nothing can be reprojected onto them: markers are for SEM
-        and FIB overviews, and an FM file answers with that reason.
         """
         experiment = self._experiment
         if experiment is None:
@@ -520,23 +582,8 @@ class AgentContext:
                 "error": f"No output named {filename!r} for grid {grid_name!r}.",
                 "filenames": self._recorded_grid_basenames(experiment, grid),
             }
-        from fibsem.fm.preview import is_fluorescence_image
-
-        if is_fluorescence_image(match):
-            return {
-                "available": True,
-                "grid_name": grid_name,
-                "filename": filename,
-                "placeable": False,
-                "reason": "a fluorescence overview carries no beam reprojection "
-                "metadata; markers are placed on SEM and FIB overviews",
-                "markers": [],
-                "unplaced": [],
-            }
         try:
-            from fibsem.structures import FibsemImage
-
-            image = FibsemImage.load(match)
+            image_block, project = _overview_projector(match)
         except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
             return {
                 "available": True,
@@ -545,27 +592,12 @@ class AgentContext:
                 "markers": [],
                 "error": f"Could not read {filename!r}: {exc}",
             }
-        metadata = image.metadata
-        state = getattr(metadata, "microscope_state", None) if metadata else None
-        height, width = image.data.shape[:2]
         payload: Dict[str, Any] = {
             "available": True,
             "grid_name": grid_name,
             "filename": filename,
-            "image": {
-                "width": int(width),
-                "height": int(height),
-                "pixel_size": metadata.pixel_size.x if metadata else None,
-                "hfw": metadata.image_settings.hfw if metadata else None,
-                "beam_type": metadata.image_settings.beam_type.name
-                if metadata
-                else None,
-                "stage_position": state.stage_position.to_dict()
-                if state is not None and state.stage_position is not None
-                else None,
-            },
+            "image": image_block,
             "convention": "source-image pixels, origin top-left, +y down",
-            "placeable": True,
             "markers": [],
             "unplaced": [],
         }
@@ -581,17 +613,7 @@ class AgentContext:
                 "no items are linked to this grid, and with several grids "
                 "recorded the experiment's items are not assumed to be on it"
             )
-        if state is None or state.stage_position is None:
-            payload["unplaced"] = [
-                {"item_name": p.name, "reason": "image has no reprojection metadata"}
-                for p in lamellae
-            ]
-            return payload
-
-        from fibsem.imaging.tiling.reprojection import (
-            reproject_stage_positions_onto_image2,
-        )
-
+        width, height = image_block["width"], image_block["height"]
         workflow = experiment.task_protocol.workflow_config
         for lamella in lamellae:
             pose = lamella.milling_pose
@@ -602,7 +624,7 @@ class AgentContext:
                 )
                 continue
             try:
-                (point,) = reproject_stage_positions_onto_image2(image, [position])
+                point = project(position)
             except Exception as exc:  # noqa: BLE001 - one bad pose must not hide the rest
                 payload["unplaced"].append(
                     {"item_name": lamella.name, "reason": str(exc)}

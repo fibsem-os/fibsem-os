@@ -519,12 +519,13 @@ def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
     assert malformed.status_code == 422
 
 
-def test_fm_overview_previews_in_colour_and_markers_decline(
+def test_fm_overview_previews_in_colour_and_places_markers(
     client, host, grid_with_overview
 ):
     """A fluorescence overview is an OME-TIFF stack: the preview composites it
     channel-by-colour (a grey max-projection loses the channels), and markers
-    say why nothing can be reprojected onto it instead of a loader error."""
+    go through the FM canvas's own reprojection, which reads the stage
+    position and hardware geometry the mosaic recorded."""
     import numpy as np
     from PIL import Image
 
@@ -537,9 +538,11 @@ def test_fm_overview_previews_in_colour_and_markers_decline(
         FluorescenceImage,
         FluorescenceImageMetadata,
     )
+    from fibsem.structures import FibsemHardwareGeometry, FibsemStagePosition
 
     experiment = host.experiment
     grid = grid_with_overview
+    centre = FibsemStagePosition(x=1e-3, y=-2e-3, z=0.0, r=0.0, t=0.0)
     outdir = experiment.grid_path(grid) / "overview_fm"
     outdir.mkdir(parents=True)
     # Two channels, red and green, in separate corners: the composite must
@@ -566,7 +569,20 @@ def test_fm_overview_previews_in_colour_and_markers_decline(
         resolution=(64, 64),
         channels=channels,
         z_positions=[-1e-6, 0.0, 1e-6],
+        stage_position=centre,
+        geometry=FibsemHardwareGeometry(
+            column_tilt=0,
+            fib_column_tilt=52,
+            shuttle_pre_tilt=0,
+            rotation_reference=0,
+            rotation_180=0,
+            is_compustage=True,
+            camera_tilt=180.0,
+        ),
     )
+    # The linked items sit at the beam overview's centre (the stage origin);
+    # put one at this mosaic's centre instead so it lands mid-image.
+    experiment.positions[0].milling_pose.stage_position = centre
     FluorescenceImage(data=data, metadata=metadata).save(
         str(outdir / "overview.ome.tiff")
     )
@@ -590,9 +606,16 @@ def test_fm_overview_previews_in_colour_and_markers_decline(
     markers = client.get(
         "/app/grids/grid-aspen/outputs/overview.ome.tiff/markers", headers=AUTH
     ).json()
-    assert markers["placeable"] is False
-    assert markers["markers"] == [] and "error" not in markers
-    assert "fluorescence" in markers["reason"]
+    assert markers["image"]["beam_type"] == "FM"
+    assert markers["image"]["width"] == 64 and markers["image"]["pixel_size"] == 1e-7
+    assert markers["unplaced"] == []
+    by_name = {m["item_name"]: m for m in markers["markers"]}
+    at_centre = by_name[experiment.positions[0].name]
+    assert at_centre["x"] == pytest.approx(32.0) and at_centre["y"] == pytest.approx(
+        32.0
+    )
+    assert at_centre["inside"] is True
+    assert by_name[experiment.positions[1].name]["inside"] is False
 
     listed = client.get("/app/grids", headers=AUTH).json()["items"][0]["overviews"]
     assert listed == {
@@ -613,7 +636,7 @@ def test_unlinked_items_fall_back_only_on_a_single_grid_experiment(
     body = client.get(
         "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
     ).json()
-    assert body["linked"] is False and body["placeable"] is True
+    assert body["linked"] is False
     assert len(body["markers"]) == 2
 
     # A second grid: the same items would paint both grids, so neither gets them.
