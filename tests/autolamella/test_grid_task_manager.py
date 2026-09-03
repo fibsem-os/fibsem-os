@@ -323,7 +323,7 @@ class TestStopAndStatus:
         assert executed == [("Grid-01", "overview_sem")]
         # load + first task consumed; the other four still pending
         assert manager.queue.counts == (4, 6)
-        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled."
+        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled by user."
         # The rows that never ran say nothing about the load, rather than
         # repeating the last load's outcome.
         df = manager.build_run_summary_dataframe()

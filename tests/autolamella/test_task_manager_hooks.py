@@ -211,4 +211,4 @@ def test_cancelled_run_keeps_its_own_message(experiment, recorder, monkeypatch):
 
     manager.run(task_names=["MillTrench"], required_lamella=[])
 
-    assert messages[-1] == "Workflow cancelled."
+    assert messages[-1] == "Workflow cancelled by user."

@@ -89,7 +89,7 @@ def test_a_genuine_failure_still_logs_an_error(ui, monkeypatch, caplog):
 
 def test_the_closing_line_gets_out_after_a_stop(ui):
     """After Stop the abort predicate is true, and a status point raises on it:
-    that is what kept "Workflow cancelled." off the label. The manager's closing
+    that is what kept "Workflow cancelled by user." off the label. The manager's closing
     line asks for no abort check, and reaches the signal."""
     from fibsem.applications.autolamella.workflows.ui import update_status_ui
 
@@ -97,6 +97,6 @@ def test_the_closing_line_gets_out_after_a_stop(ui):
     ui.workflow_status_signal.connect(lambda event: seen.append(event.workflow_info))
     ui._workflow_stop_event.set()
     with pytest.raises(InterruptedError):
-        update_status_ui(ui, "", workflow_info="Workflow cancelled.")
-    update_status_ui(ui, "", workflow_info="Workflow cancelled.", check_abort=False)
-    assert seen == ["Workflow cancelled."]
+        update_status_ui(ui, "", workflow_info="Workflow cancelled by user.")
+    update_status_ui(ui, "", workflow_info="Workflow cancelled by user.", check_abort=False)
+    assert seen == ["Workflow cancelled by user."]

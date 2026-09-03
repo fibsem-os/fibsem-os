@@ -228,7 +228,7 @@ class GridTaskManager(BaseTaskManager):
         # finished workflow.
         if self.is_stopped:
             self._fire_workflow_hook(HookEvent.WORKFLOW_CANCELLED)
-            self._say(workflow_info="Grid workflow cancelled.")
+            self._say(workflow_info="Grid workflow cancelled by user.")
         else:
             self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
             self._say(workflow_info=self._completion_message())

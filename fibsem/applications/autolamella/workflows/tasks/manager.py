@@ -420,7 +420,7 @@ class TaskManager(BaseTaskManager):
             update_status_ui(
                 self.parent_ui,
                 "",
-                workflow_info="Workflow cancelled.",
+                workflow_info="Workflow cancelled by user.",
                 check_abort=False,
             )
         else:

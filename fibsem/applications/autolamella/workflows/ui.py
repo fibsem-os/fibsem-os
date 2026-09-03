@@ -140,7 +140,7 @@ def update_status_ui(
 
     A status point doubles as a cancellation point: a task that reports progress
     is interrupted here once Stop has been pressed. ``check_abort=False`` is for
-    the manager's closing line after a Stop -- "Workflow cancelled." -- which is
+    the manager's closing line after a Stop -- "Workflow cancelled by user." -- which is
     the one status that has to get out precisely because the run was aborted.
     """
     if parent_ui is None:
