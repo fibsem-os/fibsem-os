@@ -1676,7 +1676,7 @@ class AutoLamellaUI(QMainWindow):
             )
         parent = self.parent_widget
         try:
-            notification_service.show_toast(
+            notification_service.show(
                 f"Agent applied protocol to {item_name} — {', '.join(names)}",
                 "info",
             )
@@ -1715,9 +1715,11 @@ class AutoLamellaUI(QMainWindow):
                 target = item_name
             else:
                 target = task_name
-            notification_service.show_toast(
-                f"Agent edited {target} — {summary}", "info"
-            )
+            # show(), not show_toast(): agent changes are workflow events —
+            # they persist in the notification bell, not just flash for 3 s
+            # while the operator is looking at the canvas (found live: the
+            # toasts fired and left no trace).
+            notification_service.show(f"Agent edited {target} — {summary}", "info")
         except Exception:
             logging.exception("toast after agent config patch failed")
         parent = self.parent_widget
