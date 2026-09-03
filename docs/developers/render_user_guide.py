@@ -266,6 +266,7 @@ class Harness:
         numbered: bool = False,
         crop: bool = False,
         callout_rects: Optional[Sequence[QRect]] = None,
+        clicks: Optional[Sequence[Tuple[QRect, str]]] = None,
     ) -> Path:
         """Grab ``target`` (the window by default) and write ``<page>/<name>.png``.
 
@@ -299,6 +300,10 @@ class Harness:
                 pixmap,
                 [(r.translated(-region.topLeft()), boxed) for r, boxed in marks],
                 numbered,
+            )
+        if clicks:
+            self._draw_clicks(
+                pixmap, [(r.translated(-region.topLeft()), t) for r, t in clicks]
             )
         if self.scale == 1 and pixmap.devicePixelRatio() != 1:
             # a retina grab is 2x; the guide serves 1x
@@ -388,6 +393,40 @@ class Harness:
                 painter.drawText(badge, Qt.AlignCenter, str(i))
                 painter.setPen(pen)
                 painter.setBrush(Qt.NoBrush)
+        painter.end()
+
+    @staticmethod
+    def _draw_clicks(pixmap: QPixmap, clicks: Sequence[Tuple[QRect, str]]) -> None:
+        """Mark where the mouse went: a box, a crosshair at the click itself,
+        and the gesture written beneath ("Double click", "Alt + Double click")."""
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        font = QFont()
+        font.setBold(True)
+        font.setPixelSize(13)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        for box, text in clicks:
+            painter.setPen(QPen(CALLOUT_LINE, CALLOUT_WIDTH))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(box, 3, 3)
+            c = box.center()
+            arm = box.width() // 4
+            painter.setPen(QPen(CALLOUT_COLOUR, CALLOUT_WIDTH))
+            painter.drawLine(c.x() - arm, c.y(), c.x() + arm, c.y())
+            painter.drawLine(c.x(), c.y() - arm, c.x(), c.y() + arm)
+            # the gesture, on a pill under the box (above it if there is no room)
+            width = metrics.horizontalAdvance(text) + 16
+            height = metrics.height() + 6
+            top = box.bottom() + 8
+            if top + height > int(pixmap.height() / pixmap.devicePixelRatio()) - 4:
+                top = box.top() - 8 - height
+            pill = QRect(c.x() - width // 2, top, width, height)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(CALLOUT_COLOUR)
+            painter.drawRoundedRect(pill, height // 2, height // 2)
+            painter.setPen(QColor("white"))
+            painter.drawText(pill, Qt.AlignCenter, text)
         painter.end()
 
     # -- lifecycle ----------------------------------------------------------
@@ -684,7 +723,7 @@ def render_movement(h: Harness) -> None:
     h.shot(
         "click-before",
         target=sem_panel,
-        callout_rects=[h.image_point_rect(sem_canvas, sem_panel, x, y)],
+        clicks=[(h.image_point_rect(sem_canvas, sem_panel, x, y), "Double click")],
     )
     ctrl._on_canvas_double_click(BeamType.ELECTRON, x, y, [])
     h.wait_move(ctrl, iw)
@@ -709,11 +748,27 @@ def render_movement(h: Harness) -> None:
     h.shot(
         "coincidence-click",
         target=fib_panel,
-        callout_rects=[h.image_point_rect(fib_canvas, fib_panel, wid // 2, y_cross)],
+        clicks=[
+            (
+                h.image_point_rect(fib_canvas, fib_panel, wid // 2, y_cross),
+                "Alt + Double click",
+            )
+        ],
     )
     ctrl._on_canvas_double_click(BeamType.ION, wid // 2, y_cross, ["Alt"])
     h.wait_move(ctrl, iw)
     h.shot("coincidence-after")
+
+    # eucentricity: coincident, but with the surface 30 um above the tilt
+    # axis, a tilt to the MILLING orientation swings the cross off centre
+    scene = microscope._sample_scene
+    scene.tilt_axis_offset = 30e-6
+    ctrl.move_to_orientation("MILLING")
+    h.wait_move(ctrl, iw)
+    h.shot("eucentric-after-tilt")
+    scene.tilt_axis_offset = 0.0
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
     microscope.system.sim["sample"]["fiducial"] = False
     microscope._setup_sample_scene()
 
