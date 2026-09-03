@@ -120,6 +120,10 @@ class Harness:
         self._page: Optional[str] = None
         self._tmp = tempfile.TemporaryDirectory(prefix="fibsem-user-guide-")
         self._redirect_user_state(Path(self._tmp.name))
+        # acquisitions made with no experiment open (the FM's, for one) save
+        # into the working directory; keep them out of the checkout
+        self._cwd = os.getcwd()
+        os.chdir(self._tmp.name)
 
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.app.setStyle("Fusion")
@@ -256,6 +260,19 @@ class Harness:
         qx, qy = dx / ratio, canvas.height() - dy / ratio
         origin = canvas.mapTo(panel, QPoint(int(qx), int(qy)))
         return QRect(origin.x() - radius, origin.y() - radius, 2 * radius, 2 * radius)
+
+    def wait_fm(self, fm_control, timeout_ms: int = 300000) -> None:
+        """Pump until the fluorescence widget's acquisition has finished."""
+        waited = 0
+        self.pump(500)
+        while (
+            fm_control.is_acquisition_active or fm_control._has_worker
+        ) and waited < timeout_ms:
+            self.pump(200)
+            waited += 200
+        if fm_control.is_acquisition_active or fm_control._has_worker:
+            raise RuntimeError("fluorescence acquisition did not finish")
+        self.pump(800)
 
     def show_tab(self, index: int) -> None:
         self.window.tab_widget.setCurrentIndex(index)
@@ -465,6 +482,7 @@ class Harness:
         self.disconnect()
         self.window.close()
         self.pump(200)
+        os.chdir(self._cwd)
         self._tmp.cleanup()
 
 
@@ -1125,6 +1143,238 @@ def render_sample_holder(h: Harness) -> None:
         crop=True,
         height=760,
     )
+
+
+@page("fluorescence")
+def render_fluorescence(h: Harness) -> None:
+    """The Fluorescence tab and the FM view, on the simulated Arctis."""
+    from fibsem.fm.structures import ChannelSettings
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    iw = h.ui.image_widget
+    ctrl = h.ui.movement_widget.control_widget
+    fmc = h.ui.fm_control_widget
+    fm = h.connection.microscope.fm
+    ocw = fmc.objectiveControlWidget
+    quad = h.window.view_controller.widget
+    fm_panel = quad._all_panels[1]
+    fm_widget = quad.fm_widget
+
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
+    iw.acquire_reference_images()
+    h.wait_acquisition(iw)
+    h.ui.tabWidget.setCurrentWidget(fmc)
+    h.pump(300)
+
+    # the tab as it opens: objective retracted, one channel. The panels live
+    # in a scroll area, so they are grabbed from its content widget (which
+    # lays out at full height) and the buttons from the tab itself.
+    panels_widget = fmc.objectivePanel.parentWidget()
+    for panel in (fmc.cameraPanel, fmc.autofocusPanel, fmc.histogramPanel):
+        panel._btn_collapse.setChecked(False)
+    fmc.zParametersPanel._btn_collapse.setChecked(True)
+    h.pump(300)
+    h.shot(
+        "fluorescence-tab",
+        target=panels_widget,
+        callouts=[
+            Box(fmc.objectivePanel),
+            Box(fmc.channelPanel),
+            Box(fmc.zParametersPanel),
+        ],
+        numbered=True,
+        crop=True,
+    )
+    h.shot(
+        "fluorescence-buttons",
+        target=fmc,
+        callouts=[
+            fmc.pushButton_acquire_single_image,
+            fmc.pushButton_toggle_acquisition,
+            fmc.pushButton_acquire_zstack,
+            fmc.pushButton_run_autofocus,
+        ],
+        numbered=True,
+    )
+
+    # insert the objective, as the button does once its dialog is answered
+    # (the stage is at 0 deg tilt, so no move is needed first)
+    ocw._set_objective_actions_enabled(False)
+    worker = ocw._insert_objective_worker(None)
+    worker.returned.connect(ocw._on_objective_action_finished)
+    worker.errored.connect(ocw._on_objective_action_error)
+    worker.start()
+    waited = 0
+    while worker.is_alive() and waited < 30000:
+        h.pump(200)
+        waited += 200
+    h.pump(500)
+    # and to its focus position, as Move to Focus Position does (that button
+    # confirms a move this large in a dialog)
+    fm.objective.move_absolute(fm.objective.focus_position)
+    ocw.update_objective_position_labels()
+    h.pump(400)
+    h.shot("objective-inserted", target=fmc.objectivePanel, crop=True)
+
+    # four channels: reflection and the three lines the simulator's dyes answer
+    lines = sorted(fm.filter_set.available_excitation_wavelengths)
+
+    def nearest(target):
+        return min(lines, key=lambda w: abs(w - target))
+
+    channels = [
+        ChannelSettings(
+            name="Reflection",
+            excitation_wavelength=nearest(550),
+            emission_wavelength=None,
+            color="gray",
+            exposure_time=0.05,
+            power=0.1,
+        ),
+        ChannelSettings(
+            name="DAPI",
+            excitation_wavelength=nearest(405),
+            emission_wavelength="Fluorescence",
+            color="blue",
+            exposure_time=0.1,
+            power=0.2,
+        ),
+        ChannelSettings(
+            name="GFP",
+            excitation_wavelength=nearest(488),
+            emission_wavelength="Fluorescence",
+            color="green",
+            exposure_time=0.1,
+            power=0.2,
+        ),
+        ChannelSettings(
+            name="mCherry",
+            excitation_wavelength=nearest(561),
+            emission_wavelength="Fluorescence",
+            color="red",
+            exposure_time=0.1,
+            power=0.2,
+        ),
+    ]
+    fmc.channelSettingsWidget.channel_settings = channels
+    h.pump(400)
+    h.shot("channels", target=fmc.channelPanel, crop=True)
+
+    # Acquire Image takes the selected channel only; Acquire Z-Stack takes
+    # every channel at every plane, so a two-plane stack (the smallest it
+    # accepts) is the way to one image with all four channels in it
+    import glob
+
+    from fibsem.fm.structures import FluorescenceImage
+    from fibsem.ui.fm.widgets.fm_image_viewer_widget import FMImageViewerWidget
+
+    quad.set_selected("fm")
+    zp = fmc.zParametersWidget
+    zp.doubleSpinBox_zstep.setValue(2.0)
+    zp.doubleSpinBox_zmin.setValue(-1.0)
+    zp.doubleSpinBox_zmax.setValue(1.0)
+    h.pump(200)
+    fmc.pushButton_acquire_zstack.click()
+    h.wait_fm(fmc)
+    # the Microscope tab's FM view shows the frame just taken, one channel
+    h.shot("fm-view-live", target=fm_panel)
+
+    # the standalone viewer is where a multi-channel image is composed: load
+    # the file the acquisition wrote
+    def newest(pattern):
+        files = sorted(
+            glob.glob(os.path.join(h._tmp.name, pattern)), key=os.path.getmtime
+        )
+        return files[-1]
+
+    viewer = FMImageViewerWidget(start_directory=h._tmp.name)
+    viewer.resize(1180, 700)
+    viewer.show()
+    h.pump(300)
+    viewer.add_image(FluorescenceImage.load(newest("z-stack-*.ome.tiff")))
+    h.pump(800)
+    vcanvas = viewer.canvas
+    h.shot(
+        "viewer",
+        target=viewer,
+        callouts=[
+            Box(vcanvas),
+            Box(viewer.listWidget_images),
+            viewer.pushButton_load_image,
+        ],
+        numbered=True,
+    )
+    h.shot("composite", target=vcanvas)
+    layers = vcanvas.layers
+    for layer in layers:
+        for other in layers:
+            other.visible = other is layer
+        vcanvas._recomposite()
+        h.pump(300)
+        h.shot(f"channel-{layer.name.lower()}", target=vcanvas)
+    for layer in layers:
+        layer.visible = True
+    vcanvas._recomposite()
+    h.pump(300)
+
+    # the view's own controls: the channels button and its panel, with colour,
+    # opacity, gamma and contrast for the selected channel
+    vcanvas._btn_layers.setChecked(True)
+    vcanvas._toggle_layers_panel()
+    h.pump(400)
+    h.shot(
+        "fm-view-toolbar", target=vcanvas, callouts=[vcanvas._btn_layers], numbered=True
+    )
+    h.shot("fm-layers-panel", target=vcanvas._panel)
+    vcanvas._btn_layers.setChecked(False)
+    vcanvas._toggle_layers_panel()
+    h.pump(300)
+
+    # a z-stack: the parameters, then the slice controls under the view
+    zp.doubleSpinBox_zmin.setValue(-10.0)
+    zp.doubleSpinBox_zmax.setValue(10.0)
+    zp.doubleSpinBox_zstep.setValue(2.0)
+    h.pump(200)
+    h.shot("z-parameters", target=fmc.zParametersPanel, crop=True)
+    fmc.channelSettingsWidget.channel_settings = channels[1:3]
+    h.pump(300)
+    fmc.pushButton_acquire_zstack.click()
+    h.wait_fm(fmc)
+    stack = FluorescenceImage.load(newest("z-stack-*.ome.tiff"))
+    viewer.add_image(stack)
+    viewer.display_image(stack)
+    # a loaded stack opens in max projection; the slice controls show
+    # only with it off
+    vcanvas.set_max_projection(False)
+    h.pump(800)
+    h.shot(
+        "z-stack",
+        target=vcanvas,
+        callouts=[
+            vcanvas._z_prev,
+            vcanvas._z_slider,
+            vcanvas._z_next,
+            vcanvas._btn_mip,
+        ],
+        numbered=True,
+    )
+    viewer.close()
+    h.pump(300)
+
+    # retract, and leave the tab as found
+    ocw._set_objective_actions_enabled(False)
+    worker = ocw._retract_objective_worker()
+    worker.returned.connect(ocw._on_objective_action_finished)
+    worker.errored.connect(ocw._on_objective_action_error)
+    worker.start()
+    waited = 0
+    while worker.is_alive() and waited < 30000:
+        h.pump(200)
+        waited += 200
+    h.pump(300)
 
 
 # -- entry point --------------------------------------------------------------
