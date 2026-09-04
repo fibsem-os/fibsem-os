@@ -28,6 +28,4 @@ MILLING_KEYS = [
 ]
 
 # strategy
-STRATEGY_KEYS = [
-    "strategy"
-]
+STRATEGY_KEYS = ["strategy"]
