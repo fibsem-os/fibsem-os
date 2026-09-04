@@ -661,7 +661,7 @@ class AgentContext:
             "name": grid.name,
             "id": grid.id,
             "description": grid.description,
-            "quality": grid.quality.name,
+            "quality": grid.quality.verdict.name,
             "status": grid.task_state.status.name,
             "current_task": grid.task_state.name or None,
             "is_failure": grid.is_failure,
