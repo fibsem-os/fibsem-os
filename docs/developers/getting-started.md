@@ -3,9 +3,10 @@
 This is a router, not a manual: find your goal below and follow its path.
 The rules of the road live in [CONTRIBUTING.md](../../CONTRIBUTING.md) (PR
 size, py3.8 floor, format-on-touch, tests) and [AGENTS.md](../../AGENTS.md);
-read those once before your first change. This document covers the paved
-roads — the extension points we recommend and keep stable. Other routes
-exist in the code; if you need one, open an issue first.
+read those once before your first change. The paved roads themselves, the
+extension points we recommend and keep stable, are on
+[Extending fibsemOS](extending.md); this page says which one fits your goal.
+Other routes exist in the code; if you need one, open an issue first.
 
 ## The lay of the land
 
@@ -21,7 +22,7 @@ fibsem/                     the instrument library (no app logic)
   structures.py             the shared vocabulary: FibsemImage, Point,
                             FibsemRectangle, stage positions, settings
   milling/, imaging/        beam operations built on the ABC
-  segmentation/             detection models (see "your own model")
+  segmentation/             segmentation models (see "your own model")
   ui/                       shared Qt widgets, tokens.py palette, canvases
   server/                   the agent/bench HTTP server (build_server)
   mcp/                      the fibsem-mcp sidecar (MCP → HTTP)
@@ -65,92 +66,38 @@ QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_something.py -q
 
 ## "I want to support my microscope"
 
-The seam is `FibsemMicroscope` (`fibsem/microscope.py`) — an ABC covering
-acquisition, movement, milling, and state. Once implemented **and
-registered** (below), everything above — workflows, UI, server — works
-unchanged.
+The seam is `FibsemMicroscope`, the reference implementation is the Demo,
+and implementing the class is only half of it: the manufacturer has to be
+registered in four places or connecting fails at runtime. All of it, with
+the tests to run, is under [Supporting a microscope](extending.md#supporting-a-microscope).
 
-- **Template**: `DemoMicroscope` in `fibsem/microscopes/simulator.py` is
-  the reference implementation — complete, hardware-free, and the shape to
-  copy. `fibsem/microscopes/tescan.py` shows a real vendor SDK behind the
-  same interface. (`microscopes/zeiss.py` is an empty placeholder awaiting
-  a SerialFIB migration — if Zeiss is your goal, fill it in rather than
-  starting a new file.)
-- **Register it** — implementing the ABC alone is not enough; the
-  manufacturer dispatch is hardcoded in a few places, and missing one
-  gives `NotImplementedError` at connect, not at import:
-  `fibsem/manufacturers.py` (the constant and alias — Zeiss already has
-  one), `fibsem/utils.py` `setup_session()` (the if/elif that constructs
-  your class), `fibsem/configuration.py` (the generator's accepted
-  manufacturers), and the manufacturer gates in
-  `fibsem/ui/widgets/microscope_config_widget.py`.
-- **Configuration**: microscopes are described by a configuration YAML
-  (see `fibsem/config/`); `fibsem-generate-config` scaffolds one — for a
-  manufacturer it does not know yet, scaffold a Demo config and hand-edit.
-- **Verify**: connect via `utils.setup_session()` and run the tests that
-  exercise Demo through the same interface (`tests/test_acquire.py`,
-  `tests/test_movement.py`, `tests/test_microscope.py`); then connect
-  through the app. You do not need all ~45 abstract methods working to
-  start — get acquisition and stage movement right first and let the rest
-  raise until their subsystem's turn.
+## "I want to automate something"
 
-## "I want to automate something" (three tiers)
-
-1. **A plain script against the library** — no app at all:
-   `utils.setup_session()` gives you a connected microscope; the
-   `fibsem.milling` and `fibsem.imaging` modules do the rest. Right for
-   acquisition sweeps and offline analysis.
-2. **A user script inside AutoLamella** — a Python file in the scripts
-   folder (`fibsem/applications/autolamella/scripting.py`:
-   `discover_scripts` finds them, the app lists them). Your script
-   receives a **`ScriptContext`** — the experiment, microscope, and
-   protocol as a stable, documented surface. Use it rather than reaching
-   into the UI object: the GUI's internals are still moving and its
-   `experiment` attribute is rebound on load, so a cached `ui` reference
-   goes stale silently.
-3. **A real workflow task** — when the automation should live in the
-   queue, with supervision and history. Next section.
+Three tiers, from least to most involved: a plain script against the
+library with no app; a user script that the app runs against the experiment
+it has open, receiving a `ScriptContext`; or a workflow task, when the
+automation should live in the queue with supervision and history. The
+[choosing a route](extending.md#choosing-a-route) table says which, and
+[SCRIPTING.md](../../SCRIPTING.md) covers scripts in full.
 
 ## "I want to add or extend a workflow task"
 
-Subclass `AutoLamellaTask` (`workflows/tasks/base.py`) with a matching
-`AutoLamellaTaskConfig`, and register both with `register_task()`
-(`workflows/tasks/__init__.py` — docstring shows the pattern). Read one
-existing task module end to end first; `fiducial.py` is a good
-mid-complexity example.
+Subclass `AutoLamellaTask` with a matching config, override `_run()`, ask
+questions through `ask()`, record what you produce. The contracts, the
+mistakes that lose state silently, and shipping a task as a plugin are under
+[Workflow tasks](extending.md#workflow-tasks) and [Plugins](extending.md#plugins).
 
-Two contracts to respect:
+## "I want to use my own segmentation model"
 
-- **Questions go through `ask()`** (`workflows/interaction.py`): build a
-  `Request` carrying everything needed to answer it, and block on the
-  responder. Never reach into widgets from the workflow thread — the
-  request/responder seam is what keeps the GUI, the operator, and remote
-  agents all able to answer the same question.
-- **Record what you produce** on the task's history entry
-  (`task_state.outputs`, role → files): that is what the review panel,
-  `task_outputs`, and the dashboard read. Unrecorded files are invisible.
-
-Third parties can ship tasks as plugins via the `fibsem.tasks` entry-point
-group (`fibsem/plugins/loader.py` documents loading and its failure
-reporting); patterns and milling strategies have their own groups.
-
-## "I want to use my own detection model"
-
-`fibsem/segmentation/` is the home: `SegmentationModelHuggingFace` loads
-checkpoints from the Hub, and the local-checkpoint paths sit beside it.
-The honest caveat: a general model-library design (sidecar metadata,
-local/HF resolution) is planned but not built — for now, match the loading
-shape the existing models use, and expect this area to firm up.
+`fibsem/segmentation/` is the home; the caveats are under
+[Your own segmentation model](extending.md#your-own-segmentation-model).
 
 ## "I want to build against the agent server"
 
-Start with [docs/agent-server.md](../agent-server.md) — what the server
-exposes, the security model, and how agents connect (MCP sidecar or plain
-HTTP). The tool catalog (`fibsem/server/catalog.py`) is the contract: a
-catalog entry without a sidecar implementation fails loudly at startup, so
-extend both together. The supervision skill in
-`.claude/skills/supervise-autolamella/` shows what a well-behaved agent
-client looks like.
+The agent server is internal for now. `docs/agent-server.md` in this
+repository describes it; the tool catalog in `fibsem/server/catalog.py` is
+the contract, and the supervision skill under `.claude/skills/` shows what a
+well-behaved client looks like.
 
 ## "I want to work on the UI"
 
