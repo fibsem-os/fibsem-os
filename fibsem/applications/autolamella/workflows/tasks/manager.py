@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 
 import pandas as pd
 
+from fibsem import config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue, WorkItem
 from fibsem.applications.autolamella.workflows.tasks.status import (
@@ -57,6 +58,17 @@ def run_task(
     task.run()
 
 
+def review_enabled() -> bool:
+    """The propose-and-review feature flag, fail-closed: unreadable preferences
+    mean off."""
+    try:
+        return bool(
+            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
+        )
+    except Exception:
+        return False
+
+
 class BaseTaskManager:
     """What running a queue of (item, task) work needs, whatever the item is.
 
@@ -87,6 +99,10 @@ class BaseTaskManager:
         # Built once: the token's identity is captured by every task at construction.
         self._abort_token = AnyStopEvent(self._stop_event, self._task_stop_event)
         self.queue = TaskQueue()
+        # Propose-and-review is a feature flag. Read once per run, here, so a
+        # preference change takes effect on the next Run and never mid-run.
+        # Off: nothing is ever deferred and every task behaves as before.
+        self.review_enabled = review_enabled()
 
         # Stamp the experiment onto the images this run acquires. Done here rather
         # than only in the UI so a headless run through run_tasks() records it too;
@@ -635,6 +651,8 @@ class TaskManager(BaseTaskManager):
 
     def _is_deferred(self, item: WorkItem) -> bool:
         """The queue's skip predicate: pass over, do not retire."""
+        if not self.review_enabled:
+            return False
         lamella = self.experiment.get_lamella_by_name(item.item_name)
         if lamella is None or lamella.is_failure:
             return False  # let the loop retire it with a reason
