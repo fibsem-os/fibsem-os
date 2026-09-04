@@ -22,6 +22,9 @@ __all__ = [
     # polishing
     "MillPolishingTaskConfig",
     "MillPolishingTask",
+    # perforation
+    "MillPerforationTaskConfig",
+    "MillPerforationTask",
     # fiducial
     "MillFiducialTaskConfig",
     "MillFiducialTask",
@@ -64,6 +67,10 @@ from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTask,
     MillFiducialTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.perforation import (
+    MillPerforationTask,
+    MillPerforationTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.polishing import (
     MillPolishingTask,
