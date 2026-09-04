@@ -33,6 +33,7 @@ from fibsem.structures import (
 
 # ── DefectState tests ─────────────────────────────────────────────────────────
 
+
 def test_defect_state_defaults():
     d = DefectState()
     assert d.state == DefectType.NONE
@@ -42,11 +43,15 @@ def test_defect_state_defaults():
 
 
 def test_defect_state_to_dict_and_from_dict():
-    d = DefectState(state=DefectType.REWORK, last_completed_task="Mill Rough", description="thin spot")
+    d = DefectState(
+        state=DefectType.REWORK,
+        last_completed_task="Mill Rough",
+        description="thin spot",
+    )
     data = d.to_dict()
-    assert data["state"] == "REWORK"
-    assert data["last_completed_task"] == "Mill Rough"
-    assert data["description"] == "thin spot"
+    assert data["verdict"] == "REWORK"
+    assert data["at_task"] == "Mill Rough"
+    assert data["reason"] == "thin spot"
 
     d2 = DefectState.from_dict(data)
     assert d2.state == DefectType.REWORK
@@ -68,13 +73,27 @@ def test_defect_state_from_dict_empty():
 
 def test_defect_state_backwards_compat_no_defect():
     """Old format: has_defect=False → NONE"""
-    d = DefectState.from_dict({"has_defect": False, "requires_rework": False, "description": "", "updated_at": None})
+    d = DefectState.from_dict(
+        {
+            "has_defect": False,
+            "requires_rework": False,
+            "description": "",
+            "updated_at": None,
+        }
+    )
     assert d.state == DefectType.NONE
 
 
 def test_defect_state_backwards_compat_failure():
     """Old format: has_defect=True, requires_rework=False → FAILURE"""
-    d = DefectState.from_dict({"has_defect": True, "requires_rework": False, "description": "bad mill", "updated_at": 1.0})
+    d = DefectState.from_dict(
+        {
+            "has_defect": True,
+            "requires_rework": False,
+            "description": "bad mill",
+            "updated_at": 1.0,
+        }
+    )
     assert d.state == DefectType.FAILURE
     assert d.description == "bad mill"
     assert d.updated_at == 1.0
@@ -82,7 +101,14 @@ def test_defect_state_backwards_compat_failure():
 
 def test_defect_state_backwards_compat_rework():
     """Old format: has_defect=True, requires_rework=True → REWORK"""
-    d = DefectState.from_dict({"has_defect": True, "requires_rework": True, "description": "thin", "updated_at": None})
+    d = DefectState.from_dict(
+        {
+            "has_defect": True,
+            "requires_rework": True,
+            "description": "thin",
+            "updated_at": None,
+        }
+    )
     assert d.state == DefectType.REWORK
 
 
@@ -93,7 +119,9 @@ def test_defect_state_backwards_compat_missing_fields():
 
 
 def test_defect_state_clear():
-    d = DefectState(state=DefectType.FAILURE, last_completed_task="Mill Rough", description="oops")
+    d = DefectState(
+        state=DefectType.FAILURE, last_completed_task="Mill Rough", description="oops"
+    )
     d.clear()
     assert d.state == DefectType.NONE
     assert d.last_completed_task == ""
@@ -115,8 +143,80 @@ def test_defect_state_set_defect_rework():
     assert d.state == DefectType.REWORK
 
 
+def test_quality_record_reads_the_defect_state_shape_and_the_bare_grid_name():
+    """Experiments written before QualityRecord: a lamella wrote the DefectState
+    keys, a grid wrote just the GridQuality name. Both still load, and the old
+    names map onto the new verdicts."""
+    from fibsem.applications.autolamella.structures import QualityRecord, Verdict
+
+    old_lamella = {
+        "state": "FAILURE",
+        "last_completed_task": "Mill Rough",
+        "description": "torn",
+    }
+    q = QualityRecord.from_dict(old_lamella)
+    assert q.verdict is Verdict.FAILED
+    assert q.at_task == "Mill Rough"
+    assert q.reason == "torn"
+    assert q.author == ""
+
+    assert QualityRecord.from_dict("POOR").verdict is Verdict.FAILED
+    assert QualityRecord.from_dict("GOOD").verdict is Verdict.GOOD
+    assert QualityRecord.from_dict("SPLENDID").verdict is Verdict.UNASSESSED
+    assert QualityRecord.from_dict(None).verdict is Verdict.UNASSESSED
+
+
+def test_quality_record_round_trips_author_and_decision_id():
+    from fibsem.applications.autolamella.structures import QualityRecord, Verdict
+
+    q = QualityRecord(
+        verdict=Verdict.FAILED,
+        author="human:operator",
+        reason="no usable site",
+        at_task="Setup Lamella Position",
+        decision_id=("lamella-uuid", "Setup Lamella Position"),
+    )
+    again = QualityRecord.from_dict(q.to_dict())
+    assert again == q
+    assert again.decision_id == ("lamella-uuid", "Setup Lamella Position")
+    # the old attribute names still read and write the same fields
+    assert again.state is Verdict.FAILED
+    assert again.description == "no usable site"
+    again.state = Verdict.REWORK
+    assert again.verdict is Verdict.REWORK
+
+
+def test_old_enum_names_are_aliases():
+    from fibsem.applications.autolamella.structures import (
+        DefectState,
+        DefectType,
+        GridQuality,
+        QualityRecord,
+        Verdict,
+    )
+
+    assert DefectState is QualityRecord
+    assert DefectType is Verdict and GridQuality is Verdict
+    assert Verdict.NONE is Verdict.UNASSESSED
+    assert Verdict.FAILURE is Verdict.FAILED
+    assert Verdict.POOR is Verdict.FAILED
+    assert [v.name for v in Verdict] == ["UNASSESSED", "GOOD", "REWORK", "FAILED"]
+
+
+def test_lamella_quality_is_the_defect_record():
+    from pathlib import Path
+
+    from fibsem.applications.autolamella.structures import Verdict
+
+    lam = Lamella(path=Path("/tmp/test/lam"), number=1, petname="test-lam")
+    assert lam.quality is lam.defect
+    lam.quality.verdict = Verdict.FAILED
+    assert lam.is_failure is True
+
+
 def test_lamella_is_failure():
     from pathlib import Path
+
     lam = Lamella(path=Path("/tmp/test/lam"), number=1, petname="test-lam")
     assert lam.is_failure is False
     lam.defect.state = DefectType.FAILURE
@@ -128,6 +228,7 @@ def test_lamella_is_failure():
 
 
 # ── LamellaDefaultConfig ──────────────────────────────────────────────────────
+
 
 def test_lamella_defaults_defaults():
     t = LamellaDefaultConfig()
@@ -148,7 +249,9 @@ def test_lamella_defaults_to_dict_minimal():
 def test_lamella_defaults_to_dict_full():
     rect = FibsemRectangle(left=0.1, top=0.2, width=0.3, height=0.4)
     poi = Point(x=1.0, y=2.0)
-    t = LamellaDefaultConfig(use_petname=False, name_prefix="GridA-", alignment_area=rect, poi=poi)
+    t = LamellaDefaultConfig(
+        use_petname=False, name_prefix="GridA-", alignment_area=rect, poi=poi
+    )
     d = t.to_dict()
     assert d["use_petname"] is False
     assert d["name_prefix"] == "GridA-"
@@ -183,7 +286,9 @@ def test_lamella_defaults_from_dict_full():
 def test_lamella_defaults_round_trip():
     rect = FibsemRectangle(left=0.05, top=0.1, width=0.2, height=0.5)
     poi = Point(x=3.0, y=-1.0)
-    t = LamellaDefaultConfig(use_petname=False, name_prefix="X-", alignment_area=rect, poi=poi)
+    t = LamellaDefaultConfig(
+        use_petname=False, name_prefix="X-", alignment_area=rect, poi=poi
+    )
     t2 = LamellaDefaultConfig.from_dict(t.to_dict())
     assert t2.use_petname is False
     assert t2.name_prefix == "X-"
@@ -193,7 +298,10 @@ def test_lamella_defaults_round_trip():
 
 # ── Experiment.add_new_lamella respects LamellaDefaultConfig ─────────────────
 
-def _make_experiment(tmp_path: Path, template: LamellaDefaultConfig = None) -> Experiment:
+
+def _make_experiment(
+    tmp_path: Path, template: LamellaDefaultConfig = None
+) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
     protocol = AutoLamellaTaskProtocol()
     if template is not None:
@@ -218,13 +326,17 @@ def test_add_new_lamella_no_petname(tmp_path):
 
 
 def test_add_new_lamella_name_prefix(tmp_path):
-    exp = _make_experiment(tmp_path, LamellaDefaultConfig(use_petname=False, name_prefix="GridA"))
+    exp = _make_experiment(
+        tmp_path, LamellaDefaultConfig(use_petname=False, name_prefix="GridA")
+    )
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     assert exp.positions[0].name == "GridA-Lamella-01"
 
 
 def test_add_new_lamella_name_prefix_with_petname(tmp_path):
-    exp = _make_experiment(tmp_path, LamellaDefaultConfig(use_petname=True, name_prefix="GridA"))
+    exp = _make_experiment(
+        tmp_path, LamellaDefaultConfig(use_petname=True, name_prefix="GridA")
+    )
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     assert exp.positions[0].name.startswith("GridA-01-")
 
@@ -249,7 +361,9 @@ def test_add_new_lamella_defaults_values_are_independent(tmp_path):
     exp = _make_experiment(tmp_path, LamellaDefaultConfig(alignment_area=rect))
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     exp.add_new_lamella(MicroscopeState(), EventedDict())
-    exp.positions[0].alignment_area = FibsemRectangle(left=0.9, top=0.9, width=0.05, height=0.05)
+    exp.positions[0].alignment_area = FibsemRectangle(
+        left=0.9, top=0.9, width=0.05, height=0.05
+    )
     assert exp.positions[1].alignment_area == rect
 
 
@@ -259,14 +373,17 @@ def test_add_new_lamella_no_name_collision_after_delete(tmp_path):
     exp.add_new_lamella(MicroscopeState(), EventedDict())  # Lamella-01
     exp.add_new_lamella(MicroscopeState(), EventedDict())  # Lamella-02
     exp.add_new_lamella(MicroscopeState(), EventedDict())  # Lamella-03
-    del exp.positions[1]                                   # remove Lamella-02
-    exp.add_new_lamella(MicroscopeState(), EventedDict())  # must be Lamella-04, not Lamella-03
+    del exp.positions[1]  # remove Lamella-02
+    exp.add_new_lamella(
+        MicroscopeState(), EventedDict()
+    )  # must be Lamella-04, not Lamella-03
     names = [lam.name for lam in exp.positions]
     assert len(names) == len(set(names)), f"Duplicate names after delete: {names}"
     assert "Lamella-04" in names
 
 
 # ── AutoLamellaTaskConfig.estimated_time ─────────────────────────────────────
+
 
 def _make_task_config(n_stages: int = 1) -> BasicMillingTaskConfig:
     stage = FibsemMillingStage(
@@ -293,7 +410,11 @@ def test_task_config_estimated_time_includes_milling():
 def test_task_config_estimated_time_includes_reference_imaging():
     img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
     ref = ReferenceImageParameters(
-        imaging=img, acquire_sem=True, acquire_fib=True, acquire_image1=True, acquire_image2=True
+        imaging=img,
+        acquire_sem=True,
+        acquire_fib=True,
+        acquire_image1=True,
+        acquire_image2=True,
     )
     config = _make_task_config()
     config.reference_imaging = ref
@@ -313,11 +434,11 @@ def test_task_config_estimated_time_no_imaging():
 
 def test_task_protocol_estimated_time_per_task():
     from fibsem import config as fcfg
+
     protocol = AutoLamellaTaskProtocol.load(fcfg.AUTOLAMELLA_TASK_PROTOCOL_PATH)
     for task in protocol.task_config.values():
         assert isinstance(task.estimated_time, float)
         assert task.estimated_time >= 0.0
-
 
 
 def test_task_protocol_carries_correlation_config():
@@ -404,6 +525,7 @@ def test_task_state_from_dict_ignores_unknown_keys():
 
 
 # ── Lamella paths follow a moved experiment (FIB-367) ────────────────────────
+
 
 def _experiment_on_disk(root: Path, with_milling: bool = False) -> Experiment:
     """A saved experiment with one lamella, optionally carrying a milling task."""
@@ -555,6 +677,7 @@ def test_milling_imaging_paths_follow_a_copied_experiment(tmp_path):
 
 
 # ── Reading an experiment does not write to disk (FIB-420) ───────────────────
+
 
 def test_loading_a_copy_creates_nothing_at_the_original_path(tmp_path):
     """Loading an experiment must not write to the filesystem.
