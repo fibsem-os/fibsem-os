@@ -143,6 +143,8 @@ Contributions are welcome! Please open a pull request or issue.
 
 fibsemOS is a large package with many features. For more detailed documentation, please see the [Documentation Website](https://www.fibsemos.org).
 
+Developer documentation, for changing or extending fibsemOS, is in [docs/developers/](docs/developers/README.md).
+
 ## Related Projects and Publications
 
 | Name | Full Title | Date |
