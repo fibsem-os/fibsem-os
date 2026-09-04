@@ -446,6 +446,12 @@ def _add_bitmap_mpl(
     ax.imshow(
         rgba,
         extent=(0, 1, 0, 1),
+        # origin="lower", not the default: the rectangle's patch transform maps v=0
+        # to its xy corner, which is the TOP edge on the y-inverted image axes. The
+        # default "upper" puts bitmap row 0 at the extent's `top` (v=1) and so drew
+        # every bitmap upside down. Row 0 is the top-left cell (AutoScript's
+        # convention), and `flip_y` is what mirrors it deliberately.
+        origin="lower",
         transform=edge_rectangle.get_patch_transform()
         + edge_rectangle.get_data_transform(),
         zorder=edge_rectangle.get_zorder(),

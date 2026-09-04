@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Annulus, Circle, Wedge  # noqa: E402
 
 from fibsem.milling.patterning.plotting import (  # noqa: E402
+    _add_bitmap_mpl,
     _add_circle_mpl,
     bitmap_to_rgba,
 )
@@ -180,3 +181,27 @@ def test_an_exclusion_circle_is_black():
     patch = _patch(_circle(is_exclusion=True))
 
     assert patch.get_edgecolor()[:3] == pytest.approx((0.0, 0.0, 0.0))
+
+
+def test_the_report_plot_draws_bitmaps_the_right_way_up():
+    """Row 0 is the top-left cell (AutoScript), so it must land at the pattern's top.
+
+    The image is drawn through the outline rectangle's transform, whose v=0 is the
+    patch's xy corner -- the TOP edge on the y-inverted image axes. imshow's default
+    origin="upper" puts row 0 at the extent's `top` (v=1), i.e. the bottom of the
+    pattern, which is how every bitmap came out upside down.
+    """
+    array = np.zeros((8, 8, 2), dtype=float)
+    array[:4, :, 0] = 1
+    shape = FibsemBitmapSettings(
+        width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0, array=array
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        _add_bitmap_mpl(shape, _image(), COLOUR, ax=ax)
+        drawn = ax.images[-1]
+    finally:
+        plt.close(fig)
+
+    assert drawn.origin == "lower"

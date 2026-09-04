@@ -143,6 +143,49 @@ def test_the_bitmap_image_sits_inside_the_outline(axes):
     assert min(corners[0][0], corners[1][0]) == pytest.approx(outline.get_x())
 
 
+def test_bitmap_row_zero_is_drawn_at_the_top_of_the_pattern(axes):
+    """AutoScript's row 0 is the top-left cell, so that is where it has to appear.
+
+    The image rides the outline rectangle's transform, whose v=0 is the patch's xy
+    corner -- the TOP edge, because the image axes run y-down. imshow's default
+    origin="upper" puts row 0 at the extent's `top` (v=1) and drew every bitmap
+    upside down.
+    """
+    stage = _bitmap_stage()
+    # light the array's top half, leave the bottom half blank
+    stage.pattern.array[:, :, 0] = 0
+    stage.pattern.array[:16, :, 0] = 1
+
+    overlay = _overlay(axes)
+    overlay.set_stages([stage], _image())
+
+    # Render, and look at where the lit half actually came out. The pattern is
+    # axis-aligned, so its halves are two crops of the rendered canvas.
+    outline = next(a for a in overlay._artists if isinstance(a, Rectangle))
+    x0, y0 = outline.get_x(), outline.get_y()
+    w, h = outline.get_width(), outline.get_height()
+    fig = axes.figure
+    fig.canvas.draw()
+    px = np.asarray(fig.canvas.buffer_rgba())[:, :, :3].astype(float)
+
+    def _brightness(y_from: float, y_to: float) -> float:
+        (xa, ya), (xb, yb) = axes.transData.transform(
+            [(x0 + w * 0.2, y_from), (x0 + w * 0.8, y_to)]
+        )
+        # display y is bottom-up, the buffer's rows are top-down
+        rows = slice(int(px.shape[0] - max(ya, yb)), int(px.shape[0] - min(ya, yb)))
+        cols = slice(int(min(xa, xb)), int(max(xa, xb)))
+        return px[rows, cols].mean()
+
+    # inset from the edges, so the outline's own lines are not what is measured
+    top = _brightness(y0 + h * 0.1, y0 + h * 0.4)
+    bottom = _brightness(y0 + h * 0.6, y0 + h * 0.9)
+
+    assert top > bottom, (
+        f"the bitmap is upside down (top={top:.1f} bottom={bottom:.1f})"
+    )
+
+
 def test_drawing_a_bitmap_leaves_the_view_alone(axes):
     before = axes.get_xlim(), axes.get_ylim()
 

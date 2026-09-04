@@ -334,7 +334,9 @@ class MillingPatternOverlay(CanvasOverlay):
 
         The image is an :class:`AxesImage` on the unit square, mapped onto the
         outline through the rectangle's own transform, so rotation and size come
-        out of the patch rather than being applied to the pixel data. It is built
+        out of the patch rather than being applied to the pixel data. Row 0 of the
+        bitmap is drawn at the top of the pattern, matching AutoScript's top-left
+        origin; ``flip_y`` mirrors it. It is built
         directly instead of via ``ax.imshow`` on purpose: ``imshow`` routes through
         ``add_image`` → ``update_datalim``, which would autoscale the axes to the
         image and throw away the user's pan/zoom.
@@ -362,7 +364,10 @@ class MillingPatternOverlay(CanvasOverlay):
         )
         outline.set_transform(self._ax.transData)
 
-        image = AxesImage(self._ax, extent=(0, 1, 0, 1), zorder=zorder)
+        # origin="lower": the patch transform maps v=0 to the rectangle's xy corner,
+        # which is its TOP edge on the y-inverted image axes, so row 0 of the bitmap
+        # has to go at the extent's `bottom` to land at the top of the pattern.
+        image = AxesImage(self._ax, extent=(0, 1, 0, 1), origin="lower", zorder=zorder)
         image.set_data(bitmap_to_rgba(ps, width, height, colour, _FILL_ALPHA))
         image.set_transform(
             outline.get_patch_transform() + outline.get_data_transform()
