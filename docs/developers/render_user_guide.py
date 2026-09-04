@@ -1853,7 +1853,7 @@ def render_workflows(h: Harness) -> None:
     h.ui._show_workflow_summary = lambda: None
     seen = set()
 
-    def run_selected(task_indices):
+    def run_selected(task_indices, queue_shots=False):
         # the lists rebuild after a run, so both selections are made afresh
         ww.lamella_list.set_all_selected(False)
         ww.lamella_list._row(0).checkbox.setChecked(True)
@@ -1874,6 +1874,34 @@ def render_workflows(h: Harness) -> None:
             if not h.ui.WAITING_FOR_USER_INTERACTION:
                 continue
             h.pump(1200)
+            if queue_shots:
+                # the queue mid-run: one item active, one still to come, and a
+                # pending item's actions
+                queue_shots = False
+                h.show_main_tab("Workflow")
+                h.pump(400)
+                h.shot(
+                    "queue-running",
+                    callouts=[Box(h.window.workflow_timeline)],
+                    numbered=True,
+                )
+                progress = h.window.workflow_timeline
+                pending = None
+                for i in range(len(progress._outer._steps)):
+                    menu = progress.build_row_menu(i)
+                    if menu is not None and any(
+                        a.text() == "Remove from queue" and a.isEnabled()
+                        for a in menu.actions()
+                    ):
+                        pending = (i, menu)
+                        break
+                if pending is not None:
+                    i, menu = pending
+                    menu.popup(h.window.mapToGlobal(QPoint(900, 300)))
+                    h.pump(300)
+                    h.shot("queue-row-menu", target=menu)
+                    menu.close()
+                    h.pump(200)
             question = h.ui.ui_responder.pending_question
             if callable(question):
                 question = question()
@@ -1939,7 +1967,7 @@ def render_workflows(h: Harness) -> None:
     lamella_tab_shot("lamella-after-fiducial", "Mill Fiducial")
 
     # then rough milling and polishing
-    run_selected((2, 3))
+    run_selected((2, 3), queue_shots=True)
     lamella_tab_shot("lamella-after-polishing", "Polishing")
     h.show_main_tab("Workflow")
     h.pump(300)
