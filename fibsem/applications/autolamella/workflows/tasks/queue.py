@@ -20,7 +20,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 from uuid import uuid4
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
@@ -87,7 +87,9 @@ class TaskQueue:
 
     def __init__(self):
         self._items: List[WorkItem] = []
-        self._lock = threading.Lock()
+        # Re-entrant: next() holds it while it asks the skip predicate, and the
+        # predicate may ask the queue (has_pending_pair) on the same thread.
+        self._lock = threading.RLock()
         self._active: Optional[WorkItem] = None
         self._version = 0
         # Original matrix dimensions for status dict compat
@@ -332,17 +334,38 @@ class TaskQueue:
 
     # --- Iteration (called by worker thread) ---
 
-    def next(self) -> Optional[WorkItem]:
-        """Return the next pending item, mark it InProgress, or None if empty."""
+    def next(
+        self, skip: Optional[Callable[[WorkItem], bool]] = None
+    ) -> Optional[WorkItem]:
+        """Return the next pending item, mark it InProgress, or None if none.
+
+        ``skip`` passes over a pending item *for this call only*: it stays
+        pending and is offered again on the next call. That is how work that
+        cannot run yet -- its prerequisite is still queued, or its proposal is
+        awaiting a decision -- is deferred rather than retired. Skipping keeps
+        the queue's order; nothing is reordered around a deferred item.
+
+        None means nothing is runnable now, which is not the same as nothing
+        is left: ask ``is_empty`` to tell "done" from "everything left is
+        deferred".
+        """
         with self._lock:
             for item in self._items:
-                if item.is_pending:
+                if item.is_pending and not (skip is not None and skip(item)):
                     item.status = AutoLamellaTaskStatus.InProgress
                     self._active = item
                     self._version += 1
                     return item
             self._active = None
             return None
+
+    def has_pending_pair(self, item_name: str, task_name: str) -> bool:
+        """Whether a (item, task) pair is still waiting to run."""
+        with self._lock:
+            return any(
+                i.is_pending and i.item_name == item_name and i.task_name == task_name
+                for i in self._items
+            )
 
     def mark_done(self, item: WorkItem, status: AutoLamellaTaskStatus) -> None:
         """Mark item as completed/failed/skipped.
