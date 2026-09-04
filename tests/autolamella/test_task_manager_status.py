@@ -296,6 +296,7 @@ def test_a_prerequisite_still_in_the_queue_defers_rather_than_skips(tmp_path):
     m = TaskManager(
         microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
     )
+    m.review_enabled = True
     m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
     lamella = experiment.get_lamella_by_name("L1")
     assert m._defer_reason(lamella, "Undercut") == "prereq_pending"
@@ -326,6 +327,7 @@ def test_a_pending_proposal_on_a_required_task_defers_its_consumer(tmp_path):
     m = TaskManager(
         microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
     )
+    m.review_enabled = True
     m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
     for name in ("L1", "L2"):
         lamella = experiment.get_lamella_by_name(name)
@@ -351,6 +353,39 @@ def test_a_pending_proposal_on_a_required_task_defers_its_consumer(tmp_path):
     )
     assert m._defer_reason(l1, "Undercut") is None
     assert run_queue_with(m) == [("L1", "Undercut")]
+
+
+def test_with_the_flag_off_nothing_is_deferred(tmp_path):
+    """The whole path is behind proposer_reviewer_workflow_enabled: off, the
+    prerequisite check is terminal exactly as it was."""
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
+    )
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    m.review_enabled = False
+    m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
+    executed = run_queue_with(m)
+    assert executed == [("L1", "Trench")]
+    assert [i.status for i in m.queue.items] == [Status.Skipped, Status.Completed]
+
+
+def test_the_flag_reads_fail_closed(monkeypatch):
+    from fibsem.applications.autolamella.workflows.tasks import manager as M
+
+    class _Prefs:
+        class features:
+            proposer_reviewer_workflow_enabled = True
+
+    monkeypatch.setattr(M.fibsem_cfg, "load_user_preferences", lambda: _Prefs())
+    assert M.review_enabled() is True
+
+    def boom():
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(M.fibsem_cfg, "load_user_preferences", boom)
+    assert M.review_enabled() is False
 
 
 def test_a_rejected_proposal_retires_the_consumer(tmp_path):
