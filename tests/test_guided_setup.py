@@ -129,23 +129,37 @@ def test_the_shipped_values_are_offered_as_a_starting_point():
     }
 
 
-def test_the_derived_opposite_matches_what_each_model_ships():
-    """The models that are asked are exactly the ones the derivation suits.
+def test_no_model_writes_a_rotation_180():
+    """The wizard writes the reference; the opposite is derived from it (FIB-834).
 
-    `rotation_180` is derived as `reference + 180`, which reproduces what every asked
-    model ships -- and the one model it would get wrong, the compustage with its 0/0
-    pair, is the one that never reaches the step.
+    Asserted over every model, asked and unasked, because the key leaving the file is
+    the whole change: a `rotation_180` written here would be a number nothing reads,
+    sitting next to the reference it is supposed to track and free to disagree with it.
+
+    Tescan is the case worth having. It ships reference 180, so its opposite is 0 -- and
+    a derivation without the modulo would write 360, which is the same rotation spelled
+    a way that `rotation_angle_is_smaller` handles but a person reading the file does
+    not.
     """
-    from fibsem import utils
+    for model in wizard.MICROSCOPE_MODELS:
+        config = wizard.build_configuration(wizard.SetupChoices(model_key=model.key))
+        assert "rotation_180" not in config["stage"], model.key
 
-    for key in ("tfs-hydra", "tfs-aquilos2", "tescan"):
-        model = wizard.get_model(key)
-        shipped = utils.load_yaml(model.path)["stage"]
-        reference = float(shipped["rotation_reference"])
-        config = wizard.build_configuration(
-            wizard.SetupChoices(model_key=key, rotation_reference=reference)
-        )
-        assert config["stage"]["rotation_180"] == float(shipped["rotation_180"]), key
+
+def test_the_derived_opposite_matches_what_each_model_needs():
+    """The derivation, read back through the settings that consume it.
+
+    The asked models all rotate, so each lands a half turn from its own reference --
+    Tescan at 0, from a reference of 180.
+    """
+    from fibsem.structures import StageSystemSettings
+
+    expected = {"tfs-hydra": 180.0, "tfs-aquilos2": 180.0, "tescan": 0.0}
+    for key, opposite in expected.items():
+        config = wizard.build_configuration(wizard.SetupChoices(model_key=key))
+        stage = StageSystemSettings.from_dict(config["stage"])
+        assert stage.rotation is True, key
+        assert stage.rotation_180 == opposite, key
 
 
 def test_the_simulator_does_not_skip_the_stage_step():
@@ -246,28 +260,37 @@ def test_only_the_simulator_needs_no_vendor_api():
 # ---------------------------------------------------------------------------
 
 
-def test_a_recognised_model_keeps_its_shipped_stage_values():
-    """The compustage case, which a derivation would get wrong.
+def test_a_compustage_derives_no_opposite_rotation():
+    """The case a blanket `reference + 180` would get wrong.
 
-    ``tfs-arctis`` ships rotation reference 0 with ``rotation_180`` also 0, because a
-    compustage reaches the other side by tilting rather than rotating. Deriving the
-    pair would hand it a 180-degree rotation it does not have.
+    A compustage reaches the other side of the grid by tilting, not by turning round,
+    so it has no second rotation -- and ``tfs-arctis`` says so with ``rotation: false``
+    rather than by setting two numbers equal. Both simulated and real Arctis are
+    checked: the simulator is the only place the compustage path runs, so a sim config
+    that disagreed with the instrument would be a hole in every compustage test.
     """
-    config = wizard.build_configuration(
-        wizard.SetupChoices(model_key="tfs-arctis", name="Bay 2")
-    )
-    assert config["stage"]["rotation_reference"] == 0
-    assert config["stage"]["rotation_180"] == 0
+    from fibsem.structures import StageSystemSettings
+
+    for key in ("tfs-arctis", "sim-arctis"):
+        config = wizard.build_configuration(
+            wizard.SetupChoices(model_key=key, name="Bay 2")
+        )
+        stage = StageSystemSettings.from_dict(config["stage"])
+        assert stage.rotation is False, key
+        assert stage.rotation_reference == 0, key
+        assert stage.rotation_180 == 0, key
 
 
 def test_a_supplied_rotation_reference_derives_its_opposite():
+    from fibsem.structures import StageSystemSettings
+
     config = wizard.build_configuration(
         wizard.SetupChoices(
             model_key="tfs-other", rotation_reference=250.0, name="Bench"
         )
     )
     assert config["stage"]["rotation_reference"] == 250.0
-    assert config["stage"]["rotation_180"] == 70.0
+    assert StageSystemSettings.from_dict(config["stage"]).rotation_180 == 70.0
 
 
 def test_the_name_becomes_the_configurations_name():

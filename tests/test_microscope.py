@@ -21,14 +21,17 @@ def test_microscope():
     assert microscope.get_beam_current(BeamType.ION) == beam_current
 
 
-@pytest.mark.parametrize("tilt_deg,expected", [
-    (0,    "SEM"),      # exact SEM position
-    (-23,  "MILLING"),  # standard milling tilt (below SEM)
-    (-10,  "MILLING"),  # arbitrary tilt between SEM and -45°
-    (15,   "MILLING"),  # above SEM tilt
-    (-128, "FIB"),      # compustage FIB position
-    (-50,  "NONE"),     # below -45° floor
-])
+@pytest.mark.parametrize(
+    "tilt_deg,expected",
+    [
+        (0, "SEM"),  # exact SEM position
+        (-23, "MILLING"),  # standard milling tilt (below SEM)
+        (-10, "MILLING"),  # arbitrary tilt between SEM and -45°
+        (15, "MILLING"),  # above SEM tilt
+        (-128, "FIB"),  # compustage FIB position
+        (-50, "NONE"),  # below -45° floor
+    ],
+)
 def test_get_stage_orientation_compustage(tilt_deg, expected):
     """Test get_stage_orientation for compustage (pretilt=0)."""
     microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -40,20 +43,24 @@ def test_get_stage_orientation_compustage(tilt_deg, expected):
     assert microscope.get_stage_orientation(pos) == expected
 
 
-@pytest.mark.parametrize("rotation_deg,tilt_deg,expected", [
-    (0,   35,  "SEM"),      # exact SEM position
-    (0,   12,  "MILLING"),  # standard milling tilt (below SEM)
-    (0,   20,  "MILLING"),  # arbitrary tilt between MILLING and SEM
-    (0,   42,  "MILLING"),  # above SEM tilt
-    (180, 17,  "FIB"),      # FIB position (rotation_180=180, col_tilt-pretilt=17)
-    (0,   -50, "NONE"),     # below -45° floor
-])
+@pytest.mark.parametrize(
+    "rotation_deg,tilt_deg,expected",
+    [
+        (0, 35, "SEM"),  # exact SEM position
+        (0, 12, "MILLING"),  # standard milling tilt (below SEM)
+        (0, 20, "MILLING"),  # arbitrary tilt between MILLING and SEM
+        (0, 42, "MILLING"),  # above SEM tilt
+        (180, 17, "FIB"),  # FIB position (rotation_180=180, col_tilt-pretilt=17)
+        (0, -50, "NONE"),  # below -45° floor
+    ],
+)
 def test_get_stage_orientation_non_compustage(rotation_deg, tilt_deg, expected):
     """Test get_stage_orientation for non-compustage (pretilt=35°)."""
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_is_compustage = False
     microscope.system.stage.shuttle_pre_tilt = 35
-    microscope.system.stage.rotation_180 = 180
+    microscope.system.stage.rotation_reference = 0
+    microscope.system.stage.rotation = True  # so FIB derives to 180 (FIB-834)
     microscope._update_orientations()
 
     pos = FibsemStagePosition(r=np.radians(rotation_deg), t=np.radians(tilt_deg))
@@ -161,6 +168,7 @@ def test_the_replacement_move_matches_the_deprecated_one():
 # get_target_position: MILLING <-> FM conversions (FIB-234)
 # ---------------------------------------------------------------------------
 
+
 def test_get_target_position_milling_to_fm_compustage():
     """MILLING -> FM is now supported on compustage systems."""
     microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -205,10 +213,10 @@ def test_get_target_position_milling_to_fm_non_compustage_raises():
     microscope.system.stage.shuttle_pre_tilt = 35
     microscope._update_orientations()
 
-    milling_pos = FibsemStagePosition(
-        r=np.radians(0), t=np.radians(12)
-    )
-    with pytest.raises(ValueError, match="Cannot move to FM position on non-compustage"):
+    milling_pos = FibsemStagePosition(r=np.radians(0), t=np.radians(12))
+    with pytest.raises(
+        ValueError, match="Cannot move to FM position on non-compustage"
+    ):
         microscope.get_target_position(milling_pos, target_orientation="FM")
 
 

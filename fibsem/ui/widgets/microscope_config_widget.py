@@ -112,13 +112,10 @@ class MicroscopeConfigWidget(QWidget):
         form = QFormLayout(w)
         self._sb_stage_rot_ref = QSpinBox()
         self._sb_stage_rot_ref.setRange(-360, 360)
-        self._sb_stage_rot_180 = QSpinBox()
-        self._sb_stage_rot_180.setRange(-360, 360)
         self._sb_stage_pretilt = QSpinBox()
         self._sb_stage_pretilt.setRange(0, 90)
         self._dsb_stage_manip_limit = _dsb(0, 100, 4, suffix=" mm")
         form.addRow("Rotation Reference (deg)", self._sb_stage_rot_ref)
-        form.addRow("Rotation 180 (deg)", self._sb_stage_rot_180)
         form.addRow("Shuttle Pre-tilt (deg)", self._sb_stage_pretilt)
         form.addRow("Manipulator Height Limit (mm)", self._dsb_stage_manip_limit)
         return w
@@ -355,7 +352,6 @@ class MicroscopeConfigWidget(QWidget):
 
         stage = c.get("stage", {})
         self._sb_stage_rot_ref.setValue(int(stage.get("rotation_reference", 0)))
-        self._sb_stage_rot_180.setValue(int(stage.get("rotation_180", 180)))
         self._sb_stage_pretilt.setValue(int(stage.get("shuttle_pre_tilt", 0)))
         self._dsb_stage_manip_limit.setValue(
             float(stage.get("manipulator_height_limit", 0)) * constants.SI_TO_MILLI
@@ -446,7 +442,11 @@ class MicroscopeConfigWidget(QWidget):
 
         c.setdefault("stage", {})
         c["stage"]["rotation_reference"] = self._sb_stage_rot_ref.value()
-        c["stage"]["rotation_180"] = self._sb_stage_rot_180.value()
+        # Dropped on save rather than only hidden from the form. `c` is a deepcopy of
+        # the file as loaded, so a pre-FIB-834 configuration edited here would otherwise
+        # be written back still carrying a `rotation_180` no field now feeds -- the
+        # reference edited, the stale number beside it untouched.
+        c["stage"].pop("rotation_180", None)
         c["stage"]["shuttle_pre_tilt"] = self._sb_stage_pretilt.value()
         c["stage"]["manipulator_height_limit"] = (
             self._dsb_stage_manip_limit.value() * constants.MILLI_TO_SI

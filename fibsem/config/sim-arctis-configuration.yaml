@@ -4,10 +4,9 @@ info:
     manufacturer: Demo                                              
 stage:
     enabled:                    true                        
-    rotation:                   true                        
+    rotation:                   false                       
     tilt:                       true                        
     rotation_reference:         0                           
-    rotation_180:               0                         
     shuttle_pre_tilt:           0                        
     manipulator_height_limit:   0.0037                      
 electron:                                              

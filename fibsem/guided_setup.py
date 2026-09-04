@@ -396,9 +396,10 @@ class SetupChoices:
 
     ``rotation_reference`` and ``shuttle_pre_tilt`` are Optional because None is a
     real answer here: it means *the wizard did not ask*, so the shipped file's own
-    values stand. That matters more than it sounds -- ``tfs-arctis`` ships
-    ``rotation_reference: 0`` with ``rotation_180: 0``, because a compustage has no
-    180-degree rotation to reach, and re-deriving the pair would silently give it one.
+    values stand -- which for ``tfs-arctis`` includes ``rotation: false``, the flag
+    that says a compustage has no 180-degree rotation to reach (FIB-834). Overwriting
+    the reference on a model the wizard never asked about would leave that flag
+    describing a stage the file no longer describes.
     """
 
     manufacturer_key: str = MANUFACTURERS[0].key
@@ -602,12 +603,13 @@ def build_configuration(choices: SetupChoices) -> dict:
 
     stage = config.setdefault("stage", {})
     if choices.rotation_reference is not None:
-        reference = float(choices.rotation_reference)
-        stage["rotation_reference"] = reference
-        # The derivation the file's own comment documents. Reached only when the user
-        # supplied the reference, i.e. for a model the project does not ship -- a
-        # recognised model keeps its shipped pair, which for a compustage is not this.
-        stage["rotation_180"] = (reference + 180) % 360
+        stage["rotation_reference"] = float(choices.rotation_reference)
+    # Written by no one now: `rotation_180` is derived from the reference and the
+    # `rotation` capability (FIB-834). Popped rather than left alone because the
+    # template this dict was copied from is a shipped file that still carries the key,
+    # and a stale number sitting beside the reference it no longer agrees with is
+    # exactly what someone would go on to edit.
+    stage.pop("rotation_180", None)
     if choices.shuttle_pre_tilt is not None:
         stage["shuttle_pre_tilt"] = float(choices.shuttle_pre_tilt)
 

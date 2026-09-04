@@ -1082,9 +1082,9 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         self._update_api_note()
         if self.choices.stage_is_readonly:
             # Answers to a question this model no longer asks. Left in place they would
-            # be written anyway -- and for a compustage, whose shipped pair is rotation
-            # reference 0 with rotation_180 0, a value typed for some other model is
-            # exactly the wrong thing to keep.
+            # be written anyway -- and for a compustage, which reaches the other side of
+            # the grid by tilting rather than turning round, a reference typed for some
+            # other model is exactly the wrong thing to keep.
             self.choices.rotation_reference = None
             self.choices.shuttle_pre_tilt = None
             self._stage_read = None
@@ -1657,12 +1657,15 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             # Only shown when the wizard derived it. It is the rotation the other side
             # of the sample is reached at, and someone who typed 250° should see that
             # this became 70° rather than discover it from a stage that turned the
-            # wrong way.
+            # wrong way. Computed here rather than read back from `stage`, which no
+            # longer carries it (FIB-834) -- and only reachable for an editable stage,
+            # i.e. one that rotates, so the modulo is the whole of the derivation.
+            reference = float(stage.get("rotation_reference", 0))
             rows.insert(
                 5,
                 (
                     "Rotated 180°",
-                    f"{float(stage.get('rotation_180', 0)):.2f}° (derived)",
+                    f"{(reference + 180) % 360:.2f}° (derived)",
                 ),
             )
         if self.choices.protocol_path:
