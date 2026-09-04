@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import uuid
 from abc import ABC
 from copy import deepcopy
@@ -24,11 +25,21 @@ from typing import (
 import pandas as pd
 import petname
 import yaml
-from psygnal import evented
+from psygnal import Signal, evented
 from psygnal.containers import EventedDict, EventedList
 
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.proposals import (
+    Decision,
+    DecisionOutcome,
+    DecisionResult,
+    Proposal,
+    human_author,
+    proposals_from_dict,
+    proposals_to_dict,
+    write_value,
+)
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -1070,6 +1081,11 @@ class Lamella:
     # does not track grids (every experiment before grid records existed). A
     # back-reference only; grid -> lamella is derived by filtering on it.
     grid_id: Optional[str] = None
+    # What tasks proposed for this lamella and what was decided, keyed by the
+    # producing task's name. A proposal with no decisions is pending; the
+    # consumer that requires that task is deferred until one is appended. See
+    # proposals.py and Experiment.decide.
+    proposals: Dict[str, Proposal] = field(default_factory=dict)
 
     def __post_init__(self):
         # Deliberately does not create ``path``. Constructing a Lamella is not a
@@ -1267,6 +1283,7 @@ class Lamella:
             "poi": self.poi.to_dict(),
             "description": self.description,
             "grid_id": self.grid_id,
+            "proposals": proposals_to_dict(self.proposals),
         }
 
     @property
@@ -1323,6 +1340,7 @@ class Lamella:
             poi=Point.from_dict(data.get("poi", {"x": 0, "y": 0})),
             description=data.get("description", ""),
             grid_id=data.get("grid_id"),
+            proposals=proposals_from_dict(data.get("proposals")),
         )
 
     def load_reference_image(self, fname) -> FibsemImage:
@@ -1449,6 +1467,7 @@ class GridRecord:
     created_at: float = field(
         default_factory=lambda: datetime.timestamp(datetime.now())
     )
+    proposals: Dict[str, Proposal] = field(default_factory=dict)  # as on Lamella
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -1476,6 +1495,7 @@ class GridRecord:
             "task_state": self.task_state.to_dict(),
             "task_history": [t.to_dict() for t in self.task_history],
             "created_at": self.created_at,
+            "proposals": proposals_to_dict(self.proposals),
         }
 
     @classmethod
@@ -1490,10 +1510,37 @@ class GridRecord:
                 AutoLamellaTaskState.from_dict(t) for t in data.get("task_history", [])
             ],
             created_at=data.get("created_at", datetime.timestamp(datetime.now())),
+            proposals=proposals_from_dict(data.get("proposals")),
         )
 
     def __repr__(self) -> str:
         return f"GridRecord(name={self.name!r}, quality={self.quality.verdict.name}, tasks={len(self.task_history)})"
+
+
+# One process, one open experiment: a single lock serialises the writers that
+# can run on different threads at once -- the workflow thread saving after a
+# task, and a review confirming from the GUI thread or the agent server. Held
+# briefly by both, so neither serialises a half-applied write of the other.
+EXPERIMENT_WRITE_LOCK = threading.RLock()
+
+
+def _call_on_main_thread(func, *args, **kwargs):
+    """Run ``func`` on the Qt main thread and wait for its result, when there
+    is a Qt application to have one. Without one (a script, a headless
+    review, the test job that installs no Qt) it is a plain call.
+
+    Lazy on purpose: superqt and PyQt are in the ``ui`` extra, and this module
+    is imported everywhere.
+    """
+    try:
+        from PyQt5.QtCore import QCoreApplication, QThread
+        from superqt import ensure_main_thread
+    except ImportError:
+        return func(*args, **kwargs)
+    app = QCoreApplication.instance()
+    if app is None or QThread.currentThread() is app.thread():
+        return func(*args, **kwargs)
+    return ensure_main_thread(await_return=True)(func)(*args, **kwargs)
 
 
 @evented
@@ -1639,6 +1686,121 @@ class Experiment:
         """Set the organisation name in metadata."""
         self.metadata["organisation"] = value
 
+    # Fired after a decision is applied, with (item_id, task_name), on the thread
+    # decide() ran on. The work queue listens so a stalled run wakes and rescans.
+    decided = Signal(str, str)
+
+    def get_lamella_by_id(self, lamella_id: str) -> Optional["Lamella"]:
+        for lamella in self.positions:
+            if lamella.id == lamella_id:
+                return lamella
+        return None
+
+    def get_item_by_id(self, item_id: str) -> Optional[Union["Lamella", GridRecord]]:
+        """A lamella or a grid: the two kinds of item a task runs on, and the
+        two things a proposal can sit on. By id -- names change."""
+        return self.get_lamella_by_id(item_id) or self.get_grid_by_id(item_id)
+
+    def author(self) -> str:
+        """Who is deciding, as a proposal decision records it, from the operator
+        named on the experiment (or the OS account when nobody was)."""
+        user = self._declared_user() or FibsemUser.from_environment()
+        return human_author(user.name)
+
+    def decide(
+        self, item_id: str, task_name: str, decision: Decision
+    ) -> DecisionResult:
+        """The one way a decision reaches the experiment.
+
+        Runs on the Qt main thread when there is one and blocks the caller until
+        it has: the Review tab and the agent server are the same client of this
+        function, and a confirm can end in Qt work (a generative review adds
+        lamellae, whose list rebuild must not fire off the GUI thread). Takes
+        the same lock as ``save`` so a save never serialises a half-applied
+        decision.
+
+        Confirmed: the decision is appended and each decided value is written
+        through to the item (``poi`` moves the point and syncs the patterns
+        that follow it). The proposed values are left as they were, so the
+        delta survives. Rejected on a gating kind: the item is retired --
+        ``quality`` set to ``FAILED`` with the reviewer as author -- because a
+        consumer was waiting and *nothing further here* is the answer. Rejected
+        on a generative kind: nothing is created.
+
+        Refused, without a write, when there is no such proposal, or when the
+        item has a task in progress: a decision then is a stop, not a decision.
+        """
+        return _call_on_main_thread(self._decide, item_id, task_name, decision)
+
+    def _decide(
+        self, item_id: str, task_name: str, decision: Decision
+    ) -> DecisionResult:
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return DecisionResult(
+                    applied=False, reason=f"No item with id {item_id!r}."
+                )
+            proposal = item.proposals.get(task_name)
+            if proposal is None:
+                return DecisionResult(
+                    applied=False,
+                    reason=f"{item.name} has no proposal from {task_name!r}.",
+                )
+            if item.task_state.status is AutoLamellaTaskStatus.InProgress:
+                return DecisionResult(
+                    applied=False,
+                    running=True,
+                    reason=f"{item.name} is running {item.task_state.name}; "
+                    "stop it rather than deciding under it.",
+                )
+            if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
+                return DecisionResult(applied=False, reason="A reject needs a reason.")
+
+            proposal.decisions.append(decision)
+            result = DecisionResult(applied=True)
+            if decision.outcome is DecisionOutcome.Confirmed:
+                for name, value in decision.values.items():
+                    synced = write_value(item, name, value)
+                    if synced:
+                        result.synced_tasks.extend(synced)
+                result.delta = proposal.delta(decision)
+            elif proposal.gating:
+                item.quality.set_defect(
+                    description=decision.reason,
+                    state=Verdict.FAILED,
+                    author=decision.author,
+                )
+                item.quality.at_task = task_name
+                item.quality.decision_id = (item_id, task_name)
+            logging.info(
+                {
+                    "msg": "proposal_decided",
+                    "item": item.name,
+                    "task_name": task_name,
+                    "outcome": decision.outcome.name,
+                    "author": decision.author,
+                    "delta": {
+                        k: getattr(v, "to_dict", lambda: v)()
+                        for k, v in result.delta.items()
+                    },
+                }
+            )
+        self.decided.emit(item_id, task_name)
+        return result
+
+    def pending_proposals(
+        self,
+    ) -> List[Tuple[Union["Lamella", GridRecord], str, Proposal]]:
+        """Every undecided proposal, in item order: the review inbox. Derived,
+        never stored, so it is the same list from the GUI and the server."""
+        pending = []
+        for item in list(self.positions) + list(self.grids):
+            for task_name, proposal in item.proposals.items():
+                if proposal.pending:
+                    pending.append((item, task_name, proposal))
+        return pending
+
     def get_lamella_by_name(self, name: str) -> Optional["Lamella"]:
         """Return the Lamella with the given name, or None if not found."""
         return next((p for p in self.positions if p.name == name), None)
@@ -1719,8 +1881,10 @@ class Experiment:
     def save(self, save_protocol: bool = False) -> None:
         """Save the sample data to yaml file"""
 
+        with EXPERIMENT_WRITE_LOCK:
+            data = self.to_dict()
         with open(os.path.join(self.path, "experiment.yaml"), "w") as f:
-            yaml.safe_dump(self.to_dict(), f, indent=4)
+            yaml.safe_dump(data, f, indent=4)
         if save_protocol:
             self.save_protocol()
 
