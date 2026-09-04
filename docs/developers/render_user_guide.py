@@ -73,6 +73,14 @@ SIM_CONFIGURATIONS = {
 # may show the path of the machine the harness ran on.
 EXAMPLE_CONFIG_DIR = r"C:\fibsemOS\config"
 EXAMPLE_EXPERIMENT_DIR = r"D:\fibsemOS\experiments"
+# The worked example's experiment: what the AutoLamella pages run against
+EXAMPLE_EXPERIMENT_NAME = "yeast-grid-a"
+EXAMPLE_EXPERIMENT_METADATA = {
+    "description": "Yeast on grid A, first session",
+    "user": "Operator",
+    "project": "CLEM pilot",
+    "organisation": "Example Institute",
+}
 
 CALLOUT_COLOUR = QColor(230, 57, 70)  # the guide's red: the badges
 CALLOUT_LINE = QColor(230, 57, 70, 170)  # the boxes, lighter so they do not shout
@@ -273,6 +281,35 @@ class Harness:
         if fm_control.is_acquisition_active or fm_control._has_worker:
             raise RuntimeError("fluorescence acquisition did not finish")
         self.pump(800)
+
+    def ensure_experiment(self):
+        """Open the worked example's experiment, creating it on the first call.
+
+        Created the way the Create Experiment dialog does it, in the scratch
+        directory, with the shipped task protocol copied in; then adopted by
+        the app, which is what enables the AutoLamella tabs.
+        """
+        if self.ui.experiment is not None:
+            return self.ui.experiment
+        from fibsem.applications.autolamella import config as al_cfg
+        from fibsem.applications.autolamella.structures import (
+            AutoLamellaTaskProtocol,
+            Experiment,
+        )
+
+        path = os.path.join(self._tmp.name, EXAMPLE_EXPERIMENT_NAME)
+        experiment = Experiment.create(
+            path=path,
+            name=EXAMPLE_EXPERIMENT_NAME,
+            metadata=dict(EXAMPLE_EXPERIMENT_METADATA),
+        )
+        experiment.task_protocol = AutoLamellaTaskProtocol.load(
+            al_cfg.TASK_PROTOCOL_PATH
+        )
+        experiment.task_protocol.save(os.path.join(experiment.path, "protocol.yaml"))
+        self.ui._adopt_experiment(experiment)
+        self.pump(1500)
+        return experiment
 
     def show_tab(self, index: int) -> None:
         self.window.tab_widget.setCurrentIndex(index)
@@ -1375,6 +1412,63 @@ def render_fluorescence(h: Harness) -> None:
         h.pump(200)
         waited += 200
     h.pump(300)
+
+
+@page("experiments")
+def render_experiments(h: Harness) -> None:
+    """Create Experiment, and the window once an experiment is open."""
+    from fibsem.applications.autolamella.ui.autolamella_create_experiment_widget import (
+        AutoLamellaCreateExperimentWidget,
+    )
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+
+    # the dialog, filled in as the worked example (shown, not accepted: the
+    # experiment itself is created in the scratch directory below)
+    dialog = AutoLamellaCreateExperimentWidget(parent=h.window)
+    dialog.show()
+    h.pump(500)
+    dialog.lineEdit_experiment_name.setText(EXAMPLE_EXPERIMENT_NAME)
+    dialog.lineEdit_experiment_description.setText(
+        EXAMPLE_EXPERIMENT_METADATA["description"]
+    )
+    dialog.lineEdit_experiment_user.setText(EXAMPLE_EXPERIMENT_METADATA["user"])
+    dialog.lineEdit_experiment_project.setText(EXAMPLE_EXPERIMENT_METADATA["project"])
+    dialog.lineEdit_experiment_organisation.setText(
+        EXAMPLE_EXPERIMENT_METADATA["organisation"]
+    )
+    dialog.lineEdit_experiment_directory.setText(EXAMPLE_EXPERIMENT_DIR)
+    # the shipped protocol loaded by default; its path is this checkout's, so
+    # show where it would be on the example machine
+    dialog.lineEdit_protocol_path.setText(EXAMPLE_CONFIG_DIR + r"\task-protocol.yaml")
+    h.pump(300)
+    h.shot(
+        "create-experiment",
+        target=dialog,
+        callouts=[
+            Box(dialog.lineEdit_experiment_name.parentWidget()),
+            dialog.lineEdit_experiment_directory,
+            dialog.btn_select_protocol,
+            dialog.btn_ok,
+        ],
+        numbered=True,
+    )
+    dialog.close()
+    h.pump(300)
+
+    h.ensure_experiment()
+    h.show_tab(0)
+    h.pump(300)
+    h.shot(
+        "experiment-open",
+        callouts=[Box(h.window.tab_widget.tabBar()), Box(h.window.status_bar)],
+        numbered=True,
+    )
+    h.ui.tabWidget.setCurrentWidget(h.ui.tab)
+    h.pump(300)
+    h.shot("experiment-tab", target=h.ui.tab, crop=True)
 
 
 # -- entry point --------------------------------------------------------------
