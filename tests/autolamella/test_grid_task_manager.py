@@ -190,7 +190,7 @@ class TestOrderAndLoading:
             assert entry.status is Status.Completed
             assert "Slot-01" in entry.status_message
             assert entry.end_timestamp is not None
-        # the last grid is left in the beam; nothing unloads at the end of a run
+        # the last grid is left loaded; nothing unloads at the end of a run
         assert microscope._stage.loaded_grids[0].name == "Grid-02"
 
     def test_a_grid_already_in_the_beam_is_not_loaded_again(

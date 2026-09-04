@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, List, Mapping, Optional, Tuple, Union
 
@@ -225,7 +226,7 @@ class SampleHolder:
 
     @property
     def occupied_slots(self) -> List["GridSlot"]:
-        """The working slots that hold a grid: what is in the beam right now."""
+        """The working slots that hold a grid: what is loaded right now."""
         return [
             s
             for s in sorted(self.slots.values(), key=lambda s: s.index)
@@ -378,23 +379,46 @@ class GridExchangeError(RuntimeError):
     """A grid could not be moved into, or out of, the holder's working slot."""
 
 
+class GridSlotState(str, Enum):
+    """Where a grid is, as one word: the state of an inventory slot.
+
+    ``UNKNOWN`` -- no inventory has answered for this slot yet; ``EMPTY`` -- the
+    slot holds no grid; ``OCCUPIED`` -- a grid is in the slot and not on the
+    microscope; ``LOADED`` -- the grid is in the microscope's sample holder. On a
+    fixed holder a named slot is LOADED outright: its grid is already in the
+    holder, and reaching it is only a stage move.
+    """
+
+    UNKNOWN = "unknown"
+    EMPTY = "empty"
+    OCCUPIED = "occupied"
+    LOADED = "loaded"
+
+
 @dataclass
 class GridInventoryEntry:
     """One row of ``Stage.grid_inventory()``: a slot, and what it holds.
 
     ``source`` says which hardware answered -- ``"magazine"`` on a system with a
-    loader, ``"holder"`` otherwise. ``present`` is whether the slot holds a grid;
-    ``in_beam`` whether that grid is in a holder working slot right now. The two
-    are kept apart on purpose: *available* is what a run can select from, *in beam*
-    is what it can act on without an exchange.
+    loader, ``"holder"`` otherwise. ``state`` is the one stored fact; ``present``
+    (the grid is available to the system) and ``loaded`` (it is in the holder
+    right now) are read off it. Kept apart on purpose: *present* is what a run
+    can select from, *loaded* is what it can act on without an exchange.
     """
 
     slot_name: str
     index: int
     source: str
     name: Optional[str]
-    present: bool
-    in_beam: bool
+    state: GridSlotState
+
+    @property
+    def present(self) -> bool:
+        return self.state in (GridSlotState.OCCUPIED, GridSlotState.LOADED)
+
+    @property
+    def loaded(self) -> bool:
+        return self.state is GridSlotState.LOADED
 
 
 class SampleGridLoader:
@@ -404,9 +428,9 @@ class SampleGridLoader:
     is distinct from the holder's working slot(s). ``load_grid`` moves a grid from a
     magazine slot into the working slot and ``unload_grid`` retracts it.
 
-    A magazine slot keeps its grid while that grid is in the beam: the slot is the
+    A magazine slot keeps its grid while that grid is loaded: the slot is the
     grid's home, and the working slot references the *same* ``SampleGrid``. So
-    "present" is read from the magazine and "in beam" from the holder, and neither
+    "present" is read from the magazine and "loaded" from the holder, and neither
     is cached anywhere else.
 
     Subclasses talk to hardware through ``_do_load`` / ``_do_unload`` /
@@ -418,6 +442,11 @@ class SampleGridLoader:
         self.parent = parent
         self.capacity = capacity
         self.slots: dict[str, GridSlot] = {}
+        # Until the hardware has answered, every slot is UNKNOWN; after a scan the
+        # slots it still could not read stay so. An in-memory magazine is known
+        # from the start.
+        self.scanned = False
+        self.unknown_slots: set = set()
         self._ensure_slots()
 
     def _ensure_slots(self) -> None:
@@ -474,9 +503,18 @@ class SampleGridLoader:
         slot.loaded_grid = grid
         self._write_slot_description(slot)
 
+    def get_inventory(self) -> List[GridSlot]:
+        """Read what the autoloader already knows about its magazine: instant,
+        nothing moves. Its answer is only as fresh as its own last scan."""
+        self._read_magazine()
+        self.scanned = True
+        return self.loaded_magazine_slots
+
     def run_inventory(self) -> List[GridSlot]:
-        """Ask the hardware which magazine slots hold a grid, then report them."""
+        """Have the autoloader scan the magazine, slot by slot: slow, and the
+        magazine must stay shut while it runs. Then report what it found."""
         self._scan_magazine()
+        self.scanned = True
         return self.loaded_magazine_slots
 
     # -- exchange ----------------------------------------------------------
@@ -520,8 +558,12 @@ class SampleGridLoader:
     def _do_unload(self, working_slot: GridSlot) -> None:
         """Physically retract the grid in the working slot."""
 
+    def _read_magazine(self) -> None:
+        """Refresh ``self.slots`` from what the hardware already knows. Nothing to
+        read in memory: the slots are the state."""
+
     def _scan_magazine(self) -> None:
-        """Refresh ``self.slots`` from the hardware. Nothing to scan in memory."""
+        """Refresh ``self.slots`` from a physical scan. Nothing to scan in memory."""
 
     def _write_slot_description(self, slot: GridSlot) -> None:
         """Persist a slot's grid name where the hardware keeps it."""
@@ -569,6 +611,7 @@ class DemoSampleLoader(SampleGridLoader):
                 )
             name = names.get(number, names.get(str(number))) or f"Grid-{number:02d}"
             slot.loaded_grid = SampleGrid(name=str(name))
+        self.scanned = True  # an in-memory magazine is known from the start
 
     def _do_load(self, slot: GridSlot) -> None:
         self._exchange()
@@ -653,34 +696,43 @@ class Stage:
         return slot.loaded_grid if slot is not None else None
 
     def grid_inventory(self) -> List[GridInventoryEntry]:
-        """Which grids exist this session, and which are in the beam. Derived, not stored.
+        """Which grids exist this session, and which are loaded. Derived, not stored.
 
-        With a loader the rows are the magazine slots and "in beam" means the grid is
+        With a loader the rows are the magazine slots and "loaded" means the grid is
         in a holder working slot. Without one the rows are the holder slots, and every
-        present grid is in the beam, because reaching it is only a stage move. Callers
+        present grid is loaded, because reaching it is only a stage move. Callers
         never need to know which case they got.
         """
-        if self.loader is not None:
-            in_beam = {s.loaded_grid.name for s in self.holder.occupied_slots}
-            slots = sorted(self.loader.slots.values(), key=lambda s: s.index)
+        loader = self.loader
+        if loader is not None:
+            loaded = {s.loaded_grid.name for s in self.holder.occupied_slots}
+            slots = sorted(loader.slots.values(), key=lambda s: s.index)
             source = "magazine"
         else:
-            in_beam = None
+            loaded = None
             slots = sorted(self.holder.slots.values(), key=lambda s: s.index)
             source = "holder"
 
         entries: List[GridInventoryEntry] = []
         for slot in slots:
             grid = slot.loaded_grid
-            present = grid is not None
+            if loader is not None and (
+                not loader.scanned or slot.name in loader.unknown_slots
+            ):
+                state = GridSlotState.UNKNOWN
+            elif grid is None:
+                state = GridSlotState.EMPTY
+            elif loaded is None or grid.name in loaded:
+                state = GridSlotState.LOADED
+            else:
+                state = GridSlotState.OCCUPIED
             entries.append(
                 GridInventoryEntry(
                     slot_name=slot.name,
                     index=slot.index,
                     source=source,
                     name=grid.name if grid is not None else None,
-                    present=present,
-                    in_beam=present and (in_beam is None or grid.name in in_beam),  # type: ignore[union-attr]
+                    state=state,
                 )
             )
         return entries
@@ -747,7 +799,7 @@ class Stage:
 
     @property
     def loaded_grids(self) -> List[SampleGrid]:
-        """The grids in the beam right now, read from the holder every time."""
+        """The grids loaded right now, read from the holder every time."""
         return [s.loaded_grid for s in self.holder.occupied_slots]  # type: ignore[misc]
 
     def ensure_loaded(self, grid_name: str) -> GridSlot:
@@ -792,11 +844,23 @@ class Stage:
 
     # -- naming and refreshing the inventory, on either shape --------------
 
-    def run_inventory(self) -> List[GridInventoryEntry]:
-        """Refresh what the hardware knows and return the inventory.
+    def get_inventory(self) -> List[GridInventoryEntry]:
+        """Read what the hardware knows and return the inventory: instant.
 
-        A magazine scan with a loader. On a fixed holder there is nothing to scan:
-        occupancy is what the operator declared, so this is a plain refresh.
+        With a loader, the autoloader's own record of its magazine, as fresh as
+        its last scan (xT's inventory counts). On a fixed holder occupancy is what
+        the operator declared, so this is a plain refresh.
+        """
+        if self.loader is not None:
+            self.loader.get_inventory()
+        return self.grid_inventory()
+
+    def run_inventory(self) -> List[GridInventoryEntry]:
+        """Scan the magazine and return the inventory: the slow one.
+
+        With a loader the autoloader checks every slot physically, which takes a
+        while and needs the magazine shut. On a fixed holder there is nothing to
+        scan, so it is the same refresh as ``get_inventory``.
         """
         if self.loader is not None:
             self.loader.run_inventory()

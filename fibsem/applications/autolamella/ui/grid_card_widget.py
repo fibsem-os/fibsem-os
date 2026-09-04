@@ -2,7 +2,7 @@
 
 The same card as a lamella's, so the two tabs read alike: a thumbnail, the name
 over a status line, a small icon for the person's verdict, and an actions menu.
-What the hardware says (in the beam, or gone from the magazine) is a chip. The
+What the hardware says (loaded, or gone from the magazine) is a chip. The
 card's object is the ``GridRecord``, not a hardware slot: the inventory entry
 arrives on every refresh and is only drawn.
 """
@@ -38,7 +38,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
 )
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
-from fibsem.microscopes._stage import GridInventoryEntry
+from fibsem.microscopes._stage import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -378,8 +378,8 @@ class GridCardWidget(QWidget):
         return self._entry is not None and self._entry.present
 
     @property
-    def in_beam(self) -> bool:
-        return self._entry is not None and self._entry.in_beam
+    def loaded(self) -> bool:
+        return self._entry is not None and self._entry.loaded
 
     def set_controls_enabled(self, enabled: bool) -> None:
         """The host's lockout while a workflow owns the loader."""
@@ -409,9 +409,11 @@ class GridCardWidget(QWidget):
             old.deleteLater()
         self._chip_widgets = []
         chips: List[Tuple[str, str]] = []
-        if not present:
+        if self._entry is not None and self._entry.state is GridSlotState.UNKNOWN:
+            chips.append(("not scanned", NEUTRAL_700))
+        elif not present:
             chips.append(("not present", NEUTRAL_700))
-        elif self.in_beam:
+        elif self.loaded:
             chips.append(("Loaded", OK_COLOR))
         for label, chip_colour in chips:
             widget = chip(label, chip_colour)
@@ -443,9 +445,9 @@ class GridCardWidget(QWidget):
         # Load brings a grid into the beam; only with a loader, and only for a grid
         # that is present and not already there. Unload for the one that is.
         can = self._controls_enabled
-        self._action_load.setVisible(self._has_loader and not self.in_beam)
+        self._action_load.setVisible(self._has_loader and not self.loaded)
         self._action_load.setEnabled(present and can)
-        self._action_unload.setVisible(self._has_loader and self.in_beam)
+        self._action_unload.setVisible(self._has_loader and self.loaded)
         self._action_unload.setEnabled(can)
         self._action_rename.setEnabled(can)
 

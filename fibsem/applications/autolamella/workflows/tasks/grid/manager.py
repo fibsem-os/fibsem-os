@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 # the exchanges fall and the timeline shows how each one went, and the history
 # entry the exchange leaves on the grid. Not a task in the protocol: loading is
 # the manager's job. It is in the queue so it can be *seen*, not so it can be
-# switched off -- a task whose grid is not in the beam loads it anyway, so
+# switched off -- a task whose grid is not loaded loads it anyway, so
 # removing or reordering a load item changes what is shown, never what runs.
 # Readable where it shows: the queue, the timeline, the summary, the history.
 LOAD_ENTRY_NAME = "Load grid"
@@ -255,7 +255,7 @@ class GridTaskManager(BaseTaskManager):
             status=status,
             error_message=None if loaded else self._not_loaded[grid.name],
             msg=(
-                f"Grid {grid.name} is in the beam."
+                f"Grid {grid.name} is loaded."
                 if loaded
                 else f"Grid {grid.name} could not be loaded."
             ),
@@ -273,13 +273,13 @@ class GridTaskManager(BaseTaskManager):
         if grid.name in self._not_loaded:
             return False
         stage = self.microscope._stage
-        in_beam = stage.holder.find_slot_by_grid_name(grid.name) is not None
+        loaded = stage.holder.find_slot_by_grid_name(grid.name) is not None
         entry = AutoLamellaTaskState(
             name=LOAD_ENTRY_NAME,
             task_type=LOAD_TASK_TYPE,
             status=AutoLamellaTaskStatus.InProgress,
         )
-        if not in_beam:
+        if not loaded:
             logging.info(f"Loading grid {grid.name}.")
             self._say(status_bar=f"Loading grid {grid.name}...")
         try:
@@ -296,7 +296,7 @@ class GridTaskManager(BaseTaskManager):
                 "Its remaining tasks in this run are skipped."
             )
             return False
-        if not in_beam:
+        if not loaded:
             entry.status = AutoLamellaTaskStatus.Completed
             entry.status_message = f"Loaded into {slot.name}."
             entry.end_timestamp = datetime.timestamp(datetime.now())

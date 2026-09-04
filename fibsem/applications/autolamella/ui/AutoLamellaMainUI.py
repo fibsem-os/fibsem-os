@@ -2596,7 +2596,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         self.grids_tab.set_microscope(self.autolamella_ui.microscope)
         self.grid_workflow_widget.set_microscope(self.autolamella_ui.microscope)
-        # An exchange from Microscope -> Sample changes what is in the beam; the
+        # An exchange from Microscope -> Sample changes what is loaded; the
         # Grids tab's chips and the run view's rows follow. The Sample view is
         # rebuilt on every connect, so this is wired here, on every connect.
         sample = getattr(self.autolamella_ui, "sample_widget", None)
@@ -2895,7 +2895,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """The Grids view's selection onto the end of the running grid queue.
 
         End only: a grid's block is a load and then its tasks, and "run next" would
-        put an exchange in front of the grid that is in the beam, then exchange
+        put an exchange in front of the grid that is loaded, then exchange
         back. The block goes after everything queued, where it costs one exchange.
         """
         from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
@@ -3248,7 +3248,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 card.refresh()
             self.grid_workflow_widget.refresh_grid(grid)
             self.grids_tab.results_widget.refresh()
-            # The run's exchanges change what is in the beam; the Sample view
+            # The run's exchanges change what is loaded; the Sample view
             # draws from the stage and never polls it, so it is told here.
             sample = getattr(self.autolamella_ui, "sample_widget", None)
             if sample is not None:

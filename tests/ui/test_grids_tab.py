@@ -108,12 +108,12 @@ class TestCards:
         ]
         assert tab.summary_label.text() == "3 in this experiment · 3 present"
         card = tab.cards.cards[0]
-        assert [c.text() for c in card._chip_widgets] == []  # present, not in beam
+        assert [c.text() for c in card._chip_widgets] == []  # present, not loaded
         assert "slot 01" in card._status_label.toolTip()
         assert card.is_present and card.status_text == "Not run"
         assert card._action_load.isVisible() and card._action_load.isEnabled()
         assert not card._action_unload.isVisible()
-        assert tab.status_label.text() == "Inventory complete."
+        assert tab.status_label.text() == "Inventory read."
         # saved as it went
         assert (
             len(Experiment.load(Path(experiment.path) / "experiment.yaml").grids) == 3
@@ -134,7 +134,7 @@ class TestCards:
         assert arctis._stage.loaded_grids[0].name == "Grid-02"
         assert [c.text() for c in card._chip_widgets] == ["Loaded"]
         assert card._action_unload.isVisible() and not card._action_load.isVisible()
-        assert tab.status_label.text() == "Grid-02 is in the beam."
+        assert tab.status_label.text() == "Grid-02 is loaded."
         card._action_unload.trigger()
         assert arctis._stage.loaded_grids == []
         assert [c.text() for c in card._chip_widgets] == []

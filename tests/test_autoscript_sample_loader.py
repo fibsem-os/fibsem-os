@@ -125,17 +125,24 @@ class TestInventory:
         }
         assert loader.slots["Slot-02"].loaded_grid is None
 
-    def test_uses_last_known_states_unless_all_unknown(self):
-        hw = FakeAutoloader(occupied={2: "g"})
-        _, loader = _microscope_with(hw)
-        loader.run_inventory()
-        assert hw.calls == [("get_slots", False)]
+    def test_get_inventory_reads_what_the_autoloader_knows(self):
+        """A read is `get_slots(False)` and nothing else: instant, and only as
+        fresh as the autoloader's own last scan -- unscanned slots stay UNKNOWN."""
+        from fibsem.microscopes._stage import GridSlotState
 
-    def test_forces_a_scan_when_nothing_is_known(self):
+        hw = FakeAutoloader(occupied={2: "g"}, scanned=False)
+        microscope, loader = _microscope_with(hw)
+        assert loader.get_inventory() == []
+        assert hw.calls == [("get_slots", False)]
+        rows = microscope._stage.grid_inventory()
+        assert {r.state for r in rows} == {GridSlotState.UNKNOWN}
+
+    def test_run_inventory_scans_the_magazine(self):
+        """A scan is `get_slots(True)`: the slow one, the caller's explicit choice."""
         hw = FakeAutoloader(occupied={2: "g"}, scanned=False)
         _, loader = _microscope_with(hw)
         slots = loader.run_inventory()
-        assert hw.calls == [("get_slots", False), ("get_slots", True)]
+        assert hw.calls == [("get_slots", True)]
         assert [s.name for s in slots] == ["Slot-02"]
 
     def test_capacity_follows_the_hardware(self):
@@ -152,6 +159,26 @@ class TestInventory:
         microscope, loader = _microscope_with(hw)
         loader.run_inventory()
         assert [g.name for g in microscope._stage.loaded_grids] == ["grid-birch"]
+
+    def test_slots_are_unknown_until_the_hardware_has_answered(self):
+        """Before any inventory every magazine slot is UNKNOWN, and nothing is
+        present: the UI says "run an inventory" rather than "empty". After a
+        scan, a slot the autoloader still could not read stays UNKNOWN."""
+        from fibsem.microscopes._stage import GridSlotState
+
+        hw = FakeAutoloader(occupied={1: "a", 2: "b"})
+        microscope, loader = _microscope_with(hw)
+        rows = microscope._stage.grid_inventory()
+        assert {r.state for r in rows} == {GridSlotState.UNKNOWN}
+        assert not any(r.present for r in rows)
+
+        hw._slots[4].state = "Unknown"  # one slot the autoloader has not read
+        loader.get_inventory()  # a read keeps it that way; a scan would resolve it
+        rows = {r.slot_name: r for r in microscope._stage.grid_inventory()}
+        assert rows["Slot-01"].state is GridSlotState.OCCUPIED
+        assert rows["Slot-03"].state is GridSlotState.EMPTY
+        assert rows["Slot-05"].state is GridSlotState.UNKNOWN
+        assert not rows["Slot-05"].present
 
     def test_inventory_rows_come_from_the_magazine(self):
         hw = FakeAutoloader(occupied={1: "a", 2: "b"})
@@ -185,7 +212,7 @@ class TestExchange:
         microscope._stage.ensure_loaded("grid-cedar")
         loader.run_inventory()  # hardware now reads slot 3 as Empty
         assert loader.slots["Slot-03"].loaded_grid.name == "grid-cedar"
-        assert microscope._stage.grid_inventory()[2].in_beam is True
+        assert microscope._stage.grid_inventory()[2].loaded is True
 
     def test_exchange_unloads_then_loads(self):
         hw = FakeAutoloader(occupied={1: "a", 2: "b"})

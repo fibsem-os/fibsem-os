@@ -50,11 +50,11 @@ def test_load_brings_the_grid_into_the_beam(widget, arctis):
     widget.loader_changed.connect(lambda: changed.append(True))
     widget._row_widget(1).btn_action.click()
     assert arctis._stage.loaded_grids[0].name == "Grid-02"
-    assert states(widget)[:3] == ["occupied", "in_beam", "occupied"]
+    assert states(widget)[:3] == ["occupied", "loaded", "occupied"]
     # the loaded row's action turns into Unload; the others still offer Load
     assert "Return Grid-02" in widget._row_widget(1).btn_action.toolTip()
     assert "into the beam" in widget._row_widget(0).btn_action.toolTip()
-    assert widget.status_label.text() == "Grid-02 is in the beam."
+    assert widget.status_label.text() == "Grid-02 is loaded."
     assert changed == [True]
     assert not widget.busy
 
@@ -67,19 +67,25 @@ def test_unload_returns_it(widget, arctis):
     assert "returned to the magazine" in widget.status_label.text()
 
 
-def test_run_inventory_asks_first_then_stamps_the_scan(widget, monkeypatch):
+def test_refresh_reads_without_asking_and_the_scan_asks_first(widget, monkeypatch):
+    """Two buttons: the refresh reads what the autoloader knows (instant, nothing
+    moves, no question); the scan is the slow physical inventory and asks."""
     asked = []
-    widget._synchronous = False  # so the confirmation is consulted...
+    widget._synchronous = False  # so a confirmation, if any, is consulted...
     monkeypatch.setattr(
         widget, "_confirm", lambda title, text: asked.append(title) or False
     )
-    widget.btn_inventory.click()
-    assert asked == ["Run inventory"] and "not scanned" in widget.facts_label.text()
+    widget.btn_scan.click()
+    assert asked == ["Scan magazine"] and "not scanned" in widget.facts_label.text()
     monkeypatch.undo()
     widget._synchronous = True  # ...and answered yes without a dialog
     widget.btn_inventory.click()
+    assert widget.status_label.text() == "Inventory read."
+    assert "read " in widget.facts_label.text()
+    assert "not scanned this session" in widget.facts_label.text()
+    widget.btn_scan.click()
     assert "scanned " in widget.facts_label.text()
-    assert widget.status_label.text() == "Inventory complete."
+    assert widget.status_label.text() == "Scan complete."
 
 
 def test_a_refused_exchange_is_reported_and_the_controls_come_back(widget, arctis):
