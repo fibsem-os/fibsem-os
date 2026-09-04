@@ -54,6 +54,7 @@ _ICON_BTN = 26
 ICON_LOAD = "mdi:login"
 ICON_UNLOAD = "mdi:logout"
 ICON_INVENTORY = "mdi:refresh"
+ICON_SCAN = "mdi:magnify-scan"
 _ICON_BTN_STYLE = """
 QToolButton {
     background: transparent;
@@ -70,26 +71,31 @@ QToolButton:disabled { background: transparent; }
 # scanned since the magazine was opened) reads as empty until an inventory says
 # otherwise: the loader model does not carry the hardware's Unknown state.
 _STATE_COLOUR = {
-    "in_beam": OK_COLOR,
+    "unknown": NEUTRAL_700,
+    "loaded": OK_COLOR,
     "occupied": TEXT_COLOR,
     "empty": NEUTRAL_700,
 }
 _STATE_TEXT = {
-    "in_beam": "loaded",
+    "unknown": "unknown",
+    "loaded": "loaded",
     "occupied": "occupied",
     "empty": "empty",
 }
 _STATE_TIP = {
-    "in_beam": "This grid is in the holder's working slot right now",
+    "unknown": "Not read yet: run an inventory to find out what is in this slot",
+    "loaded": "This grid is in the holder's working slot right now",
     "occupied": "A grid is in this magazine slot; Load brings it into the beam",
     "empty": "Nothing in this magazine slot (or not scanned since the magazine was opened)",
 }
 
 
-def slot_state(slot: GridSlot, in_beam: bool) -> str:
+def slot_state(slot: GridSlot, loaded: bool) -> str:
+    """The row state for a slot the stage has answered for. UNKNOWN rows are
+    handed their state directly, from the inventory."""
     if slot.loaded_grid is None:
         return "empty"
-    return "in_beam" if in_beam else "occupied"
+    return "loaded" if loaded else "occupied"
 
 
 class _MagazineRow(QWidget):
@@ -100,10 +106,10 @@ class _MagazineRow(QWidget):
     unload_clicked = pyqtSignal(object)  # GridSlot
     grid_named = pyqtSignal(object, str)  # GridSlot, new name
 
-    def __init__(self, slot: GridSlot, in_beam: bool, parent=None) -> None:
+    def __init__(self, slot: GridSlot, state: str, parent=None) -> None:
         super().__init__(parent)
         self.slot = slot
-        self.state = "empty"
+        self.state = state
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedHeight(_ROW_HEIGHT)
 
@@ -143,11 +149,11 @@ class _MagazineRow(QWidget):
         self.btn_action.clicked.connect(self._on_action)
         layout.addWidget(self.btn_action)
 
-        self.refresh(in_beam)
+        self.refresh(state)
 
-    def refresh(self, in_beam: bool, controls_enabled: bool = True) -> None:
+    def refresh(self, state: str, controls_enabled: bool = True) -> None:
         slot = self.slot
-        self.state = slot_state(slot, in_beam)
+        self.state = state
         grid = slot.loaded_grid
         name = grid.name if grid is not None else ""
         if self.name_edit.text() != name:
@@ -158,14 +164,14 @@ class _MagazineRow(QWidget):
         self.name_edit.setToolTip(
             "The grid in this slot; written to the autoloader's slot description"
             if grid is not None
-            else _STATE_TIP["empty"]
+            else _STATE_TIP[self.state if self.state == "unknown" else "empty"]
         )
         style_with_tooltip(
             self.dot,
             f"background: {_STATE_COLOUR[self.state]}; border-radius: 5px;",
         )
         self.dot.setToolTip(_STATE_TIP[self.state])
-        colour = TEXT_STRONG_COLOR if self.state == "in_beam" else TEXT_MUTED_COLOR
+        colour = TEXT_STRONG_COLOR if self.state == "loaded" else TEXT_MUTED_COLOR
         style_with_tooltip(
             self.state_label,
             f"color: {colour}; font-size: 11px; background: transparent;",
@@ -173,7 +179,7 @@ class _MagazineRow(QWidget):
         self.state_label.setText(_STATE_TEXT[self.state])
         self.state_label.setToolTip(_STATE_TIP[self.state])
 
-        if self.state == "in_beam":
+        if self.state == "loaded":
             self.btn_action.setIcon(
                 fibsem_icon(ICON_UNLOAD, color=stylesheets.GRAY_ICON_COLOR)
             )
@@ -200,7 +206,7 @@ class _MagazineRow(QWidget):
         self.btn_action.setEnabled(self.state != "empty" and controls_enabled)
 
     def _on_action(self) -> None:
-        if self.state == "in_beam":
+        if self.state == "loaded":
             self.unload_clicked.emit(self.slot)
         elif self.state == "occupied":
             self.load_clicked.emit(self.slot)
@@ -237,6 +243,7 @@ class SampleLoaderWidget(QWidget):
         self._busy = False
         self._controls_enabled = True
         self._scanned_at: Optional[datetime] = None
+        self._read_at: Optional[datetime] = None
         self._worker = None
         self._setup_ui()
         self.refresh()
@@ -263,10 +270,21 @@ class SampleLoaderWidget(QWidget):
             fibsem_icon(ICON_INVENTORY, color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_inventory.setToolTip(
-            "Run inventory: ask the autoloader which magazine slots hold a grid, "
-            "and read their names"
+            "Refresh: read what the autoloader knows about its magazine. Instant; "
+            "as fresh as its last scan"
         )
-        self.btn_inventory.clicked.connect(self._on_run_inventory)
+        self.btn_inventory.clicked.connect(self._on_get_inventory)
+        # The scan is the slow one, and moves the magazine: it asks first.
+        self.btn_scan = QToolButton()
+        self.btn_scan.setFixedSize(_ICON_BTN, _ICON_BTN)
+        self.btn_scan.setIconSize(QSize(18, 18))
+        self.btn_scan.setStyleSheet(_ICON_BTN_STYLE)
+        self.btn_scan.setIcon(fibsem_icon(ICON_SCAN, color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_scan.setToolTip(
+            "Scan magazine: the autoloader checks every slot for a grid. Takes a "
+            "while; the magazine must stay shut"
+        )
+        self.btn_scan.clicked.connect(self._on_run_inventory)
 
         self.facts_label = QLabel()
         self.facts_label.setWordWrap(True)
@@ -294,6 +312,7 @@ class SampleLoaderWidget(QWidget):
 
         self._panel = TitledPanel("Loader", content=inner, collapsible=True)
         self._panel.add_header_widget(self.btn_inventory)
+        self._panel.add_header_widget(self.btn_scan)
         layout.addWidget(self._panel)
 
     # -- model -----------------------------------------------------------------
@@ -307,12 +326,6 @@ class SampleLoaderWidget(QWidget):
     def busy(self) -> bool:
         return self._busy
 
-    def _in_beam_names(self) -> set:
-        loader = self.loader
-        if loader is None:
-            return set()
-        return {s.loaded_grid.name for s in loader.holder.occupied_slots}  # type: ignore[union-attr]
-
     def refresh(self) -> None:
         loader = self.loader
         self._list.clear()
@@ -322,12 +335,16 @@ class SampleLoaderWidget(QWidget):
             self.facts_label.setText("No autoloader on this system.")
             return
 
-        in_beam = self._in_beam_names()
+        states = {
+            e.slot_name: e.state.value for e in self._microscope._stage.grid_inventory()
+        }
         slots = sorted(loader.slots.values(), key=lambda s: s.index)
         occupied = sum(1 for s in slots if s.loaded_grid is not None)
         scanned = (
             f"scanned {self._scanned_at.strftime('%H:%M')}"
             if self._scanned_at is not None
+            else f"read {self._read_at.strftime('%H:%M')}, not scanned this session"
+            if self._read_at is not None
             else "not scanned this session"
         )
         plural = "" if occupied == 1 else "s"
@@ -337,11 +354,8 @@ class SampleLoaderWidget(QWidget):
 
         controls = self._controls_enabled and not self._busy
         for slot in slots:
-            row = _MagazineRow(
-                slot,
-                in_beam=bool(slot.loaded_grid) and slot.loaded_grid.name in in_beam,
-            )
-            row.refresh(row.state == "in_beam", controls_enabled=controls)
+            row = _MagazineRow(slot, states.get(slot.name, "unknown"))
+            row.refresh(row.state, controls_enabled=controls)
             row.load_clicked.connect(self._on_load)
             row.unload_clicked.connect(self._on_unload)
             row.grid_named.connect(self._on_grid_named)
@@ -368,8 +382,9 @@ class SampleLoaderWidget(QWidget):
     def _apply_controls(self) -> None:
         active = self._controls_enabled and not self._busy and self.loader is not None
         self.btn_inventory.setEnabled(active)
+        self.btn_scan.setEnabled(active)
         for row in self._rows:
-            row.refresh(row.state == "in_beam", controls_enabled=active)
+            row.refresh(row.state, controls_enabled=active)
 
     # -- edits -----------------------------------------------------------------
 
@@ -388,14 +403,24 @@ class SampleLoaderWidget(QWidget):
 
     # -- hardware, off the GUI thread --------------------------------------------
 
+    def _on_get_inventory(self) -> None:
+        if self.loader is None:
+            return
+
+        def job() -> None:
+            self._microscope._stage.get_inventory()
+            self._read_at = datetime.now()
+
+        self._start(job, "Reading the magazine…", "Inventory read.")
+
     def _on_run_inventory(self) -> None:
         loader = self.loader
         if loader is None:
             return
         if not self._confirm(
-            "Run inventory",
+            "Scan magazine",
             "Scan the magazine? The autoloader checks every slot for a grid and "
-            "reads the names on the slot descriptions; it takes a moment and the "
+            "reads the names on the slot descriptions; it takes a while and the "
             "magazine must not be opened while it runs.",
         ):
             return
@@ -404,7 +429,7 @@ class SampleLoaderWidget(QWidget):
             self._microscope._stage.run_inventory()
             self._scanned_at = datetime.now()
 
-        self._start(job, "Scanning the magazine…", "Inventory complete.")
+        self._start(job, "Scanning the magazine…", "Scan complete.")
 
     def _on_load(self, slot: GridSlot) -> None:
         loader = self.loader
@@ -415,7 +440,7 @@ class SampleLoaderWidget(QWidget):
         def job() -> None:
             loader.load_grid(slot.name)
 
-        self._start(job, f"Loading {name}…", f"{name} is in the beam.")
+        self._start(job, f"Loading {name}…", f"{name} is loaded.")
 
     def _on_unload(self, slot: GridSlot) -> None:
         loader = self.loader

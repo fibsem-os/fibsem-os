@@ -383,15 +383,17 @@ class AutoscriptSampleLoader(SampleGridLoader):
 
     - A grid that is on the stage makes its magazine slot read ``Empty``. The slot
       is still that grid's home, so a rescan keeps the grid there while our working
-      slot holds it, and the inventory keeps saying "present, in beam".
-    - ``get_slots(False)`` returns last-known states, which may all be ``Unknown``
-      before any scan. Then, and only then, ``get_slots(True)`` runs a physical scan.
+      slot holds it, and the inventory keeps saying "present, loaded".
+    - ``get_slots(False)`` returns the autoloader's last-known states, which may
+      all be ``Unknown`` before any scan; ``get_slots(True)`` runs a physical scan.
+      ``get_inventory`` is the first, ``run_inventory`` the second, and the caller
+      chooses: a read is instant, a scan is not.
 
     Confirmed from operator code: the ``get_slots(bool)`` shape, the state strings,
     ``load(id)`` / ``unload()``, and ``autoloader.stage`` reporting what is on the
     microscope. Not verified on hardware: whether ``sample_description`` is writable
     (a refusal is logged, not raised). The magazine is not queried on construction;
-    call ``run_inventory()``.
+    call ``get_inventory()`` or ``run_inventory()``.
     """
 
     @property
@@ -407,15 +409,19 @@ class AutoscriptSampleLoader(SampleGridLoader):
 
     # -- inventory -----------------------------------------------------------
 
+    def _read_magazine(self) -> None:
+        self._apply_hardware_slots(list(self._autoloader.get_slots(False)))
+
     def _scan_magazine(self) -> None:
-        hw_slots = list(self._autoloader.get_slots(False))
-        if hw_slots and all(_slot_state(s) == "Unknown" for s in hw_slots):
-            hw_slots = list(self._autoloader.get_slots(True))
+        self._apply_hardware_slots(list(self._autoloader.get_slots(True)))
+
+    def _apply_hardware_slots(self, hw_slots: list) -> None:
         if hw_slots:
             self.capacity = len(hw_slots)
 
-        in_beam = {s.loaded_grid.name for s in self.holder.occupied_slots}
+        loaded = {s.loaded_grid.name for s in self.holder.occupied_slots}
         slots: dict = {}
+        unknown: set = set()
         for hw in hw_slots:
             number = int(hw.id)
             name = _slot_name(number - 1)
@@ -433,15 +439,15 @@ class AutoscriptSampleLoader(SampleGridLoader):
             elif (
                 previous is not None
                 and previous.loaded_grid is not None
-                and previous.loaded_grid.name in in_beam
+                and previous.loaded_grid.name in loaded
             ):
-                grid = (
-                    previous.loaded_grid
-                )  # its home; it reads Empty while in the beam
+                grid = previous.loaded_grid  # its home; it reads Empty while loaded
             elif state == "Unknown":
                 logging.warning(f"Autoloader slot {number} has not been scanned.")
+                unknown.add(name)
             slots[name] = GridSlot(name=name, index=number - 1, loaded_grid=grid)
         self.slots = slots
+        self.unknown_slots = unknown
 
         # Something may be on the stage that we did not load: reflect the hardware.
         stage = getattr(self._autoloader, "stage", None)

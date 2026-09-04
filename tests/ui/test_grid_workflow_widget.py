@@ -134,6 +134,18 @@ class TestSelection:
         assert [c.text() for c in row._chip_widgets] == ["Loaded"]
         assert row.sizeHint().width() <= 380
 
+    def test_an_unscanned_magazine_says_so_on_every_row(self, view, arctis):
+        """Before an inventory the rows are UNKNOWN: the chip says the magazine
+        has not been read, not that the grids are missing, and none can be run."""
+        arctis._stage.loader.scanned = False
+        view.refresh()
+        rows = [view._grid_rows[n] for n in ("Grid-01", "Grid-02", "Grid-03")]
+        assert all([c.text() for c in r._chip_widgets] == ["not scanned"] for r in rows)
+        assert not any(r.checkbox.isEnabled() for r in rows)
+        arctis._stage.loader.scanned = True
+        view.refresh()
+        assert all(r.checkbox.isEnabled() for r in rows)
+
     def test_the_fm_task_is_greyed_without_a_fluorescence_microscope(
         self, qapp, experiment
     ):
@@ -332,7 +344,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     QTest.qWait(200)  # let the finished signal land
 
     grid = exp.get_grid_by_name("grid-aspen")
-    # a fixed holder: the grid was in the beam already, so no load entry
+    # a fixed holder: the grid was loaded already, so no load entry
     assert [t.name for t in grid.task_history] == ["overview_sem"]
     assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
     assert len(grid_outputs(exp, grid, "overview_sem")) == 1

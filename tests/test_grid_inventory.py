@@ -1,7 +1,7 @@
 """The loader magazine, the Demo autoloader, and ``Stage.grid_inventory()``.
 
 Two hardware shapes, one query. On a compustage the inventory is the loader's
-magazine and "in beam" is whichever grid sits in the holder's working slot; on a
+magazine and "loaded" is whichever grid sits in the holder's working slot; on a
 fixed holder the inventory is the holder itself and every present grid is in the
 beam. Nothing here is cached: every answer is re-derived from the slots.
 """
@@ -144,7 +144,7 @@ class TestExchange:
         grid = loader.load_grid("Slot-02")
         working = microscope._stage.holder.slots["Slot-01"]
         assert working.loaded_grid is grid
-        # the magazine slot is the grid's home; it keeps the grid while it is in the beam
+        # the magazine slot is the grid's home; it keeps the grid while it is loaded
         assert loader.slots["Slot-02"].loaded_grid is grid
 
     def test_load_another_grid_exchanges(self):
@@ -193,7 +193,7 @@ class TestExchange:
         with pytest.raises(GridExchangeError):
             loader.load_grid("Slot-02")
         working = microscope._stage.holder.slots["Slot-01"]
-        # the unload half of the exchange failed, so Grid-01 is still in the beam
+        # the unload half of the exchange failed, so Grid-01 is still loaded
         assert working.loaded_grid.name == "Grid-01"
         assert loader.fail_next_exchange is False
 
@@ -217,9 +217,9 @@ class TestInventoryWithLoader:
         loader = _with_magazine(microscope)
         loader.load_grid("Slot-02")
         one, two, three = (_entry(microscope, f"Slot-0{i}") for i in (1, 2, 3))
-        assert (one.present, one.in_beam) == (True, False)
-        assert (two.present, two.in_beam) == (True, True)
-        assert (three.present, three.in_beam, three.name) == (False, False, None)
+        assert (one.present, one.loaded) == (True, False)
+        assert (two.present, two.loaded) == (True, True)
+        assert (three.present, three.loaded, three.name) == (False, False, None)
 
     def test_in_beam_follows_the_holder_not_a_cache(self):
         microscope = _compustage_demo()
@@ -229,8 +229,8 @@ class TestInventoryWithLoader:
         microscope._stage.holder.slots["Slot-01"].loaded_grid = loader.slots[
             "Slot-05"
         ].loaded_grid
-        assert _entry(microscope, "Slot-02").in_beam is False
-        assert _entry(microscope, "Slot-05").in_beam is True
+        assert _entry(microscope, "Slot-02").loaded is False
+        assert _entry(microscope, "Slot-05").loaded is True
 
 
 class TestInventoryOnFixedHolder:
@@ -242,9 +242,9 @@ class TestInventoryOnFixedHolder:
         assert len(rows) == len(holder.slots)
         assert {r.source for r in rows} == {"holder"}
         first = _entry(microscope, "Slot-01")
-        assert (first.name, first.present, first.in_beam) == ("grid-aspen", True, True)
+        assert (first.name, first.present, first.loaded) == ("grid-aspen", True, True)
         second = _entry(microscope, "Slot-02")
-        assert (second.name, second.present, second.in_beam) == (None, False, False)
+        assert (second.name, second.present, second.loaded) == (None, False, False)
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +441,16 @@ class TestRunInventory:
         assert scanned == [True]
         assert [r.name for r in rows if r.present] == ["Grid-01", "Grid-02", "Grid-05"]
 
+    def test_get_inventory_reads_without_a_scan(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        calls = []
+        loader._read_magazine = lambda: calls.append("read")  # type: ignore[assignment]
+        loader._scan_magazine = lambda: calls.append("scan")  # type: ignore[assignment]
+        rows = microscope._stage.get_inventory()
+        assert calls == ["read"]
+        assert [r.name for r in rows if r.present] == ["Grid-01", "Grid-02", "Grid-05"]
+
     def test_on_fixed_holder_is_a_refresh(self):
         microscope = _fixed_demo()
         microscope._stage.holder.slots["Slot-01"].loaded_grid = SampleGrid(name="g")
@@ -469,3 +479,49 @@ def test_current_grid_is_none_before_the_first_position_read():
     stage.move_to_slot("Slot-01")
     assert stage.current_grid is not None
     assert stage.current_grid.name == "Grid-01"
+
+
+# ---------------------------------------------------------------------------
+# The slot state: where the grid is, as one word
+# ---------------------------------------------------------------------------
+
+
+class TestSlotState:
+    def test_a_magazine_reads_occupied_loaded_and_empty(self):
+        from fibsem.microscopes._stage import GridSlotState
+
+        microscope = _compustage_demo()
+        _with_magazine(microscope, occupied=(1, 2))
+        stage = microscope._stage
+        stage.ensure_loaded("Grid-02")
+        rows = {e.slot_name: e for e in stage.grid_inventory()}
+        assert rows["Slot-01"].state is GridSlotState.OCCUPIED
+        assert rows["Slot-02"].state is GridSlotState.LOADED
+        assert rows["Slot-03"].state is GridSlotState.EMPTY
+        # present and loaded are read off the state
+        assert rows["Slot-01"].present and not rows["Slot-01"].loaded
+        assert rows["Slot-02"].present and rows["Slot-02"].loaded
+        assert not rows["Slot-03"].present
+
+    def test_a_fixed_holder_slot_with_a_grid_is_loaded_outright(self):
+        """Its grid is already in the holder: reaching it is a stage move."""
+        from fibsem.microscopes._stage import GridSlotState
+
+        microscope = _fixed_demo()
+        stage = microscope._stage
+        stage.assign_grid("Slot-01", SampleGrid(name="grid-ash"), persist=False)
+        rows = {e.slot_name: e for e in stage.grid_inventory()}
+        assert rows["Slot-01"].state is GridSlotState.LOADED
+        assert rows["Slot-02"].state is GridSlotState.EMPTY
+        assert GridSlotState.UNKNOWN not in {e.state for e in rows.values()}
+
+    def test_the_demo_magazine_is_known_from_the_start(self):
+        """An in-memory magazine has nothing to scan, so its slots are never
+        UNKNOWN; the tests and the simulator rely on reading it before any
+        inventory has run."""
+        from fibsem.microscopes._stage import GridSlotState
+
+        microscope = _compustage_demo()
+        _with_magazine(microscope, occupied=(1,))
+        states = {e.state for e in microscope._stage.grid_inventory()}
+        assert states == {GridSlotState.OCCUPIED, GridSlotState.EMPTY}

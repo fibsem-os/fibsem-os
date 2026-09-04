@@ -3,7 +3,7 @@
 The run view for grids, beside the lamella one and sharing its chrome: the Run
 and Stop buttons, the timeline on the right, the confirmation before a start.
 Grid rows come from the experiment's records with the hardware's word on each
-(slot, in beam) drawn as chips; only a present grid can be ticked. Task rows
+(slot, loaded) drawn as chips; only a present grid can be ticked. Task rows
 come from the grid protocol in its order, and the order can be changed here.
 Settings live on Grids → Protocol.
 
@@ -43,7 +43,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
     plan_grid_run,
 )
-from fibsem.microscopes._stage import GridInventoryEntry
+from fibsem.microscopes._stage import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
@@ -142,8 +142,8 @@ class _GridRow(QWidget):
         return self._entry is not None and self._entry.present
 
     @property
-    def in_beam(self) -> bool:
-        return self._entry is not None and self._entry.in_beam
+    def loaded(self) -> bool:
+        return self._entry is not None and self._entry.loaded
 
     def set_inventory(self, entry: Optional[GridInventoryEntry]) -> None:
         self._entry = entry
@@ -167,9 +167,11 @@ class _GridRow(QWidget):
         self._chip_widgets = []
         entry = self._entry
         chips: List[Tuple[str, str]] = []
-        if entry is None or not entry.present:
+        if entry is not None and entry.state is GridSlotState.UNKNOWN:
+            chips.append(("not scanned", NEUTRAL_700))
+        elif entry is None or not entry.present:
             chips.append(("not present", NEUTRAL_700))
-        elif entry.in_beam:
+        elif entry.loaded:
             chips.append(("Loaded", OK_COLOR))
         for label, chip_colour in chips:
             widget = chip(label, chip_colour)
@@ -549,7 +551,7 @@ class GridWorkflowWidget(QWidget):
                 row.checkbox.setChecked(checked)
 
     def exchanges_for(self, grids: List[GridRecord]) -> int:
-        """How many of these grids are not in the beam now: the exchanges a run
+        """How many of these grids are not loaded now: the exchanges a run
         would make on a loader, zero on a fixed holder."""
         stage = self.stage
         if stage is None or stage.loader is None:
@@ -557,7 +559,7 @@ class GridWorkflowWidget(QWidget):
         count = 0
         for g in grids:
             row = self._grid_rows.get(g.name)
-            if row is not None and not row.in_beam:
+            if row is not None and not row.loaded:
                 count += 1
         return count
 
@@ -681,7 +683,7 @@ class GridRunPreflightDialog(QDialog):
             metric(
                 "Exchanges",
                 "one per grid" if screen_all else str(exchanges),
-                "" if exchanges or screen_all else "all in the beam",
+                "" if exchanges or screen_all else "all loaded",
             )
         )
         layout.addLayout(metrics)
