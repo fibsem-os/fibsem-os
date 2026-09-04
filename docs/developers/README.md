@@ -10,6 +10,7 @@ for operating the application is at [fibsemos.org/docs](https://www.fibsemos.org
 | [Extending fibsemOS](extending.md) | You want to add a pattern, strategy or task, drive the microscope from a script, or support an instrument. |
 | [Scripting experiments](../../SCRIPTING.md) | You want to read or change an experiment's data from Python, in a notebook or from the app. |
 | [The simulator](../simulator.md) | What the Demo microscope images, every scene key, and how the figures are generated. |
+| [The screenshot harness](screenshot-harness.md) | You changed the interface and the user guide's screenshots need re-rendering, or you are adding a page to the guide. |
 | [AGENTS.md](../../AGENTS.md) | You are a coding agent. Everything in Contributing applies; this adds what is specific to agents. |
 
 Developers and agents read the same pages. There is no separate agent
