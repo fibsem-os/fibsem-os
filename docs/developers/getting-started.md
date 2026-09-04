@@ -22,7 +22,7 @@ fibsem/                     the instrument library (no app logic)
   structures.py             the shared vocabulary: FibsemImage, Point,
                             FibsemRectangle, stage positions, settings
   milling/, imaging/        beam operations built on the ABC
-  segmentation/             detection models (see "your own model")
+  segmentation/             segmentation models (see "your own model")
   ui/                       shared Qt widgets, tokens.py palette, canvases
   server/                   the agent/bench HTTP server (build_server)
   mcp/                      the fibsem-mcp sidecar (MCP → HTTP)
@@ -87,10 +87,10 @@ questions through `ask()`, record what you produce. The contracts, the
 mistakes that lose state silently, and shipping a task as a plugin are under
 [Workflow tasks](extending.md#workflow-tasks) and [Plugins](extending.md#plugins).
 
-## "I want to use my own detection model"
+## "I want to use my own segmentation model"
 
 `fibsem/segmentation/` is the home; the caveats are under
-[Your own detection model](extending.md#your-own-detection-model).
+[Your own segmentation model](extending.md#your-own-segmentation-model).
 
 ## "I want to build against the agent server"
 

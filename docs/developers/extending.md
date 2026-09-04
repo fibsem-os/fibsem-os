@@ -187,7 +187,7 @@ unchanged.
   acquisition and stage movement right and let the rest raise until their
   subsystem's turn.
 
-## Your own detection model
+## Your own segmentation model
 
 `fibsem/segmentation/` is the home: `SegmentationModelHuggingFace` loads
 checkpoints from the Hub, and the local-checkpoint paths sit beside it. A
