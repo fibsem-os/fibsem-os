@@ -1738,6 +1738,43 @@ def render_lamella(h: Harness) -> None:
     h.pump(200)
 
 
+@page("tasks")
+def render_tasks(h: Harness) -> None:
+    """The task types on offer, and the shipped workflow's task list."""
+    from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
+        AddTaskDialog,
+    )
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    h.ensure_lamellae(3)
+
+    # the Add Task dialog, with its list of task types open
+    dialog = AddTaskDialog(h.ui.experiment.task_protocol.task_config, parent=h.window)
+    # the example plugin installed for development is not part of the product
+    combo = dialog.comboBox_task_type
+    for i in reversed(range(combo.count())):
+        if "EXAMPLE" in str(combo.itemData(i)):
+            combo.removeItem(i)
+    dialog.show()
+    h.pump(400)
+    h.shot("add-task", target=dialog)
+    dialog.comboBox_task_type.showPopup()
+    h.pump(400)
+    popup = dialog.comboBox_task_type.view().window()
+    h.shot("task-types", target=popup)
+    dialog.comboBox_task_type.hidePopup()
+    dialog.close()
+    h.pump(200)
+
+    # the shipped protocol's workflow as the Workflow tab lists it
+    h.show_main_tab("Workflow")
+    ww = h.window.lamella_workflow_widget
+    h.pump(400)
+    h.shot("starting-workflow", target=ww.workflow, crop=True)
+
+
 # -- entry point --------------------------------------------------------------
 
 
