@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Set
+from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 
 import pandas as pd
 
@@ -322,7 +322,7 @@ class TaskManager(BaseTaskManager):
         self._snapshot_completion()
         self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
         while not self.is_stopped:
-            item = self.queue.next()
+            item = self.queue.next(skip=self._is_deferred)
             if item is None:
                 break
 
@@ -603,8 +603,61 @@ class TaskManager(BaseTaskManager):
             # for the rest of the run.
             self._set_workflow_pending(False)
 
+    def _defer_reason(self, lamella: "Lamella", task_name: str) -> Optional[str]:
+        """Why this task cannot run *yet* -- as opposed to _should_skip, which
+        says why it never will this run.
+
+        The prerequisite check used to be terminal: unmet meant Skipped, done for
+        the run. That was right only because ordering guaranteed the prerequisite
+        had already had its turn. Two things break the guarantee, and both are
+        answered by looking at the queue and the item rather than at history:
+
+        - ``awaiting_review``: a required task completed and left a proposal
+          nobody has decided. The consumer waits; the reviewer makes it runnable.
+        - ``prereq_pending``: a required task is still in the queue ahead or
+          behind (a re-run, a mid-run insertion). It will get its turn.
+
+        Deferred items stay pending and are offered again on the next scan.
+        Nothing is logged per scan: a long stall would flood the log with one
+        line per pass.
+        """
+        for req in self.experiment.task_protocol.workflow_config.requirements(
+            task_name
+        ):
+            proposal = lamella.proposals.get(req)
+            if proposal is not None and proposal.pending:
+                return "awaiting_review"
+            if not lamella.has_completed_task(req) and self.queue.has_pending_pair(
+                lamella.name, req
+            ):
+                return "prereq_pending"
+        return None
+
+    def _is_deferred(self, item: WorkItem) -> bool:
+        """The queue's skip predicate: pass over, do not retire."""
+        lamella = self.experiment.get_lamella_by_name(item.item_name)
+        if lamella is None or lamella.is_failure:
+            return False  # let the loop retire it with a reason
+        return self._defer_reason(lamella, item.task_name) is not None
+
+    def deferred_items(self) -> List[Tuple[WorkItem, str]]:
+        """Every pending item that cannot run now, with why. What a stalled run
+        reports, and what the UI can label -- "awaiting review" is derived here,
+        never stored."""
+        deferred = []
+        for item in self.queue.pending:
+            lamella = self.experiment.get_lamella_by_name(item.item_name)
+            if lamella is None or lamella.is_failure:
+                continue
+            reason = self._defer_reason(lamella, item.task_name)
+            if reason is not None:
+                deferred.append((item, reason))
+        return deferred
+
     def _should_skip(self, lamella: "Lamella", task_name: str) -> Optional[str]:
-        """Return skip reason string, or None if task should run.
+        """Return skip reason string, or None if task should run. Terminal: a
+        reason here means Skipped, finished for the run. "Not yet" is
+        _defer_reason's answer and is asked first, by the queue scan.
 
         Deliberately does not re-check the run's lamella selection: that filter
         is applied when the queue is built, so anything that reaches here is
