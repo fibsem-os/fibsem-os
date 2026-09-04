@@ -1775,6 +1775,132 @@ def render_tasks(h: Harness) -> None:
     h.shot("starting-workflow", target=ww.workflow, crop=True)
 
 
+@page("workflows")
+def render_workflows(h: Harness) -> None:
+    """The Workflow tab, a supervised run with its prompts, and the Grids view."""
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    ctrl = h.ui.movement_widget.control_widget
+    iw = h.ui.image_widget
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
+    lamellae = h.ensure_lamellae(3)
+    h.show_main_tab("Workflow")
+    ww = h.window.lamella_workflow_widget
+
+    # one lamella, the first two tasks
+    ww.lamella_list.set_all_selected(False)
+    ww.lamella_list._row(0).checkbox.setChecked(True)
+    ww.workflow.set_all_selected(False)
+    for i in (0, 1):
+        ww.workflow._row(i).checkbox.setChecked(True)
+    h.pump(400)
+    h.shot(
+        "workflow-tab",
+        callouts=[
+            Box(ww.lamella_list),
+            Box(ww.info),
+            Box(ww.workflow),
+            h.window.run_workflow_btn,
+        ],
+        numbered=True,
+    )
+    row = ww.workflow._row(2)
+    h.shot(
+        "task-row",
+        target=row,
+        callouts=[
+            row.checkbox,
+            row.btn_schedule,
+            row.btn_supervise,
+            row.btn_edit,
+            row.btn_remove,
+        ],
+        numbered=True,
+    )
+
+    # run it, supervised: the preflight dialog is answered, each prompt is
+    # photographed on the way and then answered with Yes
+    main_module.confirm_run_workflow_dialog = lambda *_args, **_kwargs: True
+    # the completion summary is modal; it is shown by hand below instead
+    h.ui._show_workflow_summary = lambda: None
+    h.window.run_workflow_btn.click()
+    seen = set()
+    answered_milling = set()
+    waited = 0
+    h.pump(1500)
+    while (h.ui.is_workflow_running or waited < 2000) and waited < 900000:
+        h.pump(250)
+        waited += 250
+        if not h.ui.WAITING_FOR_USER_INTERACTION:
+            continue
+        h.pump(1200)
+        question = h.ui.ui_responder.pending_question
+        if callable(question):
+            question = question()
+        kind = type(question).__name__ if question is not None else "Confirm"
+        if kind not in seen:
+            if not seen:
+                # the first prompt as it announces itself: the Attention
+                # Required button while the Workflow tab is still showing
+                h.shot(
+                    "attention-required",
+                    callouts=[h.window.user_attention_btn],
+                    numbered=True,
+                )
+            seen.add(kind)
+            # the question is asked on the Experiment tab
+            h.show_main_tab("Microscope")
+            h.ui.tabWidget.setCurrentWidget(h.ui.tab)
+            h.pump(500)
+            buttons = [
+                b for b in (h.ui.pushButton_yes, h.ui.pushButton_no) if b.isVisible()
+            ]
+            h.shot(
+                f"prompt-{kind.lower()}",
+                callouts=[Box(h.ui.label_instructions), *buttons],
+                numbered=True,
+            )
+        # a milling prompt comes back after the run (Yes = Run Milling again,
+        # No = Continue); answer Yes the first time it is asked, then Continue
+        # (a fresh Request object each time, so keyed by the milling task's name)
+        key = getattr(getattr(question, "config", None), "name", None)
+        if kind == "RunMillingTask" and key in answered_milling:
+            h.ui.pushButton_no.click()
+        else:
+            if kind == "RunMillingTask":
+                answered_milling.add(key)
+            h.ui.pushButton_yes.click()
+        h.pump(800)
+    if h.ui.is_workflow_running:
+        raise RuntimeError("workflow did not finish")
+    h.pump(1500)
+    from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
+
+    summary_dialog = WorkflowSummaryDialog(h.ui._last_run_summary, parent=h.window)
+    summary_dialog.show()
+    h.pump(500)
+    h.shot("workflow-summary", target=summary_dialog)
+    summary_dialog.close()
+    h.pump(300)
+    h.show_main_tab("Workflow")
+    h.shot("workflow-finished")
+
+    # the Grids view, behind the grid-workflow flag
+    h.window._preferences.features.grid_workflow = True
+    h.window._apply_grid_workflow_visibility()
+    h.window.workflow_left_tabs.setCurrentWidget(h.window.grid_workflow_widget)
+    h.pump(500)
+    h.shot("grids-view", target=h.window.grid_workflow_widget, crop=True)
+    h.window.workflow_left_tabs.setCurrentIndex(0)
+    h.window._preferences.features.grid_workflow = False
+    h.window._apply_grid_workflow_visibility()
+    h.pump(300)
+
+
 # -- entry point --------------------------------------------------------------
 
 
