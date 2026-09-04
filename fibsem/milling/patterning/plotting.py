@@ -381,10 +381,12 @@ def bitmap_to_rgba(
             blanking_array, output_shape=target_shape, preserve_range=True, order=0
         )
 
+    # No `N`: the list is already 256 long, and passing N alongside it is deprecated
+    # from matplotlib 3.11 and removed in 3.13. The deprecation is raised as an error
+    # under the test suite's warning filters, which is how this surfaced.
     cmap = ListedColormap(
         np.linspace((0, 0, 0, 0), to_rgba(colour, alpha=1), endpoint=True, num=256),
         name=f"{colour}_blend",
-        N=256,
     )
     rgba = cmap(dwell_time_array)
     rgba[blanking_array] = (0, 0, 0, 1)

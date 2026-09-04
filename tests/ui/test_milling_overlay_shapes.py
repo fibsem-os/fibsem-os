@@ -12,15 +12,23 @@ drawn: ``ax.imshow`` routes through ``add_image`` → ``update_datalim`` and res
 the axes to the pattern, which on a live canvas throws away the operator's pan/zoom.
 The overlay builds the ``AxesImage`` itself to avoid that.
 
-No Qt needed — the overlay talks to a matplotlib axes.
+The overlay itself talks to a matplotlib axes and needs no Qt, but importing it walks
+``fibsem.ui.widgets.canvas``, whose package import does — hence the importorskip, which
+the thinner CI builds (no UI extra) rely on.
 
 Run directly:
-    python tests/ui/test_milling_overlay_bitmap.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_milling_overlay_shapes.py
 """
 
-import matplotlib
-import numpy as np
-import pytest
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import matplotlib  # noqa: E402
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
+
+pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 matplotlib.use("Agg")
 
