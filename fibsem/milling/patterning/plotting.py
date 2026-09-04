@@ -244,10 +244,13 @@ def _add_circle_mpl(
         colour = "black"
 
     if inner_radius_px > 0:
-        # annulus/ring pattern
+        # annulus/ring pattern. Annulus takes the OUTER radius and measures `width`
+        # inward from it, so the ring runs radius-thickness .. radius — matching the
+        # mask path (`draw_annulus_shape`). Passing the inner radius as `r` drew the
+        # ring one thickness too small, and too near the centre.
         patch = mpatches.Annulus(
             (px, py),
-            r=inner_radius_px,
+            r=radius_px,
             width=radius_px - inner_radius_px,
             angle=math.degrees(-shape.rotation),
             linewidth=PROPERTIES["line_width"],
@@ -323,6 +326,75 @@ def _add_line_mpl(
         )
 
 
+def bitmap_to_rgba(
+    shape: FibsemBitmapSettings,
+    width_px: float,
+    height_px: float,
+    colour: str,
+    opacity: float = PROPERTIES["opacity"],
+) -> np.ndarray:
+    """Colourise a bitmap pattern's dwell-time array for display.
+
+    Dwell time maps onto a transparent → *colour* ramp; blanked pixels
+    (``bitmap[:, :, 1] == 1``) become opaque black. The array is downsized to the
+    pattern's on-screen size when it is larger, so no cell is subpixel (those are
+    not displayed).
+
+    Args:
+        shape: the bitmap pattern (``shape.bitmap`` may be None → fully transparent).
+        width_px: pattern width in image pixels.
+        height_px: pattern height in image pixels.
+        colour: display colour of the pattern.
+        opacity: alpha applied to the whole array (blanked pixels included).
+    Returns:
+        (H, W, 4) float RGBA array, ready to be drawn over the pattern rectangle.
+    """
+    bitmap = shape.bitmap
+
+    if bitmap is None:
+        bitmap = np.zeros((1, 1, 2), dtype=float)
+
+    if shape.flip_y:
+        bitmap = np.flip(bitmap, axis=0)
+
+    dwell_time_array = bitmap[:, :, 0].astype(np.float64)
+    blanking_array = bitmap[:, :, 1] == 1
+
+    # Ensure no rectangles will be subpixel (these are not displayed)
+    target_shape = list(dwell_time_array.shape)
+    resize_array = False
+    if height_px < dwell_time_array.shape[0]:
+        resize_array = True
+        target_shape[0] = round(height_px)
+    if width_px < dwell_time_array.shape[1]:
+        resize_array = True
+        target_shape[1] = round(width_px)
+
+    if resize_array:
+        dwell_time_array = resize(
+            dwell_time_array,
+            output_shape=target_shape,
+            preserve_range=True,
+            order=1,  # bi-linear interpolation
+        )
+        blanking_array = resize(
+            blanking_array, output_shape=target_shape, preserve_range=True, order=0
+        )
+
+    cmap = ListedColormap(
+        np.linspace((0, 0, 0, 0), to_rgba(colour, alpha=1), endpoint=True, num=256),
+        name=f"{colour}_blend",
+        N=256,
+    )
+    rgba = cmap(dwell_time_array)
+    rgba[blanking_array] = (0, 0, 0, 1)
+
+    # Apply opacity to the array (imshow alpha overrides these values).
+    rgba[:, :, 3] *= opacity
+
+    return rgba
+
+
 def _add_bitmap_mpl(
     shape: FibsemBitmapSettings,
     image: FibsemImage,
@@ -351,48 +423,7 @@ def _add_bitmap_mpl(
         shape, pixel_size, (image_shape[0], image_shape[1])
     )
 
-    bitmap = shape.bitmap
-
-    if bitmap is None:
-        bitmap = np.zeros((1, 1, 2), dtype=float)
-
-    if shape.flip_y:
-        bitmap = np.flip(bitmap, axis=0)
-
-    dwell_time_array = bitmap[:, :, 0].astype(np.float64)
-    blanking_array = bitmap[:, :, 1] == 1
-
-    # Ensure no rectangles will be subpixel (these are not displayed)
-    target_shape = list(dwell_time_array.shape)
-    resize_array = False
-    if height < dwell_time_array.shape[0]:
-        resize_array = True
-        target_shape[0] = round(height)
-    if width < dwell_time_array.shape[1]:
-        resize_array = True
-        target_shape[1] = round(width)
-
-    if resize_array:
-        dwell_time_array = resize(
-            dwell_time_array,
-            output_shape=target_shape,
-            preserve_range=True,
-            order=1,  # bi-linear interpolation
-        )
-        blanking_array = resize(
-            blanking_array, output_shape=target_shape, preserve_range=True, order=0
-        )
-
-    cmap = ListedColormap(
-        np.linspace((0, 0, 0, 0), to_rgba(colour, alpha=1), endpoint=True, num=256),
-        name=f"{colour}_blend",
-        N=256,
-    )
-    rgba = cmap(dwell_time_array)
-    rgba[blanking_array] = (0, 0, 0, 1)
-
-    # Apply opacity to the array (imshow alpha overrides these values).
-    rgba[:, :, 3] *= PROPERTIES["opacity"]
+    rgba = bitmap_to_rgba(shape, width, height, colour)
 
     # Draw the edges
     edge_rectangle = mpatches.Rectangle(
