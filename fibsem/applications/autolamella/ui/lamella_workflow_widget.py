@@ -165,6 +165,7 @@ class LamellaWorkflowWidget(QWidget):
 
     # ── workflow signals ─────────────────────────────────────────────────
     task_supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
+    task_review_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     task_edited = pyqtSignal(object)  # AutoLamellaTaskDescription (after apply)
     task_remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
     task_added = pyqtSignal(object)  # AutoLamellaTaskDescription
@@ -249,6 +250,7 @@ class LamellaWorkflowWidget(QWidget):
         self.lamella_list.selection_changed.connect(self.lamella_selection_changed)
 
         self.workflow.supervised_changed.connect(self.task_supervised_changed)
+        self.workflow.review_changed.connect(self.task_review_changed)
         self.workflow.edit_requested.connect(self._on_task_edit_requested)
         self.workflow.remove_requested.connect(self.task_remove_requested)
         self.workflow.selection_changed.connect(self.task_selection_changed)
