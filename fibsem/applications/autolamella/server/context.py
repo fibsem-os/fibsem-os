@@ -835,6 +835,99 @@ class AgentContext:
             )
         return result
 
+    # --- propose and review (FIB-950) -----------------------------------------
+
+    def reviews(self) -> Dict[str, Any]:
+        """Every proposal waiting for a decision: the Review tab's inbox, derived
+        from the experiment the same way the tab derives it, with the reference
+        image each proposal's values sit on as an agent-sized preview."""
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "reviews": []}
+        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.applications.autolamella.server.prompts import _preview_payload
+        from fibsem.applications.autolamella.ui.review_tab_widget import (
+            _load_reference_image,
+            waiting_on,
+        )
+
+        reviews = []
+        for item, task_name, proposal in experiment.pending_proposals():
+            doc = to_plain(proposal.to_dict())
+            doc.update(
+                {
+                    "item_id": item.id,
+                    "item_name": item.name,
+                    "task_name": task_name,
+                    "gating": proposal.gating,
+                    "waiting_on": waiting_on(experiment, task_name),
+                }
+            )
+            image = _load_reference_image(item, proposal)
+            doc["reference_image"] = (
+                _preview_payload(image) if image is not None else None
+            )
+            reviews.append(doc)
+        return {"available": True, "reviews": reviews}
+
+    def decide(
+        self,
+        item_id: str,
+        task_name: str,
+        outcome: str,
+        values: Optional[Dict[str, Any]] = None,
+        reason: str = "",
+        author: str = "",
+    ) -> Dict[str, Any]:
+        """Decide a pending proposal, exactly as the Review tab would: the same
+        Experiment.decide, on the main thread, blocking until applied. The
+        author is recorded as the agent, never as the operator."""
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "applied": False, "reason": "No experiment."}
+        from fibsem.applications.autolamella.proposals import (
+            Decision,
+            DecisionOutcome,
+            _decode_values,  # the wire shape is the stored shape
+            agent_author,
+        )
+
+        try:
+            decided = DecisionOutcome[outcome]
+        except KeyError:
+            return {
+                "available": True,
+                "applied": False,
+                "invalid_value": f"outcome must be Confirmed or Rejected, not {outcome!r}",
+            }
+        decision = Decision(
+            outcome=decided,
+            author=agent_author(author or "remote"),
+            values=_decode_values(values or {}),
+            reason=reason,
+        )
+        result = experiment.decide(item_id, task_name, decision)
+        doc = result.to_dict()
+        doc["available"] = True
+        if result.applied:
+            try:
+                experiment.save()
+            except Exception:
+                logging.exception(
+                    "saving the experiment after an agent decision failed"
+                )
+            if self._event_buffer is not None:
+                self._event_buffer.append(
+                    "review_decided",
+                    {
+                        "item_id": item_id,
+                        "task_name": task_name,
+                        "outcome": decided.name,
+                        "author": decision.author,
+                    },
+                )
+        return doc
+
     def add_note(self, text: str, item_name: Optional[str] = None) -> Dict[str, Any]:
         """Put an agent observation on the record.
 
