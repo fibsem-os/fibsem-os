@@ -9,7 +9,17 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 import pandas as pd
 import petname
@@ -830,65 +840,173 @@ class AutoLamellaTaskProtocol:
         return task_configs
 
 
-class DefectType(Enum):
-    NONE = auto()
-    FAILURE = auto()
+class Verdict(Enum):
+    """A judgement about a lamella or a grid, made by a person (or a reviewer
+    acting for one) and never by a task.
+
+    ``UNASSESSED`` and ``GOOD`` are different answers: nobody has looked, versus
+    somebody looked and it was fine. The old ``DefectType.NONE`` meant both.
+    """
+
+    UNASSESSED = auto()
+    GOOD = auto()
     REWORK = auto()
+    FAILED = auto()
+
+    # Aliases for the names the old enums used. ``Verdict["NONE"]`` resolves,
+    # ``Verdict.NONE is Verdict.UNASSESSED``, and iteration skips them.
+    NONE = UNASSESSED
+    FAILURE = FAILED
+    POOR = FAILED
 
 
 @evented
 @dataclass
-class DefectState:
-    state: DefectType = field(default=DefectType.NONE)
-    last_completed_task: str = ""
-    description: str = ""
+class QualityRecord:
+    """The current human verdict on an item, attributed.
+
+    One type for lamellae and grids, replacing ``DefectState`` (lamella) and the
+    bare ``GridQuality`` enum (grid), which were the same idea under two names
+    with neither recording who set it. Holds the *current* verdict only; the
+    full trail of what was proposed and decided lives on the item's proposals,
+    and ``decision_id`` points at the decision that set this verdict when a
+    review did.
+    """
+
+    verdict: Verdict = field(default=Verdict.UNASSESSED)
+    author: str = ""  # "human:<name>" | "agent:<model>"; "" when unrecorded
+    reason: str = ""
+    at_task: str = ""  # the task the item was judged at
     updated_at: Optional[float] = None
+    decision_id: Optional[Tuple[str, str]] = None  # (item_id, task_name)
+
+    # -- names the old DefectState API used; kept so callers migrate one at a time
+    @property
+    def state(self) -> Verdict:
+        return self.verdict
+
+    @state.setter
+    def state(self, value: Verdict) -> None:
+        self.verdict = value
+
+    @property
+    def description(self) -> str:
+        return self.reason
+
+    @description.setter
+    def description(self, value: str) -> None:
+        self.reason = value
+
+    @property
+    def last_completed_task(self) -> str:
+        return self.at_task
+
+    @last_completed_task.setter
+    def last_completed_task(self, value: str) -> None:
+        self.at_task = value
 
     def to_dict(self) -> dict:
         return {
-            "state": self.state.name,
-            "last_completed_task": self.last_completed_task,
-            "description": self.description,
+            "verdict": self.verdict.name,
+            "author": self.author,
+            "reason": self.reason,
+            "at_task": self.at_task,
             "updated_at": self.updated_at,
+            "decision_id": list(self.decision_id) if self.decision_id else None,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DefectState":
+    def from_dict(cls, data: Union[dict, str, None]) -> "QualityRecord":
+        """Read the current shape, the ``DefectState`` shape (``state`` /
+        ``description`` / ``last_completed_task``), the pre-``DefectState``
+        ``has_defect`` / ``requires_rework`` bools, and the bare name string
+        ``GridRecord`` used to write. Unknown names read as ``UNASSESSED``."""
         if not data:
             return cls()
-        # Backwards compatibility: old format used has_defect / requires_rework bools
+        if isinstance(data, str):
+            return cls(verdict=_verdict_by_name(data))
         if "has_defect" in data:
             if data.get("has_defect"):
-                state = (
-                    DefectType.REWORK
-                    if data.get("requires_rework")
-                    else DefectType.FAILURE
+                verdict = (
+                    Verdict.REWORK if data.get("requires_rework") else Verdict.FAILED
                 )
             else:
-                state = DefectType.NONE
+                verdict = Verdict.UNASSESSED
             return cls(
-                state=state,
-                description=data.get("description", ""),
+                verdict=verdict,
+                reason=data.get("description", ""),
                 updated_at=data.get("updated_at", None),
             )
-        state = DefectType[data.get("state", "NONE")]
+        decision_id = data.get("decision_id")
         return cls(
-            state=state,
-            last_completed_task=data.get("last_completed_task", ""),
-            description=data.get("description", ""),
+            verdict=_verdict_by_name(data.get("verdict", data.get("state", ""))),
+            author=data.get("author", ""),
+            reason=data.get("reason", data.get("description", "")),
+            at_task=data.get("at_task", data.get("last_completed_task", "")),
             updated_at=data.get("updated_at", None),
+            decision_id=tuple(decision_id) if decision_id else None,
         )
 
     def clear(self):
-        self.state = DefectType.NONE
-        self.last_completed_task = ""
-        self.description = ""
+        self.verdict = Verdict.UNASSESSED
+        self.author = ""
+        self.reason = ""
+        self.at_task = ""
         self.updated_at = None
+        self.decision_id = None
 
-    def set_defect(self, description: str = "", state: DefectType = DefectType.FAILURE):
-        self.state = state
-        self.description = description
+    def set_defect(
+        self,
+        description: str = "",
+        state: Verdict = Verdict.FAILED,
+        author: str = "",
+    ):
+        self.verdict = state
+        self.reason = description
+        self.author = author
         self.updated_at = datetime.timestamp(datetime.now())
+
+
+_quality_record_init = QualityRecord.__init__
+
+
+def _quality_record_init_with_old_names(
+    self,
+    *args,
+    state: Optional[Verdict] = None,
+    description: Optional[str] = None,
+    last_completed_task: Optional[str] = None,
+    **kwargs,
+):
+    """``DefectState(state=..., description=..., last_completed_task=...)`` keeps
+    constructing. The dataclass ``__init__`` only knows the new field names, so
+    the old keywords are mapped here; a caller passing both forms gets the new
+    one."""
+    if state is not None:
+        kwargs.setdefault("verdict", state)
+    if description is not None:
+        kwargs.setdefault("reason", description)
+    if last_completed_task is not None:
+        kwargs.setdefault("at_task", last_completed_task)
+    _quality_record_init(self, *args, **kwargs)
+
+
+QualityRecord.__init__ = _quality_record_init_with_old_names  # type: ignore[method-assign]
+
+
+def _verdict_by_name(name: str) -> Verdict:
+    try:
+        return Verdict[name]
+    except KeyError:
+        return Verdict.UNASSESSED
+
+
+# The names this type and its enum had before they were one thing. Every reader
+# of ``DefectState`` / ``DefectType`` / ``GridQuality`` keeps working; new code
+# says ``QualityRecord`` / ``Verdict``.
+DefectState = QualityRecord
+DefectType = Verdict
+GridQuality = Verdict
 
 
 # The thumbnail is only ever displayed, and its largest reader is the cozy lamella
@@ -1013,7 +1131,19 @@ class Lamella:
         answered by completed_tasks -- which filters on task status, so a failed
         prerequisite does not license the task that requires it. See FIB-490.
         """
-        return self.defect.state is DefectType.FAILURE
+        return self.defect.verdict is Verdict.FAILED
+
+    @property
+    def quality(self) -> QualityRecord:
+        """The same record as ``defect`` under the name ``GridRecord`` uses, so
+        code that judges an item need not know which kind it has. The field is
+        still ``defect`` because its evented signal is what the lamella widgets
+        subscribe to; renaming it is a separate, mechanical change."""
+        return self.defect
+
+    @quality.setter
+    def quality(self, value: QualityRecord) -> None:
+        self.defect = value
 
     @property
     def stage_position(self) -> FibsemStagePosition:
@@ -1294,19 +1424,6 @@ class Lamella:
         return synced_tasks
 
 
-class GridQuality(Enum):
-    """A human's verdict on a grid, set by hand and never by automation.
-
-    Kept apart from task status on purpose: a task that failed on a grid says
-    nothing about whether the grid is any good, and a good grid can have a failed
-    overview. Same discipline as a lamella's defect state.
-    """
-
-    UNASSESSED = auto()
-    GOOD = auto()
-    POOR = auto()
-
-
 @evented
 @dataclass
 class GridRecord:
@@ -1326,7 +1443,7 @@ class GridRecord:
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""
-    quality: GridQuality = GridQuality.UNASSESSED
+    quality: QualityRecord = field(default_factory=QualityRecord)
     task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
     task_history: List[AutoLamellaTaskState] = field(default_factory=list)
     created_at: float = field(
@@ -1346,7 +1463,8 @@ class GridRecord:
     @property
     def is_failure(self) -> bool:
         """Whether the latest run on this grid ended in failure. Not a verdict on
-        the grid -- see `quality` for that."""
+        the grid -- see `quality` for that, which a person sets and a task never
+        does, same as a lamella."""
         return self.task_state.status is AutoLamellaTaskStatus.Failed
 
     def to_dict(self) -> dict:
@@ -1354,7 +1472,7 @@ class GridRecord:
             "name": self.name,
             "_id": self.id,
             "description": self.description,
-            "quality": self.quality.name,
+            "quality": self.quality.to_dict(),
             "task_state": self.task_state.to_dict(),
             "task_history": [t.to_dict() for t in self.task_history],
             "created_at": self.created_at,
@@ -1362,16 +1480,11 @@ class GridRecord:
 
     @classmethod
     def from_dict(cls, data: dict) -> "GridRecord":
-        quality = data.get("quality", GridQuality.UNASSESSED.name)
-        try:
-            quality = GridQuality[quality]
-        except KeyError:
-            quality = GridQuality.UNASSESSED
         return cls(
             name=data["name"],
             id=data.get("_id") or str(uuid.uuid4()),
             description=data.get("description", ""),
-            quality=quality,
+            quality=QualityRecord.from_dict(data.get("quality")),
             task_state=AutoLamellaTaskState.from_dict(data.get("task_state", {})),
             task_history=[
                 AutoLamellaTaskState.from_dict(t) for t in data.get("task_history", [])
@@ -1380,7 +1493,7 @@ class GridRecord:
         )
 
     def __repr__(self) -> str:
-        return f"GridRecord(name={self.name!r}, quality={self.quality.name}, tasks={len(self.task_history)})"
+        return f"GridRecord(name={self.name!r}, quality={self.quality.verdict.name}, tasks={len(self.task_history)})"
 
 
 @evented

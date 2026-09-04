@@ -36,13 +36,13 @@ class TestGridRecord:
     def test_defaults(self):
         grid = GridRecord(name="grid-aspen")
         assert grid.id
-        assert grid.quality is GridQuality.UNASSESSED
+        assert grid.quality.verdict is GridQuality.UNASSESSED
         assert grid.task_history == []
         assert not grid.is_failure
 
     def test_round_trip(self):
         grid = GridRecord(name="grid-aspen", description="HeLa, batch B")
-        grid.quality = GridQuality.GOOD
+        grid.quality.verdict = GridQuality.GOOD
         done = AutoLamellaTaskState(
             name="overview_sem", status=AutoLamellaTaskStatus.Completed
         )
@@ -51,13 +51,13 @@ class TestGridRecord:
         assert again.id == grid.id
         assert again.name == "grid-aspen"
         assert again.description == "HeLa, batch B"
-        assert again.quality is GridQuality.GOOD
+        assert again.quality.verdict is GridQuality.GOOD
         assert again.has_completed_task("overview_sem")
         assert again.created_at == grid.created_at
 
     def test_unknown_quality_reads_as_unassessed(self):
         again = GridRecord.from_dict({"name": "g", "quality": "SPLENDID"})
-        assert again.quality is GridQuality.UNASSESSED
+        assert again.quality.verdict is GridQuality.UNASSESSED
 
     def test_missing_id_gets_one(self):
         again = GridRecord.from_dict({"name": "g"})
@@ -100,11 +100,11 @@ class TestExperimentGrids:
     def test_persists_and_old_files_load_with_none(self, tmp_path):
         exp = _experiment(tmp_path)
         grid = exp.add_grid(GridRecord(name="grid-aspen"))
-        grid.quality = GridQuality.POOR
+        grid.quality.verdict = GridQuality.POOR
         data = exp.to_dict()
         again = Experiment.from_dict(yaml.safe_load(yaml.safe_dump(data)))
         assert [g.name for g in again.grids] == ["grid-aspen"]
-        assert again.grids[0].quality is GridQuality.POOR
+        assert again.grids[0].quality.verdict is GridQuality.POOR
         assert again.grids[0].id == grid.id
 
         del data["grids"]  # an experiment written before grid records existed
@@ -180,9 +180,9 @@ class TestSyncFromInventory:
         microscope = self._compustage()
         exp = _experiment(tmp_path)
         exp.sync_grids_from_inventory(microscope._stage)
-        exp.get_grid_by_name("Grid-01").quality = GridQuality.GOOD
+        exp.get_grid_by_name("Grid-01").quality.verdict = GridQuality.GOOD
         assert exp.sync_grids_from_inventory(microscope._stage) == []
-        assert exp.get_grid_by_name("Grid-01").quality is GridQuality.GOOD
+        assert exp.get_grid_by_name("Grid-01").quality.verdict is GridQuality.GOOD
 
     def test_a_record_exists_before_its_grid_is_in_the_beam(self, tmp_path):
         microscope = self._compustage()

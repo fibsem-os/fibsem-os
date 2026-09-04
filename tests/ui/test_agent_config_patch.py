@@ -267,7 +267,7 @@ def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp):
     item = lamella.name
     with _client(ui, buffer=buffer) as client:
         doc = client.get(f"/app/items/{item}", headers=AUTH).json()
-        assert "version" in doc and doc["defect"]["state"] == "NONE"
+        assert "version" in doc and doc["defect"]["verdict"] == "UNASSESSED"
         resp = _post_on_worker(
             qapp,
             client,
@@ -275,8 +275,8 @@ def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp):
             {
                 "patch": {
                     "poi.x": 5e-6,
-                    "defect.state": "REWORK",
-                    "defect.description": "curtained face",
+                    "defect.verdict": "REWORK",
+                    "defect.reason": "curtained face",
                 },
                 "version": doc["version"],
             },
@@ -285,7 +285,8 @@ def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp):
         body = resp.json()
         assert body["applied"] is True and body["saved"] is True
         assert lamella.poi.x == 5e-6
-        assert lamella.defect.state.name == "REWORK"
+        assert lamella.defect.verdict.name == "REWORK"
+        assert lamella.defect.reason == "curtained face"
         assert lamella.defect.updated_at is not None
         # New version serves on the next read; the event stream records it.
         reread = client.get(f"/app/items/{item}", headers=AUTH).json()

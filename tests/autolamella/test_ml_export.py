@@ -294,7 +294,7 @@ def test_collect_sample_carries_provenance(tmp_path):
     _save_reference_image(lamella)
 
     sample = ml_export.collect_sample(lamella, "0001")
-    assert sample.defect == "FAILURE"
+    assert sample.defect == "FAILED"
     assert sample.milling_angle == pytest.approx(0.3)
     assert sample.lamella_id == lamella.id
     assert sample.petname == lamella.name
