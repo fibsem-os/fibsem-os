@@ -1130,8 +1130,6 @@ class FibsemMicroscope(ABC):
             return self.system.stage.enabled
         elif system == "stage_rotation":
             return self.system.stage.rotation
-        elif system == "stage_tilt":
-            return self.system.stage.tilt
         elif system == "manipulator":
             return self.system.manipulator.enabled
         elif system == "manipulator_rotation":
@@ -1159,8 +1157,6 @@ class FibsemMicroscope(ABC):
             self.system.stage.enabled = value
         elif system == "stage_rotation":
             self.system.stage.rotation = value
-        elif system == "stage_tilt":
-            self.system.stage.tilt = value
         elif system == "manipulator":
             self.system.manipulator.enabled = value
         elif system == "manipulator_rotation":

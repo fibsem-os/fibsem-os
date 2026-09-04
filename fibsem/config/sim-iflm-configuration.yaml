@@ -25,7 +25,6 @@ fm:
 stage:
     enabled:                    true                        # the stage is enabled                                          [USER]
     rotation:                   true                        # the stage is able to rotate; false means it has no 180-degree side  [USER]
-    tilt:                       true                        # the stage is able to tilt                                     [USER]
     rotation_reference:         0                           # the reference rotation value                                  [SPECIFIED]
     shuttle_pre_tilt:           35.0                        # the pre-tilt of the shuttle                                   [SPECIFIED]
     manipulator_height_limit:   0.0037                      # the linked height limit for manipulator (Thermo Only)         [DERIVED - manufactuer]
