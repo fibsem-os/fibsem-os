@@ -49,9 +49,9 @@ def test_defect_state_to_dict_and_from_dict():
         description="thin spot",
     )
     data = d.to_dict()
-    assert data["state"] == "REWORK"
-    assert data["last_completed_task"] == "Mill Rough"
-    assert data["description"] == "thin spot"
+    assert data["verdict"] == "REWORK"
+    assert data["at_task"] == "Mill Rough"
+    assert data["reason"] == "thin spot"
 
     d2 = DefectState.from_dict(data)
     assert d2.state == DefectType.REWORK
@@ -141,6 +141,77 @@ def test_defect_state_set_defect_rework():
     d = DefectState()
     d.set_defect(description="thin spot", state=DefectType.REWORK)
     assert d.state == DefectType.REWORK
+
+
+def test_quality_record_reads_the_defect_state_shape_and_the_bare_grid_name():
+    """Experiments written before QualityRecord: a lamella wrote the DefectState
+    keys, a grid wrote just the GridQuality name. Both still load, and the old
+    names map onto the new verdicts."""
+    from fibsem.applications.autolamella.structures import QualityRecord, Verdict
+
+    old_lamella = {
+        "state": "FAILURE",
+        "last_completed_task": "Mill Rough",
+        "description": "torn",
+    }
+    q = QualityRecord.from_dict(old_lamella)
+    assert q.verdict is Verdict.FAILED
+    assert q.at_task == "Mill Rough"
+    assert q.reason == "torn"
+    assert q.author == ""
+
+    assert QualityRecord.from_dict("POOR").verdict is Verdict.FAILED
+    assert QualityRecord.from_dict("GOOD").verdict is Verdict.GOOD
+    assert QualityRecord.from_dict("SPLENDID").verdict is Verdict.UNASSESSED
+    assert QualityRecord.from_dict(None).verdict is Verdict.UNASSESSED
+
+
+def test_quality_record_round_trips_author_and_decision_id():
+    from fibsem.applications.autolamella.structures import QualityRecord, Verdict
+
+    q = QualityRecord(
+        verdict=Verdict.FAILED,
+        author="human:operator",
+        reason="no usable site",
+        at_task="Setup Lamella Position",
+        decision_id=("lamella-uuid", "Setup Lamella Position"),
+    )
+    again = QualityRecord.from_dict(q.to_dict())
+    assert again == q
+    assert again.decision_id == ("lamella-uuid", "Setup Lamella Position")
+    # the old attribute names still read and write the same fields
+    assert again.state is Verdict.FAILED
+    assert again.description == "no usable site"
+    again.state = Verdict.REWORK
+    assert again.verdict is Verdict.REWORK
+
+
+def test_old_enum_names_are_aliases():
+    from fibsem.applications.autolamella.structures import (
+        DefectState,
+        DefectType,
+        GridQuality,
+        QualityRecord,
+        Verdict,
+    )
+
+    assert DefectState is QualityRecord
+    assert DefectType is Verdict and GridQuality is Verdict
+    assert Verdict.NONE is Verdict.UNASSESSED
+    assert Verdict.FAILURE is Verdict.FAILED
+    assert Verdict.POOR is Verdict.FAILED
+    assert [v.name for v in Verdict] == ["UNASSESSED", "GOOD", "REWORK", "FAILED"]
+
+
+def test_lamella_quality_is_the_defect_record():
+    from pathlib import Path
+
+    from fibsem.applications.autolamella.structures import Verdict
+
+    lam = Lamella(path=Path("/tmp/test/lam"), number=1, petname="test-lam")
+    assert lam.quality is lam.defect
+    lam.quality.verdict = Verdict.FAILED
+    assert lam.is_failure is True
 
 
 def test_lamella_is_failure():
