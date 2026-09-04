@@ -321,6 +321,29 @@ class Harness:
                 return
         raise RuntimeError(f"no main tab named {title!r}")
 
+    def ensure_lamellae(self, count: int = 3):
+        """The worked example's lamellae, added at stage positions spread round
+        the current one the way marking them on an overview would."""
+        from copy import deepcopy
+
+        experiment = self.ensure_experiment()
+        offsets = (
+            (90e-6, 70e-6),
+            (-130e-6, -50e-6),
+            (30e-6, -160e-6),
+            (150e-6, -90e-6),
+        )
+        base = self.connection.microscope.get_stage_position()
+        while len(experiment.positions) < count:
+            dx, dy = offsets[len(experiment.positions) % len(offsets)]
+            position = deepcopy(base)
+            position.x = base.x + dx
+            position.y = base.y + dy
+            self.ui.add_new_lamella(stage_position=position)
+            self.pump(400)
+        self.pump(500)
+        return list(experiment.positions)
+
     def show_tab(self, index: int) -> None:
         self.window.tab_widget.setCurrentIndex(index)
         self.pump()
@@ -1639,6 +1662,80 @@ def render_overview(h: Harness) -> None:
     )
     container.set_modality("FIBSEM")
     h.pump(300)
+
+
+@page("lamella")
+def render_lamella(h: Harness) -> None:
+    """A lamella: the Experiment tab's list, the Lamella tab's cards and
+    editor, a card's actions, and the Review sub-tab."""
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    ctrl = h.ui.movement_widget.control_widget
+    iw = h.ui.image_widget
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
+    lamellae = h.ensure_lamellae(3)
+
+    # the Experiment tab: the list, + to add at the current position, and the
+    # selected lamella's details
+    h.show_main_tab("Microscope")
+    h.ui.tabWidget.setCurrentWidget(h.ui.tab)
+    h.ui.lamella_list.select(lamellae[0].name) if hasattr(
+        h.ui.lamella_list, "select"
+    ) else None
+    h.pump(400)
+    h.shot("experiment-tab", target=h.ui.tab, crop=True, height=520)
+
+    # the Lamella tab: cards on the left, the selected lamella's own task
+    # configuration and its images on the right
+    h.show_main_tab("Lamella")
+    cards = h.window.lamella_card_container
+    editor = h.window.lamella_widget
+    editor.select_lamella(lamellae[0].name)
+    h.pump(600)
+    editor.listWidget_selected_task.select("Rough Milling")
+    h.pump(600)
+    h.shot(
+        "lamella-tab",
+        callouts=[
+            Box(cards),
+            Box(editor.listWidget_selected_task),
+            Box(editor.task_parameters_config_widget),
+            editor.pushButton_apply_to_other,
+        ],
+        numbered=True,
+    )
+
+    # one card's actions menu
+    from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardWidget
+
+    card = cards.findChildren(LamellaCardWidget)[0]
+    menu = card._btn_actions.menu()
+    menu.popup(card._btn_actions.mapToGlobal(QPoint(0, card._btn_actions.height())))
+    h.pump(300)
+    rects = [menu.actionGeometry(a) for a in menu.actions() if a.text()]
+    h.shot("card-actions", target=menu)
+    menu.close()
+    h.pump(200)
+    h.shot(
+        "card",
+        target=card,
+        callouts=[card._btn_actions, card._btn_defect],
+        numbered=True,
+    )
+
+    # the Review sub-tab: task images, empty before a task has run
+    right_tabs = h.window.lamella_task_image_widget.parentWidget()
+    while right_tabs is not None and not hasattr(right_tabs, "setCurrentWidget"):
+        right_tabs = right_tabs.parentWidget()
+    right_tabs.setCurrentWidget(h.window.lamella_task_image_widget)
+    h.pump(400)
+    h.shot(
+        "review-tab", target=h.window.lamella_task_image_widget, crop=True, height=300
+    )
+    right_tabs.setCurrentIndex(0)
+    h.pump(200)
 
 
 # -- entry point --------------------------------------------------------------
