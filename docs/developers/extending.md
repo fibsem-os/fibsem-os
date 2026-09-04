@@ -187,6 +187,16 @@ unchanged.
   acquisition and stage movement right and let the rest raise until their
   subsystem's turn.
 
+### A fluorescence microscope
+
+Subclass `FluorescenceMicroscope` (`fibsem/fm/microscope.py`), which covers
+the objective, the filter set, the camera and acquisition; the
+`SimulatedFluorescenceMicroscope` in `fibsem/microscopes/simulator.py` is
+the hardware-free reference, and the Thermo Fisher and Odemis backends in
+`fibsem/fm/` are the two real ones. This interface is still in active
+development: expect it to change, and open an issue before building on it
+so the change can go the right way.
+
 ## Your own segmentation model
 
 `fibsem/segmentation/` is the home: `SegmentationModelHuggingFace` loads
