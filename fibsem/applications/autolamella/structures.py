@@ -1317,7 +1317,7 @@ class GridRecord:
     hardware grid: all of that is resolved live against the stage, so a record
     stays valid when its grid changes slot or leaves the magazine. A record exists
     from the moment a grid is *available* (present in the inventory), so twelve
-    grids can be queued before any has been in the beam.
+    grids can be queued before any has been loaded.
 
     `task_state` and `task_history` are the same types the lamella side uses,
     and the same rule applies: never replace `task_state` wholesale, mutate it.

@@ -468,7 +468,7 @@ class AgentContext:
         """Every grid the experiment knows, with its latest recorded overviews.
 
         Records only — never the hardware inventory. Which slot a grid sits in
-        and whether it is in the beam are live stage facts, and this facade
+        and whether it is loaded are live stage facts, and this facade
         does not ask the instrument on an observer's behalf.
         """
         experiment = self._experiment
@@ -1184,7 +1184,7 @@ class AgentContext:
         recorded grids exactly as :meth:`start_grid_workflow` will. For
         ``screen_all`` the grids are whatever the inventory finds at run time,
         so the plan names the known grids and says so rather than guessing.
-        Exchanges are deliberately not counted: whether a grid is in the beam
+        Exchanges are deliberately not counted: whether a grid is loaded
         is a live stage fact this facade does not read.
         """
         from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
