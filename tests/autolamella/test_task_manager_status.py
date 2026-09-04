@@ -472,7 +472,11 @@ def test_a_decision_during_the_wait_wakes_the_run(tmp_path):
 
     def decide_soon():
         time.sleep(0.3)
-        m.experiment.decide(
+        # _decide, the unmarshalled inner: with a QApplication in the process
+        # (the UI suites share it) decide() would park on a main thread this
+        # test holds in run_queue_with. The wake-up is the subject, not the
+        # marshalling, which tests/ui/test_decide_main_thread.py covers.
+        m.experiment._decide(
             l1.id,
             "Trench",
             Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
