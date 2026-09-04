@@ -3,7 +3,7 @@
 The Arctis user's real ask is "inventory all my grids and acquire the overviews".
 Nothing here is new; it is the order in which the pieces that exist get called,
 written once so the button, a script and the agent server run the same thing.
-On a fixed holder every present grid is already in the beam, so the same call
+On a fixed holder every present grid is already loaded, so the same call
 is a run with zero exchanges.
 """
 
@@ -31,7 +31,10 @@ def present_grids(
     """Refresh the inventory, record every present grid, and return their names
     in slot order. The selection "Screen all grids" runs over."""
     stage = microscope._stage
-    inventory = stage.run_inventory()
+    # A read, not a scan: the operator will have inventoried the magazine (in
+    # xT or from the Sample view), and a physical scan in front of every
+    # screening run is the wait this call exists to avoid.
+    inventory = stage.get_inventory()
     added = experiment.sync_grids_from_inventory(stage)
     if added:
         logging.info(f"Inventory added {len(added)} grid(s): {[g.name for g in added]}")

@@ -3,7 +3,7 @@
 Mirrors the Lamella tab: cards on the left, the selected grid's results on the
 right; the grid protocol is edited on the Protocol tab beside the lamella one. The tab's object is what grids are *available to this experiment*, not
 what the hardware holds; empty magazine slots never appear here (that is
-Microscope → Sample). Slot, present and in-beam are read from the stage's
+Microscope → Sample). Slot, present and loaded are read from the stage's
 inventory on every refresh and drawn as chips.
 
 Run inventory, Load and Unload are conveniences over the same ``Stage``
@@ -87,8 +87,8 @@ class GridsTabWidget(QWidget):
             fibsem_icon(ICON_INVENTORY, color=stylesheets.GRAY_ICON_COLOR)
         )
         self.btn_inventory.setToolTip(
-            "Run inventory: refresh what the hardware holds and add a record for "
-            "every grid it finds"
+            "Refresh: read what the hardware knows it holds and add a record for "
+            "every grid it finds. A magazine scan is on Microscope → Sample"
         )
         self.btn_inventory.clicked.connect(self._on_run_inventory)
 
@@ -280,20 +280,15 @@ class GridsTabWidget(QWidget):
         stage = self.stage
         if stage is None or self._experiment is None:
             return
-        if stage.loader is not None and not self._confirm(
-            "Run inventory",
-            "Scan the magazine? The autoloader checks every slot for a grid and "
-            "reads the names on the slot descriptions; it takes a moment and the "
-            "magazine must not be opened while it runs.",
-        ):
-            return
         experiment = self._experiment
 
         def job() -> None:
-            stage.run_inventory()
+            # A read: nothing moves, so nothing to ask. The physical scan lives
+            # on the Sample view, where the hardware is.
+            stage.get_inventory()
             experiment.sync_grids_from_inventory(stage)
 
-        self._start(job, "Running inventory…", "Inventory complete.")
+        self._start(job, "Reading inventory…", "Inventory read.")
 
     def _on_load(self, grid: GridRecord) -> None:
         stage = self.stage
@@ -303,7 +298,7 @@ class GridsTabWidget(QWidget):
         def job() -> None:
             stage.ensure_loaded(grid.name)
 
-        self._start(job, f"Loading {grid.name}…", f"{grid.name} is in the beam.")
+        self._start(job, f"Loading {grid.name}…", f"{grid.name} is loaded.")
 
     def _on_unload(self, grid: GridRecord) -> None:
         stage = self.stage
