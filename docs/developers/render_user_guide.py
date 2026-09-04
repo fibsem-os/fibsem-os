@@ -1535,6 +1535,112 @@ def render_protocols(h: Harness) -> None:
     h.pump(200)
 
 
+@page("overview")
+def render_overview(h: Harness) -> None:
+    """The Overview tab: a tiled SEM overview, positions marked on it, FIB
+    overviews at two orientations, and the FM overview tab."""
+    from copy import deepcopy
+
+    from fibsem.applications.autolamella.ui.overview_container_tab import (
+        MODALITY_FLUORESCENCE as MODALITY_FM,
+    )
+    from fibsem.structures import BeamType
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    h.ensure_experiment()
+    iw = h.ui.image_widget
+    ctrl = h.ui.movement_widget.control_widget
+    microscope = h.connection.microscope
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
+    h.show_main_tab("Overview")
+    container = h.window.overview_tab
+    beam_tab = container.beam_tab
+    ow = beam_tab.overview
+    settings = ow.settings_widget
+
+    def acquire(beam, rows=3, cols=3, hfw_um=400.0):
+        settings.combo_beam.set_value(beam)
+        settings.grid.spin_rows.setValue(rows)
+        settings.grid.spin_cols.setValue(cols)
+        settings.spin_hfw.setValue(hfw_um)
+        h.pump(200)
+        ow._confirm = lambda *_: True  # the confirmation dialog, answered
+        ow.acquire()
+        waited = 0
+        h.pump(500)
+        while ow.is_acquiring and waited < 300000:
+            h.pump(250)
+            waited += 250
+        if ow.is_acquiring:
+            raise RuntimeError("overview did not finish")
+        h.pump(1000)
+
+    # the tab before anything is acquired
+    settings.combo_beam.set_value(BeamType.ELECTRON)
+    settings.grid.spin_rows.setValue(3)
+    settings.grid.spin_cols.setValue(3)
+    settings.spin_hfw.setValue(400.0)
+    h.pump(300)
+    h.shot(
+        "overview-tab",
+        callouts=[
+            Box(settings),
+            ow.button_acquire,
+            Box(ow.view_strip),
+            Box(ow.overview_list),
+            Box(beam_tab.lamella_list),
+        ],
+        numbered=True,
+    )
+
+    # a 3 x 3 SEM overview of the grid centre
+    acquire(BeamType.ELECTRON)
+    h.shot("sem-overview")
+
+    # three positions marked on it (what "Add New Position Here" does)
+    base = microscope.get_stage_position()
+    for dx, dy in ((90e-6, 70e-6), (-130e-6, -50e-6), (30e-6, -160e-6)):
+        position = deepcopy(base)
+        position.x = base.x + dx
+        position.y = base.y + dy
+        ow.position_add_requested.emit(position)
+        h.pump(400)
+    h.pump(500)
+    h.shot("positions-marked")
+
+    # the ion beam's view of the same place, at the SEM orientation and at the
+    # MILLING orientation: two more entries in the view strip
+    # (smaller tiles: the ion beam's tiles step further across the stage
+    # than their width, and a 3 x 3 at 400 um runs past the stage limits)
+    acquire(BeamType.ION, hfw_um=250.0)
+    h.shot("fib-overview-sem-orientation")
+    ctrl.move_to_orientation("MILLING")
+    h.wait_move(ctrl, iw)
+    # at the milling angle the beam grazes the surface, so a row of tiles
+    # spans a long way along the stage: one row of three is the strip a
+    # milling-orientation overview usually is
+    acquire(BeamType.ION, rows=1, cols=3, hfw_um=250.0)
+    h.shot("fib-overview-milling-orientation")
+    h.shot("view-strip", target=ow.view_strip, crop=True)
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
+
+    # the fluorescence overview tab, as it opens (Arctis only)
+    container.set_modality(MODALITY_FM)
+    h.pump(500)
+    fow = container.fm_tab.overview
+    h.shot(
+        "fm-overview-tab",
+        callouts=[fow.button_move_to_fm, fow.button_acquire],
+        numbered=True,
+    )
+    container.set_modality("FIBSEM")
+    h.pump(300)
+
+
 # -- entry point --------------------------------------------------------------
 
 
