@@ -35,7 +35,9 @@ from fibsem.applications.autolamella.proposals import (
     DecisionOutcome,
     DecisionResult,
     Proposal,
+    has_value_writer,
     human_author,
+    known_value_names,
     proposals_from_dict,
     proposals_to_dict,
     write_value,
@@ -1782,6 +1784,16 @@ class Experiment:
                 )
             if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
                 return DecisionResult(applied=False, reason="A reject needs a reason.")
+            if decision.outcome is DecisionOutcome.Confirmed:
+                # Refuse before appending: a value nothing consumes is a
+                # producer bug, and must not leave a half-applied decision.
+                unknown = [n for n in decision.values if not has_value_writer(n)]
+                if unknown:
+                    return DecisionResult(
+                        applied=False,
+                        reason=f"No consumer writes {unknown}; known values: "
+                        f"{known_value_names()}.",
+                    )
 
             proposal.decisions.append(decision)
             result = DecisionResult(applied=True)
