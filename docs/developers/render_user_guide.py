@@ -311,6 +311,16 @@ class Harness:
         self.pump(1500)
         return experiment
 
+    def show_main_tab(self, title: str) -> None:
+        """Select a main-window tab by its label (Microscope, Overview, ...)."""
+        tabs = self.window.tab_widget
+        for i in range(tabs.count()):
+            if tabs.tabText(i).strip() == title:
+                tabs.setCurrentIndex(i)
+                self.pump(300)
+                return
+        raise RuntimeError(f"no main tab named {title!r}")
+
     def show_tab(self, index: int) -> None:
         self.window.tab_widget.setCurrentIndex(index)
         self.pump()
@@ -1469,6 +1479,60 @@ def render_experiments(h: Harness) -> None:
     h.ui.tabWidget.setCurrentWidget(h.ui.tab)
     h.pump(300)
     h.shot("experiment-tab", target=h.ui.tab, crop=True)
+
+
+@page("protocols")
+def render_protocols(h: Harness) -> None:
+    """The Protocol tab: the task list, a task's parameters, Global Edit."""
+    from fibsem.applications.autolamella.ui.autolamella_global_task_editor_dialog import (
+        AutoLamellaGlobalTaskEditDialog,
+    )
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    h.ensure_experiment()
+    h.show_main_tab("Protocol")
+    editor = h.window.task_widget
+    editor.task_list_widget.select("Rough Milling")
+    h.pump(500)
+    h.shot(
+        "protocol-tab",
+        callouts=[
+            Box(editor.protocol_header),
+            Box(editor.task_list_widget),
+            Box(editor.task_parameters_config_widget),
+            Box(editor.milling_task_editor),
+            editor.pushButton_sync_to_lamella,
+            editor.pushButton_open_global_editor,
+            editor.pushButton_open_lamella_defaults,
+        ],
+        numbered=True,
+    )
+
+    # the File menu's protocol entries
+    file_menu = next(
+        a.menu() for a in h.window.menuBar().actions() if a.text().strip() == "File"
+    )
+    file_menu.popup(h.window.mapToGlobal(QPoint(0, 0)))
+    h.pump(300)
+    rects = [
+        file_menu.actionGeometry(a)
+        for a in file_menu.actions()
+        if a.text() in ("Load Protocol", "Save Protocol")
+    ]
+    h.shot("file-menu", target=file_menu, callout_rects=rects, numbered=True)
+    file_menu.close()
+    h.pump(200)
+
+    # Global Edit, shown rather than run
+    dialog = AutoLamellaGlobalTaskEditDialog(h.ui.experiment, parent=h.window)
+    dialog.resize(640, 900)
+    dialog.show()
+    h.pump(400)
+    h.shot("global-edit", target=dialog)
+    dialog.close()
+    h.pump(200)
 
 
 # -- entry point --------------------------------------------------------------
