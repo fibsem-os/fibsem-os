@@ -145,6 +145,20 @@ class AutoLamellaTask(ABC):
         """Return whether the task should be validated by the user."""
         return get_task_supervision(self.task_name, self.parent_ui)
 
+    @property
+    def review(self) -> bool:
+        """Whether this task should propose its answer for review instead of
+        asking for it inline. Needs the feature flag (read once per run by the
+        manager) and the protocol's ``review`` on this task. Read through the
+        manager rather than the UI so a headless run can propose too."""
+        manager = self.task_manager
+        if manager is None or not getattr(manager, "review_enabled", False):
+            return False
+        protocol = getattr(manager.experiment, "task_protocol", None)
+        if protocol is None:
+            return False
+        return protocol.get_review(self.task_name)
+
     def run(self) -> None:
         self.pre_task()
         self._fire_hook("task_started")
