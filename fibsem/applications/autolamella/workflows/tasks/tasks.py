@@ -1,4 +1,3 @@
-
 # Backwards-compatible re-exports — do not remove
 # This file re-exports all public symbols from the split task modules so that
 # existing callers importing from this module continue to work without changes.
@@ -23,6 +22,9 @@ __all__ = [
     # polishing
     "MillPolishingTaskConfig",
     "MillPolishingTask",
+    # perforation
+    "MillPerforationTaskConfig",
+    "MillPerforationTask",
     # fiducial
     "MillFiducialTaskConfig",
     "MillFiducialTask",
@@ -65,6 +67,10 @@ from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTask,
     MillFiducialTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.perforation import (
+    MillPerforationTask,
+    MillPerforationTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.polishing import (
     MillPolishingTask,

@@ -5,6 +5,7 @@ FIDUCIAL_KEY = "fiducial"
 NOTCH_KEY = "notch"
 TRENCH_KEY = "trench"
 UNDERCUT_KEY = "undercut"
+PERFORATION_KEY = "perforation"
 SETUP_LAMELLA_KEY = "setup_lamella"
 SETUP_POLISHING_KEY = "setup_polishing"
 LIFTOUT_KEY = "liftout"
@@ -28,6 +29,4 @@ MILLING_KEYS = [
 ]
 
 # strategy
-STRATEGY_KEYS = [
-    "strategy"
-]
+STRATEGY_KEYS = ["strategy"]

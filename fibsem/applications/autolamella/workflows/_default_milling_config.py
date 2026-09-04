@@ -5,11 +5,13 @@ from fibsem.applications.autolamella.protocol.constants import (
     MICROEXPANSION_KEY,
     MILL_POLISHING_KEY,
     MILL_ROUGH_KEY,
+    PERFORATION_KEY,
     TRENCH_KEY,
     UNDERCUT_KEY,
 )
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import (
+    ArrayPattern,
     FiducialPattern,
     MicroExpansionPattern,
     RectanglePattern,
@@ -51,6 +53,27 @@ DEFAULT_MILLING_CONFIG[UNDERCUT_KEY] = FibsemMillingTaskConfig(
             name="Undercut Milling 01",
             milling=FibsemMillingSettings(milling_current=7.6e-9),
             pattern=RectanglePattern(width=22e-6, height=16e-6, depth=1.25e-6),
+        )
+    ],
+)
+
+
+DEFAULT_MILLING_CONFIG[PERFORATION_KEY] = FibsemMillingTaskConfig(
+    name="Perforation Milling",
+    field_of_view=80e-6,
+    stages=[
+        FibsemMillingStage(
+            name="Perforation Milling 01",
+            milling=FibsemMillingSettings(milling_current=0.2e-9),
+            pattern=ArrayPattern(
+                width=1e-6,
+                depth=0.5e-6,
+                n_columns=2,
+                n_rows=5,
+                pitch_horizontal=10e-6,
+                pitch_vertical=2e-6,
+                use_circle=True,
+            ),
         )
     ],
 )
@@ -115,10 +138,17 @@ DEFAULT_MILLING_CONFIG[MILL_POLISHING_KEY] = FibsemMillingTaskConfig(
     stages=[
         FibsemMillingStage(
             name="Polishing Milling 01",
-            milling=FibsemMillingSettings(milling_current=60e-12, application_file="Si-ccs"),
-            pattern=TrenchPattern(width=9.0e-6, depth=4.0e-7, spacing=3.0e-7, 
-                                  upper_trench_height=0.7e-6, lower_trench_height=0.7e-6, 
-                                  cross_section=CrossSectionPattern.CleaningCrossSection),
+            milling=FibsemMillingSettings(
+                milling_current=60e-12, application_file="Si-ccs"
+            ),
+            pattern=TrenchPattern(
+                width=9.0e-6,
+                depth=4.0e-7,
+                spacing=3.0e-7,
+                upper_trench_height=0.7e-6,
+                lower_trench_height=0.7e-6,
+                cross_section=CrossSectionPattern.CleaningCrossSection,
+            ),
         )
     ],
 )
