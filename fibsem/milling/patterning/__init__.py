@@ -15,6 +15,7 @@ from fibsem.milling.patterning.patterns2 import (
     BasePattern,
     BitmapPattern,
     CirclePattern,
+    CircularSuspensionPattern,
     CloverPattern,
     FiducialPattern,
     HorseshoePattern,
@@ -51,6 +52,7 @@ BUILTIN_PATTERNS: Dict[str, Type[BasePattern]] = {
     BitmapPattern.name: BitmapPattern,
     TrenchBitmapPattern.name: TrenchBitmapPattern,
     TrenchTrapezoidPattern.name: TrenchTrapezoidPattern,
+    CircularSuspensionPattern.name: CircularSuspensionPattern,
 }
 
 # Runtime registered patterns

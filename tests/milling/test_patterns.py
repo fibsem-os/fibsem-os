@@ -14,6 +14,7 @@ from fibsem.milling.patterning.patterns2 import (
     ArrayPattern,
     BasePattern,
     CirclePattern,
+    CircularSuspensionPattern,
     CloverPattern,
     FibsemCircleSettings,
     FibsemLineSettings,
@@ -867,3 +868,90 @@ class TestGetPattern:
 
             pattern = get_pattern(pattern_name, minimal_config)
             assert isinstance(pattern, MILLING_PATTERNS[pattern_name])
+
+
+class TestCircularSuspensionPattern:
+    """Two discs, each left hanging on two anchors.
+
+    Ported from the circular-suspension plugin; the geometry below is what the
+    plugin produced, so a change here is a change to what gets milled.
+    """
+
+    PARAMS = dict(
+        inner_anchor_height=2.0e-6,
+        outer_anchor_height=3.0e-6,
+        outer_radius=2.0e-6,
+        inner_radius=1.0e-6,
+        external_radius=2.5e-6,
+        depth=1.0e-6,
+        spacing=10.0e-6,
+    )
+
+    def test_init(self):
+        pattern = CircularSuspensionPattern(**self.PARAMS)
+
+        assert pattern.name == "CircularSuspension"
+        assert pattern.shapes is None
+        assert pattern.external_radius == 2.5e-6
+
+    def test_define_draws_two_suspensions(self):
+        pattern = CircularSuspensionPattern(**self.PARAMS, point=Point(1.0e-6, 4.0e-6))
+
+        shapes = pattern.define()
+
+        # per side: the disc, the ring it leaves, two anchors
+        assert len(shapes) == 8
+        discs = [
+            s
+            for s in shapes
+            if isinstance(s, FibsemCircleSettings) and not s.is_exclusion
+        ]
+        assert len(discs) == 2
+        # centres sit `spacing` apart edge to edge, i.e. spacing + 2r between centres
+        offset = (10.0e-6 + 2 * 2.5e-6) / 2
+        assert sorted(d.centre_x for d in discs) == pytest.approx(
+            [1.0e-6 - offset, 1.0e-6 + offset]
+        )
+        assert all(d.centre_y == 4.0e-6 for d in discs)
+        assert all(d.radius == 2.5e-6 and d.thickness == 0 for d in discs)
+
+    def test_the_ring_is_an_annulus_between_the_two_radii(self):
+        shapes = CircularSuspensionPattern(**self.PARAMS).define()
+
+        rings = [
+            s for s in shapes if isinstance(s, FibsemCircleSettings) and s.is_exclusion
+        ]
+        assert len(rings) == 2
+        for ring in rings:
+            assert ring.radius == 2.0e-6  # outer_radius
+            assert ring.thickness == pytest.approx(1.0e-6)  # outer - inner
+
+    def test_the_anchors_are_asymmetric_and_face_outwards(self):
+        """The thicker anchor is on the outside of each disc, so the pair mirrors."""
+        shapes = CircularSuspensionPattern(**self.PARAMS).define()
+
+        anchors = [s for s in shapes if isinstance(s, FibsemRectangleSettings)]
+        assert len(anchors) == 4
+        assert all(a.is_exclusion for a in anchors)
+        # anchor_width = (external_radius - outer_radius) * 1.5
+        assert all(a.width == pytest.approx(0.75e-6) for a in anchors)
+
+        left = sorted((a for a in anchors if a.centre_x < 0), key=lambda a: a.centre_x)
+        right = sorted((a for a in anchors if a.centre_x > 0), key=lambda a: a.centre_x)
+        # outermost anchor of each disc carries outer_anchor_height
+        assert left[0].height == 3.0e-6 and left[-1].height == 2.0e-6
+        assert right[-1].height == 3.0e-6 and right[0].height == 2.0e-6
+
+    def test_exclusions_are_listed_first(self):
+        """The microscope applies shapes in order: an exclusion after its shape is inert."""
+        shapes = CircularSuspensionPattern(**self.PARAMS).define()
+
+        flags = [s.is_exclusion for s in shapes]
+        assert flags == sorted(flags, reverse=True)
+
+    def test_round_trip(self):
+        pattern = CircularSuspensionPattern(**self.PARAMS, point=Point(1e-6, 2e-6))
+
+        restored = CircularSuspensionPattern.from_dict(pattern.to_dict())
+
+        assert restored == pattern
