@@ -1,16 +1,22 @@
 ######## SELECT MILLING POSITION TASK DEFINITIONS ########
 
 import logging
+import os
 from dataclasses import dataclass, field
-from typing import ClassVar, Type
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type
 
 import numpy as np
 
 from fibsem import constants
+from fibsem.applications.autolamella.proposals import MILLING_SETUP, Proposal
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
-from fibsem.structures import BeamType, ImageSettings, field_meta
+from fibsem.structures import BeamType, ImageSettings, Point, field_meta
+
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.structures import FibsemImage
 
 
 @dataclass
@@ -129,8 +135,10 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 pos="Continue",
             )
 
-        # select point of interest
-        if self.config.select_poi:
+        # select point of interest: propose it for review, or ask for it now
+        if self.config.select_poi and self.review:
+            self._propose_poi()
+        elif self.config.select_poi:
             poi = select_poi_ui(
                 parent_ui=self.parent_ui,
                 # the FIB image the reference acquisition above displayed — the
@@ -162,6 +170,48 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # store milling pose and angle
         self.lamella.milling_pose = self.microscope.get_microscope_state()
         self.lamella.update_milling_angle(self.microscope)
+
+    def _propose_poi(self) -> None:
+        """Leave the point of interest as a proposal instead of asking for it.
+
+        The task still completes -- everything after this step is independent
+        of the point (only the rough and polishing patterns follow it, and they
+        follow it when a decision writes it through). ``lamella.poi`` is not
+        written here and the patterns are not synced: both happen in
+        Experiment.decide on confirm, so the lamella is never in a state
+        nobody sanctioned and the proposed point survives beside the confirmed
+        one for the delta.
+
+        A proposal that already has decisions is kept, not replaced: a run that
+        stalled and was re-queued without Resume would otherwise overwrite the
+        answer the operator just gave.
+        """
+        existing = self.lamella.proposals.get(self.task_name)
+        if existing is not None and not existing.pending:
+            logging.warning(
+                f"{self.lamella.name}: {self.task_name} already has a decided "
+                "proposal; keeping it. Resume leaves completed tasks out."
+            )
+            return
+        proposal = propose_milling_setup(self.lamella, self._last_fib_image)
+        if proposal is None:
+            logging.info(
+                f"{self.lamella.name}: nothing after {self.task_name} consumes a "
+                "point of interest; no proposal to make."
+            )
+            return
+        self.log_status_message("PROPOSE_POI", "Proposing Point of Interest...")
+        self.lamella.proposals[self.task_name] = proposal
+        logging.info(
+            {
+                "msg": "proposal_recorded",
+                "lamella": self.lamella.name,
+                "task_name": self.task_name,
+                "kind": proposal.kind,
+                "values": {k: v.to_dict() for k, v in proposal.values.items()},
+                "provenance": proposal.provenance,
+            }
+        )
 
     def _align_coincident_for_milling(
         self, milling_angle: float, is_close: bool
