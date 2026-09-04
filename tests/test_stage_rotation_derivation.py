@@ -10,9 +10,11 @@ The risk in deriving it is not the arithmetic. It is that three movement paths p
 `rotation_180` in turn, so on a compustage -- where the two were both 0 -- *both*
 comparisons matched and the second always won. Derive it to a half turn and that
 coincidence breaks and the sign flips. The derivation below keeps it at the reference
-for a stage that does not rotate, which is why it does not; `test_the_shipped_files_all
-_derive_what_they_used_to_state` is what holds that, config by config, and
-`tests/test_view_corrected_movement.py` is what holds the movement itself.
+for a stage that does not rotate, which is why it does not.
+`test_the_shipped_rotating_stages_derive_what_they_used_to_state` holds the
+arithmetic config by config, `test_a_connected_compustage_derives_no_opposite_rotation`
+holds the case a file can no longer describe, and
+`tests/test_view_corrected_movement.py` holds the movement itself.
 """
 
 import os
@@ -34,30 +36,37 @@ def _stage(**overrides) -> StageSystemSettings:
     return StageSystemSettings(**fields)
 
 
-# The pairs the eight shipped files stated before FIB-834 removed the key, transcribed
-# from the files as they were. Every row has to survive the derivation, because every
-# row is a stage somebody runs.
+# The values the eight shipped files stated before FIB-834 removed the key,
+# transcribed from the files as they were. Every row has to survive the derivation,
+# because every row is a stage somebody runs.
+#
+# All eight are *rotating* stages as far as a file can tell, and since the capability
+# moved to the instrument that is all a file can tell. The two compustage rows are not
+# here: their answer is no longer in the file, and asserting the field default against
+# them would only be re-testing the default. They are covered by
+# `test_a_connected_compustage_derives_no_opposite_rotation` below, through a
+# microscope, which is the only thing that now knows.
 SHIPPED = {
     "microscope-configuration.yaml": 180.0,
     "odemis-configuration.yaml": 180.0,
-    "sim-arctis-configuration.yaml": 0.0,
     "sim-iflm-configuration.yaml": 180.0,
     "tescan-configuration.yaml": 0.0,
     "tfs-aquilos2-configuration.yaml": 180.0,
-    "tfs-arctis-configuration.yaml": 0.0,
     "tfs-hydra-configuration.yaml": 180.0,
 }
 
+COMPUSTAGE_CONFIGS = (
+    "sim-arctis-configuration.yaml",
+    "tfs-arctis-configuration.yaml",
+)
+ALL_CONFIGS = tuple(SHIPPED) + COMPUSTAGE_CONFIGS
+
 
 @pytest.mark.parametrize("filename", sorted(SHIPPED))
-def test_the_shipped_files_all_derive_what_they_used_to_state(filename: str):
-    """The regression guard for the whole change.
+def test_the_shipped_rotating_stages_derive_what_they_used_to_state(filename: str):
+    """The regression guard for the arithmetic, on the stages a file can describe.
 
-    `sim-arctis` is the row that had to be fixed rather than merely checked: it shipped
-    `rotation: true` where the instrument it stands in for says `false`, so before this
-    it would have derived a half turn for a stage that cannot make one. Nothing caught
-    that, because nothing read the flag -- and the simulator is the only place the
-    compustage path runs at all.
+    Tescan is the row worth having: reference 180, so its opposite is 0 and not 360.
     """
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
     stage = StageSystemSettings.from_dict(config["stage"])
@@ -65,7 +74,42 @@ def test_the_shipped_files_all_derive_what_they_used_to_state(filename: str):
     assert stage.rotation_180 == SHIPPED[filename]
 
 
-@pytest.mark.parametrize("filename", sorted(SHIPPED))
+def test_a_connected_compustage_derives_no_opposite_rotation():
+    """The compustage half, which only a microscope can answer.
+
+    This is what the two removed rows became. `sim-arctis` is the configuration that
+    stands in for an Arctis, and it declares `sim.is_compustage`, so the simulator
+    reports a stage with no `r` axis and the capability is read from that rather than
+    from anything in the file.
+
+    `tfs-arctis` is deliberately not exercised here. It is a *ThermoFisher* file, and
+    its compustage is reported by AutoScript at connect; run against the simulator it
+    would describe an ordinary stage, which is correct -- the simulator it was pointed
+    at does not have a compustage. That is the change working, not a gap in it.
+    """
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        manufacturer="Demo",
+    )
+
+    assert microscope.stage_is_compustage
+    assert microscope.system.stage.rotation is False
+    assert microscope.system.stage.rotation_180 == 0.0
+
+
+def test_a_connected_rotating_stage_sits_half_a_turn_away():
+    """The counterpart, so the test above is not passing for a trivial reason."""
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+        manufacturer="Demo",
+    )
+
+    assert not microscope.stage_is_compustage
+    assert microscope.system.stage.rotation is True
+    assert microscope.system.stage.rotation_180 == 180.0
+
+
+@pytest.mark.parametrize("filename", sorted(ALL_CONFIGS))
 def test_no_shipped_file_still_states_it(filename: str):
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
     assert "rotation_180" not in config["stage"]

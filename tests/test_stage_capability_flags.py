@@ -12,6 +12,7 @@ rather than an edit that missed a line.
 
 import os
 
+import numpy as np
 import pytest
 
 import fibsem.config as cfg
@@ -20,7 +21,7 @@ from fibsem.microscopes.simulator import (
     STAGE_LIMITS_COMPUSTAGE,
     STAGE_LIMITS_DEFAULT,
 )
-from fibsem.structures import StageSystemSettings
+from fibsem.structures import StageSystemSettings, SystemSettings
 
 # Named rather than globbed. `fibsem/config/*.yaml` is gitignored with an allowlist
 # for the shipped files, so a configuration the developer saved from the wizard sits
@@ -43,21 +44,24 @@ def _stage_block(filename: str) -> dict:
 
 
 @pytest.mark.parametrize("filename", CONFIGS)
-def test_no_shipped_file_states_a_stage_tilt(filename: str):
-    assert "tilt" not in _stage_block(filename)
+@pytest.mark.parametrize("key", ["tilt", "rotation"])
+def test_no_shipped_file_states_a_stage_capability(filename: str, key: str):
+    assert key not in _stage_block(filename)
 
 
 @pytest.mark.parametrize("filename", CONFIGS)
-def test_the_manipulator_keeps_its_own_tilt(filename: str):
+@pytest.mark.parametrize("key", ["tilt", "rotation"])
+def test_the_manipulator_keeps_its_own(filename: str, key: str):
     """The asymmetry is the point, so it is asserted rather than left to be noticed.
 
     A manipulator that cannot tilt is an ordinary manipulator; a stage that cannot tilt
-    is not a stage this project drives. The two keys were spelled the same and meant
-    different things, which is exactly how a scoped edit goes wrong -- a `tilt:` line
-    removed from the wrong block would silently give every manipulator a tilt axis.
+    is not a stage this project drives. The two blocks spell these keys the same and
+    mean different things, which is exactly how a scoped edit goes wrong -- a line
+    removed from the wrong block would silently give every manipulator an axis it does
+    not have, and no other test in the suite would notice.
     """
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
-    assert "tilt" in config["manipulator"]
+    assert key in config["manipulator"]
 
 
 @pytest.mark.parametrize(
@@ -118,3 +122,92 @@ def test_the_live_microscope_still_answers_for_rotation():
     # asking the old question gets a quiet "no" -- worth knowing, since that is what a
     # stale plugin would see.
     assert microscope.is_available("stage_tilt") is False
+
+
+# ---------------------------------------------------------------------------
+# The capability now comes from the instrument
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("filename", "compustage", "rotates", "opposite"),
+    [
+        ("sim-arctis-configuration.yaml", True, False, 0.0),
+        ("microscope-configuration.yaml", False, True, 180.0),
+        ("tescan-configuration.yaml", False, True, 0.0),
+    ],
+)
+def test_connecting_fills_the_capability_from_the_stage(
+    filename: str, compustage: bool, rotates: bool, opposite: float
+):
+    """No file states `rotation`, so this is the only thing that answers it.
+
+    Both mountings are here rather than only the compustage: a test that just asserted
+    "False for the Arctis" would pass equally well if the capability were never filled
+    and something else happened to be false.
+    """
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.CONFIG_PATH, filename), manufacturer="Demo"
+    )
+
+    assert microscope.stage_is_compustage is compustage
+    assert microscope.system.stage.rotation is rotates
+    assert microscope.system.stage.rotation_180 == opposite
+
+
+def test_applying_a_configuration_does_not_overwrite_the_capability():
+    """The regression this change is most likely to grow.
+
+    `apply_configuration` replaces `system.stage` wholesale from a settings object the
+    user chose, and it is reachable from a button in the system setup widget. Since no
+    file states `rotation` any more, the replacement carries the field default of
+    `True` -- so on a compustage, pressing Apply would move the FIB orientation half a
+    turn away and hand the compucentric correction a rotation the stage cannot make.
+
+    The settings applied here are a real load of the same configuration, which is what
+    that button does.
+    """
+    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
+    assert microscope.system.stage.rotation is False
+
+    applied = SystemSettings.from_dict(utils.load_yaml(path))
+    assert applied.stage.rotation is True, "the file cannot say, so it says the default"
+
+    microscope.apply_configuration(applied)
+
+    assert microscope.system.stage.rotation is False
+    assert microscope.system.stage.rotation_180 == 0.0
+    assert np.isclose(microscope.get_orientation("FIB").r, 0.0)
+
+
+def test_the_thermo_backend_reports_a_compustage_without_a_rotation_axis():
+    """The real Arctis path, which no test on CI can connect to.
+
+    `ThermoMicroscope._get_axis_limits` is where an AutoScript compustage becomes "no
+    `r` axis", and it is what `_read_stage_capabilities` asks. CI has no AutoScript, and
+    the simulator cannot stand in for this branch -- it has its own `_get_axis_limits`.
+    So the branch is asserted from the source, the way FIB-500 pinned its
+    `r=0.0` literal: crude, but it fails if someone deletes the short-circuit, which is
+    the failure that would otherwise reach an instrument.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from fibsem.microscope import ThermoMicroscope
+
+    tree = ast.parse(
+        textwrap.dedent(inspect.getsource(ThermoMicroscope._get_axis_limits))
+    )
+    returns_under_a_compustage_test = [
+        node.body[0].value.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Attribute)
+        and node.test.attr == "stage_is_compustage"
+        and isinstance(node.body[0], ast.Return)
+        and isinstance(node.body[0].value, ast.Name)
+    ]
+    assert returns_under_a_compustage_test == ["STAGE_LIMITS_COMPUSTAGE"]
+    assert "r" not in STAGE_LIMITS_COMPUSTAGE
