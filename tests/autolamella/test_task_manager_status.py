@@ -10,6 +10,7 @@ and a real task protocol. The only stand-ins are the two the environment cannot
 provide: a microscope and the Qt UI.
 """
 
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -328,6 +329,7 @@ def test_a_pending_proposal_on_a_required_task_defers_its_consumer(tmp_path):
         microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
     )
     m.review_enabled = True
+    experiment.task_protocol.options.review_wait = 0  # do not park on the review
     m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
     for name in ("L1", "L2"):
         lamella = experiment.get_lamella_by_name(name)
@@ -416,6 +418,135 @@ def test_a_rejected_proposal_retires_the_consumer(tmp_path):
     assert [i.status for i in m.queue.items] == [Status.Skipped]
     reports = [e.report for e in m.parent_ui.workflow_status_signal.emitted if e.report]
     assert reports[-1].skip_reason == "failure"
+
+
+# ── stalled: drained with work waiting on a decision ─────────────────────────
+
+
+def _review_manager(tmp_path, review_wait, hook_manager=None):
+    """L1 has Trench completed with a pending proposal; Undercut requires it."""
+    from fibsem.applications.autolamella.proposals import Proposal
+
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
+    )
+    experiment.task_protocol.options.review_wait = review_wait
+    m = TaskManager(
+        microscope=NoMicroscope(),
+        experiment=experiment,
+        parent_ui=RecordingUI(),
+        hook_manager=hook_manager,
+    )
+    m.review_enabled = True
+    m.queue.build_from_matrix(["Undercut"], ["L1"])
+    l1 = experiment.get_lamella_by_name("L1")
+    l1.task_history.append(AutoLamellaTaskState(name="Trench", status=Status.Completed))
+    l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
+    return m, l1
+
+
+def test_a_run_that_drains_on_pending_reviews_is_stalled_not_completed(tmp_path):
+    from fibsem.hooks import FunctionHook, HookEvent, HookManager
+
+    fired = []
+    hooks = HookManager()
+    hooks.register(
+        FunctionHook(name="rec", events=list(HookEvent), callback=fired.append)
+    )
+    m, l1 = _review_manager(tmp_path, review_wait=0, hook_manager=hooks)
+
+    assert run_queue_with(m) == []
+    assert m.stalled is True
+    assert [c.event for c in fired] == ["workflow_started", "workflow_stalled"]
+    assert fired[-1].decisions_pending == 1
+    assert m.queue.has_pending_pair("L1", "Undercut"), "nothing was retired"
+    assert l1.proposals["Trench"].pending
+
+
+def test_a_decision_during_the_wait_wakes_the_run(tmp_path):
+    import threading
+
+    from fibsem.applications.autolamella.proposals import Decision, DecisionOutcome
+
+    m, l1 = _review_manager(tmp_path, review_wait=10.0)
+
+    def decide_soon():
+        time.sleep(0.3)
+        m.experiment.decide(
+            l1.id,
+            "Trench",
+            Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+        )
+
+    t = threading.Thread(target=decide_soon, daemon=True)
+    started = time.monotonic()
+    t.start()
+    assert run_queue_with(m) == [("L1", "Undercut")]
+    assert time.monotonic() - started < 5.0, "woke on the decision, not the timeout"
+    assert m.stalled is False
+
+
+def test_the_wait_is_measured_as_inactivity_and_gives_up(tmp_path):
+    m, _l1 = _review_manager(tmp_path, review_wait=0.5)
+    started = time.monotonic()
+    assert run_queue_with(m) == []
+    elapsed = time.monotonic() - started
+    assert 0.4 < elapsed < 3.0
+    assert m.stalled is True
+    assert "pending" in m.stall_reason
+
+
+def test_stop_ends_the_wait_as_cancelled(tmp_path):
+    import threading
+
+    m, _l1 = _review_manager(tmp_path, review_wait=None)  # wait forever
+    threading.Timer(0.3, m.stop).start()
+    assert run_queue_with(m) == []
+    assert m.is_stopped
+    assert m.stalled is False
+
+
+def test_unrunnable_work_with_nothing_to_unblock_it_exits_with_an_error(tmp_path):
+    """Deferred, but on a prerequisite that is neither queued nor under review:
+    a plan bug, not a stall to wait on."""
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
+    )
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    m.review_enabled = True
+    m.queue.build_from_matrix(["Undercut"], ["L1"])
+    # Make the scan defer it, then remove what it was waiting on.
+    m._is_deferred = lambda item: True
+    m.deferred_items = lambda: [(m.queue.pending[0], "prereq_pending")]
+    started = time.monotonic()
+    assert run_queue_with(m) == []
+    assert time.monotonic() - started < 2.0
+    assert m.stalled is True and "no decision would change that" in m.stall_reason
+
+
+def test_resume_leaves_out_completed_pairs(tmp_path):
+    experiment = make_experiment(tmp_path, lamella_names=["L1", "L2"])
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    experiment.get_lamella_by_name("L1").task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.Completed)
+    )
+    m._run_queue = lambda: None
+    m.run(["Trench", "Undercut"], ["L1", "L2"], resume=True)
+    assert [(i.lamella_name, i.task_name) for i in m.queue.items] == [
+        ("L2", "Trench"),
+        ("L1", "Undercut"),
+        ("L2", "Undercut"),
+    ]
+    m2 = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    m2._run_queue = lambda: None
+    m2.run(["Trench", "Undercut"], ["L1", "L2"])
+    assert len(m2.queue.items) == 4, "a plain run still re-runs completed pairs"
 
 
 def test_no_requirements_runs(manager):
