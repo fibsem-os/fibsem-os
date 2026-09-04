@@ -321,24 +321,53 @@ class Harness:
                 return
         raise RuntimeError(f"no main tab named {title!r}")
 
-    def ensure_lamellae(self, count: int = 3):
-        """The worked example's lamellae, added at stage positions spread round
-        the current one the way marking them on an overview would."""
-        from copy import deepcopy
+    def cell_positions(self, count: int = 3, reach: float = 300e-6):
+        """Stage positions of ``count`` cells on film near the scene's anchor.
 
-        experiment = self.ensure_experiment()
-        offsets = (
-            (90e-6, 70e-6),
-            (-130e-6, -50e-6),
-            (30e-6, -160e-6),
-            (150e-6, -90e-6),
+        Read from the simulator's own feature list and checked against its
+        support masks, so a marked position is on a cell and never on a grid
+        bar, a hole or a rip: what a user would pick on an overview.
+        """
+        import numpy as np
+
+        from fibsem.projection import BeamStageProjection
+        from fibsem.structures import BeamType
+
+        microscope = self.connection.microscope
+        scene = microscope._sample_scene
+        projection = BeamStageProjection.from_microscope(
+            microscope, beam_type=BeamType.ELECTRON
         )
-        base = self.connection.microscope.get_stage_position()
-        while len(experiment.positions) < count:
-            dx, dy = offsets[len(experiment.positions) % len(offsets)]
-            position = deepcopy(base)
-            position.x = base.x + dx
-            position.y = base.y + dy
+        reference = scene.reference_position
+        chosen = []
+        cells = [f for f in scene.features if f.kind == "cell"]
+        for cell in sorted(cells, key=lambda f: -f.sigma):
+            if abs(cell.x) > reach or abs(cell.y) > reach * 0.7:
+                continue
+            # the cell and a ring 20 um round it must all be plain film
+            ring = 20e-6
+            xs = np.array([cell.x, cell.x - ring, cell.x + ring, cell.x, cell.x])
+            ys = np.array([cell.y, cell.y, cell.y, cell.y - ring, cell.y + ring])
+            bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
+            if bars.any() or holes.any() or rips.any() or rim.any() or beyond.any():
+                continue
+            if any(
+                (cell.x - c.x) ** 2 + (cell.y - c.y) ** 2 < (80e-6) ** 2 for c in chosen
+            ):
+                continue
+            chosen.append(cell)
+            if len(chosen) == count:
+                break
+        if len(chosen) < count:
+            raise RuntimeError(f"only {len(chosen)} cells on film within reach")
+        return [projection.from_plane(c.x, c.y, reference) for c in chosen]
+
+    def ensure_lamellae(self, count: int = 3):
+        """The worked example's lamellae, one on each of ``count`` cells."""
+        experiment = self.ensure_experiment()
+        if len(experiment.positions) >= count:
+            return list(experiment.positions)
+        for position in self.cell_positions(count)[len(experiment.positions) :]:
             self.ui.add_new_lamella(stage_position=position)
             self.pump(400)
         self.pump(500)
@@ -1562,8 +1591,6 @@ def render_protocols(h: Harness) -> None:
 def render_overview(h: Harness) -> None:
     """The Overview tab: a tiled SEM overview, positions marked on it, FIB
     overviews at two orientations, and the FM overview tab."""
-    from copy import deepcopy
-
     from fibsem.applications.autolamella.ui.overview_container_tab import (
         MODALITY_FLUORESCENCE as MODALITY_FM,
     )
@@ -1623,12 +1650,9 @@ def render_overview(h: Harness) -> None:
     acquire(BeamType.ELECTRON)
     h.shot("sem-overview")
 
-    # three positions marked on it (what "Add New Position Here" does)
-    base = microscope.get_stage_position()
-    for dx, dy in ((90e-6, 70e-6), (-130e-6, -50e-6), (30e-6, -160e-6)):
-        position = deepcopy(base)
-        position.x = base.x + dx
-        position.y = base.y + dy
+    # three positions marked on it, on cells (what "Add New Position Here"
+    # does at a right-click)
+    for position in h.cell_positions(3):
         ow.position_add_requested.emit(position)
         h.pump(400)
     h.pump(500)
@@ -1823,61 +1847,87 @@ def render_workflows(h: Harness) -> None:
     )
 
     # run it, supervised: the preflight dialog is answered, each prompt is
-    # photographed on the way and then answered with Yes
+    # photographed on the way and then answered
     main_module.confirm_run_workflow_dialog = lambda *_args, **_kwargs: True
     # the completion summary is modal; it is shown by hand below instead
     h.ui._show_workflow_summary = lambda: None
-    h.window.run_workflow_btn.click()
     seen = set()
-    answered_milling = set()
-    waited = 0
-    h.pump(1500)
-    while (h.ui.is_workflow_running or waited < 2000) and waited < 900000:
-        h.pump(250)
-        waited += 250
-        if not h.ui.WAITING_FOR_USER_INTERACTION:
-            continue
-        h.pump(1200)
-        question = h.ui.ui_responder.pending_question
-        if callable(question):
-            question = question()
-        kind = type(question).__name__ if question is not None else "Confirm"
-        if kind not in seen:
-            if not seen:
-                # the first prompt as it announces itself: the Attention
-                # Required button while the Workflow tab is still showing
+
+    def run_selected(task_indices):
+        # the lists rebuild after a run, so both selections are made afresh
+        ww.lamella_list.set_all_selected(False)
+        ww.lamella_list._row(0).checkbox.setChecked(True)
+        ww.workflow.set_all_selected(False)
+        for i in task_indices:
+            ww.workflow._row(i).checkbox.setChecked(True)
+        h.pump(300)
+        h.show_main_tab("Workflow")
+        h.window.run_workflow_btn.click()
+        answered_milling = set()
+        waited = 0
+        h.pump(1500)
+        if not h.ui.is_workflow_running:
+            raise RuntimeError(f"workflow did not start for tasks {task_indices}")
+        while (h.ui.is_workflow_running or waited < 2000) and waited < 1200000:
+            h.pump(250)
+            waited += 250
+            if not h.ui.WAITING_FOR_USER_INTERACTION:
+                continue
+            h.pump(1200)
+            question = h.ui.ui_responder.pending_question
+            if callable(question):
+                question = question()
+            kind = type(question).__name__ if question is not None else "Confirm"
+            key = getattr(getattr(question, "config", None), "name", None)
+            # a milling prompt is one image per task, the others one each
+            shot_name = f"prompt-{kind.lower()}"
+            if kind == "RunMillingTask" and key:
+                shot_name += "-" + key.lower().replace(" ", "-")
+            if shot_name not in seen:
+                if not seen:
+                    h.shot(
+                        "attention-required",
+                        callouts=[h.window.user_attention_btn],
+                        numbered=True,
+                    )
+                seen.add(shot_name)
+                h.show_main_tab("Microscope")
+                h.ui.tabWidget.setCurrentWidget(h.ui.tab)
+                h.pump(500)
+                buttons = [
+                    b
+                    for b in (h.ui.pushButton_yes, h.ui.pushButton_no)
+                    if b.isVisible()
+                ]
                 h.shot(
-                    "attention-required",
-                    callouts=[h.window.user_attention_btn],
+                    shot_name,
+                    callouts=[Box(h.ui.label_instructions), *buttons],
                     numbered=True,
                 )
-            seen.add(kind)
-            # the question is asked on the Experiment tab
-            h.show_main_tab("Microscope")
-            h.ui.tabWidget.setCurrentWidget(h.ui.tab)
-            h.pump(500)
-            buttons = [
-                b for b in (h.ui.pushButton_yes, h.ui.pushButton_no) if b.isVisible()
-            ]
-            h.shot(
-                f"prompt-{kind.lower()}",
-                callouts=[Box(h.ui.label_instructions), *buttons],
-                numbered=True,
-            )
-        # a milling prompt comes back after the run (Yes = Run Milling again,
-        # No = Continue); answer Yes the first time it is asked, then Continue
-        # (a fresh Request object each time, so keyed by the milling task's name)
-        key = getattr(getattr(question, "config", None), "name", None)
-        if kind == "RunMillingTask" and key in answered_milling:
-            h.ui.pushButton_no.click()
-        else:
-            if kind == "RunMillingTask":
-                answered_milling.add(key)
-            h.ui.pushButton_yes.click()
+            # a milling prompt comes back after the run (Yes = Run Milling
+            # again, No = Continue): Yes once per task, then Continue
+            if kind == "RunMillingTask" and key in answered_milling:
+                h.ui.pushButton_no.click()
+            else:
+                if kind == "RunMillingTask":
+                    answered_milling.add(key)
+                h.ui.pushButton_yes.click()
+            h.pump(800)
+        if h.ui.is_workflow_running:
+            raise RuntimeError("workflow did not finish")
+        h.pump(1500)
+
+    def lamella_tab_shot(name, task):
+        h.show_main_tab("Lamella")
+        editor = h.window.lamella_widget
+        editor.select_lamella(lamellae[0].name)
+        h.pump(500)
+        editor.listWidget_selected_task.select(task)
         h.pump(800)
-    if h.ui.is_workflow_running:
-        raise RuntimeError("workflow did not finish")
-    h.pump(1500)
+        h.shot(name)
+
+    # the first two tasks: position and fiducial
+    run_selected((0, 1))
     from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 
     summary_dialog = WorkflowSummaryDialog(h.ui._last_run_summary, parent=h.window)
@@ -1886,7 +1936,13 @@ def render_workflows(h: Harness) -> None:
     h.shot("workflow-summary", target=summary_dialog)
     summary_dialog.close()
     h.pump(300)
+    lamella_tab_shot("lamella-after-fiducial", "Mill Fiducial")
+
+    # then rough milling and polishing
+    run_selected((2, 3))
+    lamella_tab_shot("lamella-after-polishing", "Polishing")
     h.show_main_tab("Workflow")
+    h.pump(300)
     h.shot("workflow-finished")
 
     # the Grids view, behind the grid-workflow flag
