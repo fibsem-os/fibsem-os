@@ -38,7 +38,9 @@ __all__ = [
     "Proposal",
     "ProposalKind",
     "compute_delta",
+    "has_value_writer",
     "human_author",
+    "known_value_names",
     "agent_author",
     "register_proposal_kind",
     "write_value",
@@ -148,6 +150,14 @@ def _write_poi(item: Any, value: Point) -> List[str]:
 _VALUE_WRITERS: Dict[str, Callable[[Any, Any], Any]] = {
     "poi": _write_poi,
 }
+
+
+def has_value_writer(name: str) -> bool:
+    return name in _VALUE_WRITERS
+
+
+def known_value_names() -> List[str]:
+    return sorted(_VALUE_WRITERS)
 
 
 def write_value(item: Any, name: str, value: Any) -> Any:

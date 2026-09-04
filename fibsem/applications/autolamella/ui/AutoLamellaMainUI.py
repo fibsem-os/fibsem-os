@@ -69,6 +69,10 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
+from fibsem.applications.autolamella.ui.review_tab_widget import (
+    ReviewTabWidget,
+    review_tab_icon,
+)
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     WorkflowPreflightDialog,
 )
@@ -980,6 +984,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # tab is not here: it ships to everyone, and which of its modalities can be
         # reached follows the instrument rather than a flag.
         self._apply_grid_workflow_visibility()
+        self._apply_review_visibility()
         # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
         # only route to the manager dialog, and the dialog is the only thing that runs
         # a script. If a script is mid-run, leave it visible -- taking away the only
@@ -2189,6 +2194,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.add_lamella_editor_tab()
         self.add_grids_tab()
         self.add_workflow_tab()
+        self.add_review_tab()
         self._apply_grid_workflow_visibility()
 
         # add notification button to tab bar
@@ -2208,6 +2214,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_widget.set_experiment()
         self.grids_tab.set_experiment(self.autolamella_ui.experiment)
         self.grid_workflow_widget.set_experiment(self.autolamella_ui.experiment)
+        self.review_tab.set_experiment(self.autolamella_ui.experiment)
         experiment = self.autolamella_ui.experiment
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
@@ -2584,6 +2591,41 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(self.grids_tab), False)
         self._apply_grid_workflow_visibility()
 
+    def add_review_tab(self):
+        """The Review tab: every proposal waiting for a decision (FIB-950).
+
+        Behind `features.proposer_reviewer_workflow_enabled`, visibility only,
+        like the Grids tab. The inbox is derived from the experiment on every
+        refresh, so the tab holds no state a decision could be lost in.
+        """
+        self.review_tab = ReviewTabWidget()
+        self.review_tab.pending_changed.connect(self._on_reviews_pending_changed)
+        self.review_tab.decided.connect(self._on_review_decided)
+        self.tab_widget.addTab(self.review_tab, review_tab_icon(), "Review")
+        self._apply_review_visibility()
+
+    def _apply_review_visibility(self) -> None:
+        enabled = self._preferences.features.proposer_reviewer_workflow_enabled
+        tab = getattr(self, "review_tab", None)
+        if tab is not None:
+            self.tab_widget.setTabVisible(self.tab_widget.indexOf(tab), enabled)
+        workflow = getattr(self, "lamella_workflow_widget", None)
+        if workflow is not None:
+            workflow.workflow.enable_review_button(enabled)
+
+    def _on_reviews_pending_changed(self, count: int) -> None:
+        tab = getattr(self, "review_tab", None)
+        if tab is None:
+            return
+        index = self.tab_widget.indexOf(tab)
+        self.tab_widget.setTabText(index, f"Review ({count})" if count else "Review")
+
+    def _on_review_decided(self, _item_id: str, _task_name: str) -> None:
+        # The decision wrote through to the lamella (its point, its patterns,
+        # or its verdict); everything that shows a lamella redraws.
+        self.lamella_list_widget.refresh_all()
+        self.lamella_widget.set_experiment()
+
     def _refresh_grid_protocol_editor(self) -> None:
         """The task order changed on the Workflow tab: the Protocol tab's grid
         list follows. Guarded: the editor builds lazily on the first connect."""
@@ -2669,6 +2711,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Workflow task signals — each change persists the updated config to disk
         self.lamella_workflow_widget.task_supervised_changed.connect(
+            self._save_workflow_config
+        )
+        self.lamella_workflow_widget.task_review_changed.connect(
             self._save_workflow_config
         )
         self.lamella_workflow_widget.task_edited.connect(self._save_workflow_config)
@@ -3184,6 +3229,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         if event.report is not None:
             self._apply_status_report(event.report)
+            # A task finishing may have left a proposal; the inbox re-derives.
+            review_tab = getattr(self, "review_tab", None)
+            if review_tab is not None:
+                review_tab.set_running(self.autolamella_ui.is_workflow_running)
+                review_tab.refresh()
 
         if self.autolamella_ui is None:
             return
@@ -3510,6 +3560,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             sample.refresh()
         self.user_attention_btn.hide()
         self.lamella_list_widget.refresh_all()
+        review_tab = getattr(self, "review_tab", None)
+        if review_tab is not None:
+            review_tab.set_running(False)
+            review_tab.refresh()
         self.lamella_card_container.refresh_all()
         if self.status_bar is not None:
             self.status_bar.showMessage("Workflow: Finished")

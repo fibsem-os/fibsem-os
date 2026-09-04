@@ -252,6 +252,21 @@ def test_reject_needs_a_reason(tmp_path):
     assert not lamella.is_failure
 
 
+def test_confirming_a_value_nothing_consumes_is_refused_before_anything_is_written(
+    tmp_path,
+):
+    exp = _experiment(tmp_path)
+    lamella = exp.positions[0]
+    lamella.proposals[SETUP] = _proposal()
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={"n": 3}),
+    )
+    assert result.applied is False and "No consumer" in result.reason
+    assert lamella.proposals[SETUP].pending, "no half-applied decision was left"
+
+
 def test_decide_refuses_a_missing_item_or_proposal(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
@@ -339,9 +354,12 @@ def test_decide_and_save_share_the_write_lock(tmp_path):
     holding.wait(5)
     saver = threading.Thread(target=lambda: (exp.save(), order.append("saved")))
     saver.start()
+    # _decide, the unmarshalled inner: with a QApplication in the process (the
+    # UI suites share it) decide() would park on a main thread this test
+    # holds. The lock is the subject here, not the marshalling.
     decider = threading.Thread(
         target=lambda: (
-            exp.decide(
+            exp._decide(
                 lamella.id,
                 SETUP,
                 Decision(

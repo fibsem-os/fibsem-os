@@ -86,6 +86,35 @@ def _agent_supervision_available() -> bool:
         return False
 
 
+def _review_available() -> bool:
+    """Whether the Review toggle exists at all: the propose-and-review flag.
+    Same hard-gate rule as the Agent option -- off, a stored ``review: true``
+    is not shown and not honoured."""
+    import fibsem.config as fibsem_cfg
+
+    try:
+        return bool(
+            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
+        )
+    except Exception:
+        return False
+
+
+def _review_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
+    if task.review:
+        return (
+            "mdi:clipboard-check",
+            stylesheets.PRIMARY_COLOR,
+            "Review — the task proposes its answer for the Review tab instead of "
+            "asking at the beam. Click to change.",
+        )
+    return (
+        "mdi:clipboard-outline",
+        stylesheets.AUTOMATED_COLOR,
+        "Asks inline — the task waits at the beam for its answer. Click to change.",
+    )
+
+
 def _supervise_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
     """Return (icon_name, icon_color, tooltip) for the supervision indicator."""
     if (
@@ -123,6 +152,7 @@ def _requires_text(task: AutoLamellaTaskDescription, font: QFont) -> str:
 
 class WorkflowTaskRowWidget(QWidget):
     supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
+    review_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     edit_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
     remove_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
     selection_changed = pyqtSignal(object, bool)  # AutoLamellaTaskDescription, checked
@@ -182,6 +212,12 @@ class WorkflowTaskRowWidget(QWidget):
         self.btn_supervise.setStyleSheet(_BTN_STYLE)
         layout.addWidget(self.btn_supervise)
 
+        self.btn_review = QToolButton()
+        self.btn_review.setFixedSize(_BTN_SIZE)
+        self.btn_review.setStyleSheet(_BTN_STYLE)
+        self.btn_review.setVisible(_review_available())
+        layout.addWidget(self.btn_review)
+
         self.btn_edit = IconToolButton(
             icon="mdi:pencil", tooltip="Edit", size=_BTN_SIZE.width()
         )
@@ -204,6 +240,7 @@ class WorkflowTaskRowWidget(QWidget):
         )
         self.btn_schedule.clicked.connect(lambda: self.edit_clicked.emit(self.task))
         self.btn_supervise.clicked.connect(self._on_supervise_clicked)
+        self.btn_review.clicked.connect(self._on_review_clicked)
         self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.task))
         self.btn_remove.clicked.connect(self._on_remove_clicked)
 
@@ -232,6 +269,11 @@ class WorkflowTaskRowWidget(QWidget):
         self.refresh()
         self.supervised_changed.emit(task)
 
+    def _on_review_clicked(self) -> None:
+        self.task.review = not self.task.review
+        self.refresh()
+        self.review_changed.emit(self.task)
+
     def _on_remove_clicked(self) -> None:
         reply = QMessageBox.question(
             self,
@@ -255,6 +297,9 @@ class WorkflowTaskRowWidget(QWidget):
         icon_name, icon_color, tooltip = _supervise_icon(self.task)
         self.btn_supervise.setIcon(fibsem_icon(icon_name, color=icon_color))
         self.btn_supervise.setToolTip(tooltip)
+        icon_name, icon_color, tooltip = _review_icon(self.task)
+        self.btn_review.setIcon(fibsem_icon(icon_name, color=icon_color))
+        self.btn_review.setToolTip(tooltip)
         if self.task.scheduled_at is not None:
             self.btn_schedule.setIcon(
                 fibsem_icon("mdi:clock", color=stylesheets.WHITE_ICON_COLOR)
@@ -310,6 +355,7 @@ class WorkflowConfigWidget(QWidget):
     """List widget displaying AutoLamellaWorkflowConfig tasks with name, supervised, edit and remove actions."""
 
     supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
+    review_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     edit_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
     remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
     selection_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
@@ -322,6 +368,7 @@ class WorkflowConfigWidget(QWidget):
         self._btn_visible = {
             "schedule": True,
             "supervise": True,
+            "review": _review_available(),
             "edit": True,
             "remove": True,
         }
@@ -381,6 +428,7 @@ class WorkflowConfigWidget(QWidget):
 
     def _connect_row(self, row: WorkflowTaskRowWidget) -> None:
         row.supervised_changed.connect(self.supervised_changed)
+        row.review_changed.connect(self.review_changed)
         row.edit_clicked.connect(self.edit_requested)
         row.remove_clicked.connect(self._on_remove_clicked)
         row.selection_changed.connect(self._on_row_selection_changed)
@@ -394,6 +442,11 @@ class WorkflowConfigWidget(QWidget):
         self._btn_visible["supervise"] = visible
         for i in range(self._list.count()):
             self._row(i).btn_supervise.setVisible(visible)
+
+    def enable_review_button(self, visible: bool) -> None:
+        self._btn_visible["review"] = visible
+        for i in range(self._list.count()):
+            self._row(i).btn_review.setVisible(visible)
 
     def enable_edit_button(self, visible: bool) -> None:
         self._btn_visible["edit"] = visible
@@ -469,6 +522,7 @@ class WorkflowConfigWidget(QWidget):
     def _apply_btn_visibility(self, row: WorkflowTaskRowWidget) -> None:
         row.btn_schedule.setVisible(self._btn_visible["schedule"])
         row.btn_supervise.setVisible(self._btn_visible["supervise"])
+        row.btn_review.setVisible(self._btn_visible["review"])
         row.btn_edit.setVisible(self._btn_visible["edit"])
         row.btn_remove.setVisible(self._btn_visible["remove"])
 
