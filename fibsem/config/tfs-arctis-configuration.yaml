@@ -6,7 +6,6 @@ info:
     manufacturer: Thermo                                    # the microscope manufactuer                                    [SPECIFIED]        
 stage:
     enabled:                    true                        # the stage is enabled                                          [USER]
-    rotation:                   false                       # the stage is able to rotate; false means it has no 180-degree side  [USER]
     rotation_reference:         0                           # the reference rotation value                                  [SPECIFIED] 
     shuttle_pre_tilt:           0                           # the pre-tilt of the shuttle                                   [SPECIFIED]
     manipulator_height_limit:   0.0037                      # the linked height limit for manipulator (Thermo Only)         [DERIVED - manufactuer]

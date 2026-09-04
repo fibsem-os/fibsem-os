@@ -315,9 +315,34 @@ class FibsemMicroscope(ABC):
 
         return deepcopy(stage_position)
 
+    def _read_stage_capabilities(self) -> None:
+        """Ask the instrument what its stage can do, and record it.
+
+        Only `rotation` today, and it is not a preference: it decides where the FIB
+        orientation is, because `rotation_180` is derived from it (FIB-834). A
+        configuration file used to state it, which meant a compustage could be
+        described as a rotating stage by a typo and nothing would disagree --
+        `sim-arctis-configuration.yaml` was, for as long as nothing read the flag.
+
+        The axes are the honest form of the question: a compustage has no `r` limit
+        because it has no rotation axis. It agrees with `stage_is_compustage` on every
+        backend today, and deliberately does not ask that instead -- "has a rotation
+        axis" is the property the derivation needs, and a future stage that lacks one
+        without being a compustage would answer correctly here for free.
+        """
+        self.system.stage.rotation = "r" in self._get_axis_limits()
+
     def _create_sample_stage(self) -> None:
         """Create the sample stage and holder based on the system settings."""
         from fibsem.microscopes._stage import _create_sample_stage
+
+        # Before the stage object, not after. Every backend wraps this call in a
+        # try/except that logs and carries on, so a failure below leaves the
+        # capability at its field default -- `True`, which on a compustage is the
+        # wrong answer and a silent one. Reading it first means the only way to miss
+        # it is `_get_axis_limits` itself raising, and on a compustage that is a
+        # lookup of a module constant, which cannot.
+        self._read_stage_capabilities()
 
         self._stage = _create_sample_stage(self)
 
@@ -1155,8 +1180,6 @@ class FibsemMicroscope(ABC):
             self.system.ion.plasma = value
         elif system == "stage":
             self.system.stage.enabled = value
-        elif system == "stage_rotation":
-            self.system.stage.rotation = value
         elif system == "manipulator":
             self.system.manipulator.enabled = value
         elif system == "manipulator_rotation":
@@ -1189,6 +1212,14 @@ class FibsemMicroscope(ABC):
 
         if self.is_available("stage"):
             self.system.stage = system_settings.stage
+            # The line above replaces the whole record, including the capability the
+            # instrument told us about at connect. `system_settings` came from a file,
+            # and files no longer state `rotation` -- so on a compustage this would
+            # silently restore the field default of `True`, move the FIB orientation
+            # half a turn away, and hand the compucentric correction a rotation the
+            # stage cannot make. Re-read rather than preserve: the instrument is the
+            # authority, and it has not changed because someone pressed Apply.
+            self._read_stage_capabilities()
 
         if self.is_available("manipulator"):
             self.system.manipulator = system_settings.manipulator

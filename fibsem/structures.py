@@ -2219,11 +2219,19 @@ class StageSystemSettings:
     # Whether the stage has a rotation axis. Load-bearing: it is what `rotation_180`
     # below is derived from, so it describes the geometry and not merely a permission.
     #
-    # There was a `tilt` beside it and there is not any more. Nothing read it, every
-    # shipped file said `true`, and every file always would have: `_get_axis_limits`
-    # returns a `t` axis on every backend, compustage included, because a stage that
-    # cannot tilt is not a stage this project drives. A flag with one reachable value
-    # is not a capability, it is a place for a typo to sit.
+    # **Written by the instrument, not by a file.** No configuration states it any
+    # more: `FibsemMicroscope._read_stage_capabilities` fills it at connect from the
+    # stage's own axes, and again after `apply_configuration` replaces this record.
+    # The default here is what an unconnected `SystemSettings` holds, and it is the
+    # rotating case because that is the commoner stage -- a compustage that never
+    # reached a microscope has no orientations to get wrong.
+    #
+    # There was a `tilt` beside it and there is not any more. Nothing read it, and
+    # every shipped file said `true` because every file always would have:
+    # `_get_axis_limits` returns a `t` axis on every backend, compustage included.
+    # A flag with one reachable value is not a capability, it is a place for a typo
+    # to sit -- which is exactly what `rotation` had become in the simulator's Arctis
+    # configuration before it was read by anything.
     rotation: bool = True
     milling_angle: float = 15
     # Where the stage travels for each instrument to see the sample. Keyed by device
