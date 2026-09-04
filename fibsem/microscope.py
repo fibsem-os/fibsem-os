@@ -2090,7 +2090,12 @@ class FibsemMicroscope(ABC):
             PRETILT_SIGN = -1.0
 
         if self.stage_is_compustage and self.get_stage_orientation() == "FIB":
-            expected_y *= -1.0  # use this until rotation_180 is deprecated correctly...
+            # Stays after FIB-834 made `rotation_180` derived. A compustage does not
+            # rotate, so it derives to `rotation_reference` -- the same value the
+            # configuration used to state, which is why both comparisons above still
+            # match and this flip is still what separates the two sides. Deriving it to
+            # a half turn instead would have moved the sign here, silently.
+            expected_y *= -1.0
             PRETILT_SIGN = -1.0
 
         corrected_pretilt_angle = PRETILT_SIGN * (

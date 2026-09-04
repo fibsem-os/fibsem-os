@@ -2213,7 +2213,6 @@ DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
 @dataclass
 class StageSystemSettings:
     rotation_reference: float
-    rotation_180: float
     shuttle_pre_tilt: float
     manipulator_height_limit: float
     enabled: bool = True
@@ -2234,10 +2233,29 @@ class StageSystemSettings:
         default_factory=lambda: deepcopy(DEFAULT_STAGE_DEVICES)
     )
 
+    @property
+    def rotation_180(self) -> float:
+        """Where the stage sits to face the ion beam, in degrees.
+
+        Derived, not configured. It used to be a field, and every shipped file gave it
+        `(rotation_reference + 180) % 360` -- Tescan included, whose reference of 180
+        is what makes the modulo load-bearing rather than decorative. The two
+        exceptions were the compustages, which set it *equal* to the reference to say
+        "this stage does not turn round". That is a boolean's job, and `rotation` is
+        the boolean -- already on this class, and already `false` on the real Arctis
+        (FIB-834).
+
+        So a value that was never chosen is now computed, and the one case it could not
+        express without a coincidence -- a stage with no rotation axis -- is asked of
+        the field named for it.
+        """
+        if not self.rotation:
+            return self.rotation_reference
+        return (self.rotation_reference + 180) % 360
+
     def to_dict(self):
         return {
             "rotation_reference": self.rotation_reference,
-            "rotation_180": self.rotation_180,
             "shuttle_pre_tilt": self.shuttle_pre_tilt,
             "manipulator_height_limit": self.manipulator_height_limit,
             "enabled": self.enabled,
@@ -2254,9 +2272,13 @@ class StageSystemSettings:
     def from_dict(settings: dict):
         devices = settings.get("devices")
         device_range = settings.get("device_range")
+        # `rotation_180` is deliberately not read. A file written before FIB-834 still
+        # carries the key and still loads -- the value is simply ignored, because it is
+        # now derived from the two fields that decide it. Ignoring beats honouring: a
+        # stored value that disagrees with the derivation is a value someone typed
+        # wrong, and reading it back would preserve the mistake.
         return StageSystemSettings(
             rotation_reference=settings["rotation_reference"],
-            rotation_180=settings["rotation_180"],
             shuttle_pre_tilt=settings["shuttle_pre_tilt"],
             manipulator_height_limit=settings["manipulator_height_limit"],
             enabled=settings.get("enabled", True),

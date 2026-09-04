@@ -114,14 +114,15 @@ OFFSET_BEHAVIOUR = {
 def _microscope(compustage: bool):
     """A Demo microscope with realistic stage geometry for the given mounting.
 
-    The stage settings are set explicitly rather than loaded from a configuration file,
-    for two reasons. `setup_session` resolves a *user* configuration path, so a test
-    reading one would depend on whichever system the developer last connected to. And
-    the bare `manufacturer="Demo"` defaults are actively misleading here: they leave
-    `rotation_180 = 0`, which puts FIB at (r=0, t=17) and MILLING at (r=0, t=12) -- five
-    degrees apart with the same rotation, so a position built at the FIB orientation
-    classifies as MILLING and **FIB becomes unreachable as a source orientation**. The
-    values below match the shipped configurations.
+    The stage settings are set explicitly rather than loaded from a configuration file:
+    `setup_session` resolves a *user* configuration path, so a test reading one would
+    depend on whichever system the developer last connected to. The values below match
+    the shipped configurations.
+
+    `stage.rotation` is what separates the two mountings. It is the capability the FIB
+    rotation is derived from (FIB-834), so setting it is setting the geometry -- there
+    is no second number to keep in step, and no way to write the pair that the stage
+    could not physically be.
     """
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_is_compustage = compustage
@@ -131,12 +132,12 @@ def _microscope(compustage: bool):
     if compustage:
         # Arctis: no wedge and no rotation; every orientation is reached by tilting.
         stage.shuttle_pre_tilt = 0
-        stage.rotation_180 = 0
+        stage.rotation = False
     else:
         # Pre-tilted shuttle: 35 degree wedge, and the ion beam is reached by turning
         # half way round.
         stage.shuttle_pre_tilt = 35
-        stage.rotation_180 = 180
+        stage.rotation = True
 
     microscope._update_orientations()
     return microscope
@@ -355,8 +356,13 @@ def test_the_correction_applies_to_half_turns_however_they_are_written(
     microscope = _microscope(compustage=False)
     stage = microscope.system.stage
     stage.rotation_reference = reference_deg
-    stage.rotation_180 = fib_deg
     microscope._update_orientations()
+    # The FIB rotation is written straight onto the orientation table rather than
+    # configured, because since FIB-834 there is no configuration that produces these
+    # pairs -- the derivation only ever yields a half turn. That is the point: what is
+    # under test is `get_target_position` reading an orientation table, and the table is
+    # the seam a future orientation at some other angle would arrive through.
+    microscope.orientations["FIB"].r = np.radians(fib_deg)
 
     position = _position_at(microscope, "SEM")
     result = microscope.get_target_position(

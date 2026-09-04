@@ -158,8 +158,11 @@ def test_the_compustage_is_shown_the_step_but_cannot_edit_it(dialog):
 
 
 def test_the_compustage_writes_its_shipped_values_untouched(dialog):
-    """Read-only means the wizard did not ask, so the shipped pair stands -- including
-    the 0/0 rotation a derivation would get wrong."""
+    """Read-only means the wizard did not ask, so the shipped values stand -- including
+    ``rotation: false``, which is what stops the derivation handing a compustage a
+    half turn it cannot make (FIB-834)."""
+    from fibsem.structures import StageSystemSettings
+
     dialog._select_model("tfs-arctis")
     dialog._show_step(STEP_STAGE)
     dialog._read_current_step()
@@ -168,7 +171,9 @@ def test_the_compustage_writes_its_shipped_values_untouched(dialog):
 
     config = wizard.build_configuration(dialog.choices)
     assert config["stage"]["rotation_reference"] == 0
-    assert config["stage"]["rotation_180"] == 0
+    stage = StageSystemSettings.from_dict(config["stage"])
+    assert stage.rotation is False
+    assert stage.rotation_180 == 0
 
 
 def test_the_stage_step_is_prefilled_from_the_chosen_model(dialog):
@@ -640,9 +645,13 @@ def test_the_diagram_paints_at_the_extremes(qapp, pre_tilt, stage_tilt):
 def test_stage_answers_do_not_survive_a_change_of_model(dialog):
     """Left in place they would be written over the shipped values.
 
-    For a compustage, whose shipped pair is rotation reference 0 with ``rotation_180``
-    also 0, a number typed for some other model is exactly the wrong thing to keep.
+    For a compustage, which reaches the other side of the grid by tilting rather than
+    turning round, a reference typed for some other model is exactly the wrong thing to
+    keep -- it would be carried into a file whose ``rotation: false`` describes a
+    different stage.
     """
+    from fibsem.structures import StageSystemSettings
+
     dialog._select_model("tfs-other")
     dialog._show_step(STEP_STAGE)
     dialog._rotation_spin.setValue(250.0)
@@ -656,7 +665,7 @@ def test_stage_answers_do_not_survive_a_change_of_model(dialog):
 
     config = wizard.build_configuration(dialog.choices)
     assert config["stage"]["rotation_reference"] == 0
-    assert config["stage"]["rotation_180"] == 0
+    assert StageSystemSettings.from_dict(config["stage"]).rotation_180 == 0
 
 
 # ---------------------------------------------------------------------------

@@ -32,7 +32,7 @@ def generate_configuration(user_config: dict) -> dict:
 
     # stage
     config["stage"]["rotation_reference"] = user_config["rotation-reference"]
-    config["stage"]["rotation_180"] = user_config["rotation-reference"] + 180
+    config["stage"].pop("rotation_180", None)  # derived from the reference (FIB-834)
     config["stage"]["shuttle_pre_tilt"] = user_config["shuttle-pre-tilt"]
 
     # electron
