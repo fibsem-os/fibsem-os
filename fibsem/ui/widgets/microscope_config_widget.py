@@ -250,9 +250,11 @@ class MicroscopeConfigWidget(QWidget):
         g_ion, self._sub_ion = grp(
             "Ion", [("Enabled", "enabled"), ("Plasma", "plasma")]
         )
+        # No "Tilt" here, unlike the manipulator below: every stage this project
+        # drives can tilt, so the checkbox only ever offered a way to be wrong.
         g_stage, self._sub_stage = grp(
             "Stage",
-            [("Enabled", "enabled"), ("Rotation", "rotation"), ("Tilt", "tilt")],
+            [("Enabled", "enabled"), ("Rotation", "rotation")],
         )
         g_manip, self._sub_manip = grp(
             "Manipulator",
@@ -489,6 +491,11 @@ class MicroscopeConfigWidget(QWidget):
             c.setdefault("ion", {})[key] = chk.isChecked()
         for key, chk in self._sub_stage.items():
             c.setdefault("stage", {})[key] = chk.isChecked()
+        # Same reason as `rotation_180` above: `c` is a deepcopy of the file as loaded,
+        # so an older configuration edited here would be written back still carrying a
+        # `stage.tilt` that no longer has a checkbox or a field behind it. The
+        # manipulator keeps its own `tilt`, which is why this is scoped to the stage.
+        c["stage"].pop("tilt", None)
         for key, chk in self._sub_manip.items():
             c.setdefault("manipulator", {})[key] = chk.isChecked()
         for key, chk in self._sub_gis.items():
