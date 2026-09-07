@@ -44,7 +44,7 @@ tests/                      mirrors the layout; tests/ui needs
 ## First: get it running
 
 ```bash
-pip install -e .[ui,test,dev]
+pip install -e ".[ui,test,dev]"
 fibsem-autolamella-ui
 ```
 
