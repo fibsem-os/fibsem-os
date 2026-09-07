@@ -7,14 +7,18 @@ Shows a few milling stages drawn on a blank FIB canvas — one colour per stage,
 each with a crosshair at its point-of-interest. "Toggle patterns" clears / re-shows
 them to demonstrate that the overlay draws nothing when there is no milling.
 """
+
 import sys
 
+import numpy as np
 from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import (
+    BitmapPattern,
     CirclePattern,
     LinePattern,
+    PolygonPattern,
     RectanglePattern,
     TrenchPattern,
 )
@@ -29,14 +33,47 @@ def _stage(name: str, pattern, x_um: float, y_um: float) -> FibsemMillingStage:
     return FibsemMillingStage(name=name, pattern=pattern)
 
 
+def _demo_bitmap() -> np.ndarray:
+    """A dwell-time gradient with a blanked corner, as bitmap points (dwell, blank)."""
+    array = np.zeros((64, 64, 2), dtype=float)
+    array[:, :, 0] = np.linspace(0, 1, 64)[None, :]
+    array[:16, :16, 1] = 1  # blanked -> drawn black
+    return array
+
+
 def build_stages():
     """A spread of pattern types / positions to exercise the overlay."""
     return [
         _stage("Trench", TrenchPattern(), 0, 0),
         _stage("Rect top", RectanglePattern(width=12e-6, height=5e-6), 0, 16),
-        _stage("Rotated", RectanglePattern(width=10e-6, height=3e-6, rotation=25), -22, -2),
+        _stage(
+            "Rotated", RectanglePattern(width=10e-6, height=3e-6, rotation=25), -22, -2
+        ),
+        _stage(
+            "Bitmap",
+            BitmapPattern(width=14e-6, height=10e-6, array=_demo_bitmap(), rotation=10),
+            22,
+            -14,
+        ),
+        _stage("Annulus", CirclePattern(radius=6e-6, thickness=1.5e-6), -20, 14),
+        _stage(
+            "Exclusion",
+            PolygonPattern(
+                vertices=np.array(
+                    [[-6e-6, -3e-6], [6e-6, -3e-6], [6e-6, 3e-6], [-6e-6, 3e-6]]
+                ),
+                is_exclusion=True,
+            ),
+            -22,
+            0,
+        ),
         _stage("Circle", CirclePattern(radius=4e-6), 20, 10),
-        _stage("Line", LinePattern(start_x=-8e-6, end_x=8e-6, start_y=-16e-6, end_y=-16e-6), 0, 0),
+        _stage(
+            "Line",
+            LinePattern(start_x=-8e-6, end_x=8e-6, start_y=-16e-6, end_y=-16e-6),
+            0,
+            0,
+        ),
     ]
 
 
@@ -54,8 +91,8 @@ class MillingOverlayTest(QWidget):
         self.canvas.add_overlay(self.overlay)
 
         stages = build_stages()
-        self.fg = stages[:3]          # foreground (coloured); one is "selected"
-        self.bg = stages[3:]          # background (drawn black)
+        self.fg = stages[:6]  # foreground (coloured); one is "selected"
+        self.bg = stages[6:]  # background (drawn black)
         self.selected = 0
         self._shown = True
         self._render()
