@@ -51,15 +51,17 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         is_tescan = isinstance(self.microscope, (TescanMicroscope))
 
         if is_thermo:
-
             try:
                 self.microscope._get_saved_manipulator_position("PARK")
                 self.microscope._get_saved_manipulator_position("EUCENTRIC")
                 self.savedPosition_combobox.addItems(["PARK", "EUCENTRIC"])
-             
+
             except Exception as e:
-                notification_service.show_toast(f"Error loading PARK and EUCENTRIC positions, calibration of manipulator is possibly needed. {e}", "warning")
-                            
+                notification_service.show_toast(
+                    f"Error loading PARK and EUCENTRIC positions, calibration of manipulator is possibly needed. {e}",
+                    "warning",
+                )
+
             self.move_type_comboBox.currentIndexChanged.connect(self.change_move_type)
             self.move_type_comboBox.setCurrentIndex(0)
             self.change_move_type()
@@ -69,7 +71,6 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
             self.calibrated_status_label.setVisible(False)
 
         if is_tescan:
-
             self.tescan_calibration = cfg.load_tescan_manipulator_calibration()
 
             self._initialise_calibration()
@@ -83,17 +84,23 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
 
         manipulator_inserted = self.microscope.get_manipulator_state()
         self._hide_show_buttons(manipulator_inserted)
-        self.insertManipulator_button.setText("Retract" if manipulator_inserted else "Insert")
-        self.manipulatorStatus_label.setText("Manipulator Status: Inserted" if manipulator_inserted else "Manipulator Status: Retracted")
-
+        self.insertManipulator_button.setText(
+            "Retract" if manipulator_inserted else "Insert"
+        )
+        self.manipulatorStatus_label.setText(
+            "Manipulator Status: Inserted"
+            if manipulator_inserted
+            else "Manipulator Status: Retracted"
+        )
 
     def _initialise_calibration(self):
 
         is_calibrated = self.tescan_calibration["calibrated"]
 
         if not is_calibrated:
-
-            self.calibrated_status_label.setText("Not Calibrated, Please run the calibration tool from the tool menu")
+            self.calibrated_status_label.setText(
+                "Not Calibrated, Please run the calibration tool from the tool menu"
+            )
             self.insertManipulator_button.setEnabled(False)
             self._hide_show_buttons(show=False)
 
@@ -103,27 +110,33 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
 
         response = False
         if is_calibrated:
-            response = message_box_ui(title="Manipulator Positions Already Calibrated", text="Manipulator Positions are already calibrated, would you like to recalibrate?")
+            response = message_box_ui(
+                title="Manipulator Positions Already Calibrated",
+                text="Manipulator Positions are already calibrated, would you like to recalibrate?",
+            )
             response = not response
 
         return response
 
-
     def calibrate_manipulator_positions(self):
 
         if not isinstance(self.microscope, TescanMicroscope):
-            message_box_ui(title="Not Available", text="Manipulator Position Calibration is only available for Tescan Microscopes", buttons=QMessageBox.Ok)
+            message_box_ui(
+                title="Not Available",
+                text="Manipulator Position Calibration is only available for Tescan Microscopes",
+                buttons=QMessageBox.Ok,
+            )
             return
 
         response = self._check_manipulator_positions_setup()
 
         if not response:
-            
-            ok_to_cal = message_box_ui(title="Manipulator Position calibration", 
-                                       text="This tool calibrates the positions of the manipulator, it will switch between the parking, standby and working positions rapidly, please ensure it is safe to do so. If not please click no, otherwise press yes to continue")
-                                      
-            if ok_to_cal:
+            ok_to_cal = message_box_ui(
+                title="Manipulator Position calibration",
+                text="This tool calibrates the positions of the manipulator, it will switch between the parking, standby and working positions rapidly, please ensure it is safe to do so. If not please click no, otherwise press yes to continue",
+            )
 
+            if ok_to_cal:
                 calibration = self.tescan_calibration
 
                 for position in ["parking", "standby", "working"]:
@@ -138,9 +151,11 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
                 cfg.save_tescan_manipulator_calibration(calibration)
                 self.tescan_calibration = cfg.load_tescan_manipulator_calibration()
 
-                message_box_ui(title="Manipulator Position calibration", 
-                               text="Manipulator Positions calibrated successfully", 
-                               buttons=QMessageBox.Ok)
+                message_box_ui(
+                    title="Manipulator Position calibration",
+                    text="Manipulator Positions calibrated successfully",
+                    buttons=QMessageBox.Ok,
+                )
 
                 self.update_ui_state()
 
@@ -161,21 +176,27 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
 
     def update_ui_state(self):
 
-        if isinstance(self.microscope, (ThermoMicroscope,DemoMicroscope)):
+        if isinstance(self.microscope, (ThermoMicroscope, DemoMicroscope)):
             is_calibrated = True
 
         if isinstance(self.microscope, (TescanMicroscope)):
             is_calibrated = self.tescan_calibration["calibrated"]
-        
+
         is_inserted = self.microscope.get_manipulator_state()
         self.insertManipulator_button.setEnabled(is_calibrated)
         self.moveRelative_button.setEnabled(is_calibrated)
         self.addSavedPosition_button.setEnabled(is_calibrated)
         self.goToPosition_button.setEnabled(is_calibrated)
         self._hide_show_buttons(show=is_inserted)
-        self.manipulatorStatus_label.setText("Manipulator Status: Inserted" if is_inserted else "Manipulator Status: Retracted")
-        self.insertManipulator_button.setText("Insert" if not is_inserted else "Retract")
-        self.calibrated_status_label.setText("Calibrated") 
+        self.manipulatorStatus_label.setText(
+            "Manipulator Status: Inserted"
+            if is_inserted
+            else "Manipulator Status: Retracted"
+        )
+        self.insertManipulator_button.setText(
+            "Insert" if not is_inserted else "Retract"
+        )
+        self.calibrated_status_label.setText("Calibrated")
 
     def update_ui(self):
 
@@ -183,30 +204,44 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         self.dY_spinbox.setValue(0)
         self.dZ_spinbox.setValue(0)
         self.dR_spinbox.setValue(0)
-        
+
     def setup_connections(self):
 
         self.insertManipulator_button.clicked.connect(self.insert_retract_manipulator)
-        self.insertManipulator_button.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
+        self.insertManipulator_button.setStyleSheet(
+            stylesheets.CONFIRM_BUTTON_STYLESHEET
+        )
         self.addSavedPosition_button.clicked.connect(self.add_saved_position)
-        self.addSavedPosition_button.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
+        self.addSavedPosition_button.setStyleSheet(
+            stylesheets.CONFIRM_BUTTON_STYLESHEET
+        )
         self.goToPosition_button.clicked.connect(self.move_to_saved_position)
         self.goToPosition_button.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.moveRelative_button.clicked.connect(self.move_relative)
         self.moveRelative_button.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
         self.pushButton_refresh_data.clicked.connect(self.refresh_data)
-        self.pushButton_refresh_data.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-
+        self.pushButton_refresh_data.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
 
     def refresh_data(self):
         self.manipulator_inserted = self.microscope.get_manipulator_state()
-        
+
         self._hide_show_buttons(self.manipulator_inserted)
-        self.insertManipulator_button.setText("Retract" if self.manipulator_inserted else "Insert")
-        self.insertManipulator_button.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET if self.manipulator_inserted else stylesheets.CONFIRM_BUTTON_STYLESHEET)
-        self.manipulatorStatus_label.setText("Manipulator Status: Inserted" if self.manipulator_inserted else "Manipulator Status: Retracted")        
-        
+        self.insertManipulator_button.setText(
+            "Retract" if self.manipulator_inserted else "Insert"
+        )
+        self.insertManipulator_button.setStyleSheet(
+            stylesheets.DANGER_BUTTON_STYLESHEET
+            if self.manipulator_inserted
+            else stylesheets.CONFIRM_BUTTON_STYLESHEET
+        )
+        self.manipulatorStatus_label.setText(
+            "Manipulator Status: Inserted"
+            if self.manipulator_inserted
+            else "Manipulator Status: Retracted"
+        )
 
     def move_relative(self):
         """Move the manipulator relative to its current position."""
@@ -215,29 +250,34 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         dy = self.dY_spinbox.value() * constants.MICRO_TO_SI
         dz = self.dZ_spinbox.value() * constants.MICRO_TO_SI
         dr = self.dR_spinbox.value() * constants.DEGREES_TO_RADIANS
-        beam_type = getattr(BeamType,self.beam_type_combobox.currentText())
+        beam_type = getattr(BeamType, self.beam_type_combobox.currentText())
 
-        if self.move_type_comboBox.currentText() == "Relative Move" or isinstance(self.microscope, (TescanMicroscope)):
-
+        if self.move_type_comboBox.currentText() == "Relative Move" or isinstance(
+            self.microscope, (TescanMicroscope)
+        ):
             try:
-                position = FibsemManipulatorPosition(x=dx, y=dy, z=dz, r=dr, coordinate_system="STAGE")  # TODO migrate to raw manipulator movements
+                position = FibsemManipulatorPosition(
+                    x=dx, y=dy, z=dz, r=dr, coordinate_system="STAGE"
+                )  # TODO migrate to raw manipulator movements
                 self.microscope.move_manipulator_relative(position=position)
             except Exception as e:
                 error_message = f"Error moving manipulator (Relative): {str(e)}"
                 logging.error(error_message)
                 notification_service.show_toast(error_message, "error")
-            
+
         else:
             try:
-                self.microscope.move_manipulator_corrected(dx=dx,dy=dy,beam_type=beam_type)
+                self.microscope.move_manipulator_corrected(
+                    dx=dx, dy=dy, beam_type=beam_type
+                )
             except Exception as e:
                 error_message = f"Error moving manipulator (Corrected): {str(e)}"
                 logging.error(error_message)
                 notification_service.show_toast(error_message, "error")
 
-        self.update_ui()      
-  
-    def _hide_show_buttons(self,show:bool = True):
+        self.update_ui()
+
+    def _hide_show_buttons(self, show: bool = True):
 
         # show = False
 
@@ -259,22 +299,24 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         self.savedPosition_combobox.setVisible(show)
 
     def insert_retract_manipulator(self):
-        
-        if self.microscope.get_manipulator_state():
 
+        if self.microscope.get_manipulator_state():
             self.microscope.retract_manipulator()
             self.insertManipulator_button.setText("Insert")
             self.manipulatorStatus_label.setText("Manipulator Status: Retracted")
-            self.insertManipulator_button.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
+            self.insertManipulator_button.setStyleSheet(
+                stylesheets.CONFIRM_BUTTON_STYLESHEET
+            )
             self.update_ui()
             self._hide_show_buttons(show=False)
-        
-        else:
 
+        else:
             self.microscope.insert_manipulator()
             self.insertManipulator_button.setText("Retract")
             self.manipulatorStatus_label.setText("Manipulator Status: Inserted")
-            self.insertManipulator_button.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
+            self.insertManipulator_button.setStyleSheet(
+                stylesheets.DANGER_BUTTON_STYLESHEET
+            )
             self.update_ui()
             self._hide_show_buttons(show=True)
 
@@ -297,15 +339,19 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
     def move_to_saved_position(self):
         name = self.savedPosition_combobox.currentText()
 
-        if name in ["Parking","Standby","Working"] and isinstance(self.microscope, (TescanMicroscope)):
+        if name in ["Parking", "Standby", "Working"] and isinstance(
+            self.microscope, (TescanMicroscope)
+        ):
             self.microscope.insert_manipulator(name=name)
             position = self.microscope.get_manipulator_position()
             logging.info(f"Moved to saved position {name} at {position}")
             self.update_ui()
             return
-        elif name in ["PARK", "EUCENTRIC"] and isinstance(self.microscope, (ThermoMicroscope, DemoMicroscope)):
+        elif name in ["PARK", "EUCENTRIC"] and isinstance(
+            self.microscope, (ThermoMicroscope, DemoMicroscope)
+        ):
             position = self.microscope._get_saved_manipulator_position(name)
-        else: 
+        else:
             position = self.saved_positions[name]
 
         logging.info(f"Moving to saved position {name} at {position}")

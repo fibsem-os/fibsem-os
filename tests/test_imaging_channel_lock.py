@@ -20,6 +20,7 @@ The race itself is now observable on the simulator, which models the shared chan
 both sides since FIB-518; `tests/fm/test_simulated_shared_channel.py` runs it. That does
 not replace this file, which is about the class that cannot be built here.
 """
+
 import ast
 from pathlib import Path
 
@@ -30,7 +31,9 @@ import fibsem
 
 def _thermo_class() -> ast.ClassDef:
     """The `ThermoMicroscope` class body, parsed from source."""
-    source = (Path(fibsem.__file__).parent / "microscope.py").read_text(encoding="utf-8")
+    source = (Path(fibsem.__file__).parent / "microscope.py").read_text(
+        encoding="utf-8"
+    )
     return next(
         node
         for node in ast.walk(ast.parse(source))
@@ -55,7 +58,9 @@ def _locked_blocks(node: ast.AST) -> list:
         child
         for child in ast.walk(node)
         if isinstance(child, ast.With)
-        and any("_threading_lock" in ast.dump(item.context_expr) for item in child.items)
+        and any(
+            "_threading_lock" in ast.dump(item.context_expr) for item in child.items
+        )
     ]
 
 
@@ -73,7 +78,11 @@ def test_every_grab_is_locked(thermo):
     grabs = _calls_named(thermo, "grab_frame")
     assert grabs, "no grab_frame call found -- the probe missed, not the code"
 
-    locked = {id(call) for block in _locked_blocks(thermo) for call in _calls_named(block, "grab_frame")}
+    locked = {
+        id(call)
+        for block in _locked_blocks(thermo)
+        for call in _calls_named(block, "grab_frame")
+    }
     unlocked = [call.lineno for call in grabs if id(call) not in locked]
     assert unlocked == [], (
         f"grab_frame runs without the lock at line(s) {unlocked}: whatever took the "

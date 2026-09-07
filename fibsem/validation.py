@@ -33,7 +33,6 @@ def validate_initial_microscope_state(
     microscope.set("scan_rotation", value=0.0, beam_type=BeamType.ION)
 
 
-
 def _validate_stage_calibration(microscope: FibsemMicroscope) -> None:
     """Validate if the required stage calibration has been performed.
 
@@ -84,19 +83,23 @@ def _validate_beam_system_state(
     if not microscope.get("on", settings.beam_type):
         logging.warning(f"{beam_name} Beam is not on, switching on now...")
         microscope.set("on", True, settings.beam_type)
-        assert microscope.get("on", settings.beam_type), f"Unable to turn on {beam_name} Beam."
+        assert microscope.get("on", settings.beam_type), (
+            f"Unable to turn on {beam_name} Beam."
+        )
         logging.warning(f"{beam_name} Beam turned on.")
 
     # blanked?
     if microscope.get("blanked", settings.beam_type):
         logging.warning(f"{beam_name} Beam is blanked, unblanking now...")
         microscope.set("blanked", False, settings.beam_type)
-        assert not microscope.get("blanked", settings.beam_type), f"Unable to unblank {beam_name} Beam."
+        assert not microscope.get("blanked", settings.beam_type), (
+            f"Unable to unblank {beam_name} Beam."
+        )
         logging.warning(f"{beam_name} Beam unblanked.")
 
     # set detectors
     microscope.set("detector_type", settings.detector_type, settings.beam_type)
-    microscope.set("detector_mode", settings.detector_mode, settings.beam_type)       
+    microscope.set("detector_mode", settings.detector_mode, settings.beam_type)
 
     # validate working distances
     if not check_working_distance_is_within_tolerance(
@@ -121,21 +124,25 @@ def _validate_beam_system_state(
                 f"Changing {beam_name} Beam High Voltage to {settings.voltage}V."
             )
             microscope.set("voltage", settings.voltage, settings.beam_type)
-            assert (
-                microscope.get("voltage", settings.beam_type) == settings.voltage
-            ), f"Unable to change {beam_name} Beam High Voltage"
+            assert microscope.get("voltage", settings.beam_type) == settings.voltage, (
+                f"Unable to change {beam_name} Beam High Voltage"
+            )
             logging.warning(f"{beam_name} Beam High Voltage Changed")
 
     # validate plasma gas (only for ION beam)
     if settings.beam_type is BeamType.ION:
-
         plasma_gas = settings.plasma_gas.capitalize()
-        if plasma_gas not in microscope.get_available(key="plasma_gas", beam_type=settings.beam_type):
+        if plasma_gas not in microscope.get_available(
+            key="plasma_gas", beam_type=settings.beam_type
+        ):
             logging.warning(f"{plasma_gas} is not available as a plasma gas.")
 
         current_plasma_gas = microscope.get("plasma_gas", settings.beam_type)
         if current_plasma_gas != plasma_gas:
-            logging.warning(f"Plasma Gas is should be {plasma_gas} (Currently {current_plasma_gas})")
+            logging.warning(
+                f"Plasma Gas is should be {plasma_gas} (Currently {current_plasma_gas})"
+            )
+
 
 def _validate_beam_system_settings(
     microscope: FibsemMicroscope, settings: MicroscopeSettings
@@ -152,21 +159,23 @@ def _validate_beam_system_settings(
 def _validate_chamber_state(microscope: FibsemMicroscope) -> None:
     """Validate the state of the chamber"""
 
-    chamber_state = str(microscope.get('chamber_state'))
+    chamber_state = str(microscope.get("chamber_state"))
     chamber_pressure = microscope.get("chamber_pressure")
-    
+
     logging.info(f"Vacuum Chamber State: {chamber_state}")
     if not chamber_state == "Pumped":
         logging.warning(
             f"Chamber vacuum state should be Pumped (Currently is {chamber_state})"
         )
 
-    logging.info(f"Vacuum Chamber Pressure: {chamber_pressure:.6f} mbar"
-    )
+    logging.info(f"Vacuum Chamber Pressure: {chamber_pressure:.6f} mbar")
     if chamber_pressure >= 1e-4:
-        logging.warning(f"Chamber pressure is too high, please pump the system (Currently {chamber_pressure:.6f} mbar)"            )
+        logging.warning(
+            f"Chamber pressure is too high, please pump the system (Currently {chamber_pressure:.6f} mbar)"
+        )
 
     logging.info("Vacuum Chamber State Validation finished.")
+
 
 def validate_stage_height_for_needle_insertion(
     microscope: FibsemMicroscope, needle_stage_height_limit: float = 3.7e-3
@@ -218,14 +227,13 @@ def check_shift_within_tolerance(
 ) -> bool:
     """Check if required shift is wihtin safety limit"""
     # check if the cross correlation movement is within the safety limit
-    
+
     pixelsize_x = ref_image.metadata.pixel_size.x
     width, height = ref_image.metadata.image_settings.resolution
     X_THRESHOLD = limit * pixelsize_x * width
     Y_THRESHOLD = limit * pixelsize_x * height
 
     return abs(dx) < X_THRESHOLD and abs(dy) < Y_THRESHOLD
-
 
 
 def _validate_milling_protocol(
@@ -274,14 +282,16 @@ def _validate_configuration_values(microscope: FibsemMicroscope, dictionary: dic
                     microscope.check_available_values(key, values=[item])
 
                 if "milling_current" in key:
-                    microscope.check_available_values("current", values=[item], beam_type=BeamType.ION)
-                
+                    microscope.check_available_values(
+                        "current", values=[item], beam_type=BeamType.ION
+                    )
+
                 if "resolution" in key:
                     microscope.check_available_values(key, values=[item])
 
                 if "dwell_time" in key:
                     microscope.check_available_values(key, values=[item])
-                    
+
             if isinstance(item, str):
                 if "application_file" in key:
                     microscope.check_available_values("application_file", values=[item])
@@ -289,9 +299,7 @@ def _validate_configuration_values(microscope: FibsemMicroscope, dictionary: dic
     return dictionary
 
 
-
 # new validation v2
-
 
 
 def validate_microscope(microscope: FibsemMicroscope):
@@ -309,10 +317,10 @@ def validate_microscope(microscope: FibsemMicroscope):
     if microscope.get("chamber_state") != "Pumped":
         warnings.append("Chamber is not pumped")
 
-
     # ThermoFisher specific validation
     from fibsem.microscope import ThermoMicroscope
     from fibsem.microscopes.simulator import DemoMicroscope
+
     if isinstance(microscope, (ThermoMicroscope, DemoMicroscope)):
         # check stage is homed
         if not microscope.get("stage_homed"):
@@ -325,7 +333,6 @@ def validate_microscope(microscope: FibsemMicroscope):
         # check needle is retracted
         if microscope.get("manipulator_state") != "Retracted":
             warnings.append("Needle is not retracted")
-
 
     logging.warning(f"Microscope Validation Warnings: {warnings}")
 
