@@ -318,7 +318,7 @@ def validate_microscope(microscope: FibsemMicroscope):
         warnings.append("Chamber is not pumped")
 
     # ThermoFisher specific validation
-    from fibsem.microscope import ThermoMicroscope
+    from fibsem.microscopes.autoscript import ThermoMicroscope
     from fibsem.microscopes.simulator import DemoMicroscope
 
     if isinstance(microscope, (ThermoMicroscope, DemoMicroscope)):
