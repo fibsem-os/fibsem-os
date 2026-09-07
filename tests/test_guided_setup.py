@@ -260,25 +260,44 @@ def test_only_the_simulator_needs_no_vendor_api():
 # ---------------------------------------------------------------------------
 
 
-def test_a_compustage_derives_no_opposite_rotation():
-    """The case a blanket `reference + 180` would get wrong.
+def test_the_wizard_writes_no_stage_capability():
+    """It writes the reference; the instrument says whether there is an opposite.
 
-    A compustage reaches the other side of the grid by tilting, not by turning round,
-    so it has no second rotation -- and ``tfs-arctis`` says so with ``rotation: false``
-    rather than by setting two numbers equal. Both simulated and real Arctis are
-    checked: the simulator is the only place the compustage path runs, so a sim config
-    that disagreed with the instrument would be a hole in every compustage test.
+    A compustage reaches the other side of the grid by tilting rather than turning
+    round, and that used to be stated as ``rotation: false`` in the file the wizard
+    copied. It is now read from the stage's own axes at connect, so the wizard has
+    nothing to write and must not write anything -- a stale ``rotation`` left in a
+    generated file would be a value nothing reads sitting next to a question it looks
+    like it answers.
+
+    Asserted over every model, not only the compustages: the key going missing is the
+    whole change, and a model that still wrote one would be the way it came back.
     """
-    from fibsem.structures import StageSystemSettings
-
-    for key in ("tfs-arctis", "sim-arctis"):
+    for model in wizard.MICROSCOPE_MODELS:
         config = wizard.build_configuration(
-            wizard.SetupChoices(model_key=key, name="Bay 2")
+            wizard.SetupChoices(model_key=model.key, name="Bay 2")
         )
-        stage = StageSystemSettings.from_dict(config["stage"])
-        assert stage.rotation is False, key
-        assert stage.rotation_reference == 0, key
-        assert stage.rotation_180 == 0, key
+        assert "rotation" not in config["stage"], model.key
+        assert "tilt" not in config["stage"], model.key
+
+
+def test_the_compustage_models_are_still_marked_as_such():
+    """The wizard's own record of which models are compustages is untouched.
+
+    It drives ``sim.is_compustage`` for a simulated run -- which is what the simulator
+    reads to report a stage with no rotation axis -- and it is why those two models do
+    not reach the stage question at all.
+    """
+    for key in ("tfs-arctis", "sim-arctis"):
+        assert wizard.get_model(key).is_compustage, key
+        assert wizard.SetupChoices(model_key=key).stage_is_readonly, key
+
+    config = wizard.build_configuration(
+        wizard.SetupChoices(
+            manufacturer_key=wizard.MANUFACTURER_SIMULATOR, model_key="sim-arctis"
+        )
+    )
+    assert config["sim"]["is_compustage"] is True
 
 
 def test_a_supplied_rotation_reference_derives_its_opposite():
