@@ -18,8 +18,13 @@ There are several ways to install fibsemOS depending on your application and nee
 
 #### PyPI (For Users)
 
+Create a virtual environment (see [Installation Guide](INSTALLATION.md) for
+alternatives to conda), then install with the `[ui]` extra to get the GUI:
+
 ```bash
-pip install fibsem 
+conda create -n fibsem python=3.11 pip
+conda activate fibsem
+pip install "fibsem[ui]"
 ```
 
 #### Github (For Development)
@@ -36,14 +41,14 @@ Install dependencies and package:
 ```bash
 conda create -n fibsem python=3.11 pip
 conda activate fibsem
-pip install -e '.[ui]'
+pip install -e ".[ui]"
 ```
 
 Image labelling (`fibsem_label`) draws in napari, which is not part of `[ui]`; add
 the `[labelling]` extra for it:
 
 ```bash
-pip install -e '.[ui,labelling]'
+pip install -e ".[ui,labelling]"
 ```
 
 To run:
@@ -66,13 +71,13 @@ On internet connected PC (Environment should match python version):
 ```bash
 mkdir pkg
 cd pkg
-pip download fibsem[ui]
+pip download "fibsem[ui]"
 ```
 On Support PC:
 Transfer the pkg directory to the support pc, and then change to the pkg directory
 ```bash
 cd pkg
-pip install --no-index --find-links . fibsem[ui]
+pip install --no-index --find-links . "fibsem[ui]"
 ```
 
 #### Additional Installation Information
