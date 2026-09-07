@@ -944,8 +944,6 @@ class ThermoMicroscope(FibsemMicroscope):
         A compustage without an autoloader gets no loader at all: its grids are
         exchanged by hand, and a phantom twelve-slot magazine would only mislead.
         """
-        from fibsem.microscopes.autoscript import AutoscriptSampleLoader
-
         loader = AutoscriptSampleLoader(parent=self)
         if not loader.is_installed:
             logging.info(
