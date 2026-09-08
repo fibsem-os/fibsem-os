@@ -104,9 +104,10 @@ def tab(qapp, experiment) -> R.ReviewTabWidget:
 
 def test_the_inbox_is_derived_from_the_experiment(tab, experiment):
     assert tab.pending_count == 1
-    texts = [tab.list.item(i).text() for i in range(tab.list.count())]
-    assert texts[0].startswith("MILLING POSITIONS")
+    texts = tab.row_summaries()
+    assert texts[0] == "Waiting · 1"
     assert experiment.positions[0].name in texts[1] and SETUP in texts[1]
+    assert tab.list.itemWidget(tab.list.item(1)) is not None, "a real row widget"
     renderer = tab.stack.currentWidget()
     assert isinstance(renderer, R.MillingSetupReviewRenderer)
     assert renderer.task_chip.text() == SETUP
@@ -203,20 +204,51 @@ def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
 
     tab.show_decided.setChecked(True)
     assert tab.pending_count == 0, "decided rows are not pending"
-    texts = [tab.list.item(i).text() for i in range(tab.list.count())]
-    assert texts[0].startswith("DECIDED  1") and "✓" in texts[1]
+    texts = tab.row_summaries()
+    assert texts[0] == "Decided · 1" and "confirmed" in texts[1]
     tab._select_entry(0)
     shown = tab.stack.currentWidget()
     assert isinstance(shown, R.MillingSetupReviewRenderer)
     assert not shown.btn_confirm.isEnabled() and not shown.btn_reject.isEnabled()
-    assert "confirmed by human:" in shown.status.text()
-    assert "+2.00" in shown.status.text(), "the delta is shown (20 px at 100 nm)"
+    assert "Confirmed by you at" in shown.decision.text(), "the operator reads as you"
+    assert "+2.00" in shown.decision.text(), "the delta is shown (20 px at 100 nm)"
+    assert shown.position.text() == "decided 1 of 1"
+    assert shown.waiting.text().startswith("Unblocked:")
+    assert shown._controller.overlay_points(BeamType.ION, "confirmed"), (
+        "the confirmed marker is drawn beside the proposed one"
+    )
+    assert "Read-only" in shown.status.text()
     before = lamella.proposals[SETUP].decisions[:]
     tab.confirm_current()
     assert lamella.proposals[SETUP].decisions == before, "read-only means read-only"
 
     tab.show_decided.setChecked(False)
     assert tab.list.count() == 0
+
+
+def test_author_labels_and_row_details():
+    exp = Experiment(path=Path("/tmp/claude-501/x"), name="e", metadata={"user": "Pat"})
+    assert R.author_label("human:Pat", exp) == "you"
+    assert R.author_label("human:Sam", exp) == "Sam"
+    assert R.author_label("agent:claude", exp) == "agent · claude"
+    p = Proposal(kind=MILLING_SETUP, values={"poi": Point(0, 0)})
+    p.decisions.append(
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:Pat",
+            values={"poi": Point(0, 0)},
+        )
+    )
+    assert R.delta_label(p) == "as proposed"
+    p.decisions.append(
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:Pat",
+            values={"poi": Point(3e-6, 4e-6)},
+        )
+    )
+    assert R.delta_label(p) == "moved 5.0 µm"
+    assert R.describe_decision(p, exp).startswith("Confirmed by you at ")
 
 
 def test_the_row_toggle_sets_review_and_follows_the_flag(qapp, monkeypatch):
