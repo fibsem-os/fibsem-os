@@ -114,7 +114,9 @@ def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_
     assert proposal.confidence is None and proposal.alternatives == []
     assert proposal.provenance["proposer"] == "centre-of-image"
     assert proposal.provenance["values"] == ["poi"]
-    assert proposal.provenance["reference_image"].endswith("_ib.tif")
+    assert proposal.provenance["reference_image"] == (
+        f"ref_{SETUP}_final_res_01_ib.tif"
+    ), "the final reference image, the last thing acquired at the stored pose"
     assert not os.path.isabs(proposal.provenance["reference_image"]), (
         "relative to the lamella folder, so a moved experiment still resolves"
     )
