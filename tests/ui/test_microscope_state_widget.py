@@ -28,7 +28,11 @@ from fibsem.ui.tokens import (
     SAVED_POSITION_COLOUR,
     TEXT_MUTED_COLOR,
 )
-from fibsem.ui.widgets.microscope_state_widget import MicroscopeStateWidget
+from fibsem.ui.widgets.microscope_state_widget import (
+    _LIVE_COLUMN,
+    _SAVED_COLUMN,
+    MicroscopeStateWidget,
+)
 from fibsem.utils import NOT_AVAILABLE
 
 
@@ -167,7 +171,8 @@ def test_comparing_shows_both_columns(qapp):
 
     rows = _grid_text(widget.grid_stage)
     assert rows["X"] == ["0 nm", "42.00 µm"], "saved column first, then live"
-    assert widget.label_mode.text() == "saved vs live"
+    assert widget.chip_saved.isHidden() is False
+    assert widget.chip_live.isHidden() is False
 
 
 def test_only_the_rows_that_differ_are_coloured(qapp):
@@ -181,12 +186,12 @@ def test_only_the_rows_that_differ_are_coloured(qapp):
     widget.set_state(_state(x=42e-6), title="MILLING")
     widget.set_reference(_state(x=0.0))
 
-    assert SAVED_POSITION_COLOUR in _colour_of(widget.grid_stage, "X", 1)
-    assert CURRENT_POSITION_COLOUR in _colour_of(widget.grid_stage, "X", 2)
+    assert SAVED_POSITION_COLOUR in _colour_of(widget.grid_stage, "X", _SAVED_COLUMN)
+    assert CURRENT_POSITION_COLOUR in _colour_of(widget.grid_stage, "X", _LIVE_COLUMN)
 
     # Y did not move.
-    assert TEXT_MUTED_COLOR in _colour_of(widget.grid_stage, "Y", 1)
-    assert TEXT_MUTED_COLOR in _colour_of(widget.grid_stage, "Y", 2)
+    assert TEXT_MUTED_COLOR in _colour_of(widget.grid_stage, "Y", _SAVED_COLUMN)
+    assert TEXT_MUTED_COLOR in _colour_of(widget.grid_stage, "Y", _LIVE_COLUMN)
 
 
 def test_two_identical_states_colour_nothing(qapp):
@@ -195,7 +200,9 @@ def test_two_identical_states_colour_nothing(qapp):
     widget.set_reference(_state())
 
     for label in ("X", "Y", "Z", "R", "T"):
-        assert TEXT_MUTED_COLOR in _colour_of(widget.grid_stage, label, 1), label
+        assert TEXT_MUTED_COLOR in _colour_of(
+            widget.grid_stage, label, _SAVED_COLUMN
+        ), label
 
 
 def test_values_are_compared_as_rendered_not_as_floats(qapp):
@@ -208,7 +215,7 @@ def test_values_are_compared_as_rendered_not_as_floats(qapp):
     widget.set_reference(_state(ion_current=2.0e-11))
 
     assert _grid_text(widget.grid_ion)["Current"] == ["20 pA", "20 pA"]
-    assert TEXT_MUTED_COLOR in _colour_of(widget.grid_ion, "Current", 1)
+    assert TEXT_MUTED_COLOR in _colour_of(widget.grid_ion, "Current", _SAVED_COLUMN)
 
 
 def test_the_separation_is_reported_in_three_dimensions(qapp):
@@ -231,7 +238,7 @@ def test_dropping_the_reference_stops_comparing(qapp):
 
     assert _grid_text(widget.grid_stage)["X"] == ["42.00 µm"]
     assert widget.label_delta.isHidden() is True
-    assert widget.label_mode.text() == ""
+    assert widget.chip_live.isHidden() is True, "a saved pose is not live"
 
 
 # ---------------------------------------------------------------------------
@@ -287,3 +294,40 @@ def test_there_is_no_fluorescence_section(qapp):
 
     titles = {label.text() for label in widget.findChildren(QLabel) if label.text()}
     assert not any("luoresc" in title for title in titles)
+
+
+# ---------------------------------------------------------------------------
+# A stage with no rotation axis
+# ---------------------------------------------------------------------------
+
+
+def test_a_compustage_shows_no_rotation_row(qapp):
+    """The row is omitted, not dashed.
+
+    A compustage has no rotation axis -- AutoScript's `CompustagePosition` carries
+    x, y, z, a -- so `stage_position_from_autoscript` writes `r=0.0` as a literal,
+    because `FibsemStagePosition` needs a number. The record cannot tell "at rotation
+    zero" from "does not rotate", and `0.0°` asserts the first. An em-dash would be
+    wrong too: it means "not reported", and this axis does not exist.
+    """
+    widget = MicroscopeStateWidget(show_rotation=False)
+    rows = _grid_text(widget.grid_stage)
+    assert rows == {}
+
+    widget.set_state(_state(r=0.0))
+    rows = _grid_text(widget.grid_stage)
+    assert "R" not in rows
+    assert list(rows) == ["X", "Y", "Z", "T"]
+
+
+def test_a_rotating_stage_keeps_its_rotation_row(qapp):
+    widget = MicroscopeStateWidget(show_rotation=True)
+    widget.set_state(_state(r=0.0))
+    assert list(_grid_text(widget.grid_stage)) == ["X", "Y", "Z", "R", "T"]
+
+
+def test_the_rotation_row_is_dropped_from_both_columns_when_comparing(qapp):
+    widget = MicroscopeStateWidget(show_rotation=False)
+    widget.set_state(_state(x=42e-6))
+    widget.set_reference(_state(x=0.0))
+    assert "R" not in _grid_text(widget.grid_stage)

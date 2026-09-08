@@ -69,6 +69,15 @@ from fibsem.utils import (
 _SAVED_COLOUR = SAVED_POSITION_COLOUR
 _LIVE_COLOUR = CURRENT_POSITION_COLOUR
 
+# Grid columns. Named because three of the four are referred to from two places, and
+# an off-by-one here puts a value in the label column rather than raising.
+_KEY_COLUMN = 0
+_SAVED_COLUMN = 1
+_GAP_COLUMN = 2
+_LIVE_COLUMN = 3
+_KEY_COLUMN_MIN_W = 92  # fits "Working dist." at the default UI font
+_GAP_COLUMN_W = 14
+
 # Rows are compared as *rendered strings*, not as floats. Two records holding
 # 2.0e-11 and 2.0000001e-11 both read "20 pA", and marking that row as a difference
 # would be reporting a change the panel cannot show. Comparing what is drawn asks the
@@ -83,17 +92,35 @@ class MicroscopeStateWidget(QWidget):
     show_refresh:
         Whether to offer a refresh button. A saved pose has nothing to refresh, so the
         embedding list turns it off; a live readout turns it on and owns the signal.
+    show_rotation:
+        Whether the stage has a rotation axis. Pass
+        ``microscope.is_available("stage_rotation")``, which reads the instrument's own
+        axes since FIB-834.
+
+        This is not cosmetic. A compustage has no rotation axis at all -- AutoScript's
+        ``CompustagePosition`` carries ``x``, ``y``, ``z``, ``a`` and nothing else --
+        so ``stage_position_from_autoscript`` writes ``r=0.0`` as a **literal**,
+        because ``FibsemStagePosition`` needs a number and ``get_stage_orientation``
+        raises on ``None``. The record therefore cannot distinguish "the stage is at
+        rotation zero" from "this stage does not rotate", and drawing ``0.0°`` asserts
+        the first. The widget has no microscope to ask, and the host does.
     """
 
     #: Refresh was pressed. Reading the instrument is a device call and this widget
     #: does not make those -- the host decides what one costs.
     refresh_requested = pyqtSignal()
 
-    def __init__(self, show_refresh: bool = False, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        show_refresh: bool = False,
+        show_rotation: bool = True,
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
         self._state: Optional[MicroscopeState] = None
         self._reference: Optional[MicroscopeState] = None
         self._show_refresh = show_refresh
+        self._show_rotation = show_rotation
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -110,10 +137,14 @@ class MicroscopeStateWidget(QWidget):
         header.setSpacing(6)
         self.label_title = QLabel("—")
         self.label_title.setStyleSheet("font-weight: bold;")
-        self.label_mode = QLabel("")
-        self.label_mode.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
+        # Chips, not a sentence. Which record is on screen is the first thing a
+        # reader needs and the thing they will glance back at, and a chip carrying
+        # the colour its column is drawn in answers it without being read.
+        self.chip_saved = _chip("saved", _SAVED_COLOUR)
+        self.chip_live = _chip("live", _LIVE_COLOUR)
         header.addWidget(self.label_title)
-        header.addWidget(self.label_mode)
+        header.addWidget(self.chip_saved)
+        header.addWidget(self.chip_live)
         header.addStretch()
 
         self.button_refresh = QPushButton("Refresh")
@@ -193,7 +224,14 @@ class MicroscopeStateWidget(QWidget):
     def _refresh(self) -> None:
         state = self._state
         comparing = state is not None and self._reference is not None
-        self.label_mode.setText("saved vs live" if comparing else "")
+        # Both chips when comparing; otherwise the one that describes this record --
+        # a live readout has a refresh button, a saved pose does not.
+        self.chip_saved.setVisible(
+            state is not None and (comparing or not self._show_refresh)
+        )
+        self.chip_live.setVisible(
+            state is not None and (comparing or self._show_refresh)
+        )
 
         if state is None:
             for grid in (self.grid_stage, self.grid_electron, self.grid_ion):
@@ -206,7 +244,8 @@ class MicroscopeStateWidget(QWidget):
 
         reference = self._reference
         self.grid_stage.set_rows(
-            _stage_rows(state), _stage_rows(reference) if comparing else None
+            _stage_rows(state, self._show_rotation),
+            _stage_rows(reference, self._show_rotation) if comparing else None,
         )
         self.grid_electron.set_rows(
             _beam_rows(state.electron_beam, state.electron_detector),
@@ -241,17 +280,28 @@ class MicroscopeStateWidget(QWidget):
 # ---------------------------------------------------------------------------
 
 
-def _stage_rows(state: Optional[MicroscopeState]) -> List[Tuple[str, str]]:
+def _stage_rows(
+    state: Optional[MicroscopeState], show_rotation: bool = True
+) -> List[Tuple[str, str]]:
+    """The stage axes, omitting R on a stage that has none.
+
+    Omitted rather than shown as ``NOT_AVAILABLE``: an em-dash means "the instrument
+    did not report this", and a compustage's missing rotation is not a gap in a
+    reading -- the axis does not exist. A row that will always be empty invites the
+    question of why.
+    """
+    axes = ["X", "Y", "Z"] + (["R"] if show_rotation else []) + ["T"]
     if state is None or state.stage_position is None:
-        return [(k, NOT_AVAILABLE) for k in ("X", "Y", "Z", "R", "T")]
+        return [(axis, NOT_AVAILABLE) for axis in axes]
     position = state.stage_position
-    return [
-        ("X", format_distance(position.x)),
-        ("Y", format_distance(position.y)),
-        ("Z", format_distance(position.z)),
-        ("R", format_angle(position.r)),
-        ("T", format_angle(position.t)),
-    ]
+    values = {
+        "X": format_distance(position.x),
+        "Y": format_distance(position.y),
+        "Z": format_distance(position.z),
+        "R": format_angle(position.r),
+        "T": format_angle(position.t),
+    }
+    return [(axis, values[axis]) for axis in axes]
 
 
 def _beam_rows(
@@ -345,8 +395,17 @@ class _ValueGrid(QWidget):
         self._layout.setContentsMargins(2, 2, 2, 2)
         self._layout.setHorizontalSpacing(10)
         self._layout.setVerticalSpacing(1)
-        self._layout.setColumnStretch(1, 1)
-        self._layout.setColumnStretch(2, 1)
+        # The label column gets a floor. Without one the three-column comparison
+        # squeezed it until "Working dist." and "Scan rotation" were clipped to
+        # "Working dist" and "Scan rotatio" -- which the tests could not see, because
+        # a QLabel reports the text it was given whether or not it has room to draw it.
+        self._layout.setColumnMinimumWidth(_KEY_COLUMN, _KEY_COLUMN_MIN_W)
+        self._layout.setColumnStretch(_SAVED_COLUMN, 1)
+        # A blank column between the two value columns. When every row matches they
+        # are all muted, and without a gap they read as one run of numbers rather than
+        # two things being compared.
+        self._layout.setColumnMinimumWidth(_GAP_COLUMN, _GAP_COLUMN_W)
+        self._layout.setColumnStretch(_LIVE_COLUMN, 1)
 
     def clear(self) -> None:
         while self._layout.count():
@@ -370,9 +429,11 @@ class _ValueGrid(QWidget):
 
         for index, (key, value) in enumerate(rows):
             row = index + offset
-            self._layout.addWidget(_key_label(key), row, 0)
+            self._layout.addWidget(_key_label(key), row, _KEY_COLUMN)
             if not comparing:
-                self._layout.addWidget(_value_label(value, TEXT_COLOR), row, 1)
+                self._layout.addWidget(
+                    _value_label(value, TEXT_COLOR), row, _SAVED_COLUMN
+                )
                 continue
 
             # The reference is the *saved* side and `rows` is the live one, so the
@@ -384,20 +445,31 @@ class _ValueGrid(QWidget):
             self._layout.addWidget(
                 _value_label(was, _SAVED_COLOUR if differs else TEXT_MUTED_COLOR),
                 row,
-                1,
+                _SAVED_COLUMN,
             )
             self._layout.addWidget(
                 _value_label(value, _LIVE_COLOUR if differs else TEXT_MUTED_COLOR),
                 row,
-                2,
+                _LIVE_COLUMN,
             )
 
     def _add_header(self) -> None:
-        for column, text in ((1, "Saved"), (2, "Live")):
+        for column, text in ((_SAVED_COLUMN, "Saved"), (_LIVE_COLUMN, "Live")):
             label = QLabel(text)
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             label.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 9pt;")
             self._layout.addWidget(label, 0, column)
+
+
+def _chip(text: str, colour: str) -> QLabel:
+    """A small pill in the colour its column is drawn in."""
+    label = QLabel(text)
+    label.setStyleSheet(
+        f"color: {colour}; border: 1px solid {colour}; border-radius: 7px;"
+        f"padding: 0px 6px; font-size: 9pt;"
+    )
+    label.setVisible(False)
+    return label
 
 
 def _key_label(text: str) -> QLabel:
