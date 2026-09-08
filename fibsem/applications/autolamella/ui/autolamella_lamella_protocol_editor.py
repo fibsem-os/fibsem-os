@@ -48,8 +48,10 @@ from fibsem.structures import (
     Point,
     ReferenceImageParameters,
 )
+from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     NEUTRAL_200,
+    SEMANTIC_WARNING_COLOR,
 )
 from fibsem.ui.widgets.canvas.canvas_state import AlignmentSpec, PointsSpec
 from fibsem.ui.widgets.canvas.overlay_controls import (
@@ -90,6 +92,8 @@ _SAVE_DEBOUNCE_MS = 400
 # Reducer overlay ids on the FIB (ION) canvas
 POI_OVERLAY_ID = "poi"
 ALIGNMENT_OVERLAY_ID = "alignment_area"
+
+_WARNING_LABEL_STYLE = f"color: {SEMANTIC_WARNING_COLOR}; font-size: 11px;"
 
 # The view toggles in the FIB canvas's overlay popover, by key.
 OVERLAY_SEM = "sem"
@@ -181,6 +185,29 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._active_lamella_name = lamella_name
         self._active_task_name = task_name
         self._apply_editing_lock(self._is_editing_locked())
+        if hasattr(self, "listWidget_selected_task"):
+            self._refresh_task_states()
+
+    def _refresh_task_states(self) -> None:
+        """Chip each task row with what the lamella says about it.
+
+        Completed from the lamella's own record, in progress from what the workflow
+        told this editor it is running. A task with neither shows nothing.
+        """
+        lamella = self._selected_lamella
+        if lamella is None:
+            self.listWidget_selected_task.set_task_states({})
+            return
+        states = {
+            name: ("Completed", stylesheets.GREEN_COLOR)
+            for name in lamella.completed_tasks
+        }
+        if (
+            self._active_lamella_name == lamella.name
+            and self._active_task_name is not None
+        ):
+            states[self._active_task_name] = ("In Progress", stylesheets.ACCENT_COLOR)
+        self.listWidget_selected_task.set_task_states(states)
 
     def _is_editing_locked(self) -> bool:
         if self._active_lamella_name is None:
@@ -318,15 +345,14 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.combobox_sem_filenames.currentIndexChanged.connect(self._on_image_selected)
         self.combobox_sem_filenames.setEnabled(self.show_sem_image)
 
+        # One warning style: the theme's warning token, small. Whether a task has
+        # completed is a chip on its row in the list, not a sentence here.
         self.label_lamella_warning = QLabel("")
-        self.label_lamella_warning.setStyleSheet("color: orange;")
+        self.label_lamella_warning.setStyleSheet(_WARNING_LABEL_STYLE)
         self.label_lamella_warning.setWordWrap(True)
         self.label_warning = QLabel("")
-        self.label_warning.setStyleSheet("color: orange;")
+        self.label_warning.setStyleSheet(_WARNING_LABEL_STYLE)
         self.label_warning.setWordWrap(True)
-        self.label_status = QLabel("")
-        self.label_status.setStyleSheet("color: cyan;")
-        self.label_status.setWordWrap(True)
 
         self.grid_layout = QGridLayout()
         self.grid_layout.addLayout(self.button_layout, 0, 0, 1, 2)
@@ -338,8 +364,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.grid_layout.addWidget(self.combobox_fm_filenames_label, 4, 0, 1, 1)
         self.grid_layout.addWidget(self.combobox_fm_filenames, 4, 1, 1, 1)
         self.grid_layout.addWidget(self.label_lamella_warning, 5, 0, 1, 2)
-        self.grid_layout.addWidget(self.label_status, 6, 0, 1, 2)
-        self.grid_layout.addWidget(self.label_warning, 7, 0, 1, 2)
+        self.grid_layout.addWidget(self.label_warning, 6, 0, 1, 2)
         self.grid_layout.addWidget(self.label_description, 8, 0, 1, 1)
         self.grid_layout.addWidget(self.line_edit_description, 8, 1, 1, 1)
 
@@ -445,6 +470,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             list(selected_lamella.task_config.keys())
         )
         self.listWidget_selected_task.set_tasks(task_names)
+        self._refresh_task_states()
 
         # load fluorescence image
         filenames = sorted(glob.glob(os.path.join(selected_lamella.path, "*.ome.tiff")))
@@ -708,13 +734,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         # Re-apply lock if this lamella/task is currently being processed
         self._apply_editing_lock(self._is_editing_locked())
-
-        # display label showing task has been completed
-        msg = "Task not yet completed."
-        if selected_stage_name in [t.name for t in selected_lamella.task_history]:
-            msg = f"Task '{selected_stage_name}' has been completed."
-        self.label_status.setText(msg)
-        self.label_status.setVisible(bool(msg))
 
         # special handling for fluorescence acquisition task
         is_fluorescence_task = isinstance(task_config, AcquireFluorescenceImageConfig)

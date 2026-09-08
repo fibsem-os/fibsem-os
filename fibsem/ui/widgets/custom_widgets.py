@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QCursor, QFontMetrics, QIcon, QPainter
@@ -818,15 +818,18 @@ class TaskNameListWidget(QWidget):
         header = QWidget()
         header.setStyleSheet(f"background: {CANVAS_BG};")
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(8, 3, 4, 3)
+        # The same header as TitledPanel, at the same fixed height, so the list
+        # sits level with the panels under it.
+        header.setFixedHeight(_PANEL_HEADER_HEIGHT)
+        header_layout.setContentsMargins(8, 0, 3, 0)
         header_layout.setSpacing(4)
         lbl = QLabel("Task Name")
         lbl.setStyleSheet("font-weight: bold; background: transparent;")
         header_layout.addWidget(lbl)
         header_layout.addStretch()
-        self.btn_add = IconToolButton("mdi:plus", tooltip="Add task", size=24)
+        self.btn_add = IconToolButton("mdi:plus", tooltip="Add task", size=22)
         self.btn_remove = IconToolButton(
-            "mdi:trash-can-outline", tooltip="Remove task", size=24
+            "mdi:trash-can-outline", tooltip="Remove task", size=22
         )
         header_layout.addWidget(self.btn_add)
         header_layout.addWidget(self.btn_remove)
@@ -838,12 +841,47 @@ class TaskNameListWidget(QWidget):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         outer.addWidget(self._list)
 
+        # Per-task status chips, by task name; reapplied when the list repopulates.
+        self._states: Dict[str, Tuple[str, str]] = {}
+
         # Wire signals
         self._list.itemSelectionChanged.connect(
             lambda: self.task_selected.emit(self.selected_task)
         )
         self.btn_add.clicked.connect(self.add_clicked)
         self.btn_remove.clicked.connect(self.remove_clicked)
+
+    def set_task_states(self, states: Mapping[str, Tuple[str, str]]) -> None:
+        """Show a status chip at the right of each named row: ``{name: (text, colour)}``.
+
+        Rows not in *states* show nothing, which is what "not started" looks like.
+        The chip rides in an item widget that is transparent to the mouse and paints
+        no background, so the row's text, selection and click behaviour are the
+        list's own.
+        """
+        self._states = dict(states)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            # Replacing an item widget only schedules the old one for deletion, and
+            # it keeps painting until then -- so a chip changing from Completed to
+            # In Progress drew both on top of each other. Take it down now.
+            previous = self._list.itemWidget(item)
+            if previous is not None:
+                self._list.removeItemWidget(item)
+                previous.hide()
+                previous.deleteLater()
+            state = self._states.get(item.text())
+            if state is None:
+                continue
+            text, colour = state
+            row = QWidget()
+            row.setAttribute(Qt.WA_TransparentForMouseEvents)
+            row.setStyleSheet("background: transparent;")
+            layout = QHBoxLayout(row)
+            layout.setContentsMargins(0, 0, 8, 0)
+            layout.addStretch()
+            layout.addWidget(chip(text, colour, font_size=10))
+            self._list.setItemWidget(item, row)
 
     def set_buttons_visible(self, add: bool, remove: bool) -> None:
         """Show or hide the add and remove header buttons independently."""
@@ -869,6 +907,8 @@ class TaskNameListWidget(QWidget):
             self._list.addItem(name)
         self._restore_selection(names, current)
         self._list.blockSignals(False)
+        if self._states:
+            self.set_task_states(self._states)
 
     def select(self, name: str) -> None:
         """Select the item with the given name (exact match)."""
