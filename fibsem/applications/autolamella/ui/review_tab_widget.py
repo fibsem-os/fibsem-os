@@ -108,9 +108,7 @@ _ROW_TASK_STYLE = (
 _ROW_RIGHT_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 11px; background: transparent;"
 )
-_ROW_RIGHT_STRONG = (
-    f"color: {GRAY_TEXT_COLOR}; font-size: 11px; background: transparent;"
-)
+_ROW_RIGHT_STRONG = _ROW_RIGHT_STYLE  # the outcome line reads like the line above it
 
 
 def author_label(author: str, experiment: Optional[Experiment]) -> str:
