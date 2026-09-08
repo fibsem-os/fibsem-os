@@ -92,35 +92,17 @@ class MicroscopeStateWidget(QWidget):
     show_refresh:
         Whether to offer a refresh button. A saved pose has nothing to refresh, so the
         embedding list turns it off; a live readout turns it on and owns the signal.
-    show_rotation:
-        Whether the stage has a rotation axis. Pass
-        ``microscope.is_available("stage_rotation")``, which reads the instrument's own
-        axes since FIB-834.
-
-        This is not cosmetic. A compustage has no rotation axis at all -- AutoScript's
-        ``CompustagePosition`` carries ``x``, ``y``, ``z``, ``a`` and nothing else --
-        so ``stage_position_from_autoscript`` writes ``r=0.0`` as a **literal**,
-        because ``FibsemStagePosition`` needs a number and ``get_stage_orientation``
-        raises on ``None``. The record therefore cannot distinguish "the stage is at
-        rotation zero" from "this stage does not rotate", and drawing ``0.0°`` asserts
-        the first. The widget has no microscope to ask, and the host does.
     """
 
     #: Refresh was pressed. Reading the instrument is a device call and this widget
     #: does not make those -- the host decides what one costs.
     refresh_requested = pyqtSignal()
 
-    def __init__(
-        self,
-        show_refresh: bool = False,
-        show_rotation: bool = True,
-        parent: Optional[QWidget] = None,
-    ):
+    def __init__(self, show_refresh: bool = False, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._state: Optional[MicroscopeState] = None
         self._reference: Optional[MicroscopeState] = None
         self._show_refresh = show_refresh
-        self._show_rotation = show_rotation
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -244,8 +226,7 @@ class MicroscopeStateWidget(QWidget):
 
         reference = self._reference
         self.grid_stage.set_rows(
-            _stage_rows(state, self._show_rotation),
-            _stage_rows(reference, self._show_rotation) if comparing else None,
+            _stage_rows(state), _stage_rows(reference) if comparing else None
         )
         self.grid_electron.set_rows(
             _beam_rows(state.electron_beam, state.electron_detector),
@@ -280,28 +261,26 @@ class MicroscopeStateWidget(QWidget):
 # ---------------------------------------------------------------------------
 
 
-def _stage_rows(
-    state: Optional[MicroscopeState], show_rotation: bool = True
-) -> List[Tuple[str, str]]:
-    """The stage axes, omitting R on a stage that has none.
+def _stage_rows(state: Optional[MicroscopeState]) -> List[Tuple[str, str]]:
+    """The five stage axes, R included on every stage.
 
-    Omitted rather than shown as ``NOT_AVAILABLE``: an em-dash means "the instrument
-    did not report this", and a compustage's missing rotation is not a gap in a
-    reading -- the axis does not exist. A row that will always be empty invites the
-    question of why.
+    A compustage has no rotation axis -- AutoScript's ``CompustagePosition`` carries
+    x, y, z, a, so ``stage_position_from_autoscript`` writes ``r=0.0`` as a literal --
+    and the row therefore reads 0.0 degrees there rather than saying the axis is
+    absent. Kept that way deliberately (Patrick, 2026-09-08): the alternative was a
+    flag the host had to set correctly from a capability the record does not carry,
+    which is a lot of machinery to avoid one honest zero.
     """
-    axes = ["X", "Y", "Z"] + (["R"] if show_rotation else []) + ["T"]
     if state is None or state.stage_position is None:
-        return [(axis, NOT_AVAILABLE) for axis in axes]
+        return [(axis, NOT_AVAILABLE) for axis in ("X", "Y", "Z", "R", "T")]
     position = state.stage_position
-    values = {
-        "X": format_distance(position.x),
-        "Y": format_distance(position.y),
-        "Z": format_distance(position.z),
-        "R": format_angle(position.r),
-        "T": format_angle(position.t),
-    }
-    return [(axis, values[axis]) for axis in axes]
+    return [
+        ("X", format_distance(position.x)),
+        ("Y", format_distance(position.y)),
+        ("Z", format_distance(position.z)),
+        ("R", format_angle(position.r)),
+        ("T", format_angle(position.t)),
+    ]
 
 
 def _beam_rows(

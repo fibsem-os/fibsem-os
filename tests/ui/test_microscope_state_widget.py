@@ -301,33 +301,18 @@ def test_there_is_no_fluorescence_section(qapp):
 # ---------------------------------------------------------------------------
 
 
-def test_a_compustage_shows_no_rotation_row(qapp):
-    """The row is omitted, not dashed.
+def test_a_compustage_still_shows_a_rotation_row(qapp):
+    """It reads 0.0 degrees, and that is the intended answer.
 
     A compustage has no rotation axis -- AutoScript's `CompustagePosition` carries
-    x, y, z, a -- so `stage_position_from_autoscript` writes `r=0.0` as a literal,
-    because `FibsemStagePosition` needs a number. The record cannot tell "at rotation
-    zero" from "does not rotate", and `0.0°` asserts the first. An em-dash would be
-    wrong too: it means "not reported", and this axis does not exist.
+    x, y, z, a -- so `stage_position_from_autoscript` writes `r=0.0` as a literal and
+    the record cannot say "this stage does not rotate". Hiding the row would need the
+    host to pass a capability the record does not carry, and a saved pose has no
+    microscope to ask. One honest zero is the cheaper answer.
     """
-    widget = MicroscopeStateWidget(show_rotation=False)
-    rows = _grid_text(widget.grid_stage)
-    assert rows == {}
-
+    widget = MicroscopeStateWidget()
     widget.set_state(_state(r=0.0))
+
     rows = _grid_text(widget.grid_stage)
-    assert "R" not in rows
-    assert list(rows) == ["X", "Y", "Z", "T"]
-
-
-def test_a_rotating_stage_keeps_its_rotation_row(qapp):
-    widget = MicroscopeStateWidget(show_rotation=True)
-    widget.set_state(_state(r=0.0))
-    assert list(_grid_text(widget.grid_stage)) == ["X", "Y", "Z", "R", "T"]
-
-
-def test_the_rotation_row_is_dropped_from_both_columns_when_comparing(qapp):
-    widget = MicroscopeStateWidget(show_rotation=False)
-    widget.set_state(_state(x=42e-6))
-    widget.set_reference(_state(x=0.0))
-    assert "R" not in _grid_text(widget.grid_stage)
+    assert list(rows) == ["X", "Y", "Z", "R", "T"]
+    assert rows["R"] == ["0.0°"]
