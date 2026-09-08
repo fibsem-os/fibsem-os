@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QListWidget,
     QListWidgetItem,
     QSizePolicy,
@@ -36,14 +37,17 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, Valu
 # Columns are flexible: each is (minimum_width, stretch). The header and every row
 # consume the SAME spec so their column boundaries stay aligned as the panel resizes,
 # while the whole row can shrink well below the old ~660px fixed-width floor.
-_COL_NAME = (90, 3)
-_COL_PATTERN = (70, 2)
-_COL_DEPTH = (70, 2)
-_COL_CURRENT = (60, 2)
-_COL_STRATEGY = (70, 2)
+# Minimums are what the cell's text needs: "200.0 pA" or "Standard" plus the combo's
+# arrow, "2.0 µm" plus the stacked stepper. Below these a cell clips mid-word.
+_COL_NAME = (80, 3)
+_COL_PATTERN = (84, 2)
+_COL_DEPTH = (84, 2)
+_COL_CURRENT = (106, 2)
+_COL_STRATEGY = (108, 2)
 _CHECKBOX_WIDTH = 24
 _DRAG_WIDTH = DRAG_HANDLE_WIDTH
-_BTN_SIZE = QSize(32, 32)
+# Icon buttons, not 32px: two per row was 64px of chrome in a row that has ~500px.
+_BTN_SIZE = QSize(24, 24)
 _ROW_HEIGHT = 40
 
 
@@ -136,7 +140,7 @@ class MillingStageRowWidget(QWidget):
         self._show_preset = show_preset
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setContentsMargins(4, 3, 4, 3)
         layout.setSpacing(4)
 
         self.checkbox = QCheckBox()
@@ -287,6 +291,8 @@ class MillingStageRowWidget(QWidget):
     def refresh(self) -> None:
         self._block_controls(True)
         self.name_edit.setText(self.stage.name)
+        # show the start of a long name, not its scrolled end
+        self.name_edit.setCursorPosition(0)
         self.name_edit.setToolTip(self.stage.summary)
         self.pattern_combo.set_value(self.stage.pattern.name)
         depth = getattr(self.stage.pattern, "depth", None)
@@ -377,7 +383,7 @@ class _MillingStageListHeader(QWidget):
         self.setStyleSheet(f"background: {CANVAS_BG};")
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
         # Header mirrors the row cell-for-cell so columns stay aligned: a no-text
@@ -496,6 +502,11 @@ class MillingStageListWidget(QWidget):
         self._list.setMinimumHeight(3 * _ROW_HEIGHT)
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Adjust, not the default Fixed: in Fixed mode a row keeps the geometry it
+        # was given when inserted, which comes from its ~680px size hint, so in any
+        # panel narrower than that the row ran off the right edge and the Strategy
+        # column read as "St". Adjust relays the rows out to the viewport on resize.
+        self._list.setResizeMode(QListView.Adjust)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
 
