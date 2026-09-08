@@ -194,6 +194,31 @@ def test_an_unregistered_kind_still_gets_the_two_verbs(tab, experiment, qapp):
     assert lamella.proposals["other"].current.outcome is DecisionOutcome.Confirmed
 
 
+def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
+    lamella = experiment.positions[0]
+    renderer = tab.stack.currentWidget()
+    renderer._controller.set_points(BeamType.ION, "poi", [(256 + 20, 256)])
+    tab.confirm_current()
+    assert tab.pending_count == 0 and tab.list.count() == 0
+
+    tab.show_decided.setChecked(True)
+    assert tab.pending_count == 0, "decided rows are not pending"
+    texts = [tab.list.item(i).text() for i in range(tab.list.count())]
+    assert texts[0].startswith("DECIDED  1") and "✓" in texts[1]
+    tab._select_entry(0)
+    shown = tab.stack.currentWidget()
+    assert isinstance(shown, R.MillingSetupReviewRenderer)
+    assert not shown.btn_confirm.isEnabled() and not shown.btn_reject.isEnabled()
+    assert "confirmed by human:" in shown.status.text()
+    assert "+2.00" in shown.status.text(), "the delta is shown (20 px at 100 nm)"
+    before = lamella.proposals[SETUP].decisions[:]
+    tab.confirm_current()
+    assert lamella.proposals[SETUP].decisions == before, "read-only means read-only"
+
+    tab.show_decided.setChecked(False)
+    assert tab.list.count() == 0
+
+
 def test_the_row_toggle_sets_review_and_follows_the_flag(qapp, monkeypatch):
     from fibsem.applications.autolamella.ui import workflow_config_widget as W
 
