@@ -2,7 +2,7 @@
 
 Runs everywhere: odemis is replaced by the stub modules in _odemis_stubs.py,
 which mimic the verified odemis behaviour (SI units, binning-coupled camera
-geometry, favourite positions). See docs/design/odemis-fm-driver.md.
+geometry, favourite positions). See the Linear document "Design: Odemis FM driver findings, update plan and remote control".
 
 Each test class covers a finding from Phase 1 (FIB-285) or Phase 2 (FIB-286):
 - F1  wavelength setters select the requested band (metres-vs-nm regression)
