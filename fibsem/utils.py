@@ -18,6 +18,7 @@ from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
 from fibsem.structures import (
     BeamType,
     FibsemImage,
+    FibsemStagePosition,
     MicroscopeSettings,
 )
 
@@ -247,6 +248,30 @@ def format_current(amps: Optional[float]) -> str:
     if abs(amps) >= 1e-9:
         return format_value(amps, "A", precision=1, scale=1e9)
     return format_value(amps, "A", precision=0, scale=1e12)
+
+
+def format_stage_position(position: Optional["FibsemStagePosition"]) -> str:
+    """A stage position on one line, in the units each axis deserves.
+
+    Deliberately *not* `FibsemStagePosition.pretty`, which is fixed millimetres to two
+    decimals and stays that way. That is the right choice where `pretty` is used --
+    five `logging.info` calls and an error message -- because a log column in one unit
+    can be read down, and one that alternates micrometres and millimetres cannot. It
+    is the wrong choice on screen: at the milling pose `pretty` renders every
+    translation axis as "0.00mm", where the operator's move was 42 micrometres.
+
+    So both exist, and the difference between them is the medium rather than an
+    oversight.
+    """
+    if position is None:
+        return NOT_AVAILABLE
+    return (
+        f"X:{format_distance(position.x)}, "
+        f"Y:{format_distance(position.y)}, "
+        f"Z:{format_distance(position.z)}, "
+        f"R:{format_angle(position.r)}, "
+        f"T:{format_angle(position.t)}"
+    )
 
 
 def format_voltage(volts: Optional[float]) -> str:
