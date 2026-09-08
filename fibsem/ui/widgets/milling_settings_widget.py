@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings
+from fibsem.ui.widgets.custom_widgets import align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
 
 
@@ -88,6 +89,8 @@ class FibsemMillingSettingsWidget(QWidget):
                     mfr=m.get("manufacturer"),
                 )
             )
+
+        align_form(layout)
 
     def _dynamic_items(self, parameter: str):
         """Resolve an `items: "dynamic"` field against the microscope."""

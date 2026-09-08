@@ -12,7 +12,12 @@ from PyQt5.QtWidgets import (
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
 from fibsem.structures import ReferenceImageParameters
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    TitledPanel,
+    ValueSpinBox,
+    align_form,
+)
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 # GUI Configuration Constants
@@ -74,6 +79,7 @@ class ReferenceImageParametersWidget(QWidget):
         acq_content = QWidget()
         acq_layout = QGridLayout(acq_content)
         acq_layout.setContentsMargins(4, 4, 4, 4)
+        align_form(acq_layout)
 
         # Beam Type Options
         self.acquire_sem_check = QCheckBox("Acquire SEM")

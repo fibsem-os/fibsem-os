@@ -15,6 +15,8 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -1037,6 +1039,31 @@ class ElidedLabel(QLabel):
         # draws the elided string, so the stylesheet colour survives.
         if elided != super().text():
             super().setText(elided)
+
+
+# One label column for every settings form in a column of panels, so the controls
+# line up from panel to panel. Wide enough for "Reacquire Alignment Reference".
+FORM_LABEL_WIDTH = 150
+
+
+def align_form(layout) -> None:
+    """Give *layout* the shared label column: labels FORM_LABEL_WIDTH, fields the rest.
+
+    Forms in the editor column used to size their label column each to their own
+    longest label, or split the width in half, so reading down the column no two
+    panels lined their controls up. Works on a QGridLayout (labels in column 0)
+    and a QFormLayout (labels in the label role); call it after the rows exist for
+    a form that is rebuilt.
+    """
+    if isinstance(layout, QGridLayout):
+        layout.setColumnMinimumWidth(0, FORM_LABEL_WIDTH)
+        layout.setColumnStretch(1, 1)
+    elif isinstance(layout, QFormLayout):
+        layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        for row in range(layout.rowCount()):
+            item = layout.itemAt(row, QFormLayout.LabelRole)
+            if item is not None and item.widget() is not None:
+                item.widget().setMinimumWidth(FORM_LABEL_WIDTH)
 
 
 def header_chip(text: str, colour: str) -> QLabel:

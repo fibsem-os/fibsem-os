@@ -17,7 +17,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning import get_pattern, get_pattern_names
 from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import BeamType
-from fibsem.ui.widgets.custom_widgets import ValueComboBox
+from fibsem.ui.widgets.custom_widgets import ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
 
 
@@ -69,6 +69,7 @@ class FibsemPatternSettingsWidget(QWidget):
         type_form.setContentsMargins(0, 0, 0, 0)
         self._type_combo = ValueComboBox(get_pattern_names(), value=self._pattern.name)
         type_form.addRow("Pattern:", self._type_combo)
+        align_form(type_form)
         outer.addLayout(type_form)
 
         # Field form — rebuilt on type change
@@ -122,6 +123,7 @@ class FibsemPatternSettingsWidget(QWidget):
                 )
             )
 
+        align_form(self._fields_form)
         self._update_visibility()
 
     def _dynamic_items(self, parameter: str):

@@ -24,7 +24,11 @@ from fibsem.ui.tokens import (
     NEUTRAL_400,
 )
 from fibsem.ui.utils import install_wheel_blocker
-from fibsem.ui.widgets.custom_widgets import IconToolButton, QDirectoryLineEdit
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    QDirectoryLineEdit,
+    align_form,
+)
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
@@ -111,6 +115,7 @@ class ImageSettingsWidget(QWidget):
         grid_widget = QWidget()
         layout = QGridLayout(grid_widget)
         layout.setContentsMargins(0, 0, 0, 0)
+        align_form(layout)
         outer_layout.addWidget(grid_widget)
 
         # Resolution

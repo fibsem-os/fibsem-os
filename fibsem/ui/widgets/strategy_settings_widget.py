@@ -18,7 +18,7 @@ from fibsem.milling.strategy import get_strategy_names
 from fibsem.ui.tokens import (
     NEUTRAL_700,
 )
-from fibsem.ui.widgets.custom_widgets import ValueComboBox
+from fibsem.ui.widgets.custom_widgets import ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
 
 
@@ -72,6 +72,7 @@ class FibsemStrategySettingsWidget(QWidget):
             get_strategy_names(), value=self._strategy.name
         )
         type_form.addRow("Strategy:", self._type_combo)
+        align_form(type_form)
         outer.addLayout(type_form)
 
         # Config field form — rebuilt on type change
@@ -143,6 +144,7 @@ class FibsemStrategySettingsWidget(QWidget):
                 )
             )
 
+        align_form(self._config_form)
         self._empty_label.setVisible(len(self._rows) == 0)
         self._update_visibility()
 

@@ -30,7 +30,7 @@ from superqt import QCollapsible
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import TitledPanel, align_form
 from fibsem.ui.widgets.form_builder import Control, FormDefaults, build_control
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
@@ -151,6 +151,7 @@ class AutoLamellaTaskConfigWidget(QWidget):
         # Create content widget for parameters
         self.params_widget = QWidget()
         self.grid_layout = QGridLayout(self.params_widget)
+        align_form(self.grid_layout)
 
         self.task_params_collapsible.addWidget(self.params_widget)
 
@@ -294,6 +295,7 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
 
         self.params_widget = QWidget()
         self.grid_layout = QGridLayout(self.params_widget)
+        align_form(self.grid_layout)
         self.params_panel = TitledPanel("Task Parameters", content=self.params_widget)
         self.params_panel._btn_collapse.setChecked(True)
 

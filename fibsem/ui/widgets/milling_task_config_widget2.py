@@ -22,6 +22,7 @@ from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
     ValueSpinBox,
+    align_form,
     header_chip,
 )
 from fibsem.ui.widgets.milling_alignment_widget import FibsemMillingAlignmentWidget
@@ -87,12 +88,16 @@ class MillingTaskConfigWidget2(QWidget):
         # scrolling wraps this widget -- see `scrollable`.
         content_widget = QWidget()
         layout = QVBoxLayout(content_widget)
+        # No margin of its own: the panels below sit flush with the other panels in
+        # the column that hosts this widget, rather than inset by Qt's default 11px.
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
         main_layout.addWidget(content_widget)
 
         # ── Core panel ──────────────────────────────────────────────
         core_content = QWidget()
         core_grid = QGridLayout(core_content)
-        core_grid.setContentsMargins(0, 0, 0, 0)
+        core_grid.setContentsMargins(4, 4, 4, 4)  # as the other forms in the column
 
         self.name_edit = QLineEdit()
         self.name_edit.setText(_WIDGET_CONFIG["name"]["default"])
@@ -117,7 +122,7 @@ class MillingTaskConfigWidget2(QWidget):
         core_grid.addWidget(QLabel("Field of View"), 1, 0)
         core_grid.addWidget(self.field_of_view_spinbox, 1, 1)
         core_grid.addWidget(self.label_instructions, 2, 0, 1, 2)
-        core_grid.setColumnStretch(1, 1)
+        align_form(core_grid)
 
         self.core_panel = TitledPanel("Milling Parameters", content=core_content)
         self.core_panel._btn_collapse.setChecked(True)

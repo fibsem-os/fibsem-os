@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QSpinBox, QWidget
 from fibsem.structures import MillingAlignment
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
+    align_form,
 )
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
@@ -61,7 +62,9 @@ class FibsemMillingAlignmentWidget(QWidget):
         and alignment imaging settings widget.
         """
         layout = QGridLayout()
+        layout.setContentsMargins(4, 4, 4, 4)  # as the other forms in the column
         self.setLayout(layout)
+        align_form(layout)
 
         # Enabled checkbox
         enabled_config = WIDGET_CONFIG["enabled"]
