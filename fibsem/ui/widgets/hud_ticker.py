@@ -10,9 +10,9 @@ Usage::
 
 The ticker resizes itself to always match the parent's width.
 """
+
 from __future__ import annotations
 
-import math
 from typing import Optional
 
 from PyQt5 import QtWidgets
@@ -20,39 +20,15 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont, QPainter, QPainterPath
 
 from fibsem.structures import FibsemImage
-from fibsem.ui.widgets.drag_distance import _fmt_distance
+from fibsem.utils import format_angle, format_distance
 
 _BG = QColor(10, 10, 12, 190)
 _TEXT = QColor(210, 210, 210, 230)
 _DIVIDER = QColor(80, 80, 90, 180)
-_LABEL = QColor(120, 170, 255, 200)   # blue-ish key labels
+_LABEL = QColor(120, 170, 255, 200)  # blue-ish key labels
 _HEIGHT = 26
 _PADDING = 12
 _DIVIDER_W = 1
-
-
-def _deg(radians: Optional[float]) -> str:
-    if radians is None:
-        return "—"
-    return f"{math.degrees(radians):.1f}°"
-
-def _um(metres: Optional[float]) -> str:
-    if metres is None:
-        return "—"
-    return _fmt_distance(metres)
-
-def _kv(volts: Optional[float]) -> str:
-    if volts is None:
-        return "—"
-    return f"{volts / 1e3:.2f} kV"
-
-def _na(amps: Optional[float]) -> str:
-    if amps is None:
-        return "—"
-    abs_a = abs(amps)
-    if abs_a < 1e-9:
-        return f"{amps * 1e12:.0f} pA"
-    return f"{amps * 1e9:.2f} nA"
 
 
 class HUDTicker(QtWidgets.QWidget):
@@ -84,10 +60,10 @@ class HUDTicker(QtWidgets.QWidget):
         if state and state.stage_position:
             sp = state.stage_position
             self._segments += [
-                ("X", _um(sp.x)),
-                ("Y", _um(sp.y)),
-                ("Z", _um(sp.z)),
-                ("T", _deg(sp.t)),
+                ("X", format_distance(sp.x)),
+                ("Y", format_distance(sp.y)),
+                ("Z", format_distance(sp.z)),
+                ("T", format_angle(sp.t)),
             ]
         else:
             self._segments += [("X", "—"), ("Y", "—"), ("Z", "—"), ("T", "—")]
@@ -97,14 +73,15 @@ class HUDTicker(QtWidgets.QWidget):
         # --- Acquisition ---
         s = meta.image_settings
         self._segments += [
-            ("HFW",  _um(s.hfw) if s else "—"),
-            ("px",   _fmt_distance(meta.pixel_size.x) + "/px"),
-            ("res",  f"{s.resolution[0]}×{s.resolution[1]}" if s else "—"),
+            ("HFW", format_distance(s.hfw) if s else "—"),
+            ("px", format_distance(meta.pixel_size.x) + "/px"),
+            ("res", f"{s.resolution[0]}×{s.resolution[1]}" if s else "—"),
         ]
 
         # Timestamp
         if state and state.timestamp:
             import datetime
+
             ts = datetime.datetime.fromtimestamp(state.timestamp).strftime("%H:%M:%S")
             self._segments.append(None)
             self._segments.append(("t", ts))
