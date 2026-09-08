@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type
 import numpy as np
 
 from fibsem import constants
-from fibsem.applications.autolamella.proposals import MILLING_SETUP, Proposal
+from fibsem.applications.autolamella.proposals import (
+    MILLING_SETUP,
+    Proposal,
+    supersede,
+)
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
@@ -187,17 +191,14 @@ class SelectMillingPositionTask(AutoLamellaTask):
         nobody sanctioned and the proposed point survives beside the confirmed
         one for the delta.
 
-        A proposal that already has decisions is kept, not replaced: a run that
-        stalled and was re-queued without Resume would otherwise overwrite the
-        answer the operator just gave.
+        Re-running the task is a deliberate act: a proposal that already has
+        decisions is superseded, not kept and not overwritten. It moves, with
+        its decisions and delta, onto the new proposal's record, and the new
+        one is pending on the new image. The old value is not carried over as
+        the default. (A stalled run resumes without re-running completed
+        tasks, so that case never reaches here.)
         """
         existing = self.lamella.proposals.get(self.task_name)
-        if existing is not None and not existing.pending:
-            logging.warning(
-                f"{self.lamella.name}: {self.task_name} already has a decided "
-                "proposal; keeping it. Resume leaves completed tasks out."
-            )
-            return
         # The first of the final set is the tightest field of view; the
         # values are in the milling frame, so any image at the stored pose
         # would do, but the renderer shows this one.
@@ -215,7 +216,15 @@ class SelectMillingPositionTask(AutoLamellaTask):
             )
             return
         self.log_status_message("PROPOSE_POI", "Proposing Point of Interest...")
-        self.lamella.proposals[self.task_name] = proposal
+        if existing is not None and not existing.pending:
+            logging.info(
+                f"{self.lamella.name}: {self.task_name} re-run; the decided "
+                "proposal is superseded and a new one is pending."
+            )
+        self.lamella.proposals[self.task_name] = supersede(
+            existing if existing is not None and not existing.pending else None,
+            proposal,
+        )
         logging.info(
             {
                 "msg": "proposal_recorded",
