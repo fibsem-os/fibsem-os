@@ -148,7 +148,12 @@ def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_
     assert proposal.provenance["proposer"] == "centre-of-image"
     assert proposal.provenance["values"] == ["poi"]
     assert proposal.provenance["reference_image"].endswith("_ib.tif")
-    assert os.path.exists(proposal.provenance["reference_image"])
+    assert not os.path.isabs(proposal.provenance["reference_image"]), (
+        "relative to the lamella folder, so a moved experiment still resolves"
+    )
+    assert os.path.exists(
+        os.path.join(str(lamella.path), proposal.provenance["reference_image"])
+    )
     # Nothing was written through: the point and the patterns wait for a decision.
     assert lamella.poi == Point(0.0, 0.0)
     assert (
