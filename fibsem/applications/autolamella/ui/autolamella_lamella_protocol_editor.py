@@ -5,7 +5,7 @@ import datetime
 import glob
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 
 import numpy as np
 from PyQt5.QtCore import Qt, QTimer
@@ -50,8 +50,11 @@ from fibsem.structures import (
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
+    CANVAS_BG,
     NEUTRAL_200,
     SEMANTIC_WARNING_COLOR,
+    TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets.canvas.canvas_state import AlignmentSpec, PointsSpec
 from fibsem.ui.widgets.canvas.overlay_controls import (
@@ -94,12 +97,79 @@ POI_OVERLAY_ID = "poi"
 ALIGNMENT_OVERLAY_ID = "alignment_area"
 
 _WARNING_LABEL_STYLE = f"color: {SEMANTIC_WARNING_COLOR}; font-size: 11px;"
+_DESCRIPTION_STYLE = (
+    f"QLineEdit {{ background: transparent; border: none; color: {TEXT_MUTED_COLOR};"
+    " font-style: italic; padding: 2px 4px; }"
+    f"QLineEdit:focus {{ background: {CANVAS_BG}; border: 1px solid {BORDER_COLOR};"
+    f" border-radius: 2px; color: {NEUTRAL_200}; font-style: normal; }}"
+)
 
 # The view toggles in the FIB canvas's overlay popover, by key.
 OVERLAY_SEM = "sem"
 OVERLAY_RELATED = "related"
 OVERLAY_ALIGNMENT = "alignment"
 OVERLAY_EDIT_ALIGNMENT = "edit_alignment"
+
+_REFERENCE_SUFFIXES = ("_ib.tif", "_eb.tif")
+
+
+def reference_image_label(filename: str, task_names: Iterable[str]) -> str:
+    """What to call a reference image in a picker: ``Task · stage``, not its filename.
+
+    The workflow names them ``ref_<task>_<stage>_<beam>.tif``, and the task can
+    carry spaces or underscores depending on the version that wrote it. The stem is
+    matched against the lamella's own task names, longest first, so a task whose
+    name is a prefix of another's cannot claim the other's images. Anything that
+    matches no task (``ref_alignment``, a timestamped acquisition) keeps its stem,
+    with underscores read as spaces.
+    """
+    stem = filename
+    if stem.startswith("ref_"):
+        stem = stem[len("ref_") :]
+    for suffix in _REFERENCE_SUFFIXES:
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    for task in sorted(task_names, key=len, reverse=True):
+        for spelled in (task, task.replace(" ", "_")):
+            if stem == spelled:
+                return task
+            if stem.startswith(spelled + "_"):
+                stage = stem[len(spelled) + 1 :].replace("_", " ")
+                return f"{task} · {stage}"
+    return stem.replace("_", " ")
+
+
+def fm_stack_label(filename: str) -> str:
+    """``<lamella>-zstack-HH-MM-SS.ome.tiff`` reads as ``Z-stack HH:MM:SS``."""
+    stem = filename
+    for suffix in (".ome.tiff", ".ome.tif", ".tiff", ".tif"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    marker = "-zstack-"
+    if marker in stem:
+        clock = stem.split(marker, 1)[1]
+        parts = clock.split("-")
+        if len(parts) == 3 and all(p.isdigit() for p in parts):
+            return "Z-stack " + ":".join(parts)
+    return stem
+
+
+def _fill_picker(combo: QComboBox, filenames: List[str], labels: List[str]) -> None:
+    """Offer *filenames* under *labels*; the filename rides as item data and tooltip."""
+    combo.clear()
+    for filename, label in zip(filenames, labels):
+        combo.addItem(label, filename)
+        combo.setItemData(combo.count() - 1, filename, Qt.ToolTipRole)
+
+
+def _select_filename(combo: QComboBox, filename: str) -> None:
+    """Land the picker on *filename*, if it offers it."""
+    index = combo.findData(filename)
+    if index >= 0:
+        combo.setCurrentIndex(index)
+    combo.setToolTip(combo.currentData() or "")
 
 
 class AutoLamellaProtocolEditorWidget(QWidget):
@@ -316,32 +386,38 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             f"font-size: 14px; font-weight: bold; color: {NEUTRAL_200}; background: transparent;"
         )
 
-        # free-text lamella description (this editor is the source of truth for it)
-        self.label_description = QLabel("Description")
+        # free-text lamella description (this editor is the source of truth for it).
+        # Beside the name, because it is a note about the lamella and not a task
+        # setting: borderless and muted until clicked, so it reads as a caption.
         self.line_edit_description = QLineEdit()
         self.line_edit_description.setPlaceholderText("Add a description…")
         self.line_edit_description.setToolTip("Free-text note about this lamella")
+        self.line_edit_description.setStyleSheet(_DESCRIPTION_STYLE)
         self.line_edit_description.editingFinished.connect(self._on_description_edited)
 
         self.button_layout = QHBoxLayout()
         self.button_layout.addWidget(self.label_lamella_name)
-        self.button_layout.addStretch()
+        self.button_layout.addWidget(self.line_edit_description, 1)
         self.button_layout.addWidget(self.pushButton_refresh_positions)
         self.button_layout.addWidget(self.pushButton_apply_to_other)
         self.button_layout.addWidget(self.pushButton_open_correlation)
         self.listWidget_selected_task = TaskNameListWidget()
         self.listWidget_selected_task.set_buttons_visible(add=False, remove=False)
 
+        # Reference image pickers. Rows are named by beam; items by task and stage,
+        # with the filename in the tooltip. The FM row is only there for the
+        # fluorescence task, and the SEM row is muted while the SEM image is off in
+        # the canvas overlays.
         self.combobox_fm_filenames = ValueComboBox()
-        self.combobox_fm_filenames_label = QLabel("FM Z-Stack")
+        self.combobox_fm_filenames_label = QLabel("FM")
         self.combobox_fm_filenames.currentIndexChanged.connect(self._on_image_selected)
 
         self.combobox_fib_filenames = ValueComboBox()
-        self.combobox_fib_filenames_label = QLabel("FIB Image")
+        self.combobox_fib_filenames_label = QLabel("FIB")
         self.combobox_fib_filenames.currentIndexChanged.connect(self._on_image_selected)
 
         self.combobox_sem_filenames = ValueComboBox()
-        self.combobox_sem_filenames_label = QLabel("SEM Image")
+        self.combobox_sem_filenames_label = QLabel("SEM")
         self.combobox_sem_filenames.currentIndexChanged.connect(self._on_image_selected)
         self.combobox_sem_filenames.setEnabled(self.show_sem_image)
 
@@ -355,6 +431,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.label_warning.setWordWrap(True)
 
         self.grid_layout = QGridLayout()
+        # The beam labels are short; the pickers take the width.
+        self.grid_layout.setColumnStretch(1, 1)
         self.grid_layout.addLayout(self.button_layout, 0, 0, 1, 2)
         self.grid_layout.addWidget(self.listWidget_selected_task, 1, 0, 1, 2)
         self.grid_layout.addWidget(self.combobox_fib_filenames_label, 2, 0, 1, 1)
@@ -365,8 +443,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.grid_layout.addWidget(self.combobox_fm_filenames, 4, 1, 1, 1)
         self.grid_layout.addWidget(self.label_lamella_warning, 5, 0, 1, 2)
         self.grid_layout.addWidget(self.label_warning, 6, 0, 1, 2)
-        self.grid_layout.addWidget(self.label_description, 8, 0, 1, 1)
-        self.grid_layout.addWidget(self.line_edit_description, 8, 1, 1, 1)
 
         # main layout. No scroll area here: the window wraps this editor in one
         # already, and a second one nested inside it only ever added a second bar.
@@ -474,13 +550,20 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         # load fluorescence image
         filenames = sorted(glob.glob(os.path.join(selected_lamella.path, "*.ome.tiff")))
+        task_names = list(selected_lamella.task_config.keys())
+        fm_basenames = [os.path.basename(f) for f in filenames]
         self.combobox_fm_filenames.blockSignals(True)
-        self.combobox_fm_filenames.clear()
-        for f in filenames:
-            self.combobox_fm_filenames.addItem(os.path.basename(f))
+        _fill_picker(
+            self.combobox_fm_filenames,
+            fm_basenames,
+            [fm_stack_label(f) for f in fm_basenames],
+        )
         self.combobox_fm_filenames.setCurrentIndex(
             len(filenames) - 1
         )  # Select latest by default
+        self.combobox_fm_filenames.setToolTip(
+            self.combobox_fm_filenames.currentData() or ""
+        )
         self.combobox_fm_filenames.blockSignals(False)
 
         # load fib reference image
@@ -493,12 +576,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         ]  # show all non-alignment images
 
         # remember selected fib filename
-        selected_fib_filename = self.combobox_fib_filenames.currentText()
-        self.combobox_fib_filenames.clear()
-        for f in fib_filenames:
-            self.combobox_fib_filenames.addItem(os.path.basename(f))
-
+        selected_fib_filename = self.combobox_fib_filenames.currentData() or ""
         base_filenames = [os.path.basename(f) for f in fib_filenames]
+        _fill_picker(
+            self.combobox_fib_filenames,
+            base_filenames,
+            [reference_image_label(f, task_names) for f in base_filenames],
+        )
 
         latest_task_filename = ""
         if selected_lamella.last_completed_task is not None:
@@ -513,10 +597,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                     sorted(matching_filenames, key=os.path.getmtime)[-1]
                 )
 
-        self.combobox_fib_filenames.setCurrentText(
+        _select_filename(
+            self.combobox_fib_filenames,
             self._default_fib_filename(
                 base_filenames, latest_task_filename, selected_fib_filename
-            )
+            ),
         )
         self.combobox_fib_filenames.blockSignals(False)
 
@@ -527,12 +612,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
         sem_filenames = [f for f in sem_filenames if "alignment" not in f]
 
-        selected_sem_filename = self.combobox_sem_filenames.currentText()
-        self.combobox_sem_filenames.clear()
-        for f in sem_filenames:
-            self.combobox_sem_filenames.addItem(os.path.basename(f))
-
+        selected_sem_filename = self.combobox_sem_filenames.currentData() or ""
         sem_base_filenames = [os.path.basename(f) for f in sem_filenames]
+        _fill_picker(
+            self.combobox_sem_filenames,
+            sem_base_filenames,
+            [reference_image_label(f, task_names) for f in sem_base_filenames],
+        )
 
         latest_sem_task_filename = ""
         if selected_lamella.last_completed_task is not None:
@@ -552,19 +638,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         elif selected_sem_filename in sem_base_filenames:
             default_sem_filename = selected_sem_filename
 
-        self.combobox_sem_filenames.setCurrentText(default_sem_filename)
+        _select_filename(self.combobox_sem_filenames, default_sem_filename)
         self.combobox_sem_filenames.blockSignals(False)
 
-        # hide if no filenames
-        self.combobox_fm_filenames.setVisible(len(filenames) > 0)
-        self.combobox_fm_filenames_label.setVisible(len(filenames) > 0)
+        # hide if no filenames (the FM row also follows the task, see
+        # _on_selected_task_changed)
         self.combobox_fib_filenames.setVisible(len(fib_filenames) > 0)
         self.combobox_fib_filenames_label.setVisible(len(fib_filenames) > 0)
         self.combobox_sem_filenames.setVisible(len(sem_filenames) > 0)
         self.combobox_sem_filenames_label.setVisible(len(sem_filenames) > 0)
-        self.combobox_sem_filenames.setEnabled(
-            self.show_sem_image and len(sem_filenames) > 0
-        )
+        self._sync_sem_picker()
         self.overlay_controls.set_enabled(OVERLAY_SEM, len(sem_filenames) > 0)
 
         # warnings and widget enablement
@@ -603,10 +686,22 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _on_toggle_sem_image(self, checked: bool):
         """Toggle displaying the sem image and enablement of sem controls."""
         self.show_sem_image = checked
-        self.combobox_sem_filenames.setEnabled(
-            self.show_sem_image and self.combobox_sem_filenames.count() > 0
-        )
+        self._sync_sem_picker()
         self._on_image_selected(0)
+
+    def _sync_sem_picker(self) -> None:
+        """The SEM row is muted while the SEM image is off in the canvas overlays."""
+        available = self.combobox_sem_filenames.count() > 0
+        self.combobox_sem_filenames.setEnabled(self.show_sem_image and available)
+        self.combobox_sem_filenames_label.setEnabled(self.show_sem_image and available)
+        if available and not self.show_sem_image:
+            self.combobox_sem_filenames.setToolTip(
+                "Turn on 'SEM image' in the canvas overlays to show it."
+            )
+        else:
+            self.combobox_sem_filenames.setToolTip(
+                self.combobox_sem_filenames.currentData() or ""
+            )
 
     def _on_toggle_related_tasks(self, checked: bool):
         """Toggle displaying related milling tasks."""
@@ -618,9 +713,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         p = self._selected_lamella
         if p is None:
             return
-        fm_filename = self.combobox_fm_filenames.currentText()
-        fib_filename = self.combobox_fib_filenames.currentText()
-        sem_filename = self.combobox_sem_filenames.currentText()
+        fm_filename = self.combobox_fm_filenames.currentData() or ""
+        fib_filename = self.combobox_fib_filenames.currentData() or ""
+        sem_filename = self.combobox_sem_filenames.currentData() or ""
+        self.combobox_fib_filenames.setToolTip(fib_filename)
 
         # load the fib reference image
         reference_image_path = os.path.join(p.path, fib_filename)
@@ -742,13 +838,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
         self.task_parameters_config_widget.setVisible(not is_fluorescence_task)
         self.ref_image_params_widget.setVisible(not is_fluorescence_task)
-        self.combobox_fm_filenames.setEnabled(is_fluorescence_task)
-        self.combobox_fm_filenames_label.setEnabled(is_fluorescence_task)
-        self.combobox_fm_filenames.setToolTip(
-            ""
-            if is_fluorescence_task
-            else "Only available for Acquire Fluorescence Image tasks"
-        )
+        show_fm_row = is_fluorescence_task and self.combobox_fm_filenames.count() > 0
+        self.combobox_fm_filenames.setVisible(show_fm_row)
+        self.combobox_fm_filenames_label.setVisible(show_fm_row)
         if is_fluorescence_task:
             self.fluorescence_acquisition_task_config_widget.set_task_config(
                 task_config
@@ -1032,10 +1124,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
 
         fib_current = self._image_path(
-            selected_lamella, self.combobox_fib_filenames.currentText()
+            selected_lamella, self.combobox_fib_filenames.currentData() or ""
         )
         fm_current = self._image_path(
-            selected_lamella, self.combobox_fm_filenames.currentText()
+            selected_lamella, self.combobox_fm_filenames.currentData() or ""
         )
 
         dialog = CorrelationTabDialog(parent=self)
@@ -1113,7 +1205,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         lamella's images and anything browsed to with the same control.
         """
         return [
-            cls._image_path(lamella, combo.itemText(i)) for i in range(combo.count())
+            cls._image_path(lamella, combo.itemData(i)) for i in range(combo.count())
         ]
 
     @staticmethod
