@@ -10,39 +10,92 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem.applications.autolamella.structures import Lamella
+from fibsem.structures import MicroscopeState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
     CANVAS_BG,
     NEUTRAL_550,
+    SURFACE_COLOR,
+    TEXT_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.widgets.microscope_state_widget import MicroscopeStateWidget
+from fibsem.utils import (
+    NOT_AVAILABLE,
+    format_current,
+    format_distance,
+    format_stage_position,
+    format_voltage,
+)
 
 _NAME_WIDTH = 110
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() * 2 + 8  # 2 buttons + 1 gap
 
+_POPUP_WIDTH = 400
+
+# The position control reads as text until it is approached. Flat, transparent and in
+# the same muted colour the label used, so a row at rest looks exactly as it did; the
+# hover state is the whole of the affordance, which is why it has to be visible.
+_POSITION_BUTTON_STYLE = f"""
+QPushButton {{
+    background: transparent;
+    border: none;
+    padding: 0px;
+    text-align: left;
+    color: {NEUTRAL_550};
+}}
+QPushButton:hover {{
+    color: {TEXT_COLOR};
+    text-decoration: underline;
+}}
+QPushButton:disabled {{
+    color: {NEUTRAL_550};
+    text-decoration: none;
+}}
+"""
+
 # Preferred display order; poses not listed keep their insertion order after these.
 _POSE_ORDER = ["MILLING", "FLUORESCENCE"]
 
 
 class LamellaPoseRowWidget(QWidget):
-    """A single pose row: name, pretty position, update and move-to buttons."""
+    """A single pose row: name, position, update and move-to buttons.
+
+    The position is a flat button rather than a label. A pose is a whole
+    ``MicroscopeState`` -- both beams, both detectors, a timestamp -- and the row has
+    space for one line of it, so the rest needs somewhere to go. Making the position
+    itself the control avoids a third icon in a 40-pixel row that already carries two,
+    and puts the affordance on the thing it describes.
+
+    A button rather than a ``QLabel`` with a ``mousePressEvent``: it is focusable and
+    in the tab order, which a label is not, and it brings hover and pressed states
+    with it. Otherwise Details would be the one action in the row unreachable from the
+    keyboard while Move To and Update stayed reachable.
+    """
 
     update_clicked = pyqtSignal(str)  # pose name
     move_to_clicked = pyqtSignal(str)  # pose name
 
     def __init__(
-        self, pose_name: str, pretty: str, parent: Optional[QWidget] = None
+        self,
+        pose_name: str,
+        state: Optional[MicroscopeState],
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.pose_name = pose_name
+        self._state = state
+        self._popup: Optional[_PoseDetailPopup] = None
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
@@ -54,11 +107,12 @@ class LamellaPoseRowWidget(QWidget):
         self.name_label.setStyleSheet("background: transparent;")
         layout.addWidget(self.name_label)
 
-        self.position_label = QLabel(pretty)
-        self.position_label.setStyleSheet(
-            f"background: transparent; color: {NEUTRAL_550};"
-        )
-        layout.addWidget(self.position_label, 1)
+        self.position_button = QPushButton()
+        self.position_button.setFlat(True)
+        self.position_button.setCursor(Qt.PointingHandCursor)
+        self.position_button.setStyleSheet(_POSITION_BUTTON_STYLE)
+        self.position_button.clicked.connect(self._show_details)
+        layout.addWidget(self.position_button, 1)
 
         self.btn_move_to = IconToolButton(
             icon=ICON_MOVE_TO_POSITION,
@@ -81,8 +135,80 @@ class LamellaPoseRowWidget(QWidget):
             lambda: self.move_to_clicked.emit(self.pose_name)
         )
 
-    def set_pretty(self, pretty: str) -> None:
-        self.position_label.setText(pretty)
+        self.set_state(state)
+
+    def set_state(self, state: Optional[MicroscopeState]) -> None:
+        """Re-render the row from a pose."""
+        self._state = state
+        position = state.stage_position if state is not None else None
+        self.position_button.setText(
+            format_stage_position(position) if position is not None else "Unknown"
+        )
+        self.position_button.setToolTip(_summary(self.pose_name, state))
+        # Nothing to open when there is no record behind the row.
+        self.position_button.setEnabled(state is not None)
+        if self._popup is not None and self._popup.isVisible():
+            self._popup.set_state(self.pose_name, state)
+
+    def _show_details(self) -> None:
+        if self._state is None:
+            return
+        if self._popup is None:
+            self._popup = _PoseDetailPopup(self)
+        self._popup.set_state(self.pose_name, self._state)
+        self._popup.show_under(self.position_button)
+
+
+class _PoseDetailPopup(QFrame):
+    """The full state, in a popup that closes when you click away.
+
+    ``Qt.Popup`` rather than a dialog: it is non-modal and self-dismissing, so a pose
+    can be read without losing the canvas behind it, and comparing two poses is two
+    clicks rather than four.
+
+    The stylesheet is scoped to the object name. An unscoped ``QFrame { border }``
+    cascades onto every descendant, which draws a box around every value in the table
+    inside.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent, Qt.Popup)
+        self.setObjectName("PoseDetailPopup")
+        self.setStyleSheet(
+            f"QFrame#PoseDetailPopup {{ background: {SURFACE_COLOR};"
+            f" border: 1px solid {BORDER_COLOR}; border-radius: 4px; }}"
+        )
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(9, 9, 9, 9)
+        self.state_widget = MicroscopeStateWidget()
+        layout.addWidget(self.state_widget)
+        self.setFixedWidth(_POPUP_WIDTH)
+
+    def set_state(self, pose_name: str, state: Optional[MicroscopeState]) -> None:
+        self.state_widget.set_state(state, title=pose_name)
+
+    def show_under(self, anchor: QWidget) -> None:
+        """Open below the control that summarises the same thing."""
+        self.adjustSize()
+        self.move(anchor.mapToGlobal(anchor.rect().bottomLeft()))
+        self.show()
+
+
+def _summary(pose_name: str, state: Optional[MicroscopeState]) -> str:
+    """The tooltip: enough to answer "is this the pose I want" without a click."""
+    if state is None:
+        return "No position recorded"
+    lines = [f"{pose_name} \u00b7 {format_stage_position(state.stage_position)}"]
+    for label, beam in (("Electron", state.electron_beam), ("Ion", state.ion_beam)):
+        if beam is None:
+            lines.append(f"{label}   {NOT_AVAILABLE}")
+            continue
+        lines.append(
+            f"{label}   {format_voltage(beam.voltage)}"
+            f" \u00b7 {format_current(beam.beam_current)}"
+            f" \u00b7 {format_distance(beam.hfw)}"
+        )
+    return "\n".join(lines)
 
 
 class _LamellaPoseListHeader(QWidget):
@@ -154,18 +280,22 @@ class LamellaPoseListWidget(QWidget):
         if lamella is None or not lamella.poses:
             return
         for pose_name in self._sorted_pose_names(lamella.poses):
-            self._add_row(pose_name, self._pretty(lamella.poses[pose_name]))
+            self._add_row(pose_name, lamella.poses[pose_name])
 
-    def refresh_pose(self, pose_name: str, pretty: str) -> None:
-        """Update the displayed position for an existing pose row, in place.
+    def refresh_pose(self, pose_name: str, state: Optional[MicroscopeState]) -> None:
+        """Update an existing pose row in place, from the record itself.
 
-        Avoids rebuilding the list so row selection/scroll state is preserved.
-        No-op if no row matches *pose_name*.
+        Takes the ``MicroscopeState`` rather than a rendered string: the row now shows
+        more of it than one line, and every caller already had the state in hand and
+        was reaching into it for ``stage_position.pretty`` at the call site.
+
+        Avoids rebuilding the list so row selection/scroll state is preserved. No-op if
+        no row matches *pose_name*.
         """
         for i in range(self._list.count()):
             row = self._list.itemWidget(self._list.item(i))
             if isinstance(row, LamellaPoseRowWidget) and row.pose_name == pose_name:
-                row.set_pretty(pretty)
+                row.set_state(state)
                 return
 
     def clear(self) -> None:
@@ -187,14 +317,10 @@ class LamellaPoseListWidget(QWidget):
 
         return sorted(poses.keys(), key=key)
 
-    @staticmethod
-    def _pretty(pose) -> str:
-        if pose is not None and pose.stage_position is not None:
-            return pose.stage_position.pretty
-        return "Unknown"
-
-    def _add_row(self, pose_name: str, pretty: str) -> LamellaPoseRowWidget:
-        row = LamellaPoseRowWidget(pose_name, pretty)
+    def _add_row(
+        self, pose_name: str, state: Optional[MicroscopeState]
+    ) -> LamellaPoseRowWidget:
+        row = LamellaPoseRowWidget(pose_name, state)
         item = QListWidgetItem()
         item.setSizeHint(QSize(0, _ROW_HEIGHT))
         self._list.addItem(item)

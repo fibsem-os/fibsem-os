@@ -2358,13 +2358,11 @@ class AutoLamellaUI(QMainWindow):
             lamella.update_milling_angle(self.microscope)
             if sync_fluorescence_pose(self.microscope, lamella):
                 self.selected_lamella_widget.refresh_pose(
-                    "FLUORESCENCE", lamella.fluorescence_pose.stage_position.pretty
+                    "FLUORESCENCE", lamella.fluorescence_pose
                 )
 
         self.experiment.save()
-        self.selected_lamella_widget.refresh_pose(
-            pose_name, state.stage_position.pretty
-        )
+        self.selected_lamella_widget.refresh_pose(pose_name, state)
         # The FM overview canvas draws these positions itself rather than reading them
         # back, so a pose that moved here is one it only hears about by being told.
         self.experiment.positions.events.changed.emit()
