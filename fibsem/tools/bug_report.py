@@ -329,7 +329,9 @@ def init_sentry() -> bool:
         if not getattr(prefs.features, "bug_report_enabled", False):
             return False
         reporting = getattr(prefs, "reporting", None)
-        if reporting is None or not getattr(reporting, "crash_reporting_enabled", False):
+        if reporting is None or not getattr(
+            reporting, "crash_reporting_enabled", False
+        ):
             return False
         dsn = getattr(reporting, "sentry_dsn", "")
         if not dsn:
