@@ -199,7 +199,8 @@ def _summary(pose_name: str, state: Optional[MicroscopeState]) -> str:
     if state is None:
         return "No position recorded"
     lines = [f"{pose_name} \u00b7 {format_stage_position(state.stage_position)}"]
-    for label, beam in (("Electron", state.electron_beam), ("Ion", state.ion_beam)):
+    # SEM and FIB, matching the canvases and the popup this tooltip previews.
+    for label, beam in (("SEM", state.electron_beam), ("FIB", state.ion_beam)):
         if beam is None:
             lines.append(f"{label}   {NOT_AVAILABLE}")
             continue

@@ -108,8 +108,10 @@ def test_the_tooltip_carries_the_beams(qapp):
     tooltip = row.position_button.toolTip()
 
     assert "MILLING" in tooltip
-    assert "2.00 kV" in tooltip and "100 pA" in tooltip  # electron
-    assert "30.00 kV" in tooltip and "20 pA" in tooltip  # ion
+    # SEM and FIB, matching the canvases and the popup this previews.
+    assert "SEM" in tooltip and "2.00 kV" in tooltip and "100 pA" in tooltip
+    assert "FIB" in tooltip and "30.00 kV" in tooltip and "20 pA" in tooltip
+    assert "Electron" not in tooltip and "Ion" not in tooltip
 
 
 def test_the_tooltip_survives_a_beam_that_was_never_configured(qapp):
@@ -117,7 +119,7 @@ def test_the_tooltip_survives_a_beam_that_was_never_configured(qapp):
     state.ion_beam = None
     row = LamellaPoseRowWidget("MILLING", state)
 
-    assert "Ion" in row.position_button.toolTip()
+    assert "FIB" in row.position_button.toolTip()
 
 
 # ---------------------------------------------------------------------------
