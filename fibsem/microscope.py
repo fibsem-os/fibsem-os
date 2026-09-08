@@ -1133,6 +1133,7 @@ class FibsemMicroscope(ABC):
             self.set_beam_system_settings(system_settings.ion)
 
         if self.is_available("stage"):
+            previous_stage = self.system.stage
             self.system.stage = system_settings.stage
             # The line above replaces the whole record, including the capability the
             # instrument told us about at connect. `system_settings` came from a file,
@@ -1142,6 +1143,15 @@ class FibsemMicroscope(ABC):
             # stage cannot make. Re-read rather than preserve: the instrument is the
             # authority, and it has not changed because someone pressed Apply.
             self._read_stage_capabilities()
+            # The same replacement empties the holder map, for the same reason: a
+            # configuration written before the holder moved into it has no `holders:`.
+            # But which holder is in the shuttle is a physical fact, and pressing Apply
+            # did not change it -- so it is carried across, and the running `Stage`
+            # keeps agreeing with the configuration it came from. A file that *does*
+            # name holders wins, because then the user is choosing one.
+            if not self.system.stage.holders:
+                self.system.stage.holders = previous_stage.holders
+                self.system.stage.active_holder = previous_stage.active_holder
 
         if self.is_available("manipulator"):
             self.system.manipulator = system_settings.manipulator
