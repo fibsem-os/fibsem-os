@@ -605,6 +605,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
             fullscreen_menu.addAction(act)
 
+        # The standalone viewer, where a multi-channel image is composed: the
+        # Microscope tab's fluorescence view shows one frame (FIB-942). Needs no
+        # experiment; it is a file viewer.
+        view_menu.addSeparator()
+        self.action_open_fm_image_viewer = QAction("Fluorescence Image Viewer...", self)
+        self.action_open_fm_image_viewer.triggered.connect(self._open_fm_image_viewer)
+        view_menu.addAction(self.action_open_fm_image_viewer)
+
         # keep the checkable / enabled state honest each time the menu opens
         view_menu.aboutToShow.connect(self._sync_view_menu)
 
@@ -798,12 +806,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self._dev_menu = dev_menu
         self._dev_menu.menuAction().setVisible(self.dev_mode)
-
-        action_open_fm_image_viewer = QAction("Open Fluorescence Image Viewer", self)
-        action_open_fm_image_viewer.triggered.connect(self._open_fm_image_viewer)
-        dev_menu.addAction(action_open_fm_image_viewer)
-
-        dev_menu.addSeparator()
 
         action_load_fm_configuration = QAction("Load Fluorescence Configuration", self)
         action_load_fm_configuration.triggered.connect(self._import_fm_configuration)
