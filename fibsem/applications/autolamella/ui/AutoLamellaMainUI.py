@@ -69,6 +69,10 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
+from fibsem.applications.autolamella.ui.review_tab_widget import (
+    ReviewTabWidget,
+    review_tab_icon,
+)
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     WorkflowPreflightDialog,
 )
@@ -980,6 +984,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # tab is not here: it ships to everyone, and which of its modalities can be
         # reached follows the instrument rather than a flag.
         self._apply_grid_workflow_visibility()
+        self._apply_review_visibility()
         # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
         # only route to the manager dialog, and the dialog is the only thing that runs
         # a script. If a script is mid-run, leave it visible -- taking away the only
@@ -1555,7 +1560,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._set_border_state("stopping")
 
     def _on_user_attention_clicked(self):
-        """Handle user attention button click - switch to Microscope tab."""
+        """Handle user attention button click - switch to Microscope tab, or to
+        the Review tab when what is waiting is a decision rather than a question."""
+        waiting = self.autolamella_ui.WAITING_FOR_USER_INTERACTION
+        reviewing = getattr(self.autolamella_ui, "WAITING_FOR_REVIEW", 0)
+        review_tab = getattr(self, "review_tab", None)
+        if reviewing and not waiting and review_tab is not None:
+            self.tab_widget.setCurrentWidget(review_tab)
+            return
         self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
 
     def _on_run_workflow_clicked(self):
@@ -2189,6 +2201,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.add_lamella_editor_tab()
         self.add_grids_tab()
         self.add_workflow_tab()
+        self.add_review_tab()
         self._apply_grid_workflow_visibility()
 
         # add notification button to tab bar
@@ -2208,6 +2221,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_widget.set_experiment()
         self.grids_tab.set_experiment(self.autolamella_ui.experiment)
         self.grid_workflow_widget.set_experiment(self.autolamella_ui.experiment)
+        self.review_tab.set_experiment(self.autolamella_ui.experiment)
         experiment = self.autolamella_ui.experiment
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
@@ -2584,6 +2598,41 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(self.grids_tab), False)
         self._apply_grid_workflow_visibility()
 
+    def add_review_tab(self):
+        """The Review tab: every proposal waiting for a decision (FIB-950).
+
+        Behind `features.proposer_reviewer_workflow_enabled`, visibility only,
+        like the Grids tab. The inbox is derived from the experiment on every
+        refresh, so the tab holds no state a decision could be lost in.
+        """
+        self.review_tab = ReviewTabWidget()
+        self.review_tab.pending_changed.connect(self._on_reviews_pending_changed)
+        self.review_tab.decided.connect(self._on_review_decided)
+        self.tab_widget.addTab(self.review_tab, review_tab_icon(), "Review")
+        self._apply_review_visibility()
+
+    def _apply_review_visibility(self) -> None:
+        enabled = self._preferences.features.proposer_reviewer_workflow_enabled
+        tab = getattr(self, "review_tab", None)
+        if tab is not None:
+            self.tab_widget.setTabVisible(self.tab_widget.indexOf(tab), enabled)
+        workflow = getattr(self, "lamella_workflow_widget", None)
+        if workflow is not None:
+            workflow.workflow.enable_review_button(enabled)
+
+    def _on_reviews_pending_changed(self, count: int) -> None:
+        tab = getattr(self, "review_tab", None)
+        if tab is None:
+            return
+        index = self.tab_widget.indexOf(tab)
+        self.tab_widget.setTabText(index, f"Review ({count})" if count else "Review")
+
+    def _on_review_decided(self, _item_id: str, _task_name: str) -> None:
+        # The decision wrote through to the lamella (its point, its patterns,
+        # or its verdict); everything that shows a lamella redraws.
+        self.lamella_list_widget.refresh_all()
+        self.lamella_widget.set_experiment()
+
     def _refresh_grid_protocol_editor(self) -> None:
         """The task order changed on the Workflow tab: the Protocol tab's grid
         list follows. Guarded: the editor builds lazily on the first connect."""
@@ -2669,6 +2718,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Workflow task signals — each change persists the updated config to disk
         self.lamella_workflow_widget.task_supervised_changed.connect(
+            self._save_workflow_config
+        )
+        self.lamella_workflow_widget.task_review_changed.connect(
             self._save_workflow_config
         )
         self.lamella_workflow_widget.task_edited.connect(self._save_workflow_config)
@@ -3184,6 +3236,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         if event.report is not None:
             self._apply_status_report(event.report)
+            # A task finishing may have left a proposal; the inbox re-derives.
+            review_tab = getattr(self, "review_tab", None)
+            if review_tab is not None:
+                review_tab.set_running(self.autolamella_ui.is_workflow_running)
+                review_tab.refresh()
 
         if self.autolamella_ui is None:
             return
@@ -3371,10 +3428,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # machine time whoever is answering, and left running it would spend the
         # estimate while nothing is happening.
         self.workflow_timeline.set_waiting_for_user(waiting)
+        # A run parked on review decisions is a wait for the operator too, just
+        # not at the beam: same chrome, but the button leads to the Review tab.
+        reviewing = int(getattr(self.autolamella_ui, "WAITING_FOR_REVIEW", 0) or 0)
         if waiting and not agent_holding:
             # Show user attention button and change status bar color
+            self.user_attention_btn.setText("Attention Required")
+            self.user_attention_btn.setToolTip(
+                "User Input Required - Click to go to Microscope tab"
+            )
             self.user_attention_btn.show()
             # Play notification sound once when entering waiting state
+            if not self._user_interaction_sound_played and self._sound_enabled:
+                play_notification_sound()
+                self._user_interaction_sound_played = True
+        elif reviewing:
+            self.user_attention_btn.setText(f"Review Required ({reviewing})")
+            self.user_attention_btn.setToolTip(
+                f"The run is waiting on {reviewing} decision(s) - "
+                "click to open the Review tab"
+            )
+            self.user_attention_btn.show()
             if not self._user_interaction_sound_played and self._sound_enabled:
                 play_notification_sound()
                 self._user_interaction_sound_played = True
@@ -3388,7 +3462,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             pass  # Keep the red border until the workflow finishes unwinding
         elif waiting and agent_holding:
             self._set_border_state("agent")
-        elif waiting:
+        elif waiting or reviewing:
             self._set_border_state("waiting")
         elif self.autolamella_ui.WORKFLOW_PENDING:
             self._set_border_state("pending")
@@ -3510,6 +3584,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             sample.refresh()
         self.user_attention_btn.hide()
         self.lamella_list_widget.refresh_all()
+        review_tab = getattr(self, "review_tab", None)
+        if review_tab is not None:
+            review_tab.set_running(False)
+            review_tab.refresh()
         self.lamella_card_container.refresh_all()
         if self.status_bar is not None:
             self.status_bar.showMessage("Workflow: Finished")
