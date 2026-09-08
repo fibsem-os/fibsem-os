@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
@@ -197,6 +197,19 @@ class MillingTaskConfigWidget2(QWidget):
             "Milling Stages", content=self.milling_stages_widget
         )
         milling_panel.add_header_widget(self._stage_count_chip)
+        # One advanced switch for the stage detail below, where there were three,
+        # one per panel, all meaning the same thing.
+        self._btn_advanced_stages = IconToolButton(
+            icon="mdi:tune",
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced stage settings",
+            checked_tooltip="Hide advanced stage settings",
+        )
+        self._btn_advanced_stages.toggled.connect(
+            self.milling_stages_widget.set_advanced_visible
+        )
+        milling_panel.add_header_widget(self._btn_advanced_stages)
         milling_panel._btn_collapse.setChecked(True)
         layout.addWidget(milling_panel)
 

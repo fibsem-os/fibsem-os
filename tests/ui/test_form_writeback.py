@@ -104,7 +104,9 @@ def test_a_pattern_point_edit_reaches_the_pattern(qapp, microscope, axis):
     emitted = []
     widget.pattern_changed.connect(emitted.append)
 
-    x_control, y_control = _row(widget, "point").control.widget.findChildren(ValueSpinBox)
+    x_control, y_control = _row(widget, "point").control.widget.findChildren(
+        ValueSpinBox
+    )
     {"x": x_control, "y": y_control}[axis].setValue(5.0)
 
     assert emitted, f"editing the {axis} spinbox emitted nothing"
@@ -186,3 +188,20 @@ def test_an_integer_field_survives_the_round_trip_as_an_int(qapp, microscope):
     assert emitted
     value = getattr(emitted[-1], row.field)
     assert type(value) is int and value == 6
+
+
+def test_enum_members_read_as_words():
+    """Enum names are for code; a form shows words. CamelCase splits, UPPER_SNAKE
+    title-cases, and a declared format_fn still wins."""
+    from enum import Enum
+
+    from fibsem.ui.widgets.form_builder import _enum_label
+
+    class Style(Enum):
+        CleaningCrossSection = 1
+        EACH_ROW = 2
+        Plain = 3
+
+    assert _enum_label(Style.CleaningCrossSection) == "Cleaning Cross Section"
+    assert _enum_label(Style.EACH_ROW) == "Each Row"
+    assert _enum_label(Style.Plain) == "Plain"

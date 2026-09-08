@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import re
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from enum import Enum
@@ -153,9 +154,26 @@ def display_suffix(metadata: dict) -> str:
     return utils._get_display_unit(base, unit) if base else unit
 
 
+def _enum_label(member: Any) -> str:
+    """``CleaningCrossSection`` -> ``Cleaning Cross Section``, ``EACH_ROW`` -> ``Each Row``."""
+    if not isinstance(member, Enum):
+        return str(member)
+    name = member.name
+    if "_" in name or name.isupper():
+        return " ".join(part.capitalize() for part in name.split("_"))
+    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name)
+
+
 def _combo(items: Sequence[Any], value: Any, metadata: dict) -> Control:
+    # "CleaningCrossSection" and "EACH_ROW" are names for code; the form shows
+    # words. Here rather than on the Enum branch alone: a field can also reach a
+    # combo through declared `items`, as cross_section does. A declared
+    # format_fn still wins.
+    format_fn = metadata.get("format_fn")
+    if format_fn is None and any(isinstance(item, Enum) for item in items):
+        format_fn = _enum_label
     control = ValueComboBox(
-        list(items), value, metadata.get("unit"), format_fn=metadata.get("format_fn")
+        list(items), value, metadata.get("unit"), format_fn=format_fn
     )
     # ValueComboBox's constructor skips `set_value` for None, which leaves the
     # first item selected. `None` is a real choice for an Optional field -- the

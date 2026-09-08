@@ -68,7 +68,7 @@ class FibsemPatternSettingsWidget(QWidget):
         type_form = QFormLayout()
         type_form.setContentsMargins(0, 0, 0, 0)
         self._type_combo = ValueComboBox(get_pattern_names(), value=self._pattern.name)
-        type_form.addRow("Pattern:", self._type_combo)
+        type_form.addRow("Pattern", self._type_combo)
         align_form(type_form)
         outer.addLayout(type_form)
 

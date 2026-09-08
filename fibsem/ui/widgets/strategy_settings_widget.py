@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
 from fibsem.milling.base import MillingStrategy, get_strategy
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.ui.tokens import (
-    NEUTRAL_700,
+    TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
@@ -71,7 +71,7 @@ class FibsemStrategySettingsWidget(QWidget):
         self._type_combo = ValueComboBox(
             get_strategy_names(), value=self._strategy.name
         )
-        type_form.addRow("Strategy:", self._type_combo)
+        type_form.addRow("Strategy", self._type_combo)
         align_form(type_form)
         outer.addLayout(type_form)
 
@@ -82,7 +82,7 @@ class FibsemStrategySettingsWidget(QWidget):
 
         # Empty-state label (shown when strategy has no config fields)
         self._empty_label = QLabel("No configuration options.")
-        self._empty_label.setStyleSheet(f"color: {NEUTRAL_700}; font-style: italic;")
+        self._empty_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 11px;")
         self._empty_label.setVisible(False)
         outer.addWidget(self._empty_label)
 
