@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional, Union
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QCursor, QFontMetrics, QIcon, QPainter
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -31,6 +31,7 @@ from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.icon import fibsem_icon, qta
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    TEXT_MUTED_COLOR,
 )
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.utils import format_value
@@ -566,18 +567,26 @@ class TitledPanel(QWidget):
             f"background: {CANVAS_BG}; border-radius: 3px 3px 0 0;"
         )
         self._header_layout = QHBoxLayout(self._header)
-        self._header_layout.setContentsMargins(8, 3, 4, 3)
+        self._header_layout.setContentsMargins(8, 1, 3, 1)
         self._header_layout.setSpacing(4)
         self._title_label = QLabel(title)
         self._title_label.setStyleSheet("font-weight: bold; background: transparent;")
         self._header_layout.addWidget(self._title_label)
         self._header_layout.addStretch()
 
-        # Collapse toggle — always the last item in the header; checked=expanded
+        # Collapse toggle — always the last item in the header; checked=expanded.
+        # Its own stylesheet rather than the shared toolbutton one: that draws a
+        # bordered, filled box for the checked state, and here checked means
+        # expanded, so every open panel wore a permanent pressed button. The chevron
+        # already says which state this is. No hover box either -- the whole header
+        # is chrome, and a lit rectangle in it draws the eye for nothing.
         self._btn_collapse = QToolButton()
         self._btn_collapse.setCheckable(True)
         self._btn_collapse.setChecked(True)
-        self._btn_collapse.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self._btn_collapse.setStyleSheet(
+            "QToolButton { border: none; padding: 0px 3px; background: transparent; }"
+        )
+        self._btn_collapse.setIconSize(QSize(14, 14))
         self._btn_collapse.toggled.connect(self._on_collapse_toggled)
         self._header_layout.addWidget(self._btn_collapse)
 
@@ -611,7 +620,7 @@ class TitledPanel(QWidget):
             expanded = True
         self._body.setVisible(expanded)
         icon = "mdi:chevron-up" if expanded else "mdi:chevron-down"
-        self._btn_collapse.setIcon(fibsem_icon(icon, color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_collapse.setIcon(fibsem_icon(icon, color=TEXT_MUTED_COLOR))
         self._btn_collapse.setToolTip("Collapse" if expanded else "Expand")
 
     def set_title(self, title: str) -> None:
