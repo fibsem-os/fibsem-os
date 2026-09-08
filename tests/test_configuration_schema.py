@@ -90,7 +90,6 @@ def test_saving_writes_the_version():
         "manipulator",
         "gis",
         "imaging",
-        "milling",
         "sim",
     ],
 )
@@ -203,12 +202,51 @@ def test_unrecognised_keys_are_reported():
     assert "a_block_from_the_future" in unknown
 
 
-def test_the_dead_key_the_audit_found_is_reported():
-    """`imaging.imaging_current` is still in every shipped file and still read by
-    nothing. Until it is removed, at least say so."""
-    assert "imaging.imaging_current" in utils.unrecognised_configuration_keys(
-        _load("microscope-configuration.yaml")
-    )
+def test_no_shipped_configuration_carries_a_key_this_version_ignores():
+    """The shipped files say only what this version reads.
+
+    They did not: `imaging.imaging_current` was in all eight and read by nothing, and
+    the `milling:` block was six more. Both are gone, and this is what stops another
+    one accumulating -- adding a key to a shipped file without adding it to
+    `CONFIGURATION_SCHEMA` now fails here rather than being quietly dropped at load.
+    """
+    offenders = {
+        filename: utils.unrecognised_configuration_keys(_load(filename))
+        for filename in SHIPPED
+    }
+    assert {k: v for k, v in offenders.items() if v} == {}
+
+
+@pytest.mark.parametrize(
+    "removed",
+    [
+        {"milling": {"milling_current": 2.0e-9, "milling_voltage": 30000}},
+        {"stage": {"manipulator_height_limit": 0.0037}},
+        {"imaging": {"imaging_current": 2.0e-11}},
+        {"manipulator": {"rotation": False, "tilt": False}},
+        {"electron": {"plasma": False, "plasma_gas": "None"}},
+    ],
+)
+def test_a_configuration_written_before_the_keys_were_removed_still_loads(
+    removed: dict,
+):
+    """The promise made when the keys were deleted: an old file keeps working.
+
+    Every site has a configuration on disk carrying these. They are ignored, not
+    honoured and not fatal -- and they are named in the log rather than dropped in
+    silence, so a user who set one can find out it does nothing.
+    """
+    config = copy.deepcopy(_load("microscope-configuration.yaml"))
+    for block, keys in removed.items():
+        config.setdefault(block, {}).update(keys)
+
+    settings = MicroscopeSettings.from_dict(config)
+
+    assert isinstance(settings.system, SystemSettings)
+    reported = utils.unrecognised_configuration_keys(config)
+    for block, keys in removed.items():
+        for key in keys:
+            assert f"{block}.{key}" in reported or block in reported
 
 
 @pytest.mark.parametrize("block", ["sim", "protocol"])

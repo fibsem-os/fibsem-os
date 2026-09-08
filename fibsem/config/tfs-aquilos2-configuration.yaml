@@ -9,7 +9,6 @@ stage:
     enabled:                    true                        # the stage is enabled                                          [USER]
     rotation_reference:         0                           # the reference rotation value                                  [SPECIFIED] 
     shuttle_pre_tilt:           35.0                        # the pre-tilt of the shuttle                                   [SPECIFIED]
-    manipulator_height_limit:   0.0037                      # the linked height limit for manipulator (Thermo Only)         [DERIVED - manufactuer]
 electron:                                              
     enabled:                    true                        # the electron beam is enabled                                  [USER]
     column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufactuer]
@@ -36,8 +35,6 @@ ion:
     detector_type:              ETD                         # the detector type of the ion beam                             [USER]
 manipulator:
     enabled:                    true                        # manipulator is enabled                                        [USER]
-    rotation:                   false                       # manipulator is able to rotate                                 [USER]
-    tilt:                       false                       # manipulator is able to tilt                                   [USER]
 gis:
     enabled:                    true                        # gis is enabled                                                [USER]
     multichem:                  false                        # multichem is enabled                                          [USER]
@@ -47,13 +44,5 @@ imaging:
     resolution:                 [1536, 1024]                # the default imaging resolution                        [pixel] [USER]
     hfw:                        150.0e-6                    # the default imaging hfw                               [metres][USER]
     dwell_time:                 1.0e-06                     # the default imaging dwell time                        [second][USER]
-    imaging_current:            2.0e-11                     # the default imaging current                           [amp]   [USER]
     autocontrast:               true                        # use autocontrast                                              [USER]
     save:                       false                       # auto save images                                              [USER]
-milling:
-    milling_voltage:            30000                       # the default milling voltage       (Thermo)            [volt]  [USER]
-    milling_current:            2.0e-09                     # the default milling current       (Thermo)            [amp]   [USER]   
-    dwell_time:                 1.0e-06                     # the default milling dwell time    (TESCAN)            [second][USER]
-    rate:                       3.4e-09                     # the default milling spuuter rate  (TESCAN)            [um3/s] [USER]
-    spot_size:                  5.4e-08                     # the default milling spot size     (TESCAN)            [metres][USER]
-    preset:                     "30 keV; 20 nA"             # the default milling preset        (TESCAN)                    [USER]
