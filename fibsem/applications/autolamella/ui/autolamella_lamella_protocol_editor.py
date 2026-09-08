@@ -52,6 +52,10 @@ from fibsem.ui.tokens import (
     NEUTRAL_200,
 )
 from fibsem.ui.widgets.canvas.canvas_state import AlignmentSpec, PointsSpec
+from fibsem.ui.widgets.canvas.overlay_controls import (
+    CanvasOverlayControls,
+    CanvasPopover,
+)
 from fibsem.ui.widgets.canvas.quad_view import (
     LamellaEditorView,
     MicroscopeViewController,
@@ -86,6 +90,12 @@ _SAVE_DEBOUNCE_MS = 400
 # Reducer overlay ids on the FIB (ION) canvas
 POI_OVERLAY_ID = "poi"
 ALIGNMENT_OVERLAY_ID = "alignment_area"
+
+# The view toggles in the FIB canvas's overlay popover, by key.
+OVERLAY_SEM = "sem"
+OVERLAY_RELATED = "related"
+OVERLAY_ALIGNMENT = "alignment"
+OVERLAY_EDIT_ALIGNMENT = "edit_alignment"
 
 
 class AutoLamellaProtocolEditorWidget(QWidget):
@@ -240,52 +250,39 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
         self.pushButton_open_correlation.clicked.connect(self._open_correlation_dialog)
 
-        self.pushButton_toggle_sem_image = IconToolButton(
-            icon="mdi:eye-off",
-            checked_icon="mdi:eye",
-            tooltip="Show SEM reference image.",
-            checked_tooltip="Hide SEM reference image.",
-            checkable=True,
-            checked=self.show_sem_image,
+        # View toggles live on the FIB canvas, not in the editor header: they change
+        # what is drawn over the image, so they sit with the canvas tools, in the same
+        # popover the overview canvases use. Listing "Edit alignment area" under
+        # "Alignment area" also makes the dependency between them visible, where a
+        # greyed pencil six buttons along did not.
+        self.overlay_controls = CanvasOverlayControls(
+            [
+                (OVERLAY_SEM, "SEM image", self.show_sem_image),
+                (
+                    OVERLAY_RELATED,
+                    "Related milling tasks",
+                    self.show_related_milling_tasks,
+                ),
+                (OVERLAY_ALIGNMENT, "Alignment area", self.show_alignment_area),
+                (
+                    OVERLAY_EDIT_ALIGNMENT,
+                    "Edit alignment area",
+                    self.alignment_area_editable,
+                ),
+            ]
         )
-        self.pushButton_toggle_sem_image.toggled.connect(self._on_toggle_sem_image)
-
-        self.pushButton_toggle_related_tasks = IconToolButton(
-            icon="mdi:layers-off",
-            checked_icon="mdi:layers",
-            tooltip="Show related milling tasks.",
-            checked_tooltip="Hide related milling tasks.",
-            checkable=True,
-            checked=self.show_related_milling_tasks,
+        self.overlay_controls.set_enabled(
+            OVERLAY_EDIT_ALIGNMENT, self.show_alignment_area
         )
-        self.pushButton_toggle_related_tasks.toggled.connect(
-            self._on_toggle_related_tasks
+        self.overlay_controls.toggled.connect(self._on_overlay_toggled)
+        fib_canvas = self.view_controller.get_canvas(BeamType.ION)
+        # The eye, as on the overview canvases' overlay control; layers is the FM
+        # channel control's icon.
+        self.btn_overlays = fib_canvas.add_toolbar_button(
+            "mdi:eye-outline", "Overlays", self._toggle_overlays_popover, checkable=True
         )
-
-        self.pushButton_toggle_alignment_area = IconToolButton(
-            icon="mdi:crop-free",
-            checked_icon="mdi:crop-free",
-            tooltip="Show alignment area.",
-            checked_tooltip="Hide alignment area.",
-            checkable=True,
-            checked=self.show_alignment_area,
-        )
-        self.pushButton_toggle_alignment_area.toggled.connect(
-            self._on_toggle_alignment_area
-        )
-
-        self.pushButton_edit_alignment_area = IconToolButton(
-            icon="mdi:pencil-off",
-            checked_icon="mdi:pencil",
-            tooltip="Enable alignment area editing.",
-            checked_tooltip="Disable alignment area editing.",
-            checkable=True,
-            checked=self.alignment_area_editable,
-        )
-        self.pushButton_edit_alignment_area.setEnabled(self.show_alignment_area)
-        self.pushButton_edit_alignment_area.toggled.connect(
-            self._on_toggle_alignment_area_editable
-        )
+        fib_canvas._reposition_overlay_buttons()
+        self.overlay_popover = CanvasPopover(self.overlay_controls, parent=fib_canvas)
 
         self.label_lamella_name = QLabel("")
         self.label_lamella_name.setStyleSheet(
@@ -304,10 +301,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.button_layout.addStretch()
         self.button_layout.addWidget(self.pushButton_refresh_positions)
         self.button_layout.addWidget(self.pushButton_apply_to_other)
-        self.button_layout.addWidget(self.pushButton_toggle_sem_image)
-        self.button_layout.addWidget(self.pushButton_toggle_related_tasks)
-        self.button_layout.addWidget(self.pushButton_toggle_alignment_area)
-        self.button_layout.addWidget(self.pushButton_edit_alignment_area)
         self.button_layout.addWidget(self.pushButton_open_correlation)
         self.listWidget_selected_task = TaskNameListWidget()
         self.listWidget_selected_task.set_buttons_visible(add=False, remove=False)
@@ -546,7 +539,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.combobox_sem_filenames.setEnabled(
             self.show_sem_image and len(sem_filenames) > 0
         )
-        self.pushButton_toggle_sem_image.setEnabled(len(sem_filenames) > 0)
+        self.overlay_controls.set_enabled(OVERLAY_SEM, len(sem_filenames) > 0)
 
         # warnings and widget enablement
         lamella_warnings = []
@@ -566,6 +559,20 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self._on_image_selected(0)
         self._draw_point_of_interest(selected_lamella.poi)
+
+    def _toggle_overlays_popover(self) -> None:
+        """Show or hide the overlays popover, anchored under its button."""
+        self.overlay_popover.set_open(self.btn_overlays.isChecked(), self.btn_overlays)
+
+    def _on_overlay_toggled(self, key: str, checked: bool) -> None:
+        handler = {
+            OVERLAY_SEM: self._on_toggle_sem_image,
+            OVERLAY_RELATED: self._on_toggle_related_tasks,
+            OVERLAY_ALIGNMENT: self._on_toggle_alignment_area,
+            OVERLAY_EDIT_ALIGNMENT: self._on_toggle_alignment_area_editable,
+        }.get(key)
+        if handler is not None:
+            handler(checked)
 
     def _on_toggle_sem_image(self, checked: bool):
         """Toggle displaying the sem image and enablement of sem controls."""
@@ -913,11 +920,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _on_toggle_alignment_area(self, checked: bool):
         self.show_alignment_area = checked
         if not checked:
+            # Unchecking the edit switch runs its handler, which disarms the overlay.
             self.alignment_area_editable = False
-            self.pushButton_edit_alignment_area.blockSignals(True)
-            self.pushButton_edit_alignment_area.setChecked(False)
-            self.pushButton_edit_alignment_area.blockSignals(False)
-        self.pushButton_edit_alignment_area.setEnabled(checked)
+            self.overlay_controls.set_visible(OVERLAY_EDIT_ALIGNMENT, False)
+        self.overlay_controls.set_enabled(OVERLAY_EDIT_ALIGNMENT, checked)
         self._draw_alignment_area()
         if not checked:
             self.view_controller.arm_overlay(BeamType.ION, None)
