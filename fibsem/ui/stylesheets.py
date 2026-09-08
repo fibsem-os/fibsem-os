@@ -388,6 +388,28 @@ def border_stylesheet(object_name: str) -> str:
 
 
 # TODO: no token -- #6a6a6a, #8a8a8a
+# For `IconToolButton`, whose checked state already swaps the icon: no border in any
+# state, a faint fill on hover, and an accent tint when checked. The bordered, filled
+# checked box of TOOLBUTTON_ICON_STYLESHEET below made every toggled-on button in a
+# panel header look pressed, which is the loudest thing in a row of quiet chrome.
+ICON_TOOLBUTTON_STYLESHEET = """
+    QToolButton {
+        border: none;
+        border-radius: 4px;
+        padding: 2px 4px;
+        background-color: transparent;
+    }
+    QToolButton:hover {
+        background-color: rgba(255, 255, 255, 25);
+    }
+    QToolButton:checked {
+        background-color: rgba(80, 166, 255, 45);
+    }
+    QToolButton:checked:hover {
+        background-color: rgba(80, 166, 255, 70);
+    }
+"""
+
 TOOLBUTTON_ICON_STYLESHEET = f"""
     QToolButton {{
         border: 1px solid transparent;

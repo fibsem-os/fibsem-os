@@ -291,7 +291,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             milling_enabled=False,
             parent=self,
         )
-        self.milling_task_editor.setMinimumHeight(550)
 
         self.fluorescence_acquisition_task_config_widget = (
             AutoLamellaFluorescenceAcquisitionTaskConfigWidget(

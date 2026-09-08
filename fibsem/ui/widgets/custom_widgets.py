@@ -751,7 +751,7 @@ class IconToolButton(QToolButton):
             checkable or checked_icon is not None or checked_color is not None
         )
 
-        self.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.setStyleSheet(stylesheets.ICON_TOOLBUTTON_STYLESHEET)
         if size is not None:
             self.setFixedSize(size, size)
 
