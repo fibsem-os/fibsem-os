@@ -94,6 +94,7 @@ from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     TitledPanel,
+    scrollable,
 )
 
 if TYPE_CHECKING:
@@ -836,7 +837,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.milling_viewer_widget.settings_changed.connect(
             lambda *_: self._autosave_milling_config()
         )
-        return self.milling_viewer_widget
+        # the milling widget no longer scrolls itself; the tab does
+        return scrollable(self.milling_viewer_widget)
 
     def _build_fm_tab(self) -> QWidget:
         if self.microscope is None or self.microscope.fm is None:

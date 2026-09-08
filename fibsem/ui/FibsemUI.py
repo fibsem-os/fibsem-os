@@ -44,6 +44,7 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.tokens import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.custom_widgets import scrollable
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 from fibsem.versioning import get_version_string
@@ -241,7 +242,8 @@ class FibsemUI(QMainWindow):
             # add widgets to tabs
             self._add_control_tab(self.image_widget, "Image")
             self._add_control_tab(self.movement_widget, "Movement")
-            self._add_control_tab(self.milling_widget, "Milling")
+            # the milling widget no longer scrolls itself; the tab does
+            self._add_control_tab(scrollable(self.milling_widget), "Milling")
             self._add_control_tab(self.sample_widget, "Sample")
 
             if self.microscope.system.manipulator.enabled:

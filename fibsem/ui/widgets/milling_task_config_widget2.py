@@ -76,14 +76,13 @@ class MillingTaskConfigWidget2(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
+        # No scroll area of its own: every host that shows this widget already
+        # scrolls the column it sits in, and one nested inside it only ever added a
+        # second bar (the Lamella tab showed three, stacked). A host that wants
+        # scrolling wraps this widget -- see `scrollable`.
         content_widget = QWidget()
         layout = QVBoxLayout(content_widget)
-
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setWidget(content_widget)
-        main_layout.addWidget(scroll_area)
+        main_layout.addWidget(content_widget)
 
         # ── Core panel ──────────────────────────────────────────────
         core_content = QWidget()
