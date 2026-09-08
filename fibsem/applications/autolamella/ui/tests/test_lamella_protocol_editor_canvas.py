@@ -521,3 +521,42 @@ def test_view_toggles_are_overlay_controls_on_the_fib_canvas():
     assert not controls._boxes[OVERLAY_EDIT_ALIGNMENT].isEnabled()
     assert _armed(editor.view_controller) is None
     assert ALIGNMENT_OVERLAY_ID not in _overlays(editor.view_controller)
+
+
+def test_task_rows_are_chipped_from_the_lamella_record_and_the_running_task():
+    """Completed comes from the lamella's own task history; In Progress from what the
+    workflow told the editor it is running. Everything else shows nothing."""
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+    )
+
+    editor, exp = _editor()
+    lamella = exp.positions[0]
+    lamella.task_config = {"Setup": None, "Mill Fiducial": None, "Rough Milling": None}
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Setup", status=AutoLamellaTaskStatus.Completed)
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Mill Fiducial", status=AutoLamellaTaskStatus.Failed)
+    )
+    editor._selected_lamella = lamella
+    editor.listWidget_selected_task.set_tasks(list(lamella.task_config))
+
+    editor.set_active_lamella_name(lamella.name, "Rough Milling")
+
+    chips = {}
+    lst = editor.listWidget_selected_task._list
+    for i in range(lst.count()):
+        row = lst.itemWidget(lst.item(i))
+        if row is not None:
+            chips[lst.item(i).text()] = row.findChild(QWidget, None).text()
+    assert chips == {"Setup": "Completed", "Rough Milling": "In Progress"}
+
+    editor.set_active_lamella_name(None)
+    chips = {
+        lst.item(i).text()
+        for i in range(lst.count())
+        if lst.itemWidget(lst.item(i)) is not None
+    }
+    assert chips == {"Setup"}
