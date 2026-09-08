@@ -27,7 +27,7 @@ import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Type
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -100,6 +100,7 @@ _CELL_VALUE_STYLE = (
     f"color: {GRAY_TEXT_COLOR}; font-family: monospace; font-size: 12px; "
     "background: transparent;"
 )
+_ROW_HEIGHT = 46
 _ROW_NAME_STYLE = f"color: {GRAY_TEXT_COLOR}; font-size: 13px; font-weight: 600; background: transparent;"
 _ROW_TASK_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 11px; background: transparent;"
@@ -807,7 +808,10 @@ class ReviewTabWidget(QWidget):
         row = QListWidgetItem()
         row.setData(Qt.UserRole, len(self._entries))
         row.setData(Qt.UserRole + 1, summary)
-        row.setSizeHint(widget.sizeHint())
+        # A fixed height: the widget's own size hint is taken before its
+        # stylesheets apply, and came out a line short.
+        widget.setFixedHeight(_ROW_HEIGHT)
+        row.setSizeHint(QSize(0, _ROW_HEIGHT))
         if tooltip:
             row.setToolTip(tooltip)
         self.list.addItem(row)
