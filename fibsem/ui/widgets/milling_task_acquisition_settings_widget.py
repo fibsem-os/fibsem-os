@@ -56,7 +56,7 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
 
         # Image settings widget
         self.image_settings_widget = ImageSettingsWidget(show_advanced=show_advanced)
-        self.image_settings_widget.show_field_of_view(False) # uses milling task fov
+        self.image_settings_widget.show_field_of_view(False)  # uses milling task fov
 
         hbox = QHBoxLayout()
         hbox.addWidget(self.acquire_sem_checkbox)
