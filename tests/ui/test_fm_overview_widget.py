@@ -14,6 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+from psygnal.containers import EventedList
 
 pytest.importorskip("PyQt5")
 
@@ -3318,7 +3319,9 @@ def _experiment_with(positions, tmp_path):
     class _Exp:
         def __init__(self):
             self.path = str(tmp_path)
-            self.positions = list(positions)
+            # Evented, as the real one is: the tab announces a moved pose through
+            # `positions.events.changed`, the only notification a pose write gets.
+            self.positions = EventedList(positions)
             self.saves = 0
 
         def save(self):
@@ -3477,7 +3480,7 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     before = deepcopy(lamella.poses)
 
     asked = []
@@ -3511,7 +3514,7 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     target = _named("target", 400e-6, -200e-6)
@@ -3546,7 +3549,7 @@ def test_a_move_rewrites_the_stage_positions_and_nothing_else(
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_pose.electron_detector.brightness = 0.123
     lamella.fluorescence_pose.objective_position = 7.7e-3
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.fm_overview_tab._on_move_requested(
@@ -3572,7 +3575,7 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_pose.electron_detector.brightness = 0.123
     del lamella.poses["FLUORESCENCE"]
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.fm_overview_tab._on_move_requested(
@@ -3600,7 +3603,7 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_angle = 999.0
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.fm_overview_tab._on_move_requested(
@@ -3624,7 +3627,7 @@ def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
 
     host = _wired_host(qapp, tmp_path)
     lamella = _real_lamella("Lamella-01", host.autolamella_ui.microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     asked = []
     monkeypatch.setattr(
         module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or True
@@ -3789,7 +3792,7 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     host._update_fm_overview_positions()
     before = host.fm_overview_widget._positions[0].x
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)

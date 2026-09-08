@@ -169,5 +169,10 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
         sync_fluorescence_pose(self.microscope, lamella)
 
         experiment.save()
+        # Writing a pose emits nothing -- `poses` is a plain dict and the evented list
+        # only sees slot reassignment -- so the other canvas and the lamella cards
+        # would go on showing the old place. This is the one notification there is;
+        # the window re-marks both overview tabs from it.
+        experiment.positions.events.changed.emit()
         self.refresh_positions()
         notification_service.show_toast(f"Moved {name}.", "info")
