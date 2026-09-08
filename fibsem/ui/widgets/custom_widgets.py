@@ -532,6 +532,10 @@ def show_context_menu(
     return selected.label if selected else None
 
 
+# Panel headers share one height: tall enough for a 24px icon button.
+_PANEL_HEADER_HEIGHT = 24
+
+
 class TitledPanel(QWidget):
     """A styled panel with a dark header row (title label + optional widgets) and a collapsible content area.
 
@@ -566,8 +570,13 @@ class TitledPanel(QWidget):
         self._header.setStyleSheet(
             f"background: {CANVAS_BG}; border-radius: 3px 3px 0 0;"
         )
+        # One height whatever the header holds: a bare title made 22px, a 24px icon
+        # button beside it 26px, a push button 32px, and a column of panels read as
+        # uneven. Fixed at the icon button's height with no vertical margin, and
+        # add_header_widget caps what it is handed to fit.
+        self._header.setFixedHeight(_PANEL_HEADER_HEIGHT)
         self._header_layout = QHBoxLayout(self._header)
-        self._header_layout.setContentsMargins(8, 1, 3, 1)
+        self._header_layout.setContentsMargins(8, 0, 3, 0)
         self._header_layout.setSpacing(4)
         self._title_label = QLabel(title)
         self._title_label.setStyleSheet("font-weight: bold; background: transparent;")
@@ -628,7 +637,12 @@ class TitledPanel(QWidget):
         self._title_label.setText(title)
 
     def add_header_widget(self, widget: QWidget) -> None:
-        """Add a widget to the right side of the header, before the collapse button."""
+        """Add a widget to the right side of the header, before the collapse button.
+
+        Capped to the header's height: a stock QPushButton is 30px and would
+        otherwise grow the header, so it becomes a compact header button instead.
+        """
+        widget.setMaximumHeight(_PANEL_HEADER_HEIGHT)
         # Insert before the collapse button (always the last item)
         self._header_layout.insertWidget(self._header_layout.count() - 1, widget)
 
