@@ -174,11 +174,7 @@ To clear a mark again, use `lamella.defect.clear()`.
 
 Everything above assumes you loaded the experiment yourself. AutoLamella can instead run a script against the experiment it already has open, from **Tools → Scripts → Manage scripts…**.
 
-> **Off by default.** Turn it on in **File → Preferences… → Features → Enable User Scripts**. It takes effect immediately — no restart — and persists in `user-preferences.yaml`.
->
-> A script gets the application's own access to the microscope and none of its guard rails, so the menu is not offered to anyone who has not asked for it. Switching it on warns you once; switching it off hides the menu again. Hiding the menu hides the whole feature, since that is the only route to the dialog and the dialog is the only thing that runs a script.
->
-> None of this affects the headless recipes above: loading an experiment yourself in a notebook or a plain `python` script needs no flag.
+> A script gets the application's own access to the microscope and none of its guard rails. The menu is available to everyone (the feature flag was retired in September 2026); run only scripts you have read.
 
 Everything happens in that dialog. The menu itself only opens it and the scripts folder — it deliberately does not run anything, because a menu item has no way to show you a script that is still going, and no way to stop it.
 
