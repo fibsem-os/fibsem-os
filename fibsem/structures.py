@@ -2221,7 +2221,6 @@ DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
 class StageSystemSettings:
     rotation_reference: float
     shuttle_pre_tilt: float
-    manipulator_height_limit: float
     enabled: bool = True
     # Whether the stage has a rotation axis. Load-bearing: it is what `rotation_180`
     # below is derived from, so it describes the geometry and not merely a permission.
@@ -2279,7 +2278,6 @@ class StageSystemSettings:
         return {
             "rotation_reference": self.rotation_reference,
             "shuttle_pre_tilt": self.shuttle_pre_tilt,
-            "manipulator_height_limit": self.manipulator_height_limit,
             "enabled": self.enabled,
             "rotation": self.rotation,
             "milling_angle": self.milling_angle,
@@ -2301,7 +2299,6 @@ class StageSystemSettings:
         return StageSystemSettings(
             rotation_reference=settings.get("rotation_reference", 0.0),
             shuttle_pre_tilt=settings.get("shuttle_pre_tilt", 0.0),
-            manipulator_height_limit=settings.get("manipulator_height_limit", 0.0037),
             enabled=settings.get("enabled", True),
             rotation=settings.get("rotation", True),
             milling_angle=settings.get("milling_angle", 15.0),
@@ -2338,9 +2335,15 @@ class BeamSystemSettings:
             "enabled": self.enabled,
             "eucentric_height": self.eucentric_height,
             "column_tilt": self.column_tilt,
-            "plasma": self.plasma,
-            "plasma_gas": self.plasma_gas,
         }
+        # Written for the ion column only. One class serves both columns, so the
+        # fields exist on the electron one too, and writing them there put
+        # `electron.plasma` into any configuration saved from the application --
+        # a key no shipped file has ever carried and nothing reads. An electron
+        # column has no plasma source.
+        if self.beam_type is BeamType.ION:
+            ddict["plasma"] = self.plasma
+            ddict["plasma_gas"] = self.plasma_gas
         ddict.update(self.beam.to_dict())
         ddict.update(self.detector.to_dict())
 
@@ -2758,8 +2761,14 @@ class MicroscopeSettings:
     Attributes:
         system (SystemSettings): An instance of the `SystemSettings` class that holds the system settings.
         image (ImageSettings): An instance of the `ImageSettings` class that holds the image settings.
-        milling (FibsemMillingSettings): An instance of the `FibsemMillingSettings` class that holds the fibsem milling settings..
         protocol (dict, optional): A dictionary representing the protocol settings. Defaults to None.
+
+    There is no `milling` here. A `milling:` block existed in the configuration and
+    was read into a `FibsemMillingSettings`, but milling parameters belong to a
+    milling stage -- `FibsemMillingStage.milling`, chosen per pattern from the
+    protocol -- and nothing in the application consulted the configuration-level one.
+    Removed in the schema v1 work; the identically-named `stage.milling` is a
+    different object and is unaffected.
 
     Methods:
         to_dict(): Returns a dictionary representation of the `MicroscopeSettings` object.
@@ -2768,7 +2777,6 @@ class MicroscopeSettings:
 
     system: SystemSettings
     image: ImageSettings
-    milling: FibsemMillingSettings
     protocol: Optional[dict] = None
     fm: Optional["FluorescenceConfiguration"] = None
 
@@ -2776,7 +2784,6 @@ class MicroscopeSettings:
         settings_dict = {
             "imaging": self.image.to_dict(),
             "protocol": self.protocol,
-            "milling": self.milling.to_dict(),
         }
         settings_dict.update(self.system.to_dict())
 
@@ -2806,7 +2813,6 @@ class MicroscopeSettings:
             system=SystemSettings.from_dict(settings),
             image=ImageSettings.from_dict(settings.get("imaging") or {}),
             protocol=protocol,
-            milling=FibsemMillingSettings.from_dict(settings.get("milling") or {}),
             fm=fm_config,
         )
 

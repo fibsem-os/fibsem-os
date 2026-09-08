@@ -536,11 +536,13 @@ CONFIGURATION_SCHEMA: Dict[str, Set[str]] = {
         "rotation",
         "rotation_reference",
         "shuttle_pre_tilt",
-        "manipulator_height_limit",
         "milling_angle",
         "devices",
         "device_range",
     },
+    # No `plasma` or `plasma_gas`: an electron column has no plasma source. They are
+    # ion-column keys, and `BeamSystemSettings` carries them on both columns only
+    # because one class serves both.
     "electron": {
         "enabled",
         "column_tilt",
@@ -554,8 +556,6 @@ CONFIGURATION_SCHEMA: Dict[str, Set[str]] = {
         "detector_type",
         "beam_type",
         "working_distance",
-        "plasma",
-        "plasma_gas",
     },
     "ion": {
         "enabled",
@@ -573,17 +573,14 @@ CONFIGURATION_SCHEMA: Dict[str, Set[str]] = {
         "plasma",
         "plasma_gas",
     },
-    "manipulator": {"enabled", "rotation", "tilt"},
+    # `rotation` and `tilt` are the manipulator's own axes. A file could only ever
+    # restate them, and every shipped one said `false`; the instrument knows.
+    "manipulator": {"enabled"},
     "gis": {"enabled", "multichem", "sputter_coater"},
     "imaging": {"beam_type", "resolution", "hfw", "dwell_time", "autocontrast", "save"},
-    "milling": {
-        "milling_voltage",
-        "milling_current",
-        "dwell_time",
-        "rate",
-        "spot_size",
-        "preset",
-    },
+    # No `milling:` block. It was read into a `MicroscopeSettings.milling` that nothing
+    # in the application consulted -- milling parameters belong to a milling stage,
+    # chosen per pattern from the protocol.
     "fm": {"enabled", "config"},
     # Open blocks. `sim:` stays a plain dict the simulator reads with `.get()` rather
     # than a dataclass, and `protocol:` is the application's, so policing either would
