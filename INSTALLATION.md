@@ -140,14 +140,29 @@ AutoScript's own environment and need copying into yours.
 Restart fibsemOS afterwards; Guided Setup should now report AutoScript as
 installed.
 
+**Having problems?**
+
+- Check that AutoScript itself is installed and configured, and that its own
+  environment can `import autoscript_sdb_microscope_client`.
+- Check that the terminal's `python` is the `fibsem` environment's, not
+  another one: `where python` (Windows) or `which python`.
+- Check that the copied folders sit directly inside `site-packages`, not in a
+  subfolder.
+- Try `pip install -e ".[ui]"` from a clone of the repository and run the
+  tests, to separate an environment problem from an AutoScript one.
+
 ### Tescan
 
 Run the Tescan Automation SDK installer from Tescan. When it asks which
 Python interpreter to install into, choose the one in the `fibsem`
-environment (`where python` with the environment active shows its path). If
-the installer put the packages elsewhere, copy every folder beginning with
-`tescan`, `PySide6` and `shiboken` from that `site-packages` into the
-`fibsem` environment's.
+environment (`where python` with the environment active shows its path).
+
+If the `fibsem` interpreter is not offered in the installer's dropdown,
+proceed with whichever interpreter it offers and note its path. (If it offers
+none, install Python 3.8 or newer separately and run the installer again.)
+Then copy every folder beginning with `tescan`, `PySide6` and `shiboken` from
+that interpreter's `site-packages` (`...\python\lib\site-packages`) into
+the `fibsem` environment's.
 
 To check, with the environment active:
 
@@ -160,17 +175,86 @@ step to come back to.
 
 ## Alternatives
 
-**uv.** If you prefer [uv](https://docs.astral.sh/uv/) to conda, `uv venv`
-then `uv pip install "fibsem[ui]"` in the activated environment does the same
-job, faster. uv also works inside a conda environment.
+### venv instead of conda
 
-**venv.** Python's own `python -m venv fibsem`, then activate it
-(`fibsem\Scripts\activate` on Windows, `source fibsem/bin/activate`
-elsewhere) and run the `pip install` above.
+Python's own virtual environments work too. With Python 3.8 or newer
+installed, in the directory where the environment should live:
 
-**Manual shortcut.** If the Tools menu is not an option, make a script that
-activates the environment and runs `fibsem-autolamella-ui`, and create a
-shortcut to that script.
+```bash
+python -m venv fibsem
+```
+
+Activate it, then run the `pip install` from step 2:
+
+```bash
+# Windows
+fibsem\Scripts\activate
+```
+
+```bash
+# macOS / Linux
+source fibsem/bin/activate
+```
+
+### uv instead of pip
+
+[uv](https://docs.astral.sh/uv/) is a fast, drop-in replacement for `pip`.
+Install it (see the [uv install guide](https://docs.astral.sh/uv/getting-started/installation/)
+for all options):
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+```bash
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+or `pip install uv` into an existing environment. uv can create and manage
+the environment itself, so conda is not needed:
+
+```bash
+# macOS / Linux
+uv venv
+source .venv/bin/activate
+```
+
+```bash
+# Windows (PowerShell)
+uv venv
+.venv\Scripts\activate
+```
+
+uv also works inside a conda or venv environment; just activate that
+environment instead. Then, with the environment active:
+
+```bash
+uv pip install "fibsem[ui]"
+```
+
+or `uv pip install -e ".[ui]"` from a checkout. It resolves the same
+dependencies from `pyproject.toml` as `pip`, faster; no lockfile or extra
+configuration is needed.
+
+### Manual shortcut
+
+If the Tools menu is not an option, make a script that runs the entry point
+and put a shortcut to it on the desktop. With the environment active:
+
+```cmd
+:: Windows: creates AutoLamella.bat
+echo @echo off > AutoLamella.bat & where fibsem-autolamella-ui >> AutoLamella.bat
+```
+
+```bash
+# Linux / macOS: creates AutoLamella.sh
+printf '#!/bin/bash\n%s' $(which fibsem-autolamella-ui) > AutoLamella.sh
+chmod +x AutoLamella.sh
+```
+
+Then create a shortcut to the script and place it on your desktop.
 
 ## Next
 
