@@ -160,8 +160,10 @@ def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_pat
     assert lamella.poi == Point(3e-6, 0.0)
 
 
-def test_a_decided_proposal_is_kept_when_the_task_runs_again(microscope, tmp_path):
-    """A stall re-queued without Resume must not overwrite the reviewed answer."""
+def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
+    """Re-running Setup is a deliberate act: the operator gets a new proposal
+    on the new image, and the old one -- with its decision -- stays on the
+    record. The confirmed point stays on the lamella until the new decision."""
     exp = _experiment(tmp_path, microscope, review=True)
     task = _task(microscope, exp, flag=True)
     task.run()
@@ -179,9 +181,13 @@ def test_a_decided_proposal_is_kept_when_the_task_runs_again(microscope, tmp_pat
 
     _task(microscope, exp, flag=True).run()
 
-    assert lamella.proposals[SETUP] is decided
-    assert not lamella.proposals[SETUP].pending
+    fresh = lamella.proposals[SETUP]
+    assert fresh is not decided and fresh.pending
+    assert fresh.values["poi"] == Point(0.0, 0.0), "not the old answer as default"
+    assert fresh.superseded == [decided]
+    assert decided.current.values["poi"] == Point(1e-6, 1e-6)
     assert lamella.poi == Point(1e-6, 1e-6)
+    assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_review"
 
 
 def test_without_the_flag_or_without_review_nothing_is_proposed(microscope, tmp_path):
