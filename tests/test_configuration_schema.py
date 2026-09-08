@@ -17,7 +17,11 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import MicroscopeSettings, SystemSettings
+from fibsem.structures import (
+    DEFAULT_FIB_COLUMN_TILT,
+    MicroscopeSettings,
+    SystemSettings,
+)
 
 # Named rather than globbed: `fibsem/config/*.yaml` is gitignored with an allowlist,
 # so a configuration saved from the wizard sits in the same folder and a glob would
@@ -111,7 +115,11 @@ def test_a_missing_field_defaults_rather_than_raising():
 
     settings = MicroscopeSettings.from_dict(config)
     assert settings.system.stage.rotation_reference == 0.0
-    assert settings.system.ion.column_tilt == 0.0
+    # Not 0: the ion column's default is the angle between the columns, because a
+    # dual-beam whose FIB sits at 0 degrees is not a conservative fallback but a
+    # different instrument. See `DEFAULT_FIB_COLUMN_TILT`.
+    assert settings.system.ion.column_tilt == DEFAULT_FIB_COLUMN_TILT
+    assert settings.system.electron.column_tilt == 0.0
 
 
 def test_reading_does_not_mutate_the_dict_it_was_given():
