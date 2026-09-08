@@ -968,20 +968,26 @@ class AutoLamellaUI(QMainWindow):
 
     #### FLUORESCENCE IMAGE VIEWER
 
+    def _fm_image_viewer_start_directory(self) -> str:
+        """Where the viewer's Load dialog opens: the open experiment, else the folder
+        of the most recent one, else the log directory. The viewer reads files, so it
+        needs no experiment (FIB-942); this only picks a sensible first folder."""
+        if self.experiment is not None and self.experiment.path:
+            return str(self.experiment.path)
+        recent = fibsem_cfg.load_user_preferences().experiment.recent_experiments
+        for path in recent:
+            parent = os.path.dirname(path)
+            if os.path.isdir(parent):
+                return parent
+        return fibsem_cfg.LOG_PATH
+
     def _open_fm_image_viewer(self):
         """Open the FM Image Viewer as a standalone window."""
-        if self.experiment is None:
-            notification_service.show_toast(
-                "Please load an experiment first... [No Experiment Loaded]", "warning"
-            )
-            return
-
-        experiment_path = str(self.experiment.path) if self.experiment.path else None
         # Parented to None so it gets its own taskbar entry and native minimise, like the
         # coincidence viewer. That means nothing else owns it, so the reference here is
         # what keeps it alive — drop it and Python collects the window mid-session.
         self._fm_image_viewer_window = FMImageViewerWidget(
-            start_directory=experiment_path
+            start_directory=self._fm_image_viewer_start_directory()
         )
         self._fm_image_viewer_window.resize(1180, 700)
         self._fm_image_viewer_window.show()

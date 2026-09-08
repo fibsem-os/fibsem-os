@@ -1362,27 +1362,32 @@ def render_fluorescence(h: Harness) -> None:
     h.pump(400)
     h.shot("channels", target=fmc.channelPanel, crop=True)
 
-    # Acquire Image takes the selected channel only; Acquire Z-Stack takes
-    # every channel at every plane, so a two-plane stack (the smallest it
-    # accepts) is the way to one image with all four channels in it
+    # Acquire Image takes every channel in the list on one plane (FIB-943),
+    # so one press gives the four-channel image the viewer composes
     import glob
 
     from fibsem.fm.structures import FluorescenceImage
     from fibsem.ui.fm.widgets.fm_image_viewer_widget import FMImageViewerWidget
 
     quad.set_selected("fm")
-    zp = fmc.zParametersWidget
-    zp.doubleSpinBox_zstep.setValue(2.0)
-    zp.doubleSpinBox_zmin.setValue(-1.0)
-    zp.doubleSpinBox_zmax.setValue(1.0)
-    h.pump(200)
-    fmc.pushButton_acquire_zstack.click()
+    fmc.pushButton_acquire_single_image.click()
     h.wait_fm(fmc)
     # the Microscope tab's FM view shows the frame just taken, one channel
     h.shot("fm-view-live", target=fm_panel)
 
-    # the standalone viewer is where a multi-channel image is composed: load
-    # the file the acquisition wrote
+    # View > Fluorescence Image Viewer: where a multi-channel image is composed
+    view = next(a.menu() for a in h.window.menuBar().actions() if a.text() == "View")
+    view.popup(h.window.mapToGlobal(QPoint(0, 0)))
+    h.pump(300)
+    h.shot(
+        "view-menu",
+        target=view,
+        callout_rects=[view.actionGeometry(h.window.action_open_fm_image_viewer)],
+    )
+    view.close()
+    h.pump(200)
+
+    # the standalone viewer: load the file the acquisition wrote
     def newest(pattern):
         files = sorted(
             glob.glob(os.path.join(h._tmp.name, pattern)), key=os.path.getmtime
@@ -1393,7 +1398,7 @@ def render_fluorescence(h: Harness) -> None:
     viewer.resize(1180, 700)
     viewer.show()
     h.pump(300)
-    viewer.add_image(FluorescenceImage.load(newest("z-stack-*.ome.tiff")))
+    viewer.add_image(FluorescenceImage.load(newest("image-*.ome.tiff")))
     h.pump(800)
     vcanvas = viewer.canvas
     h.shot(
@@ -1433,6 +1438,7 @@ def render_fluorescence(h: Harness) -> None:
     h.pump(300)
 
     # a z-stack: the parameters, then the slice controls under the view
+    zp = fmc.zParametersWidget
     zp.doubleSpinBox_zmin.setValue(-10.0)
     zp.doubleSpinBox_zmax.setValue(10.0)
     zp.doubleSpinBox_zstep.setValue(2.0)

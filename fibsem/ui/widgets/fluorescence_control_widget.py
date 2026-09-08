@@ -863,10 +863,13 @@ class FMControlWidget(QWidget):
 
         settings = self._get_current_settings()
 
+        # Both buttons take every channel in the list; the z-stack one adds the
+        # planes. Acquire Image used to take the selected channel only, so the
+        # only way to one image with all its channels in it was a two-plane
+        # stack (FIB-943). The selected channel is for the live view.
+        channel_settings = settings["channel_settings"]
         z_parameters = None
-        channel_settings = settings["selected_channel_settings"]
         if self.sender() is self.pushButton_acquire_zstack:
-            channel_settings = settings["channel_settings"]
             z_parameters = settings["z_parameters"]
 
         # Generate filename for saving
