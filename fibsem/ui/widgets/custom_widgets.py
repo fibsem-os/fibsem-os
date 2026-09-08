@@ -657,9 +657,17 @@ class TitledPanel(QWidget):
         Capped to the header's height: a stock QPushButton is 30px and would
         otherwise grow the header, so it becomes a compact header button instead.
         """
-        widget.setMaximumHeight(_PANEL_HEADER_HEIGHT)
+        # Cap, never raise: a widget that fixed itself smaller (a 14px chip) keeps
+        # that, and is centred rather than stretched to the header -- which is what
+        # raising its maximum did, and left the chip touching both edges.
+        if widget.minimumHeight() > _PANEL_HEADER_HEIGHT:
+            widget.setMinimumHeight(_PANEL_HEADER_HEIGHT)
+        if widget.maximumHeight() > _PANEL_HEADER_HEIGHT:
+            widget.setMaximumHeight(_PANEL_HEADER_HEIGHT)
         # Insert before the collapse button (always the last item)
-        self._header_layout.insertWidget(self._header_layout.count() - 1, widget)
+        self._header_layout.insertWidget(
+            self._header_layout.count() - 1, widget, 0, Qt.AlignVCenter
+        )
 
     def set_content(self, widget: QWidget) -> None:
         """Replace the body content with widget."""
@@ -1029,6 +1037,26 @@ class ElidedLabel(QLabel):
         # draws the elided string, so the stylesheet colour survives.
         if elided != super().text():
             super().setText(elided)
+
+
+def header_chip(text: str, colour: str) -> QLabel:
+    """A `chip` sized for a panel header: 14px tall, 9px text, tinted like the rest.
+
+    For state a header should show while the panel is collapsed -- "on", "off",
+    "3 stages". `chip()` is built for a card or a row and comes out 20px, which in a
+    24px header reads as a button.
+    """
+    rgb = QColor(colour)
+    tint = f"rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15)"
+    label = QLabel(text)
+    label.setAlignment(Qt.AlignCenter)
+    style_with_tooltip(
+        label,
+        f"background-color: {tint}; color: {colour};"
+        " padding: 0px 5px; border-radius: 7px; font-size: 9px;",
+    )
+    label.setFixedHeight(14)
+    return label
 
 
 def chip(text: str, colour: str, font_size: int = 11) -> QLabel:

@@ -49,6 +49,7 @@ _DRAG_WIDTH = DRAG_HANDLE_WIDTH
 # Icon buttons, not 32px: two per row was 64px of chrome in a row that has ~500px.
 _BTN_SIZE = QSize(24, 24)
 _ROW_HEIGHT = 40
+_MAX_VISIBLE_ROWS = 8  # beyond this the list scrolls rather than growing
 
 
 def _add_flex_column(layout: QHBoxLayout, widget: QWidget, spec: tuple) -> None:
@@ -383,12 +384,17 @@ class _MillingStageListHeader(QWidget):
         self.setStyleSheet(f"background: {CANVAS_BG};")
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
+        # 8px, not the row's 4px: the list insets each row's widget by 4px on both
+        # sides, so this puts the header's cells over the rows' cells exactly, and
+        # gives the flexible columns the same width to share.
+        layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(4)
 
         # Header mirrors the row cell-for-cell so columns stay aligned: a no-text
         # select-all checkbox (matches the row checkbox), then one flexible label
-        # per column using the SAME (min, stretch) spec as the rows.
+        # per column using the SAME (min, stretch) spec as the rows. Each label is
+        # padded on the left by the inset of its column's control text: a combo or
+        # spinbox starts its text 8px in, the name edit 3px.
         self.checkbox_all = QCheckBox()
         self.checkbox_all.setChecked(True)
         self.checkbox_all.setToolTip("Enable/disable all stages")
@@ -406,7 +412,10 @@ class _MillingStageListHeader(QWidget):
             ("Strategy", _COL_STRATEGY),
         ]:
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("font-weight: bold; background: transparent;")
+            text_inset = 3 if label_text == "Stage" else 8
+            lbl.setStyleSheet(
+                f"font-weight: bold; background: transparent; padding-left: {text_inset}px;"
+            )
             _add_flex_column(layout, lbl, spec)
             if label_text == "Pattern":
                 self.lbl_pattern = lbl  # toggled with the pattern column (eye button)
@@ -415,13 +424,9 @@ class _MillingStageListHeader(QWidget):
                     lbl  # retitled "Preset" on backends that mill by preset
                 )
 
-        # trailing spacer matches the row's color+remove+drag vs the header's eye+add,
-        # so the strategy column's right edge lines up with the rows
-        spacer = QWidget()
-        spacer.setFixedWidth(_DRAG_WIDTH)
-        spacer.setStyleSheet("background: transparent;")
-        layout.addWidget(spacer)
-
+        # eye + add sit over the row's colour + remove, and a spacer the width of
+        # the row's drag handle follows them, so the strategy column's right edge
+        # and the buttons both line up with the rows
         self.btn_eye = IconToolButton(
             icon="mdi:eye",
             checked_icon="mdi:eye-off",
@@ -436,6 +441,10 @@ class _MillingStageListHeader(QWidget):
             icon="mdi:plus", tooltip="Add milling stage", size=_BTN_SIZE.width()
         )
         layout.addWidget(self.btn_add)
+        spacer = QWidget()
+        spacer.setFixedWidth(_DRAG_WIDTH)
+        spacer.setStyleSheet("background: transparent;")
+        layout.addWidget(spacer)
 
         self.checkbox_all.stateChanged.connect(
             lambda s: self.select_all_changed.emit(bool(s))
@@ -499,7 +508,8 @@ class MillingStageListWidget(QWidget):
         self._list.setDragDropMode(QAbstractItemView.InternalMove)
         self._list.setDefaultDropAction(Qt.MoveAction)
         self._list.setSpacing(0)
-        self._list.setMinimumHeight(3 * _ROW_HEIGHT)
+        # Sized to its rows (see _update_empty_state): QListWidget's default size
+        # hint is 256px, which left a band of nothing under three stages.
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # Adjust, not the default Fixed: in Fixed mode a row keeps the geometry it
@@ -655,6 +665,10 @@ class MillingStageListWidget(QWidget):
     def _update_empty_state(self) -> None:
         empty = self._list.count() == 0
         self._empty_label.setVisible(empty)
+        self._list.setVisible(not empty)
+        # Exactly as tall as its rows, up to a screenful; past that it scrolls.
+        rows = min(self._list.count(), _MAX_VISIBLE_ROWS)
+        self._list.setFixedHeight(rows * _ROW_HEIGHT + 2 * self._list.frameWidth())
 
     def _on_add_stage(self) -> None:
         count = self._list.count()

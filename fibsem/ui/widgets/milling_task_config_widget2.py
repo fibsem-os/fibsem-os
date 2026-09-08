@@ -18,7 +18,12 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    TitledPanel,
+    ValueSpinBox,
+    header_chip,
+)
 from fibsem.ui.widgets.milling_alignment_widget import FibsemMillingAlignmentWidget
 from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget
 from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
@@ -180,15 +185,15 @@ class MillingTaskConfigWidget2(QWidget):
         self.milling_stages_widget = FibsemMillingStagesWidget(
             microscope=self.microscope, stages=[]
         )
-        self._btn_stage_count = IconToolButton(
-            icon="mdi:numeric-0-box-outline", size=32
-        )
-        self._btn_stage_count.setEnabled(False)
+        # How many stages are enabled, readable with the panel collapsed. Text
+        # rather than the digit-in-a-box icon it used to be, which looked like a
+        # disabled button and stopped at 9.
+        self._stage_count_chip = header_chip("0 stages", stylesheets.ACCENT_COLOR)
 
         milling_panel = TitledPanel(
             "Milling Stages", content=self.milling_stages_widget
         )
-        milling_panel.add_header_widget(self._btn_stage_count)
+        milling_panel.add_header_widget(self._stage_count_chip)
         milling_panel._btn_collapse.setChecked(True)
         layout.addWidget(milling_panel)
 
@@ -233,15 +238,10 @@ class MillingTaskConfigWidget2(QWidget):
     # ------------------------------------------------------------------
 
     def _update_stage_count_icon(self, n: int) -> None:
-        icon_name = (
-            "mdi:numeric-9-plus-box-outline"
-            if n > 9
-            else f"mdi:numeric-{n}-box-outline"
+        self._stage_count_chip.setText(f"{n} stage{'s' if n != 1 else ''}")
+        self._stage_count_chip.setToolTip(
+            f"{n} enabled milling stage{'s' if n != 1 else ''}"
         )
-        self._btn_stage_count.setIcon(
-            fibsem_icon(icon_name, color=stylesheets.GRAY_ICON_COLOR)
-        )
-        self._btn_stage_count.setToolTip(f"{n} stage{'s' if n != 1 else ''}")
 
     def _emit_settings_changed(self) -> None:
         self.settings_changed.emit(self.get_settings())
@@ -312,7 +312,8 @@ class MillingTaskConfigWidget2(QWidget):
         self.alignment_widget.update_from_settings(settings.alignment)
         self.acquisition_widget.update_from_settings(settings.acquisition)
         self.milling_stages_widget.set_stages(settings.stages)
-        self._update_stage_count_icon(len(settings.stages))
+        # enabled stages, as the change handler counts them; loading used to count all
+        self._update_stage_count_icon(len([s for s in settings.stages if s.enabled]))
         self.blockSignals(False)
         self._on_alignment_checkbox_changed(
             settings.alignment.enabled
