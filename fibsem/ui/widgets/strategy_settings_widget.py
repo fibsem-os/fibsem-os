@@ -25,6 +25,7 @@ from fibsem.ui.widgets.form_builder import Control, build_control
 @dataclass
 class _Row:
     """One built form row: the label, the control, and whether it is advanced."""
+
     label: QLabel
     control: Control
     field: str
@@ -98,7 +99,7 @@ class FibsemStrategySettingsWidget(QWidget):
         locked = strategy.name not in names
         self._type_combo.blockSignals(True)
         self._type_combo.clear()
-        for name in ([strategy.name] if locked else names):
+        for name in [strategy.name] if locked else names:
             self._type_combo.addItem(name, name)
         self._type_combo.set_value(strategy.name)
         self._type_combo.blockSignals(False)

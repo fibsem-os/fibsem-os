@@ -19,17 +19,18 @@ from fibsem.ui.widgets.form_builder import Control, build_control
 class _Row:
     """One built form row. `mfr` is this form's own twist: a field declared for
     one manufacturer is hidden on the others."""
+
     label: QLabel
     control: Control
     field: str
     advanced: bool
     mfr: Optional[str]
 
+
 _META = FibsemMillingSettings().field_metadata
 
 # Fields hidden from UI — derived from metadata (hidden=True), not hardcoded
 _HIDDEN_FIELDS = {name for name, m in _META.items() if m.get("hidden", False)}
-
 
 
 class FibsemMillingSettingsWidget(QWidget):

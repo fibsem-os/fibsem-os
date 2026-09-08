@@ -159,7 +159,9 @@ class ReferenceImageParametersWidget(QWidget):
             checked_tooltip="Hide advanced settings",
         )
 
-        self.imaging_settings_panel = TitledPanel("Imaging Settings", content=self.imaging_widget)
+        self.imaging_settings_panel = TitledPanel(
+            "Imaging Settings", content=self.imaging_widget
+        )
         self.imaging_settings_panel.add_header_widget(self._btn_advanced_imaging)
         self.imaging_settings_panel._btn_collapse.setChecked(True)
 
@@ -175,7 +177,9 @@ class ReferenceImageParametersWidget(QWidget):
         self.acquire_fib_check.toggled.connect(self._on_acquisition_toggled)
         self.acquire_image1_check.toggled.connect(self._on_image1_toggled)
         self.acquire_image2_check.toggled.connect(self._on_image2_toggled)
-        self._btn_advanced_imaging.toggled.connect(self.imaging_widget.set_show_advanced)
+        self._btn_advanced_imaging.toggled.connect(
+            self.imaging_widget.set_show_advanced
+        )
 
         self.imaging_widget.settings_changed.connect(self._emit_settings_changed)
 
@@ -286,8 +290,12 @@ class ReferenceImageParametersWidget(QWidget):
 
         # Update settings
         self._settings.imaging = self.imaging_widget.get_settings()
-        self._settings.field_of_view1 = self.fov1_spinbox.value() * MICRO_TO_SI  # Convert μm to m
-        self._settings.field_of_view2 = self.fov2_spinbox.value() * MICRO_TO_SI  # Convert μm to m
+        self._settings.field_of_view1 = (
+            self.fov1_spinbox.value() * MICRO_TO_SI
+        )  # Convert μm to m
+        self._settings.field_of_view2 = (
+            self.fov2_spinbox.value() * MICRO_TO_SI
+        )  # Convert μm to m
         self._settings.acquire_sem = self.acquire_sem_check.isChecked()
         self._settings.acquire_fib = self.acquire_fib_check.isChecked()
         self._settings.acquire_image1 = self.acquire_image1_check.isChecked()
@@ -313,8 +321,12 @@ class ReferenceImageParametersWidget(QWidget):
         self.acquire_image2_check.blockSignals(True)
 
         # Set field of view values
-        self.fov1_spinbox.setValue(self._settings.field_of_view1 * SI_TO_MICRO)  # Convert m to μm
-        self.fov2_spinbox.setValue(self._settings.field_of_view2 * SI_TO_MICRO)  # Convert m to μm
+        self.fov1_spinbox.setValue(
+            self._settings.field_of_view1 * SI_TO_MICRO
+        )  # Convert m to μm
+        self.fov2_spinbox.setValue(
+            self._settings.field_of_view2 * SI_TO_MICRO
+        )  # Convert m to μm
 
         # Set acquisition options
         self.acquire_sem_check.setChecked(self._settings.acquire_sem)

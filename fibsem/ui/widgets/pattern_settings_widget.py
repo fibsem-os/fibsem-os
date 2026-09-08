@@ -24,6 +24,7 @@ from fibsem.ui.widgets.form_builder import Control, build_control
 @dataclass
 class _Row:
     """One built form row: the label, the control, and whether it is advanced."""
+
     label: QLabel
     control: Control
     field: str
