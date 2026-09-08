@@ -1498,6 +1498,9 @@ class FMOverviewWidget(QWidget):
                     stage_context.OVERLAY_BOUNDARIES
                 ),
                 slots=self.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS),
+                # This canvas is the FM's view: its markers are fluorescence poses,
+                # so the holder's places are drawn where the FM sees them too.
+                device="FM",
             )
         )
 

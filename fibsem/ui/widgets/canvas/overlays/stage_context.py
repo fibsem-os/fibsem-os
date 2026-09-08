@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 # the shape it gates cannot drift apart under a rename, and both tabs offer the same
 # three. What each tab draws *besides* these -- saved positions, grid bars -- is its own
 # and keeps its keys there.
+# The device holder places are written against; see `at_frame_device`.
+BEAMS_DEVICE = "FIBSEM"
+
 OVERLAY_LIMITS = "limits"
 OVERLAY_BOUNDARIES = "boundaries"
 OVERLAY_SLOTS = "slots"
@@ -100,6 +103,7 @@ __all__ = [
     "canvas_span",
     "holder_slots",
     "slot_landmark",
+    "at_device",
     "limit_shapes",
     "boundary_shapes",
     "slot_shapes",
@@ -202,6 +206,47 @@ def slot_landmark(microscope, slot: object) -> Optional[FibsemStagePosition]:
     )
 
 
+def at_device(
+    microscope, device: Optional[str], place: FibsemStagePosition
+) -> FibsemStagePosition:
+    """*place*, carried to where *device* sees it.
+
+    Holder slots are written in the beams' frame: x = 0 is the chamber origin, and the
+    pose is the SEM one. The beam canvas draws them as they are. The fluorescence
+    canvas is the FM's view of the sample, and everything it marks is a fluorescence
+    pose -- at an offset FM that is ~48 mm away along x, in the pose the sample is
+    imaged in -- so a raw slot handed to it lands 48 mm off the canvas, with the grid
+    boundary around it. Keyed on the device the *canvas* is for, not on where the
+    stage happens to be: the markers do not move when the stage does, and neither
+    should the slot they sit in.
+
+    Converted the way the stage gets there, re-posed at the beams into the pose the
+    device images in and then translated out -- `get_target_position` with both legs,
+    the same transform a lamella's fluorescence pose is derived with, so a lamella
+    marked at a slot's centre draws on its crosshair rather than beside it.
+
+    Left alone for the beams, for no device, and on a compustage -- whose FM is a
+    flip rather than a place, so its slots draw where they always did -- and when the
+    conversion refuses, where the raw place is the answer those cases always had.
+    """
+    if device in (None, BEAMS_DEVICE) or microscope.stage_is_compustage:
+        return place
+    try:
+        orientations = list(microscope._get_device(device).acquisition_orientations)
+        orientation = orientations[0] if orientations else None
+        fm = getattr(microscope, "fm", None)
+        if device == "FM" and fm is not None:
+            orientation = fm.pose_orientation
+        return microscope.get_target_position(
+            place, target_orientation=orientation, target_device=device
+        )
+    except Exception as e:
+        logger.debug(
+            f"Could not carry {place.name or 'a holder place'} to {device}: {e}"
+        )
+        return place
+
+
 def limit_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
     """The stage's travel envelope, wherever limits are configured.
 
@@ -243,7 +288,9 @@ def limit_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
     ]
 
 
-def boundary_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
+def boundary_shapes(
+    microscope, frame: StageFrame, device: Optional[str] = None
+) -> List[ShapeSpec]:
     """A grid boundary around every slot the holder carries.
 
     One per slot rather than one at the stage origin. A grid is 1 mm in radius whatever
@@ -267,6 +314,7 @@ def boundary_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
         place = slot_landmark(microscope, slot)
         if place is None:
             continue
+        place = at_device(microscope, device, place)
         try:
             cx, cy = frame.to_canvas(place)
             span_x, span_y = canvas_span(frame, GRID_BOUNDARY_RADIUS_M)
@@ -287,7 +335,9 @@ def boundary_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
     return specs
 
 
-def slot_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
+def slot_shapes(
+    microscope, frame: StageFrame, device: Optional[str] = None
+) -> List[ShapeSpec]:
     """The sample holder's slots, as crosshairs at their configured positions.
 
     Through `slot_landmark` for the same reason the boundary is, and so the two stay
@@ -298,6 +348,7 @@ def slot_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
         place = slot_landmark(microscope, slot)
         if place is None:
             continue
+        place = at_device(microscope, device, place)
         try:
             cx, cy = frame.to_canvas(place)
         except Exception as e:
@@ -321,6 +372,7 @@ def context_shapes(
     limits: bool = True,
     boundaries: bool = True,
     slots: bool = True,
+    device: Optional[str] = None,
 ) -> List[ShapeSpec]:
     """All three, in draw order, with each switchable.
 
@@ -328,12 +380,15 @@ def context_shapes(
     three booleans is shorter than the caller assembling three lists -- and it puts the
     order in one place, where the boundary is drawn under the crosshair that marks its
     centre rather than over it.
+
+    `device` names the device the canvas is the view from -- see `at_device`. The
+    beam canvas leaves it out; the fluorescence canvas passes "FM".
     """
     specs: List[ShapeSpec] = []
     if limits:
         specs.extend(limit_shapes(microscope, frame))
     if boundaries:
-        specs.extend(boundary_shapes(microscope, frame))
+        specs.extend(boundary_shapes(microscope, frame, device))
     if slots:
-        specs.extend(slot_shapes(microscope, frame))
+        specs.extend(slot_shapes(microscope, frame, device))
     return specs
