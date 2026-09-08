@@ -1560,7 +1560,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._set_border_state("stopping")
 
     def _on_user_attention_clicked(self):
-        """Handle user attention button click - switch to Microscope tab."""
+        """Handle user attention button click - switch to Microscope tab, or to
+        the Review tab when what is waiting is a decision rather than a question."""
+        waiting = self.autolamella_ui.WAITING_FOR_USER_INTERACTION
+        reviewing = getattr(self.autolamella_ui, "WAITING_FOR_REVIEW", 0)
+        review_tab = getattr(self, "review_tab", None)
+        if reviewing and not waiting and review_tab is not None:
+            self.tab_widget.setCurrentWidget(review_tab)
+            return
         self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
 
     def _on_run_workflow_clicked(self):
@@ -3421,10 +3428,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # machine time whoever is answering, and left running it would spend the
         # estimate while nothing is happening.
         self.workflow_timeline.set_waiting_for_user(waiting)
+        # A run parked on review decisions is a wait for the operator too, just
+        # not at the beam: same chrome, but the button leads to the Review tab.
+        reviewing = int(getattr(self.autolamella_ui, "WAITING_FOR_REVIEW", 0) or 0)
         if waiting and not agent_holding:
             # Show user attention button and change status bar color
+            self.user_attention_btn.setText("Attention Required")
+            self.user_attention_btn.setToolTip(
+                "User Input Required - Click to go to Microscope tab"
+            )
             self.user_attention_btn.show()
             # Play notification sound once when entering waiting state
+            if not self._user_interaction_sound_played and self._sound_enabled:
+                play_notification_sound()
+                self._user_interaction_sound_played = True
+        elif reviewing:
+            self.user_attention_btn.setText(f"Review Required ({reviewing})")
+            self.user_attention_btn.setToolTip(
+                f"The run is waiting on {reviewing} decision(s) - "
+                "click to open the Review tab"
+            )
+            self.user_attention_btn.show()
             if not self._user_interaction_sound_played and self._sound_enabled:
                 play_notification_sound()
                 self._user_interaction_sound_played = True
@@ -3438,7 +3462,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             pass  # Keep the red border until the workflow finishes unwinding
         elif waiting and agent_holding:
             self._set_border_state("agent")
-        elif waiting:
+        elif waiting or reviewing:
             self._set_border_state("waiting")
         elif self.autolamella_ui.WORKFLOW_PENDING:
             self._set_border_state("pending")

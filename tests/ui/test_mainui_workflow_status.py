@@ -160,6 +160,36 @@ def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
     assert not main_ui.user_attention_btn.isVisibleTo(main_ui)
 
 
+def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
+    main_ui,
+):
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
+
+    main_ui.autolamella_ui.WAITING_FOR_REVIEW = 2
+    main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert main_ui.user_attention_btn.isVisibleTo(main_ui)
+    assert main_ui.user_attention_btn.text() == "Review Required (2)"
+    assert main_ui._border_state == "waiting"
+    main_ui.user_attention_btn.click()
+    assert main_ui.tab_widget.currentWidget() is main_ui.review_tab
+
+    main_ui.autolamella_ui.WAITING_FOR_REVIEW = 0
+    main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert not main_ui.user_attention_btn.isVisibleTo(main_ui)
+
+    # a question at the beam still wins the button and its destination
+    main_ui.autolamella_ui.WAITING_FOR_USER_INTERACTION = True
+    main_ui.autolamella_ui.WAITING_FOR_REVIEW = 1
+    main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert main_ui.user_attention_btn.text() == "Attention Required"
+    main_ui.user_attention_btn.click()
+    assert main_ui.tab_widget.currentIndex() == 0
+    main_ui.autolamella_ui.WAITING_FOR_USER_INTERACTION = False
+    main_ui.autolamella_ui.WAITING_FOR_REVIEW = 0
+
+
 # --- spot burn progress ----------------------------------------------------
 #
 # The same slot, reached by a different signal. `spot_burn_progress_signal` was typed
