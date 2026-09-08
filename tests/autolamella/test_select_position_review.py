@@ -5,12 +5,6 @@ Runs the real task against the Demo microscope, through a real TaskManager
 with the feature flag forced on, so the review property is read the way the
 application reads it. No Qt: parent_ui is None throughout, which is also
 what makes the non-review path a silent no-op today.
-
-The point-of-interest step lives on the coincidence-alignment path, reached
-from the SEM orientation with ``auto_milling_alignment`` on, so that is how the
-task is run here. The alignment itself is the one thing stubbed: a real
-ensure_coincident on the Demo takes a minute per run and is the coincidence
-tests' subject, not this file's. The stubs return the real result types.
 """
 
 import os
@@ -47,37 +41,11 @@ ROUGH = "Rough Milling"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 
-MILLING_ANGLE = 15.0  # deg; the Demo starts flat, so the task tilts to reach it
-
-
 @pytest.fixture
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
     yield microscope
     microscope.disconnect()
-
-
-@pytest.fixture(autouse=True)
-def cheap_coincidence(monkeypatch):
-    """Stand in for the alignment step only, with its real result types."""
-    from fibsem.alignment import coincidence, plotting
-
-    def ensure(microscope, reference=None, on_progress=None, **_kw):
-        return coincidence.CoincidenceAlignment(
-            measurements=[], converged=True, reason=coincidence.REASON_CONVERGED
-        )
-
-    def tilt(microscope, target_stage_tilt, reference=None, on_progress=None, **_kw):
-        return coincidence.TiltAlignment(
-            tilts=[target_stage_tilt],
-            alignments=[],
-            converged=True,
-            reason=coincidence.REASON_CONVERGED,
-        )
-
-    monkeypatch.setattr(coincidence, "ensure_coincident", ensure)
-    monkeypatch.setattr(coincidence, "tilt_coincident", tilt)
-    monkeypatch.setattr(plotting, "save_coincidence_diagnostics", lambda *a, **k: None)
 
 
 def _experiment(tmp_path: Path, microscope, review: bool) -> Experiment:
@@ -101,8 +69,7 @@ def _experiment(tmp_path: Path, microscope, review: bool) -> Experiment:
             {
                 SETUP: SelectMillingPositionTaskConfig(
                     task_name=SETUP,
-                    milling_angle=MILLING_ANGLE,
-                    auto_milling_alignment=True,
+                    auto_milling_alignment=False,
                     use_autofocus=False,
                     select_poi=True,
                 ),
