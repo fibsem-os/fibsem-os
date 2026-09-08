@@ -92,35 +92,17 @@ class MicroscopeStateWidget(QWidget):
     show_refresh:
         Whether to offer a refresh button. A saved pose has nothing to refresh, so the
         embedding list turns it off; a live readout turns it on and owns the signal.
-    show_rotation:
-        Whether the stage has a rotation axis. Pass
-        ``microscope.is_available("stage_rotation")``, which reads the instrument's own
-        axes since FIB-834.
-
-        This is not cosmetic. A compustage has no rotation axis at all -- AutoScript's
-        ``CompustagePosition`` carries ``x``, ``y``, ``z``, ``a`` and nothing else --
-        so ``stage_position_from_autoscript`` writes ``r=0.0`` as a **literal**,
-        because ``FibsemStagePosition`` needs a number and ``get_stage_orientation``
-        raises on ``None``. The record therefore cannot distinguish "the stage is at
-        rotation zero" from "this stage does not rotate", and drawing ``0.0°`` asserts
-        the first. The widget has no microscope to ask, and the host does.
     """
 
     #: Refresh was pressed. Reading the instrument is a device call and this widget
     #: does not make those -- the host decides what one costs.
     refresh_requested = pyqtSignal()
 
-    def __init__(
-        self,
-        show_refresh: bool = False,
-        show_rotation: bool = True,
-        parent: Optional[QWidget] = None,
-    ):
+    def __init__(self, show_refresh: bool = False, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._state: Optional[MicroscopeState] = None
         self._reference: Optional[MicroscopeState] = None
         self._show_refresh = show_refresh
-        self._show_rotation = show_rotation
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -161,16 +143,27 @@ class MicroscopeStateWidget(QWidget):
         )
         outer.addWidget(self.panel_stage)
 
-        # The beams collapse, and start collapsed: a pose row that expands to forty
-        # lines is not a row. Their headline values go on the panel title instead, so
-        # a shut section still reports that the FIB is at 30 kV.
+        # SEM and FIB, not Electron and Ion. The enum members are ELECTRON and ION,
+        # but every surface an operator reads says SEM and FIB -- the quad-view panel
+        # titles, the coincidence tabs, the stage orientations. A readout beside those
+        # canvases should name the beams the way the canvases do.
+        #
+        # Collapsed to start. Opening both takes the popup from 277 to 635 pixels
+        # tall, which is a lot of panel to drop over a row that may already be near
+        # the bottom of one -- and the headline on each title carries the values most
+        # glances are after, so a shut section still reports that the FIB is at
+        # 30 kV. Expanding is one click when the rest is actually wanted.
         self.grid_electron = _ValueGrid()
-        self.panel_electron = TitledPanel("Electron", content=self.grid_electron)
+        self.panel_electron = TitledPanel("SEM", content=self.grid_electron)
+        self.headline_electron = _headline_label()
+        self.panel_electron.add_header_widget(self.headline_electron)
         self.panel_electron.collapse()
         outer.addWidget(self.panel_electron)
 
         self.grid_ion = _ValueGrid()
-        self.panel_ion = TitledPanel("Ion", content=self.grid_ion)
+        self.panel_ion = TitledPanel("FIB", content=self.grid_ion)
+        self.headline_ion = _headline_label()
+        self.panel_ion.add_header_widget(self.headline_ion)
         self.panel_ion.collapse()
         outer.addWidget(self.panel_ion)
 
@@ -236,16 +229,15 @@ class MicroscopeStateWidget(QWidget):
         if state is None:
             for grid in (self.grid_stage, self.grid_electron, self.grid_ion):
                 grid.clear()
-            self.panel_electron.set_title("Electron")
-            self.panel_ion.set_title("Ion")
+            self.headline_electron.setText("")
+            self.headline_ion.setText("")
             self.label_delta.setVisible(False)
             self.label_timestamp.setText("")
             return
 
         reference = self._reference
         self.grid_stage.set_rows(
-            _stage_rows(state, self._show_rotation),
-            _stage_rows(reference, self._show_rotation) if comparing else None,
+            _stage_rows(state), _stage_rows(reference) if comparing else None
         )
         self.grid_electron.set_rows(
             _beam_rows(state.electron_beam, state.electron_detector),
@@ -260,10 +252,8 @@ class MicroscopeStateWidget(QWidget):
             else None,
         )
 
-        self.panel_electron.set_title(
-            f"Electron   {_beam_headline(state.electron_beam)}"
-        )
-        self.panel_ion.set_title(f"Ion   {_beam_headline(state.ion_beam)}")
+        self.headline_electron.setText(_beam_headline(state.electron_beam))
+        self.headline_ion.setText(_beam_headline(state.ion_beam))
 
         separation = _separation(state, reference) if comparing else None
         self.label_delta.setVisible(separation is not None)
@@ -280,28 +270,26 @@ class MicroscopeStateWidget(QWidget):
 # ---------------------------------------------------------------------------
 
 
-def _stage_rows(
-    state: Optional[MicroscopeState], show_rotation: bool = True
-) -> List[Tuple[str, str]]:
-    """The stage axes, omitting R on a stage that has none.
+def _stage_rows(state: Optional[MicroscopeState]) -> List[Tuple[str, str]]:
+    """The five stage axes, R included on every stage.
 
-    Omitted rather than shown as ``NOT_AVAILABLE``: an em-dash means "the instrument
-    did not report this", and a compustage's missing rotation is not a gap in a
-    reading -- the axis does not exist. A row that will always be empty invites the
-    question of why.
+    A compustage has no rotation axis -- AutoScript's ``CompustagePosition`` carries
+    x, y, z, a, so ``stage_position_from_autoscript`` writes ``r=0.0`` as a literal --
+    and the row therefore reads 0.0 degrees there rather than saying the axis is
+    absent. Kept that way deliberately (Patrick, 2026-09-08): the alternative was a
+    flag the host had to set correctly from a capability the record does not carry,
+    which is a lot of machinery to avoid one honest zero.
     """
-    axes = ["X", "Y", "Z"] + (["R"] if show_rotation else []) + ["T"]
     if state is None or state.stage_position is None:
-        return [(axis, NOT_AVAILABLE) for axis in axes]
+        return [(axis, NOT_AVAILABLE) for axis in ("X", "Y", "Z", "R", "T")]
     position = state.stage_position
-    values = {
-        "X": format_distance(position.x),
-        "Y": format_distance(position.y),
-        "Z": format_distance(position.z),
-        "R": format_angle(position.r),
-        "T": format_angle(position.t),
-    }
-    return [(axis, values[axis]) for axis in axes]
+    return [
+        ("X", format_distance(position.x)),
+        ("Y", format_distance(position.y)),
+        ("Z", format_distance(position.z)),
+        ("R", format_angle(position.r)),
+        ("T", format_angle(position.t)),
+    ]
 
 
 def _beam_rows(
@@ -459,6 +447,25 @@ class _ValueGrid(QWidget):
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             label.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 9pt;")
             self._layout.addWidget(label, 0, column)
+
+
+def _headline_label() -> QLabel:
+    """The collapsed summary, right-aligned in the panel header.
+
+    Right rather than appended to the title, so it sits on the same edge as the values
+    it summarises: expand the section and `2.00 kV` in the header is directly above
+    `2.00 kV` in the rows. Appended, it started at a different x for each section --
+    the name lengths differ -- and inherited the title's bold, which made data look
+    like a heading.
+
+    `add_header_widget` inserts before the collapse button, which is the placement
+    `TitledPanel` is built for.
+    """
+    label = QLabel("")
+    # Explicitly normal: the header's own rule bolds the title, and without this the
+    # values arrive bold too.
+    label.setStyleSheet("background: transparent; font-weight: normal;")
+    return label
 
 
 def _chip(text: str, colour: str) -> QLabel:
