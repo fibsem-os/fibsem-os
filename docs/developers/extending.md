@@ -46,9 +46,8 @@ in full, with examples that the test suite executes against real data.
 ### Inside the application
 
 AutoLamella can run a `.py` file from the scripts folder against the open
-experiment, from **Tools → Scripts → Manage scripts…**. The feature is off
-by default; enable it under **File → Preferences… → Features**. A script
-is one module-level function:
+experiment, from **Tools → Scripts → Manage scripts…**. A script is one
+module-level function:
 
 ```python
 """Export the experiment summary to CSV."""   # the first line becomes the tooltip
