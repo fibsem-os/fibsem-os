@@ -1,243 +1,263 @@
-# Installation Guide
+# Installation
 
-## Dependencies
-* Python 3.9+
-* FIB/SEM microscope (a commercial product by ThermoFisher FEI or TESACN)
-* Autoscript software (a commercial product by ThermoFisher FEI) OR
-* tescanautomation software (a commercial product by TESCAN)
+By the end of this page fibsemOS is installed in its own Python environment,
+the application opens from a desktop shortcut, and you know which manufacturer
+software your microscope needs on top.
 
-### Python
-Python 3.9+ is required.
-We recommend installing Python via [Miniforge](https://conda-forge.org/download/),
-a minimal installer that uses the community-maintained
-[conda-forge](https://conda-forge.org/) channel by default. It provides the same
-`conda` (and `mamba`) commands as Anaconda/Miniconda while staying lightweight and
-avoiding the licensing terms that can apply to Anaconda's default channels for larger
-organizations.
+This file is the copy that ships with the code, for machines without a
+browser. The same guide, with screenshots, is at
+https://www.fibsemos.org/docs/installation/. Change both when you change one.
 
-## Setting up your python virtual environment
-It is also highly recommended to use virtual environments for development,
-see [Managing Conda Environments](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)
-for more information.
-(Optionally, you could use `virtualenv` if you prefer.)
+## Before you start
 
-Create a new virtual environment from your conda terminal (the Miniforge Prompt on
-Windows, or any terminal on macOS/Linux):
-```
-cd fibsem
-conda env create -n fibsem python=3.11 pip
+- A computer running Windows, Linux or macOS. On a microscope, this is
+  usually the support PC on the same network as the instrument, not the
+  microscope's own PC.
+- Python 3.8 or newer. If you do not have Python, install
+  [Miniforge](https://conda-forge.org/download/): it gives you `conda` from
+  the community-maintained conda-forge channel with no licensing conditions.
+- No microscope is needed. Everything here also runs against the built-in
+  simulator, so you can install and try fibsemOS on a laptop first.
+
+## 1. Create an environment
+
+Open a terminal (on Windows, the Miniforge Prompt) and create an environment
+for fibsemOS. Keeping it separate from everything else on the computer means
+an upgrade of fibsemOS cannot disturb other software, and vice versa.
+
+```bash
+conda create -n fibsem python=3.11 pip
 conda activate fibsem
-python -m pip install -e ".[ui]"
 ```
-The `[ui]` extra installs the GUI dependencies (recommended). To install without the
-GUI, use `python -m pip install -e .` instead.
 
-### Installation through Python virtualenv
+## 2. Install fibsemOS
 
-Alternatively to using Conda, you may use the Python virtualenv tool to create a virtual environment for the project.
+Install the package with its user-interface dependencies:
 
-Firstly, install python 3.9+ on your system.
-In a terminal window, move to a directory where you would like to place the virtual environment and then create a virtual environment using the following command
+```bash
+pip install "fibsem[ui]"
 ```
+
+To install from a checkout of the source instead, for example to run a
+development branch, run the same command from the repository directory with
+`-e .` in place of the package name:
+
+```bash
+pip install -e ".[ui]"
+```
+
+Either way, the `[ui]` extra is what installs the application windows. Leave
+it off only for a scripting-only install with no graphical interface. Image
+labelling (`fibsem_label`) draws in napari, which is not part of `[ui]`; add
+the `[labelling]` extra for it.
+
+### Offline installation
+
+For a computer with no internet connection, download the packages on a
+connected computer with the same Python version and carry them over, for
+example on a USB stick.
+
+On the connected computer:
+
+```bash
+mkdir pkg
+cd pkg
+pip download "fibsem[ui]"
+```
+
+On the offline computer, from the copied `pkg` directory, with the `fibsem`
+environment active:
+
+```bash
+pip install --no-index --find-links . "fibsem[ui]"
+```
+
+## 3. Open the application
+
+With the environment active:
+
+```bash
+fibsem-autolamella-ui
+```
+
+The window opens on the Microscope tab with nothing connected yet. That is
+the whole test: if you see this, the install worked.
+
+## 4. Make a desktop shortcut
+
+You will not want to open a terminal every session. From the menu bar choose
+**Tools → Create Desktop Shortcut...**, pick where to put it (the Desktop is
+offered), and fibsemOS writes a shortcut that activates the right environment
+and starts the application. It makes a `.lnk` on Windows, a `.desktop` file
+on Linux and a `.command` file on macOS.
+
+From now on, double-click the shortcut to start fibsemOS.
+
+## 5. Microscope software
+
+fibsemOS talks to a real instrument through the manufacturer's own control
+software, which is licensed by them and is not on PyPI. This step only applies
+on the computer that will connect to the microscope; skip it on a laptop, and
+skip it entirely for the simulator.
+
+### Thermo Fisher (Aquilos, Hydra, Arctis)
+
+fibsemOS controls Thermo Fisher instruments through AutoScript, Thermo
+Fisher's scripting interface. It is a licensed product; contact Thermo Fisher
+for pricing and installation. fibsemOS works with AutoScript 4.7 and later.
+
+If AutoScript is already installed on this computer, fibsemOS will most likely
+find it on its own: the first step of Guided Setup reports whether it was
+found. If it reports that AutoScript was not found, its Python packages are in
+AutoScript's own environment and need copying into yours.
+
+1. **Find AutoScript's packages.** AutoScript installs into its own Python
+   environment, usually named `AutoScript`, with packages at a path like
+   `C:\Program Files\Python35\envs\AutoScript\Lib\site-packages\`. If it is
+   not there, open a terminal and run `where python`: the result is something
+   like `C:\Program Files\Python35\envs\AutoScript\python.exe`, and
+   `Lib\site-packages` sits beside that `python.exe`.
+2. **Find the fibsem environment's packages.** With the `fibsem` environment
+   active, run `where python` (Windows) or `which python`. The result is
+   something like `C:\Users\yourname\.conda\envs\fibsem\python.exe`, and
+   again `Lib\site-packages` sits beside it. If you made the environment with
+   `venv` or `uv`, it is wherever you created that environment.
+3. **Copy the packages across.** Copy these folders from AutoScript's
+   `site-packages` into the fibsem environment's `site-packages`:
+
+   - `autoscript_core` and `autoscript_core-<version>.dist-info`
+   - `autoscript_sdb_microscope_client` and
+     `autoscript_sdb_microscope_client-<version>.dist-info`
+   - `autoscript_sdb_microscope_client_tests` and
+     `autoscript_sdb_microscope_client_tests-<version>.dist-info`
+   - `autoscript_toolkit` and `autoscript_toolkit-<version>.dist-info`
+   - `thermoscientific_logging` and
+     `thermoscientific_logging-<version>.dist-info`
+
+   With AutoScript 4.7 the versions were 4.7.0 for the `autoscript_*`
+   packages and 5.12.0 for `autoscript_core` and `thermoscientific_logging`.
+
+Restart fibsemOS afterwards; Guided Setup should now report AutoScript as
+installed.
+
+**Having problems?**
+
+- Check that AutoScript itself is installed and configured, and that its own
+  environment can `import autoscript_sdb_microscope_client`.
+- Check that the terminal's `python` is the `fibsem` environment's, not
+  another one: `where python` (Windows) or `which python`.
+- Check that the copied folders sit directly inside `site-packages`, not in a
+  subfolder.
+- Try `pip install -e ".[ui]"` from a clone of the repository and run the
+  tests, to separate an environment problem from an AutoScript one.
+
+### Tescan
+
+Run the Tescan Automation SDK installer from Tescan. When it asks which
+Python interpreter to install into, choose the one in the `fibsem`
+environment (`where python` with the environment active shows its path).
+
+If the `fibsem` interpreter is not offered in the installer's dropdown,
+proceed with whichever interpreter it offers and note its path. (If it offers
+none, install Python 3.8 or newer separately and run the installer again.)
+Then copy every folder beginning with `tescan`, `PySide6` and `shiboken` from
+that interpreter's `site-packages` (`...\python\lib\site-packages`) into
+the `fibsem` environment's.
+
+To check, with the environment active:
+
+```bash
+python -c "from tescanautomation import Automation; print('Tescan SDK found')"
+```
+
+If connecting later fails with a message about a missing module, this is the
+step to come back to.
+
+## Alternatives
+
+### venv instead of conda
+
+Python's own virtual environments work too. With Python 3.8 or newer
+installed, in the directory where the environment should live:
+
+```bash
 python -m venv fibsem
 ```
-Once the environment is created, activate the environment using the following command
-```
-fibsem\Scripts\activate.bat
-```
-Once activated, move to the fibsem root directory and install fibsem like so
-```
-python -m pip install -e ".[ui]"
-```
-The `[ui]` extra installs the GUI dependencies (recommended). To install without the
-GUI, use `python -m pip install -e .` instead.
 
-### Installation with uv
+Activate it, then run the `pip install` from step 2:
+
+```bash
+# Windows
+fibsem\Scripts\activate
+```
+
+```bash
+# macOS / Linux
+source fibsem/bin/activate
+```
+
+### uv instead of pip
 
 [uv](https://docs.astral.sh/uv/) is a fast, drop-in replacement for `pip`.
-
-First, install uv (see the [official install guide](https://docs.astral.sh/uv/getting-started/installation/)
+Install it (see the [uv install guide](https://docs.astral.sh/uv/getting-started/installation/)
 for all options):
-```
+
+```bash
 # macOS / Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-```
+
+```bash
 # Windows (PowerShell)
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
-Alternatively, install it into an existing environment with `pip install uv`.
 
-uv can create and manage the virtual environment itself, so you don't need conda or
-`virtualenv`. From the fibsem root directory, create and activate an environment:
-```
+or `pip install uv` into an existing environment. uv can create and manage
+the environment itself, so conda is not needed:
+
+```bash
 # macOS / Linux
 uv venv
 source .venv/bin/activate
 ```
-```
+
+```bash
 # Windows (PowerShell)
 uv venv
 .venv\Scripts\activate
 ```
-uv also works inside a conda or `virtualenv` environment created above, with nothing
-extra to set up — just activate that environment instead.
 
-Once your environment is active, install fibsem with the GUI dependencies (recommended):
-```
-uv pip install -e ".[ui]"
-```
-To install without the GUI dependencies:
-```
-uv pip install -e .
-```
-This resolves the same dependencies from `pyproject.toml` as `pip`, just faster.
-No lockfile or additional configuration is required.
+uv also works inside a conda or venv environment; just activate that
+environment instead. Then, with the environment active:
 
-### Create a desktop shortcut
-The easiest way: launch the application once (`fibsem-autolamella-ui`) and select
-**Tools → Create Desktop Shortcut...** — it locates the entry point in the current
-environment and writes the shortcut to a location you choose, defaulting to your
-Desktop (Windows `.lnk`, Linux `.desktop`, macOS `.command`).
-
-To create one manually instead:
-1. Create a script file:
-    Activate the environment then run the following command to create the script:
-    - **Windows**
-
-        Create AutoLamella.bat
-        ```cmd
-        echo @echo off > AutoLamella.bat & where fibsem-autolamella-ui >> AutoLamella.bat
-        ```
-
-    - **Linux**
-
-      Create AutoLamella.sh
-      ```bash
-      printf '#!/bin/bash\n%s' $(which fibsem-autolamella-ui) > AutoLamella.sh
-      ```
-2. Create a shortcut to your script file and place it on your desktop.
-
-## Installing Microscope Hardware APIs
-
-## Installing Autoscript
-Autoscript provides an API (application programming interface) for scripting
-control of compatible FEI microscope systems.
-This is a commercial product by Thermo Fisher FEI, please visit their website
-at https://www.thermofisher.com/au/en/home/electron-microscopy.html for information on pricing and installation.
-
-We use Autoscript version 4.7.+
-
-The version numbers of the python packages Autoscript installs were:
-* autoscript-core 5.12.0
-* autoscript-sdb-microscope-client 4.7.0
-* autoscript-sdb-microscope-client-tests 4.7.0
-* autoscript-toolkit 4.7.0
-* thermoscientific-logging 5.12.0
-
-#### Add the autoscript python packages to your `site-packages`
-
-To add the AutoScript python packages to your new conda environment, follow these three steps:
-
-1. Find the python environment that was created with your AutoScript installation.
-Typically, you can expect the environment is named 'Autoscript', and its installed packages should be found at:
-`C:\Program Files\Python35\envs\AutoScript\Lib\site-packages\`
-
-***Troubleshooting:** If you're having trouble finding the location AutoScript chose to install its python packages into,*
-*you can open the *default terminal* on your machine (eg: `cmd` for Windows) and type `where python` (Windows) or `which python` (Unix).*
-*The result will be something like `C:\Program Files\Python35\envs\AutoScript\python.exe`.*
-*Navigate to the environment location (in the example here, that's `C:\Program Files\Python35\envs\AutoScript\` *
-*then change directories into `Lib`, and then the `site-packages` directory. This is where the python packages live.*
-
-2. Find the conda environment location you just made called `fibsem`.
-`...conda/envs/fibsem/Lib/site-packages/`
-
-*Note: if you used python virtual env to create a virtual environment, the location of the fibsem/Lib/site-packages will be where the virtual environment was created. Where this document mentions the site-packages directory, it is referring to the site-packages directory of the virtual environment.*
-
-***Troubleshooting:** If you're having trouble finding the conda environment location for `fibsem`*
-*you can open the *Anaconda terminal* on your machine and type `where python` (Windows) or `which python` (Unix).*
-*The result will be something like `C:\Users\yourusername\.conda\envs\fibsem\python.exe`*
-*Navigate to the environment location (in the example here, that's `C:\Users\yourusername\.conda\envs\fibsem\` *
-*then change directories into `Lib`, and then the `site-packages` directory.*
-*This is where you want to add copies of the AutoScript python packages.*
-
-3. Make a copy of the relevant AutoScript python packages into the conda environment.
-You will need to copy:
-
-* autoscript_core
-* autoscript_core-5.12.0.dist-info
-* autoscript_sdb_microscope_client
-* autoscript_sdb_microscope_client_tests
-* autoscript_sdb_microscope_client_tests-4.7.0.dist-info
-* autoscript_sdb_microscope_client-4.7.0.dist-info
-* autoscript_toolkit
-* autoscript_toolkit-4.7.0.dist-info
-* thermoscientific_logging
-* thermoscientific_logging-5.12.1.dist-info
-
-
-#### Having problems?
-* Check to see if Autoscript is correctly installed and configured.
-* Check to see if your python environment contains all packages listed in
-the requirements.txt
-* Check that when you call python from the terminal, you get the python
-environment containing the dependencies listed above
-(i.e. you are not using a different python environment)
-* Try cloning the repository and running the unit tests,
-you may want to try installing from the source code.
-
-## Installing Tescanautomation
-
-Tescanautomation is a hardware API for controlling TESCAN microscopes. This is a commercially available product from TESCAN. The SDK is available in an .exe file format
-
-### Prerequisites
-
-Before beginning this install, please ensure the following
-
-- FIBSEM conda environment is installed and setup
-- tescan-automation-sdk-install exe file is ready to go
-
-### Installing the SDK
-
-Run the installer exe file. When it asks for the python interpreter, select the one that is on the conda environment and proceed with the install.
-
-The package should now be installed successfully
-
-### ***Common Issue with Python Interpreter***
-
-If the conda python interpreter cannot be selected from the drop down options, proceed with the install and take note of the path of installed python interpreter. 
-
-(If no python interpreter can be found in the drop down, install python 3.9+ seperately and run the installation exe again)
-
-Once the installation has been completed, navigate to where python is installed on which the SDK has been installed.
-
-In there, navigate to
-
-
-`...\python\lib\site-packages`
-
-from this folder, find and copy the following folders:
-
-- All folders beginning with `PySide6`
-- All folders beginning with `shiboken`
-- All folders beginning with `tescan`
-
-Copy these into the python folder that is set up in the conda environment
-
-`...\Anaconda3\envs\fibsem\lib\site-packages`
-
-The package should now be installed successfully
-
-### Checking Install
-
-To check if the module has been installed properly and can be imported, run the following python code in FIBSEM:
-
-```python
-import sys
-from tescanautomation import Automation
-
-print("Tescan Imported Successfully") if "tescanautomation" in sys.modules else print("Tescan Import was unsuccessful")
-
+```bash
+uv pip install "fibsem[ui]"
 ```
 
-If the import or install is unsuccessful, check to see if all the packages have been copied to the right directory. 
+or `uv pip install -e ".[ui]"` from a checkout. It resolves the same
+dependencies from `pyproject.toml` as `pip`, faster; no lockfile or extra
+configuration is needed.
+
+### Manual shortcut
+
+If the Tools menu is not an option, make a script that runs the entry point
+and put a shortcut to it on the desktop. With the environment active:
+
+```cmd
+:: Windows: creates AutoLamella.bat
+echo @echo off > AutoLamella.bat & where fibsem-autolamella-ui >> AutoLamella.bat
+```
+
+```bash
+# Linux / macOS: creates AutoLamella.sh
+printf '#!/bin/bash\n%s' $(which fibsem-autolamella-ui) > AutoLamella.sh
+chmod +x AutoLamella.sh
+```
+
+Then create a shortcut to the script and place it on your desktop.
+
+## Next
+
+Start the application and follow Guided Setup, or read
+https://www.fibsemos.org/docs/getting-started/ to tell fibsemOS which
+microscope it is talking to and connect.

@@ -921,9 +921,11 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         _disable_default_buttons(self)
 
         # Once the stage controls exist. The first _select_model runs while step 1 is
-        # still being built, so its prefill had nothing to write into.
-        if self.choices.stage_is_editable:
-            self._prefill_stage_from_model()
+        # still being built, so its prefill had nothing to write into. Unconditional:
+        # a compustage cannot edit the step, but it is still shown, and the disabled
+        # spin box and the diagram must show the shipped 0° rather than the spin
+        # box's generic 35° beside a blurb that says the holder is flat.
+        self._prefill_stage_from_model()
 
     def _build_rail(self) -> QtWidgets.QWidget:
         rail = QtWidgets.QWidget()

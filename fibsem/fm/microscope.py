@@ -1087,7 +1087,7 @@ class FluorescenceMicroscope(ABC):
 
         Defaults to no correction; drivers override per system. The value is
         determined by observing which stage axis a feature travels along in the
-        FM view (see docs/design/fm-stable-move.md).
+        FM view.
         """
         return CameraImageTransform.NONE
 

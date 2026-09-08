@@ -17,7 +17,8 @@ import pytest
 
 import fibsem.config as fibsem_config
 from fibsem import utils
-from fibsem.microscope import FibsemMicroscope, ThermoMicroscope
+from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType

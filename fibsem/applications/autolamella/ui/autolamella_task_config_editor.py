@@ -291,7 +291,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             milling_enabled=False,
             parent=self,
         )
-        self.milling_task_editor.setMinimumHeight(550)
 
         self.fluorescence_acquisition_task_config_widget = (
             AutoLamellaFluorescenceAcquisitionTaskConfigWidget(
@@ -409,10 +408,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         splitter.addWidget(col1_scroll)
         splitter.addWidget(col2_scroll)
         splitter.addWidget(col3_scroll)
-        # The middle column at the width the canvas Overview tab's settings column
-        # has there: the grid task's settings are that column, and the lamella
-        # parameters had been squeezed into 350 px with their labels cut short.
-        splitter.setSizes([280, 620, 530])
+        # The middle column wide enough that the grid task's settings (the canvas
+        # Overview tab's settings column) and the lamella parameters keep their
+        # labels; the third wide enough that a milling stage row shows every cell
+        # at its readable minimum without running off the edge.
+        splitter.setSizes([280, 580, 580])
 
         self._main_layout.addWidget(splitter)
 

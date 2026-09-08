@@ -11,7 +11,7 @@ that matter to the driver:
 - the camera resolution VA rescales when binning changes (AOI preserved)
 - focuser favourite positions via MD_FAV_POS_ACTIVE/DEACTIVE
 
-See docs/design/odemis-fm-driver.md for the verified behaviour these model.
+See the Linear document "Design: Odemis FM driver findings, update plan and remote control" for the verified behaviour these model.
 """
 
 import sys
@@ -41,6 +41,7 @@ class FakeDataArray(np.ndarray):
     def __array_finalize__(self, obj):
         if obj is not None:
             self.metadata = getattr(obj, "metadata", {})
+
 
 ODEMIS_MODULE_NAMES = (
     "odemis",
@@ -181,9 +182,7 @@ class FakeCamera:
     ):
         self.resolution = FakeVA(tuple(resolution))
         self.exposureTime = FakeVA(0.1, range=(1e-3, 10.0), unit="s")
-        self.binning = FakeVA(
-            (1, 1), range=((1, 1), (16, 16)), setter=self._on_binning
-        )
+        self.binning = FakeVA((1, 1), range=((1, 1), (16, 16)), setter=self._on_binning)
         self.pixelSize = FakeVA(tuple(sensor_pixel_size), unit="m")  # sensor
         self._metadata = {
             MD_PIXEL_SIZE: tuple(pixel_size),
@@ -228,7 +227,9 @@ class FakeFilter:
 class FakeFluoStream:
     """FluoStream stand-in: excitation/emission/power VAs in SI units."""
 
-    def __init__(self, name, detector, dataflow, emitter, em_filter, focuser=None, **kwargs):
+    def __init__(
+        self, name, detector, dataflow, emitter, em_filter, focuser=None, **kwargs
+    ):
         self.name = name
         self._detector = detector
         self._emitter = emitter

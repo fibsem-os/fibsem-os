@@ -388,6 +388,28 @@ def border_stylesheet(object_name: str) -> str:
 
 
 # TODO: no token -- #6a6a6a, #8a8a8a
+# For `IconToolButton`, whose checked state already swaps the icon: no border in any
+# state, a faint fill on hover, and an accent tint when checked. The bordered, filled
+# checked box of TOOLBUTTON_ICON_STYLESHEET below made every toggled-on button in a
+# panel header look pressed, which is the loudest thing in a row of quiet chrome.
+ICON_TOOLBUTTON_STYLESHEET = """
+    QToolButton {
+        border: none;
+        border-radius: 4px;
+        padding: 2px 4px;
+        background-color: transparent;
+    }
+    QToolButton:hover {
+        background-color: rgba(255, 255, 255, 25);
+    }
+    QToolButton:checked {
+        background-color: rgba(80, 166, 255, 45);
+    }
+    QToolButton:checked:hover {
+        background-color: rgba(80, 166, 255, 70);
+    }
+"""
+
 TOOLBUTTON_ICON_STYLESHEET = f"""
     QToolButton {{
         border: 1px solid transparent;
@@ -445,54 +467,52 @@ QDateTimeEdit:disabled {{
 
 QDateTimeEdit::up-button {{
     subcontrol-origin: border;
-    subcontrol-position: center right;
-    background-color: {BORDER_COLOR};
+    subcontrol-position: top right;
+    background-color: transparent;
     border: none;
-    border-left: 1px solid {BORDER_COLOR};
     border-top-right-radius: 3px;
-    border-bottom-right-radius: 3px;
-    width: 20px;
-    height: 100%;
+    width: 16px;
+    height: 12px;
+    margin-top: 2px;
 }}
 
-QDateTimeEdit::up-button:hover {{
+QDateTimeEdit::up-button:hover:hover {{
     background-color: #4a5168;
 }}
 
-QDateTimeEdit::up-button:pressed {{
+QDateTimeEdit::up-button:pressed:pressed {{
     background-color: {ACCENT_COLOR};
 }}
 
 QDateTimeEdit::up-arrow {{
-    image: url("__ICONS_DIR__/plus.svg");
-    width: 10px;
-    height: 10px;
+    image: url("__ICONS_DIR__/stepper-plus.svg");
+    width: 14px;
+    height: 14px;
 }}
 
 QDateTimeEdit::down-button {{
     subcontrol-origin: border;
-    subcontrol-position: center left;
-    background-color: {BORDER_COLOR};
+    subcontrol-position: bottom right;
+    background-color: transparent;
     border: none;
-    border-right: 1px solid {BORDER_COLOR};
-    border-top-left-radius: 3px;
-    border-bottom-left-radius: 3px;
-    width: 20px;
-    height: 100%;
+    border-bottom-right-radius: 3px;
+    width: 16px;
+    height: 12px;
+    margin-bottom: 2px;
 }}
 
-QDateTimeEdit::down-button:hover {{
+QDateTimeEdit::down-button:hover:hover {{
     background-color: #4a5168;
 }}
 
-QDateTimeEdit::down-button:pressed {{
+QDateTimeEdit::down-button:pressed:pressed {{
     background-color: {ACCENT_COLOR};
 }}
 
 QDateTimeEdit::down-arrow {{
-    image: url("__ICONS_DIR__/minus.svg");
-    width: 10px;
-    height: 10px;
+    image: url("__ICONS_DIR__/stepper-minus.svg");
+    width: 14px;
+    height: 14px;
 }}
 """.replace("__ICONS_DIR__", _ICONS_DIR)
 

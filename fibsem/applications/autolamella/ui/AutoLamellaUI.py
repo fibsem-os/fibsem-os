@@ -3,6 +3,7 @@ import time
 import warnings
 
 from fibsem import conversions
+from fibsem.ui.widgets.custom_widgets import scrollable
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -230,6 +231,7 @@ class AutoLamellaUI(QMainWindow):
         self.fm_control_widget: Optional[FMControlWidget] = None
         self.sample_widget: Optional[FibsemSampleWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
+        self.milling_tab: Optional[QWidget] = None  # the scroll area around it
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
 
         # minimap plot widget — a floating tool window, shown on demand (was a
@@ -702,6 +704,20 @@ class AutoLamellaUI(QMainWindow):
         self.update_microscope_ui()
         self.update_ui()
 
+    def front_tab(self, widget: QWidget) -> None:
+        """Bring forward the tab that holds *widget*.
+
+        The widget may be the tab itself or sit inside a wrapper (the Milling tab is
+        a scroll area around its editor). ``setCurrentWidget`` on a widget that is
+        not a direct tab is a silent no-op, which is how the responder stopped
+        fronting the Milling tab once the wrapper arrived.
+        """
+        candidate = widget
+        while candidate is not None and self.tabWidget.indexOf(candidate) == -1:
+            candidate = candidate.parentWidget()
+        if candidate is not None:
+            self.tabWidget.setCurrentWidget(candidate)
+
     def update_microscope_ui(self):
         """Update the ui based on the current state of the microscope."""
 
@@ -725,7 +741,11 @@ class AutoLamellaUI(QMainWindow):
                 image_widget=self.image_widget,
                 parent=self,
             )
-            self.tabWidget.addTab(self.milling_task_config_widget, "Milling")
+            # The milling widget no longer scrolls itself; its tab does. The tab is
+            # kept by name because indexOf / setCurrentWidget want the tab, not the
+            # widget inside it -- see front_tab.
+            self.milling_tab = scrollable(self.milling_task_config_widget)
+            self.tabWidget.addTab(self.milling_tab, "Milling")
 
             # The hardware view of the grids: the holder, and the magazine when
             # there is one. Slot moves go through the Movement widget, the same
@@ -804,10 +824,9 @@ class AutoLamellaUI(QMainWindow):
                 self.spot_burn_widget.deleteLater()
                 self.spot_burn_widget = None
             if self.milling_task_config_widget is not None:
-                self.tabWidget.removeTab(
-                    self.tabWidget.indexOf(self.milling_task_config_widget)
-                )
-                self.milling_task_config_widget.deleteLater()
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.milling_tab))
+                self.milling_tab.deleteLater()  # owns the widget
+                self.milling_tab = None
                 self.milling_task_config_widget = None
             if self.movement_widget is not None:
                 self.movement_widget._teardown_connections()
@@ -949,20 +968,26 @@ class AutoLamellaUI(QMainWindow):
 
     #### FLUORESCENCE IMAGE VIEWER
 
+    def _fm_image_viewer_start_directory(self) -> str:
+        """Where the viewer's Load dialog opens: the open experiment, else the folder
+        of the most recent one, else the log directory. The viewer reads files, so it
+        needs no experiment (FIB-942); this only picks a sensible first folder."""
+        if self.experiment is not None and self.experiment.path:
+            return str(self.experiment.path)
+        recent = fibsem_cfg.load_user_preferences().experiment.recent_experiments
+        for path in recent:
+            parent = os.path.dirname(path)
+            if os.path.isdir(parent):
+                return parent
+        return fibsem_cfg.LOG_PATH
+
     def _open_fm_image_viewer(self):
         """Open the FM Image Viewer as a standalone window."""
-        if self.experiment is None:
-            notification_service.show_toast(
-                "Please load an experiment first... [No Experiment Loaded]", "warning"
-            )
-            return
-
-        experiment_path = str(self.experiment.path) if self.experiment.path else None
         # Parented to None so it gets its own taskbar entry and native minimise, like the
         # coincidence viewer. That means nothing else owns it, so the reference here is
         # what keeps it alive — drop it and Python collects the window mid-session.
         self._fm_image_viewer_window = FMImageViewerWidget(
-            start_directory=experiment_path
+            start_directory=self._fm_image_viewer_start_directory()
         )
         self._fm_image_viewer_window.resize(1180, 700)
         self._fm_image_viewer_window.show()
@@ -2358,13 +2383,11 @@ class AutoLamellaUI(QMainWindow):
             lamella.update_milling_angle(self.microscope)
             if sync_fluorescence_pose(self.microscope, lamella):
                 self.selected_lamella_widget.refresh_pose(
-                    "FLUORESCENCE", lamella.fluorescence_pose.stage_position.pretty
+                    "FLUORESCENCE", lamella.fluorescence_pose
                 )
 
         self.experiment.save()
-        self.selected_lamella_widget.refresh_pose(
-            pose_name, state.stage_position.pretty
-        )
+        self.selected_lamella_widget.refresh_pose(pose_name, state)
         # The FM overview canvas draws these positions itself rather than reading them
         # back, so a pose that moved here is one it only hears about by being told.
         self.experiment.positions.events.changed.emit()

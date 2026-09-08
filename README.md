@@ -1,4 +1,4 @@
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fibsem-os/fibsem-os) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fibsem-os/fibsem-os) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
 # fibsemOS
 
@@ -14,12 +14,17 @@ For more information see the [website](https://www.fibsemos.org).
 
 ## Installation
 
-There are several ways to install fibsemOS depending on your application and needs. Requires Python 3.9+.
+There are several ways to install fibsemOS depending on your application and needs. Requires Python 3.8+.
 
 #### PyPI (For Users)
 
+Create a virtual environment (see [Installation Guide](INSTALLATION.md) for
+alternatives to conda), then install with the `[ui]` extra to get the GUI:
+
 ```bash
-pip install fibsem 
+conda create -n fibsem python=3.11 pip
+conda activate fibsem
+pip install "fibsem[ui]"
 ```
 
 #### Github (For Development)
@@ -36,14 +41,14 @@ Install dependencies and package:
 ```bash
 conda create -n fibsem python=3.11 pip
 conda activate fibsem
-pip install -e '.[ui]'
+pip install -e ".[ui]"
 ```
 
 Image labelling (`fibsem_label`) draws in napari, which is not part of `[ui]`; add
 the `[labelling]` extra for it:
 
 ```bash
-pip install -e '.[ui,labelling]'
+pip install -e ".[ui,labelling]"
 ```
 
 To run:
@@ -66,13 +71,13 @@ On internet connected PC (Environment should match python version):
 ```bash
 mkdir pkg
 cd pkg
-pip download fibsem[ui]
+pip download "fibsem[ui]"
 ```
 On Support PC:
 Transfer the pkg directory to the support pc, and then change to the pkg directory
 ```bash
 cd pkg
-pip install --no-index --find-links . fibsem[ui]
+pip install --no-index --find-links . "fibsem[ui]"
 ```
 
 #### Additional Installation Information
@@ -81,7 +86,7 @@ For detailed instructions on installation, and installing the commercial microsc
 
 ## Getting Started
 
-For a complete walkthrough of the AutoLamella workflow, see the [Getting Started Guide](GETTING_STARTED.md).
+For a complete walkthrough of the AutoLamella workflow, see the [user guide](https://www.fibsemos.org/docs/), starting with [Your first lamella](https://www.fibsemos.org/docs/first-lamella/).
 
 ### Getting Started with the API
 
@@ -142,6 +147,8 @@ Contributions are welcome! Please open a pull request or issue.
 ## Docs
 
 fibsemOS is a large package with many features. For more detailed documentation, please see the [Documentation Website](https://www.fibsemos.org).
+
+Developer documentation, for changing or extending fibsemOS, is in [docs/developers/](docs/developers/README.md).
 
 ## Related Projects and Publications
 

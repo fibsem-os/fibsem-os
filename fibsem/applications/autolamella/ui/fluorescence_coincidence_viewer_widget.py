@@ -94,6 +94,7 @@ from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     TitledPanel,
+    scrollable,
 )
 
 if TYPE_CHECKING:
@@ -836,7 +837,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.milling_viewer_widget.settings_changed.connect(
             lambda *_: self._autosave_milling_config()
         )
-        return self.milling_viewer_widget
+        # the milling widget no longer scrolls itself; the tab does
+        return scrollable(self.milling_viewer_widget)
 
     def _build_fm_tab(self) -> QWidget:
         if self.microscope is None or self.microscope.fm is None:
@@ -1487,7 +1489,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             lamella.update_milling_angle(self.microscope)
             if sync_fluorescence_pose(self.microscope, lamella):
                 self.selected_lamella_widget.refresh_pose(
-                    "FLUORESCENCE", lamella.fluorescence_pose.stage_position.pretty
+                    "FLUORESCENCE", lamella.fluorescence_pose
                 )
 
         if self.experiment is not None:
@@ -1496,9 +1498,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             # them back, so a pose that moved here is one it only hears about by being
             # told.
             self.experiment.positions.events.changed.emit()
-        self.selected_lamella_widget.refresh_pose(
-            pose_name, state.stage_position.pretty
-        )
+        self.selected_lamella_widget.refresh_pose(pose_name, state)
 
     def _on_lamella_defect_changed(self, lamella: Optional["Lamella"]):
         """Persist a defect set from this list's row menu.

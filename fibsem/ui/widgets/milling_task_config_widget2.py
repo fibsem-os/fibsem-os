@@ -76,14 +76,13 @@ class MillingTaskConfigWidget2(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
+        # No scroll area of its own: every host that shows this widget already
+        # scrolls the column it sits in, and one nested inside it only ever added a
+        # second bar (the Lamella tab showed three, stacked). A host that wants
+        # scrolling wraps this widget -- see `scrollable`.
         content_widget = QWidget()
         layout = QVBoxLayout(content_widget)
-
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setWidget(content_widget)
-        main_layout.addWidget(scroll_area)
+        main_layout.addWidget(content_widget)
 
         # ── Core panel ──────────────────────────────────────────────
         core_content = QWidget()
@@ -169,7 +168,9 @@ class MillingTaskConfigWidget2(QWidget):
             checked_tooltip="Hide advanced settings",
         )
 
-        self.acquisition_panel = TitledPanel("Acquisition", content=self.acquisition_widget)
+        self.acquisition_panel = TitledPanel(
+            "Acquisition", content=self.acquisition_widget
+        )
         self.acquisition_panel.add_header_widget(self._btn_enable_acquisition)
         self.acquisition_panel.add_header_widget(self._btn_advanced_acquisition)
         self.acquisition_panel._btn_collapse.setChecked(False)
@@ -179,10 +180,14 @@ class MillingTaskConfigWidget2(QWidget):
         self.milling_stages_widget = FibsemMillingStagesWidget(
             microscope=self.microscope, stages=[]
         )
-        self._btn_stage_count = IconToolButton(icon="mdi:numeric-0-box-outline", size=32)
+        self._btn_stage_count = IconToolButton(
+            icon="mdi:numeric-0-box-outline", size=32
+        )
         self._btn_stage_count.setEnabled(False)
 
-        milling_panel = TitledPanel("Milling Stages", content=self.milling_stages_widget)
+        milling_panel = TitledPanel(
+            "Milling Stages", content=self.milling_stages_widget
+        )
         milling_panel.add_header_widget(self._btn_stage_count)
         milling_panel._btn_collapse.setChecked(True)
         layout.addWidget(milling_panel)
@@ -199,23 +204,43 @@ class MillingTaskConfigWidget2(QWidget):
         self.milling_stages_widget.stages_changed.connect(self._emit_settings_changed)
         self.milling_stages_widget.eye_toggled.connect(self.eye_toggled)
         self.milling_stages_widget.stages_changed.connect(
-            lambda stages: self._update_stage_count_icon(len([s for s in stages if s.enabled]))
+            lambda stages: self._update_stage_count_icon(
+                len([s for s in stages if s.enabled])
+            )
         )
         self._btn_enable_alignment.toggled.connect(self._on_enable_alignment_toggled)
-        self._btn_advanced_alignment.toggled.connect(self._on_advanced_alignment_toggled)
-        self._btn_enable_acquisition.toggled.connect(self._on_enable_acquisition_toggled)
-        self._btn_advanced_acquisition.toggled.connect(self._on_advanced_acquisition_toggled)
-        self.alignment_widget.enabled_checkbox.toggled.connect(self._on_alignment_checkbox_changed)
-        self.acquisition_widget.acquire_sem_checkbox.toggled.connect(self._on_acquisition_checkbox_changed)
-        self.acquisition_widget.acquire_fib_checkbox.toggled.connect(self._on_acquisition_checkbox_changed)
+        self._btn_advanced_alignment.toggled.connect(
+            self._on_advanced_alignment_toggled
+        )
+        self._btn_enable_acquisition.toggled.connect(
+            self._on_enable_acquisition_toggled
+        )
+        self._btn_advanced_acquisition.toggled.connect(
+            self._on_advanced_acquisition_toggled
+        )
+        self.alignment_widget.enabled_checkbox.toggled.connect(
+            self._on_alignment_checkbox_changed
+        )
+        self.acquisition_widget.acquire_sem_checkbox.toggled.connect(
+            self._on_acquisition_checkbox_changed
+        )
+        self.acquisition_widget.acquire_fib_checkbox.toggled.connect(
+            self._on_acquisition_checkbox_changed
+        )
 
     # ------------------------------------------------------------------
     # Private slots
     # ------------------------------------------------------------------
 
     def _update_stage_count_icon(self, n: int) -> None:
-        icon_name = "mdi:numeric-9-plus-box-outline" if n > 9 else f"mdi:numeric-{n}-box-outline"
-        self._btn_stage_count.setIcon(fibsem_icon(icon_name, color=stylesheets.GRAY_ICON_COLOR))
+        icon_name = (
+            "mdi:numeric-9-plus-box-outline"
+            if n > 9
+            else f"mdi:numeric-{n}-box-outline"
+        )
+        self._btn_stage_count.setIcon(
+            fibsem_icon(icon_name, color=stylesheets.GRAY_ICON_COLOR)
+        )
         self._btn_stage_count.setToolTip(f"{n} stage{'s' if n != 1 else ''}")
 
     def _emit_settings_changed(self) -> None:
@@ -249,7 +274,9 @@ class MillingTaskConfigWidget2(QWidget):
 
     def _on_acquisition_checkbox_changed(self) -> None:
         aw = self.acquisition_widget
-        any_enabled = aw.acquire_sem_checkbox.isChecked() or aw.acquire_fib_checkbox.isChecked()
+        any_enabled = (
+            aw.acquire_sem_checkbox.isChecked() or aw.acquire_fib_checkbox.isChecked()
+        )
         self._btn_enable_acquisition.blockSignals(True)
         self._btn_enable_acquisition.setChecked(any_enabled)
         self._btn_enable_acquisition.blockSignals(False)
@@ -287,7 +314,9 @@ class MillingTaskConfigWidget2(QWidget):
         self.milling_stages_widget.set_stages(settings.stages)
         self._update_stage_count_icon(len(settings.stages))
         self.blockSignals(False)
-        self._on_alignment_checkbox_changed(settings.alignment.enabled)  # sync button state to loaded values
+        self._on_alignment_checkbox_changed(
+            settings.alignment.enabled
+        )  # sync button state to loaded values
         self._on_acquisition_checkbox_changed()  # sync button state to loaded values
 
     def set_config(self, config: FibsemMillingTaskConfig) -> None:
@@ -295,4 +324,3 @@ class MillingTaskConfigWidget2(QWidget):
 
     def clear(self) -> None:
         self.update_from_settings(FibsemMillingTaskConfig())
-

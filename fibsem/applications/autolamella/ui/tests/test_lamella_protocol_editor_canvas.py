@@ -14,6 +14,7 @@ must survive one tab having migrated.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_lamella_protocol_editor_canvas.py
 """
+
 from __future__ import annotations
 
 import os
@@ -130,7 +131,9 @@ def test_editor_is_napari_free():
 
 def test_fib_image_reaches_the_ion_canvas():
     editor, _ = _editor()
-    image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW, random=True)
+    image = FibsemImage.generate_blank_image(
+        resolution=_RESOLUTION, hfw=_HFW, random=True
+    )
     editor.image = image
     editor.view_controller.set_image(BeamType.ION, image)
     canvas = editor.view_controller.get_canvas(BeamType.ION)
@@ -197,7 +200,9 @@ def test_alignment_area_draws_removes_and_folds_edits_back():
     assert lamella.alignment_area.top == 0.2
 
     # an edit signalled for a different overlay on the same canvas must be ignored
-    editor._on_controller_overlay_edited(BeamType.ION, "milling", FibsemRectangle(0.9, 0.9, 0.05, 0.05))
+    editor._on_controller_overlay_edited(
+        BeamType.ION, "milling", FibsemRectangle(0.9, 0.9, 0.05, 0.05)
+    )
     assert lamella.alignment_area.left == 0.1
 
     editor._on_toggle_alignment_area_editable(False)
@@ -468,3 +473,90 @@ def _main() -> int:
 
 if __name__ == "__main__":
     sys.exit(_main())
+
+
+# --- the view toggles live on the canvas ----------------------------------------
+
+
+def test_view_toggles_are_overlay_controls_on_the_fib_canvas():
+    """SEM image, related tasks, alignment area and its edit switch moved out of the
+    editor header into the FIB canvas's overlay popover, the same control the
+    overview canvases use. The editor's own flags follow the switches."""
+    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
+        OVERLAY_ALIGNMENT,
+        OVERLAY_EDIT_ALIGNMENT,
+        OVERLAY_RELATED,
+        OVERLAY_SEM,
+    )
+
+    editor, exp = _editor()
+    editor.image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW)
+    editor._selected_lamella = exp.positions[0]
+    controls = editor.overlay_controls
+    assert set(controls.keys()) == {
+        OVERLAY_SEM,
+        OVERLAY_RELATED,
+        OVERLAY_ALIGNMENT,
+        OVERLAY_EDIT_ALIGNMENT,
+    }
+    assert editor.btn_overlays.parentWidget() is editor.view_controller.get_canvas(
+        BeamType.ION
+    )
+    assert not hasattr(editor, "pushButton_toggle_sem_image")
+
+    controls.set_visible(OVERLAY_SEM, True)
+    assert editor.show_sem_image is True
+    controls.set_visible(OVERLAY_RELATED, False)
+    assert editor.show_related_milling_tasks is False
+
+    # editing depends on showing: turning the area off unchecks and greys the edit
+    # switch, and disarms the overlay
+    controls.set_visible(OVERLAY_EDIT_ALIGNMENT, True)
+    assert editor.alignment_area_editable is True
+    assert _armed(editor.view_controller) == ALIGNMENT_OVERLAY_ID
+    controls.set_visible(OVERLAY_ALIGNMENT, False)
+    assert editor.show_alignment_area is False
+    assert editor.alignment_area_editable is False
+    assert controls.is_visible(OVERLAY_EDIT_ALIGNMENT) is False
+    assert not controls._boxes[OVERLAY_EDIT_ALIGNMENT].isEnabled()
+    assert _armed(editor.view_controller) is None
+    assert ALIGNMENT_OVERLAY_ID not in _overlays(editor.view_controller)
+
+
+def test_task_rows_are_chipped_from_the_lamella_record_and_the_running_task():
+    """Completed comes from the lamella's own task history; In Progress from what the
+    workflow told the editor it is running. Everything else shows nothing."""
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+    )
+
+    editor, exp = _editor()
+    lamella = exp.positions[0]
+    lamella.task_config = {"Setup": None, "Mill Fiducial": None, "Rough Milling": None}
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Setup", status=AutoLamellaTaskStatus.Completed)
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Mill Fiducial", status=AutoLamellaTaskStatus.Failed)
+    )
+    editor._selected_lamella = lamella
+    editor.listWidget_selected_task.set_tasks(list(lamella.task_config))
+
+    editor.set_active_lamella_name(lamella.name, "Rough Milling")
+
+    chips = {}
+    lst = editor.listWidget_selected_task._list
+    for i in range(lst.count()):
+        row = lst.itemWidget(lst.item(i))
+        if row is not None:
+            chips[lst.item(i).text()] = row.findChild(QWidget, None).text()
+    assert chips == {"Setup": "Completed", "Rough Milling": "In Progress"}
+
+    editor.set_active_lamella_name(None)
+    chips = {
+        lst.item(i).text()
+        for i in range(lst.count())
+        if lst.itemWidget(lst.item(i)) is not None
+    }
+    assert chips == {"Setup"}

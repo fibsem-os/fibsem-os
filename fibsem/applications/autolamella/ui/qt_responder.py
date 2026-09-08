@@ -411,7 +411,7 @@ class QtResponder(QObject):
         widget = self._milling_widget()
         widget.update_from_settings(request.config)
         widget.setEnabled(True)
-        self._ui.tabWidget.setCurrentWidget(widget)
+        self._ui.front_tab(widget)
 
     def _clear_milling_config(self, request: ClearMillingConfig) -> None:
         """Clear the milling editor. Moved from handle_workflow_update."""
@@ -569,7 +569,7 @@ class QtResponder(QObject):
         widget = self._milling_widget()
         widget.update_from_settings(request.config)
         widget.setEnabled(True)
-        self._ui.tabWidget.setCurrentWidget(widget)
+        self._ui.front_tab(widget)
         # The workflow runs the mill; the editor's own Run button stands down
         # (moved from handle_workflow_update's milling_enabled branch).
         widget.milling_widget.pushButton_run_milling.setVisible(False)

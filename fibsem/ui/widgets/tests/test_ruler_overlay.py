@@ -7,6 +7,7 @@ Or via pytest. Covers SI formatting, the toolbar toggle (seed + activate +
 restore), endpoint/line drag with bounds clamping, screen-space hit testing,
 and that the overlay stays fully inert (no artists, no input) while hidden.
 """
+
 from __future__ import annotations
 
 import os
@@ -18,10 +19,8 @@ import numpy as np
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.canvas.overlays.ruler_overlay import (
-    RulerOverlay,
-    _format_distance,
-)
+from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
+from fibsem.utils import format_distance
 
 _W, _H = 1536, 1024
 _PX = 10e-9  # 10 nm / px
@@ -51,10 +50,12 @@ def _ruler_on(c: FibsemImageCanvas) -> RulerOverlay:
 
 
 def test_si_formatting():
-    assert _format_distance(5e-9) == "5.0 nm"
-    assert _format_distance(2.5e-6) == "2.50 µm"
-    assert _format_distance(3e-3) == "3.000 mm"
-    assert _format_distance(0) == "0 nm"
+    # The overlay no longer owns this; it is `utils.format_distance`, which these
+    # values pinned before the move and still pin after it.
+    assert format_distance(5e-9) == "5.0 nm"
+    assert format_distance(2.5e-6) == "2.50 µm"
+    assert format_distance(3e-3) == "3.000 mm"
+    assert format_distance(0) == "0 nm"
 
 
 def test_toggle_on_seeds_and_activates():
@@ -68,7 +69,7 @@ def test_toggle_on_seeds_and_activates():
     seed_len = abs(r._p2[0] - r._p1[0])
     assert abs(seed_len - 0.25 * _W) < 1e-6
     assert abs(r.measurement() - seed_len * _PX) < 1e-18
-    assert r._label.get_text() == _format_distance(seed_len * _PX)
+    assert r._label.get_text() == format_distance(seed_len * _PX)
 
 
 def test_drag_endpoint_updates_distance():
@@ -80,7 +81,7 @@ def test_drag_endpoint_updates_distance():
     r._drag_start_pts = (list(r._p1), list(r._p2))
     r._blit_bg = None  # force the draw_idle path (skip blit)
     r._on_motion(_ev(xdata=r._p2[0] + 200, ydata=r._p2[1] + 100))
-    expected = ((seed_len + 200) ** 2 + 100 ** 2) ** 0.5
+    expected = ((seed_len + 200) ** 2 + 100**2) ** 0.5
     assert abs(r.measurement() - expected * _PX) < 1e-15
     r._on_release(_ev(button=1))
     assert c._overlay_consuming_event is False
