@@ -82,8 +82,9 @@ unchanged.
   `fibsem/manufacturers.py` (the constant and alias — Zeiss already has
   one), `fibsem/utils.py` `setup_session()` (the if/elif that constructs
   your class), `fibsem/configuration.py` (the generator's accepted
-  manufacturers), and the manufacturer gates in
-  `fibsem/ui/widgets/microscope_config_widget.py`.
+  manufacturers), and `fibsem/guided_setup.py` (`MANUFACTURERS`, and a
+  `MicroscopeModel` per instrument, which is what the first-run wizard
+  offers).
 - **Configuration**: microscopes are described by a configuration YAML
   (see `fibsem/config/`); `fibsem-generate-config` scaffolds one — for a
   manufacturer it does not know yet, scaffold a Demo config and hand-edit.
