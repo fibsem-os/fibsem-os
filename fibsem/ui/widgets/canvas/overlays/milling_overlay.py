@@ -15,17 +15,19 @@ nothing until :meth:`set_stages` is called with non-empty stages; :meth:`clear`
 milling.
 
 Deferred (see design doc): direct drag-to-move, FOV rect, alignment area,
-selected-stage highlight, background stages, annulus / bitmap shapes.
+selected-stage highlight, background stages.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional, Sequence
+import math
+from typing import TYPE_CHECKING, List, Optional, Sequence
 
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 from matplotlib.colors import to_rgba
+from matplotlib.image import AxesImage
 
 from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.milling.patterning.shapes import (
@@ -35,6 +37,7 @@ from fibsem.milling.patterning.shapes import (
     convert_pattern_to_napari_rect,
 )
 from fibsem.structures import (
+    FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemImage,
     FibsemLineSettings,
@@ -59,6 +62,7 @@ _FILL_ALPHA = 0.4  # semi-transparent fill; edge stays solid
 _LINEWIDTH = 1.0  # default pattern edge width
 _LINEWIDTH_SELECTED = 2.5  # selected stage edge width
 _BACKGROUND_COLOUR = "black"  # background milling stages
+_EXCLUSION_COLOUR = "black"  # exclusion shapes, whatever their stage's colour
 
 
 class MillingPatternOverlay(CanvasOverlay):
@@ -224,19 +228,28 @@ class MillingPatternOverlay(CanvasOverlay):
         zorder: float,
     ) -> None:
         for pattern_settings in stage.define_patterns():
-            artist = self._shape_to_artist(
+            for artist in self._shape_to_artists(
                 pattern_settings, shape, pixelsize, colour, linewidth, zorder
-            )
-            if artist is not None:
+            ):
                 self._ax.add_artist(artist)
                 self._artists.append(artist)
         self._draw_crosshair(
             stage.pattern.point, shape, pixelsize, colour, zorder + 0.5
         )
 
-    def _shape_to_artist(
+    def _shape_to_artists(
         self, ps, shape, pixelsize: float, colour: str, linewidth: float, zorder: float
-    ):
+    ) -> List:
+        """Artists for one pattern shape (empty when the shape is unsupported).
+
+        Most shapes are a single patch; a bitmap is an outline plus the image
+        drawn inside it, hence the list.
+        """
+        if getattr(ps, "is_exclusion", False):
+            # Exclusion zones are the region the mill must not touch. Black in the
+            # napari path and in the report plot; black here too. Lines have no
+            # is_exclusion, hence the getattr.
+            colour = _EXCLUSION_COLOUR
         # Solid edge + same-colour fill at _FILL_ALPHA. Independent face/edge
         # alphas via RGBA (a patch-level ``alpha`` would dim the edge too).
         patch_kw = dict(
@@ -247,30 +260,120 @@ class MillingPatternOverlay(CanvasOverlay):
         )
         if isinstance(ps, FibsemRectangleSettings):
             verts, _ = convert_pattern_to_napari_rect(ps, shape, pixelsize)
-            return mpatches.Polygon(
-                verts[:, ::-1], closed=True, **patch_kw
-            )  # (y,x)→(x,y)
+            return [
+                mpatches.Polygon(verts[:, ::-1], closed=True, **patch_kw)
+            ]  # (y,x)→(x,y)
+        if isinstance(ps, FibsemBitmapSettings):
+            return self._bitmap_artists(ps, shape, pixelsize, colour, linewidth, zorder)
         if isinstance(ps, FibsemCircleSettings):
-            centre = microscope_image_to_image_coordinates(
-                Point(x=ps.centre_x, y=ps.centre_y), shape, pixelsize
-            )
-            return mpatches.Circle(
-                (centre.x, centre.y), ps.radius / pixelsize, **patch_kw
-            )
+            return self._circle_artists(ps, shape, pixelsize, patch_kw)
         if isinstance(ps, FibsemLineSettings):
             verts, _ = convert_pattern_to_napari_line(ps, shape, pixelsize)
             (y0, x0), (y1, x1) = verts
-            return mlines.Line2D(
-                [x0, x1],
-                [y0, y1],
-                color=colour,
-                linewidth=linewidth,
-                zorder=zorder,
-            )
+            return [
+                mlines.Line2D(
+                    [x0, x1],
+                    [y0, y1],
+                    color=colour,
+                    linewidth=linewidth,
+                    zorder=zorder,
+                )
+            ]
         if isinstance(ps, FibsemPolygonSettings):
             verts, _ = convert_pattern_to_napari_polygon(ps, shape, pixelsize)
-            return mpatches.Polygon(verts[:, ::-1], closed=True, **patch_kw)
-        return None  # bitmap / annulus / unknown — deferred
+            return [mpatches.Polygon(verts[:, ::-1], closed=True, **patch_kw)]
+        return []  # annulus / unknown — deferred
+
+    def _circle_artists(
+        self, ps: FibsemCircleSettings, shape, pixelsize: float, patch_kw
+    ) -> List:
+        """Circle, annulus (``thickness``) or wedge (partial angles), as the shape asks.
+
+        ``thickness`` measures inward from ``radius``, so the ring runs from
+        ``radius - thickness`` to ``radius`` — matplotlib's ``Annulus`` takes that as
+        the *outer* radius plus the width, not the inner radius.
+        """
+        centre = microscope_image_to_image_coordinates(
+            Point(x=ps.centre_x, y=ps.centre_y), shape, pixelsize
+        )
+        radius = ps.radius / pixelsize
+        thickness = min(ps.thickness, ps.radius) / pixelsize if ps.thickness > 0 else 0
+
+        if thickness > 0:
+            return [
+                mpatches.Annulus(
+                    (centre.x, centre.y),
+                    r=radius,
+                    width=thickness,
+                    angle=math.degrees(-ps.rotation),
+                    **patch_kw,
+                )
+            ]
+        if ps.start_angle != 0 or ps.end_angle != 360:
+            return [
+                mpatches.Wedge(
+                    (centre.x, centre.y),
+                    r=radius,
+                    theta1=ps.start_angle,
+                    theta2=ps.end_angle,
+                    **patch_kw,
+                )
+            ]
+        return [mpatches.Circle((centre.x, centre.y), radius, **patch_kw)]
+
+    def _bitmap_artists(
+        self,
+        ps: FibsemBitmapSettings,
+        shape,
+        pixelsize: float,
+        colour: str,
+        linewidth: float,
+        zorder: float,
+    ) -> List:
+        """Outline + colourised bitmap image for one bitmap pattern.
+
+        The image is an :class:`AxesImage` on the unit square, mapped onto the
+        outline through the rectangle's own transform, so rotation and size come
+        out of the patch rather than being applied to the pixel data. Row 0 of the
+        bitmap is drawn at the top of the pattern, matching AutoScript's top-left
+        origin; ``flip_y`` mirrors it. It is built
+        directly instead of via ``ax.imshow`` on purpose: ``imshow`` routes through
+        ``add_image`` → ``update_datalim``, which would autoscale the axes to the
+        image and throw away the user's pan/zoom.
+        """
+        # Imported here, not at module import: it pulls in pyplot + skimage, which
+        # the rest of this overlay does not need.
+        from fibsem.milling.patterning.plotting import bitmap_to_rgba
+
+        centre = microscope_image_to_image_coordinates(
+            Point(x=ps.centre_x, y=ps.centre_y), shape, pixelsize
+        )
+        width = ps.width / pixelsize
+        height = ps.height / pixelsize
+
+        outline = mpatches.Rectangle(
+            (centre.x - width / 2, centre.y - height / 2),  # bottom-left corner
+            width=width,
+            height=height,
+            angle=math.degrees(-ps.rotation),
+            rotation_point="center",
+            edgecolor=colour,
+            facecolor="none",
+            linewidth=linewidth,
+            zorder=zorder,
+        )
+        outline.set_transform(self._ax.transData)
+
+        # origin="lower": the patch transform maps v=0 to the rectangle's xy corner,
+        # which is its TOP edge on the y-inverted image axes, so row 0 of the bitmap
+        # has to go at the extent's `bottom` to land at the top of the pattern.
+        image = AxesImage(self._ax, extent=(0, 1, 0, 1), origin="lower", zorder=zorder)
+        image.set_data(bitmap_to_rgba(ps, width, height, colour, _FILL_ALPHA))
+        image.set_transform(
+            outline.get_patch_transform() + outline.get_data_transform()
+        )
+        image.set_clip_path(self._ax.patch)  # add_artist does not clip, add_image does
+        return [outline, image]
 
     def _draw_crosshair(
         self, point, shape, pixelsize: float, colour: str, zorder: float

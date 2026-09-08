@@ -175,8 +175,9 @@ unchanged.
   `NotImplementedError` at connect, not at import. `fibsem/manufacturers.py`
   (the constant and alias), `setup_session()` in `fibsem/utils.py` (the
   branch that constructs your class), `fibsem/configuration.py` (the
-  accepted manufacturers), and the manufacturer gates in
-  `fibsem/ui/widgets/microscope_config_widget.py`.
+  accepted manufacturers), and `fibsem/guided_setup.py` (`MANUFACTURERS`, and a
+  `MicroscopeModel` per instrument, which is what the first-run wizard
+  offers).
 - **Configuration.** Instruments are described by a YAML file in
   `fibsem/config/`; `fibsem-generate-config` scaffolds one. For a
   manufacturer it does not know, scaffold a Demo configuration and edit it.

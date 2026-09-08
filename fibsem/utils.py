@@ -331,8 +331,6 @@ def setup_session(
         configure_logging(session_path, _DEBUG=debug)
 
     # connect to microscope
-    import fibsem.microscope as fibsem_microscope
-
     # cheap overloading
     if ip_address:
         settings.system.info.ip_address = ip_address
@@ -348,7 +346,9 @@ def setup_session(
     ip_address = settings.system.info.ip_address
 
     if manufacturer == manufacturers.THERMOFISHER:
-        microscope = fibsem_microscope.ThermoMicroscope(settings.system)
+        from fibsem.microscopes.autoscript import ThermoMicroscope
+
+        microscope = ThermoMicroscope(settings.system)
         microscope.connect_to_microscope(ip_address=ip_address, port=7520)
 
     elif manufacturer == manufacturers.TESCAN:
