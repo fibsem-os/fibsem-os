@@ -16,6 +16,7 @@
 # 35 degree pre-tilted shuttle and a half turn to reach the ion beam, which is what
 # puts the FM orientation at (r=180, t=17) -- identical to the FIB one, and the reason
 # an offset system cannot tell the two apart. See FIB-830.
+version: 1                                                  # configuration schema version
 info:
     name: sim-iflm-configuration                            # a descriptive name for your configuration                     [SPECIFIED]
     ip_address: 192.168.0.1                                 # the ip address of the microscope PC                           [SPECIFIED]

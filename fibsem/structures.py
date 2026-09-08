@@ -1311,13 +1311,13 @@ class BeamSettings:
         current = state_dict.get("beam_current", state_dict.get("current", None))
 
         beam_settings = BeamSettings(
-            beam_type=BeamType[state_dict["beam_type"].upper()],
+            beam_type=BeamType[state_dict.get("beam_type", "ELECTRON").upper()],
             working_distance=wd,
             beam_current=current,
-            voltage=state_dict["voltage"],
-            hfw=state_dict["hfw"],
-            resolution=state_dict["resolution"],
-            dwell_time=state_dict["dwell_time"],
+            voltage=state_dict.get("voltage"),
+            hfw=state_dict.get("hfw"),
+            resolution=state_dict.get("resolution"),
+            dwell_time=state_dict.get("dwell_time"),
             stigmation=stigmation,
             shift=shift,
             scan_rotation=state_dict.get("scan_rotation", 0.0),
@@ -2292,9 +2292,9 @@ class StageSystemSettings:
         # stored value that disagrees with the derivation is a value someone typed
         # wrong, and reading it back would preserve the mistake.
         return StageSystemSettings(
-            rotation_reference=settings["rotation_reference"],
-            shuttle_pre_tilt=settings["shuttle_pre_tilt"],
-            manipulator_height_limit=settings["manipulator_height_limit"],
+            rotation_reference=settings.get("rotation_reference", 0.0),
+            shuttle_pre_tilt=settings.get("shuttle_pre_tilt", 0.0),
+            manipulator_height_limit=settings.get("manipulator_height_limit", 0.0037),
             enabled=settings.get("enabled", True),
             rotation=settings.get("rotation", True),
             milling_angle=settings.get("milling_angle", 15.0),
@@ -2349,12 +2349,12 @@ class BeamSystemSettings:
     @staticmethod
     def from_dict(settings: dict) -> "BeamSystemSettings":
         return BeamSystemSettings(
-            beam_type=BeamType[settings["beam_type"]],
-            enabled=settings["enabled"],
+            beam_type=BeamType[settings.get("beam_type", "ELECTRON")],
+            enabled=settings.get("enabled", True),
             beam=BeamSettings.from_dict(settings),
             detector=FibsemDetectorSettings.from_dict(settings),
-            eucentric_height=settings["eucentric_height"],
-            column_tilt=settings["column_tilt"],
+            eucentric_height=settings.get("eucentric_height", 0.0),
+            column_tilt=settings.get("column_tilt", 0.0),
             plasma=settings.get("plasma", False),
             plasma_gas=settings.get("plasma_gas", None),
         )
@@ -2376,9 +2376,9 @@ class ManipulatorSystemSettings:
     @staticmethod
     def from_dict(settings: dict):
         return ManipulatorSystemSettings(
-            enabled=settings["enabled"],
-            rotation=settings["rotation"],
-            tilt=settings["tilt"],
+            enabled=settings.get("enabled", True),
+            rotation=settings.get("rotation", False),
+            tilt=settings.get("tilt", False),
         )
 
 
@@ -2399,9 +2399,9 @@ class GISSystemSettings:
     @staticmethod
     def from_dict(settings: dict):
         return GISSystemSettings(
-            enabled=settings["enabled"],
-            multichem=settings["multichem"],
-            sputter_coater=settings["sputter_coater"],
+            enabled=settings.get("enabled", False),
+            multichem=settings.get("multichem", False),
+            sputter_coater=settings.get("sputter_coater", False),
         )
 
 
@@ -2538,17 +2538,25 @@ class SystemSettings:
     @staticmethod
     def from_dict(settings: dict):
 
-        # TODO: remove this once the settings are updated
-        settings["electron"]["beam_type"] = BeamType.ELECTRON.name
-        settings["ion"]["beam_type"] = BeamType.ION.name
+        # A missing *section* defaults like a missing field. A configuration that
+        # drops a block it does not need -- no GIS, no manipulator -- is a
+        # configuration, not a corrupt file, and this is what lets a key be removed
+        # from the shipped files without every existing one raising `KeyError` at
+        # load.
+        electron = dict(settings.get("electron") or {})
+        ion = dict(settings.get("ion") or {})
+        electron["beam_type"] = BeamType.ELECTRON.name
+        ion["beam_type"] = BeamType.ION.name
 
         return SystemSettings(
-            stage=StageSystemSettings.from_dict(settings["stage"]),
-            electron=BeamSystemSettings.from_dict(settings["electron"]),
-            ion=BeamSystemSettings.from_dict(settings["ion"]),
-            manipulator=ManipulatorSystemSettings.from_dict(settings["manipulator"]),
-            gis=GISSystemSettings.from_dict(settings["gis"]),
-            info=SystemInfo.from_dict(settings["info"]),
+            stage=StageSystemSettings.from_dict(settings.get("stage") or {}),
+            electron=BeamSystemSettings.from_dict(electron),
+            ion=BeamSystemSettings.from_dict(ion),
+            manipulator=ManipulatorSystemSettings.from_dict(
+                settings.get("manipulator") or {}
+            ),
+            gis=GISSystemSettings.from_dict(settings.get("gis") or {}),
+            info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
             # The same `fm:` block `MicroscopeSettings.from_dict` reads `config` from.
             # Two readers, one key each: this is the hardware fact, that is a path to
@@ -2776,9 +2784,9 @@ class MicroscopeSettings:
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),
-            image=ImageSettings.from_dict(settings["imaging"]),
+            image=ImageSettings.from_dict(settings.get("imaging") or {}),
             protocol=protocol,
-            milling=FibsemMillingSettings.from_dict(settings["milling"]),
+            milling=FibsemMillingSettings.from_dict(settings.get("milling") or {}),
             fm=fm_config,
         )
 
