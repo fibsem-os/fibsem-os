@@ -471,8 +471,9 @@ QDateTimeEdit::up-button {{
     background-color: transparent;
     border: none;
     border-top-right-radius: 3px;
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 12px;
+    margin-top: 2px;
 }}
 
 QDateTimeEdit::up-button:hover:hover {{
@@ -484,9 +485,9 @@ QDateTimeEdit::up-button:pressed:pressed {{
 }}
 
 QDateTimeEdit::up-arrow {{
-    image: url("__ICONS_DIR__/plus.svg");
-    width: 11px;
-    height: 11px;
+    image: url("__ICONS_DIR__/stepper-plus.svg");
+    width: 14px;
+    height: 14px;
 }}
 
 QDateTimeEdit::down-button {{
@@ -495,8 +496,9 @@ QDateTimeEdit::down-button {{
     background-color: transparent;
     border: none;
     border-bottom-right-radius: 3px;
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 12px;
+    margin-bottom: 2px;
 }}
 
 QDateTimeEdit::down-button:hover:hover {{
@@ -508,9 +510,9 @@ QDateTimeEdit::down-button:pressed:pressed {{
 }}
 
 QDateTimeEdit::down-arrow {{
-    image: url("__ICONS_DIR__/minus.svg");
-    width: 11px;
-    height: 11px;
+    image: url("__ICONS_DIR__/stepper-minus.svg");
+    width: 14px;
+    height: 14px;
 }}
 """.replace("__ICONS_DIR__", _ICONS_DIR)
 
