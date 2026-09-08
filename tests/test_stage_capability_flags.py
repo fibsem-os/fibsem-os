@@ -195,7 +195,7 @@ def test_the_thermo_backend_reports_a_compustage_without_a_rotation_axis():
     import inspect
     import textwrap
 
-    from fibsem.microscope import ThermoMicroscope
+    from fibsem.microscopes.autoscript import ThermoMicroscope
 
     tree = ast.parse(
         textwrap.dedent(inspect.getsource(ThermoMicroscope._get_axis_limits))

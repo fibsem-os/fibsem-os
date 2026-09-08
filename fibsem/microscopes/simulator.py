@@ -18,10 +18,8 @@ from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
 from fibsem.fm.microscope import Camera, FluorescenceMicroscope
-from fibsem.microscope import (
-    FibsemMicroscope,
-    ThermoMicroscope,
-)
+from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.microscopes.sim_scene import fm_channel_weights
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.projection import FMStageProjection

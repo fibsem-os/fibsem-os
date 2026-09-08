@@ -242,9 +242,11 @@ class TestTheGuardsStillReadTheDevice:
 
     @staticmethod
     def _method(class_name: str, method_name: str) -> ast.FunctionDef:
-        source = (Path(fibsem.__file__).parent / "microscope.py").read_text(
-            encoding="utf-8"
-        )
+        module = {
+            "FibsemMicroscope": Path("microscope.py"),
+            "ThermoMicroscope": Path("microscopes") / "autoscript.py",
+        }[class_name]
+        source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
         cls = next(
             node
             for node in ast.walk(ast.parse(source))
