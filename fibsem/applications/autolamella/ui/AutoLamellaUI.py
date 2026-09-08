@@ -269,6 +269,10 @@ class AutoLamellaUI(QMainWindow):
         # agent_server_enabled preference is on; None means the feature is off.
         self._agent_server_host = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
+        # The last run drained with work waiting on a decision. The next Run
+        # then resumes -- leaves out what has already completed -- rather than
+        # re-running the producers whose proposals were just reviewed.
+        self._last_run_stalled = False
         # The summary the dialog has already shown (by identity): the dialog is
         # once-per-run, while _last_run_summary itself must survive as the
         # record remote readers see.
@@ -1882,8 +1886,14 @@ class AutoLamellaUI(QMainWindow):
             # during beam-on, while _task_manager was still None).
             if self._workflow_stop_event.is_set():
                 self._task_manager.stop()
+            if self._last_run_stalled:
+                logging.info(
+                    "Resuming after a stalled run: completed tasks are left out."
+                )
             self._task_manager.run(
-                task_names=task_names, required_lamella=lamella_names
+                task_names=task_names,
+                required_lamella=lamella_names,
+                resume=self._last_run_stalled,
             )
         except (InterruptedError, OperationCancelledError) as e:
             # A user Stop, not a failure: both cancellation types unwind through
@@ -1896,6 +1906,8 @@ class AutoLamellaUI(QMainWindow):
 
         finally:
             cancelled = self._task_manager is not None and self._task_manager.is_stopped
+            # getattr: a manager stand-in in tests predates the attribute.
+            self._last_run_stalled = bool(getattr(self._task_manager, "stalled", False))
             # capture the per-run summary before the manager is torn down
             if self._task_manager is not None:
                 try:
