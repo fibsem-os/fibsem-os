@@ -1073,17 +1073,23 @@ def header_chip(text: str, colour: str) -> QLabel:
     "3 stages". `chip()` is built for a card or a row and comes out 20px, which in a
     24px header reads as a button.
     """
-    rgb = QColor(colour)
-    tint = f"rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15)"
     label = QLabel(text)
     label.setAlignment(Qt.AlignCenter)
+    label.setFixedHeight(14)
+    set_header_chip(label, text, colour)
+    return label
+
+
+def set_header_chip(label: QLabel, text: str, colour: str) -> None:
+    """Re-word and re-tint a `header_chip`: "on" in the accent, "off" muted."""
+    rgb = QColor(colour)
+    tint = f"rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15)"
+    label.setText(text)
     style_with_tooltip(
         label,
         f"background-color: {tint}; color: {colour};"
         " padding: 0px 5px; border-radius: 7px; font-size: 9px;",
     )
-    label.setFixedHeight(14)
-    return label
 
 
 def chip(text: str, colour: str, font_size: int = 11) -> QLabel:

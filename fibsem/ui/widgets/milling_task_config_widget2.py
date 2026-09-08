@@ -8,7 +8,6 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
     QLineEdit,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -17,13 +16,13 @@ from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
     ValueSpinBox,
     align_form,
     header_chip,
+    set_header_chip,
 )
 from fibsem.ui.widgets.milling_alignment_widget import FibsemMillingAlignmentWidget
 from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget
@@ -44,6 +43,14 @@ _WIDGET_CONFIG = {
 }
 
 _INSTRUCTIONS_TEXT = "Instructions: Right Click to Move Current Pattern"
+
+
+def _set_state_chip(chip, on: bool) -> None:
+    set_header_chip(
+        chip,
+        "on" if on else "off",
+        stylesheets.ACCENT_COLOR if on else stylesheets.TEXT_MUTED_COLOR,
+    )
 
 
 class MillingTaskConfigWidget2(QWidget):
@@ -134,14 +141,10 @@ class MillingTaskConfigWidget2(QWidget):
         )
         self.alignment_widget.image_settings_widget.set_show_advanced_button(False)
 
-        self._btn_enable_alignment = IconToolButton(
-            icon="mdi:checkbox-blank-outline",
-            checked_icon="mdi:checkbox-marked-outline",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
-            tooltip="Enable alignment",
-            checked_tooltip="Disable alignment",
-            checked=True,
-        )
+        # Whether alignment runs, readable with the panel collapsed. A chip that
+        # mirrors the body's switch rather than a second switch in the header:
+        # two controls for one setting was one too many.
+        self._alignment_state_chip = header_chip("on", stylesheets.ACCENT_COLOR)
         self._btn_advanced_alignment = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
@@ -151,7 +154,7 @@ class MillingTaskConfigWidget2(QWidget):
         )
 
         self.alignment_panel = TitledPanel("Alignment", content=self.alignment_widget)
-        self.alignment_panel.add_header_widget(self._btn_enable_alignment)
+        self.alignment_panel.add_header_widget(self._alignment_state_chip)
         self.alignment_panel.add_header_widget(self._btn_advanced_alignment)
         self.alignment_panel._btn_collapse.setChecked(False)
         layout.addWidget(self.alignment_panel)
@@ -162,14 +165,9 @@ class MillingTaskConfigWidget2(QWidget):
         )
         self.acquisition_widget.image_settings_widget.set_show_advanced_button(False)
 
-        self._btn_enable_acquisition = IconToolButton(
-            icon="mdi:checkbox-blank-outline",
-            checked_icon="mdi:checkbox-marked-outline",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
-            tooltip="Enable acquisition",
-            checked_tooltip="Disable acquisition",
-            checked=True,
-        )
+        # "on" when either beam acquires; the old header switch set both beams
+        # at once, which nothing on it said.
+        self._acquisition_state_chip = header_chip("on", stylesheets.ACCENT_COLOR)
         self._btn_advanced_acquisition = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
@@ -181,7 +179,7 @@ class MillingTaskConfigWidget2(QWidget):
         self.acquisition_panel = TitledPanel(
             "Acquisition", content=self.acquisition_widget
         )
-        self.acquisition_panel.add_header_widget(self._btn_enable_acquisition)
+        self.acquisition_panel.add_header_widget(self._acquisition_state_chip)
         self.acquisition_panel.add_header_widget(self._btn_advanced_acquisition)
         self.acquisition_panel._btn_collapse.setChecked(False)
         layout.addWidget(self.acquisition_panel)
@@ -218,12 +216,8 @@ class MillingTaskConfigWidget2(QWidget):
                 len([s for s in stages if s.enabled])
             )
         )
-        self._btn_enable_alignment.toggled.connect(self._on_enable_alignment_toggled)
         self._btn_advanced_alignment.toggled.connect(
             self._on_advanced_alignment_toggled
-        )
-        self._btn_enable_acquisition.toggled.connect(
-            self._on_enable_acquisition_toggled
         )
         self._btn_advanced_acquisition.toggled.connect(
             self._on_advanced_acquisition_toggled
@@ -251,41 +245,18 @@ class MillingTaskConfigWidget2(QWidget):
     def _emit_settings_changed(self) -> None:
         self.settings_changed.emit(self.get_settings())
 
-    def _on_enable_alignment_toggled(self, checked: bool) -> None:
-        self.alignment_widget.enabled_checkbox.blockSignals(True)
-        self.alignment_widget.enabled_checkbox.setChecked(checked)
-        self.alignment_widget.enabled_checkbox.blockSignals(False)
-        self.alignment_widget._update_controls_enabled()
-        self._emit_settings_changed()
-
     def _on_alignment_checkbox_changed(self, checked: bool) -> None:
-        self._btn_enable_alignment.blockSignals(True)
-        self._btn_enable_alignment.setChecked(checked)
-        self._btn_enable_alignment.blockSignals(False)
-        self._btn_enable_alignment.set_icon_state(checked)
+        _set_state_chip(self._alignment_state_chip, checked)
 
     def _on_advanced_alignment_toggled(self, checked: bool) -> None:
         self.alignment_widget.set_show_advanced(checked)
 
-    def _on_enable_acquisition_toggled(self, checked: bool) -> None:
-        aw = self.acquisition_widget
-        aw.acquire_sem_checkbox.blockSignals(True)
-        aw.acquire_fib_checkbox.blockSignals(True)
-        aw.acquire_sem_checkbox.setChecked(checked)
-        aw.acquire_fib_checkbox.setChecked(checked)
-        aw.acquire_sem_checkbox.blockSignals(False)
-        aw.acquire_fib_checkbox.blockSignals(False)
-        aw._update_image_settings_enabled()
-
     def _on_acquisition_checkbox_changed(self) -> None:
         aw = self.acquisition_widget
-        any_enabled = (
-            aw.acquire_sem_checkbox.isChecked() or aw.acquire_fib_checkbox.isChecked()
+        _set_state_chip(
+            self._acquisition_state_chip,
+            aw.acquire_sem_checkbox.isChecked() or aw.acquire_fib_checkbox.isChecked(),
         )
-        self._btn_enable_acquisition.blockSignals(True)
-        self._btn_enable_acquisition.setChecked(any_enabled)
-        self._btn_enable_acquisition.blockSignals(False)
-        self._btn_enable_acquisition.set_icon_state(any_enabled)
 
     def _on_advanced_acquisition_toggled(self, checked: bool) -> None:
         self.acquisition_widget.set_show_advanced(checked)
@@ -317,6 +288,10 @@ class MillingTaskConfigWidget2(QWidget):
         self.alignment_widget.update_from_settings(settings.alignment)
         self.acquisition_widget.update_from_settings(settings.acquisition)
         self.milling_stages_widget.set_stages(settings.stages)
+        self._on_alignment_checkbox_changed(
+            self.alignment_widget.enabled_checkbox.isChecked()
+        )
+        self._on_acquisition_checkbox_changed()
         # enabled stages, as the change handler counts them; loading used to count all
         self._update_stage_count_icon(len([s for s in settings.stages if s.enabled]))
         self.blockSignals(False)
