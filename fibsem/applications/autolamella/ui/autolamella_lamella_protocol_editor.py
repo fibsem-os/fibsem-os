@@ -276,8 +276,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
         self.overlay_controls.toggled.connect(self._on_overlay_toggled)
         fib_canvas = self.view_controller.get_canvas(BeamType.ION)
+        # The eye, as on the overview canvases' overlay control; layers is the FM
+        # channel control's icon.
         self.btn_overlays = fib_canvas.add_toolbar_button(
-            "mdi:layers", "Overlays", self._toggle_overlays_popover, checkable=True
+            "mdi:eye-outline", "Overlays", self._toggle_overlays_popover, checkable=True
         )
         fib_canvas._reposition_overlay_buttons()
         self.overlay_popover = CanvasPopover(self.overlay_controls, parent=fib_canvas)
