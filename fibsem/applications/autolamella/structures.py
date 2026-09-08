@@ -312,6 +312,14 @@ class AutoLamellaTaskDescription:
     # agent answers; the operator can still answer first). Display-and-watchdog
     # semantics only — prompts are raised identically either way.
     supervisor: str = "human"
+    # Propose and review: the task completes and leaves its answer as a proposal
+    # for someone to confirm or reject later, off the beam, instead of asking
+    # inline. Only tasks that know how to propose honour it (Setup Lamella
+    # Position, to start with); the consumer that requires this task is
+    # deferred until the proposal is decided. Independent of ``supervise``: a
+    # task can still block on the questions that genuinely need a person at
+    # the beam and propose the rest. Ignored unless the feature flag is on.
+    review: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -411,6 +419,14 @@ class AutoLamellaWorkflowConfig:
         for task in self.tasks:
             if task.name == task_name:
                 return task.supervise
+        return False
+
+    def get_review(self, task_name: str) -> bool:
+        """Whether a task should propose rather than ask (see
+        AutoLamellaTaskDescription.review)."""
+        for task in self.tasks:
+            if task.name == task_name:
+                return task.review
         return False
 
     def get_supervisor(self, task_name: str) -> str:
@@ -658,6 +674,9 @@ class AutoLamellaTaskProtocol:
     def get_supervision(self, task_name: str) -> bool:
         """Check if a task requires supervision."""
         return self.workflow_config.get_supervision(task_name)
+
+    def get_review(self, task_name: str) -> bool:
+        return self.workflow_config.get_review(task_name)
 
     def get_supervisor(self, task_name: str) -> str:
         """Who a supervised task's questions are addressed to: human or agent."""

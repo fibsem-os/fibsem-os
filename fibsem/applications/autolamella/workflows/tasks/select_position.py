@@ -1,16 +1,26 @@
 ######## SELECT MILLING POSITION TASK DEFINITIONS ########
 
 import logging
+import os
 from dataclasses import dataclass, field
-from typing import ClassVar, Type
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type
 
 import numpy as np
 
 from fibsem import constants
+from fibsem.applications.autolamella.proposals import (
+    MILLING_SETUP,
+    Proposal,
+    supersede,
+)
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
-from fibsem.structures import BeamType, ImageSettings, field_meta
+from fibsem.structures import BeamType, ImageSettings, Point, field_meta
+
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.structures import FibsemImage
 
 
 @dataclass
@@ -129,8 +139,9 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 pos="Continue",
             )
 
-        # select point of interest
-        if self.config.select_poi:
+        # select point of interest -- under review it is proposed at the end of
+        # the task instead, on the final reference image
+        if self.config.select_poi and not self.review:
             poi = select_poi_ui(
                 parent_ui=self.parent_ui,
                 # the FIB image the reference acquisition above displayed — the
@@ -162,6 +173,68 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # store milling pose and angle
         self.lamella.milling_pose = self.microscope.get_microscope_state()
         self.lamella.update_milling_angle(self.microscope)
+
+        # propose the point of interest for review, on the final reference
+        # image -- the last thing acquired, at the stored pose, and the one the
+        # Review tab shows
+        if self.config.select_poi and self.review:
+            self._propose_poi()
+
+    def _propose_poi(self) -> None:
+        """Leave the point of interest as a proposal instead of asking for it.
+
+        The task still completes -- everything after this step is independent
+        of the point (only the rough and polishing patterns follow it, and they
+        follow it when a decision writes it through). ``lamella.poi`` is not
+        written here and the patterns are not synced: both happen in
+        Experiment.decide on confirm, so the lamella is never in a state
+        nobody sanctioned and the proposed point survives beside the confirmed
+        one for the delta.
+
+        Re-running the task is a deliberate act: a proposal that already has
+        decisions is superseded, not kept and not overwritten. It moves, with
+        its decisions and delta, onto the new proposal's record, and the new
+        one is pending on the new image. The old value is not carried over as
+        the default. (A stalled run resumes without re-running completed
+        tasks, so that case never reaches here.)
+        """
+        existing = self.lamella.proposals.get(self.task_name)
+        # The first of the final set is the tightest field of view; the
+        # values are in the milling frame, so any image at the stored pose
+        # would do, but the renderer shows this one.
+        image_name = f"ref_{self.task_name}_final_res_01_ib.tif"
+        if not os.path.exists(os.path.join(str(self.lamella.path), image_name)):
+            settings = getattr(
+                getattr(self._last_fib_image, "metadata", None), "image_settings", None
+            )
+            image_name = f"{settings.filename}_ib.tif" if settings else ""
+        proposal = propose_milling_setup(self.lamella, image_name)
+        if proposal is None:
+            logging.info(
+                f"{self.lamella.name}: nothing after {self.task_name} consumes a "
+                "point of interest; no proposal to make."
+            )
+            return
+        self.log_status_message("PROPOSE_POI", "Proposing Point of Interest...")
+        if existing is not None and not existing.pending:
+            logging.info(
+                f"{self.lamella.name}: {self.task_name} re-run; the decided "
+                "proposal is superseded and a new one is pending."
+            )
+        self.lamella.proposals[self.task_name] = supersede(
+            existing if existing is not None and not existing.pending else None,
+            proposal,
+        )
+        logging.info(
+            {
+                "msg": "proposal_recorded",
+                "lamella": self.lamella.name,
+                "task_name": self.task_name,
+                "kind": proposal.kind,
+                "values": {k: v.to_dict() for k, v in proposal.values.items()},
+                "provenance": proposal.provenance,
+            }
+        )
 
     def _align_coincident_for_milling(
         self, milling_angle: float, is_close: bool
@@ -247,3 +320,48 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 "at the target tilt",
                 tilt.reason,
             )
+
+
+def consumed_values(lamella: "Lamella") -> List[str]:
+    """The value names a milling-setup proposal for this lamella may carry: a
+    value exists because a later task consumes it. ``poi`` is consumed by any
+    milling task whose patterns follow the point; a fiducial value would be
+    consumed by the fiducial task, but has no writer yet, so it is not
+    proposed."""
+    values = []
+    for task_config in lamella.task_config.values():
+        if getattr(task_config, "sync_to_poi", False) and task_config.milling:
+            values.append("poi")
+            break
+    return values
+
+
+def propose_milling_setup(
+    lamella: "Lamella", reference_image: str = ""
+) -> Optional[Proposal]:
+    """The v1 proposer: the centre of the image, which is today's default
+    position (a lamella's point of interest starts at the origin of the milling
+    frame). It exists to get the machinery running, not to be right -- no
+    confidence, no alternatives. A real proposer is a swap for this function
+    with the same return type.
+
+    None when nothing consumes a point, so no empty proposals are recorded.
+    """
+    values = consumed_values(lamella)
+    if not values:
+        return None
+    provenance: Dict[str, Any] = {
+        "proposer": "centre-of-image",
+        "version": 1,
+        "values": values,
+    }
+    if reference_image:
+        # A file name relative to the lamella's folder (<name>_ib.tif); readers
+        # join it onto lamella.path, which also survives a moved experiment.
+        provenance["reference_image"] = reference_image
+    return Proposal(
+        kind=MILLING_SETUP,
+        values={"poi": Point(0.0, 0.0)},
+        confidence=None,
+        provenance=provenance,
+    )
