@@ -2183,6 +2183,13 @@ class StageDeviceSettings:
 # per-device windows are how it happened.
 DEFAULT_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
 
+# The ion column's angle from the electron column, in degrees. A property of the
+# instrument rather than a preference, and the same on every dual-beam this supports,
+# which is why a file that omits it can still be read correctly. Declared once because
+# it is read in two places -- the config reader and the geometry recorded on an image
+# -- and they must not be able to disagree about it.
+DEFAULT_FIB_COLUMN_TILT: float = 52.0
+
 # **The default is the objective under the grid**: the FM shares the beams' origin, and
 # is told apart by the pose the sample is held in. A site whose objective is offset --
 # piescope, METEOR, iFLM, all in the TFS SDB chamber -- declares the traverse instead,
@@ -2348,13 +2355,25 @@ class BeamSystemSettings:
 
     @staticmethod
     def from_dict(settings: dict) -> "BeamSystemSettings":
+        beam_type = BeamType[settings.get("beam_type", "ELECTRON")]
+
+        # The default depends on which column this is, so it cannot be a single
+        # number: an absent electron column tilt is 0, an absent ion column tilt is
+        # not. Taken from `FibsemHardwareGeometry`, which already declares both --
+        # the alternative is two independent defaults for one physical constant,
+        # which is how a config missing its `ion:` block came to load with a 52
+        # degree column recorded as 0.
+        default_column_tilt = (
+            DEFAULT_FIB_COLUMN_TILT if beam_type is BeamType.ION else 0.0
+        )
+
         return BeamSystemSettings(
-            beam_type=BeamType[settings.get("beam_type", "ELECTRON")],
+            beam_type=beam_type,
             enabled=settings.get("enabled", True),
             beam=BeamSettings.from_dict(settings),
             detector=FibsemDetectorSettings.from_dict(settings),
             eucentric_height=settings.get("eucentric_height", 0.0),
-            column_tilt=settings.get("column_tilt", 0.0),
+            column_tilt=settings.get("column_tilt", default_column_tilt),
             plasma=settings.get("plasma", False),
             plasma_gas=settings.get("plasma_gas", None),
         )
@@ -2671,7 +2690,8 @@ class FibsemHardwareGeometry:
     """
 
     column_tilt: float = 0.0  # electron column
-    fib_column_tilt: float = 52.0  # ion column; fixes the compustage FIB pose
+    # ion column; fixes the compustage FIB pose
+    fib_column_tilt: float = DEFAULT_FIB_COLUMN_TILT
     shuttle_pre_tilt: float = 0.0
     rotation_reference: float = 0.0
     rotation_180: float = 180.0
@@ -2718,7 +2738,7 @@ class FibsemHardwareGeometry:
         # point of the record is that such a file still loads.
         return cls(
             column_tilt=ddict.get("column_tilt", 0.0),
-            fib_column_tilt=ddict.get("fib_column_tilt", 52.0),
+            fib_column_tilt=ddict.get("fib_column_tilt", DEFAULT_FIB_COLUMN_TILT),
             shuttle_pre_tilt=ddict.get("shuttle_pre_tilt", 0.0),
             rotation_reference=ddict.get("rotation_reference", 0.0),
             rotation_180=ddict.get("rotation_180", 180.0),
@@ -3172,10 +3192,12 @@ class FibsemImageMetadata:
         """Recover the geometry from a pre-v6 `system` blob.
 
         Read with `.get()` chains rather than by building a `SystemSettings` first.
-        That constructor is bracket-indexed throughout -- a blob missing any of
-        `stage`, `electron`, `ion`, `manipulator`, `gis` or `info` raises KeyError --
-        and inheriting that here would break exactly the old files this exists to
-        load. See `tests/test_metadata_fixtures.py`.
+        That constructor used to be bracket-indexed and raise on a blob missing any
+        block, which would have broken exactly the old files this exists to load; it
+        now defaults instead, so the two routes agree and the choice is no longer
+        load-bearing. The agreement is not free, though -- it holds because both
+        declare the FIB column tilt from one constant -- and
+        `tests/test_metadata_fixtures.py` pins it.
 
         Compustage is recovered the way the reprojection used to detect it, by model
         name, falling back to the simulator flag. That match is wrong -- a capability
