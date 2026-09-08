@@ -200,7 +200,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             milling_enabled=False,
             parent=self,
         )
-        self.milling_task_editor.setMinimumHeight(550)
         # drive patterns/reposition on the FIB canvas (not napari)
         self.milling_task_editor.set_controller(self.view_controller)
         self.milling_task_editor.set_alignment_area_visible(False)
@@ -351,28 +350,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.grid_layout.addWidget(self.label_description, 8, 0, 1, 1)
         self.grid_layout.addWidget(self.line_edit_description, 8, 1, 1, 1)
 
-        # main layout
+        # main layout. No scroll area here: the window wraps this editor in one
+        # already, and a second one nested inside it only ever added a second bar.
         self.main_layout = QVBoxLayout(self)
-        self.scroll_content_layout = QVBoxLayout()
-
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)  # required to resize
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # type: ignore
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
-        self.scroll_content_layout.addLayout(self.grid_layout)
-        self.scroll_content_layout.addWidget(self.task_parameters_config_widget)
-        self.scroll_content_layout.addWidget(self.spot_burn_coordinates_widget)
-        self.scroll_content_layout.addWidget(self.ref_image_params_widget)  # type: ignore
-        self.scroll_content_layout.addWidget(self.milling_task_editor)  # type: ignore
-        self.scroll_content_layout.addWidget(
-            self.fluorescence_acquisition_task_config_widget
-        )  # type: ignore
-        self.scroll_content_layout.addStretch()
-
-        self.scroll_content_widget = QWidget()
-        self.scroll_content_widget.setLayout(self.scroll_content_layout)
-        self.scroll_area.setWidget(self.scroll_content_widget)  # type: ignore
-        self.main_layout.addWidget(self.scroll_area)  # type: ignore
+        self.main_layout.addLayout(self.grid_layout)
+        self.main_layout.addWidget(self.task_parameters_config_widget)
+        self.main_layout.addWidget(self.spot_burn_coordinates_widget)
+        self.main_layout.addWidget(self.ref_image_params_widget)  # type: ignore
+        self.main_layout.addWidget(self.milling_task_editor)  # type: ignore
+        self.main_layout.addWidget(self.fluorescence_acquisition_task_config_widget)  # type: ignore
+        self.main_layout.addStretch()
 
     def _initialise_widgets(self):
         """Initialise the widgets based on the current experiment protocol."""
