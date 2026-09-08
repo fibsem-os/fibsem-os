@@ -9,6 +9,7 @@ import them from here.
 from __future__ import annotations
 
 import copy
+import glob
 import logging
 import os
 import sys
@@ -18,7 +19,7 @@ from functools import wraps
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from packaging.version import InvalidVersion
+from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 from skimage import transform
 
@@ -67,6 +68,35 @@ if TYPE_CHECKING:
 
 THERMO_API_AVAILABLE = False
 MINIMUM_AUTOSCRIPT_VERSION_4_7 = parse_version("4.7")
+# Set when the guarded import below fails, so the connection error can say why.
+THERMO_API_IMPORT_ERROR: Optional[str] = None
+# Declared so importers can rely on the name; only meaningful once
+# THERMO_API_AVAILABLE is True.
+AUTOSCRIPT_VERSION: Optional[Version] = None
+
+# Legacy install locations, kept on sys.path for older machines. Current installs
+# copy the AutoScript packages into the active environment's site-packages (see
+# INSTALLATION.md), so these rarely match any more.
+_LEGACY_AUTOSCRIPT_SYS_PATHS = [
+    r"C:\Program Files\Thermo Scientific AutoScript",
+    r"C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages",
+    r"C:\Program Files\Python36\envs\AutoScript",
+    r"C:\Program Files\Python36\envs\AutoScript\Lib\site-packages",
+]
+
+# Where a copy of AutoScript might be sitting when the import fails. Searched only
+# to build the diagnostic message; never added to sys.path.
+_AUTOSCRIPT_SEARCH_GLOBS = [
+    r"C:\ProgramData\miniforge3\envs\*\Lib\site-packages",
+    r"C:\ProgramData\miniconda3\envs\*\Lib\site-packages",
+    r"C:\ProgramData\anaconda3\envs\*\Lib\site-packages",
+    os.path.expanduser(r"~\miniforge3\envs\*\Lib\site-packages"),
+    os.path.expanduser(r"~\miniconda3\envs\*\Lib\site-packages"),
+    os.path.expanduser(r"~\anaconda3\envs\*\Lib\site-packages"),
+    os.path.expanduser(r"~\.conda\envs\*\Lib\site-packages"),
+    r"C:\Program Files\Python*\envs\AutoScript\Lib\site-packages",
+    *_LEGACY_AUTOSCRIPT_SYS_PATHS,
+]
 
 
 class AutoScriptException(Exception):
@@ -74,12 +104,8 @@ class AutoScriptException(Exception):
 
 
 try:
-    sys.path.append(r"C:\Program Files\Thermo Scientific AutoScript")
-    sys.path.append(
-        r"C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages"
-    )
-    sys.path.append(r"C:\Program Files\Python36\envs\AutoScript")
-    sys.path.append(r"C:\Program Files\Python36\envs\AutoScript\Lib\site-packages")
+    for _legacy_path in _LEGACY_AUTOSCRIPT_SYS_PATHS:
+        sys.path.append(_legacy_path)
     import autoscript_sdb_microscope_client
     from autoscript_sdb_microscope_client import SdbMicroscopeClient
 
@@ -91,7 +117,7 @@ try:
 
     # special case for Monash development environment
     if os.environ.get("COMPUTERNAME", "hostname") == "MU00190108":
-        print("Overwriting autoscript version to 4.7, for Monash dev install")
+        logging.info("Overwriting autoscript version to 4.7, for Monash dev install")
         AUTOSCRIPT_VERSION = MINIMUM_AUTOSCRIPT_VERSION_4_7
 
     if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
@@ -132,17 +158,96 @@ try:
 
     THERMO_API_AVAILABLE = True
 except AutoScriptException as e:
+    THERMO_API_IMPORT_ERROR = str(e)
     logging.warning("Failed to load AutoScript (ThermoFisher): %s", str(e))
-    pass
 except ImportError as e:
+    THERMO_API_IMPORT_ERROR = str(e)
     logging.debug("AutoScript (ThermoFisher) not found: %s", str(e))
-    pass
-except Exception:
+except Exception as e:
+    THERMO_API_IMPORT_ERROR = str(e)
     logging.error(
         "Failed to load AutoScript (ThermoFisher) due to unexpected error",
         exc_info=True,
     )
-    pass
+
+
+def find_autoscript_install_candidates() -> List[str]:
+    """site-packages directories holding an AutoScript client package.
+
+    A best-effort search of the common conda and venv roots, used only to explain
+    a failed import. It does not change what gets imported.
+    """
+    candidates: List[str] = []
+    for pattern in _AUTOSCRIPT_SEARCH_GLOBS:
+        for site_packages_dir in glob.glob(pattern):
+            marker = os.path.join(site_packages_dir, "autoscript_sdb_microscope_client")
+            if os.path.isdir(marker) and site_packages_dir not in candidates:
+                candidates.append(site_packages_dir)
+    return candidates
+
+
+def _is_active_environment(site_packages_dir: str) -> bool:
+    """Whether `site_packages_dir` is on this interpreter's sys.path.
+
+    Separates a broken copy in the environment that is running from a complete
+    copy in some other environment that was never activated.
+    """
+    target = os.path.normcase(os.path.abspath(site_packages_dir))
+    return any(os.path.normcase(os.path.abspath(p)) == target for p in sys.path if p)
+
+
+def _format_candidate_list(paths: List[str], limit: int = 5) -> str:
+    shown = paths[:limit]
+    text = "; ".join(shown)
+    remaining = len(paths) - len(shown)
+    if remaining > 0:
+        text += f"; and {remaining} more"
+    return text
+
+
+def autoscript_unavailable_message() -> str:
+    """Why AutoScript could not be used, with the most likely fix.
+
+    Three different situations used to share one "not installed" message: never
+    installed, too old, or a partial copy. The import error is quoted when there
+    is one, and any copies found on disk are sorted by whether they sit in the
+    environment that is running.
+    """
+    parts = ["Autoscript (ThermoFisher) is not available."]
+
+    if THERMO_API_IMPORT_ERROR:
+        parts.append(f"Reason: {THERMO_API_IMPORT_ERROR}.")
+
+    candidates = find_autoscript_install_candidates()
+    active_env_candidates = [c for c in candidates if _is_active_environment(c)]
+    other_env_candidates = [c for c in candidates if c not in active_env_candidates]
+
+    if active_env_candidates:
+        parts.append(
+            "Found AutoScript packages in the currently active environment ("
+            + _format_candidate_list(active_env_candidates)
+            + ") but they did not import successfully -- check that ALL required "
+            "packages were copied (autoscript_core, autoscript_sdb_microscope_client, "
+            "autoscript_sdb_microscope_client_tests, autoscript_toolkit, "
+            "thermoscientific_logging) and that their versions match."
+        )
+    if other_env_candidates:
+        parts.append(
+            "Found AutoScript packages in a different environment than the one "
+            "currently running: "
+            + _format_candidate_list(other_env_candidates)
+            + ". Make sure you activated the environment AutoScript was copied "
+            "into, or copy the AutoScript packages into this environment's "
+            "site-packages instead."
+        )
+    if not candidates:
+        parts.append(
+            f"No AutoScript installation was found in {len(_AUTOSCRIPT_SEARCH_GLOBS)} "
+            "common locations."
+        )
+
+    parts.append("Please see INSTALLATION.md for installation instructions.")
+    return " ".join(parts)
 
 
 def stage_position_to_autoscript(
@@ -788,9 +893,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def __init__(self, system_settings: SystemSettings):
         if not THERMO_API_AVAILABLE:
-            raise Exception(
-                "Autoscript (ThermoFisher) not installed. Please see the user guide for installation instructions."
-            )
+            raise Exception(autoscript_unavailable_message())
 
         # create microscope client
         self.connection = SdbMicroscopeClient()
