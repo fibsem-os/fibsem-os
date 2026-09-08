@@ -397,11 +397,8 @@ class FeatureFlags:
     # `sample_holder_widget` retired 2026-09-02: the holder panel is the Microscope
     # tab's Sample view now, shown on every machine. A saved preferences file that
     # still names it loads fine; unknown keys are ignored.
-    bug_report_enabled: bool = False
-    # Tools -> Scripts. A user script runs with the application's own access to the
-    # microscope and none of its guard rails, so the menu is not offered to anyone
-    # who has not asked for it (FIB-338).
-    scripts_enabled: bool = False
+    # `bug_report_enabled` and `scripts_enabled` retired 2026-09-08: Help -> Report an
+    # Issue and Tools -> Scripts are shown to everyone. Same load rule as above.
     # The embedded agent server (FIB-845): an HTTP API over the running session that
     # agents reach through the fibsem-mcp sidecar. Off by default and fail-closed like
     # scripts: enabling starts a localhost-only, token-authenticated, READ-ONLY server

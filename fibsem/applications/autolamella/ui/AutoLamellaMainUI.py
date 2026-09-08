@@ -647,12 +647,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # user scripts (FIB-338). The menu itself is application-agnostic; this
         # supplies only the folder, the context, and how to notify.
         #
-        # Built unconditionally and hidden by _apply_preferences when the
-        # features.scripts_enabled flag is off, which is the default. Hidden rather
-        # than absent so toggling the preference takes effect without a restart, the
-        # same way the coincidence viewer and bug reporter do. Constructing the
-        # controller costs nothing -- it adds two fixed actions and never touches the
-        # scripts folder until the dialog is opened.
+        # Constructing the controller costs nothing -- it adds two fixed actions and
+        # never touches the scripts folder until the dialog is opened.
         from fibsem.applications.autolamella.scripting import get_scripts_directory
         from fibsem.ui.widgets.script_menu import ScriptMenuController
 
@@ -972,23 +968,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         coincidence_enabled = self._preferences.features.coincidence_milling_enabled
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
-        # Toggle the "Report an Issue..." Help menu action
-        self.action_report_issue.setVisible(
-            self._preferences.features.bug_report_enabled
-        )
         # Which of the grid-workflow surfaces are shown follows its flag. The Overview
         # tab is not here: it ships to everyone, and which of its modalities can be
         # reached follows the instrument rather than a flag.
         self._apply_grid_workflow_visibility()
-        # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
-        # only route to the manager dialog, and the dialog is the only thing that runs
-        # a script. If a script is mid-run, leave it visible -- taking away the only
-        # Stop button while the microscope is moving would be worse than the flag
-        # being briefly wrong.
-        self.scripts_menu.menuAction().setVisible(
-            self._preferences.features.scripts_enabled
-            or self.script_menu_controller.runner.is_running
-        )
         # Same rule as the rest of the agent chrome: invisible unless enabled.
         self.action_agent_server.setVisible(
             self._preferences.features.agent_server_enabled

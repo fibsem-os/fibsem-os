@@ -137,18 +137,25 @@ def test_scrub_text_handles_empty():
     assert bug_report.scrub_text("") == ""
 
 
-def test_bug_report_feature_flag_defaults_off_and_roundtrips():
-    """The bug_report_enabled flag defaults off and survives yaml round-trip."""
+def test_reporting_preferences_roundtrip():
+    """Reporting preferences survive a yaml round-trip."""
     import fibsem.config as cfg
 
-    assert cfg.FeatureFlags().bug_report_enabled is False
-
     prefs = cfg.UserPreferences()
-    prefs.features.bug_report_enabled = True
     prefs.reporting.contact_email = "me@example.org"
     restored = cfg.UserPreferences.from_dict(prefs.to_dict())
-    assert restored.features.bug_report_enabled is True
     assert restored.reporting.contact_email == "me@example.org"
+
+
+def test_a_preferences_file_naming_the_retired_bug_report_flag_still_loads():
+    """The flag is gone; a saved file that still carries it must not fail to load."""
+    import fibsem.config as cfg
+
+    prefs = cfg.UserPreferences.from_dict(
+        {"features": {"bug_report_enabled": True, "scripts_enabled": False}}
+    )
+    assert not hasattr(prefs.features, "bug_report_enabled")
+    assert not hasattr(prefs.features, "scripts_enabled")
 
 
 @pytest.mark.parametrize(

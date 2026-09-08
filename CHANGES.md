@@ -143,8 +143,8 @@ through that migration; napari is still a dependency.
   extension came from, what failed to load and why, what was shadowed, and which install
   this is. Group headers are the literal entry point strings, because a mistyped group
   is otherwise invisible.
-- User scripts can be run from the GUI (behind a flag — a script has the application's
-  access to the microscope and none of its checks).
+- User scripts can be run from the GUI, Tools → Scripts. A script has the application's
+  access to the microscope and none of its checks, so read one before running it.
 - A scripting guide for working with experiment data.
 - The plugin entry point contract is covered by tests against an installed fixture.
 
@@ -266,8 +266,8 @@ answer or quietly lost points.
 - The deprecated streamlit review app was removed.
 - Several development feature flags were removed and their features turned on for
   everyone: editing the running queue, the FM Overview tab, scheduled tasks, guided
-  setup, and sparse FM selection. A preferences file carrying a removed key still loads;
-  unknown keys are skipped.
+  setup, sparse FM selection, the "Report an Issue" bug reporter and user scripts. A
+  preferences file carrying a removed key still loads; unknown keys are skipped.
 - `overview_canvas_tab` was replaced by `napari_overview_tab`, which is **off** by
   default: the canvas Overview tab now ships to everyone and holds both modalities, and
   the old napari overview is opt-in until it is removed in the next release. A preferences
