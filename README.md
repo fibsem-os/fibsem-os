@@ -1,4 +1,4 @@
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fibsem-os/fibsem-os) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fibsem-os/fibsem-os) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
 # fibsemOS
 
@@ -14,7 +14,7 @@ For more information see the [website](https://www.fibsemos.org).
 
 ## Installation
 
-There are several ways to install fibsemOS depending on your application and needs. Requires Python 3.9+.
+There are several ways to install fibsemOS depending on your application and needs. Requires Python 3.8+.
 
 #### PyPI (For Users)
 
@@ -86,7 +86,7 @@ For detailed instructions on installation, and installing the commercial microsc
 
 ## Getting Started
 
-For a complete walkthrough of the AutoLamella workflow, see the [Getting Started Guide](GETTING_STARTED.md).
+For a complete walkthrough of the AutoLamella workflow, see the [user guide](https://www.fibsemos.org/docs/), starting with [Your first lamella](https://www.fibsemos.org/docs/first-lamella/).
 
 ### Getting Started with the API
 
