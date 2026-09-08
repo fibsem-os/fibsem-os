@@ -233,7 +233,8 @@ def test_a_milling_config_lands_in_the_editor_and_fronts_its_tab(ui, qapp):
 
     assert "error" not in outcome
     assert ui.milling_task_config_widget.get_config().name == "from-the-workflow"
-    assert ui.tabWidget.currentWidget() is ui.milling_task_config_widget
+    # the editor is what the operator sees, whichever tab wraps it
+    assert ui.milling_task_config_widget.isVisibleTo(ui.tabWidget)
 
 
 def test_clearing_the_milling_config_resets_the_editor(ui, qapp):

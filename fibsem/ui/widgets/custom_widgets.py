@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QMenu,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QToolButton,
@@ -530,6 +531,20 @@ def show_context_menu(
     menu = ContextMenu(config, parent=parent)
     selected = menu.show_at_cursor()
     return selected.label if selected else None
+
+
+def scrollable(widget: QWidget) -> QScrollArea:
+    """*widget* inside a vertical-only QScrollArea that resizes it to the viewport.
+
+    For a tab or column whose content can outgrow the window. Widgets should not
+    scroll themselves: a scroll area inside another only adds a second bar, and the
+    host is the one that knows whether there is room.
+    """
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setWidget(widget)
+    return scroll
 
 
 # Panel headers share one height: tall enough for a 24px icon button.

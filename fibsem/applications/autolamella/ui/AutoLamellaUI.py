@@ -3,6 +3,7 @@ import time
 import warnings
 
 from fibsem import conversions
+from fibsem.ui.widgets.custom_widgets import scrollable
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -230,6 +231,7 @@ class AutoLamellaUI(QMainWindow):
         self.fm_control_widget: Optional[FMControlWidget] = None
         self.sample_widget: Optional[FibsemSampleWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
+        self.milling_tab: Optional[QWidget] = None  # the scroll area around it
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
 
         # minimap plot widget — a floating tool window, shown on demand (was a
@@ -702,6 +704,20 @@ class AutoLamellaUI(QMainWindow):
         self.update_microscope_ui()
         self.update_ui()
 
+    def front_tab(self, widget: QWidget) -> None:
+        """Bring forward the tab that holds *widget*.
+
+        The widget may be the tab itself or sit inside a wrapper (the Milling tab is
+        a scroll area around its editor). ``setCurrentWidget`` on a widget that is
+        not a direct tab is a silent no-op, which is how the responder stopped
+        fronting the Milling tab once the wrapper arrived.
+        """
+        candidate = widget
+        while candidate is not None and self.tabWidget.indexOf(candidate) == -1:
+            candidate = candidate.parentWidget()
+        if candidate is not None:
+            self.tabWidget.setCurrentWidget(candidate)
+
     def update_microscope_ui(self):
         """Update the ui based on the current state of the microscope."""
 
@@ -725,7 +741,11 @@ class AutoLamellaUI(QMainWindow):
                 image_widget=self.image_widget,
                 parent=self,
             )
-            self.tabWidget.addTab(self.milling_task_config_widget, "Milling")
+            # The milling widget no longer scrolls itself; its tab does. The tab is
+            # kept by name because indexOf / setCurrentWidget want the tab, not the
+            # widget inside it -- see front_tab.
+            self.milling_tab = scrollable(self.milling_task_config_widget)
+            self.tabWidget.addTab(self.milling_tab, "Milling")
 
             # The hardware view of the grids: the holder, and the magazine when
             # there is one. Slot moves go through the Movement widget, the same
@@ -804,10 +824,9 @@ class AutoLamellaUI(QMainWindow):
                 self.spot_burn_widget.deleteLater()
                 self.spot_burn_widget = None
             if self.milling_task_config_widget is not None:
-                self.tabWidget.removeTab(
-                    self.tabWidget.indexOf(self.milling_task_config_widget)
-                )
-                self.milling_task_config_widget.deleteLater()
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.milling_tab))
+                self.milling_tab.deleteLater()  # owns the widget
+                self.milling_tab = None
                 self.milling_task_config_widget = None
             if self.movement_widget is not None:
                 self.movement_widget._teardown_connections()
