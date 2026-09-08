@@ -51,11 +51,6 @@ _TIP_COINCIDENCE = (
     "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
     "Restricted to ThermoFisher Arctis with the modified sample holder."
 )
-_LBL_BUG_REPORT = "Enable Bug Reporter"
-_TIP_BUG_REPORT = (
-    "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
-    "optionally submitting experiment data privately to the maintainers."
-)
 _LBL_CONNECTION_CHIP = "Enable Connection Chip"
 _TIP_CONNECTION_CHIP = (
     "Show the connected instrument in the tab bar, beside the experiment, and add "
@@ -68,12 +63,6 @@ _TIP_GRID_WORKFLOW = (
     "Show the Grids tab and the Workflow tab's Grids view: inventory the grids in "
     "the holder or autoloader, and acquire SEM, FIB and fluorescence overviews of "
     "each. In development; the Microscope tab's Sample view is available either way."
-)
-_LBL_SCRIPTS = "Enable User Scripts"
-_TIP_SCRIPTS = (
-    "Show Tools > Scripts, for running your own .py files against the open "
-    "experiment. A script has the same access to the microscope as the application "
-    "itself and none of its safety checks — nothing validates what it does."
 )
 _LBL_AGENT_SERVER = "Enable Agent Server"
 _LBL_WATCHDOG = "Hand questions to me after"
@@ -129,7 +118,6 @@ class PreferencesDialog(QDialog):
         self._chk_coincidence_milling.toggled.connect(
             self._on_coincidence_milling_toggled
         )
-        self._chk_scripts.toggled.connect(self._on_scripts_toggled)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -178,15 +166,9 @@ class PreferencesDialog(QDialog):
         features_form = QFormLayout(features_page)
         self._chk_coincidence_milling = QCheckBox()
         self._chk_coincidence_milling.setToolTip(_TIP_COINCIDENCE)
-        self._chk_bug_report = QCheckBox()
-        self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
-        self._chk_scripts = QCheckBox()
-        self._chk_scripts.setToolTip(_TIP_SCRIPTS)
         self._chk_connection_chip = QCheckBox()
         self._chk_connection_chip.setToolTip(_TIP_CONNECTION_CHIP)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
-        features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
-        features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
         features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
         self._chk_grid_workflow = QCheckBox()
         self._chk_grid_workflow.setToolTip(_TIP_GRID_WORKFLOW)
@@ -282,8 +264,6 @@ class PreferencesDialog(QDialog):
 
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
-        self._chk_bug_report.setChecked(f.bug_report_enabled)
-        self._chk_scripts.setChecked(f.scripts_enabled)
         self._chk_agent_server.setChecked(f.agent_server_enabled)
         self._chk_connection_chip.setChecked(f.connection_chip)
         self._chk_grid_workflow.setChecked(f.grid_workflow)
@@ -323,20 +303,6 @@ class PreferencesDialog(QDialog):
             "running the fluorescence microscope while milling.",
         )
 
-    def _on_scripts_toggled(self, checked: bool):
-        """Same shape as the coincidence-milling warning: state the consequence once,
-        on the way in, and never on the way out."""
-        if not checked:
-            return
-        QMessageBox.warning(
-            self,
-            "User Scripts — No Safety Checks",
-            "A script you run from Tools > Scripts has the same access to the "
-            "microscope as the application itself, with none of its limits or "
-            "interlocks, and nothing validates what it does before it runs.\n\n"
-            "Scripts you did not write yourself should be read before they are run.",
-        )
-
     def get_preferences(self) -> UserPreferences:
         """Build a UserPreferences instance from current widget state."""
         from fibsem.config import (
@@ -356,8 +322,6 @@ class PreferencesDialog(QDialog):
             ),
             features=FeatureFlags(
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
-                bug_report_enabled=self._chk_bug_report.isChecked(),
-                scripts_enabled=self._chk_scripts.isChecked(),
                 agent_server_enabled=self._chk_agent_server.isChecked(),
                 connection_chip=self._chk_connection_chip.isChecked(),
                 grid_workflow=self._chk_grid_workflow.isChecked(),

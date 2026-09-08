@@ -82,6 +82,18 @@ def _cell_text(dialog, row: int, col: int) -> str:
     return item.text() if item is not None else ""
 
 
+def test_the_dialog_carries_the_no_safety_checks_warning(qapp, tmp_path):
+    """The warning used to sit on the preference that unlocked the menu (FIB-338).
+    The menu is on for everyone now, so the dialog says it instead, and always."""
+    dialog = _dialog(tmp_path)
+
+    text = dialog.warning_label.text()
+
+    assert "none of its safety checks" in text
+    assert "read one you did not write" in text
+    assert not dialog.warning_label.isHidden()
+
+
 def test_lists_runnable_and_failed_together(qapp, tmp_path):
     """The failed one is a row, not an omission -- a menu has nowhere to put the
     reason, which is the whole point of this dialog existing."""

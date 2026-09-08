@@ -44,6 +44,7 @@ from fibsem.ui.stylesheets import (
     PANEL_COLOR,
     PRIMARY_BUTTON_STYLESHEET,
     ROW_ALT_COLOR,
+    SEMANTIC_WARNING_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
@@ -64,6 +65,7 @@ _TEXT_STRONG = TEXT_STRONG_COLOR
 _TEXT_MUTED = TEXT_MUTED_COLOR
 _ACCENT = ACCENT_COLOR
 _ERROR = ERROR_COLOR
+_WARNING = SEMANTIC_WARNING_COLOR
 
 # Colour here says *what a script is*, not how frightened to be. Amber for
 # Microscope and Writes meant the two most common rows were permanently lit as
@@ -228,6 +230,22 @@ class ScriptManagerDialog(QDialog):
         header.addWidget(self.open_folder_button)
         header.addWidget(self.rescan_button)
         layout.addLayout(header)
+
+        # Said once, where it can be read, and never dismissed: a script has the
+        # application's own access to the microscope and none of its checks. This used
+        # to be a modal on the preference that unlocked the menu (FIB-338); the menu is
+        # on for everyone now, so the dialog carries the warning instead. The per-run
+        # confirmation still gates the moment of action.
+        self.warning_label = QLabel(
+            "Scripts run with the application's access to the microscope and none of "
+            "its safety checks. Nothing validates what a script does before it runs: "
+            "read one you did not write before running it."
+        )
+        self.warning_label.setWordWrap(True)
+        style_with_tooltip(
+            self.warning_label, f"color: {_WARNING}; font-size: {_FS_BODY}px;"
+        )
+        layout.addWidget(self.warning_label)
 
         # The table and its empty state swap places rather than the table sitting
         # there empty: a headed grid with nothing under it is ~450px of void, and
