@@ -317,3 +317,108 @@ def test_a_configuration_that_names_holders_wins_over_the_live_one():
     # to rule out.
     assert microscope._stage.holder is microscope.system.stage.holders["Flat Shuttle"]
     assert microscope._stage.holder._parent is microscope
+
+
+# ---------------------------------------------------------------------------
+# Pre-tilt belongs to the holder
+# ---------------------------------------------------------------------------
+
+
+def test_the_stage_reads_its_pre_tilt_from_the_active_holder():
+    """Physically correct: swap a 35 degree shuttle for a flat one and the pre-tilt
+    changes with it, rather than needing the stage block edited by hand."""
+    pre_tilted = SampleHolder(name="Pre-Tilted", pre_tilt=35.0)
+    flat = SampleHolder(name="Flat", pre_tilt=0.0)
+    stage = _stage_settings(
+        holders={"Pre-Tilted": pre_tilted, "Flat": flat}, active_holder="Pre-Tilted"
+    )
+
+    assert stage.shuttle_pre_tilt == 35.0
+
+    stage.active_holder = "Flat"
+    assert stage.shuttle_pre_tilt == 0.0
+
+
+def test_setting_the_stage_pre_tilt_sets_the_holders():
+    """A setter, not a read-only property: around twenty-five test files use
+    `stage.shuttle_pre_tilt = 35` as their setup idiom, and it reads correctly --
+    the stage's pre-tilt *is* whatever holder is on it."""
+    holder = SampleHolder(name="h", pre_tilt=35.0)
+    stage = _stage_settings(holders={"h": holder}, active_holder="h")
+
+    stage.shuttle_pre_tilt = 12.0
+
+    assert holder.pre_tilt == 12.0
+    assert stage.shuttle_pre_tilt == 12.0
+
+
+def test_a_stage_with_no_holder_keeps_its_configured_pre_tilt():
+    """Every `StageSystemSettings` built from a configuration is in this state until
+    `_create_sample_stage` resolves a holder. Answering 0.0 here would turn a 35
+    degree site flat for the whole of that window."""
+    stage = _stage_settings(shuttle_pre_tilt=35.0)
+    assert stage.shuttle_pre_tilt == 35.0
+
+
+def test_a_holder_that_does_not_state_a_pre_tilt_does_not_flatten_the_stage():
+    """`None` is not zero.
+
+    Every holder file written before this change is silent on pre-tilt. Reading that
+    silence as "flat" is the single most damaging thing this change could do, because
+    nothing would report it -- the projections would simply come out wrong.
+    """
+    silent = SampleHolder(name="legacy")
+    assert silent.pre_tilt is None
+    stage = _stage_settings(
+        shuttle_pre_tilt=35.0, holders={"legacy": silent}, active_holder="legacy"
+    )
+
+    assert stage.shuttle_pre_tilt == 35.0
+
+
+def test_a_holder_imported_from_a_file_takes_the_configured_pre_tilt(
+    monkeypatch, tmp_path
+):
+    """Even when the file states one of its own.
+
+    Holder files carried a `pre_tilt` once, and it has been ignored ever since the
+    value became derived from the stage. Honouring it now would silently resurrect a
+    number that has not been in effect for however long that file has been sitting
+    there -- in the term every projection is built on.
+    """
+    data = _calibrated_holder().to_dict(include_grids=False)
+    data["pre_tilt"] = 15.0  # stale: ignored since it became derived
+    path = tmp_path / "sample-holder.yaml"
+    path.write_text(yaml.dump(data))
+    monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+
+    stage = _stage_settings(shuttle_pre_tilt=35.0)
+    resolved = _resolve_configured_holder(stage)
+
+    assert resolved.pre_tilt == 35.0, "a stale file pre-tilt was resurrected"
+    assert stage.shuttle_pre_tilt == 35.0
+
+
+def test_the_pre_tilt_survives_the_configuration_round_trip():
+    holder = SampleHolder(name="Pre-Tilted", pre_tilt=35.0)
+    stage = _stage_settings(
+        shuttle_pre_tilt=0.0, holders={"Pre-Tilted": holder}, active_holder="Pre-Tilted"
+    )
+
+    restored = StageSystemSettings.from_dict(stage.to_dict())
+
+    assert restored.holders["Pre-Tilted"].pre_tilt == 35.0
+    assert restored.shuttle_pre_tilt == 35.0
+
+
+def test_the_holder_no_longer_reads_the_stage():
+    """The recursion this change had to remove.
+
+    `SampleHolder.pre_tilt` was a property reading back from
+    `_parent.system.stage.shuttle_pre_tilt`. With the stage now reading the holder,
+    leaving that in place would have made the pair recurse until the interpreter gave
+    up -- and it would have done so on the first real connect, not in a test.
+    """
+    assert not isinstance(
+        type(SampleHolder(name="h")).__dict__.get("pre_tilt"), property
+    )

@@ -601,6 +601,18 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
             f"Imported sample holder '{holder.name}' from {path} for this session. "
             "The file is not written back; it is imported again at every connect."
         )
+    # The holder came from a file, so its pre-tilt is the configured one -- always,
+    # not just when the file is silent.
+    #
+    # A holder file may *carry* a `pre_tilt`: they did once, and it has been ignored
+    # ever since the value became derived from the stage. Honouring it now would
+    # resurrect a number that has not been in effect for however long the file has sat
+    # there, and do it silently, in the term every projection is built on. The value
+    # that has actually been in use is the stage's, so that is the one the holder is
+    # seeded with; it becomes the holder's own from the moment the configuration is
+    # saved, which is the point at which someone has seen it.
+    holder.pre_tilt = float(stage_settings.shuttle_pre_tilt)
+
     # Selected either way, so a session that saves its configuration records which
     # holder it was actually using rather than an empty selection.
     stage_settings.holders[holder.name] = holder

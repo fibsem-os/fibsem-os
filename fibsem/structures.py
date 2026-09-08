@@ -2228,7 +2228,11 @@ DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
 @dataclass
 class StageSystemSettings:
     rotation_reference: float
-    shuttle_pre_tilt: float
+    # Accepted as a constructor keyword, held as `_shuttle_pre_tilt`, and read back
+    # through the property below. An `InitVar` rather than a field because the value
+    # a caller passes is a *fallback* -- the answer comes from the active holder when
+    # there is one.
+    shuttle_pre_tilt: InitVar[float] = 0.0
     enabled: bool = True
     # Whether the stage has a rotation axis. Load-bearing: it is what `rotation_180`
     # below is derived from, so it describes the geometry and not merely a permission.
@@ -2291,6 +2295,47 @@ class StageSystemSettings:
         if not self.rotation:
             return self.rotation_reference
         return (self.rotation_reference + 180) % 360
+
+    def __post_init__(self, shuttle_pre_tilt: float) -> None:
+        self._shuttle_pre_tilt = float(shuttle_pre_tilt)
+
+    @property
+    def shuttle_pre_tilt(self) -> float:
+        """The pre-tilt of the shuttle on the stage, in degrees.
+
+        The holder answers when there is one that says. Physically correct: the
+        pre-tilt is a property of the shuttle, not of the stage it sits on, so
+        swapping a 35 degree shuttle for a flat one should change it -- and today
+        that means editing the stage block by hand, where forgetting silently wrongs
+        every projection.
+
+        The fallback is not decoration. A `StageSystemSettings` built from a
+        configuration has no holder until `_create_sample_stage` resolves one, and
+        every holder file written before this carries no pre-tilt. Returning 0.0 in
+        either case would turn a 35 degree site flat, which is the one outcome this
+        change must not produce. So the configured value stands until a holder
+        states otherwise.
+        """
+        holder = self.holders.get(self.active_holder)
+        if holder is not None and holder.pre_tilt is not None:
+            return holder.pre_tilt
+        return self._shuttle_pre_tilt
+
+    @shuttle_pre_tilt.setter
+    def shuttle_pre_tilt(self, value: float) -> None:
+        """Setting it sets the active holder's, which is what it means.
+
+        A setter rather than a read-only property because around twenty-five test
+        files use `microscope.system.stage.shuttle_pre_tilt = 35` as their setup
+        idiom, and because it reads correctly: the stage's pre-tilt *is* whatever
+        holder is on it, so changing one is changing the other. The fallback is
+        written too, so the two cannot drift apart through this path.
+        """
+        value = float(value)
+        self._shuttle_pre_tilt = value
+        holder = self.holders.get(self.active_holder)
+        if holder is not None:
+            holder.pre_tilt = value
 
     def to_dict(self):
         return {
@@ -4308,15 +4353,27 @@ class SampleHolder:
         },
     )
     slots: dict[str, GridSlot] = field(default_factory=dict)
+    # The shuttle's pre-tilt, in degrees. A property of *this holder*: swap a 35
+    # degree shuttle for a flat one and the pre-tilt changes with it, which is why it
+    # stopped being a field on the stage.
+    #
+    # `None` means the holder does not say, which is every holder file written before
+    # this existed. It is distinct from 0.0 -- a flat shuttle really is zero, and
+    # reading "unstated" as "flat" on a 35 degree site would silently wrong every
+    # projection. `StageSystemSettings.shuttle_pre_tilt` falls back to its own value
+    # when it sees `None`, and the holder is seeded from it at connect.
+    #
+    # This used to be a property reading *back* from
+    # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
+    # both cannot exist: the stage reads the holder, so a holder that read the stage
+    # would recurse until the interpreter gave up.
+    pre_tilt: Optional[float] = field(
+        default=None,
+        metadata={"unit": "°", "tooltip": "Pre-tilt of this holder, in degrees"},
+    )
 
     def __post_init__(self) -> None:
         self._parent: Optional["FibsemMicroscope"] = None
-
-    @property
-    def pre_tilt(self) -> float:
-        if self._parent is not None:
-            return self._parent.system.stage.shuttle_pre_tilt
-        return 0.0
 
     @property
     def reference_rotation(self) -> float:
@@ -4414,6 +4471,7 @@ class SampleHolder:
             "capacity": self.capacity,
             "slots": slots,
             "description": self.description,
+            "pre_tilt": self.pre_tilt,
         }
 
     # -- occupancy: which grid is in which slot, kept apart from the calibration --
@@ -4457,11 +4515,13 @@ class SampleHolder:
             name: GridSlot.from_dict(slot_data)
             for name, slot_data in data.get("slots", {}).items()
         }
+        pre_tilt = data.get("pre_tilt")
         holder = SampleHolder(
             name=data.get("name", "Sample Holder"),
             capacity=data.get("capacity", max(len(slots), 1)),
             slots=slots,
             description=data.get("description", ""),
+            pre_tilt=None if pre_tilt is None else float(pre_tilt),
         )
         holder._ensure_slots()
         return holder

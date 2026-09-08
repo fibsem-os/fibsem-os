@@ -81,19 +81,32 @@ class TestSampleHolderConstruction:
         assert h.capacity == 2
         assert h.slots == {}
 
-    def test_pre_tilt_no_parent(self):
-        h = SampleHolder()
-        assert h.pre_tilt == 0.0
+    def test_pre_tilt_is_unstated_rather_than_zero(self):
+        """`None`, not 0.0, and the distinction is load-bearing.
+
+        A flat shuttle really is zero. A holder that has not been told its pre-tilt is
+        a different thing, and the stage falls back to its own configured value for
+        it -- reading "unstated" as "flat" would turn every 35 degree site flat at the
+        moment this shipped.
+        """
+        assert SampleHolder().pre_tilt is None
 
     def test_reference_rotation_no_parent(self):
         h = SampleHolder()
         assert h.reference_rotation == 0.0
 
-    def test_pre_tilt_with_parent(self):
-        h = SampleHolder()
+    def test_pre_tilt_is_the_holders_own_and_not_read_from_the_stage(self):
+        """The direction reversed.
+
+        It used to be a property reading back from
+        `_parent.system.stage.shuttle_pre_tilt`. The stage now reads the holder, so a
+        holder that read the stage would recurse until the interpreter gave up -- the
+        two cannot both exist, and this is the one that stores.
+        """
+        h = SampleHolder(pre_tilt=35.0)
 
         class _FakeStage:
-            shuttle_pre_tilt = 35.0
+            shuttle_pre_tilt = 12.0
             rotation_reference = 0.0
 
         class _FakeSystem:
@@ -121,11 +134,16 @@ class TestSampleHolderConstruction:
         h._parent = _FakeMicroscope()
         assert h.reference_rotation == 180.0
 
-    def test_pre_tilt_not_serialised(self):
-        h = SampleHolder(capacity=1)
+    def test_pre_tilt_is_serialised_and_reference_rotation_is_not(self):
+        """Only the pre-tilt moved onto the holder.
+
+        A reference rotation is the stage's: it describes where the stage's own zero
+        is, and that does not change because a different shuttle was fitted.
+        """
+        h = SampleHolder(capacity=1, pre_tilt=35.0)
         h._ensure_slots()
         d = h.to_dict()
-        assert "pre_tilt" not in d
+        assert d["pre_tilt"] == 35.0
         assert "reference_rotation" not in d
 
 
@@ -196,18 +214,28 @@ class TestSerialization:
         assert h2.slots["Slot-01"].loaded_grid is not None
         assert h2.slots["Slot-01"].loaded_grid.name == "Grid-A"
 
-    def test_from_dict_ignores_old_pre_tilt_key(self):
-        d = {
-            "name": "Old Holder",
-            "capacity": 1,
-            "description": "",
-            "pre_tilt": 15.0,
-            "reference_rotation": 90.0,
-            "slots": {},
-        }
-        h = SampleHolder.from_dict(d)
+    def test_from_dict_reads_pre_tilt_and_still_ignores_reference_rotation(self):
+        """`pre_tilt` is the holder's again; `reference_rotation` never comes back.
+
+        Note what this means for a *file* carrying a stale `pre_tilt` -- holder files
+        did once, and it has been ignored since the value became derived.
+        `_resolve_configured_holder` overwrites it with the configured one on the way
+        in rather than resurrecting a number nobody has seen in months. See
+        `tests/test_holder_in_configuration.py`.
+        """
+        h = SampleHolder.from_dict(
+            {
+                "name": "Old Holder",
+                "capacity": 1,
+                "description": "",
+                "pre_tilt": 15.0,
+                "reference_rotation": 90.0,
+                "slots": {},
+            }
+        )
         assert h.name == "Old Holder"
-        assert h.pre_tilt == 0.0
+        assert h.pre_tilt == 15.0
+        assert not hasattr(h, "_reference_rotation")
 
 
 # ---------------------------------------------------------------------------
