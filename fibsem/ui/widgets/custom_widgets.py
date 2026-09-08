@@ -1046,6 +1046,41 @@ class ElidedLabel(QLabel):
 FORM_LABEL_WIDTH = 150
 
 
+class FormGrid(QGridLayout):
+    """A two-column form that folds its hidden rows away.
+
+    QFormLayout keeps the vertical spacing of a row whose widgets are hidden, so
+    a form with its advanced rows hidden ended in a band of nothing the height
+    of those rows' gaps. QGridLayout drops an empty row's spacing along with the
+    row. This speaks the three QFormLayout calls the generated forms use --
+    addRow, rowCount, removeRow -- over a grid, so those forms fold correctly
+    without changing how they are built. `align_form` treats it as the grid it is.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._rows: List[Tuple[QWidget, QWidget]] = []
+
+    def addRow(self, label, field: QWidget) -> None:  # noqa: N802 - Qt naming
+        if isinstance(label, str):
+            label = QLabel(label)
+        row = len(self._rows)
+        self.addWidget(label, row, 0)
+        self.addWidget(field, row, 1)
+        self._rows.append((label, field))
+
+    def rowCount(self) -> int:  # noqa: N802 - Qt naming
+        # QGridLayout.rowCount never shrinks; the forms ask how many rows are live.
+        return len(self._rows)
+
+    def removeRow(self, row: int) -> None:  # noqa: N802 - Qt naming
+        label, field = self._rows.pop(row)
+        for widget in (label, field):
+            self.removeWidget(widget)
+            widget.setParent(None)
+            widget.deleteLater()
+
+
 def align_form(layout) -> None:
     """Give *layout* the shared label column: labels FORM_LABEL_WIDTH, fields the rest.
 

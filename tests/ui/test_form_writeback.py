@@ -205,3 +205,44 @@ def test_enum_members_read_as_words():
     assert _enum_label(Style.CleaningCrossSection) == "Cleaning Cross Section"
     assert _enum_label(Style.EACH_ROW) == "Each Row"
     assert _enum_label(Style.Plain) == "Plain"
+
+
+def test_a_form_grid_folds_its_hidden_rows_away(qapp):
+    """QFormLayout keeps the spacing of a hidden row, so a form with its advanced
+    rows hidden ended in a band of nothing. FormGrid drops the row and its gap."""
+    from PyQt5.QtWidgets import QLabel, QLineEdit, QWidget
+
+    from fibsem.ui.widgets.custom_widgets import FormGrid
+
+    def build(hidden_rows: int) -> int:
+        host = QWidget()
+        grid = FormGrid(host)
+        grid.setContentsMargins(0, 0, 0, 0)
+        for i in range(3 + hidden_rows):
+            label, field = QLabel(f"Row {i}"), QLineEdit()
+            grid.addRow(label, field)
+            if i >= 3:
+                label.setVisible(False)
+                field.setVisible(False)
+        host.show()
+        qapp.processEvents()
+        assert grid.rowCount() == 3 + hidden_rows
+        return host.sizeHint().height()
+
+    assert build(hidden_rows=3) == build(hidden_rows=0)
+
+
+def test_a_form_grid_can_be_emptied_and_refilled(qapp):
+    from PyQt5.QtWidgets import QLineEdit, QWidget
+
+    from fibsem.ui.widgets.custom_widgets import FormGrid
+
+    host = QWidget()
+    grid = FormGrid(host)
+    grid.addRow("One", QLineEdit())
+    grid.addRow("Two", QLineEdit())
+    while grid.rowCount():
+        grid.removeRow(0)
+    assert grid.rowCount() == 0
+    grid.addRow("Three", QLineEdit())
+    assert grid.rowCount() == 1

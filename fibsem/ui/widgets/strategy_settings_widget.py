@@ -7,7 +7,6 @@ from typing import Any, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QFormLayout,
     QLabel,
     QVBoxLayout,
     QWidget,
@@ -18,7 +17,7 @@ from fibsem.milling.strategy import get_strategy_names
 from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import ValueComboBox, align_form
+from fibsem.ui.widgets.custom_widgets import FormGrid, ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
 
 
@@ -66,7 +65,7 @@ class FibsemStrategySettingsWidget(QWidget):
         outer.setSpacing(4)
 
         # Strategy type selector — fixed, not rebuilt
-        type_form = QFormLayout()
+        type_form = FormGrid()
         type_form.setContentsMargins(0, 0, 0, 0)
         self._type_combo = ValueComboBox(
             get_strategy_names(), value=self._strategy.name
@@ -76,7 +75,7 @@ class FibsemStrategySettingsWidget(QWidget):
         outer.addLayout(type_form)
 
         # Config field form — rebuilt on type change
-        self._config_form = QFormLayout()
+        self._config_form = FormGrid()
         self._config_form.setContentsMargins(0, 0, 0, 0)
         outer.addLayout(self._config_form)
 

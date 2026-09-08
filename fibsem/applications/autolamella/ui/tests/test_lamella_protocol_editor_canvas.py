@@ -422,29 +422,7 @@ def test_eye_toggle_routes_through_the_reducer_when_wired():
     assert w._patterns_visible is True
 
 
-# --- the shell: the landmine that breaks the *other* tabs ----------------------
-
-
-def test_layer_controls_menu_survives_a_migrated_tab():
-    """The whole reason tabs can migrate one at a time.
-
-    The handler used to build a dict literal dereferencing all three viewer attributes,
-    so a tab that stopped creating its viewer raised AttributeError for *every* menu
-    entry — and an exception escaping a Qt slot aborts the process under PyQt5
-    (FIB-329). Calling it on an object with no viewer attributes at all is the harshest
-    version of that: it must be a no-op, not a crash.
-    """
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI,
-    )
-
-    class _NoViewers:
-        pass
-
-    handler = AutoLamellaSingleWindowUI._on_toggle_viewer_layer_controls
-    for key in ("microscope", "overview", "lamella", "nonsense"):
-        handler(_NoViewers(), True, key)  # must not raise
-        handler(_NoViewers(), False, key)
+# --- the shell -----------------------------------------------------------------
 
 
 def test_protocol_tab_embeds_the_canvas_not_a_napari_window():

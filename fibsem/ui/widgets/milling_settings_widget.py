@@ -5,14 +5,13 @@ from typing import Dict, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QFormLayout,
     QLabel,
     QWidget,
 )
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings
-from fibsem.ui.widgets.custom_widgets import align_form
+from fibsem.ui.widgets.custom_widgets import FormGrid, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
 
 
@@ -59,7 +58,7 @@ class FibsemMillingSettingsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _setup_ui(self) -> None:
-        layout = QFormLayout(self)
+        layout = FormGrid(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         for field_name, m in _META.items():
