@@ -135,10 +135,9 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 pos="Continue",
             )
 
-        # select point of interest: propose it for review, or ask for it now
-        if self.config.select_poi and self.review:
-            self._propose_poi()
-        elif self.config.select_poi:
+        # select point of interest -- under review it is proposed at the end of
+        # the task instead, on the final reference image
+        if self.config.select_poi and not self.review:
             poi = select_poi_ui(
                 parent_ui=self.parent_ui,
                 # the FIB image the reference acquisition above displayed — the
@@ -171,6 +170,12 @@ class SelectMillingPositionTask(AutoLamellaTask):
         self.lamella.milling_pose = self.microscope.get_microscope_state()
         self.lamella.update_milling_angle(self.microscope)
 
+        # propose the point of interest for review, on the final reference
+        # image -- the last thing acquired, at the stored pose, and the one the
+        # Review tab shows
+        if self.config.select_poi and self.review:
+            self._propose_poi()
+
     def _propose_poi(self) -> None:
         """Leave the point of interest as a proposal instead of asking for it.
 
@@ -193,7 +198,16 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 "proposal; keeping it. Resume leaves completed tasks out."
             )
             return
-        proposal = propose_milling_setup(self.lamella, self._last_fib_image)
+        # The first of the final set is the tightest field of view; the
+        # values are in the milling frame, so any image at the stored pose
+        # would do, but the renderer shows this one.
+        image_name = f"ref_{self.task_name}_final_res_01_ib.tif"
+        if not os.path.exists(os.path.join(str(self.lamella.path), image_name)):
+            settings = getattr(
+                getattr(self._last_fib_image, "metadata", None), "image_settings", None
+            )
+            image_name = f"{settings.filename}_ib.tif" if settings else ""
+        proposal = propose_milling_setup(self.lamella, image_name)
         if proposal is None:
             logging.info(
                 f"{self.lamella.name}: nothing after {self.task_name} consumes a "
@@ -314,7 +328,7 @@ def consumed_values(lamella: "Lamella") -> List[str]:
 
 
 def propose_milling_setup(
-    lamella: "Lamella", reference_image: Optional["FibsemImage"]
+    lamella: "Lamella", reference_image: str = ""
 ) -> Optional[Proposal]:
     """The v1 proposer: the centre of the image, which is today's default
     position (a lamella's point of interest starts at the origin of the milling
@@ -332,22 +346,10 @@ def propose_milling_setup(
         "version": 1,
         "values": values,
     }
-    if reference_image is not None:
-        settings = getattr(reference_image.metadata, "image_settings", None)
-        if settings is not None and settings.filename:
-            # Saved as <filename>_ib.tif in the lamella's folder: acquire.py adds
-            # the beam suffix and FibsemImage.save the extension, so the settings
-            # alone name neither -- and the settings' own ``path`` is not where
-            # the file went (found live: it named the experiment folder). Stored
-            # relative to the lamella, which is also what keeps it valid when
-            # the experiment is moved; readers join it onto ``lamella.path``.
-            name = settings.filename
-            suffix = "_ib" if settings.beam_type is BeamType.ION else "_eb"
-            if not name.endswith(suffix):
-                name += suffix
-            if not name.endswith(".tif"):
-                name += ".tif"
-            provenance["reference_image"] = name
+    if reference_image:
+        # A file name relative to the lamella's folder (<name>_ib.tif); readers
+        # join it onto lamella.path, which also survives a moved experiment.
+        provenance["reference_image"] = reference_image
     return Proposal(
         kind=MILLING_SETUP,
         values={"poi": Point(0.0, 0.0)},
