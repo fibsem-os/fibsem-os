@@ -1834,12 +1834,15 @@ def test_the_frame_can_be_anchored_at_a_chosen_position(qapp, interactive_widget
         qapp.processEvents()
 
 
-def test_anchoring_again_returns_to_following_the_stage(qapp, interactive_widget):
+def test_anchoring_again_returns_to_the_device_origin(qapp, interactive_widget):
+    """`set_origin(None)` hands the anchor back to the automatic one, which is the
+    FM device's configured origin rather than wherever the stage is standing."""
     from fibsem.structures import FibsemStagePosition
 
     widget = interactive_widget
     widget.canvas.clear_overviews()
     stage = widget._current_stage_position()
+    device = widget.microscope.system.stage.devices["FM"].origin
     widget.set_origin(
         FibsemStagePosition(
             x=stage.x + 1e-3,
@@ -1855,9 +1858,37 @@ def test_anchoring_again_returns_to_following_the_stage(qapp, interactive_widget
     widget.set_origin(None)
     qapp.processEvents()
 
-    # re-derived from the stage on the next use, rather than left unset
+    # re-derived on the next use, rather than left unset
     assert widget._frame() is not None
-    assert widget.origin.x == pytest.approx(stage.x)
+    assert widget.origin.x == pytest.approx(device.x or 0.0)
+    assert widget.origin.t == pytest.approx(stage.t)
+
+
+def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
+    """Canvas zero is where the objective looks, which on an offset mount is 48.8 mm
+    from where the stage stands when the tab is built. Anchoring at the stage put
+    every marker, image and overlay the canvas would ever show 48.8 mm from zero."""
+    import os
+
+    import fibsem.config as cfg
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+    )
+    microscope.move_to_orientation("SEM")
+    assert microscope.get_current_device() == "FIBSEM"
+    widget = FMOverviewWidget(microscope)
+    try:
+        frame = widget._frame()
+        assert frame is not None
+        assert widget.origin.x == pytest.approx(48.8e-3)
+        assert widget.origin.y == pytest.approx(0.0)
+        # the pose is the stage's, not the device's: the device declares only a place
+        assert widget.origin.t == pytest.approx(microscope.get_stage_position().t)
+    finally:
+        widget.deleteLater()
+        qapp.processEvents()
 
 
 def test_the_frame_cannot_be_re_anchored_under_placed_images(qapp, interactive_widget):
@@ -4219,9 +4250,11 @@ def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
     passes either way. The target is pinned first so that path is skipped -- dragging the
     grid somewhere and then re-posing the stage is exactly when nothing else would.
 
-    The origin is also put *off* the grid centre. Anchored on it, the limits box and the
-    grid boundary sit at canvas zero whatever the pose -- a zero offset stays zero
-    through any rotation -- so the test would pass by drawing nothing that could move.
+    The origin is also put *off* the grid centre, explicitly -- the automatic anchor
+    is the device origin, which on this compustage *is* the grid centre. Anchored on
+    it, the limits box and the grid boundary sit at canvas zero whatever the pose -- a
+    zero offset stays zero through any rotation -- so the test would pass by drawing
+    nothing that could move.
     """
     from fibsem.structures import FibsemStagePosition
 
@@ -4231,7 +4264,8 @@ def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
         FibsemStagePosition(x=250e-6, y=-180e-6, z=0.0, r=fm.r, t=fm.t)
     )
     widget = FMOverviewWidget(microscope)
-    widget._refresh_tile_grid()  # fixes the origin, off-centre
+    widget.set_origin(microscope.get_stage_position())  # off-centre, on purpose
+    widget._refresh_tile_grid()
     qapp.processEvents()
     before = [(spec.cx, spec.cy) for spec in widget.stage_overlay._specs]
     assert any(cx or cy for cx, cy in before), "nothing drawn that a re-pose could move"
