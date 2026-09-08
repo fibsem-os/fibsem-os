@@ -662,6 +662,14 @@ class ReviewTabWidget(QWidget):
         self.list = QListWidget()
         self.list.setMinimumWidth(300)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # No focus rectangle on the current row (the workflow list does the
+        # same); the selection fill is the only mark.
+        self.list.setFocusPolicy(Qt.NoFocus)
+        self.list.setStyleSheet(
+            "QListWidget { outline: none; } "
+            "QListWidget::item { border: none; } "
+            "QListWidget::item:selected { border: none; }"
+        )
         self.list.currentRowChanged.connect(self._on_row_changed)
         self.show_decided = QCheckBox("Show decided")
         self.show_decided.setToolTip(
