@@ -1,36 +1,36 @@
 # Developer documentation
 
-For people, and coding agents, changing or extending fibsemOS. The user guide
-for operating the application is at [fibsemos.org/docs](https://www.fibsemos.org/docs).
+Documentation for changing or extending fibsemOS. The user guide for
+operating the application is at [fibsemos.org/docs](https://www.fibsemos.org/docs).
 
-| Page | Read it when |
+| Page | Contents |
 | -- | -- |
-| [Getting started as a developer](getting-started.md) | You are new here: the lay of the land, how to run it, and which path fits your goal. |
-| [Contributing](../../CONTRIBUTING.md) | Before your first pull request: PR size, the Python floor, formatting, tests, network rules. |
-| [Extending fibsemOS](extending.md) | You want to add a pattern, strategy or task, drive the microscope from a script, or support an instrument. |
-| [Scripting experiments](../../SCRIPTING.md) | You want to read or change an experiment's data from Python, in a notebook or from the app. |
-| [The simulator](../simulator.md) | What the Demo microscope images, every scene key, and how the figures are generated. |
-| [The screenshot harness](screenshot-harness.md) | You changed the interface and the user guide's screenshots need re-rendering, or you are adding a page to the guide. |
-| [AGENTS.md](../../AGENTS.md) | You are a coding agent. Everything in Contributing applies; this adds what is specific to agents. |
+| [Getting started as a developer](getting-started.md) | Repository layout, running the application against the simulator, running tests, and which extension point applies to a given goal. |
+| [Contributing](../../CONTRIBUTING.md) | Pull request size, the Python version floor, formatting, tests, and network rules. |
+| [Extending fibsemOS](extending.md) | Scripts, plugins (patterns, strategies, tasks), workflow tasks, and microscope backends. |
+| [Scripting experiments](../../SCRIPTING.md) | Reading and modifying experiment data from Python, in a notebook or from the application. |
+| [The simulator](../simulator.md) | What the Demo microscope images, the scene configuration keys, and how the figures are generated. |
+| [The screenshot harness](screenshot-harness.md) | How the user guide's screenshots are rendered from the application, and how to add a page. |
+| [AGENTS.md](../../AGENTS.md) | Conventions for coding agents. Contributing applies in full; this file adds what is specific to agents. |
 
-Developers and agents read the same pages. There is no separate agent
-documentation beyond `AGENTS.md` and the skills under `.claude/skills/`,
-which are entry points into these pages rather than rewrites of them.
+Developers and coding agents use the same pages. `AGENTS.md` and the skills
+under `.claude/skills/` are entry points into them, not separate
+documentation.
 
-## Keeping these true
+## Generated content
 
-Two of these pages are partly generated, and the rest are checked by tests
-where a claim can be executed:
+Two of these pages are partly generated, and the code examples in a third
+are executed by the test suite:
 
-- `simulator.md`'s figures and key table are written by
+- The figures and the key table in `simulator.md` are written by
   [`render_simulator_examples.py`](render_simulator_examples.py) from the
-  scene's own defaults. Re-run it after changing the simulator.
+  scene's defaults. Re-run it after changing the simulator.
 - The user guide's screenshots are written by
   [`render_user_guide.py`](render_user_guide.py) from the running
-  application; a page state that names a widget that no longer exists fails
-  the run rather than leaving a stale image.
-- `SCRIPTING.md`'s example scripts run in the test suite against a real
+  application. A page state that names a widget that no longer exists fails
+  the run.
+- The example scripts in `SCRIPTING.md` run in the test suite against a real
   experiment and the simulator.
 
-If you change something one of these pages describes, change the page in
+A change to something one of these pages describes should update the page in
 the same pull request.

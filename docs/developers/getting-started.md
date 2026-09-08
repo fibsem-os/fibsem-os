@@ -1,31 +1,30 @@
 # Getting started as a developer
 
-This is a router, not a manual: find your goal below and follow its path.
-The rules of the road live in [CONTRIBUTING.md](../../CONTRIBUTING.md) (PR
-size, py3.8 floor, format-on-touch, tests) and [AGENTS.md](../../AGENTS.md);
-read those once before your first change. The paved roads themselves, the
-extension points we recommend and keep stable, are on
-[Extending fibsemOS](extending.md); this page says which one fits your goal.
-Other routes exist in the code; if you need one, open an issue first.
+This page covers the repository layout, how to run the application and the
+tests, and which extension point applies to a given goal. Contribution rules
+(pull request size, the Python 3.8 floor, formatting, tests) are in
+[CONTRIBUTING.md](../../CONTRIBUTING.md) and [AGENTS.md](../../AGENTS.md).
+The supported extension points are described on
+[Extending fibsemOS](extending.md). Other approaches are possible; open an
+issue before relying on internals that are not listed there.
 
-## The lay of the land
+## Repository layout
 
 ```
-fibsem/                     the instrument library (no app logic)
-  microscope.py             FibsemMicroscope — the ABC every microscope
-                            implements (plus, historically, the TFS
-                            implementation itself — ThermoMicroscope lives
-                            in this file, not in microscopes/)
-  microscopes/              tescan, odemis, simulator (DemoMicroscope — the
-                            reference); autoscript.py is TFS helper
-                            subsystems, not the microscope class
-  structures.py             the shared vocabulary: FibsemImage, Point,
-                            FibsemRectangle, stage positions, settings
-  milling/, imaging/        beam operations built on the ABC
-  segmentation/             segmentation models (see "your own model")
-  ui/                       shared Qt widgets, tokens.py palette, canvases
+fibsem/                     the instrument library (no application logic)
+  microscope.py             FibsemMicroscope, the abstract class every backend
+                            implements; also holds ThermoMicroscope, the
+                            Thermo Fisher implementation
+  microscopes/              tescan, odemis, simulator (DemoMicroscope, the
+                            reference implementation); autoscript.py holds
+                            Thermo Fisher helper subsystems, not the class
+  structures.py             shared types: FibsemImage, Point, FibsemRectangle,
+                            stage positions, settings
+  milling/, imaging/        beam operations built on the abstract class
+  segmentation/             segmentation models
+  ui/                       shared Qt widgets, the palette (tokens.py), canvases
   server/                   the agent/bench HTTP server (build_server)
-  mcp/                      the fibsem-mcp sidecar (MCP → HTTP)
+  mcp/                      the fibsem-mcp sidecar (MCP to HTTP)
   plugins/                  entry-point loading: fibsem.patterns,
                             fibsem.strategies, fibsem.tasks
 
@@ -35,77 +34,70 @@ fibsem/applications/autolamella/
                             registration, one module per task
   workflows/interaction.py  how tasks ask questions (ask(), Request types)
   ui/                       the application windows
-  server/                   AgentContext — what remote agents see
-  scripting.py              ScriptContext — what user scripts see
+  server/                   AgentContext, the view remote agents get
+  scripting.py              ScriptContext, the view user scripts get
 
-tests/                      mirrors the layout; tests/ui needs
+tests/                      mirrors the layout; tests/ui requires
                             QT_QPA_PLATFORM=offscreen
 ```
 
-## First: get it running
+## Running the application
 
 ```bash
 pip install -e ".[ui,test,dev]"
 fibsem-autolamella-ui
 ```
 
-In the app, connect with the **Demo** (simulator) configuration — no
-hardware needed; every workflow runs against it. That launch-and-click
-loop is the ground truth here: green tests are weaker evidence than usual
-(see AGENTS.md), so run the app for anything about wiring.
+Connect with the **Demo** configuration. No hardware is needed; every
+workflow runs against the simulator, which images a synthetic cryo-grid
+with cells, film, defects and a holder of grids, so navigation, alignment
+and milling can be exercised end to end. See [the simulator](../simulator.md).
 
-The simulator can image a synthetic cryo-grid, with cells, film, rips and a
-holder full of grids, so navigation, alignment and milling can be exercised for
-real; see [the simulator page](../simulator.md).
+Running the application is the primary check for any change to wiring or
+user interface. CI does not run the Qt test suite, and a passing test run
+is not sufficient evidence that a widget works; see AGENTS.md.
 
-Run tests per affected file, never the whole suite by default:
+## Running tests
+
+Run the test files for the code you changed rather than the whole suite:
 
 ```bash
 QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_something.py -q
 ```
 
-## "I want to support my microscope"
+## Which extension point
 
-The seam is `FibsemMicroscope`, the reference implementation is the Demo,
-and implementing the class is only half of it: the manufacturer has to be
-registered in four places or connecting fails at runtime. All of it, with
-the tests to run, is under [Supporting a microscope](extending.md#supporting-a-microscope).
+**Supporting a microscope.** Implement `FibsemMicroscope`, using the Demo
+implementation as the reference, and register the manufacturer in the four
+places listed under [Supporting a microscope](extending.md#supporting-a-microscope).
+Implementing the class without registering it fails at connection time.
 
-## "I want to automate something"
+**Automating a procedure.** Three options, in increasing order of
+integration: a plain script against the library with no application; a user
+script that the application runs against the open experiment, receiving a
+`ScriptContext`; or a workflow task, when the procedure should run in the
+queue with supervision and history. The [choosing a route](extending.md#choosing-a-route)
+table compares them, and [SCRIPTING.md](../../SCRIPTING.md) covers scripts in
+full.
 
-Three tiers, from least to most involved: a plain script against the
-library with no app; a user script that the app runs against the experiment
-it has open, receiving a `ScriptContext`; or a workflow task, when the
-automation should live in the queue with supervision and history. The
-[choosing a route](extending.md#choosing-a-route) table says which, and
-[SCRIPTING.md](../../SCRIPTING.md) covers scripts in full.
-
-## "I want to add or extend a workflow task"
-
-Subclass `AutoLamellaTask` with a matching config, override `_run()`, ask
-questions through `ask()`, record what you produce. The contracts, the
-mistakes that lose state silently, and shipping a task as a plugin are under
+**Adding or extending a workflow task.** Subclass `AutoLamellaTask` with a
+matching configuration class, override `_run()`, ask questions through
+`ask()`, and record outputs on the task's history entry. The contracts, the
+failure modes, and shipping a task as a plugin are under
 [Workflow tasks](extending.md#workflow-tasks) and [Plugins](extending.md#plugins).
 
-## "I want to use my own segmentation model"
+**Using a segmentation model.** Models live under `fibsem/segmentation/`;
+see [Segmentation models](extending.md#segmentation-models).
 
-`fibsem/segmentation/` is the home; the caveats are under
-[Your own segmentation model](extending.md#your-own-segmentation-model).
+**Building against the agent server.** The agent server is internal for
+now. `docs/agent-server.md` describes it; the tool catalogue in
+`fibsem/server/catalog.py` is the contract, and the supervision skill under
+`.claude/skills/` is a reference client.
 
-## "I want to build against the agent server"
-
-The agent server is internal for now. `docs/agent-server.md` in this
-repository describes it; the tool catalog in `fibsem/server/catalog.py` is
-the contract, and the supervision skill under `.claude/skills/` shows what a
-well-behaved client looks like.
-
-## "I want to work on the UI"
-
-Use the role-named palette tokens (`fibsem/ui/tokens.py`) and prebuilt
-stylesheets — never pasted hex. Two rules with history behind them: UI
-event handlers never read the microscope (push updates or cached state
-only — an observer must not make the app poll hardware), and anything
-cross-thread goes through signals or the responder seam, never direct
-widget access. Check layout with an offscreen screenshot
-(`widget.grab().save(...)`) before calling a widget done, and remember CI
-does not run the Qt tests — launch the app.
+**Working on the user interface.** Use the palette tokens in
+`fibsem/ui/tokens.py` and the shared stylesheets rather than literal
+colours. Two rules: UI event handlers do not read from the microscope
+(updates are pushed, or come from cached state), and cross-thread
+communication goes through signals or the responder seam, never through
+direct widget access. Check layout with an offscreen screenshot
+(`widget.grab().save(...)`) and by running the application.
