@@ -120,6 +120,49 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 field_of_view=self.config.reference_imaging.field_of_view1,
             )
 
+        # confirm with user to move to milling position
+        if self.validate:
+            ask_user(
+                parent_ui=self.parent_ui,
+                msg=f"Double click the image to move to the milling position for {self.lamella.name}. "
+                f"Press Continue when done.",
+                pos="Continue",
+            )
+
+        # select point of interest
+        if self.config.select_poi:
+            poi = select_poi_ui(
+                parent_ui=self.parent_ui,
+                # the FIB image the reference acquisition above displayed — the
+                # marker's coordinates only mean something against it
+                image=self._last_fib_image,
+                msg=f"Move the marker to the point of interest for {self.lamella.name}. Press Continue when done.",
+                validate=self.validate,
+                initial_poi=self.lamella.poi,
+            )
+            if poi is not None:
+                self.lamella.poi = poi
+                synced = self.lamella.sync_tasks_to_poi()
+                if synced:
+                    logging.info(f"Synced tasks to POI: {synced}")
+
+        # validate alignment area
+        self._validate_alignment_area()
+
+        # acquire alignment reference image
+        self._acquire_alignment_reference_image(
+            image_settings=self.image_settings,
+            reduced_area=self.lamella.alignment_area,
+            field_of_view=self.config.reference_imaging.field_of_view1,
+        )
+
+        # reference images
+        self._acquire_set_of_reference_images(self.image_settings)
+
+        # store milling pose and angle
+        self.lamella.milling_pose = self.microscope.get_microscope_state()
+        self.lamella.update_milling_angle(self.microscope)
+
     def _align_coincident_for_milling(
         self, milling_angle: float, is_close: bool
     ) -> None:
@@ -204,46 +247,3 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 "at the target tilt",
                 tilt.reason,
             )
-
-        # confirm with user to move to milling position
-        if self.validate:
-            ask_user(
-                parent_ui=self.parent_ui,
-                msg=f"Double click the image to move to the milling position for {self.lamella.name}. "
-                f"Press Continue when done.",
-                pos="Continue",
-            )
-
-        # select point of interest
-        if self.config.select_poi:
-            poi = select_poi_ui(
-                parent_ui=self.parent_ui,
-                # the FIB image the reference acquisition above displayed — the
-                # marker's coordinates only mean something against it
-                image=self._last_fib_image,
-                msg=f"Move the marker to the point of interest for {self.lamella.name}. Press Continue when done.",
-                validate=self.validate,
-                initial_poi=self.lamella.poi,
-            )
-            if poi is not None:
-                self.lamella.poi = poi
-                synced = self.lamella.sync_tasks_to_poi()
-                if synced:
-                    logging.info(f"Synced tasks to POI: {synced}")
-
-        # validate alignment area
-        self._validate_alignment_area()
-
-        # acquire alignment reference image
-        self._acquire_alignment_reference_image(
-            image_settings=self.image_settings,
-            reduced_area=self.lamella.alignment_area,
-            field_of_view=self.config.reference_imaging.field_of_view1,
-        )
-
-        # reference images
-        self._acquire_set_of_reference_images(self.image_settings)
-
-        # store milling pose and angle
-        self.lamella.milling_pose = self.microscope.get_microscope_state()
-        self.lamella.update_milling_angle(self.microscope)
