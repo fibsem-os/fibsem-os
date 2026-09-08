@@ -598,10 +598,15 @@ class _InboxRow(QWidget):
         dim: bool = False,
     ) -> None:
         super().__init__()
+        # The list paints the row's background and selection; the widget and
+        # its icon must not paint the app's default one over it.
+        self.setStyleSheet("background: transparent;")
+        self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 5, 8, 5)
         layout.setSpacing(9)
         ic = QLabel()
+        ic.setStyleSheet("background: transparent; border: none;")
         ic.setPixmap(fibsem_icon(icon, color=colour).pixmap(16, 16))
         ic.setFixedWidth(18)
         layout.addWidget(ic, 0, Qt.AlignTop)
