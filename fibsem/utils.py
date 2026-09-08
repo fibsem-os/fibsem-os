@@ -539,6 +539,8 @@ CONFIGURATION_SCHEMA: Dict[str, Set[str]] = {
         "milling_angle",
         "devices",
         "device_range",
+        "holders",
+        "active_holder",
     },
     # No `plasma` or `plasma_gas`: an electron column has no plasma source. They are
     # ion-column keys, and `BeamSystemSettings` carries them on both columns only
