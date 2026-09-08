@@ -430,6 +430,14 @@ class FeatureFlags:
     # changed default reaches only fresh installs; the release that flips it needs
     # a note, or a migration, not just this line.
     grid_workflow: bool = False
+    # Propose and review (FIB-946..950): a task completes and leaves a proposal
+    # -- a point of interest, to start with -- for the operator to confirm or
+    # reject later in a Review tab, off the beam, instead of answering inline
+    # while the stage waits. Gates the whole path: the producer writing a
+    # proposal, the run deferring the consumer until it is decided, the wait
+    # before a run reports itself stalled, and the tab. Off, every task behaves
+    # exactly as before. Off by default while it is a proof of concept.
+    proposer_reviewer_workflow_enabled: bool = False
 
 
 @dataclass
