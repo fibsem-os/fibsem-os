@@ -1059,7 +1059,9 @@ def align_form(layout) -> None:
         layout.setColumnMinimumWidth(0, FORM_LABEL_WIDTH)
         layout.setColumnStretch(1, 1)
     elif isinstance(layout, QFormLayout):
-        layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        # AllNonFixedFieldsGrow, not ExpandingFieldsGrow: the generated controls
+        # keep Qt's Preferred policy, which the latter leaves at natural width.
+        layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         for row in range(layout.rowCount()):
             item = layout.itemAt(row, QFormLayout.LabelRole)
             if item is not None and item.widget() is not None:

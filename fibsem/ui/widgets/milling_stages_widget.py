@@ -93,10 +93,10 @@ class FibsemMillingStagesWidget(QWidget):
             checked_tooltip="Hide advanced settings",
         )
 
-        milling_panel = TitledPanel("Milling", content=self._milling_widget)
-        milling_panel.add_header_widget(self._btn_advanced)
-        milling_panel._btn_collapse.setChecked(False)
-        detail_layout.addWidget(milling_panel)
+        self._milling_panel = TitledPanel("Milling", content=self._milling_widget)
+        self._milling_panel.add_header_widget(self._btn_advanced)
+        self._milling_panel._btn_collapse.setChecked(False)
+        detail_layout.addWidget(self._milling_panel)
 
         # Pattern settings
         self._pattern_widget = FibsemPatternSettingsWidget(
@@ -111,10 +111,10 @@ class FibsemMillingStagesWidget(QWidget):
             checked_tooltip="Hide advanced settings",
         )
 
-        pattern_panel = TitledPanel("Pattern", content=self._pattern_widget)
-        pattern_panel.add_header_widget(self._btn_advanced_pattern)
-        pattern_panel._btn_collapse.setChecked(False)
-        detail_layout.addWidget(pattern_panel)
+        self._pattern_panel = TitledPanel("Pattern", content=self._pattern_widget)
+        self._pattern_panel.add_header_widget(self._btn_advanced_pattern)
+        self._pattern_panel._btn_collapse.setChecked(False)
+        detail_layout.addWidget(self._pattern_panel)
 
         # Strategy settings
         self._strategy_widget = FibsemStrategySettingsWidget(
@@ -128,10 +128,10 @@ class FibsemMillingStagesWidget(QWidget):
             checked_tooltip="Hide advanced settings",
         )
 
-        strategy_panel = TitledPanel("Strategy", content=self._strategy_widget)
-        strategy_panel.add_header_widget(self._btn_advanced_strategy)
-        strategy_panel._btn_collapse.setChecked(False)
-        detail_layout.addWidget(strategy_panel)
+        self._strategy_panel = TitledPanel("Strategy", content=self._strategy_widget)
+        self._strategy_panel.add_header_widget(self._btn_advanced_strategy)
+        self._strategy_panel._btn_collapse.setChecked(False)
+        detail_layout.addWidget(self._strategy_panel)
 
         layout.addWidget(self._detail_widget)
         self._detail_widget.setVisible(False)
@@ -164,6 +164,13 @@ class FibsemMillingStagesWidget(QWidget):
         self._milling_widget.set_settings(stage.milling)
         self._pattern_widget.set_pattern(stage.pattern)
         self._strategy_widget.set_strategy(stage.strategy)
+        # Selecting a stage used to reveal three closed headers, so the click
+        # looked like it did nothing. Milling and Pattern open with the first
+        # selection; Strategy stays as the operator left it, since it usually has
+        # nothing to show. After that the panels keep whatever state they were put in.
+        if not self._detail_widget.isVisible():
+            self._milling_panel.expand()
+            self._pattern_panel.expand()
         self._detail_widget.setVisible(True)
 
     def _on_row_selected(self, stage: Optional[FibsemMillingStage]) -> None:
