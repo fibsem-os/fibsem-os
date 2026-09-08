@@ -300,11 +300,18 @@ def _load_reference_image(item: Any, proposal: Proposal) -> Optional[FibsemImage
     path = proposal.provenance.get("reference_image")
     if not path:
         return None
+    item_dir = str(getattr(item, "path", ""))
     if not os.path.isabs(path):
-        path = os.path.join(str(getattr(item, "path", "")), path)
+        path = os.path.join(item_dir, path)
     if not os.path.exists(path):
-        logging.warning(f"Reference image for review not found: {path}")
-        return None
+        # An early proposal recorded the experiment folder rather than the
+        # lamella's; the file is the lamella's by name.
+        fallback = os.path.join(item_dir, os.path.basename(path))
+        if os.path.exists(fallback):
+            path = fallback
+        else:
+            logging.warning(f"Reference image for review not found: {path}")
+            return None
     try:
         return FibsemImage.load(path)
     except Exception:
