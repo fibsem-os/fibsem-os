@@ -129,12 +129,16 @@ class FluorescenceOverviewGridTask(GridTask):
     config: FluorescenceOverviewGridTaskConfig
 
     def grid_centre(self) -> FibsemStagePosition:
-        """The grid's calibrated slot position, at the FM.
+        """The grid's calibrated slot position, at the FM, in its acquisition pose.
 
-        On a compustage the FM is an orientation (a flip); on an offset mount it is
-        a device the stage travels to with its pose kept. `get_target_position`
-        spells the two differently, and refuses the wrong one, so the branch is here.
+        One call on either mounting: the FM's acquisition orientation *at* the FM
+        device. A compustage takes the device leg with a zero translation and gets
+        the flip; an offset mount gets the traverse, and its pose snapped to the one
+        the objective images in rather than whatever the slot was calibrated at.
         """
+        fm = getattr(self.microscope, "fm", None)
+        if fm is None:
+            raise RuntimeError("This system has no fluorescence microscope.")
         slot = self.slot
         if slot is None:
             raise RuntimeError(
@@ -142,9 +146,11 @@ class FluorescenceOverviewGridTask(GridTask):
             )
         if slot.position is None:
             raise RuntimeError(uncalibrated_message(slot.name))
-        if self.microscope.stage_is_compustage:
-            return self.microscope.get_target_position(slot.position, "FM")
-        return self.microscope.get_target_position(slot.position, target_device="FM")
+        return self.microscope.get_target_position(
+            slot.position,
+            target_orientation=fm.pose_orientation,
+            target_device="FM",
+        )
 
     def _run(self) -> None:
         fm = getattr(self.microscope, "fm", None)

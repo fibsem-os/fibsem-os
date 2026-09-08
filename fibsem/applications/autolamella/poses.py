@@ -11,8 +11,11 @@ the fluorescence pose from it. The FM overview tab marks positions on the fluore
 side, and handing one of those to the same function sets a milling pose at t = -180 --
 an orientation nothing mills at. Nothing rejects it; it fails later, somewhere else.
 
-So the orientation is read off the position rather than assumed. It is already there,
-in the rotation and tilt, which is how `get_target_position` works at all.
+So which side a position was marked from is read off the position rather than assumed.
+On a compustage it is in the rotation and tilt; on an offset mount it is in *where the
+stage is parked*, ~48 mm out along x with the pose it was carried out in. One question
+covers both -- can the objective see the sample from here -- and the microscope answers
+it (`get_device_imaging_state`, FIB-839), so nothing here branches on the mounting.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
-from fibsem.structures import FibsemStagePosition, MicroscopeState
+from fibsem.structures import DeviceImagingState, FibsemStagePosition, MicroscopeState
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.microscope import FibsemMicroscope
@@ -31,7 +34,15 @@ if TYPE_CHECKING:  # pragma: no cover - annotation only
 # recovered. See `build_lamella_poses` for when that happens.
 MILLING_ORIENTATION = "MILLING"
 
+# The side a lamella is looked at from. On a compustage it is also the orientation the
+# stage flips to; on an offset mount it is a device the stage travels to, and the pose
+# held there is whatever the FM declares (`stage.devices.FM.acquisition_orientations`).
+# Callers use it to *declare a side* to `build_lamella_poses`, never to re-pose with.
 FLUORESCENCE_ORIENTATION = "FM"
+
+# The two devices a lamella's poses are at, by the names the stage configuration uses.
+BEAMS_DEVICE = "FIBSEM"
+FM_DEVICE = "FM"
 
 
 @dataclass(frozen=True)
@@ -92,9 +103,13 @@ def build_lamella_poses(
         state.stage_position = deepcopy(position)
 
     if marked_at is None:
-        marked_at = microscope.get_stage_orientation(state.stage_position)
+        marked_from_fluorescence = _is_fluorescence_position(
+            microscope, state.stage_position
+        )
+    else:
+        marked_from_fluorescence = marked_at == FLUORESCENCE_ORIENTATION
 
-    if marked_at == FLUORESCENCE_ORIENTATION:
+    if marked_from_fluorescence:
         milling_position = _to_milling(microscope, state.stage_position)
         fluorescence_position = deepcopy(state.stage_position)
     else:
@@ -140,7 +155,7 @@ def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
 
     Returns:
         True if the pose was updated; False if there was none to update, or the
-        instrument cannot work one out (an offset mount -- see FIB-93).
+        instrument could not work one out.
     """
     pose = getattr(lamella, "fluorescence_pose", None)
     if pose is None:
@@ -156,9 +171,9 @@ def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
 
     position = _to_fluorescence(microscope, milling.stage_position)
     if position is None:
-        # Left as it stands rather than cleared. It cannot be derived on this system, so
-        # whatever is there was put there deliberately and is the better of two bad
-        # answers -- but it is now stale, and saying so is the only thing left to do.
+        # Left as it stands rather than cleared. Whatever is there was put there
+        # deliberately and is the better of two bad answers -- but it is now stale, and
+        # saying so is the only thing left to do.
         logging.warning(
             f"Could not update the fluorescence pose of "
             f"{getattr(lamella, 'name', '?')} to follow its milling pose; it still "
@@ -170,34 +185,53 @@ def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
     return True
 
 
+def _is_fluorescence_position(
+    microscope: "FibsemMicroscope", position: FibsemStagePosition
+) -> bool:
+    """Can the objective see the sample from *position*?
+
+    READY strictly, not `allows_acquisition`: this decides which of a lamella's poses
+    gets *written* from the position, and a position the objective could image after a
+    re-pose is still not the fluorescence pose.
+
+    Without an FM the device question has no answer, so the orientation stands in for
+    it -- which is all a compustage ever needed.
+    """
+    if microscope.fm is None:
+        return microscope.get_stage_orientation(position) == FLUORESCENCE_ORIENTATION
+    state = microscope.get_device_imaging_state("FM", position)
+    return state is DeviceImagingState.READY
+
+
 def _to_milling(
     microscope: "FibsemMicroscope", position: FibsemStagePosition
 ) -> FibsemStagePosition:
-    """A fluorescence position re-posed for milling.
+    """A fluorescence position re-posed for milling, under the beams.
 
     The canonical milling orientation, not a recovered one: a fluorescence pose does not
     record which beam orientation it came from -- the transform only rewrites rotation
     and tilt, so a lamella marked at the SEM and one marked at the milling angle both
-    arrive at t = -180 and are indistinguishable afterwards. For a target found *in*
-    fluorescence there is no earlier pose to recover anyway, and the orientation milling
-    actually happens at is the only defensible answer.
+    arrive at the same fluorescence pose and are indistinguishable afterwards. For a
+    target found *in* fluorescence there is no earlier pose to recover anyway, and the
+    orientation milling actually happens at is the only defensible answer.
+
+    Checked before converting, because `get_target_position` will not: it converts
+    whatever it is given. A position the objective cannot see the sample from is not a
+    fluorescence position, and re-posing it "for milling" would write a milling pose
+    somewhere the lamella is not. Refused instead, naming what is wrong with it.
     """
-    # Checked here rather than left to `get_target_position` to complain, because it
-    # will not. That function re-derives the orientation from the position, and on an
-    # offset mount a fluorescence position already classifies as MILLING -- so the
-    # conversion returns early, unchanged, and the caller gets its own position back as
-    # somewhere to mill. The precondition is about the *system*, so ask the system.
-    if not microscope.stage_is_compustage:
-        raise ValueError(
-            "Cannot mark a lamella from the fluorescence view on this system: there is "
-            "no transform between the fluorescence and beam positions on an offset "
-            "mount, so the milling pose cannot be derived (FIB-93). Mark it from the "
-            "beam side instead."
-        )
+    if microscope.fm is not None:
+        state = microscope.get_device_imaging_state("FM", position)
+        if state is not DeviceImagingState.READY:
+            raise ValueError(
+                "Cannot take this as a fluorescence position: "
+                + microscope.describe_device_imaging_state("FM", state, position)
+            )
     try:
         return microscope.get_target_position(
             stage_position=deepcopy(position),
             target_orientation=MILLING_ORIENTATION,
+            target_device=BEAMS_DEVICE,
         )
     except ValueError as e:
         raise ValueError(
@@ -208,19 +242,28 @@ def _to_milling(
 def _to_fluorescence(
     microscope: "FibsemMicroscope", position: FibsemStagePosition
 ) -> Optional[FibsemStagePosition]:
-    """A beam position re-posed for fluorescence, or None if it cannot be.
+    """A beam position re-posed and relocated for fluorescence, or None if it cannot be.
 
     Unavailability is not an error here, unlike the other direction. A beam-side caller
     is marking somewhere to mill and the fluorescence pose is a convenience; refusing
     the whole lamella because the system cannot work one out would break marking
-    lamellae on every offset system.
+    lamellae outright.
+
+    Asked for as the pair -- the FM's acquisition orientation *at* the FM device --
+    which is what a fluorescence pose is on either mounting. A compustage takes the
+    device leg with a zero translation and gets the flip it always had; an offset mount
+    gets the traverse. An FM declared with no acquisition orientations constrains the
+    pose not at all (`pose_orientation` is None), so the position is relocated with
+    its pose kept.
     """
-    if microscope.fm is None:
+    fm = microscope.fm
+    if fm is None:
         return None
     try:
         return microscope.get_target_position(
             stage_position=deepcopy(position),
-            target_orientation=microscope.fm.default_orientation,
+            target_orientation=fm.pose_orientation,
+            target_device=FM_DEVICE,
         )
     except ValueError as e:
         logging.debug(f"Could not derive a fluorescence pose for {position}: {e}")

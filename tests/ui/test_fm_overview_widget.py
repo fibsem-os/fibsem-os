@@ -3381,10 +3381,11 @@ def _real_lamella(name, microscope, tmp_path, x=100e-6, y=50e-6):
 
 
 def test_adding_declares_the_fluorescence_orientation(qapp, tmp_path):
-    """Not left to be derived. On a compustage the answer would be the same; on an
-    offset mount it would not, and the wrong answer there is a lamella with a milling
-    pose 48 mm off the beam axis that nothing rejects until something tries to mill it
-    (FIB-93). Declaring it turns that into a refusal with a user to tell."""
+    """Not left to be derived. `build_lamella_poses` can read the side off the
+    position on either mounting now, but this tab *knows* which side it is marking
+    from, and saying so costs nothing: a declared side is checked against the
+    geometry rather than trusted, so the worst case is a refusal with a user to tell
+    rather than a lamella built from a misread position."""
     from fibsem.applications.autolamella.poses import FLUORESCENCE_ORIENTATION
 
     host = _wired_host(qapp, tmp_path)
