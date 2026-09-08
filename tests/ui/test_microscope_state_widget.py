@@ -120,22 +120,55 @@ def test_the_beams_are_rendered_too(qapp):
 
 
 def test_a_collapsed_beam_still_reports_its_headline(qapp):
-    """So shutting a section loses the detail, not the fact that the FIB is at 30 kV."""
+    """So shutting a section loses the detail, not the fact that the FIB is at 30 kV.
+
+    The headline is its own right-aligned label in the panel header rather than part
+    of the title, so it lands on the same edge as the values it summarises.
+    """
     widget = MicroscopeStateWidget()
     widget.set_state(_state())
 
-    assert "30.00 kV" in widget.panel_ion._title_label.text()
-    assert "20 pA" in widget.panel_ion._title_label.text()
+    assert widget.panel_ion._btn_collapse.isChecked() is False
+    assert "30.00 kV" in widget.headline_ion.text()
+    assert "20 pA" in widget.headline_ion.text()
+    # The title stays the section's name; the numbers are not part of it.
+    assert widget.panel_ion._title_label.text() == "FIB"
+    assert "font-weight: normal" in widget.headline_ion.styleSheet()
+
+
+def test_the_beams_are_named_the_way_the_canvases_name_them(qapp):
+    """SEM and FIB, not Electron and Ion.
+
+    The enum members are ELECTRON and ION, but every surface an operator reads says
+    SEM and FIB -- the quad-view panel titles, the coincidence tabs, the stage
+    orientations. A readout beside those canvases should agree with them.
+    """
+    widget = MicroscopeStateWidget()
+    assert widget.panel_electron._title_label.text() == "SEM"
+    assert widget.panel_ion._title_label.text() == "FIB"
+
+    widget.set_state(_state())
+    assert widget.panel_electron._title_label.text() == "SEM"
+    assert widget.panel_ion._title_label.text() == "FIB"
+
+    titles = {label.text() for label in widget.findChildren(QLabel) if label.text()}
+    assert not any(t.startswith(("Electron", "Ion")) for t in titles)
 
 
 def test_the_beams_start_collapsed_and_the_stage_does_not_collapse(qapp):
-    """A pose row in a list cannot expand to forty lines, and a pose that will not say
-    where it is has no reason to be in the list."""
+    """Collapsed keeps the popup short: opening both takes it from 277 to 635 pixels,
+    dropped over a row that may already be near the bottom of a panel. The headline on
+    each title carries what most glances are after.
+
+    The stage never collapses: a pose that will not say where it is has no reason to
+    be on screen.
+    """
     widget = MicroscopeStateWidget()
 
     assert widget.panel_stage._collapsible is False
     assert widget.panel_electron._btn_collapse.isChecked() is False
     assert widget.panel_ion._btn_collapse.isChecked() is False
+    assert widget.panel_electron._collapsible is True
 
 
 def test_a_missing_value_renders_as_a_dash(qapp):
@@ -155,6 +188,7 @@ def test_clearing_empties_every_section(qapp):
     widget.clear()
 
     assert _grid_text(widget.grid_stage) == {}
+    assert widget.headline_ion.text() == "", "a cleared panel reports no values"
     assert widget.label_timestamp.text() == ""
     assert widget.label_delta.isHidden() is True
 

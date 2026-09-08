@@ -143,16 +143,27 @@ class MicroscopeStateWidget(QWidget):
         )
         outer.addWidget(self.panel_stage)
 
-        # The beams collapse, and start collapsed: a pose row that expands to forty
-        # lines is not a row. Their headline values go on the panel title instead, so
-        # a shut section still reports that the FIB is at 30 kV.
+        # SEM and FIB, not Electron and Ion. The enum members are ELECTRON and ION,
+        # but every surface an operator reads says SEM and FIB -- the quad-view panel
+        # titles, the coincidence tabs, the stage orientations. A readout beside those
+        # canvases should name the beams the way the canvases do.
+        #
+        # Collapsed to start. Opening both takes the popup from 277 to 635 pixels
+        # tall, which is a lot of panel to drop over a row that may already be near
+        # the bottom of one -- and the headline on each title carries the values most
+        # glances are after, so a shut section still reports that the FIB is at
+        # 30 kV. Expanding is one click when the rest is actually wanted.
         self.grid_electron = _ValueGrid()
-        self.panel_electron = TitledPanel("Electron", content=self.grid_electron)
+        self.panel_electron = TitledPanel("SEM", content=self.grid_electron)
+        self.headline_electron = _headline_label()
+        self.panel_electron.add_header_widget(self.headline_electron)
         self.panel_electron.collapse()
         outer.addWidget(self.panel_electron)
 
         self.grid_ion = _ValueGrid()
-        self.panel_ion = TitledPanel("Ion", content=self.grid_ion)
+        self.panel_ion = TitledPanel("FIB", content=self.grid_ion)
+        self.headline_ion = _headline_label()
+        self.panel_ion.add_header_widget(self.headline_ion)
         self.panel_ion.collapse()
         outer.addWidget(self.panel_ion)
 
@@ -218,8 +229,8 @@ class MicroscopeStateWidget(QWidget):
         if state is None:
             for grid in (self.grid_stage, self.grid_electron, self.grid_ion):
                 grid.clear()
-            self.panel_electron.set_title("Electron")
-            self.panel_ion.set_title("Ion")
+            self.headline_electron.setText("")
+            self.headline_ion.setText("")
             self.label_delta.setVisible(False)
             self.label_timestamp.setText("")
             return
@@ -241,10 +252,8 @@ class MicroscopeStateWidget(QWidget):
             else None,
         )
 
-        self.panel_electron.set_title(
-            f"Electron   {_beam_headline(state.electron_beam)}"
-        )
-        self.panel_ion.set_title(f"Ion   {_beam_headline(state.ion_beam)}")
+        self.headline_electron.setText(_beam_headline(state.electron_beam))
+        self.headline_ion.setText(_beam_headline(state.ion_beam))
 
         separation = _separation(state, reference) if comparing else None
         self.label_delta.setVisible(separation is not None)
@@ -438,6 +447,25 @@ class _ValueGrid(QWidget):
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             label.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 9pt;")
             self._layout.addWidget(label, 0, column)
+
+
+def _headline_label() -> QLabel:
+    """The collapsed summary, right-aligned in the panel header.
+
+    Right rather than appended to the title, so it sits on the same edge as the values
+    it summarises: expand the section and `2.00 kV` in the header is directly above
+    `2.00 kV` in the rows. Appended, it started at a different x for each section --
+    the name lengths differ -- and inherited the title's bold, which made data look
+    like a heading.
+
+    `add_header_widget` inserts before the collapse button, which is the placement
+    `TitledPanel` is built for.
+    """
+    label = QLabel("")
+    # Explicitly normal: the header's own rule bolds the title, and without this the
+    # values arrive bold too.
+    label.setStyleSheet("background: transparent; font-weight: normal;")
+    return label
 
 
 def _chip(text: str, colour: str) -> QLabel:
