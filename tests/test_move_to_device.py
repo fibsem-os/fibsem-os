@@ -74,6 +74,46 @@ def test_the_round_trip_is_one_call_each_way():
     assert microscope.get_stage_orientation() == "FIB"
 
 
+# ── it arrives on the same piece of sample ──────────────────────────────
+
+
+def _off_centre(microscope, orientation: str) -> FibsemStagePosition:
+    pose = microscope.get_orientation(orientation)
+    return FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=pose.r, t=pose.t)
+
+
+def test_the_traverse_keeps_the_sample_point():
+    """Where the stage lands is where `get_target_position` says the same point is
+    at the FM. It used to re-pose by name, which rewrites r and t where the stage
+    stands: the half turn is compucentric about a centre that is not the sample, so
+    the point under the beam was swung away before the traverse -- and the FM ended
+    up looking at somewhere else, 200 um off on the simulator."""
+    microscope = _microscope()
+    start = _off_centre(microscope, "SEM")
+    microscope.move_stage_absolute(start)
+    expected = microscope.get_target_position(start, "FIB", target_device="FM")
+
+    microscope.move_to_device("FM")
+
+    arrived = microscope.get_stage_position()
+    assert arrived.x == pytest.approx(expected.x, abs=1e-9)
+    assert arrived.y == pytest.approx(expected.y, abs=1e-9)
+    assert microscope.get_stage_orientation(arrived) == "FIB"
+
+
+def test_going_out_and_back_returns_to_the_start():
+    microscope = _microscope()
+    start = _off_centre(microscope, "SEM")
+    microscope.move_stage_absolute(start)
+
+    microscope.move_to_device("FM")
+    microscope.move_to_device("FIBSEM", orientation="SEM")
+
+    back = microscope.get_stage_position()
+    assert back.x == pytest.approx(start.x, abs=1e-9)
+    assert back.y == pytest.approx(start.y, abs=1e-9)
+
+
 # ── what a traverse still does not do ────────────────────────────────
 
 
