@@ -41,6 +41,7 @@ __all__ = [
     "human_author",
     "agent_author",
     "register_proposal_kind",
+    "supersede",
     "write_value",
 ]
 
@@ -254,6 +255,13 @@ class Proposal:
     created_at: float = field(
         default_factory=lambda: datetime.timestamp(datetime.now())
     )
+    # Earlier proposals for the same item and task, oldest first, each with
+    # its decisions. A deliberate re-run of the producing task supersedes a
+    # decided proposal rather than keeping or overwriting it: the operator
+    # asked for a new answer on a new image, and the old answer -- and its
+    # delta -- stays on the record. The old value is not carried over as the
+    # new default; a stale default is the rubber stamp the delta detects.
+    superseded: List["Proposal"] = field(default_factory=list)
 
     @property
     def pending(self) -> bool:
@@ -289,6 +297,7 @@ class Proposal:
             "provenance": dict(self.provenance),
             "decisions": [d.to_dict() for d in self.decisions],
             "created_at": self.created_at,
+            "superseded": [p.to_dict() for p in self.superseded],
         }
 
     @classmethod
@@ -303,7 +312,18 @@ class Proposal:
             provenance=dict(data.get("provenance", {})),
             decisions=[Decision.from_dict(d) for d in data.get("decisions", [])],
             created_at=data.get("created_at", 0.0),
+            superseded=[Proposal.from_dict(p) for p in data.get("superseded", [])],
         )
+
+
+def supersede(old: Optional[Proposal], new: Proposal) -> Proposal:
+    """``new`` replaces ``old`` for the same item and task, keeping ``old`` and
+    everything before it on the record, oldest first, flat (no nesting)."""
+    if old is not None:
+        history = list(old.superseded)
+        old.superseded = []
+        new.superseded = history + [old]
+    return new
 
 
 def proposals_to_dict(proposals: Dict[str, Proposal]) -> Dict[str, dict]:

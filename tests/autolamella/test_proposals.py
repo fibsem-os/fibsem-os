@@ -91,6 +91,31 @@ def test_proposal_round_trips_through_yaml_with_points_intact():
     assert not again.pending
 
 
+def test_a_superseded_proposal_stays_on_the_record_flat_and_oldest_first():
+    from fibsem.applications.autolamella.proposals import supersede
+
+    first = _proposal(Point(1e-6, 0))
+    first.decisions.append(
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(2e-6, 0)},
+        )
+    )
+    second = supersede(first, _proposal(Point(0, 0)))
+    third = supersede(second, _proposal(Point(0, 1e-6)))
+    assert third.pending
+    assert [p.values["poi"] for p in third.superseded] == [
+        Point(1e-6, 0),
+        Point(0, 0),
+    ], "oldest first, flat"
+    assert third.superseded[0].current.values["poi"] == Point(2e-6, 0)
+    assert second.superseded == [], "moved, not nested"
+    again = Proposal.from_dict(yaml.safe_load(yaml.safe_dump(third.to_dict())))
+    assert len(again.superseded) == 2
+    assert again.superseded[0].delta()["poi"].x == pytest.approx(1e-6)
+
+
 def test_delta_is_computed_from_proposed_and_confirmed_never_declared():
     p = _proposal(Point(1e-6, 2e-6))
     assert p.delta() == {}, "no decision, no delta"
