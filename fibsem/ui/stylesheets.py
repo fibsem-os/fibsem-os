@@ -445,54 +445,50 @@ QDateTimeEdit:disabled {{
 
 QDateTimeEdit::up-button {{
     subcontrol-origin: border;
-    subcontrol-position: center right;
-    background-color: {BORDER_COLOR};
+    subcontrol-position: top right;
+    background-color: transparent;
     border: none;
-    border-left: 1px solid {BORDER_COLOR};
     border-top-right-radius: 3px;
-    border-bottom-right-radius: 3px;
-    width: 20px;
-    height: 100%;
+    width: 14px;
+    height: 14px;
 }}
 
-QDateTimeEdit::up-button:hover {{
+QDateTimeEdit::up-button:hover:hover {{
     background-color: #4a5168;
 }}
 
-QDateTimeEdit::up-button:pressed {{
+QDateTimeEdit::up-button:pressed:pressed {{
     background-color: {ACCENT_COLOR};
 }}
 
 QDateTimeEdit::up-arrow {{
     image: url("__ICONS_DIR__/plus.svg");
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
 }}
 
 QDateTimeEdit::down-button {{
     subcontrol-origin: border;
-    subcontrol-position: center left;
-    background-color: {BORDER_COLOR};
+    subcontrol-position: bottom right;
+    background-color: transparent;
     border: none;
-    border-right: 1px solid {BORDER_COLOR};
-    border-top-left-radius: 3px;
-    border-bottom-left-radius: 3px;
-    width: 20px;
-    height: 100%;
+    border-bottom-right-radius: 3px;
+    width: 14px;
+    height: 14px;
 }}
 
-QDateTimeEdit::down-button:hover {{
+QDateTimeEdit::down-button:hover:hover {{
     background-color: #4a5168;
 }}
 
-QDateTimeEdit::down-button:pressed {{
+QDateTimeEdit::down-button:pressed:pressed {{
     background-color: {ACCENT_COLOR};
 }}
 
 QDateTimeEdit::down-arrow {{
     image: url("__ICONS_DIR__/minus.svg");
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
 }}
 """.replace("__ICONS_DIR__", _ICONS_DIR)
 

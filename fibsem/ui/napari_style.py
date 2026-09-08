@@ -8,6 +8,7 @@ Imported and re-exported by ``fibsem.ui.stylesheets``, so both
 ``from fibsem.ui.stylesheets import NAPARI_STYLE`` and
 ``stylesheets.NAPARI_STYLE`` keep working.
 """
+
 import os as _os
 
 from fibsem.ui.tokens import (
@@ -221,16 +222,18 @@ QSpinBox:disabled, QDoubleSpinBox:disabled {{
     background-color: {DISABLED_BG_COLOR};
 }}
 
+/* Stepper buttons stacked on the right, plus over minus, quiet until hovered.
+   Buttons used to sit either side of the value at 20px each, napari's layout,
+   and left ~54px for the text in a 114px box. Heights are px on purpose: a
+   Qt stylesheet reads "50%" as 50px on a subcontrol, and the box is 28px. */
 QSpinBox::up-button, QDoubleSpinBox::up-button {{
     subcontrol-origin: border;
-    subcontrol-position: center right;
-    background-color: {BORDER_COLOR};
+    subcontrol-position: top right;
+    background-color: transparent;
     border: none;
-    border-left: 1px solid {BORDER_COLOR};
     border-top-right-radius: 3px;
-    border-bottom-right-radius: 3px;
-    width: 20px;
-    height: 100%;
+    width: 14px;
+    height: 14px;
 }}
 
 QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {{
@@ -243,20 +246,18 @@ QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed {{
 
 QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
     image: url("__ICONS_DIR__/plus.svg");
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
 }}
 
 QSpinBox::down-button, QDoubleSpinBox::down-button {{
     subcontrol-origin: border;
-    subcontrol-position: center left;
-    background-color: {BORDER_COLOR};
+    subcontrol-position: bottom right;
+    background-color: transparent;
     border: none;
-    border-right: 1px solid {BORDER_COLOR};
-    border-top-left-radius: 3px;
-    border-bottom-left-radius: 3px;
-    width: 20px;
-    height: 100%;
+    border-bottom-right-radius: 3px;
+    width: 14px;
+    height: 14px;
 }}
 
 QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
@@ -269,8 +270,8 @@ QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {{
 
 QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
     image: url("__ICONS_DIR__/minus.svg");
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
 }}
 
 QSlider::groove:horizontal {{
