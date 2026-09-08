@@ -14,7 +14,7 @@ from PIL import Image
 
 from fibsem import config as cfg
 from fibsem import manufacturers
-from fibsem.constants import DATETIME_LOG, TIME_FILE
+from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -99,10 +99,17 @@ def format_time_remaining(seconds: float, pad: bool = False) -> str:
     return f"{secs}s"
 
 
+# `MU_SYMBOL` rather than a literal, and specifically U+00B5 MICRO SIGN rather than
+# U+03BC GREEK SMALL LETTER MU. The two are indistinguishable on screen and unequal to
+# every string comparison, and this table used to disagree with `constants.MICRON_SYMBOL`
+# -- which every spin-box suffix and scalebar already uses. `imaging/drawing.py` records
+# the reason the house character is the micro sign: the default font on Windows has no
+# glyph for the Greek letter, so the Greek one renders as a box on the platform most
+# instruments are driven from.
 SI_PREFIXES = {
     -12: "p",
     -9: "n",
-    -6: "μ",
+    -6: MU_SYMBOL,
     -3: "m",
     0: "",
     3: "k",
@@ -110,6 +117,11 @@ SI_PREFIXES = {
     9: "G",
     12: "T",
 }
+
+# What every formatter here renders for a value the instrument did not report. An
+# em-dash rather than "None" or "0": the distinction between "not measured" and
+# "measured as zero" is one an operator has to be able to make at a glance.
+NOT_AVAILABLE = "—"
 
 _MIN_SI_EXP = min(SI_PREFIXES)
 _MAX_SI_EXP = max(SI_PREFIXES)
@@ -174,11 +186,77 @@ def format_value(
     Returns:
         str: The formatted value with the appropriate SI prefix.
     """
+    if val is None:
+        return NOT_AVAILABLE
     scale = scale if scale is not None else _get_scale_from_value(val)
     prefix, multiplier = _get_prefix_from_scale(scale)
     scaled_val = val * scale * multiplier
     unit = unit or ""
     return f"{scaled_val:.{precision}f} {prefix}{unit}"
+
+
+# ---------------------------------------------------------------------------
+# Named formatting policies
+#
+# `format_value` is the primitive: one precision, whichever SI prefix the magnitude
+# lands on. These are the conventions that were being written out by hand instead,
+# each in more than one place, because they vary precision *per band* -- which is a
+# real readability rule and not something a single `precision` argument can express.
+# Milling currents are the clearest case: three orders of magnitude, and rendering
+# everything in pA turns the common nA reading into a four-digit number.
+# ---------------------------------------------------------------------------
+
+
+def format_angle(radians: Optional[float], precision: int = 1) -> str:
+    """An angle in radians, as degrees.
+
+    Not a `format_value` call: SI prefixes are the wrong vocabulary for an angle, and
+    nobody wants to read a stage tilt in milliradians.
+    """
+    if radians is None:
+        return NOT_AVAILABLE
+    return f"{math.degrees(radians):.{precision}f}°"
+
+
+def format_distance(metres: Optional[float]) -> str:
+    """A distance, with more decimals the larger the unit.
+
+    A stage move is interesting to the nanometre and a stage position to the micron,
+    so the precision follows the prefix rather than being fixed. Zero is rendered in
+    nanometres: `format_value` would land it on bare metres, and "0.00 m" beside a
+    column of micron readings reads as a different quantity.
+    """
+    if metres is None:
+        return NOT_AVAILABLE
+    magnitude = abs(metres)
+    if magnitude == 0:
+        return "0 nm"
+    if magnitude < 1e-6:
+        return f"{metres * 1e9:.1f} nm"
+    if magnitude < 1e-3:
+        return f"{metres * 1e6:.2f} {MICRON_SYMBOL}"
+    if magnitude < 1.0:
+        return f"{metres * 1e3:.3f} mm"
+    return f"{metres:.4f} m"
+
+
+def format_current(amps: Optional[float]) -> str:
+    """A beam current: `1.0 nA`, `60 pA`."""
+    if amps is None:
+        return NOT_AVAILABLE
+    if abs(amps) >= 1e-9:
+        return format_value(amps, "A", precision=1, scale=1e9)
+    return format_value(amps, "A", precision=0, scale=1e12)
+
+
+def format_voltage(volts: Optional[float]) -> str:
+    """A beam voltage, pinned to kV.
+
+    Pinned rather than auto-scaled so a column of voltages stays comparable: a 500 V
+    landing energy beside a 30 kV one should read `0.50 kV`, not switch units halfway
+    down the list.
+    """
+    return format_value(volts, "V", precision=2, scale=1e-3)
 
 
 def make_logging_directory(path: Optional[Path] = None, name="run"):

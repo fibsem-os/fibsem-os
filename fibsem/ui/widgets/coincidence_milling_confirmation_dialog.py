@@ -34,6 +34,7 @@ from fibsem.ui.widgets.preflight import (
     format_duration,
     meta_label,
 )
+from fibsem.utils import format_current
 
 # The dimensions that determine the milled volume, in the order they read. Driven off
 # the pattern's own to_dict() rather than isinstance checks, so a new pattern type
@@ -48,14 +49,6 @@ _DIMENSION_KEYS: List[Tuple[str, str]] = [
     ("height", "tall"),
     ("depth", "deep"),
 ]
-
-
-def _format_current(amps: float) -> str:
-    """`1.0 nA` / `60 pA` — milling currents span three orders of magnitude, and
-    everything-in-pA turns the common nA case into a four-digit number."""
-    if amps >= 1e-9:
-        return f"{amps * constants.SI_TO_NANO:.1f} nA"
-    return f"{amps * constants.SI_TO_PICO:.0f} pA"
 
 
 def _pattern_summary(stage: FibsemMillingStage) -> str:
@@ -126,12 +119,15 @@ class CoincidenceMillingConfirmationDialog(QDialog):
         if not currents:
             return None
         if len(currents) == 1:
-            return _format_current(currents[0])
-        return f"{_format_current(currents[0])} – {_format_current(currents[-1])}"
+            return format_current(currents[0])
+        return f"{format_current(currents[0])} – {format_current(currents[-1])}"
 
     def _meta_line(self) -> str:
         stages = self.task_config.enabled_stages
-        bits = [self.lamella_name, f"{len(stages)} stage{'s' if len(stages) != 1 else ''}"]
+        bits = [
+            self.lamella_name,
+            f"{len(stages)} stage{'s' if len(stages) != 1 else ''}",
+        ]
         fov = getattr(self.task_config, "field_of_view", None)
         if fov:
             bits.append(f"{fov * constants.SI_TO_MICRO:.0f} µm field of view")
@@ -150,7 +146,7 @@ class CoincidenceMillingConfirmationDialog(QDialog):
         return [
             (
                 stage.name,
-                f"{_format_current(stage.milling.milling_current)}"
+                f"{format_current(stage.milling.milling_current)}"
                 f" · {_pattern_summary(stage)}"
                 f" · {format_duration(stage.estimated_time)}",
             )
@@ -177,17 +173,21 @@ class CoincidenceMillingConfirmationDialog(QDialog):
                 # mill will halt itself when it will not.
                 trigger += "  → monitoring only; you stop the mill"
             detail.append(("Drop trigger", trigger))
-            detail.append((
-                "Monitoring",
-                f"starts after {format_duration(config.warmup_duration)} warmup"
-                f" · times out at {format_duration(config.timeout)}",
-            ))
-            detail.append((
-                "Mode",
-                "supervised — you stop the mill manually"
-                if config.supervised
-                else "automated — stops itself on the drop trigger",
-            ))
+            detail.append(
+                (
+                    "Monitoring",
+                    f"starts after {format_duration(config.warmup_duration)} warmup"
+                    f" · times out at {format_duration(config.timeout)}",
+                )
+            )
+            detail.append(
+                (
+                    "Mode",
+                    "supervised — you stop the mill manually"
+                    if config.supervised
+                    else "automated — stops itself on the drop trigger",
+                )
+            )
             saved = (
                 f"saved (every {config.save_rate_limit} frames)"
                 if config.save_fm_images
@@ -197,7 +197,9 @@ class CoincidenceMillingConfirmationDialog(QDialog):
                 saved += " · FIB image acquired"
             detail.append(("FM images", saved))
 
-        detail.append(("Estimated time", format_duration(self.task_config.estimated_time)))
+        detail.append(
+            ("Estimated time", format_duration(self.task_config.estimated_time))
+        )
         return detail
 
     # ── layout ───────────────────────────────────────────────────────────

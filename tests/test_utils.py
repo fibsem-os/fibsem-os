@@ -1,5 +1,6 @@
 import pytest
 
+from fibsem import constants
 from fibsem.utils import (
     _get_display_unit,
     _get_prefix_from_scale,
@@ -31,7 +32,11 @@ def test_get_prefix_from_scale_small_values():
     assert multiplier == pytest.approx(1.0)
 
     prefix, multiplier = _get_prefix_from_scale(1e6)
-    assert prefix == "μ"
+    # Against the constant, not a literal: this used to pin U+03BC GREEK SMALL LETTER
+    # MU while every suffix and scalebar in the app used U+00B5 MICRO SIGN, and the two
+    # are indistinguishable on screen. A literal here can be the wrong character and
+    # still look right. See tests/test_value_formatting.py.
+    assert prefix == constants.MU_SYMBOL
     assert multiplier == pytest.approx(1.0)
 
     prefix, multiplier = _get_prefix_from_scale(1e9)
@@ -55,7 +60,9 @@ def test_format_value_auto_scale_and_override():
     assert format_value(5000, unit="m", precision=1, scale=0.001) == "5.0 km"
 
     # tiny values between micro and pico
-    assert format_value(2.5e-6, unit="m", precision=1) == "2.5 μm"
+    assert (
+        format_value(2.5e-6, unit="m", precision=1) == f"2.5 {constants.MICRON_SYMBOL}"
+    )
     assert format_value(7e-10, unit="m", precision=1) == "700.0 pm"
     assert format_value(3e-12, unit="m", precision=2) == "3.00 pm"
     assert format_value(0.2e-9, unit="A", precision=0) == "200 pA"
