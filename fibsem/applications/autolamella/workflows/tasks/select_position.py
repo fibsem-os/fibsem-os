@@ -297,3 +297,60 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 "at the target tilt",
                 tilt.reason,
             )
+
+
+def consumed_values(lamella: "Lamella") -> List[str]:
+    """The value names a milling-setup proposal for this lamella may carry: a
+    value exists because a later task consumes it. ``poi`` is consumed by any
+    milling task whose patterns follow the point; a fiducial value would be
+    consumed by the fiducial task, but has no writer yet, so it is not
+    proposed."""
+    values = []
+    for task_config in lamella.task_config.values():
+        if getattr(task_config, "sync_to_poi", False) and task_config.milling:
+            values.append("poi")
+            break
+    return values
+
+
+def propose_milling_setup(
+    lamella: "Lamella", reference_image: Optional["FibsemImage"]
+) -> Optional[Proposal]:
+    """The v1 proposer: the centre of the image, which is today's default
+    position (a lamella's point of interest starts at the origin of the milling
+    frame). It exists to get the machinery running, not to be right -- no
+    confidence, no alternatives. A real proposer is a swap for this function
+    with the same return type.
+
+    None when nothing consumes a point, so no empty proposals are recorded.
+    """
+    values = consumed_values(lamella)
+    if not values:
+        return None
+    provenance: Dict[str, Any] = {
+        "proposer": "centre-of-image",
+        "version": 1,
+        "values": values,
+    }
+    if reference_image is not None:
+        settings = getattr(reference_image.metadata, "image_settings", None)
+        if settings is not None and settings.filename:
+            # Saved as <filename>_ib.tif in the lamella's folder: acquire.py adds
+            # the beam suffix and FibsemImage.save the extension, so the settings
+            # alone name neither -- and the settings' own ``path`` is not where
+            # the file went (found live: it named the experiment folder). Stored
+            # relative to the lamella, which is also what keeps it valid when
+            # the experiment is moved; readers join it onto ``lamella.path``.
+            name = settings.filename
+            suffix = "_ib" if settings.beam_type is BeamType.ION else "_eb"
+            if not name.endswith(suffix):
+                name += suffix
+            if not name.endswith(".tif"):
+                name += ".tif"
+            provenance["reference_image"] = name
+    return Proposal(
+        kind=MILLING_SETUP,
+        values={"poi": Point(0.0, 0.0)},
+        confidence=None,
+        provenance=provenance,
+    )
