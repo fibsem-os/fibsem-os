@@ -326,11 +326,13 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self.btn_reject.setToolTip("R — nothing further here; retires the lamella")
         self.status = QLabel()
         self.status.setStyleSheet(_MUTED_STYLE)
+        # status on the left, verbs on the right, primary first: the same
+        # placement as Run / Stop on the status bar
         actions = QHBoxLayout()
+        actions.addWidget(self.status)
+        actions.addStretch(1)
         actions.addWidget(self.btn_confirm)
         actions.addWidget(self.btn_reject)
-        actions.addStretch(1)
-        actions.addWidget(self.status)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -552,9 +554,9 @@ class _UnknownKindRenderer(ReviewRenderer):
         self.btn_reject = QPushButton("Reject")
         self.btn_reject.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         actions = QHBoxLayout()
+        actions.addStretch(1)
         actions.addWidget(self.btn_confirm)
         actions.addWidget(self.btn_reject)
-        actions.addStretch(1)
         layout = QVBoxLayout(self)
         layout.addWidget(self.label)
         layout.addStretch(1)
