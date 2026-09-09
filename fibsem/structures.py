@@ -2391,24 +2391,22 @@ class BeamSystemSettings:
 
 @dataclass
 class ManipulatorSystemSettings:
-    enabled: bool
-    rotation: bool
-    tilt: bool
+    enabled: bool = True
+    # Whether the arm can rotate and tilt. Not in the configuration file: every
+    # shipped file said `false`, which is the default, and the axes an arm has are
+    # the instrument's to report, not a site's to state. Kept as fields because
+    # `is_available("manipulator_rotation")` reads them and a backend that can ask
+    # the instrument may set them at connect. Neither written nor read by the
+    # file readers below.
+    rotation: bool = False
+    tilt: bool = False
 
     def to_dict(self):
-        return {
-            "enabled": self.enabled,
-            "rotation": self.rotation,
-            "tilt": self.tilt,
-        }
+        return {"enabled": self.enabled}
 
     @staticmethod
     def from_dict(settings: dict):
-        return ManipulatorSystemSettings(
-            enabled=settings.get("enabled", True),
-            rotation=settings.get("rotation", False),
-            tilt=settings.get("tilt", False),
-        )
+        return ManipulatorSystemSettings(enabled=settings.get("enabled", True))
 
 
 @dataclass
@@ -2805,17 +2803,13 @@ class MicroscopeSettings:
         if protocol is None:
             protocol = settings.get("protocol", {"name": "demo"})
 
-        fm_config = None
-        fm_config_path = settings.get("fm", {}).get("config", None)
-        if fm_config_path is not None and isinstance(fm_config_path, str):
-            from fibsem.fm.structures import FluorescenceConfiguration
+        # The FM working state -- channels, z-stack, camera -- is session state
+        # with its own auto-persisted file, and is loaded from there. A `fm.config`
+        # key naming a different path used to be honoured here; it was never written
+        # by `to_dict`, no shipped file stated it, and no site used it.
+        from fibsem.fm.config import load_fm_configuration
 
-            fm_config = FluorescenceConfiguration.load(fm_config_path)
-        else:
-            # fall back to the auto-persisted FM working state (survives restarts)
-            from fibsem.fm.config import load_fm_configuration
-
-            fm_config = load_fm_configuration()
+        fm_config = load_fm_configuration()
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),

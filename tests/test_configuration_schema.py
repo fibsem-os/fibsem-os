@@ -207,8 +207,8 @@ def test_no_shipped_configuration_carries_a_key_this_version_ignores():
 
     They did not: `imaging.imaging_current` was in all eight and read by nothing, and
     the `milling:` block was six more. Both are gone, and this is what stops another
-    one accumulating -- adding a key to a shipped file without adding it to
-    `CONFIGURATION_SCHEMA` now fails here rather than being quietly dropped at load.
+    one accumulating -- adding a key to a shipped file that `to_dict` does not write
+    now fails here rather than being quietly dropped at load.
     """
     offenders = {
         filename: utils.unrecognised_configuration_keys(_load(filename))
