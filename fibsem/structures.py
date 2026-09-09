@@ -2317,7 +2317,7 @@ class StageSystemSettings:
         states otherwise.
         """
         holder = self.holders.get(self.active_holder)
-        if holder is not None and holder.pre_tilt is not None:
+        if holder is not None:
             return holder.pre_tilt
         return self._shuttle_pre_tilt
 
@@ -4338,6 +4338,29 @@ class GridSlot:
 
 @dataclass
 class SampleHolder:
+    # First, and with no default, so it cannot be left out. The pre-tilt is a property
+    # of *this holder* -- swap a 35 degree shuttle for a flat one and it changes with
+    # the shuttle, which is why it stopped being a field on the stage.
+    #
+    # Required because the alternatives both fail quietly. A default of 0.0 turns a
+    # construction site that forgot into a flat shuttle and wrongs every projection
+    # made from it, with nothing to report; a `None` sentinel spreads its own handling
+    # into every reader, and one reader that formats it instead becomes a hard abort
+    # (PyQt5 turns an exception in a slot into `qFatal`). Ordered first because a
+    # dataclass cannot put a non-default field after defaulted ones, and
+    # `@dataclass(kw_only=True)` is 3.10+ while this package supports 3.8.
+    #
+    # Absence in a *file* is a different question and is not this field's to answer:
+    # `from_dict` supplies the configured value, and `_resolve_configured_holder`
+    # seeds it at connect.
+    #
+    # This used to be a property reading *back* from
+    # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
+    # both cannot exist: the stage reads the holder, so a holder that read the stage
+    # would recurse until the interpreter gave up.
+    pre_tilt: float = field(
+        metadata={"unit": "°", "tooltip": "Pre-tilt of this holder, in degrees"}
+    )
     name: str = field(
         default="Sample Holder", metadata={"tooltip": "Name of the sample holder"}
     )
@@ -4353,24 +4376,6 @@ class SampleHolder:
         },
     )
     slots: dict[str, GridSlot] = field(default_factory=dict)
-    # The shuttle's pre-tilt, in degrees. A property of *this holder*: swap a 35
-    # degree shuttle for a flat one and the pre-tilt changes with it, which is why it
-    # stopped being a field on the stage.
-    #
-    # `None` means the holder does not say, which is every holder file written before
-    # this existed. It is distinct from 0.0 -- a flat shuttle really is zero, and
-    # reading "unstated" as "flat" on a 35 degree site would silently wrong every
-    # projection. `StageSystemSettings.shuttle_pre_tilt` falls back to its own value
-    # when it sees `None`, and the holder is seeded from it at connect.
-    #
-    # This used to be a property reading *back* from
-    # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
-    # both cannot exist: the stage reads the holder, so a holder that read the stage
-    # would recurse until the interpreter gave up.
-    pre_tilt: Optional[float] = field(
-        default=None,
-        metadata={"unit": "°", "tooltip": "Pre-tilt of this holder, in degrees"},
-    )
 
     def __post_init__(self) -> None:
         self._parent: Optional["FibsemMicroscope"] = None
@@ -4515,13 +4520,17 @@ class SampleHolder:
             name: GridSlot.from_dict(slot_data)
             for name, slot_data in data.get("slots", {}).items()
         }
-        pre_tilt = data.get("pre_tilt")
+        # A file that does not state one reads as 0.0 here, and that is safe only
+        # because of what happens next: `_resolve_configured_holder` overwrites it
+        # with the configured pre-tilt before the holder is used. The required field
+        # constrains *constructions in code*, which is where a forgotten pre-tilt has
+        # nothing else to catch it; a silent file is caught at connect instead.
         holder = SampleHolder(
+            pre_tilt=float(data.get("pre_tilt") or 0.0),
             name=data.get("name", "Sample Holder"),
             capacity=data.get("capacity", max(len(slots), 1)),
             slots=slots,
             description=data.get("description", ""),
-            pre_tilt=None if pre_tilt is None else float(pre_tilt),
         )
         holder._ensure_slots()
         return holder
@@ -4547,3 +4556,34 @@ class SampleHolder:
                 default_flow_style=False,
                 sort_keys=False,
             )
+
+
+# The holder a system starts with when nothing else describes one: no `stage.holders`
+# in the configuration, and no `sample-holder.yaml` beside it.
+#
+# This used to be `default-sample-holder.yaml`, a shipped file. Once the holder moved
+# into the microscope configuration the file was down to four fields and two empty
+# slot stubs -- everything else in it was null -- and its name, "Pre-Tilted 35deg
+# Shuttle", had become a claim the object could contradict: a flat system loaded a
+# holder called that carrying a pre-tilt of 0, and the widget printed both. A default
+# with no calibration in it is a code default, next to `DEFAULT_STAGE_DEVICES` and
+# `DEFAULT_DEVICE_RANGE`, which are already here.
+#
+# A function rather than a module constant because a holder is mutable and gets a
+# `_parent` bound to it; one shared instance would be handed to every microscope.
+def default_sample_holder(pre_tilt: float) -> "SampleHolder":
+    """A two-slot shuttle with nothing calibrated on it.
+
+    `pre_tilt` is required for the same reason it is required on the holder: this is
+    the one caller that has to decide, and the configured value is what it passes.
+    The name deliberately describes the slot count rather than a geometry, so it
+    cannot disagree with the number beside it.
+    """
+    holder = SampleHolder(
+        pre_tilt=pre_tilt,
+        name="Default Shuttle",
+        capacity=2,
+        description="Two grid slots, uncalibrated. Replace or calibrate before use.",
+    )
+    holder._ensure_slots()
+    return holder

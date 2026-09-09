@@ -12,7 +12,6 @@ import yaml
 from psygnal import Signal
 
 from fibsem.config import (
-    DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH,
     SAMPLE_HOLDER_CONFIGURATION_PATH,
     SAMPLE_HOLDER_OCCUPANCY_PATH,
 )
@@ -25,6 +24,7 @@ from fibsem.structures import (
     SampleGrid,
     SampleHolder,
     SlotCalibration,
+    default_sample_holder,
 )
 
 # Re-exported: these four moved into `structures.py` so `SystemSettings` could hold a
@@ -589,29 +589,26 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
     if configured is not None:
         return configured
 
+    configured_pre_tilt = float(stage_settings.shuttle_pre_tilt)
     path = Path(SAMPLE_HOLDER_CONFIGURATION_PATH)
-    migrating = path.exists()
-    if not migrating:
-        logging.info(f"Sample holder config not found at {path}, using default.")
-        path = Path(DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH)
 
-    holder = SampleHolder.load(path)
-    if migrating:
+    if path.exists():
+        holder = SampleHolder.load(path)
         logging.info(
             f"Imported sample holder '{holder.name}' from {path} for this session. "
             "The file is not written back; it is imported again at every connect."
         )
-    # The holder came from a file, so its pre-tilt is the configured one -- always,
-    # not just when the file is silent.
-    #
-    # A holder file may *carry* a `pre_tilt`: they did once, and it has been ignored
-    # ever since the value became derived from the stage. Honouring it now would
-    # resurrect a number that has not been in effect for however long the file has sat
-    # there, and do it silently, in the term every projection is built on. The value
-    # that has actually been in use is the stage's, so that is the one the holder is
-    # seeded with; it becomes the holder's own from the moment the configuration is
-    # saved, which is the point at which someone has seen it.
-    holder.pre_tilt = float(stage_settings.shuttle_pre_tilt)
+        # The pre-tilt is the configured one -- always, not just when the file is
+        # silent. A holder file may *carry* a `pre_tilt`: they did once, and it has
+        # been ignored ever since the value became derived from the stage. Honouring
+        # it now would resurrect a number that has not been in effect for however long
+        # the file has sat there, and do it silently, in the term every projection is
+        # built on. It becomes the holder's own from the moment the configuration is
+        # saved, which is the point at which someone has seen it.
+        holder.pre_tilt = configured_pre_tilt
+    else:
+        logging.info("No sample holder configuration found, using the default.")
+        holder = default_sample_holder(pre_tilt=configured_pre_tilt)
 
     # Selected either way, so a session that saves its configuration records which
     # holder it was actually using rather than an empty selection.
@@ -638,7 +635,13 @@ def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
             ),
         )
         holder = SampleHolder(
-            name="CompuStage Holder", capacity=1, slots={"Slot-01": slot01}
+            name="CompuStage Holder",
+            capacity=1,
+            slots={"Slot-01": slot01},
+            # Built here rather than resolved from the configuration, so it has to be
+            # given its pre-tilt explicitly -- it does not pass through
+            # `_resolve_configured_holder`, which is where every other holder gets one.
+            pre_tilt=float(stage_settings.shuttle_pre_tilt),
         )
         # The compustage is the autoloader stage, so it is also what says "this system
         # has a loader". Which loader is the backend's call: the simulator builds one
