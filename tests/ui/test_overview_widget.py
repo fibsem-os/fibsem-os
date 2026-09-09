@@ -1629,9 +1629,9 @@ class TestTheHolderIsDrawnOnEveryStage:
     grid circle -- and travel limits have nothing to do with grids.
 
     And the boundary was one circle at the stage origin, which is a compustage's
-    holder: a single grid, at zero. The shipped `default-sample-holder.yaml` is a
-    2-slot 35-degree shuttle with grids at x = -5 mm and +5 mm, where a circle at the
-    origin marks a place no grid is. A grid is 1 mm in radius whatever holds it, so
+    holder: a single grid, at zero. A 2-slot shuttle has grids either side of it -- at
+    x = -5 mm and +5 mm once calibrated -- where a circle at the origin marks a place
+    no grid is. A grid is 1 mm in radius whatever holds it, so
     what the boundary needs is where the grids are, and the holder already says.
     """
 
@@ -1683,11 +1683,10 @@ class TestTheHolderIsDrawnOnEveryStage:
         )
 
     def test_a_slot_with_no_rotation_still_draws(self, widget, monkeypatch):
-        """The defect the boundary work walked into. `default-sample-holder.yaml` gives
-        each slot three numbers -- x, y, z -- so `SampleHolder.load` leaves `r` and `t`
-        as None, and `frame.to_canvas` raises `TypeError` on them. `_slot_shapes` caught
-        that and moved on, so the shipped two-slot shuttle drew **no slot markers at
-        all**, silently. Only the simulator's holder escaped it, because `_ensure_slots`
+        """The defect the boundary work walked into. A holder file states three numbers
+        per slot -- x, y, z -- so `SampleHolder.load` leaves `r` and `t` as None, and
+        `frame.to_canvas` raises `TypeError` on them. `_slot_shapes` caught that and
+        moved on, so a two-slot shuttle drew **no slot markers at all**, silently. Only the simulator's holder escaped it, because `_ensure_slots`
         invents its slot with r=0.
         """
         slots = self._two_slots(widget, monkeypatch)

@@ -22,15 +22,17 @@ def _isolate_sample_holder_config(tmp_path_factory, monkeypatch):
     which it did, before this fixture existed. Both readers resolve the path at
     call time, so patching the two module attributes is enough.
     """
-    import shutil
-
     import fibsem.config as cfg
     import fibsem.microscopes._stage as stage_module
+    from fibsem.structures import default_sample_holder
 
     # Its own directory, not the test's tmp_path: tests assert on that staying empty.
     holder_dir = tmp_path_factory.mktemp("sample-holder")
     path = holder_dir / "sample-holder.yaml"
-    shutil.copy(cfg.DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH, path)
+    # Written from the code default rather than copied from a shipped file. The
+    # pre-tilt here is irrelevant -- `_resolve_configured_holder` overwrites it from
+    # the configuration -- but the field is required, so it has to be stated.
+    default_sample_holder(pre_tilt=0.0).save(path)
     monkeypatch.setattr(cfg, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
     monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
     occupancy = holder_dir / "sample-holder-occupancy.yaml"  # absent until written

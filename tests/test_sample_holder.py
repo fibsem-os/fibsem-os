@@ -20,7 +20,7 @@ def _make_position(name: str = "Slot-01") -> FibsemStagePosition:
 
 
 def _make_holder(capacity: int = 2, name: str = "Test Holder") -> SampleHolder:
-    h = SampleHolder(name=name, capacity=capacity)
+    h = SampleHolder(pre_tilt=0.0, name=name, capacity=capacity)
     h._ensure_slots()
     return h
 
@@ -75,24 +75,31 @@ class TestGridSlot:
 
 class TestSampleHolderConstruction:
     def test_defaults(self):
-        h = SampleHolder()
+        h = SampleHolder(pre_tilt=0.0)
         assert h.name == "Sample Holder"
         assert h.description == ""
         assert h.capacity == 2
         assert h.slots == {}
 
-    def test_pre_tilt_is_unstated_rather_than_zero(self):
-        """`None`, not 0.0, and the distinction is load-bearing.
+    def test_a_holder_cannot_be_built_without_stating_a_pre_tilt(self):
+        """The field is required, and that is the whole guarantee.
 
-        A flat shuttle really is zero. A holder that has not been told its pre-tilt is
-        a different thing, and the stage falls back to its own configured value for
-        it -- reading "unstated" as "flat" would turn every 35 degree site flat at the
-        moment this shipped.
+        The alternatives both fail quietly. A default of 0.0 turns a construction site
+        that forgot into a flat shuttle and wrongs every projection made from it; a
+        `None` sentinel spreads its handling into every reader, and the one reader that
+        formatted it instead took down CI -- PyQt5 turns an exception inside a slot
+        into `qFatal`, so it arrived as a bare `exit 134`.
+
+        The site that forgot was real: the compustage holder is built inline in
+        `_create_sample_stage` and never passes through `_resolve_configured_holder`.
+        This is what makes that omission a `TypeError` at the call rather than a wrong
+        number a long way downstream.
         """
-        assert SampleHolder().pre_tilt is None
+        with pytest.raises(TypeError, match="pre_tilt"):
+            SampleHolder(name="no pre-tilt stated")
 
     def test_reference_rotation_no_parent(self):
-        h = SampleHolder()
+        h = SampleHolder(pre_tilt=0.0)
         assert h.reference_rotation == 0.0
 
     def test_pre_tilt_is_the_holders_own_and_not_read_from_the_stage(self):
@@ -119,7 +126,7 @@ class TestSampleHolderConstruction:
         assert h.pre_tilt == 35.0
 
     def test_reference_rotation_with_parent(self):
-        h = SampleHolder()
+        h = SampleHolder(pre_tilt=0.0)
 
         class _FakeStage:
             shuttle_pre_tilt = 0.0
@@ -199,7 +206,7 @@ class TestSerialization:
         assert "description" in d
 
     def test_roundtrip_empty_slots(self):
-        h = SampleHolder(name="H1", description="desc", capacity=2)
+        h = SampleHolder(pre_tilt=0.0, name="H1", description="desc", capacity=2)
         h._ensure_slots()
         h2 = SampleHolder.from_dict(h.to_dict())
         assert h2.name == "H1"
@@ -389,7 +396,7 @@ class TestCreateSampleStage:
         import fibsem.microscopes._stage as stage_module
 
         path = tmp_path / "holder.yaml"
-        h = SampleHolder(name="UserHolder", capacity=3)
+        h = SampleHolder(pre_tilt=0.0, name="UserHolder", capacity=3)
         h._ensure_slots()
         h.save(path)
         monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))

@@ -27,12 +27,14 @@ from fibsem.structures import (
     SlotCalibration,
     StageSystemSettings,
     SystemSettings,
+    default_sample_holder,
 )
 
 
 def _calibrated_holder(name: str = "Pre-Tilted 35deg Shuttle") -> SampleHolder:
     """A holder as a calibrated site has it: a real position and the record proving it."""
     return SampleHolder(
+        pre_tilt=35.0,
         name=name,
         capacity=2,
         slots={
@@ -261,9 +263,23 @@ def test_the_schema_knows_about_the_new_keys():
     )
 
 
-def test_the_default_holder_file_still_ships():
-    """The migration's third case reads it, so its absence would be a silent break."""
-    assert os.path.exists(cfg.DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH)
+def test_the_default_holder_is_built_in_code_and_states_its_own_pre_tilt():
+    """The third case builds a holder rather than reading a shipped file.
+
+    `default-sample-holder.yaml` was that file. Once the holder moved into the
+    microscope configuration it was down to four fields and two empty slot stubs, and
+    its name -- "Pre-Tilted 35deg Shuttle" -- had become a claim the object could
+    contradict: on a flat system it loaded a holder called that carrying a pre-tilt of
+    0, and the widget printed both. The name now describes the slot count, which
+    cannot disagree with the number beside it.
+    """
+    holder = default_sample_holder(pre_tilt=35.0)
+
+    assert holder.pre_tilt == 35.0
+    assert holder.capacity == 2
+    assert sorted(holder.slots) == ["Slot-01", "Slot-02"]
+    assert not any(slot.is_calibrated for slot in holder.slots.values())
+    assert "35" not in holder.name, "the name must not claim a geometry it cannot keep"
 
 
 # ---------------------------------------------------------------------------
@@ -355,19 +371,26 @@ def test_a_stage_with_no_holder_keeps_its_configured_pre_tilt():
     assert stage.shuttle_pre_tilt == 35.0
 
 
-def test_a_holder_that_does_not_state_a_pre_tilt_does_not_flatten_the_stage():
-    """`None` is not zero.
+def test_a_holder_file_silent_on_pre_tilt_does_not_flatten_the_stage(
+    monkeypatch, tmp_path
+):
+    """Every holder file written before this change is silent on pre-tilt.
 
-    Every holder file written before this change is silent on pre-tilt. Reading that
-    silence as "flat" is the single most damaging thing this change could do, because
-    nothing would report it -- the projections would simply come out wrong.
+    Reading that silence as "flat" is the most damaging thing this change could do,
+    because nothing would report it -- the projections would simply come out wrong.
+    The required field does not answer this on its own: a file cannot be made to state
+    something it does not contain, so the seeding at connect is what covers it.
     """
-    silent = SampleHolder(name="legacy")
-    assert silent.pre_tilt is None
-    stage = _stage_settings(
-        shuttle_pre_tilt=35.0, holders={"legacy": silent}, active_holder="legacy"
-    )
+    data = _calibrated_holder().to_dict(include_grids=False)
+    del data["pre_tilt"]
+    path = tmp_path / "sample-holder.yaml"
+    path.write_text(yaml.dump(data))
+    monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
 
+    stage = _stage_settings(shuttle_pre_tilt=35.0)
+    resolved = _resolve_configured_holder(stage)
+
+    assert resolved.pre_tilt == 35.0
     assert stage.shuttle_pre_tilt == 35.0
 
 
@@ -415,5 +438,27 @@ def test_the_holder_no_longer_reads_the_stage():
     up -- and it would have done so on the first real connect, not in a test.
     """
     assert not isinstance(
-        type(SampleHolder(name="h")).__dict__.get("pre_tilt"), property
+        type(SampleHolder(pre_tilt=0.0, name="h")).__dict__.get("pre_tilt"), property
     )
+
+
+def test_the_compustage_holder_states_its_pre_tilt():
+    """It is built in `_create_sample_stage` rather than resolved from the
+    configuration, so it is the one holder that does not pass through
+    `_resolve_configured_holder` and has to be given a pre-tilt explicitly.
+
+    Missing it was not a quiet wrong number, it was a crash: the sample holder panel
+    formats the value with `:g`, `None` raises `TypeError`, and under PyQt5 an
+    exception inside a slot is `qFatal` -- the whole process aborts on connect. The
+    non-UI suite did not see it; `tests/ui` did.
+    """
+    from fibsem.microscopes._stage import _create_sample_stage
+
+    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
+    assert microscope.stage_is_compustage, "fixture no longer exercises the compustage"
+
+    holder = _create_sample_stage(microscope).holder
+
+    assert holder.pre_tilt is not None
+    assert holder.pre_tilt == microscope.system.stage.shuttle_pre_tilt
