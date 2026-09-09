@@ -7,6 +7,7 @@ from typing import ClassVar, Type
 import numpy as np
 
 from fibsem import constants
+from fibsem.applications.autolamella.poses import sync_fluorescence_pose
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
@@ -162,6 +163,12 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # store milling pose and angle
         self.lamella.milling_pose = self.microscope.get_microscope_state()
         self.lamella.update_milling_angle(self.microscope)
+        # the task moved the lamella (the coincidence walk, the operator's own
+        # centring), so the fluorescence pose derived when it was marked now
+        # describes where it used to be. Every UI path that moves a lamella
+        # syncs it; a fluorescence stack taken from the stale pose lands tens
+        # of microns off the marks it is meant to show (FIB-954).
+        sync_fluorescence_pose(self.microscope, self.lamella)
 
     def _align_coincident_for_milling(
         self, milling_angle: float, is_close: bool

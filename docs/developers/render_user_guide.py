@@ -1991,10 +1991,385 @@ def render_workflows(h: Harness) -> None:
     h.pump(300)
 
 
+@page("correlation")
+def render_correlation(h: Harness) -> None:
+    """Spot burn fiducials and the correlation workflow (Arctis): the two
+    tasks in the protocol, the supervised burn, the fluorescence stack, and
+    the correlation dialog from the Lamella tab through to the accepted POI."""
+    import copy
+    import itertools
+
+    import numpy as np
+    from scipy import ndimage as ndi
+
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
+    from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
+        AcquireFluorescenceImageConfig,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+        SpotBurnFiducialTaskConfig,
+    )
+    from fibsem.correlation.structures import PointType
+    from fibsem.fm.structures import ChannelSettings, ZParameters
+    from fibsem.structures import Point
+    from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    lamellae = h.ensure_lamellae(3)
+    experiment = h.ui.experiment
+    protocol = experiment.task_protocol
+
+    # -- the two tasks in the protocol -------------------------------------
+    SPOT, FMTASK = "Spot Burn Fiducial", "Acquire Fluorescence Image"
+    fm = h.ui.microscope.fm
+    lines = sorted(fm.filter_set.available_excitation_wavelengths)
+
+    def nearest(target):
+        return min(lines, key=lambda v: abs(v - target))
+
+    channels = [
+        ChannelSettings(
+            name="Reflection",
+            excitation_wavelength=nearest(550),
+            emission_wavelength=None,
+        ),
+        ChannelSettings(
+            name="GFP",
+            excitation_wavelength=nearest(488),
+            emission_wavelength="Fluorescence",
+        ),
+    ]
+    # an asymmetric layout, so the pairs are unambiguous when the FM view is
+    # rotated or mirrored against the FIB view
+    points = [Point(0.3, 0.35), Point(0.7, 0.3), Point(0.65, 0.7), Point(0.35, 0.62)]
+    if SPOT not in protocol.task_config:
+        burn = SpotBurnFiducialTaskConfig(task_name=SPOT, coordinates=points)
+        burn.reference_imaging.field_of_view1 = 50e-6
+        burn.reference_imaging.field_of_view2 = 100e-6
+        acquire = AcquireFluorescenceImageConfig(
+            task_name=FMTASK,
+            channel_settings=channels,
+            zparams=ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6),
+        )
+        for focus_pass in acquire.autofocus_settings.passes:
+            focus_pass.enabled = False  # the sim's autofocus is a no-op; skip the sweep
+        for config in (burn, acquire):
+            protocol.task_config[config.task_name] = config
+            for lamella in experiment.positions:
+                lamella.task_config[config.task_name] = copy.deepcopy(config)
+        # after the setup task, before the milling: burn, then image
+        tasks = protocol.workflow_config.tasks
+        setup = tasks[0].name
+        tasks.insert(
+            1,
+            AutoLamellaTaskDescription(
+                name=SPOT, supervise=True, required=False, requires=[setup]
+            ),
+        )
+        tasks.insert(
+            2,
+            AutoLamellaTaskDescription(
+                name=FMTASK, supervise=False, required=False, requires=[SPOT]
+            ),
+        )
+        experiment.save()
+        editor = h.window.task_widget
+        editor._initialise_widgets()
+        editor.workflow_config_changed.emit(protocol.workflow_config)
+        h.pump(500)
+
+    # the Protocol tab with each task's settings
+    h.show_main_tab("Protocol")
+    editor = h.window.task_widget
+    editor.task_list_widget.select(SPOT)
+    h.pump(600)
+    h.shot(
+        "protocol-spot-burn",
+        callouts=[
+            Box(editor.task_list_widget),
+            Box(editor.task_parameters_config_widget),
+            editor.pushButton_edit_spot_burn,
+        ],
+        numbered=True,
+    )
+    editor.task_list_widget.select(FMTASK)
+    h.pump(600)
+    h.shot(
+        "protocol-acquire-fm",
+        callouts=[
+            Box(editor.task_list_widget),
+            Box(editor.fluorescence_acquisition_task_config_widget),
+        ],
+        numbered=True,
+    )
+
+    # -- the run: setup, burn (supervised), fluorescence stack ---------------
+    ww = h.window.lamella_workflow_widget
+    ww.lamella_list.set_all_selected(False)
+    ww.lamella_list._row(0).checkbox.setChecked(True)
+    ww.workflow.set_all_selected(False)
+    for i in range(3):
+        ww.workflow._row(i).checkbox.setChecked(True)
+    h.pump(300)
+    h.show_main_tab("Workflow")
+    h.shot(
+        "workflow-selection",
+        callouts=[Box(ww.workflow), h.window.run_workflow_btn],
+        numbered=True,
+    )
+    main_module.confirm_run_workflow_dialog = lambda *_args, **_kwargs: True
+    h.ui._show_workflow_summary = lambda: None
+    h.window.run_workflow_btn.click()
+    h.pump(1500)
+    if not h.ui.is_workflow_running:
+        raise RuntimeError("workflow did not start")
+    burn_shot_taken = False
+    burn_ran = False
+    waited = 0
+    while (h.ui.is_workflow_running or waited < 2000) and waited < 1200000:
+        h.pump(250)
+        waited += 250
+        if not h.ui.WAITING_FOR_USER_INTERACTION:
+            continue
+        h.pump(1200)
+        question = h.ui.ui_responder.pending_question
+        if callable(question):
+            question = question()
+        kind = type(question).__name__ if question is not None else "Confirm"
+        if kind == "RunSpotBurn":
+            if not burn_shot_taken:
+                # the question, on the Experiment tab, and the points on the FIB
+                # view with the Spot Burn tab open
+                burn_shot_taken = True
+                h.show_main_tab("Microscope")
+                h.ui.tabWidget.setCurrentWidget(h.ui.tab)
+                h.pump(500)
+                h.shot(
+                    "prompt-spot-burn",
+                    callouts=[
+                        Box(h.ui.label_instructions),
+                        h.ui.pushButton_yes,
+                        h.ui.pushButton_no,
+                    ],
+                    numbered=True,
+                )
+                h.ui.tabWidget.setCurrentWidget(h.ui.spot_burn_widget)
+                h.pump(500)
+                sbw = h.ui.spot_burn_widget
+                fib_panel = h.window.view_controller.widget._all_panels[2]
+                h.shot(
+                    "spot-burn-tab",
+                    callouts=[
+                        Box(fib_panel),
+                        Box(sbw.coord_editor),
+                        sbw.comboBox_beam_current,
+                        sbw.doubleSpinBox_exposure_time,
+                    ],
+                    numbered=True,
+                )
+            if not burn_ran:
+                burn_ran = True
+                h.ui.pushButton_yes.click()  # Run Spot Burn; re-asks when done
+            else:
+                h.ui.pushButton_no.click()  # Continue
+        else:
+            h.ui.pushButton_yes.click()
+        h.pump(800)
+    if h.ui.is_workflow_running:
+        raise RuntimeError("workflow did not finish")
+    h.pump(1500)
+
+    # -- the Lamella tab: the marks in the FIB reference, the FM stack -------
+    h.show_main_tab("Lamella")
+    led = h.window.lamella_widget
+    led.select_lamella(lamellae[0].name)
+    h.pump(800)
+    led.listWidget_selected_task.select(SPOT)
+    h.pump(600)
+    # the reference taken after the burn, so the marks are in it
+    fib_combo = led.combobox_fib_filenames
+    for i in range(fib_combo.count()):
+        data = str(fib_combo.itemData(i))
+        if "Spot Burn" in data and "final" in data:
+            fib_combo.setCurrentIndex(i)
+            break
+    h.pump(800)
+    h.shot(
+        "lamella-after-burn",
+        callouts=[
+            Box(led.view_controller.widget),
+            fib_combo,
+            led.pushButton_open_correlation,
+        ],
+        numbered=True,
+    )
+    # the FM image selector shows for a fluorescence task
+    led.listWidget_selected_task.select(FMTASK)
+    h.pump(800)
+    h.shot(
+        "lamella-fm-stack",
+        callouts=[Box(led.view_controller.widget), led.combobox_fm_filenames],
+        numbered=True,
+    )
+    led.listWidget_selected_task.select(SPOT)
+    h.pump(600)
+
+    # -- the correlation dialog, driven through its tabs ----------------------
+    def fm_marks():
+        """Where the burn marks are in the FM frame: the difference between a
+        reflection frame with the marks in the scene and one without, at the
+        pose and objective position the stack was taken at."""
+        scene = h.ui.microscope._sample_scene
+        fm.objective.insert()
+        fm.objective.move_absolute(lamellae[0].fluorescence_pose.objective_position)
+        fm.set_channel(channels[0])
+        with_marks = fm.camera.acquire_image().astype(np.float32)
+        kept, scene.milled = scene.milled, []
+        try:
+            without = fm.camera.acquire_image().astype(np.float32)
+        finally:
+            scene.milled = kept
+        fm.objective.retract()
+        diff = ndi.gaussian_filter(without - with_marks, 1.0)
+        # the marks against the frame noise, not against the brightest mark:
+        # one under a bright cell differs far more than the others
+        centre = float(np.median(diff))
+        sigma = 1.4826 * float(np.median(np.abs(diff - centre))) + 1e-6
+        labels, n = ndi.label(diff > centre + 8 * sigma)
+        if os.environ.get("FIBSEM_GUIDE_DEBUG"):
+            from PIL import Image as _Image
+
+            for name, arr in (
+                ("with", with_marks),
+                ("without", without),
+                ("diff", diff),
+            ):
+                lo, hi = np.percentile(arr, (0.5, 99.5))
+                img8 = np.clip((arr - lo) / max(hi - lo, 1e-6) * 255, 0, 255)
+                _Image.fromarray(img8.astype(np.uint8)).save(
+                    os.path.join(os.environ["FIBSEM_GUIDE_DEBUG"], f"fm-{name}.png")
+                )
+        found = []
+        for k in range(1, n + 1):
+            component = labels == k
+            if component.sum() < 4:
+                continue
+            cy, cx = ndi.center_of_mass(component)
+            found.append((float(cx), float(cy)))
+        return found
+
+    def pair(fib_points, candidates):
+        """Which FM candidates are the burn marks, in FIB order: the subset
+        and order that an affine map from the FIB points fits best. Affine,
+        not similarity: the FIB view is foreshortened along one axis."""
+        p = np.array(fib_points, dtype=float)
+        A = np.hstack([p, np.ones((len(p), 1))])
+        best = None
+        for combo in itertools.combinations(range(len(candidates)), len(p)):
+            for perm in itertools.permutations(combo):
+                q = np.array([candidates[k] for k in perm], dtype=float)
+                coeff, *_ = np.linalg.lstsq(A, q, rcond=None)
+                residual = float(np.abs(A @ coeff - q).sum())
+                if best is None or residual < best[0]:
+                    best = (residual, [candidates[k] for k in perm])
+        return best[1]
+
+    def drive(dialog):
+        widget = dialog.widget
+        dialog.show()
+        h.pump(1200)
+        h.shot("correlation-images", target=dialog)
+        widget._tabs.setCurrentIndex(1)
+        h.pump(400)
+        widget._coords_tab.set_channel_selection("Reflection", "GFP")
+        fm_image = widget.fm_image if hasattr(widget, "fm_image") else led.fm_image
+        # the FIB fiducials are seeded from the burn coordinates; the FM side is
+        # picked here, on the marks in the reflection channel at the middle plane
+        seeded = [
+            (c.point.x, c.point.y) for c in widget._coords_tab.fib_list.coordinates
+        ]
+        arr = fm_image.data
+        while arr.ndim > 4:
+            arr = arr[0]
+        z = widget._fm_display.current_z
+        candidates = fm_marks()
+        if len(candidates) < len(seeded):
+            raise RuntimeError(
+                f"found {len(candidates)} burn marks in the FM reflection"
+            )
+        for x, y in pair(seeded, candidates):
+            widget._on_canvas_add_requested(x, y, PointType.FM)
+        # the point of interest: the brightest cell in the GFP channel, away
+        # from the edges
+        gfp = ndi.gaussian_filter(arr[1, z].astype(np.float32), 3)
+        margin = gfp.shape[0] // 6
+        inner = gfp[margin:-margin, margin:-margin]
+        cy, cx = np.unravel_index(np.argmax(inner), inner.shape)
+        widget._on_canvas_add_requested(
+            float(cx + margin), float(cy + margin), PointType.POI
+        )
+        h.pump(800)
+        h.shot("correlation-coordinates", target=dialog)
+        widget._btn_run.click()
+        waited = 0
+        while widget.result is None and waited < 60000:
+            h.pump(250)
+            waited += 250
+        if widget.result is None:
+            raise RuntimeError("correlation did not finish")
+        h.pump(800)
+        widget._tabs.setCurrentIndex(2)
+        h.pump(500)
+        h.shot("correlation-results", target=dialog)
+        widget._tabs.setCurrentIndex(3)
+        h.pump(500)
+        h.shot("correlation-refractive-index", target=dialog)
+        widget._tabs.setCurrentIndex(2)
+        h.pump(300)
+        if widget._btn_continue.isEnabled():
+            widget._btn_continue.click()
+        else:
+            dialog.accept()
+        h.pump(500)
+        return dialog.Accepted
+
+    original_exec = ctw.CorrelationTabDialog.exec_
+    original_question = ctw.QMessageBox.question
+    ctw.CorrelationTabDialog.exec_ = drive
+    # Continue confirms with a modal Yes/No ("Continue with correlation result
+    # and close?"); answered Yes here
+    ctw.QMessageBox.question = staticmethod(
+        lambda *_a, **_k: ctw.QMessageBox.StandardButton.Yes
+    )
+    try:
+        led.pushButton_open_correlation.click()
+        h.pump(1000)
+    finally:
+        ctw.CorrelationTabDialog.exec_ = original_exec
+        ctw.QMessageBox.question = original_question
+
+    # the accepted point of interest on the Lamella tab
+    led.listWidget_selected_task.select("Rough Milling")
+    h.pump(800)
+    h.shot(
+        "lamella-after-correlation",
+        callouts=[Box(led.view_controller.widget)],
+        numbered=True,
+    )
+
+
 # -- entry point --------------------------------------------------------------
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # `kill -USR1 <pid>` prints every thread's stack: where a run is stuck
+    import faulthandler
+    import signal
+
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("pages", nargs="*", help="pages to render (default: all)")
     parser.add_argument(

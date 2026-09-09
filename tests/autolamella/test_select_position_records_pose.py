@@ -57,3 +57,55 @@ def test_the_task_records_pose_and_reference_either_way(
     assert os.path.exists(
         os.path.join(lamella.path, ALIGNMENT_REFERENCE_IMAGE_FILENAME)
     ), "the alignment reference was acquired"
+
+
+def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path):
+    """On an instrument with a fluorescence microscope, the task leaves the
+    fluorescence pose describing the position it recorded the milling pose
+    at, not the one the lamella was marked at (FIB-954)."""
+    from fibsem.applications.autolamella.poses import (
+        _to_fluorescence,
+        build_lamella_poses,
+    )
+    from fibsem.structures import FibsemStagePosition
+
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+    )
+    try:
+        marked = microscope.get_stage_position()
+        poses = build_lamella_poses(microscope=microscope, position=marked)
+        lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
+        lamella.path.mkdir(parents=True, exist_ok=True)
+        lamella.milling_pose = poses.milling
+        lamella.fluorescence_pose = poses.fluorescence
+        assert lamella.fluorescence_pose is not None
+        stale = lamella.fluorescence_pose.stage_position
+
+        # the operator centres the site 20 um away before the task records it
+        moved = FibsemStagePosition(
+            x=marked.x + 20e-6,
+            y=marked.y,
+            z=marked.z,
+            r=marked.r,
+            t=marked.t,
+            coordinate_system=marked.coordinate_system,
+        )
+        microscope.move_stage_absolute(moved)
+        lamella.milling_pose = microscope.get_microscope_state()
+        config = SelectMillingPositionTaskConfig(
+            auto_milling_alignment=False, use_autofocus=False, select_poi=False
+        )
+        SelectMillingPositionTask(
+            microscope=microscope, config=config, lamella=lamella
+        )._run()
+
+        expected = _to_fluorescence(microscope, lamella.milling_pose.stage_position)
+        got = lamella.fluorescence_pose.stage_position
+        assert got.x == pytest.approx(expected.x, abs=1e-9)
+        assert got.y == pytest.approx(expected.y, abs=1e-9)
+        assert abs(got.x - stale.x) > 10e-6, "the pose moved with the lamella"
+        assert lamella.fluorescence_pose.objective_position is not None
+    finally:
+        microscope.disconnect()

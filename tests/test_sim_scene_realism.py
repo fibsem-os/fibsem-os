@@ -670,10 +670,11 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
         ice_density=0.0,
         fiducial=False,
     )
+    # the reference image sets the field the points are placed in: an
+    # acquisition leaves the beam at its field, as on hardware
     settings = _settings(BeamType.ION, hfw=40e-6)
-    microscope.set("hfw", settings.hfw, BeamType.ION)
-    microscope.set("resolution", settings.resolution, BeamType.ION)
     before = microscope.acquire_image(image_settings=settings)
+    assert microscope.get("hfw", BeamType.ION) == pytest.approx(40e-6)
 
     # two points, normalised image coordinates: a quarter in from the left
     # and right edges, on the horizontal centre line and a quarter down
