@@ -20,8 +20,12 @@ class PointType(Enum):
     FIB = "FIB"
     FM = "FM"
     POI = "POI"
-    SURFACE = "SURFACE"          # sample surface in the FIB image (post-correlation RI correction)
-    SURFACE_FM = "FM-SURFACE"    # sample surface in the FM volume (pre-correlation RI correction)
+    SURFACE = (
+        "SURFACE"  # sample surface in the FIB image (post-correlation RI correction)
+    )
+    SURFACE_FM = (
+        "FM-SURFACE"  # sample surface in the FM volume (pre-correlation RI correction)
+    )
 
 
 @dataclass
@@ -168,7 +172,9 @@ class CorrelationInputData:
         """
         if self.fib_image is None:
             return self.stored_fib_image_pixel_size
-        pixel_size = getattr(getattr(self.fib_image, "metadata", None), "pixel_size", None)
+        pixel_size = getattr(
+            getattr(self.fib_image, "metadata", None), "pixel_size", None
+        )
         if pixel_size is None:
             return self.stored_fib_image_pixel_size
         return getattr(pixel_size, "x", None)
@@ -354,6 +360,31 @@ class CorrelationResult:
     refractive_index_correction_mode: Optional[str] = None
     updated_at: float = field(default_factory=time.time)
 
+    # Geometry seeding (FIB-881). `fm_z_scale` is the factor the FM z (slices) was
+    # multiplied by for the fit -- the slice thickness in xy pixels -- so the
+    # rotation is over isotropic units; 1.0 when the stack did not say. `seed` is
+    # the nominal transform the fit started from (None when unseeded) and
+    # `branch_check` how the fit relates to its mirror branch; both plain dicts,
+    # written for the status line and the saved file rather than for code.
+    fm_z_scale: float = 1.0
+    seed: Optional[dict] = None
+    branch_check: Optional[dict] = None
+
+    @property
+    def dimage_dz_px_per_slice(self) -> Optional[list]:
+        """Where one FM slice of depth lands in the FIB image, in pixels (x, y).
+
+        The axis and gain the refractive-index depth correction moves along: the
+        fitted projection's z column, back in slices of the picked stack.
+        """
+        if not self.rotation_quaternion or not self.scale:
+            return None
+        r = np.asarray(self.rotation_quaternion, dtype=float)
+        if r.shape != (3, 3):
+            return None
+        col = self.scale * r[:2, 2] * self.fm_z_scale
+        return [float(col[0]), float(col[1])]
+
     def to_dict(self) -> dict:
         return {
             "poi": [p.to_dict() for p in self.poi],
@@ -377,6 +408,9 @@ class CorrelationResult:
             "refractive_index_correction_factor": self.refractive_index_correction_factor,
             "refractive_index_correction_mode": self.refractive_index_correction_mode,
             "updated_at": self.updated_at,
+            "fm_z_scale": self.fm_z_scale,
+            "seed": self.seed,
+            "branch_check": self.branch_check,
         }
 
     @staticmethod
@@ -419,6 +453,9 @@ class CorrelationResult:
                 "refractive_index_correction_mode"
             ),
             updated_at=data.get("updated_at", time.time()),
+            fm_z_scale=data.get("fm_z_scale", 1.0),
+            seed=data.get("seed"),
+            branch_check=data.get("branch_check"),
         )
 
     def apply_refractive_index_correction(

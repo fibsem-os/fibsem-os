@@ -95,6 +95,8 @@ tests/data/
 # Those scrubbed fixtures are the committed artifact, so they have to be re-included
 # against the blanket `*.json` above.
 !tests/fixtures/metadata/*.json
+# Saved correlation fits with their image metadata (FIB-881), same reason.
+!tests/correlation/fixtures/*.json
 
 # Overview runs started without a save directory fall back to the working directory
 # (`FibsemOverviewWidget.acquire`), so running the app from a checkout writes tilesets
