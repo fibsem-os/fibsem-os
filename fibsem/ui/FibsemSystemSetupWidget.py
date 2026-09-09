@@ -20,8 +20,10 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 from fibsem.ui.widgets.custom_widgets import (
+    TitledPanel,
     ValueComboBox,
 )
+from fibsem.ui.widgets.microscope_defaults_widget import MicroscopeDefaultsWidget
 
 
 class FibsemSystemSetupWidget(QtWidgets.QWidget):
@@ -62,13 +64,22 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.gridLayout.addWidget(self.toolButton_import_configuration, 1, 2, 1, 1)
         self.gridLayout.addWidget(self.pushButton_connect_to_microscope, 2, 0, 1, 3)
         self.gridLayout.addWidget(self.pushButton_apply_configuration, 3, 0, 1, 3)
-        self.gridLayout.addWidget(self.label_connection_status, 4, 0, 1, 3)
-        self.gridLayout.addWidget(self.label_connection_information, 5, 0, 1, 3)
+        # The defaults a session starts from: read off the instrument, edited, saved
+        # into the configuration. Beside Apply, which is what consumes them.
+        self.defaultsWidget = MicroscopeDefaultsWidget()
+        self.defaultsPanel = TitledPanel(
+            "Defaults", content=self.defaultsWidget, collapsible=True
+        )
+        self.defaultsPanel.collapse()
+        self.defaultsPanel.setVisible(False)
+        self.gridLayout.addWidget(self.defaultsPanel, 4, 0, 1, 3)
+        self.gridLayout.addWidget(self.label_connection_status, 5, 0, 1, 3)
+        self.gridLayout.addWidget(self.label_connection_information, 6, 0, 1, 3)
         self.gridLayout.addItem(
             QtWidgets.QSpacerItem(
                 20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
             ),
-            6,
+            7,
             0,
             1,
             3,
@@ -476,6 +487,8 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.pushButton_apply_configuration.setEnabled(
             is_microscope_connected and cfg.APPLY_CONFIGURATION_ENABLED
         )
+        self.defaultsPanel.setVisible(is_microscope_connected)
+        self.defaultsWidget.set_microscope(self.microscope or None)
 
         if is_microscope_connected:
             self.pushButton_connect_to_microscope.setVisible(False)
