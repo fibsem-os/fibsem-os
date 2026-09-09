@@ -521,10 +521,6 @@ LEGACY_CONFIGURATION_KEYS: Set[str] = {
     # `plasma: bool` was folded into `plasma_gas`: a column with a gas is a plasma
     # column. Still read, so `plasma: false` in an old file wins over a stray gas.
     "ion.plasma",
-    # The pre-tilt moved onto the holder (`stage.holders.<name>.pre_tilt`). Still
-    # read, so a file written before then loads with its pre-tilt; written back only
-    # while no holder is named, and never once one is.
-    "stage.shuttle_pre_tilt",
 }
 
 # Old block spellings that are still read. A key under one of these is legal if it
@@ -533,19 +529,24 @@ LEGACY_CONFIGURATION_KEYS: Set[str] = {
 # with the column's hardware and now lives at `defaults.electron.voltage`. A mapping
 # of old home to new, not a second copy of the schema.
 LEGACY_CONFIGURATION_BLOCKS: Dict[str, Tuple[str, ...]] = {
+    "stage": ("hardware.stage", "calibration"),
+    "electron": ("hardware.electron", "defaults.electron"),
+    "ion": ("hardware.ion", "defaults.ion"),
+    "manipulator": ("hardware.manipulator",),
+    "gis": ("hardware.gis",),
+    "fm": ("hardware.fm",),
     "imaging": ("defaults.imaging",),
-    "electron": ("defaults.electron",),
-    "ion": ("defaults.ion",),
 }
 
 # Blocks accepted wholesale. `sim:` is a plain dict the simulator reads with `.get()`
 # rather than a dataclass, and `protocol:` is the application's; policing either would
-# invent warnings every time a backend gains a key.
-OPEN_CONFIGURATION_BLOCKS = ("sim", "protocol")
+# invent warnings every time a backend gains a key. `calibration.holders` is keyed by
+# holder name, so its keys are whatever a site called its shuttles.
+OPEN_CONFIGURATION_BLOCKS = ("sim", "protocol", "calibration.holders")
 
-# Blocks with a level under them, policed one level deeper. `defaults.electron` is a
-# block of keys, and a typo in it should be reported the way a typo in `electron:` is.
-SECTION_BLOCKS = ("defaults",)
+# The sections, policed one level deeper: `hardware.electron` is a block of keys, and
+# a typo in it should be reported the way a typo in the old flat `electron:` is.
+SECTION_BLOCKS = ("hardware", "calibration", "defaults")
 
 
 @functools.lru_cache(maxsize=1)
@@ -569,9 +570,14 @@ def written_configuration_keys() -> Set[str]:
         if not isinstance(value, dict):
             continue
         for key, sub in value.items():
-            keys.add(f"{block}.{key}")
-            if block in SECTION_BLOCKS and isinstance(sub, dict):
-                keys.update(f"{block}.{key}.{k}" for k in sub)
+            path = f"{block}.{key}"
+            keys.add(path)
+            if (
+                block in SECTION_BLOCKS
+                and isinstance(sub, dict)
+                and path not in OPEN_CONFIGURATION_BLOCKS
+            ):
+                keys.update(f"{path}.{k}" for k in sub)
     return keys
 
 
@@ -608,6 +614,8 @@ def unrecognised_configuration_keys(config: dict) -> List[str]:
             continue
         for key, sub in value.items():
             path = f"{block}.{key}"
+            if path in OPEN_CONFIGURATION_BLOCKS:
+                continue
             if not is_known(path):
                 unknown.append(path)
             elif block in SECTION_BLOCKS and isinstance(sub, dict):

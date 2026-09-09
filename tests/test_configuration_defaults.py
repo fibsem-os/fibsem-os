@@ -60,6 +60,9 @@ def test_the_split_changed_no_configuration_s_meaning(filename: str):
     """
     split = _load(filename)
     flat = copy.deepcopy(split)
+    flat.update(flat.pop("hardware"))
+    calibration = flat.pop("calibration")
+    flat["stage"].update(calibration)
     defaults = flat.pop("defaults")
     for block in ("electron", "ion"):
         flat[block] = {**(flat.get(block) or {}), **(defaults.get(block) or {})}
@@ -78,7 +81,7 @@ def test_the_column_blocks_hold_only_hardware(filename: str):
     thing an operator picks for a session."""
     config = _load(filename)
     for block in ("electron", "ion"):
-        keys = set(config.get(block) or {})
+        keys = set(config["hardware"][block])
         assert not (keys & DEFAULT_KEYS), f"{block} still states session state"
         assert keys <= HARDWARE_KEYS, (
             f"{block} has an unexpected key: {keys - HARDWARE_KEYS}"
@@ -170,7 +173,7 @@ def test_writing_a_configuration_produces_the_split_shape():
         "imaging",
     }
     assert "imaging" not in written
-    assert set(written["electron"]) <= HARDWARE_KEYS
+    assert set(written["hardware"]["electron"]) <= HARDWARE_KEYS
     assert written["defaults"]["electron"]["voltage"] == 2000
 
 

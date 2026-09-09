@@ -2700,6 +2700,23 @@ class SystemSettings:
     )
 
     def to_dict(self):
+        """Three sections, by what kind of thing a value is.
+
+        `hardware:` is what the instrument is and cannot be asked. `calibration:` is
+        what was measured at this instrument -- the holders, and the pre-tilt while no
+        holder is named -- written by a calibration action, never by an autosave.
+        `defaults:` is what a session starts from. The records underneath are the
+        same ones as before; the sections exist so a person opening the file can tell
+        which numbers are safe to touch.
+        """
+        stage = self.stage.to_dict()
+        calibration = {
+            "holders": stage.pop("holders"),
+            "active_holder": stage.pop("active_holder"),
+        }
+        if "shuttle_pre_tilt" in stage:
+            calibration["shuttle_pre_tilt"] = stage.pop("shuttle_pre_tilt")
+
         electron = self.electron.to_dict()
         ion = self.ion.to_dict()
         defaults = {
@@ -2708,15 +2725,18 @@ class SystemSettings:
             "ion": _split_defaults(ion),
         }
         return {
-            "stage": self.stage.to_dict(),
-            "electron": electron,
-            "ion": ion,
-            "manipulator": self.manipulator.to_dict(),
-            "gis": self.gis.to_dict(),
             "info": self.info.to_dict(),
-            "sim": self.sim,
-            "fm": self.fm.to_dict(),
+            "hardware": {
+                "stage": stage,
+                "electron": electron,
+                "ion": ion,
+                "manipulator": self.manipulator.to_dict(),
+                "gis": self.gis.to_dict(),
+                "fm": self.fm.to_dict(),
+            },
+            "calibration": calibration,
             "defaults": defaults,
+            "sim": self.sim,
         }
 
     @staticmethod
@@ -2735,30 +2755,35 @@ class SystemSettings:
         # wins a collision: every file written before the split states the keys in
         # the flat block only, which is why the merge is in this direction and why
         # those files load unchanged.
+        # Every file written before the sections existed has its blocks at the top
+        # level, so each block is read from there first and from `hardware:` over
+        # it; `calibration:` folds into the stage record it belongs to.
+        hardware = settings.get("hardware") or {}
+        calibration = settings.get("calibration") or {}
         defaults = settings.get("defaults") or {}
-        electron = {
-            **(settings.get("electron") or {}),
-            **(defaults.get("electron") or {}),
-        }
-        ion = {**(settings.get("ion") or {}), **(defaults.get("ion") or {})}
+
+        def block(name: str) -> dict:
+            return {**(settings.get(name) or {}), **(hardware.get(name) or {})}
+
+        stage = block("stage")
+        for key in ("holders", "active_holder", "shuttle_pre_tilt"):
+            if key in calibration:
+                stage[key] = calibration[key]
+        electron = {**block("electron"), **(defaults.get("electron") or {})}
+        ion = {**block("ion"), **(defaults.get("ion") or {})}
         electron["beam_type"] = BeamType.ELECTRON.name
         ion["beam_type"] = BeamType.ION.name
 
         return SystemSettings(
             apply_defaults_on_connect=bool(defaults.get("apply_on_connect", False)),
-            stage=StageSystemSettings.from_dict(settings.get("stage") or {}),
+            stage=StageSystemSettings.from_dict(stage),
             electron=BeamSystemSettings.from_dict(electron),
             ion=BeamSystemSettings.from_dict(ion),
-            manipulator=ManipulatorSystemSettings.from_dict(
-                settings.get("manipulator") or {}
-            ),
-            gis=GISSystemSettings.from_dict(settings.get("gis") or {}),
+            manipulator=ManipulatorSystemSettings.from_dict(block("manipulator")),
+            gis=GISSystemSettings.from_dict(block("gis")),
             info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
-            # The same `fm:` block `MicroscopeSettings.from_dict` reads `config` from.
-            # Two readers, one key each: this is the hardware fact, that is a path to
-            # imaging parameters.
-            fm=FluorescenceSystemSettings.from_dict(settings.get("fm", {})),
+            fm=FluorescenceSystemSettings.from_dict(block("fm")),
         )
 
 

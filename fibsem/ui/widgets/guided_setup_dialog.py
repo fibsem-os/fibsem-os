@@ -1614,7 +1614,8 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             return
 
         info = config.get("info", {})
-        stage = config.get("stage", {})
+        stage = (config.get("hardware") or {}).get("stage") or {}
+        calibration = config.get("calibration") or {}
         # "from the shipped configuration" is said rather than left implicit: a value
         # nobody typed still ends up in the file, and it should be visible that it was
         # chosen for them rather than by them.
@@ -1650,7 +1651,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             ),
             (
                 "Shuttle pre-tilt",
-                f"{float(stage.get('shuttle_pre_tilt', 0)):.1f}°{from_file}",
+                f"{float(calibration.get('shuttle_pre_tilt', 0)):.1f}°{from_file}",
             ),
             ("Configuration folder", self.choices.resolved_configuration_directory),
             ("Experiments folder", self.choices.experiment_directory or "not set"),

@@ -68,7 +68,7 @@ def test_the_shipped_rotating_stages_derive_what_they_used_to_state(filename: st
     Tescan is the row worth having: reference 180, so its opposite is 0 and not 360.
     """
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
-    stage = StageSystemSettings.from_dict(config["stage"])
+    stage = StageSystemSettings.from_dict(config["hardware"]["stage"])
 
     assert stage.rotation_180 == SHIPPED[filename]
 
@@ -111,7 +111,7 @@ def test_a_connected_rotating_stage_sits_half_a_turn_away():
 @pytest.mark.parametrize("filename", sorted(ALL_CONFIGS))
 def test_no_shipped_file_still_states_it(filename: str):
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
-    assert "rotation_180" not in config["stage"]
+    assert "rotation_180" not in config["hardware"]["stage"]
 
 
 def test_a_rotating_stage_sits_half_a_turn_from_its_reference():

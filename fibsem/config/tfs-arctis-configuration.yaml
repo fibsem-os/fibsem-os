@@ -5,25 +5,27 @@ info:
     name: tfs-arctis-configuration                          # a descriptive name for your configuration                     [SPECIFIED]
     ip_address: localhost                                 # the ip address of the microscope PC                           [SPECIFIED]
     manufacturer: Thermo                                    # the microscope manufactuer                                    [SPECIFIED]        
-stage:
-    enabled:                    true                        # the stage is enabled                                          [USER]
-    rotation_reference:         0                           # the reference rotation value                                  [SPECIFIED] 
+hardware:                                                   # what the instrument is; cannot be asked
+    stage:
+        enabled:                    true                        # the stage is enabled                                          [USER]
+        rotation_reference:         0                           # the reference rotation value                                  [SPECIFIED] 
+    electron:                                              
+        enabled:                    true                        # the electron beam is enabled                                  [USER]
+        column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufactuer]
+        eucentric_height:           10.0e-3                      # the eucentric height of the electron beam                     [SPECIFIED]
+    ion:
+        enabled:                    true                        # the ion beam is enabled                                       [USER]
+        column_tilt:                52                          # the column tilt of the electron beam                          [SPECIFIED]
+        eucentric_height:           16.5e-3                     # the eucentric height of the ion beam                          [SPECIFIED]
+        plasma_gas:                 Xenon                       # the plasma gas for the ion beam (plasma fib only)             [USER]
+    manipulator:
+        enabled:                    false                       # manipulator is enabled                                        [USER]
+    gis:
+        enabled:                    false                       # gis is enabled                                                [USER]
+        multichem:                  false                       # multichem is enabled                                          [USER]
+        sputter_coater:             false                       # sputter coater is enabled                                     [USER]                        
+calibration:                                                # measured at this instrument
     shuttle_pre_tilt:           0                           # the pre-tilt of the shuttle                                   [SPECIFIED]
-electron:                                              
-    enabled:                    true                        # the electron beam is enabled                                  [USER]
-    column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufactuer]
-    eucentric_height:           10.0e-3                      # the eucentric height of the electron beam                     [SPECIFIED]
-ion:
-    enabled:                    true                        # the ion beam is enabled                                       [USER]
-    column_tilt:                52                          # the column tilt of the electron beam                          [SPECIFIED]
-    eucentric_height:           16.5e-3                     # the eucentric height of the ion beam                          [SPECIFIED]
-    plasma_gas:                 Xenon                       # the plasma gas for the ion beam (plasma fib only)             [USER]
-manipulator:
-    enabled:                    false                       # manipulator is enabled                                        [USER]
-gis:
-    enabled:                    false                       # gis is enabled                                                [USER]
-    multichem:                  false                       # multichem is enabled                                          [USER]
-    sputter_coater:             false                       # sputter coater is enabled                                     [USER]                        
 defaults:                                                   # what a session starts from
     apply_on_connect:           false                       # push these to the instrument at connect (not yet acted on)
     electron:
