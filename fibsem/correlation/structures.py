@@ -42,17 +42,63 @@ class PointXYZ:
         return PointXYZ(x=data["x"], y=data["y"], z=data["z"])
 
 
+class PointStatus:
+    """What has been established about a coordinate's position (FIB-956).
+
+    Plain strings on ``Coordinate.status`` so a file written by an older build
+    reads back unchanged (the field defaults to ""). ``PREDICTED`` and
+    ``SUGGESTED`` positions came from a projection and have not been looked at;
+    they are drawn hollow and never feed a fit. ``ADJUSTED`` was placed by hand,
+    ``FITTED`` by an accepted local fit, ``CONFIRMED`` accepted as shown.
+    ``REJECTED`` stays on screen and in the file but is excluded from the fit.
+    """
+
+    PREDICTED = "predicted"
+    SUGGESTED = "suggested"
+    ADJUSTED = "adjusted"
+    FITTED = "fitted"
+    CONFIRMED = "confirmed"
+    FIT_FAILED = "fit_failed"
+    REJECTED = "rejected"
+
+    # positions the transform may be fitted to
+    USABLE = frozenset({"", ADJUSTED, FITTED, CONFIRMED, FIT_FAILED})
+    # positions that are only a guess
+    TENTATIVE = frozenset({PREDICTED, SUGGESTED})
+
+
+class PointProvenance:
+    """Where a coordinate's position came from; set once, never changes."""
+
+    PATTERN = "pattern"  # the spot-burn task's own coordinates
+    PROJECTED = "projected"  # the other image's point through the transform
+    DETECTED = "detected"  # found by a search
+    USER = "user"
+    IMPORTED = "imported"
+
+
 @dataclass
 class Coordinate:
     point: PointXYZ = field(default_factory=PointXYZ)
     point_type: PointType = field(default=PointType.FIB)
     fitted: bool = False  # True when this position came from an accepted auto-fit
+    # Per-point state (FIB-956): see PointStatus / PointProvenance. Provenance,
+    # not position -- `matches_inputs` ignores both, as it ignores `fitted`.
+    status: str = ""
+    provenance: str = ""
+
+    @property
+    def usable(self) -> bool:
+        """Whether this position may feed the transform."""
+        return self.status in PointStatus.USABLE
 
     def to_dict(self):
         return {
             "point": self.point.to_dict(),
             "point_type": self.point_type.value,
             "fitted": self.fitted,
+            "status": self.status,
+            "provenance": self.provenance,
         }
 
     @staticmethod
@@ -60,7 +106,11 @@ class Coordinate:
         point = PointXYZ.from_dict(data["point"])
         point_type = PointType(data["point_type"])
         return Coordinate(
-            point=point, point_type=point_type, fitted=data.get("fitted", False)
+            point=point,
+            point_type=point_type,
+            fitted=data.get("fitted", False),
+            status=data.get("status", "") or "",
+            provenance=data.get("provenance", "") or "",
         )
 
 

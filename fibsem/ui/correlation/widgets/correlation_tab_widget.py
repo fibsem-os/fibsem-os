@@ -84,6 +84,7 @@ from fibsem.correlation.structures import (
     CorrelationPointOfInterest,
     CorrelationResult,
     CorrelationState,
+    PointStatus,
     PointType,
     PointXYZ,
     load_correlation_file,
@@ -1726,8 +1727,46 @@ class CorrelationTabWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        layout.addWidget(self._build_menubar())
 
-        # Menu bar
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        layout.addWidget(splitter, stretch=1)
+        fib_pane, fm_pane = self._build_image_panes()
+        splitter.addWidget(fib_pane)
+        splitter.addWidget(fm_pane)
+
+        # Right: tab widget stacked above run button
+        self._build_side_widgets()
+        self._tabs = QTabWidget()
+        self._tabs.addTab(self._images_tab, "Images")
+        self._tabs.addTab(self._coords_tab, "Coordinates")
+        self._tabs.addTab(self._results_tab, "Results")
+        self._tabs.addTab(self._ri_tab, "Refractive Index")
+        # Deliberately always enabled. Gating the whole tab on a finished run hid
+        # the optical parameters, the surface→POI depth readout and the preview
+        # table at exactly the moment an FM surface point has just been placed and
+        # the user wants to check them. Apply is what needs a run behind it, so
+        # Apply is what reports when it cannot be pressed (see _apply_blocked_reason).
+
+        right_pane = QWidget()
+        right_layout = QVBoxLayout(right_pane)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+        right_layout.addWidget(self._tabs, stretch=1)
+        right_layout.addWidget(self._build_run_bar())
+
+        splitter.addWidget(right_pane)
+        splitter.setSizes([500, 500, 350])
+
+        self._build_point_registry()
+
+    # The four builders below are what `_setup_ui` is made of, split out so a
+    # widget that arranges the same parts differently (the guided widget) composes
+    # them rather than copying them: every handler in this class reaches its
+    # parts by attribute name, so what matters is that the builders create the
+    # same attributes, not where they are laid out.
+
+    def _build_menubar(self) -> QMenuBar:
         menubar = QMenuBar()
         file_menu = menubar.addMenu("File")
 
@@ -1767,11 +1806,10 @@ class CorrelationTabWidget(QWidget):
         view_menu.addSeparator()
         view_menu.addAction(self._action_save_plot)
 
-        layout.addWidget(menubar)
+        return menubar
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        layout.addWidget(splitter, stretch=1)
-
+    def _build_image_panes(self) -> Tuple[QWidget, QWidget]:
+        """The FIB and FM canvases, each under a filename header."""
         # Left: FIB image canvas with a filename header (mirrors the FM display)
         fib_pane = QWidget()
         fib_layout = QVBoxLayout(fib_pane)
@@ -1788,7 +1826,6 @@ class CorrelationTabWidget(QWidget):
             allowed_point_types=self._point_types_for_side("fib"),
         )
         fib_layout.addWidget(self._fib_canvas, stretch=1)
-        splitter.addWidget(fib_pane)
 
         # Middle: FM image display, in a pane matching the FIB one. The filename
         # header used to live inside FMImageDisplayWidget; the shared FM canvas
@@ -1809,32 +1846,19 @@ class CorrelationTabWidget(QWidget):
             allowed_point_types=self._point_types_for_side("fm"),
         )
         fm_layout.addWidget(self._fm_display, stretch=1)
-        splitter.addWidget(fm_pane)
 
-        # Right: tab widget stacked above run button
-        self._tabs = QTabWidget()
+        return fib_pane, fm_pane
+
+    def _build_side_widgets(self) -> None:
+        """The images, coordinates, results and refractive-index panels."""
         self._images_tab = _ImagesTab()
         self._images_tab.confirm_image_change = self._confirm_image_change
         self._coords_tab = _CoordinatesTab()
         self._results_tab = _ResultsTab()
         self._ri_tab = _RITab()
 
-        self._tabs.addTab(self._images_tab, "Images")
-        self._tabs.addTab(self._coords_tab, "Coordinates")
-        self._tabs.addTab(self._results_tab, "Results")
-        self._tabs.addTab(self._ri_tab, "Refractive Index")
-        # Deliberately always enabled. Gating the whole tab on a finished run hid
-        # the optical parameters, the surface→POI depth readout and the preview
-        # table at exactly the moment an FM surface point has just been placed and
-        # the user wants to check them. Apply is what needs a run behind it, so
-        # Apply is what reports when it cannot be pressed (see _apply_blocked_reason).
-
-        right_pane = QWidget()
-        right_layout = QVBoxLayout(right_pane)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
-        right_layout.addWidget(self._tabs, stretch=1)
-
+    def _build_run_bar(self) -> QWidget:
+        """Status line, Run and Continue, and the RMS badge."""
         run_bar = QWidget()
         run_bar.setStyleSheet(
             f"background: {CANVAS_BG}; border-top: 1px solid #3a3d42;"
@@ -1872,12 +1896,8 @@ class CorrelationTabWidget(QWidget):
         btn_layout.addStretch(1)
 
         run_layout.addWidget(btn_row)
-        right_layout.addWidget(run_bar)
-
-        splitter.addWidget(right_pane)
-        splitter.setSizes([500, 500, 350])
-
-        self._build_point_registry()
+        self._run_button_row = btn_layout
+        return run_bar
 
     @staticmethod
     def _point_types_for_side(side: str) -> List[PointType]:
@@ -3600,6 +3620,7 @@ class CorrelationTabWidget(QWidget):
         coord.point.y = result.fitted.y
         coord.point.z = result.fitted.z
         coord.fitted = True
+        coord.status = PointStatus.FITTED
         spec = self._point_specs[coord.point_type]
         spec.list_widget.refresh_coordinate(coord)
         spec.adapter.refresh_coordinate(coord)

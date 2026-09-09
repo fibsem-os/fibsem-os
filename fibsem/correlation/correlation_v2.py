@@ -397,7 +397,7 @@ def save_correlation_data(data: dict, path: str) -> str:
 def _coords_to_array(coords: list[Coordinate]) -> np.ndarray:
     return np.array(
         [[c.point.x, c.point.y, c.point.z] for c in coords], dtype=np.float32
-    )
+    ).reshape(-1, 3)
 
 
 def _reproject_poi_via_transform(
