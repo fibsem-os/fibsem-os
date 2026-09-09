@@ -252,6 +252,54 @@ def follow_fluorescence_pose(
     return False
 
 
+POSE_NOUNS = {MILLING_POSE: "milling pose", FLUORESCENCE_POSE: "fluorescence pose"}
+
+
+def derivation_question(
+    lamella: "Lamella", pose_name: str, orientation: Optional[str] = None
+) -> str:
+    """The confirmation for *Derive*, in the words a person needs before saying yes.
+
+    Every derivation overwrites, so every one confirms -- and the one that overwrites
+    a pose somebody set by hand says so, since that is the case the answer changes.
+    """
+    from fibsem.applications.autolamella.structures import PoseProvenance
+
+    other = MILLING_POSE if pose_name == FLUORESCENCE_POSE else FLUORESCENCE_POSE
+    into = f" into the {orientation} orientation" if orientation else ""
+    text = (
+        f"Derive the {POSE_NOUNS.get(pose_name, pose_name)} of {lamella.name} from "
+        f"its {POSE_NOUNS.get(other, other)}{into}?"
+    )
+    if lamella.provenance_of(pose_name) is PoseProvenance.OBSERVED:
+        text += f"\n\nThis overwrites a {POSE_NOUNS.get(pose_name, pose_name)} that was set by hand."
+    if pose_name == FLUORESCENCE_POSE:
+        text += (
+            "\n\nThe objective position is kept; refocus before acquiring if the "
+            "orientation changed."
+        )
+    return text
+
+
+def derive_pose(
+    microscope: "FibsemMicroscope",
+    lamella: "Lamella",
+    pose_name: str,
+    orientation: Optional[str] = None,
+) -> bool:
+    """Overwrite the named pose with one derived from the other -- by name.
+
+    The lamella details' *Derive* action, which knows only which row it is on.
+    *orientation* is honoured for the fluorescence pose and ignored for the milling
+    one, which is always the milling orientation under the beams.
+    """
+    if pose_name == FLUORESCENCE_POSE:
+        return derive_fluorescence_pose(microscope, lamella, orientation)
+    if pose_name == MILLING_POSE:
+        return derive_milling_pose(microscope, lamella)
+    raise ValueError(f"No derivation for a pose named {pose_name!r}.")
+
+
 def _to_milling(
     microscope: "FibsemMicroscope", position: FibsemStagePosition
 ) -> FibsemStagePosition:

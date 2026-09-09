@@ -61,6 +61,9 @@ from fibsem import conversions
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_POSE,
     MILLING_POSE,
+    POSE_NOUNS,
+    derivation_question,
+    derive_pose,
     follow_fluorescence_pose,
     follow_milling_pose,
 )
@@ -729,6 +732,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.selected_lamella_widget.pose_update_requested.connect(
             self._on_slw_pose_update
         )
+        self.selected_lamella_widget.pose_derive_requested.connect(
+            self._on_slw_pose_derive
+        )
         layout.addWidget(self.selected_lamella_widget)
         layout.addStretch()
         return container
@@ -1317,6 +1323,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         name = lamella.name if lamella is not None else "None"
         self.label_selected_lamella.setText(f"Lamella: {name}")
         if getattr(self, "selected_lamella_widget", None) is not None:
+            fm = getattr(self.microscope, "fm", None)
+            self.selected_lamella_widget.set_fluorescence_orientations(
+                list(fm.acquisition_orientations) if fm is not None else []
+            )
             self.selected_lamella_widget.set_lamella(lamella)
         self._reset_timelapse()
         self.lamella_selected_signal.emit(lamella)
@@ -1450,6 +1460,48 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         worker = FunctionWorker(_move)
         worker.start()
+
+    def _on_slw_pose_derive(self, pose_name: str, orientation=None) -> None:
+        """The pose rows' *Derive*, as `AutoLamellaUI._derive_lamella_pose` does it."""
+        if self.microscope is None:
+            notification_service.show_toast("No microscope connected.", "warning")
+            return
+        lamella = self._selected_lamella
+        if lamella is None or pose_name == "":
+            notification_service.show_toast("No lamella selected.", "warning")
+            return
+        other = MILLING_POSE if pose_name == FLUORESCENCE_POSE else FLUORESCENCE_POSE
+        if lamella.poses.get(other) is None:
+            notification_service.show_toast(
+                f"{lamella.name} has no {POSE_NOUNS.get(other, other)} to derive from.",
+                "warning",
+            )
+            return
+        ret = QMessageBox.question(
+            self,
+            "Derive Pose",
+            derivation_question(lamella, pose_name, orientation),
+            QMessageBox.Yes | QMessageBox.No,  # type: ignore[attr-defined]
+        )
+        if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
+            return
+        if not derive_pose(self.microscope, lamella, pose_name, orientation):
+            notification_service.show_toast(
+                f"Could not derive the {POSE_NOUNS.get(pose_name, pose_name)} of "
+                f"{lamella.name}; it is left as it was.",
+                "error",
+            )
+            return
+        if pose_name == MILLING_POSE:
+            lamella.update_milling_angle(self.microscope)
+        if self.experiment is not None:
+            self.experiment.save()
+            self.experiment.positions.events.changed.emit()
+        self.selected_lamella_widget.set_lamella(lamella)
+        notification_service.show_toast(
+            f"Derived the {POSE_NOUNS.get(pose_name, pose_name)} of {lamella.name}.",
+            "info",
+        )
 
     def _on_slw_pose_update(self, pose_name: str):
         """Set the current stage position as the given pose of the selected lamella."""

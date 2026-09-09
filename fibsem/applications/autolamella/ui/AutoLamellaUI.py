@@ -79,7 +79,10 @@ from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_POSE,
     MILLING_POSE,
+    POSE_NOUNS,
     build_lamella_poses,
+    derivation_question,
+    derive_pose,
     follow_fluorescence_pose,
     follow_milling_pose,
 )
@@ -421,6 +424,9 @@ class AutoLamellaUI(QMainWindow):
         )
         self.selected_lamella_widget.pose_move_to_requested.connect(
             self._move_to_lamella_pose
+        )
+        self.selected_lamella_widget.pose_derive_requested.connect(
+            self._derive_lamella_pose
         )
 
     ##########
@@ -2082,6 +2088,9 @@ class AutoLamellaUI(QMainWindow):
         logging.info(f"Updating Lamella UI for {lamella.status_info}")
 
         # refresh objective position + pose display for the selected lamella
+        self.selected_lamella_widget.set_fluorescence_orientations(
+            self._fluorescence_orientations()
+        )
         self.selected_lamella_widget.set_lamella(lamella)
 
         self._update_minimap_data(selected_name=lamella.name)
@@ -2389,6 +2398,63 @@ class AutoLamellaUI(QMainWindow):
         self.experiment.positions.events.changed.emit()
         notification_service.show_toast(
             f"Set current position as pose '{pose_name}' for {lamella.name}.", "info"
+        )
+
+    def _fluorescence_orientations(self) -> List[str]:
+        """The orientations the FM declares it images from, for the derive menu."""
+        fm = getattr(self.microscope, "fm", None)
+        if fm is None:
+            return []
+        return list(fm.acquisition_orientations)
+
+    def _derive_lamella_pose(self, pose_name: str, orientation=None) -> None:
+        """The pose rows' *Derive*: overwrite one pose with one worked out from the
+        other. Every derivation confirms, because every one overwrites; the result is
+        marked derived, and the milling angle follows a new milling pose."""
+        if self.microscope is None:
+            notification_service.show_toast("No microscope connected.", "warning")
+            return
+        if self.experiment is None or self.experiment.positions == []:
+            notification_service.show_toast("No lamella available.", "warning")
+            return
+        idx = self.lamella_list.selected_index
+        if idx == -1:
+            notification_service.show_toast("No lamella selected.", "warning")
+            return
+        lamella: Lamella = self.experiment.positions[idx]
+        other = MILLING_POSE if pose_name == FLUORESCENCE_POSE else FLUORESCENCE_POSE
+        if lamella.poses.get(other) is None:
+            notification_service.show_toast(
+                f"{lamella.name} has no {POSE_NOUNS.get(other, other)} to derive from.",
+                "warning",
+            )
+            return
+
+        ret = QMessageBox.question(
+            self,
+            "Derive Pose",
+            derivation_question(lamella, pose_name, orientation),
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            return
+
+        if not derive_pose(self.microscope, lamella, pose_name, orientation):
+            notification_service.show_toast(
+                f"Could not derive the {POSE_NOUNS.get(pose_name, pose_name)} of "
+                f"{lamella.name}; it is left as it was.",
+                "error",
+            )
+            return
+        if pose_name == MILLING_POSE:
+            lamella.update_milling_angle(self.microscope)
+
+        self.experiment.save()
+        self.selected_lamella_widget.set_lamella(lamella)
+        self.experiment.positions.events.changed.emit()
+        notification_service.show_toast(
+            f"Derived the {POSE_NOUNS.get(pose_name, pose_name)} of {lamella.name}.",
+            "info",
         )
 
     def _move_to_lamella_pose(self, pose_name: str):
