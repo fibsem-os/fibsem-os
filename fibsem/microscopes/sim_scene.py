@@ -281,8 +281,8 @@ class MilledRegion:
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
 # A spot burn: what a 60 pA, 10 s exposure leaves on a real grid. The mark is
 # a dark disc like any milled region, with a bright rim round it.
-SPOT_BURN_DIAMETER = 1.0e-6  # m
-SPOT_BURN_HALO = 0.4e-6  # m
+SPOT_BURN_DIAMETER = 0.5e-6  # m
+SPOT_BURN_HALO = 0.2e-6  # m
 HALO_INTENSITY = 70.0  # how bright the rim reads in the beam views (0-255)
 FM_HALO = 70.0  # and in the FM reflection (canvas scale)
 

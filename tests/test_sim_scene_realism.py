@@ -658,6 +658,7 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
     point was placed in the FIB view, and the SEM and the FM reflection
     channel see it too."""
     from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.microscopes.sim_scene import SPOT_BURN_DIAMETER
     from fibsem.structures import Point
 
     scene = _scene(
@@ -688,23 +689,24 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
     height, width = after.data.shape
     px = after.metadata.pixel_size.x
 
-    # two dark blobs, each about a micron across, at the burnt points
+    # two dark blobs, each the burn's diameter across, at the burnt points
     dark = after.data < 60
     assert dark.sum() > (before.data < 60).sum()
     labels, n = ndi.label(dark)
     sizes = ndi.sum(np.ones_like(labels), labels, range(1, n + 1))
-    blobs = [i + 1 for i, size in enumerate(sizes) if size * px**2 > 0.2e-12]
+    area = np.pi * (SPOT_BURN_DIAMETER / 2) ** 2
+    blobs = [i + 1 for i, size in enumerate(sizes) if size * px**2 > 0.3 * area]
     assert len(blobs) == 2, f"expected two marks, found {len(blobs)}"
     centres = {
         (round(c[1] / width, 2), round(c[0] / height, 2))
         for c in ndi.center_of_mass(dark, labels, blobs)
     }
     assert centres == {(0.25, 0.5), (0.75, 0.25)}
-    # each is a micron or so across, with a bright rim round it
+    # each is the burn's diameter across, with a bright rim round it
     for b in blobs:
         ys, xs = np.nonzero(labels == b)
-        assert (xs.max() - xs.min()) * px == pytest.approx(1e-6, rel=0.5)
-        ring = ndi.binary_dilation(labels == b, iterations=6) & ~(labels == b)
+        assert (xs.max() - xs.min()) * px == pytest.approx(SPOT_BURN_DIAMETER, rel=0.5)
+        ring = ndi.binary_dilation(labels == b, iterations=4) & ~(labels == b)
         assert after.data[ring].mean() > after.data[~dark & ~ring].mean() + 30
 
     # the SEM sees two dark marks as well
@@ -713,7 +715,7 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
     )
     labels, n = ndi.label(sem.data < 40)
     sizes = ndi.sum(np.ones_like(labels), labels, range(1, n + 1))
-    assert (sizes * sem.metadata.pixel_size.x**2 > 0.2e-12).sum() >= 2
+    assert (sizes * sem.metadata.pixel_size.x**2 > 0.3 * area).sum() >= 2
 
     # and the FM reflection channel: dark discs, bright rims, on a flat film
     from fibsem.projection import FMStageProjection
