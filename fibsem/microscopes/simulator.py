@@ -695,6 +695,12 @@ class DemoMicroscope(FibsemMicroscope):
 
         logging.info(f"acquiring new {effective_beam_type.name} image.")
 
+        # set the imaging hfw, as the hardware drivers do: an acquisition leaves
+        # the beam at the field it imaged, so anything that follows in image
+        # coordinates - a spot burn parked at a normalised point - lands where
+        # the reference image says (FIB-954)
+        self.set("hfw", effective_image_settings.hfw, effective_beam_type)
+
         # get state for image metadata
         microscope_state = self.get_microscope_state(beam_type=effective_beam_type)
 
@@ -1452,6 +1458,16 @@ class DemoMicroscope(FibsemMicroscope):
         dx = (float(point.x) - 0.5) * hfw
         dy = (0.5 - float(point.y)) * hfw * (height / width)
         shift = self.get_beam_shift(beam_type)
+        logging.info(
+            {
+                "msg": "sim_spot_burn",
+                "point": (float(point.x), float(point.y)),
+                "hfw": hfw,
+                "resolution": (width, height),
+                "view_offset_m": (dx, dy),
+                "beam_shift": (float(shift.x), float(shift.y)),
+            }
+        )
         scene.burn(
             [(dx, dy)],
             beam_type,

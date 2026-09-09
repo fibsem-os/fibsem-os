@@ -7,6 +7,7 @@ from typing import ClassVar, Type
 import numpy as np
 
 from fibsem import constants
+from fibsem.applications.autolamella.poses import sync_fluorescence_pose
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
@@ -46,6 +47,16 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
         metadata=field_meta(
             label="Select Point of Interest",
             tooltip="Whether to ask the user to select a point of interest in the FIB image",
+        ),
+    )
+    sync_fluorescence_pose: bool = field(
+        default=False,
+        metadata=field_meta(
+            label="Sync Fluorescence Pose",
+            tooltip="Move the lamella's fluorescence pose to follow the milling "
+            "position recorded here, so a fluorescence task images the site as "
+            "set up rather than where the lamella was first marked. Off (the "
+            "default) leaves the fluorescence pose as it was.",
         ),
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
@@ -162,6 +173,14 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # store milling pose and angle
         self.lamella.milling_pose = self.microscope.get_microscope_state()
         self.lamella.update_milling_angle(self.microscope)
+        # the task moved the lamella (the coincidence walk, the operator's own
+        # centring), so the fluorescence pose derived when it was marked now
+        # describes where it used to be. Every UI path that moves a lamella
+        # syncs it; a fluorescence stack taken from the stale pose lands tens
+        # of microns off the marks it is meant to show (FIB-954). Opt-in: the
+        # default leaves the pose alone, as the task always has.
+        if self.config.sync_fluorescence_pose:
+            sync_fluorescence_pose(self.microscope, self.lamella)
 
     def _align_coincident_for_milling(
         self, milling_angle: float, is_close: bool
