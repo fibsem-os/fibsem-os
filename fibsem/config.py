@@ -443,6 +443,22 @@ MAX_RECENT_EXPERIMENTS = 10
 
 
 @dataclass
+class PosePreferences:
+    """Whether moving one of a lamella's poses derives the other.
+
+    A lamella's milling and fluorescence poses are two observations of one piece of
+    sample; the transform between them is a first guess. On by default because most
+    positions are marked from one side and the guess is what the other side wants to
+    start from; off for anyone centring both by hand, who does not want a drag on one
+    overview quietly rewriting what they centred on the other. One per overview tab,
+    since the two sides can reasonably differ.
+    """
+
+    link_fluorescence_position: bool = True  # beam overview: derive the FM pose
+    link_milling_position: bool = True  # FM overview: derive the milling pose
+
+
+@dataclass
 class ExperimentPreferences:
     default_experiment_directory: str = ""
     default_protocol_path: str = ""
@@ -483,6 +499,7 @@ class UserPreferences:
     display: DisplayPreferences = field(default_factory=DisplayPreferences)
     features: FeatureFlags = field(default_factory=FeatureFlags)
     movement: MovementPreferences = field(default_factory=MovementPreferences)
+    poses: PosePreferences = field(default_factory=PosePreferences)
     experiment: ExperimentPreferences = field(default_factory=ExperimentPreferences)
     reporting: ReportingPreferences = field(default_factory=ReportingPreferences)
     agent: AgentPreferences = field(default_factory=AgentPreferences)
@@ -510,6 +527,7 @@ class UserPreferences:
                 "display",
                 "features",
                 "movement",
+                "poses",
                 "experiment",
                 "reporting",
                 "agent",
@@ -520,6 +538,7 @@ class UserPreferences:
                 display=_sub_from_dict(DisplayPreferences, d.get("display", {})),
                 features=_sub_from_dict(FeatureFlags, d.get("features", {})),
                 movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
+                poses=_sub_from_dict(PosePreferences, d.get("poses", {})),
                 experiment=_sub_from_dict(
                     ExperimentPreferences, d.get("experiment", {})
                 ),

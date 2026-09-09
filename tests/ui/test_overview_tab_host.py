@@ -224,9 +224,9 @@ class TestMovingAPosition:
         about a stale pose looks wrong."""
         lamella = _lamella(tab, microscope)
         lamella.update_milling_angle(microscope)
-        from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+        from fibsem.applications.autolamella.poses import derive_fluorescence_pose
 
-        sync_fluorescence_pose(microscope, lamella)
+        derive_fluorescence_pose(microscope, lamella)
         before = lamella.fluorescence_pose
         before_position = (
             None

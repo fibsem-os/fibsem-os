@@ -58,7 +58,12 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import conversions
-from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+from fibsem.applications.autolamella.poses import (
+    FLUORESCENCE_POSE,
+    MILLING_POSE,
+    follow_fluorescence_pose,
+    follow_milling_pose,
+)
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -1477,17 +1482,29 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if existing_pose is not None and existing_pose.objective_position is not None:
             state.objective_position = existing_pose.objective_position
 
-        lamella.poses[pose_name] = state
+        lamella.set_pose(pose_name, state)
 
-        # Replacing the milling pose moves the lamella, so what is derived from it has to
-        # follow: the milling angle, and the fluorescence pose, which describes the same
-        # piece of sample from the other side. Left behind, that pose would go on naming
-        # where this lamella used to be -- and nothing about a stale pose looks wrong.
-        if pose_name == "MILLING":
+        # Replacing a pose moves the lamella. The milling angle always follows the
+        # milling pose; whether the *other* pose follows is the Link preference's call
+        # -- derived from this one, or left and marked as possibly stale.
+        from fibsem.config import load_user_preferences
+
+        preferences = load_user_preferences().poses
+        if pose_name == MILLING_POSE:
             lamella.update_milling_angle(self.microscope)
-            if sync_fluorescence_pose(self.microscope, lamella):
+            if follow_milling_pose(
+                self.microscope, lamella, link=preferences.link_fluorescence_position
+            ):
                 self.selected_lamella_widget.refresh_pose(
-                    "FLUORESCENCE", lamella.fluorescence_pose.stage_position.pretty
+                    FLUORESCENCE_POSE, lamella.fluorescence_pose.stage_position.pretty
+                )
+        elif pose_name == FLUORESCENCE_POSE:
+            if follow_fluorescence_pose(
+                self.microscope, lamella, link=preferences.link_milling_position
+            ):
+                lamella.update_milling_angle(self.microscope)
+                self.selected_lamella_widget.refresh_pose(
+                    MILLING_POSE, lamella.milling_pose.stage_position.pretty
                 )
 
         if self.experiment is not None:

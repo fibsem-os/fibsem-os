@@ -926,6 +926,21 @@ def _make_thumbnail_placeholder():
 _THUMBNAIL_PLACEHOLDER = None
 
 
+class PoseProvenance(str, Enum):
+    """Where a lamella pose came from, and whether it can still be trusted.
+
+    A lamella's milling and fluorescence poses are two observations of one piece of
+    sample from two instruments; the transform between them is a first guess, not a
+    coupling. So each pose says whether a person (or an alignment) put it there, or it
+    was worked out from the other one -- and, once the other one has moved without it
+    following, that it may no longer describe where the lamella is.
+    """
+
+    OBSERVED = "observed"  # marked or adjusted at that instrument
+    DERIVED = "derived"  # computed from the other pose
+    STALE = "stale"  # was observed; the other pose has moved since
+
+
 @evented
 @dataclass
 class Lamella:
@@ -940,6 +955,9 @@ class Lamella:
         default_factory=lambda: EventedDict()
     )
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
+    # One entry per pose, by the same key. A pose with no entry is `OBSERVED`: every
+    # pose saved before this existed was somebody's decision.
+    pose_provenance: Dict[str, PoseProvenance] = field(default_factory=dict)
     task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
     task_history: List["AutoLamellaTaskState"] = field(default_factory=list)
     defect: DefectState = field(default_factory=DefectState)
@@ -1076,10 +1094,14 @@ class Lamella:
 
     @milling_pose.setter
     def milling_pose(self, value: MicroscopeState):
-        """Set the milling pose for the lamella."""
-        if not isinstance(value, MicroscopeState):
-            raise TypeError("Milling pose must be a MicroscopeState instance.")
-        self.poses["MILLING"] = value
+        """Set the milling pose, as something observed at the beams.
+
+        The plain assignment every workflow task uses to re-record where it milled.
+        Touches nothing else: a task recording its pose is not a reason to doubt the
+        fluorescence one. A caller *moving* the lamella says so with `set_pose` and
+        `mark_pose_stale`.
+        """
+        self.set_pose("MILLING", value, PoseProvenance.OBSERVED)
 
     @property
     def fluorescence_pose(self) -> Optional[MicroscopeState]:
@@ -1087,10 +1109,48 @@ class Lamella:
 
     @fluorescence_pose.setter
     def fluorescence_pose(self, value: MicroscopeState):
-        """Set the fluorescence pose for the lamella."""
+        """Set the fluorescence pose, as something observed under the objective."""
+        self.set_pose("FLUORESCENCE", value, PoseProvenance.OBSERVED)
+
+    def set_pose(
+        self,
+        name: str,
+        value: MicroscopeState,
+        provenance: PoseProvenance = PoseProvenance.OBSERVED,
+    ) -> None:
+        """Write a pose and say where it came from."""
         if not isinstance(value, MicroscopeState):
-            raise TypeError("Fluorescence pose must be a MicroscopeState instance.")
-        self.poses["FLUORESCENCE"] = value
+            raise TypeError(f"{name} pose must be a MicroscopeState instance.")
+        self.poses[name] = value
+        self.pose_provenance[name] = PoseProvenance(provenance)
+
+    def set_pose_position(
+        self,
+        name: str,
+        position: FibsemStagePosition,
+        provenance: PoseProvenance = PoseProvenance.OBSERVED,
+    ) -> None:
+        """Move a pose, keeping everything else it carries -- the objective position
+        of a fluorescence pose someone focused by hand, most of all."""
+        pose = self.poses.get(name)
+        if pose is None:
+            raise ValueError(f"{self.name} has no {name} pose to move.")
+        pose.stage_position = position
+        self.pose_provenance[name] = PoseProvenance(provenance)
+
+    def provenance_of(self, name: str) -> PoseProvenance:
+        """How the named pose got there; `OBSERVED` for a pose that never said."""
+        return PoseProvenance(self.pose_provenance.get(name, PoseProvenance.OBSERVED))
+
+    def mark_pose_stale(self, name: str) -> None:
+        """Say that the named pose may no longer describe where the lamella is.
+
+        For the caller that moved the *other* pose and chose not to derive this one.
+        Only an observed pose can go stale -- a derived one was a guess already, and a
+        missing one has nothing to be stale about.
+        """
+        if name in self.poses and self.provenance_of(name) is PoseProvenance.OBSERVED:
+            self.pose_provenance[name] = PoseProvenance.STALE
 
     @property
     def fluorescence_selected(self) -> bool:
@@ -1129,6 +1189,9 @@ class Lamella:
             "number": self.number,
             "id": str(self.id),
             "poses": {k: v.to_dict() for k, v in self.poses.items()},
+            "pose_provenance": {
+                k: PoseProvenance(v).value for k, v in self.pose_provenance.items()
+            },
             "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
             "task_state": self.task_state.to_dict(),
             "task_history": [task.to_dict() for task in self.task_history],
@@ -1175,6 +1238,16 @@ class Lamella:
             if poses["FLUORESCENCE"].objective_position is None:
                 poses["FLUORESCENCE"].objective_position = legacy_obj_pos
 
+        # Only for poses that exist; an unknown value reads as observed, like a
+        # missing one -- a file cannot make a pose less trustworthy than a person did.
+        provenance = {}
+        for k, v in (data.get("pose_provenance") or {}).items():
+            if k in poses:
+                try:
+                    provenance[k] = PoseProvenance(v)
+                except ValueError:
+                    provenance[k] = PoseProvenance.OBSERVED
+
         return cls(
             petname=data["petname"],
             path=data["path"],
@@ -1182,6 +1255,7 @@ class Lamella:
             number=data.get("number", data.get("number", 0)),
             id=data.get("id", ""),
             poses=poses,
+            pose_provenance=provenance,
             task_config=load_task_config(data.get("task_config", {})),
             task_state=AutoLamellaTaskState.from_dict(data.get("task_state", {})),
             task_history=[
