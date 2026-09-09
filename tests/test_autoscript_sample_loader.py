@@ -40,8 +40,16 @@ class FakeAutoloaderStage:
 class FakeAutoloader:
     """Twelve slots; loading moves a grid onto ``stage`` and empties its slot."""
 
-    def __init__(self, occupied: Optional[dict] = None, scanned: bool = True) -> None:
+    def __init__(
+        self,
+        occupied: Optional[dict] = None,
+        scanned: bool = True,
+        reports_loaded: bool = False,
+    ) -> None:
+        """``reports_loaded`` is AutoScript 4.14: the home slot of the grid on the
+        stage reads ``Loaded``; before that it read ``Empty``."""
         self.is_installed = True
+        self.reports_loaded = reports_loaded
         self.stage = FakeAutoloaderStage()
         self._slots: List[FakeAutoloaderSlot] = [
             FakeAutoloaderSlot(i, "Empty" if scanned else "Unknown")
@@ -73,7 +81,8 @@ class FakeAutoloader:
         slot = self._slots[grid_id - 1]
         self.stage.sample_description = slot.sample_description
         self.stage.state = "Occupied"
-        slot.state = "Empty"  # what the hardware reports for a grid on the stage
+        # The home slot of a grid on the stage: Loaded from 4.14, Empty before.
+        slot.state = "Loaded" if self.reports_loaded else "Empty"
         self._loaded_from = grid_id
 
     def unload(self) -> None:
@@ -180,6 +189,45 @@ class TestInventory:
         assert rows["Slot-05"].state is GridSlotState.UNKNOWN
         assert not rows["Slot-05"].present
 
+    def test_a_loaded_slot_puts_its_grid_on_the_stage_on_a_fresh_connect(self):
+        """AutoScript 4.14 (FIB-952): the home slot of the grid on the stage reads
+        LOADED. On a fresh connect, with no memory of any exchange, that grid is
+        present in its slot, loaded, and in our working slot, named from the slot
+        description. States are matched case-blind, as the enum names arrive."""
+        from fibsem.microscopes._stage import GridSlotState
+
+        hw = FakeAutoloader(
+            occupied={2: "grid-elm", 4: "grid-birch"}, reports_loaded=True
+        )
+        hw.load(4)  # loaded from the vendor UI before we connected
+        hw._slots[1].state = "OCCUPIED"
+        hw._slots[3].state = "LOADED"
+        hw.stage.state = "OCCUPIED"
+        microscope, loader = _microscope_with(hw)
+        loader.get_inventory()
+        rows = {r.name: r for r in microscope._stage.grid_inventory() if r.present}
+        assert set(rows) == {"grid-elm", "grid-birch"}
+        assert rows["grid-birch"].state is GridSlotState.LOADED
+        assert rows["grid-elm"].state is GridSlotState.OCCUPIED
+        assert [g.name for g in microscope._stage.loaded_grids] == ["grid-birch"]
+        assert loader.working_slot.loaded_grid is loader.slots["Slot-04"].loaded_grid
+        # Already the loaded grid: no exchange.
+        before = len(hw.calls)
+        microscope._stage.ensure_loaded("grid-birch")
+        assert hw.calls[before:] == []
+
+    def test_the_4_13_home_slot_reads_empty_and_memory_still_keeps_the_grid(self):
+        """Before 4.14 the home slot reads Empty while its grid is out; a rescan
+        keeps the grid there only because we remember loading it."""
+        hw = FakeAutoloader(occupied={4: "grid-birch"})
+        microscope, loader = _microscope_with(hw)
+        loader.get_inventory()
+        microscope._stage.ensure_loaded("grid-birch")
+        assert hw._slots[3].state == "Empty"
+        loader.get_inventory()
+        assert loader.slots["Slot-04"].loaded_grid is not None
+        assert [g.name for g in microscope._stage.loaded_grids] == ["grid-birch"]
+
     def test_inventory_rows_come_from_the_magazine(self):
         hw = FakeAutoloader(occupied={1: "a", 2: "b"})
         microscope, loader = _microscope_with(hw)
@@ -204,6 +252,26 @@ class TestExchange:
         assert microscope._stage.loaded_grids[0].name == "grid-cedar"
         # the magazine slot stays the grid's home, whatever the hardware reads
         assert loader.slots["Slot-03"].loaded_grid.name == "grid-cedar"
+
+    def test_an_exchange_on_4_14_reads_loaded_then_occupied_again(self):
+        from fibsem.microscopes._stage import GridSlotState
+
+        hw = FakeAutoloader(occupied={1: "a", 2: "b"}, reports_loaded=True)
+        microscope, loader = _microscope_with(hw)
+        loader.get_inventory()
+        stage = microscope._stage
+        stage.ensure_loaded("a")
+        loader.get_inventory()
+        rows = {r.name: r.state for r in stage.grid_inventory() if r.present}
+        assert rows == {"a": GridSlotState.LOADED, "b": GridSlotState.OCCUPIED}
+        stage.ensure_loaded("b")  # unload a, load b
+        loader.get_inventory()
+        rows = {r.name: r.state for r in stage.grid_inventory() if r.present}
+        assert rows == {"a": GridSlotState.OCCUPIED, "b": GridSlotState.LOADED}
+        stage.unload()
+        loader.get_inventory()
+        rows = {r.name: r.state for r in stage.grid_inventory() if r.present}
+        assert rows == {"a": GridSlotState.OCCUPIED, "b": GridSlotState.OCCUPIED}
 
     def test_the_home_slot_survives_a_rescan_while_loaded(self):
         hw = FakeAutoloader(occupied={3: "grid-cedar", 4: "grid-elm"})
