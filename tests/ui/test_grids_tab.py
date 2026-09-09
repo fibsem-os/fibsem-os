@@ -152,11 +152,11 @@ class TestCards:
         tab.experiment_changed.connect(lambda: changed.append(True))
         card = tab.cards.cards[0]
         card.set_quality(GridQuality.GOOD)
-        assert card.grid.quality is GridQuality.GOOD
+        assert card.grid.quality.verdict is GridQuality.GOOD
         assert "Good" in card._btn_quality.toolTip()
         assert changed == [True]
         loaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
-        assert loaded.get_grid_by_name("Grid-01").quality is GridQuality.GOOD
+        assert loaded.get_grid_by_name("Grid-01").quality.verdict is GridQuality.GOOD
         # a task outcome does not touch it
         assert grid_headline(card.grid)[0] == "Not run"
 
