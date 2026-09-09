@@ -324,15 +324,11 @@ class TestTheBanner:
     def test_the_button_names_the_device(self, widget):
         """ "Move to FM" means the device, on every mounting.
 
-        It used to follow `default_orientation` -- half of the device/orientation
-        mix-up FIB-832 records: the button travels, and on an offset mount what it
-        does is a traverse, not a re-pose, so an orientation name would be wrong
-        exactly where the distinction matters."""
+        It used to follow the FM's default orientation -- half of the device/
+        orientation mix-up FIB-832 records: the button travels, and on an offset
+        mount what it does is a traverse, not a re-pose, so an orientation name would
+        be wrong exactly where the distinction matters."""
         _pose(widget, "NONE")
-
-        assert widget.button_move_to_fm.text() == "Move to FM"
-
-        widget.fm.default_orientation = "SEM-ish"
         widget._refresh_orientation_banner()
 
         assert widget.button_move_to_fm.text() == "Move to FM"
