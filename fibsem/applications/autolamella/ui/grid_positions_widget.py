@@ -31,10 +31,12 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.poses import (
-    FLUORESCENCE_ORIENTATION,
-    build_lamella_poses,
-    sync_fluorescence_pose,
+    FLUORESCENCE_POSE,
+    MILLING_POSE,
+    follow_fluorescence_pose,
+    follow_milling_pose,
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
@@ -398,8 +400,9 @@ class GridPositionsWidget(QWidget):
         return next((p for p in experiment.positions if p.name == name), None)
 
     def _add_kwargs(self) -> dict:
-        if self.canvas.view == VIEW_FM:
-            return {"marked_at": FLUORESCENCE_ORIENTATION}
+        # Which side a point is on is read off the geometry by `build_lamella_poses`
+        # -- a point on the FM view is one the objective sees the sample from -- so
+        # nothing is declared here.
         return {}
 
     def _on_add_requested(self, position, _record_id=None) -> None:
@@ -442,41 +445,47 @@ class GridPositionsWidget(QWidget):
                 "Connect to a microscope to move positions.", "warning"
             )
             return
+        # The same Link preferences the overview tabs follow: whether a move on one
+        # side derives the other pose, or leaves it and marks it stale.
+        preferences = fibsem_cfg.load_user_preferences().poses
         if self.canvas.view == VIEW_FM:
             if lamella.milling_pose is None:
                 notification_service.show_toast(
                     f"{name} has no milling pose to move.", "warning"
                 )
                 return
-            try:
-                poses = build_lamella_poses(
-                    microscope=microscope,
-                    position=position,
-                    state=lamella.milling_pose,
-                    marked_at=FLUORESCENCE_ORIENTATION,
-                )
-            except Exception as e:  # noqa: BLE001 - said to the user, not raised
-                notification_service.show_toast(str(e), "error")
-                return
+            link = preferences.link_milling_position
+            consequence = (
+                "\n\nThe milling pose is derived from it and moves with it."
+                if link
+                else "\n\nThe milling pose is left where it is (Link milling "
+                "position is off)."
+            )
             if not self._confirm(
                 f"Move {name}?",
-                f"Move {name} to {poses.fluorescence.stage_position.pretty_string}?"
-                "\n\nThis moves the milling pose with it, to "
-                f"{poses.milling.stage_position.pretty_string}.",
+                f"Move {name} to {position.pretty_string}?{consequence}",
             ):
                 return
-            lamella.stage_position = poses.milling.stage_position
-            lamella.update_milling_angle(microscope)
             if lamella.fluorescence_pose is None:
-                lamella.fluorescence_pose = poses.fluorescence
+                pose = deepcopy(lamella.milling_pose)
+                pose.stage_position = deepcopy(position)
+                lamella.set_pose(FLUORESCENCE_POSE, pose)
             else:
-                lamella.fluorescence_pose.stage_position = (
-                    poses.fluorescence.stage_position
+                lamella.set_pose_position(FLUORESCENCE_POSE, deepcopy(position))
+            if follow_fluorescence_pose(microscope, lamella, link=link):
+                lamella.update_milling_angle(microscope)
+            elif link:
+                notification_service.show_toast(
+                    f"Moved {name}, but its milling pose could not be derived from "
+                    f"here; it is left where it was.",
+                    "warning",
                 )
         else:
-            lamella.stage_position = position
+            lamella.set_pose_position(MILLING_POSE, deepcopy(position))
             lamella.update_milling_angle(microscope)
-            sync_fluorescence_pose(microscope, lamella)
+            follow_milling_pose(
+                microscope, lamella, link=preferences.link_fluorescence_position
+            )
         experiment.save()
         # A pose written in place emits nothing on its own; the window re-marks
         # the Overview tabs off this.

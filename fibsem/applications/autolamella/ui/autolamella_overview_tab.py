@@ -34,7 +34,8 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtWidgets import QWidget
 
-from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+import fibsem.config as fibsem_cfg
+from fibsem.applications.autolamella.poses import MILLING_POSE, follow_milling_pose
 from fibsem.applications.autolamella.structures import DefectType
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
@@ -148,13 +149,11 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
     def _on_move_requested(self, name: str, position) -> None:
         """A user asked to move a marked lamella to a point on the overview.
 
-        Moves the milling pose, and takes the fluorescence one with it. They describe
-        one piece of sample from two sides, so leaving the other behind would have it go
-        on naming where this lamella *used to be* -- and nothing about a stale pose
-        looks wrong.
-
-        Not shared with the fluorescence tab, which derives both poses through
-        `build_lamella_poses` and confirms first. See `overview_tab_base`.
+        Moves the milling pose. What happens to the fluorescence pose is the Link
+        preference's call: derived from the new milling pose, or left where it was and
+        marked as possibly stale. The two describe one piece of sample from two sides,
+        but the transform between them is a guess, and a pose somebody centred by hand
+        is not rewritten without their say.
         """
         experiment = self.experiment
         if experiment is None:
@@ -164,9 +163,13 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
             logger.debug(f"Cannot move {name!r}: no such lamella in the experiment.")
             return
 
-        lamella.stage_position = position
+        lamella.set_pose_position(MILLING_POSE, position)
         lamella.update_milling_angle(self.microscope)
-        sync_fluorescence_pose(self.microscope, lamella)
+        follow_milling_pose(
+            self.microscope,
+            lamella,
+            link=fibsem_cfg.load_user_preferences().poses.link_fluorescence_position,
+        )
 
         experiment.save()
         # Writing a pose emits nothing -- `poses` is a plain dict and the evented list
