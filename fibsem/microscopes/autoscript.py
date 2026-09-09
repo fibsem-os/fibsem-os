@@ -1555,7 +1555,7 @@ class ThermoMicroscope(FibsemMicroscope):
             position, compustage=self.stage_is_compustage
         )  # TODO: apply compucentric/raw coordinate offset here?
 
-        if self._axis_restrictions_apply():  # ONLY when restrictions are on
+        if self._axis_restrictions_apply(position):  # ONLY when restrictions are on
             autoscript_position.z = None
             autoscript_position.r = None
 

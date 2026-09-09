@@ -302,3 +302,11 @@ class TestTheGuardsStillReadTheDevice:
             "move_stage_absolute no longer calls `_axis_restrictions_apply`, so "
             "nothing suppresses z and r while the objective is inserted (FIB-534)"
         )
+        # And it has to hand over the destination. Called bare, the predicate falls
+        # back to the pose the stage is standing in -- which is the bug FIB-640 fixed:
+        # a move out of the fluorescence pose losing its z to the pose it was leaving.
+        assert all(call.args for call in calls), (
+            "move_stage_absolute calls `_axis_restrictions_apply` without the target "
+            "position, so the guard asks where the stage is instead of where it is "
+            "going (FIB-640)"
+        )

@@ -26,6 +26,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.structures import FibsemStagePosition
 
 IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
 ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
@@ -102,3 +103,51 @@ def test_the_predicate_reads_the_microscope_rather_than_being_told(config_path: 
 
     assert before is False
     assert after is microscope.stage_is_compustage
+
+
+def _at_fm_pose(microscope, z: float = 5.0e-3) -> None:
+    fm = microscope.get_orientation("FM")
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=0.0, y=0.0, z=z, r=fm.r, t=fm.t, coordinate_system="RAW")
+    )
+    microscope.fm.objective.retract()
+    assert microscope.get_stage_orientation() == "FM"
+
+
+def _pose(microscope, orientation: str, z: float) -> FibsemStagePosition:
+    o = microscope.get_orientation(orientation)
+    return FibsemStagePosition(
+        x=100e-6, y=50e-6, z=z, r=o.r, t=o.t, coordinate_system="RAW"
+    )
+
+
+def test_leaving_the_fluorescence_pose_with_the_objective_out_is_not_restricted():
+    """The reported bug (FIB-640). Measured: z and t are both available at t = -180
+    once the objective is retracted, so the move out carries its z and lands on the
+    first press. Asking the stage's current pose here is what dropped it."""
+    microscope = _microscope(ARCTIS_CONFIG)
+    _at_fm_pose(microscope, z=5.0e-3)
+
+    target = _pose(microscope, "MILLING", z=12.0e-3)
+    assert microscope._axis_restrictions_apply(target) is False
+
+
+def test_moving_into_the_fluorescence_pose_is_still_restricted():
+    """More conservative than the measurement requires, and free: the one path that
+    enters the pose sends r and t only."""
+    microscope = _microscope(ARCTIS_CONFIG)
+    microscope.fm.objective.retract()
+    microscope.move_to_orientation("SEM")
+
+    target = _pose(microscope, "FM", z=12.0e-3)
+    assert microscope._axis_restrictions_apply(target) is True
+
+
+def test_a_partial_pose_falls_back_to_where_the_stage_is():
+    """`_safe_rotation_movement` sends a bare tilt with no rotation: nothing to read a
+    destination from, so the stage's own pose stands in -- what such a move got before."""
+    microscope = _microscope(ARCTIS_CONFIG)
+    _at_fm_pose(microscope)
+
+    tilt_only = FibsemStagePosition(t=0.0, coordinate_system="RAW")
+    assert microscope._axis_restrictions_apply(tilt_only) is True
