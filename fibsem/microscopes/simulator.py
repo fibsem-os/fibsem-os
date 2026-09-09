@@ -1426,6 +1426,41 @@ class DemoMicroscope(FibsemMicroscope):
             beam_current=float(milling_current) if milling_current else None,
         )
 
+    def _burn_into_sample_scene(self, beam_type: BeamType) -> None:
+        """Commit the parked beam's spot to the sample scene, when there is
+        one: from now on every view shows a small mark there (FIB-954). The
+        spot is the 0-1 image coordinate run_spot_burn parked the beam on;
+        it becomes metres from the view centre (y up) at the beam's current
+        field of view, the same convention the milling patterns use."""
+        scene = getattr(self, "_sample_scene", None)
+        if scene is None:
+            return
+        beam_system = (
+            self.electron_system if beam_type is BeamType.ELECTRON else self.ion_system
+        )
+        point = beam_system.scanning_mode_value
+        if point is None:
+            return
+        from fibsem.projection import BeamStageProjection
+
+        projection = BeamStageProjection.from_microscope(self, beam_type=beam_type)
+        if projection is None:
+            return
+        beam = beam_system.beam
+        width, height = beam.resolution
+        hfw = float(beam.hfw)
+        dx = (float(point.x) - 0.5) * hfw
+        dy = (0.5 - float(point.y)) * hfw * (height / width)
+        shift = self.get_beam_shift(beam_type)
+        scene.burn(
+            [(dx, dy)],
+            beam_type,
+            self.get_stage_position(),
+            projection,
+            beam_shift=(float(shift.x), float(shift.y)),
+            beam_current=float(beam.beam_current) if beam.beam_current else None,
+        )
+
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
         """Finish milling by restoring the imaging current and voltage."""
         self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
@@ -1802,6 +1837,10 @@ class DemoMicroscope(FibsemMicroscope):
 
         if key == "blanked":
             beam_system.blanked = value
+            # the beam parked on a point and let through is a spot burn: the
+            # base run_spot_burn does blank -> spot -> unblank per point
+            if not value and beam_system.scanning_mode == "spot":
+                self._burn_into_sample_scene(beam_type)
             return
 
         # detector
