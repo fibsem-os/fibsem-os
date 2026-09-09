@@ -272,9 +272,19 @@ class MilledRegion:
 
     points: np.ndarray  # (N, 2) world coordinates, in order round the outline
     depth: float = 1.0  # m, recorded only
+    # m; width of the bright rim round the region. A trench has none; a spot
+    # burn has one, the redeposition halo that makes the mark easy to find in
+    # the reflection channel and the SEM (FIB-954).
+    halo: float = 0.0
 
 
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
+# A spot burn: what a 60 pA, 10 s exposure leaves on a real grid. The mark is
+# a dark disc like any milled region, with a bright rim round it.
+SPOT_BURN_DIAMETER = 1.0e-6  # m
+SPOT_BURN_HALO = 0.4e-6  # m
+HALO_INTENSITY = 70.0  # how bright the rim reads in the beam views (0-255)
+FM_HALO = 70.0  # and in the FM reflection (canvas scale)
 
 
 class WorldTexture:
@@ -870,27 +880,92 @@ class SampleScene:
         )
         return regions
 
+    def burn(
+        self,
+        points,
+        beam_type: BeamType,
+        stage_position: FibsemStagePosition,
+        projection: BeamStageProjection,
+        beam_shift: Tuple[float, float] = (0.0, 0.0),
+        beam_current: Optional[float] = None,
+        diameter: float = SPOT_BURN_DIAMETER,
+        halo: float = SPOT_BURN_HALO,
+    ) -> List[MilledRegion]:
+        """Commit spot burns to the world (FIB-954).
+
+        Points are in microscope image coordinates of the burning beam's view
+        at this pose (metres from the centre, y up), the same convention
+        `mill()` takes. Each becomes a disc of `diameter` on the sample
+        surface, foreshortened back the way a circle pattern is, so every
+        later view of either beam and the FM shows it as a small dark mark
+        with a bright rim of width `halo`.
+        """
+
+        def world(cx, cy):
+            return self.view_to_world(
+                beam_type, stage_position, projection, cx, -cy, beam_shift, beam_current
+            )
+
+        t = np.linspace(0, 2 * np.pi, 16, endpoint=False)
+        r = diameter / 2
+        regions: List[MilledRegion] = []
+        for x, y in points:
+            corners = [(x + r * np.cos(a), y + r * np.sin(a)) for a in t]
+            pts = np.array([world(cx, cy) for cx, cy in corners])
+            regions.append(MilledRegion(points=pts, depth=diameter, halo=halo))
+        self.milled.extend(regions)
+        logging.info(
+            {
+                "msg": "sample_scene_burned",
+                "points": len(regions),
+                "total": len(self.milled),
+            }
+        )
+        return regions
+
+    @staticmethod
+    def _polygon_mask(pts: np.ndarray, xs_world: np.ndarray, ys_world: np.ndarray):
+        """Inside every edge's half-plane of one convex polygon."""
+        inside = np.ones(np.broadcast(xs_world, ys_world).shape, dtype=bool)
+        # orientation of the polygon decides which side is "inside"
+        area = 0.0
+        for i in range(len(pts)):
+            x0, y0 = pts[i]
+            x1, y1 = pts[(i + 1) % len(pts)]
+            area += x0 * y1 - x1 * y0
+        sign = 1.0 if area > 0 else -1.0
+        for i in range(len(pts)):
+            x0, y0 = pts[i]
+            x1, y1 = pts[(i + 1) % len(pts)]
+            cross = (x1 - x0) * (ys_world - y0) - (y1 - y0) * (xs_world - x0)
+            inside &= sign * cross >= 0
+        return inside
+
     def milled_mask(self, xs_world: np.ndarray, ys_world: np.ndarray) -> np.ndarray:
-        """Where milled regions lie, from broadcastable world coordinates:
-        inside every edge's half-plane of each (convex) polygon."""
+        """Where milled regions lie, from broadcastable world coordinates."""
         mask = np.zeros(np.broadcast(xs_world, ys_world).shape, dtype=bool)
         for r in self.milled:
-            pts = r.points
-            inside = np.ones_like(mask)
-            # orientation of the polygon decides which side is "inside"
-            area = 0.0
-            for i in range(len(pts)):
-                x0, y0 = pts[i]
-                x1, y1 = pts[(i + 1) % len(pts)]
-                area += x0 * y1 - x1 * y0
-            sign = 1.0 if area > 0 else -1.0
-            for i in range(len(pts)):
-                x0, y0 = pts[i]
-                x1, y1 = pts[(i + 1) % len(pts)]
-                cross = (x1 - x0) * (ys_world - y0) - (y1 - y0) * (xs_world - x0)
-                inside &= sign * cross >= 0
-            mask |= inside
+            mask |= self._polygon_mask(r.points, xs_world, ys_world)
         return mask
+
+    def halo_mask(
+        self, xs_world: np.ndarray, ys_world: np.ndarray, pixel_size: float
+    ) -> Optional[np.ndarray]:
+        """The bright rims round the regions that have one: each region's
+        mask grown by its halo width (in view pixels), less every milled
+        region. None when nothing has a halo."""
+        rims = [r for r in self.milled if r.halo > 0]
+        if not rims:
+            return None
+        shape = np.broadcast(xs_world, ys_world).shape
+        grown = np.zeros(shape, dtype=bool)
+        for r in rims:
+            mark = self._polygon_mask(r.points, xs_world, ys_world)
+            if not mark.any():
+                continue
+            iterations = max(1, int(np.ceil(r.halo / pixel_size)))
+            grown |= ndi_binary_dilation(mark, iterations=iterations)
+        return grown & ~self.milled_mask(xs_world, ys_world)
 
     def film_masks(
         self, xs_world: np.ndarray, ys_world: np.ndarray
@@ -1410,6 +1485,10 @@ class SampleScene:
         # a trench is a hole in the sample, dark in both beams
         if trench is not None:
             data = np.where(trench, data * t["trench_floor"], data)
+            # and a spot burn's redeposition rim is bright in both
+            halo = self.halo_mask(xs_world, ys_world, pixel_size)
+            if halo is not None:
+                data = np.where(halo, data + HALO_INTENSITY, data)
         data = data + rng.normal(0, self.noise_sigma, canvas.shape)
         if self.noise_fraction > 0:
             uniform = rng.uniform(0, 255, canvas.shape)
@@ -1476,6 +1555,9 @@ class SampleScene:
             canvas[rips] -= bars * RIP_DEPTH
             if self.milled:
                 canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
+                halo = self.halo_mask(xs_world, ys_world, pixel_size)
+                if halo is not None:
+                    canvas[halo] += bars * FM_HALO
         # ice reflects strongly and barely fluoresces
         ice = 0.9 if bars >= 1.0 else 0.04
 

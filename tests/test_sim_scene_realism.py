@@ -649,3 +649,83 @@ def test_the_film_is_brighter_at_grazing_incidence():
     grazing = t["film"] + t["film_tilt_gain"] * (1 - 0.26)
     face_on = t["film"] + t["film_tilt_gain"] * (1 - 0.95)
     assert grazing > face_on + 30
+
+
+def test_spot_burns_leave_marks_in_every_view(microscope):
+    """A spot burn is a milled region like any other (FIB-954): the base
+    run_spot_burn parks the beam and unblanks it, and the simulator stamps a
+    small dark disc with a bright rim where the beam was. It sits where the
+    point was placed in the FIB view, and the SEM and the FM reflection
+    channel see it too."""
+    from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.structures import Point
+
+    scene = _scene(
+        microscope,
+        coincidence_offset=0.0,
+        cell_type="none",
+        contamination_density=0.0,
+        grid_intensity=0.0,
+        ice_density=0.0,
+        fiducial=False,
+    )
+    settings = _settings(BeamType.ION, hfw=40e-6)
+    microscope.set("hfw", settings.hfw, BeamType.ION)
+    microscope.set("resolution", settings.resolution, BeamType.ION)
+    before = microscope.acquire_image(image_settings=settings)
+
+    # two points, normalised image coordinates: a quarter in from the left
+    # and right edges, on the horizontal centre line and a quarter down
+    points = [Point(0.25, 0.5), Point(0.75, 0.25)]
+    microscope.run_spot_burn(
+        SpotBurnSettings(coordinates=points, milling_current=60e-12, exposure_time=1.0),
+        beam_type=BeamType.ION,
+    )
+    assert len(scene.milled) == 2
+    assert all(r.halo > 0 for r in scene.milled)
+
+    after = microscope.acquire_image(image_settings=settings)
+    height, width = after.data.shape
+    px = after.metadata.pixel_size.x
+
+    # two dark blobs, each about a micron across, at the burnt points
+    dark = after.data < 60
+    assert dark.sum() > (before.data < 60).sum()
+    labels, n = ndi.label(dark)
+    sizes = ndi.sum(np.ones_like(labels), labels, range(1, n + 1))
+    blobs = [i + 1 for i, size in enumerate(sizes) if size * px**2 > 0.2e-12]
+    assert len(blobs) == 2, f"expected two marks, found {len(blobs)}"
+    centres = {
+        (round(c[1] / width, 2), round(c[0] / height, 2))
+        for c in ndi.center_of_mass(dark, labels, blobs)
+    }
+    assert centres == {(0.25, 0.5), (0.75, 0.25)}
+    # each is a micron or so across, with a bright rim round it
+    for b in blobs:
+        ys, xs = np.nonzero(labels == b)
+        assert (xs.max() - xs.min()) * px == pytest.approx(1e-6, rel=0.5)
+        ring = ndi.binary_dilation(labels == b, iterations=6) & ~(labels == b)
+        assert after.data[ring].mean() > after.data[~dark & ~ring].mean() + 30
+
+    # the SEM sees two dark marks as well
+    sem = microscope.acquire_image(
+        image_settings=_settings(BeamType.ELECTRON, hfw=80e-6)
+    )
+    labels, n = ndi.label(sem.data < 40)
+    sizes = ndi.sum(np.ones_like(labels), labels, range(1, n + 1))
+    assert (sizes * sem.metadata.pixel_size.x**2 > 0.2e-12).sum() >= 2
+
+    # and the FM reflection channel: dark discs, bright rims, on a flat film
+    from fibsem.projection import FMStageProjection
+
+    fm_projection = FMStageProjection.from_microscope(microscope)
+    if fm_projection is not None:
+        frame = scene.render_fm(
+            microscope.get_stage_position(),
+            (512, 512),
+            fm_projection,
+            weights=(1.0, 0.0, 0.0, 0.0),
+            rng=np.random.default_rng(0),
+        )
+        assert frame.min() < np.median(frame) - 50
+        assert frame.max() > np.median(frame) + 50
