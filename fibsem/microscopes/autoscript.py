@@ -578,9 +578,13 @@ class AutoscriptSampleLoader(SampleGridLoader):
 
     Two things the hardware does that the in-memory model must absorb:
 
-    - A grid that is on the stage makes its magazine slot read ``Empty``. The slot
-      is still that grid's home, so a rescan keeps the grid there while our working
-      slot holds it, and the inventory keeps saying "present, loaded".
+    - The home slot of the grid on the stage. From AutoScript 4.14 it reads
+      ``Loaded`` (release notes 4.14.0, "Autoloader state change"), which says
+      outright that the slot's grid is on the stage, so a fresh connect can put it
+      back in both places. Up to 4.13 it read ``Empty``, and the only way to keep
+      the grid in its home slot was memory: a rescan keeps it there while our
+      working slot holds it. Both paths are kept, so either version reads
+      "present, loaded". States are compared case-blind: they arrive as enum names.
     - ``get_slots(False)`` returns the autoloader's last-known states, which may
       all be ``Unknown`` before any scan; ``get_slots(True)`` runs a physical scan.
       ``get_inventory`` is the first, ``run_inventory`` the second, and the caller
@@ -619,13 +623,14 @@ class AutoscriptSampleLoader(SampleGridLoader):
         loaded = {s.loaded_grid.name for s in self.holder.occupied_slots}
         slots: dict = {}
         unknown: set = set()
+        on_stage: Optional[SampleGrid] = None
         for hw in hw_slots:
             number = int(hw.id)
             name = _slot_name(number - 1)
             previous = self.slots.get(name)
             state = _slot_state(hw)
             grid: Optional[SampleGrid] = None
-            if state == "Occupied":
+            if state in ("Occupied", "Loaded"):
                 described = (getattr(hw, "sample_description", "") or "").strip()
                 grid_name = described or f"Grid-{number:02d}"
                 if previous is not None and previous.loaded_grid is not None:
@@ -633,12 +638,16 @@ class AutoscriptSampleLoader(SampleGridLoader):
                         grid = previous.loaded_grid  # keep identity across scans
                 if grid is None:
                     grid = SampleGrid(name=grid_name)
+                if state == "Loaded":
+                    on_stage = grid  # 4.14: its home slot, and it is on the stage
             elif (
                 previous is not None
                 and previous.loaded_grid is not None
                 and previous.loaded_grid.name in loaded
             ):
-                grid = previous.loaded_grid  # its home; it reads Empty while loaded
+                grid = (
+                    previous.loaded_grid
+                )  # <= 4.13: its home reads Empty while loaded
             elif state == "Unknown":
                 logging.warning(f"Autoloader slot {number} has not been scanned.")
                 unknown.add(name)
@@ -646,9 +655,12 @@ class AutoscriptSampleLoader(SampleGridLoader):
         self.slots = slots
         self.unknown_slots = unknown
 
+        working = self.working_slot
+        if on_stage is not None:
+            # The same object in both places, as a load through us leaves it.
+            working.loaded_grid = on_stage
         # Something may be on the stage that we did not load: reflect the hardware.
         stage = getattr(self._autoloader, "stage", None)
-        working = self.working_slot
         if stage is not None:
             if working.loaded_grid is None and _slot_state(stage) == "Occupied":
                 described = (getattr(stage, "sample_description", "") or "").strip()
@@ -688,7 +700,9 @@ def _slot_state(hw_slot) -> str:
     """``AutoloaderSlot.state`` as a plain string; enum members stringify to it."""
     state = getattr(hw_slot, "state", "Unknown")
     text = str(state)
-    return text.rsplit(".", 1)[-1] if "." in text else text
+    text = text.rsplit(".", 1)[-1] if "." in text else text
+    # Enum names arrive upper-case (``OCCUPIED``); one spelling for the comparisons.
+    return text.capitalize()
 
 
 class AutoscriptSputterCoater:
