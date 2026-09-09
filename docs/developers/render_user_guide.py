@@ -1979,13 +1979,249 @@ def render_workflows(h: Harness) -> None:
     h.pump(300)
     h.shot("workflow-finished")
 
-    # the Grids view, behind the grid-workflow flag
+
+@page("grid-workflow")
+def render_grid_workflow(h: Harness) -> None:
+    """Grid screening on the simulated Arctis: the grid tasks on the Protocol
+    tab, the inventory on the Grids tab, a run over two grids from the
+    Workflow tab's Grids view, and the results. Behind the grid_workflow
+    flag, which the harness turns on for the page and off again after."""
+    from PyQt5.QtWidgets import QDialog
+
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
+    from fibsem.applications.autolamella.ui import grid_workflow_widget as gww
+    from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
+        ExpandedImageDialog,
+    )
+    from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
+        StepStatus,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
+        FluorescenceOverviewGridTaskConfig,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+        BeamOverviewGridTaskConfig,
+    )
+    from fibsem.fm.structures import ChannelSettings
+    from fibsem.structures import BeamType
+    from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
+
+    h.first_run(False)
+    h.show_tab(0)
+    h.connect("sim-arctis")
+    h.ensure_experiment()
+    ctrl = h.ui.movement_widget.control_widget
+    iw = h.ui.image_widget
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
+
+    # the flag: the Grids tab, the Workflow tab's Grids view and the Protocol
+    # tab's Grid page appear
     h.window._preferences.features.grid_workflow = True
     h.window._apply_grid_workflow_visibility()
-    h.window.workflow_left_tabs.setCurrentWidget(h.window.grid_workflow_widget)
+    h.pump(300)
+
+    # -- the grid tasks, on the Protocol tab's Grid page --------------------
+    h.show_main_tab("Protocol")
+    editor = h.window.task_widget
+    editor.protocol_tabs.setCurrentIndex(1)
+    h.pump(300)
+    gp = editor.grid_protocol
+    for name in list(gp.task_names):
+        gp.remove_task(name)
+    sem = gp.add_task(BeamOverviewGridTaskConfig.task_type, "SEM Overview")
+    fib = gp.add_task(BeamOverviewGridTaskConfig.task_type, "FIB Overview")
+    fm = gp.add_task(FluorescenceOverviewGridTaskConfig.task_type, "FM Overview")
+    # small overviews: the page needs a picture of each, not a survey
+    for config, beam in ((sem, BeamType.ELECTRON), (fib, BeamType.ION)):
+        config.settings.nrows = 2
+        config.settings.ncols = 2
+        config.settings.overlap = 0.1
+        config.settings.image_settings.beam_type = beam
+        config.settings.image_settings.hfw = 300e-6
+        config.settings.image_settings.resolution = [1024, 1024]
+        config.settings.image_settings.dwell_time = 0.5e-6
+    # two channels, so the mosaic is a colour composite; the sim's filter set
+    # has its own lines, so the nearest to each is taken
+    lines = sorted(h.ui.microscope.fm.filter_set.available_excitation_wavelengths)
+
+    def nearest(target):
+        return min(lines, key=lambda v: abs(v - target))
+
+    fm.channels = [
+        ChannelSettings(
+            name="Reflection",
+            excitation_wavelength=nearest(550),
+            emission_wavelength=None,
+            color="gray",
+        ),
+        ChannelSettings(
+            name="GFP",
+            excitation_wavelength=nearest(488),
+            emission_wavelength="Fluorescence",
+            color="green",
+        ),
+    ]
+    fm.overview.rows = 7
+    fm.overview.cols = 7
+    fm.overview.overlap = 0.1
+    gp._save()
+    gp.refresh()
+    gp.task_list.select("SEM Overview")
     h.pump(500)
-    h.shot("grids-view", target=h.window.grid_workflow_widget, crop=True)
-    h.window.workflow_left_tabs.setCurrentIndex(0)
+    h.shot(
+        "protocol-grid-page",
+        callouts=[
+            Box(editor.protocol_tabs.tabBar()),
+            Box(gp.task_list),
+            Box(gp.editor_panel),
+        ],
+        numbered=True,
+    )
+
+    # -- the inventory, on the Grids tab -------------------------------------
+    h.show_main_tab("Grids")
+    gt = h.window.grids_tab
+    h.pump(300)
+    gt._on_run_inventory()
+    waited = 0
+    while gt.busy and waited < 30000:
+        h.pump(200)
+        waited += 200
+    h.pump(800)
+    grids = list(h.ui.experiment.grids)
+    if len(grids) < 3:
+        raise RuntimeError(f"inventory found {len(grids)} grids, expected 3")
+    gt.cards._on_card_clicked(grids[0])
+    h.pump(400)
+    h.shot(
+        "grids-tab-inventory",
+        callouts=[Box(gt.cards), gt.btn_inventory, Box(gt.results_widget)],
+        numbered=True,
+    )
+
+    # -- selecting grids and tasks, on the Workflow tab's Grids view ---------
+    h.show_main_tab("Workflow")
+    left = h.window.workflow_left_tabs
+    gw = h.window.grid_workflow_widget
+    left.setCurrentWidget(gw)
+    h.pump(400)
+    gw.refresh()
+    gw.set_all_grids_selected(False)
+    for row in list(gw._grid_rows.values())[:2]:
+        row.checkbox.setChecked(True)
+    gw.set_all_tasks_selected(True)
+    h.pump(400)
+    h.shot(
+        "grids-view",
+        callouts=[
+            Box(left.tabBar()),
+            Box(gw.grid_list),
+            Box(gw.task_list),
+            gw.btn_screen_all,
+            h.window.run_workflow_btn,
+        ],
+        numbered=True,
+    )
+
+    # Run: the preflight is photographed, then accepted; the completion
+    # summary is modal, so it is shown by hand afterwards
+    def preflight(dialog):
+        # the output line names the scratch directory; the worked example's
+        # experiment lives on the support PC
+        from PyQt5.QtWidgets import QLabel
+
+        for label in dialog.findChildren(QLabel):
+            if label.text().startswith("Output:"):
+                label.setText(
+                    f"Output: {EXAMPLE_EXPERIMENT_DIR}\\{EXAMPLE_EXPERIMENT_NAME}"
+                    "\\grids\\<grid>\\"
+                )
+        dialog.show()
+        h.pump(400)
+        screen_all = dialog.windowTitle() == "Screen all grids"
+        name = "screen-all-preflight" if screen_all else "run-preflight"
+        h.shot(name, target=dialog)
+        dialog.hide()
+        return QDialog.Rejected if screen_all else QDialog.Accepted
+
+    gww.GridRunPreflightDialog.exec_ = preflight
+    main_module.GridRunPreflightDialog.exec_ = preflight
+    h.ui._show_workflow_summary = lambda: None
+    h.window.run_workflow_btn.click()
+    h.pump(1500)
+    if not h.ui.is_workflow_running:
+        raise RuntimeError("grid workflow did not start")
+    # the queue mid-run: the first grid done, the second exchanged in and
+    # its first task under way (steps: load + 3 tasks per grid)
+    waited = 0
+    queue_shot = False
+    while h.ui.is_workflow_running and waited < 1200000:
+        h.pump(250)
+        waited += 250
+        if queue_shot:
+            continue
+        steps = h.window.workflow_timeline._outer._steps
+        if len(steps) > 5 and steps[5].status is StepStatus.ACTIVE:
+            h.pump(1500)
+            h.shot(
+                "queue-running",
+                callouts=[Box(h.window.workflow_timeline)],
+                numbered=True,
+            )
+            queue_shot = True
+    if h.ui.is_workflow_running:
+        raise RuntimeError("grid workflow did not finish")
+    if not queue_shot:
+        raise RuntimeError("the run never showed its second grid active")
+    h.pump(1500)
+    h.shot("run-finished")
+    summary_dialog = WorkflowSummaryDialog(h.ui._last_run_summary, parent=h.window)
+    summary_dialog.show()
+    h.pump(500)
+    h.shot("run-summary", target=summary_dialog)
+    summary_dialog.close()
+    h.pump(300)
+
+    # Screen all grids: the dialog only; the run above already screened them
+    gw.btn_screen_all.click()
+    h.pump(500)
+
+    # -- the results, on the Grids tab ----------------------------------------
+    h.show_main_tab("Grids")
+    gt.refresh()
+    h.pump(300)
+    # select_grid shows the selection but does not tell the results panel
+    # (a click toggles, and this card is already selected from above)
+    first = h.ui.experiment.grids[0]
+    gt.cards.select_grid(first)
+    gt.results_widget.set_grid(first)
+    h.pump(600)
+    rows = [r for r in gt.results_widget.rows if getattr(r, "tile", None) is not None]
+    if not rows:
+        states = [
+            (getattr(r, "state", None) and r.state.name, getattr(r, "thumbnail", None))
+            for r in gt.results_widget.rows
+        ]
+        raise RuntimeError(f"no result tiles after the run: {states}")
+    h.shot(
+        "grids-tab-results",
+        callouts=[Box(gt.cards), Box(gt.results_widget), rows[0].tile],
+        numbered=True,
+    )
+    rows[0].tile.clicked.emit(rows[0].tile._filepath)
+    h.pump(800)
+    dialog = rows[0].findChild(ExpandedImageDialog)
+    if dialog is None:
+        raise RuntimeError("the overview dialog did not open")
+    h.shot("overview-dialog", target=dialog)
+    dialog.close()
+    h.pump(300)
+
+    # the flag off again: the next page sees the app as shipped
+    h.show_main_tab("Workflow")
+    left.setCurrentIndex(0)
+    editor.protocol_tabs.setCurrentIndex(0)
     h.window._preferences.features.grid_workflow = False
     h.window._apply_grid_workflow_visibility()
     h.pump(300)
