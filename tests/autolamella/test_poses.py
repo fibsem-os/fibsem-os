@@ -324,17 +324,13 @@ def test_marking_from_the_beam_side_derives_a_fluorescence_pose_on_an_offset_mou
     assert fluorescence.x == pytest.approx(FM_X, abs=1e-3)
 
 
-def test_a_default_orientation_the_objective_cannot_image_from_is_not_used():
-    """The Default Orientation control offers a fixed pair of names, and loading a
-    saved fluorescence configuration writes its own back -- so "FM" can land on an
-    offset mount, where it names no pose at all. The derivation falls back to what the
-    device declares rather than quietly producing no fluorescence pose."""
+def test_the_default_orientation_is_the_first_the_fm_declares():
+    """No instrument-wide override any more: the one there was could name a pose
+    the objective cannot image from. A person chooses per lamella instead."""
     microscope = _microscope(compustage=False)
-    microscope.fm.default_orientation = "FM"
 
+    assert microscope.fm.pose_orientation == "FIB"
     poses = build_lamella_poses(microscope, _at(microscope, MILLING_ORIENTATION))
-
-    assert poses.fluorescence is not None
     assert (
         microscope.get_device_imaging_state("FM", poses.fluorescence.stage_position)
         is DeviceImagingState.READY
