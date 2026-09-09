@@ -738,10 +738,6 @@ class FluorescenceMicroscope(ABC):
         self._transform: Optional[CameraImageTransform] = (
             CameraImageTransform.NONE
         )  # image transformation
-        # The orientation a new lamella's fluorescence pose is derived into. Set from
-        # the device declaration below; "FM" here is only the fallback for an FM with
-        # no parent to read one from.
-        self.default_orientation: str = "FM"
         # Orientations the objective can actually image the sample from. Not a control
         # gate: whether the user may *operate* the FM somewhere is answered by hardware
         # interlocks (the objective's own z/t restrictions, the no-rotation-at-the-FM
@@ -759,37 +755,20 @@ class FluorescenceMicroscope(ABC):
         self.acquisition_orientations: list[str] = (
             self._configured_acquisition_orientations()
         )
-        # The first declared orientation is the one a new lamella gets, until a user
-        # picks another (the Default Orientation control). On a compustage that is
-        # "FM", as it always was; on an offset mount it is the beam pose the sample is
-        # imaged in ("FIB" on the iFLM), which the hardcoded "FM" could never derive
-        # into there (FIB-831). An empty list leaves the fallback: it names no pose,
-        # and the pose derivation relocates without re-posing in that case.
-        if self.acquisition_orientations:
-            self.default_orientation = self.acquisition_orientations[0]
 
     @property
     def pose_orientation(self) -> Optional[str]:
-        """The orientation a fluorescence pose is derived into, or None for "keep it".
+        """The orientation a fluorescence pose is derived into by default, or None.
 
-        `default_orientation` when the device declares it as one the objective can
-        image from; otherwise the first declared orientation, since a pose the FM
-        cannot see the sample from is not a fluorescence pose whatever was chosen.
-        That disagreement is possible today: the Default Orientation control offers
-        a fixed pair of names, and a saved configuration writes its own back. None
-        when the device declares no orientations at all -- it constrains the pose
-        not at all, so there is nothing to derive into.
+        The first orientation the device declares it images from: "FM" on a
+        compustage, "FIB" on the iFLM. A person chooses another per lamella
+        (Derive, in the lamella details); there is no instrument-wide override any
+        more, since the one there was could name a pose the objective cannot image
+        from (FIB-831). None when the device declares no orientations at all -- it
+        constrains the pose not at all, so there is nothing to derive into.
         """
         orientations = self._configured_acquisition_orientations()
-        if not orientations:
-            return None
-        if self.default_orientation in orientations:
-            return self.default_orientation
-        logging.warning(
-            f"The FM's default orientation {self.default_orientation!r} is not one "
-            f"it images from ({orientations}); using {orientations[0]!r}."
-        )
-        return orientations[0]
+        return orientations[0] if orientations else None
 
     def _configured_acquisition_orientations(self) -> list[str]:
         """The FM device's declared imaging orientations, from the stage configuration.
