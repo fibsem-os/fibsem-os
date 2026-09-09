@@ -434,6 +434,42 @@ def test_the_pre_tilt_survives_the_configuration_round_trip():
     assert restored.shuttle_pre_tilt == 35.0
 
 
+def test_the_pre_tilt_has_one_home_in_the_file():
+    """Once a holder is named, the stage block stops carrying `shuttle_pre_tilt`.
+
+    Two copies of one number is how a hand edit puts them out of step -- and the
+    holder's would win, silently. Before a holder is named the stage-level key is
+    the only place the value has, so a record loaded from an old file and saved
+    without connecting still round-trips.
+    """
+    unconnected = _stage_settings(shuttle_pre_tilt=35.0)
+    assert unconnected.to_dict()["shuttle_pre_tilt"] == 35.0
+
+    holder = SampleHolder(name="Pre-Tilted", pre_tilt=35.0)
+    named = _stage_settings(holders={"Pre-Tilted": holder}, active_holder="Pre-Tilted")
+    written = named.to_dict()
+    assert "shuttle_pre_tilt" not in written
+    assert written["holders"]["Pre-Tilted"]["pre_tilt"] == 35.0
+
+
+def test_a_configured_holder_that_states_no_pre_tilt_is_an_error():
+    """The one place silence cannot be caught later.
+
+    A holder file that says nothing is overwritten with the configured value at
+    connect. A holder *in the configuration* is the configured value, so a missing
+    pre-tilt there would read as 0 -- a flat shuttle -- with nothing to report.
+    """
+    with pytest.raises(ValueError, match="stage.holders.Silent states no pre_tilt"):
+        StageSystemSettings.from_dict(
+            {
+                "rotation_reference": 0.0,
+                "shuttle_pre_tilt": 35.0,
+                "holders": {"Silent": {"name": "Silent", "capacity": 2}},
+                "active_holder": "Silent",
+            }
+        )
+
+
 def test_the_holder_no_longer_reads_the_stage():
     """The recursion this change had to remove.
 

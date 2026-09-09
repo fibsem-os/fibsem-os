@@ -2338,9 +2338,8 @@ class StageSystemSettings:
             holder.pre_tilt = value
 
     def to_dict(self):
-        return {
+        ddict = {
             "rotation_reference": self.rotation_reference,
-            "shuttle_pre_tilt": self.shuttle_pre_tilt,
             "enabled": self.enabled,
             "rotation": self.rotation,
             "milling_angle": self.milling_angle,
@@ -2357,6 +2356,14 @@ class StageSystemSettings:
             },
             "active_holder": self.active_holder,
         }
+        # The pre-tilt has one home in the file. Once a holder is named it lives on
+        # the holder, and writing it here as well would be a second copy that a hand
+        # edit could put out of step -- silently, in the term every projection uses.
+        # Until then (a record loaded from an old file and not yet connected) the
+        # stage-level key is the only place the value has, so it is kept.
+        if not self.holders:
+            ddict["shuttle_pre_tilt"] = self.shuttle_pre_tilt
+        return ddict
 
     @staticmethod
     def from_dict(settings: dict):
@@ -2387,11 +2394,28 @@ class StageSystemSettings:
                 else deepcopy(DEFAULT_STAGE_DEVICES)
             ),
             holders={
-                name: SampleHolder.from_dict(holder)
+                name: _configured_holder_from(name, holder)
                 for name, holder in (settings.get("holders") or {}).items()
             },
             active_holder=settings.get("active_holder", ""),
         )
+
+
+def _configured_holder_from(name: str, data: dict) -> "SampleHolder":
+    """A holder entry in `stage.holders`, which must state its pre-tilt.
+
+    `SampleHolder.from_dict` reads a silent file as 0.0, and that is safe for a
+    `sample-holder.yaml` because `_resolve_configured_holder` overwrites it with the
+    configured value before use. A holder *in the configuration* gets no such
+    overwrite -- it is the configured value -- so silence here would turn a 35
+    degree shuttle flat with nothing to report. It is an error instead.
+    """
+    if (data or {}).get("pre_tilt") is None:
+        raise ValueError(
+            f"stage.holders.{name} states no pre_tilt. Every holder in the "
+            "configuration must say its pre-tilt in degrees (0 for a flat shuttle)."
+        )
+    return SampleHolder.from_dict(data)
 
 
 @dataclass
