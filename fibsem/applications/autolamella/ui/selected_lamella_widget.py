@@ -42,6 +42,7 @@ class SelectedLamellaWidget(QWidget):
     move_objective_requested = pyqtSignal()  # move objective to stored position
     pose_update_requested = pyqtSignal(str)  # pose name
     pose_move_to_requested = pyqtSignal(str)  # pose name
+    pose_derive_requested = pyqtSignal(str, object)  # pose name, orientation or None
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -115,6 +116,7 @@ class SelectedLamellaWidget(QWidget):
         )
         self.pose_list.update_requested.connect(self.pose_update_requested)
         self.pose_list.move_to_requested.connect(self.pose_move_to_requested)
+        self.pose_list.derive_requested.connect(self.pose_derive_requested)
 
     # ------------------------------------------------------------------
     # Public API
@@ -184,9 +186,13 @@ class SelectedLamellaWidget(QWidget):
             text or "Free-text note (edit in the Lamella editor)"
         )
 
-    def refresh_pose(self, pose_name: str, state) -> None:
+    def refresh_pose(self, pose_name: str, state, provenance=None) -> None:
         """Update one pose row in place, without rebuilding the list."""
-        self.pose_list.refresh_pose(pose_name, state)
+        self.pose_list.refresh_pose(pose_name, state, provenance)
+
+    def set_fluorescence_orientations(self, orientations) -> None:
+        """The orientations a fluorescence pose may be derived into, from the host."""
+        self.pose_list.set_fluorescence_orientations(orientations)
 
     def objective_value_um(self) -> float:
         """Current objective spinbox value, in µm."""
