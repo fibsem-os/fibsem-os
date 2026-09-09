@@ -40,7 +40,15 @@ def arctis():
 
 
 def _slot_place(microscope):
+    """The first holder slot's place, calibrated here if the holder file has not.
+
+    `sample-holder.yaml` is runtime-written state: a dev box that has calibrated a
+    slot ships a position, CI has none and the slot's position is None. The test is
+    about where a place is carried to, not about whether anyone calibrated it.
+    """
     slot = next(iter(microscope._stage.holder.slots.values()))
+    if slot.position is None:
+        slot.position = FibsemStagePosition(x=0.0, y=0.0, z=0.0, name=slot.name)
     place = slot_landmark(microscope, slot)
     assert place is not None
     return place
