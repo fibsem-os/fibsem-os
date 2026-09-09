@@ -2106,6 +2106,25 @@ def render_correlation(h: Harness) -> None:
         numbered=True,
     )
 
+    # -- a burn by hand: the Spot Burn tab outside a workflow -----------------
+    from fibsem.imaging.spot import SpotBurnSettings
+
+    h.show_main_tab("Microscope")
+    sbw = h.ui.spot_burn_widget
+    h.ui.set_spot_burn_widget_active(True)
+    h.ui.tabWidget.setCurrentWidget(sbw)
+    sbw.set_workflow_mode(False)
+    sbw.set_settings(SpotBurnSettings(coordinates=points))
+    h.pump(600)
+    fib_panel = h.window.view_controller.widget._all_panels[2]
+    h.shot(
+        "spot-burn-by-hand",
+        callouts=[Box(fib_panel), Box(sbw.coord_editor), sbw.pushButton_run_spot_burn],
+        numbered=True,
+    )
+    sbw.clear_points_layer()
+    h.pump(300)
+
     # -- the run: setup, burn (supervised), fluorescence stack ---------------
     ww = h.window.lamella_workflow_widget
     ww.lamella_list.set_all_selected(False)

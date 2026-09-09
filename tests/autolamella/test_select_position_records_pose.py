@@ -59,10 +59,12 @@ def test_the_task_records_pose_and_reference_either_way(
     ), "the alignment reference was acquired"
 
 
-def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path):
+@pytest.mark.parametrize("sync", [True, False])
+def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path, sync):
     """On an instrument with a fluorescence microscope, the task leaves the
     fluorescence pose describing the position it recorded the milling pose
-    at, not the one the lamella was marked at (FIB-954)."""
+    at, not the one the lamella was marked at (FIB-954). Off, a fluorescence
+    pose chosen by hand stays where it was."""
     from fibsem.applications.autolamella.poses import (
         _to_fluorescence,
         build_lamella_poses,
@@ -95,17 +97,24 @@ def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path):
         microscope.move_stage_absolute(moved)
         lamella.milling_pose = microscope.get_microscope_state()
         config = SelectMillingPositionTaskConfig(
-            auto_milling_alignment=False, use_autofocus=False, select_poi=False
+            auto_milling_alignment=False,
+            use_autofocus=False,
+            select_poi=False,
+            sync_fluorescence_pose=sync,
         )
         SelectMillingPositionTask(
             microscope=microscope, config=config, lamella=lamella
         )._run()
 
-        expected = _to_fluorescence(microscope, lamella.milling_pose.stage_position)
         got = lamella.fluorescence_pose.stage_position
-        assert got.x == pytest.approx(expected.x, abs=1e-9)
-        assert got.y == pytest.approx(expected.y, abs=1e-9)
-        assert abs(got.x - stale.x) > 10e-6, "the pose moved with the lamella"
+        if sync:
+            expected = _to_fluorescence(microscope, lamella.milling_pose.stage_position)
+            assert got.x == pytest.approx(expected.x, abs=1e-9)
+            assert got.y == pytest.approx(expected.y, abs=1e-9)
+            assert abs(got.x - stale.x) > 10e-6, "the pose moved with the lamella"
+        else:
+            assert got.x == pytest.approx(stale.x, abs=1e-9)
+            assert got.y == pytest.approx(stale.y, abs=1e-9)
         assert lamella.fluorescence_pose.objective_position is not None
     finally:
         microscope.disconnect()
