@@ -2190,6 +2190,13 @@ DEFAULT_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
 # -- and they must not be able to disagree about it.
 DEFAULT_FIB_COLUMN_TILT: float = 52.0
 
+# The version of the microscope configuration file format. Written by
+# `MicroscopeSettings.to_dict` and stated by every shipped file. Nothing branches on
+# it yet: it exists because a format change cannot migrate a file that does not say
+# what format it is, and the field cannot be added retrospectively -- a file without
+# it is indistinguishable from one written before it existed.
+CONFIGURATION_VERSION: int = 1
+
 # **The default is the objective under the grid**: the FM shares the beams' origin, and
 # is told apart by the pose the sample is held in. A site whose objective is offset --
 # piescope, METEOR, iFLM, all in the TFS SDB chamber -- declares the traverse instead,
@@ -2774,6 +2781,7 @@ class MicroscopeSettings:
 
     def to_dict(self) -> dict:
         settings_dict = {
+            "version": CONFIGURATION_VERSION,
             "imaging": self.image.to_dict(),
             "protocol": self.protocol,
             "milling": self.milling.to_dict(),

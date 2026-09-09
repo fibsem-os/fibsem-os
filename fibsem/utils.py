@@ -1,4 +1,5 @@
 import datetime
+import functools
 import glob
 import json
 import logging
@@ -7,7 +8,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Set, Tuple, Union
 
 import yaml
 from PIL import Image
@@ -512,103 +513,64 @@ def load_microscope_configuration(
     return settings
 
 
-# Every block and key this version reads. A configuration may hold others -- one
-# written before a key was removed, or hand-edited with a guess -- and those are
-# ignored, which is the contract that lets old files keep working.
-#
-# But ignored *silently* is how `imaging.imaging_current` came to be a setting a user
-# could type, save, reload and never see again: `ImageSettings` has no such field, so
-# it was dropped on load and nothing said so. One line at load is the difference
-# between "my setting vanished" and "my setting is not supported".
-CONFIGURATION_SCHEMA: Dict[str, Set[str]] = {
-    "version": set(),
-    "info": {
-        "name",
-        "ip_address",
-        "manufacturer",
-        "model",
-        "serial_number",
-        "hardware_version",
-        "software_version",
-    },
-    "stage": {
-        "enabled",
-        "rotation",
-        "rotation_reference",
-        "shuttle_pre_tilt",
-        "manipulator_height_limit",
-        "milling_angle",
-        "devices",
-        "device_range",
-    },
-    "electron": {
-        "enabled",
-        "column_tilt",
-        "eucentric_height",
-        "voltage",
-        "current",
-        "resolution",
-        "hfw",
-        "dwell_time",
-        "detector_mode",
-        "detector_type",
-        "beam_type",
-        "working_distance",
-        "plasma",
-        "plasma_gas",
-    },
-    "ion": {
-        "enabled",
-        "column_tilt",
-        "eucentric_height",
-        "voltage",
-        "current",
-        "resolution",
-        "hfw",
-        "dwell_time",
-        "detector_mode",
-        "detector_type",
-        "beam_type",
-        "working_distance",
-        "plasma",
-        "plasma_gas",
-    },
-    "manipulator": {"enabled", "rotation", "tilt"},
-    "gis": {"enabled", "multichem", "sputter_coater"},
-    "imaging": {"beam_type", "resolution", "hfw", "dwell_time", "autocontrast", "save"},
-    "milling": {
-        "milling_voltage",
-        "milling_current",
-        "dwell_time",
-        "rate",
-        "spot_size",
-        "preset",
-    },
-    "fm": {"enabled", "config"},
-    # Open blocks. `sim:` stays a plain dict the simulator reads with `.get()` rather
-    # than a dataclass, and `protocol:` is the application's, so policing either would
-    # invent warnings every time a backend gains a key.
-    "sim": set(),
-    "protocol": set(),
-}
+# Keys a configuration may carry that this version reads for migration and never
+# writes back. Empty today. When a key moves house -- `stage.shuttle_pre_tilt` onto
+# the holder, the beam defaults into their own block -- the old spelling is still read
+# so existing files load, and is listed here so it is not reported as unrecognised.
+LEGACY_CONFIGURATION_KEYS: Set[str] = set()
+
+# Blocks accepted wholesale. `sim:` is a plain dict the simulator reads with `.get()`
+# rather than a dataclass, and `protocol:` is the application's; policing either would
+# invent warnings every time a backend gains a key.
+OPEN_CONFIGURATION_BLOCKS = ("sim", "protocol")
+
+
+@functools.lru_cache(maxsize=1)
+def written_configuration_keys() -> Set[str]:
+    """Every dotted path `MicroscopeSettings.to_dict` writes.
+
+    This *is* the schema. There is no hand-written table of known keys, because a
+    table is a second copy of what the writer does and the two drift: the first
+    attempt at one was written from the shipped YAML files and rejected 23 keys that
+    `to_dict` writes on every save. Derived from the writer, the set of keys that will
+    be saved back is by construction the set of keys that are saved back.
+
+    One level deep, blocks and their keys. A value that is itself a dict (`stage.devices`)
+    is accepted wholesale under its key.
+    """
+    written = MicroscopeSettings.from_dict({}).to_dict()
+    keys: Set[str] = set()
+    for block, value in written.items():
+        keys.add(block)
+        if isinstance(value, dict):
+            keys.update(f"{block}.{key}" for key in value)
+    return keys
 
 
 def unrecognised_configuration_keys(config: dict) -> List[str]:
-    """Dotted paths in *config* that this version does not read.
+    """Dotted paths in *config* that this version will not write back.
 
-    A block with an empty set in the schema is accepted wholesale -- `sim:` and
-    `protocol:` carry backend- and application-specific keys that this function has no
-    business policing.
+    A configuration may hold others -- one written before a key was removed, or
+    hand-edited with a guess -- and those are ignored, which is the contract that
+    lets old files keep working. But ignored *silently* is how
+    `imaging.imaging_current` came to be a setting a user could type, save, reload
+    and never see again: `ImageSettings` has no such field, so it was dropped on load
+    and nothing said so. One line at load is the difference between "my setting
+    vanished" and "my setting is not supported".
     """
+    known = written_configuration_keys() | LEGACY_CONFIGURATION_KEYS
     unknown: List[str] = []
     for block, value in (config or {}).items():
-        known = CONFIGURATION_SCHEMA.get(block)
-        if known is None:
+        if block in OPEN_CONFIGURATION_BLOCKS:
+            continue
+        if block not in known:
             unknown.append(block)
             continue
-        if not known or not isinstance(value, dict):
+        if not isinstance(value, dict):
             continue
-        unknown.extend(f"{block}.{key}" for key in value if key not in known)
+        unknown.extend(
+            f"{block}.{key}" for key in value if f"{block}.{key}" not in known
+        )
     return sorted(unknown)
 
 
@@ -619,7 +581,7 @@ def report_unrecognised_configuration_keys(config: dict, source: str = "") -> Li
         where = f" in {source}" if source else ""
         logging.info(
             f"Configuration{where} contains {len(unknown)} key(s) this version does "
-            f"not use, and which will not be saved back: {', '.join(unknown)}"
+            f"not read and will not save back: {', '.join(unknown)}"
         )
     return unknown
 

@@ -18,6 +18,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.structures import (
+    CONFIGURATION_VERSION,
     DEFAULT_FIB_COLUMN_TILT,
     MicroscopeSettings,
     SystemSettings,
@@ -61,7 +62,16 @@ def test_every_shipped_configuration_declares_its_version(filename: str):
     Cheap now; impossible to add retrospectively, because a file without the field is
     indistinguishable from one written before the field existed.
     """
-    assert _load(filename)["version"] == 1
+    assert _load(filename)["version"] == CONFIGURATION_VERSION
+
+
+def test_saving_writes_the_version():
+    """The writer states the version too, or a file saved from the application
+    would drop the one field a future migration needs."""
+    written = MicroscopeSettings.from_dict(
+        _load("microscope-configuration.yaml")
+    ).to_dict()
+    assert written["version"] == CONFIGURATION_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +145,43 @@ def test_reading_does_not_mutate_the_dict_it_was_given():
     SystemSettings.from_dict(config)
 
     assert config == before
+
+
+# ---------------------------------------------------------------------------
+# The writer writes what the reader reads
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("filename", SHIPPED)
+def test_a_saved_configuration_reports_nothing_unrecognised(filename: str):
+    """Load, save, and every key in the saved file is one this version writes.
+
+    The first attempt at a schema table was written from the shipped YAML rather
+    than from `to_dict`, and rejected 23 of the keys the application writes on every
+    save -- a user who saved from the setup widget and restarted was told 23 of
+    their settings were unsupported. The known set is now derived from the writer,
+    and this pins that nothing can put the two back out of step.
+    """
+    written = MicroscopeSettings.from_dict(_load(filename)).to_dict()
+    assert utils.unrecognised_configuration_keys(written) == []
+
+
+@pytest.mark.parametrize("filename", SHIPPED)
+def test_a_round_trip_is_a_fixed_point(filename: str):
+    """Load → save → load → save gives the same file as load → save.
+
+    The other half of the guarantee: not only does the writer write what the reader
+    reads, the writer writes everything the reader reads. A key the reader takes
+    from the file and the writer leaves out comes back as its default on the second
+    pass -- which is exactly how a setting vanishes on save.
+    """
+    loaded = MicroscopeSettings.from_dict(_load(filename))
+    reloaded = MicroscopeSettings.from_dict(copy.deepcopy(loaded.to_dict()))
+    # Compared as objects, not as dicts: a key the reader reads and the writer
+    # forgets would round-trip to the same *dict* (both passes lack it) while the
+    # second *object* silently carries the default instead of the file's value.
+    assert reloaded.system == loaded.system
+    assert reloaded.image == loaded.image
 
 
 # ---------------------------------------------------------------------------
