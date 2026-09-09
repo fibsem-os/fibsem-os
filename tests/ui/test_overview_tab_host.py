@@ -88,7 +88,7 @@ class _StubWindow:
             MILLING_ORIENTATION,
             build_lamella_poses,
         )
-        from fibsem.applications.autolamella.structures import Lamella
+        from fibsem.applications.autolamella.structures import Lamella, PoseProvenance
 
         number = len(self.added) + 1
         name = f"Lamella-{number:02d}"
@@ -103,8 +103,12 @@ class _StubWindow:
             path=os.path.join(str(self.experiment.path), name),
             number=number,
         )
-        lamella.milling_pose = poses.milling
-        lamella.fluorescence_pose = poses.fluorescence
+        # As the real `add_new_lamella` records it: the marked pose observed, the
+        # other derived. A fluorescence pose left *observed* here would make every
+        # linked move ask the observed-overwrite question -- a real modal dialog,
+        # which under the offscreen platform blocks the test run for ever.
+        lamella.set_pose("MILLING", poses.milling, PoseProvenance.OBSERVED)
+        lamella.set_pose("FLUORESCENCE", poses.fluorescence, PoseProvenance.DERIVED)
         self.added.append(lamella)
         self.experiment.positions.append(lamella)
         return lamella
@@ -635,3 +639,181 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         assert beam.overview._may_move() is False
         fluorescence._drop_overview()
         assert beam.overview._may_move() is True
+
+
+# ── the Link checkbox under the lamella list ─────────────────────────────
+
+
+def _pin_preferences(monkeypatch):
+    """Keep the tests' toggles off the machine's preferences file, and capture what
+    would have been written."""
+    import fibsem.config as fibsem_cfg
+
+    preferences = fibsem_cfg.UserPreferences()
+    saved = []
+    monkeypatch.setattr(fibsem_cfg, "load_user_preferences", lambda: preferences)
+    monkeypatch.setattr(fibsem_cfg, "save_user_preferences", saved.append)
+    return preferences, saved
+
+
+class TestTheLinkCheckbox:
+    def test_each_tab_offers_its_own_link(self, tab, fm_tab):
+        """Named for what will be *written*: the beam tab derives the fluorescence
+        position, the fluorescence tab the milling one. "Link to fluorescence
+        position" on the FM tab would read as linking to itself."""
+        assert tab.link_checkbox.text() == "Link fluorescence position"
+        assert fm_tab.link_checkbox.text() == "Link milling position"
+        assert tab.link_checkbox.parent() is tab.positions_panel
+
+    def test_toggling_is_remembered_in_preferences(self, tab, monkeypatch):
+        preferences, saved = _pin_preferences(monkeypatch)
+        tab.link_checkbox.setChecked(True)
+        saved.clear()
+
+        tab.link_checkbox.setChecked(False)
+
+        assert preferences.poses.link_fluorescence_position is False
+        assert saved and saved[-1] is preferences
+        assert tab.link_enabled is False
+
+    def test_the_panel_survives_the_widget_being_rebuilt(self, tab, microscope):
+        """`add_settings_section` reparents the panel into the overview's column, so
+        the drop has to take the *panel* back, not just the list inside it -- or the
+        checkbox dies with the old overview."""
+        panel, checkbox = tab.positions_panel, tab.link_checkbox
+        other, _ = utils.setup_session(manufacturer="Demo")
+        tab.autolamella_ui.microscope = other
+        tab.refresh_microscope()
+
+        assert tab.positions_panel is panel
+        assert tab.lamella_list.parent() is panel
+        checkbox.setChecked(checkbox.isChecked())  # must not raise on a dead object
+
+    def test_link_off_leaves_the_other_pose_and_marks_it_stale(
+        self, tab, microscope, monkeypatch
+    ):
+        from fibsem.applications.autolamella.structures import PoseProvenance
+        from fibsem.applications.autolamella.ui import overview_tab_base as base
+
+        _pin_preferences(monkeypatch)
+        asked = []
+        monkeypatch.setattr(base, "message_box_ui", lambda **k: asked.append(k) or True)
+        lamella = _lamella(tab, microscope)
+        lamella.pose_provenance["FLUORESCENCE"] = PoseProvenance.OBSERVED
+        before = lamella.fluorescence_pose.stage_position.x
+        tab.link_checkbox.setChecked(False)
+
+        tab._on_move_requested(
+            lamella.name, _at(microscope.get_stage_position(), dx=250e-6)
+        )
+
+        assert asked == []
+        assert lamella.fluorescence_pose.stage_position.x == pytest.approx(before)
+        assert lamella.provenance_of("FLUORESCENCE") is PoseProvenance.STALE
+
+    def test_a_derived_pose_is_overwritten_without_asking(
+        self, tab, microscope, monkeypatch
+    ):
+        """A guess replacing a guess needs no confirmation."""
+        from fibsem.applications.autolamella.structures import PoseProvenance
+        from fibsem.applications.autolamella.ui import overview_tab_base as base
+
+        _pin_preferences(monkeypatch)
+        asked = []
+        monkeypatch.setattr(base, "message_box_ui", lambda **k: asked.append(k) or True)
+        lamella = _lamella(tab, microscope)
+        lamella.pose_provenance["FLUORESCENCE"] = PoseProvenance.DERIVED
+        tab.link_checkbox.setChecked(True)
+
+        tab._on_move_requested(
+            lamella.name, _at(microscope.get_stage_position(), dx=250e-6)
+        )
+
+        assert asked == []
+        assert lamella.provenance_of("FLUORESCENCE") is PoseProvenance.DERIVED
+        assert lamella.fluorescence_pose.stage_position.x == pytest.approx(
+            lamella.milling_pose.stage_position.x
+        )
+
+    def test_an_observed_pose_is_asked_about_once_per_experiment(
+        self, tab, microscope, monkeypatch
+    ):
+        """The one thing Link must not quietly rewrite is a pose somebody centred by
+        hand. Asked once; a yes holds for the rest of this experiment."""
+        from fibsem.applications.autolamella.structures import PoseProvenance
+        from fibsem.applications.autolamella.ui import overview_tab_base as base
+
+        _pin_preferences(monkeypatch)
+        asked = []
+        monkeypatch.setattr(base, "message_box_ui", lambda **k: asked.append(k) or True)
+        lamella = _lamella(tab, microscope)
+        lamella.pose_provenance["FLUORESCENCE"] = PoseProvenance.OBSERVED
+        tab.link_checkbox.setChecked(True)
+
+        tab._on_move_requested(
+            lamella.name, _at(microscope.get_stage_position(), dx=250e-6)
+        )
+        assert len(asked) == 1
+        assert "set by hand" in asked[0]["text"]
+        assert lamella.provenance_of("FLUORESCENCE") is PoseProvenance.DERIVED
+
+        # Observed again (someone re-centred it), moved again: no second question.
+        lamella.pose_provenance["FLUORESCENCE"] = PoseProvenance.OBSERVED
+        tab._on_move_requested(
+            lamella.name, _at(microscope.get_stage_position(), dx=500e-6)
+        )
+        assert len(asked) == 1
+        assert lamella.provenance_of("FLUORESCENCE") is PoseProvenance.DERIVED
+
+    def test_declining_keeps_the_observed_pose_and_still_moves_this_one(
+        self, tab, microscope, monkeypatch
+    ):
+        from fibsem.applications.autolamella.structures import PoseProvenance
+        from fibsem.applications.autolamella.ui import overview_tab_base as base
+
+        _pin_preferences(monkeypatch)
+        monkeypatch.setattr(base, "message_box_ui", lambda **k: False)
+        lamella = _lamella(tab, microscope)
+        lamella.pose_provenance["FLUORESCENCE"] = PoseProvenance.OBSERVED
+        before = lamella.fluorescence_pose.stage_position.x
+        target = _at(microscope.get_stage_position(), dx=250e-6)
+        tab.link_checkbox.setChecked(True)
+
+        tab._on_move_requested(lamella.name, target)
+
+        assert lamella.milling_pose.stage_position.x == pytest.approx(target.x)
+        assert lamella.fluorescence_pose.stage_position.x == pytest.approx(before)
+        assert lamella.provenance_of("FLUORESCENCE") is PoseProvenance.STALE
+
+    def test_the_fm_tab_folds_the_warning_into_its_move_dialog(
+        self, fm_tab, microscope, monkeypatch
+    ):
+        """That tab already confirms every move, so the observed-pose warning rides
+        along rather than following as a second question."""
+        from fibsem.applications.autolamella.structures import PoseProvenance
+        from fibsem.applications.autolamella.ui import (
+            autolamella_fluorescence_overview_tab as module,
+        )
+        from fibsem.applications.autolamella.ui import overview_tab_base as base
+
+        _pin_preferences(monkeypatch)
+        asked = []
+        monkeypatch.setattr(
+            module, "message_box_ui", lambda **k: asked.append(k) or True
+        )
+        monkeypatch.setattr(base, "message_box_ui", lambda **k: asked.append(k) or True)
+        monkeypatch.setattr(
+            fm_tab.autolamella_ui, "update_ui", lambda: None, raising=False
+        )
+        lamella = _lamella(fm_tab, microscope, dx=40e-6)
+        lamella.pose_provenance["MILLING"] = PoseProvenance.OBSERVED
+        fm_tab.link_checkbox.setChecked(True)
+
+        fm_tab._on_move_requested(
+            lamella.name, _at(lamella.fluorescence_pose.stage_position, dx=50e-6)
+        )
+
+        assert len(asked) == 1
+        assert "milling position" in asked[0]["text"]
+        assert "set by hand" in asked[0]["text"]
+        assert lamella.provenance_of("MILLING") is PoseProvenance.DERIVED

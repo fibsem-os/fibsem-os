@@ -34,8 +34,11 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtWidgets import QWidget
 
-import fibsem.config as fibsem_cfg
-from fibsem.applications.autolamella.poses import MILLING_POSE, follow_milling_pose
+from fibsem.applications.autolamella.poses import (
+    FLUORESCENCE_POSE,
+    MILLING_POSE,
+    follow_milling_pose,
+)
 from fibsem.applications.autolamella.structures import DefectType
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
@@ -60,6 +63,16 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
 
     POSE_NOUN = "position"
     OVERVIEW_NOUN = "overview"
+
+    LINK_PREFERENCE = "link_fluorescence_position"
+    LINK_LABEL = "Link fluorescence position"
+    LINK_TOOLTIP = (
+        "Moving a lamella here also derives its fluorescence position from the new "
+        "milling position. Off: the fluorescence position is left where it is and "
+        "marked as possibly stale."
+    )
+    LINKED_POSE = FLUORESCENCE_POSE
+    LINKED_POSE_NOUN = "fluorescence position"
 
     def __init__(self, autolamella_ui, parent: Optional[QWidget] = None):
         super().__init__(autolamella_ui, parent)
@@ -165,11 +178,7 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
 
         lamella.set_pose_position(MILLING_POSE, position)
         lamella.update_milling_angle(self.microscope)
-        follow_milling_pose(
-            self.microscope,
-            lamella,
-            link=fibsem_cfg.load_user_preferences().poses.link_fluorescence_position,
-        )
+        follow_milling_pose(self.microscope, lamella, link=self._link_for(lamella))
 
         experiment.save()
         # Writing a pose emits nothing -- `poses` is a plain dict and the evented list
