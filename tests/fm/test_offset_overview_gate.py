@@ -114,9 +114,10 @@ def test_a_compustage_tileset_needs_the_fm_pose():
     """The runner now applies the gate the widget always applied.
 
     A tileset walks the stage and stitches through a frame built from the pose, so it
-    requires the pose the objective images from -- `["FM"]` on a compustage. The
-    widget's acquire button was already gated exactly this way; only direct API calls
-    could previously start a tileset from SEM, through the runner's own inlined list.
+    requires a pose the objective images from -- `[FM, SEM]` on the Arctis, so the
+    milling pose is refused. The widget's acquire button was already gated exactly
+    this way; only direct API calls could previously start a tileset from anywhere,
+    through the runner's own inlined list.
     """
     microscope, _ = utils.setup_session(config_path=ARCTIS_CONFIG)
     microscope.fm.objective.insert()
@@ -129,7 +130,7 @@ def test_a_compustage_tileset_needs_the_fm_pose():
     )
     assert tiles[0][0] is not None
 
-    microscope.move_to_orientation("SEM")
+    microscope.move_to_orientation("MILLING")
     with pytest.raises(ValueError, match="Re-pose"):
         acquire_tileset(
             microscope=microscope,

@@ -3371,14 +3371,11 @@ def _wired_host(qapp, tmp_path, positions=()):
     host.autolamella_ui.added = []
     host.autolamella_ui.updated = 0
 
-    def add_new_lamella(
-        stage_position=None, name=None, objective_position=None, marked_at=None
-    ):
+    def add_new_lamella(stage_position=None, name=None, objective_position=None):
         host.autolamella_ui.added.append(
             {
                 "position": stage_position,
                 "objective_position": objective_position,
-                "marked_at": marked_at,
             }
         )
         lamella = type(
@@ -3414,21 +3411,18 @@ def _real_lamella(name, microscope, tmp_path, x=100e-6, y=50e-6):
     return lamella
 
 
-def test_adding_declares_the_fluorescence_orientation(qapp, tmp_path):
-    """Not left to be derived. `build_lamella_poses` can read the side off the
-    position on either mounting now, but this tab *knows* which side it is marking
-    from, and saying so costs nothing: a declared side is checked against the
-    geometry rather than trusted, so the worst case is a refusal with a user to tell
-    rather than a lamella built from a misread position."""
-    from fibsem.applications.autolamella.poses import FLUORESCENCE_ORIENTATION
-
+def test_adding_hands_over_the_position_and_nothing_about_its_side(qapp, tmp_path):
+    """Which side a position is on is read off the geometry by `build_lamella_poses`,
+    not declared by the tab: a point this canvas can show is one the objective sees
+    the sample from, and a declaration that disagreed with that was only ever a way
+    to be wrong twice."""
     host = _wired_host(qapp, tmp_path)
     position = _named("wherever", 120e-6, -60e-6)
 
     host.fm_overview_tab._on_add_requested(position)
 
-    assert host.autolamella_ui.added[0]["marked_at"] == FLUORESCENCE_ORIENTATION
     assert host.autolamella_ui.added[0]["position"] is position
+    assert "marked_at" not in host.autolamella_ui.added[0]
 
     host._teardown_fm_overview_widget()
 
