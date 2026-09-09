@@ -244,6 +244,35 @@ class FibsemMicroscope(ABC):
 
         self._stage = _create_sample_stage(self)
 
+    def capture_defaults(self) -> None:
+        """Record what the instrument is doing now as the defaults a session starts from.
+
+        The gesture the `defaults:` block exists for. Nobody wants to type 2.00 kV,
+        100 pA, 150 um, 1536x1024, 1 us, ETD and SecondaryElectrons into a grid -- and
+        somebody who does will type what they believe the instrument is doing. "It is
+        set up how I like it, remember this" is the natural way to say it, and the
+        instrument already knows the answer.
+
+        **The stage position is deliberately not captured.** `get_microscope_state`
+        returns it alongside the beams, and it has no business here: applying it
+        would move the stage, and where the stage happened to be sitting when
+        somebody pressed Save is session state, not a preference. The objective
+        position is out for the same reason from the other direction -- it is
+        calibration, not a default.
+
+        Writes into the settings only. Saving the configuration to disk is a separate
+        act, so pressing this is reversible until someone means it.
+        """
+        state = self.get_microscope_state()
+        for beam, detector, record in (
+            (state.electron_beam, state.electron_detector, self.system.electron),
+            (state.ion_beam, state.ion_detector, self.system.ion),
+        ):
+            if beam is not None:
+                record.beam = deepcopy(beam)
+            if detector is not None:
+                record.detector = deepcopy(detector)
+
     def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
         """The grid loader for a compustage system, or None when it has no autoloader.
 
@@ -853,18 +882,27 @@ class FibsemMicroscope(ABC):
     def set_beam_settings(self, beam_settings: BeamSettings) -> None:
         """Set the beam settings for the specified beam type"""
         logging.debug(f"Setting {beam_settings.beam_type.name} beam settings...")
-        self.set_working_distance(
-            beam_settings.working_distance, beam_settings.beam_type
+        # A None is "not stated", not a value to push. A configuration may leave
+        # any of these out -- a `defaults:` block with only the voltage in it is a
+        # configuration -- and the readers default them to None, so each one is
+        # pushed only when there is something to push.
+        beam_type = beam_settings.beam_type
+        setters = (
+            (self.set_working_distance, beam_settings.working_distance),
+            (self.set_beam_current, beam_settings.beam_current),
+            (self.set_beam_voltage, beam_settings.voltage),
+            (self.set_field_of_view, beam_settings.hfw),
+            (self.set_resolution, beam_settings.resolution),
+            (self.set_dwell_time, beam_settings.dwell_time),
+            (self.set_stigmation, beam_settings.stigmation),
+            (self.set_beam_shift, beam_settings.shift),
+            (self.set_scan_rotation, beam_settings.scan_rotation),
         )
-        self.set_beam_current(beam_settings.beam_current, beam_settings.beam_type)
-        self.set_beam_voltage(beam_settings.voltage, beam_settings.beam_type)
-        self.set_field_of_view(beam_settings.hfw, beam_settings.beam_type)
-        self.set_resolution(beam_settings.resolution, beam_settings.beam_type)
-        self.set_dwell_time(beam_settings.dwell_time, beam_settings.beam_type)
-        self.set_stigmation(beam_settings.stigmation, beam_settings.beam_type)
-        self.set_beam_shift(beam_settings.shift, beam_settings.beam_type)
-        self.set_scan_rotation(beam_settings.scan_rotation, beam_settings.beam_type)
-        self.set("preset", beam_settings.preset, beam_settings.beam_type)
+        for setter, value in setters:
+            if value is not None:
+                setter(value, beam_type)
+        if beam_settings.preset is not None:
+            self.set("preset", beam_settings.preset, beam_type)
 
         logging.debug(
             {

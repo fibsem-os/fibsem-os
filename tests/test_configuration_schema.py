@@ -89,7 +89,7 @@ def test_saving_writes_the_version():
         "ion",
         "manipulator",
         "gis",
-        "imaging",
+        "defaults",
         "sim",
     ],
 )
@@ -98,7 +98,7 @@ def test_any_block_may_be_absent(block: str):
     corrupt file. This is the change that unblocks removing keys from the shipped
     files without every existing one raising at load."""
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config.pop(block)
+    config.pop(block, None)
 
     settings = MicroscopeSettings.from_dict(config)
     assert isinstance(settings.system, SystemSettings)

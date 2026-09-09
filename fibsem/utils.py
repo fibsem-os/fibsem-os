@@ -8,7 +8,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
 
 import yaml
 from PIL import Image
@@ -527,10 +527,25 @@ LEGACY_CONFIGURATION_KEYS: Set[str] = {
     "stage.shuttle_pre_tilt",
 }
 
+# Old block spellings that are still read. A key under one of these is legal if it
+# is legal under the block it moved to: `imaging.hfw` was the acquire tab's opening
+# state and now lives at `defaults.imaging.hfw`; `electron.voltage` was mixed in
+# with the column's hardware and now lives at `defaults.electron.voltage`. A mapping
+# of old home to new, not a second copy of the schema.
+LEGACY_CONFIGURATION_BLOCKS: Dict[str, Tuple[str, ...]] = {
+    "imaging": ("defaults.imaging",),
+    "electron": ("defaults.electron",),
+    "ion": ("defaults.ion",),
+}
+
 # Blocks accepted wholesale. `sim:` is a plain dict the simulator reads with `.get()`
 # rather than a dataclass, and `protocol:` is the application's; policing either would
 # invent warnings every time a backend gains a key.
 OPEN_CONFIGURATION_BLOCKS = ("sim", "protocol")
+
+# Blocks with a level under them, policed one level deeper. `defaults.electron` is a
+# block of keys, and a typo in it should be reported the way a typo in `electron:` is.
+SECTION_BLOCKS = ("defaults",)
 
 
 @functools.lru_cache(maxsize=1)
@@ -543,15 +558,20 @@ def written_configuration_keys() -> Set[str]:
     `to_dict` writes on every save. Derived from the writer, the set of keys that will
     be saved back is by construction the set of keys that are saved back.
 
-    One level deep, blocks and their keys. A value that is itself a dict (`stage.devices`)
-    is accepted wholesale under its key.
+    One level deep, blocks and their keys -- two for the `SECTION_BLOCKS`. A value
+    that is itself a dict below that (`stage.devices`) is accepted wholesale under
+    its key.
     """
     written = MicroscopeSettings.from_dict({}).to_dict()
     keys: Set[str] = set()
     for block, value in written.items():
         keys.add(block)
-        if isinstance(value, dict):
-            keys.update(f"{block}.{key}" for key in value)
+        if not isinstance(value, dict):
+            continue
+        for key, sub in value.items():
+            keys.add(f"{block}.{key}")
+            if block in SECTION_BLOCKS and isinstance(sub, dict):
+                keys.update(f"{block}.{key}.{k}" for k in sub)
     return keys
 
 
@@ -567,18 +587,33 @@ def unrecognised_configuration_keys(config: dict) -> List[str]:
     vanished" and "my setting is not supported".
     """
     known = written_configuration_keys() | LEGACY_CONFIGURATION_KEYS
+
+    def is_known(path: str) -> bool:
+        if path in known:
+            return True
+        block, _, rest = path.partition(".")
+        return any(
+            (f"{alias}.{rest}" if rest else alias) in known
+            for alias in LEGACY_CONFIGURATION_BLOCKS.get(block, ())
+        )
+
     unknown: List[str] = []
     for block, value in (config or {}).items():
         if block in OPEN_CONFIGURATION_BLOCKS:
             continue
-        if block not in known:
+        if not is_known(block):
             unknown.append(block)
             continue
         if not isinstance(value, dict):
             continue
-        unknown.extend(
-            f"{block}.{key}" for key in value if f"{block}.{key}" not in known
-        )
+        for key, sub in value.items():
+            path = f"{block}.{key}"
+            if not is_known(path):
+                unknown.append(path)
+            elif block in SECTION_BLOCKS and isinstance(sub, dict):
+                unknown.extend(
+                    f"{path}.{k}" for k in sub if not is_known(f"{path}.{k}")
+                )
     return sorted(unknown)
 
 
