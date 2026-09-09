@@ -1458,6 +1458,16 @@ class DemoMicroscope(FibsemMicroscope):
         dx = (float(point.x) - 0.5) * hfw
         dy = (0.5 - float(point.y)) * hfw * (height / width)
         shift = self.get_beam_shift(beam_type)
+        logging.info(
+            {
+                "msg": "sim_spot_burn",
+                "point": (float(point.x), float(point.y)),
+                "hfw": hfw,
+                "resolution": (width, height),
+                "view_offset_m": (dx, dy),
+                "beam_shift": (float(shift.x), float(shift.y)),
+            }
+        )
         scene.burn(
             [(dx, dy)],
             beam_type,

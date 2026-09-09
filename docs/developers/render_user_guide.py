@@ -2012,7 +2012,7 @@ def render_correlation(h: Harness) -> None:
     )
     from fibsem.correlation.structures import PointType
     from fibsem.fm.structures import ChannelSettings, ZParameters
-    from fibsem.structures import Point
+    from fibsem.structures import BeamType, ImageSettings, Point
     from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
 
     h.first_run(False)
@@ -2035,11 +2035,13 @@ def render_correlation(h: Harness) -> None:
             name="Reflection",
             excitation_wavelength=nearest(550),
             emission_wavelength=None,
+            color="gray",
         ),
         ChannelSettings(
             name="GFP",
             excitation_wavelength=nearest(488),
             emission_wavelength="Fluorescence",
+            color="green",
         ),
     ]
     # an asymmetric layout, so the pairs are unambiguous when the FM view is
@@ -2062,17 +2064,18 @@ def render_correlation(h: Harness) -> None:
                 lamella.task_config[config.task_name] = copy.deepcopy(config)
         # after the setup task, before the milling: burn, then image
         tasks = protocol.workflow_config.tasks
-        setup = tasks[0].name
+        setup, fiducial = tasks[0].name, tasks[1].name
         tasks.insert(
             1,
             AutoLamellaTaskDescription(
                 name=SPOT, supervise=True, required=False, requires=[setup]
             ),
         )
+        # the fluorescence stack after the fiducial, so both are in it
         tasks.insert(
-            2,
+            3,
             AutoLamellaTaskDescription(
-                name=FMTASK, supervise=False, required=False, requires=[SPOT]
+                name=FMTASK, supervise=False, required=False, requires=[fiducial]
             ),
         )
         experiment.save()
@@ -2106,31 +2109,12 @@ def render_correlation(h: Harness) -> None:
         numbered=True,
     )
 
-    # -- a burn by hand: the Spot Burn tab outside a workflow -----------------
-    from fibsem.imaging.spot import SpotBurnSettings
-
-    h.show_main_tab("Microscope")
-    sbw = h.ui.spot_burn_widget
-    h.ui.set_spot_burn_widget_active(True)
-    h.ui.tabWidget.setCurrentWidget(sbw)
-    sbw.set_workflow_mode(False)
-    sbw.set_settings(SpotBurnSettings(coordinates=points))
-    h.pump(600)
-    fib_panel = h.window.view_controller.widget._all_panels[2]
-    h.shot(
-        "spot-burn-by-hand",
-        callouts=[Box(fib_panel), Box(sbw.coord_editor), sbw.pushButton_run_spot_burn],
-        numbered=True,
-    )
-    sbw.clear_points_layer()
-    h.pump(300)
-
     # -- the run: setup, burn (supervised), fluorescence stack ---------------
     ww = h.window.lamella_workflow_widget
     ww.lamella_list.set_all_selected(False)
     ww.lamella_list._row(0).checkbox.setChecked(True)
     ww.workflow.set_all_selected(False)
-    for i in range(3):
+    for i in range(4):
         ww.workflow._row(i).checkbox.setChecked(True)
     h.pump(300)
     h.show_main_tab("Workflow")
@@ -2147,6 +2131,7 @@ def render_correlation(h: Harness) -> None:
         raise RuntimeError("workflow did not start")
     burn_shot_taken = False
     burn_ran = False
+    milled = set()
     waited = 0
     while (h.ui.is_workflow_running or waited < 2000) and waited < 1200000:
         h.pump(250)
@@ -2194,12 +2179,40 @@ def render_correlation(h: Harness) -> None:
                 h.ui.pushButton_yes.click()  # Run Spot Burn; re-asks when done
             else:
                 h.ui.pushButton_no.click()  # Continue
+        elif kind == "RunMillingTask":
+            # Run Milling once per task, then Continue when it re-asks
+            key = getattr(getattr(question, "config", None), "name", None)
+            if key in milled:
+                h.ui.pushButton_no.click()
+            else:
+                milled.add(key)
+                h.ui.pushButton_yes.click()
         else:
             h.ui.pushButton_yes.click()
         h.pump(800)
     if h.ui.is_workflow_running:
         raise RuntimeError("workflow did not finish")
     h.pump(1500)
+
+    # -- a burn by hand: the Spot Burn tab outside a workflow, on the last
+    # image the run took -----------------------------------------------------
+    from fibsem.imaging.spot import SpotBurnSettings
+
+    h.show_main_tab("Microscope")
+    sbw = h.ui.spot_burn_widget
+    h.ui.set_spot_burn_widget_active(True)
+    h.ui.tabWidget.setCurrentWidget(sbw)
+    sbw.set_workflow_mode(False)
+    sbw.set_settings(SpotBurnSettings(coordinates=points))
+    h.pump(600)
+    fib_panel = h.window.view_controller.widget._all_panels[2]
+    h.shot(
+        "spot-burn-by-hand",
+        callouts=[Box(fib_panel), Box(sbw.coord_editor), sbw.pushButton_run_spot_burn],
+        numbered=True,
+    )
+    sbw.clear_points_layer()
+    h.pump(300)
 
     # -- the Lamella tab: the marks in the FIB reference, the FM stack -------
     h.show_main_tab("Lamella")
@@ -2208,13 +2221,18 @@ def render_correlation(h: Harness) -> None:
     h.pump(800)
     led.listWidget_selected_task.select(SPOT)
     h.pump(600)
-    # the reference taken after the burn, so the marks are in it
+    # the reference taken after the burn at the field the points were placed
+    # in: the final set is numbered largest field first, so the burn's field
+    # (field of view 1, the smaller) is the last of them
     fib_combo = led.combobox_fib_filenames
-    for i in range(fib_combo.count()):
-        data = str(fib_combo.itemData(i))
-        if "Spot Burn" in data and "final" in data:
-            fib_combo.setCurrentIndex(i)
-            break
+    finals = [
+        i
+        for i in range(fib_combo.count())
+        if "Spot Burn" in str(fib_combo.itemData(i))
+        and "final" in str(fib_combo.itemData(i))
+    ]
+    if finals:
+        fib_combo.setCurrentIndex(max(finals))
     h.pump(800)
     h.shot(
         "lamella-after-burn",
@@ -2241,9 +2259,12 @@ def render_correlation(h: Harness) -> None:
         """Where the burn marks are in the FM frame: the difference between a
         reflection frame with the marks in the scene and one without, at the
         pose and objective position the stack was taken at."""
-        scene = h.ui.microscope._sample_scene
+        microscope = h.ui.microscope
+        scene = microscope._sample_scene
+        pose = lamellae[0].fluorescence_pose
+        microscope.safe_absolute_stage_movement(pose.stage_position)
         fm.objective.insert()
-        fm.objective.move_absolute(lamellae[0].fluorescence_pose.objective_position)
+        fm.objective.move_absolute(pose.objective_position)
         fm.set_channel(channels[0])
         with_marks = fm.camera.acquire_image().astype(np.float32)
         kept, scene.milled = scene.milled, []
@@ -2280,6 +2301,74 @@ def render_correlation(h: Harness) -> None:
             found.append((float(cx), float(cy)))
         return found
 
+    def fib_marks(reference):
+        """Where the burn marks are in the FIB reference: the difference
+        between a frame with the marks in the scene and one without, at the
+        pose and field the reference was taken at."""
+        microscope = h.ui.microscope
+        scene = microscope._sample_scene
+        microscope.move_stage_absolute(lamellae[0].milling_pose.stage_position)
+        settings = ImageSettings(
+            hfw=float(reference.metadata.image_settings.hfw),
+            resolution=tuple(reference.metadata.image_settings.resolution),
+            dwell_time=1e-6,
+            beam_type=BeamType.ION,
+            save=False,
+            autocontrast=False,
+        )
+        with_marks = microscope.acquire_image(image_settings=settings).data.astype(
+            np.float32
+        )
+        kept, scene.milled = scene.milled, []
+        try:
+            without = microscope.acquire_image(image_settings=settings).data.astype(
+                np.float32
+            )
+        finally:
+            scene.milled = kept
+        diff = ndi.gaussian_filter(without - with_marks, 1.0)
+        centre = float(np.median(diff))
+        sigma = 1.4826 * float(np.median(np.abs(diff - centre))) + 1e-6
+        labels, n = ndi.label(diff > centre + 8 * sigma)
+        found = []
+        for k in range(1, n + 1):
+            component = labels == k
+            if component.sum() < 6:
+                continue
+            cy, cx = ndi.center_of_mass(component)
+            found.append((float(cx), float(cy)))
+        if os.environ.get("FIBSEM_GUIDE_DEBUG"):
+            from PIL import Image as _Image
+
+            out = os.environ["FIBSEM_GUIDE_DEBUG"]
+            for name, arr in (
+                ("with", with_marks),
+                ("reference", reference.data.astype(np.float32)),
+                ("diff", diff),
+            ):
+                lo, hi = np.percentile(arr, (0.5, 99.5))
+                img8 = np.clip((arr - lo) / max(hi - lo, 1e-6) * 255, 0, 255)
+                _Image.fromarray(img8.astype(np.uint8)).save(
+                    os.path.join(out, f"fib-{name}.png")
+                )
+            import logging as _logging
+
+            _logging.warning(
+                {
+                    "msg": "guide_fib_marks",
+                    "marks": [(round(x), round(y)) for x, y in found],
+                    "reference_hfw": float(reference.metadata.image_settings.hfw),
+                    "reference_px": float(reference.metadata.pixel_size.x),
+                    "reference_shape": tuple(reference.data.shape),
+                    "beam_hfw": float(microscope.get("hfw", BeamType.ION)),
+                    "scan_rotation": float(
+                        microscope.get("scan_rotation", BeamType.ION) or 0.0
+                    ),
+                    "stage": str(microscope.get_stage_position()),
+                }
+            )
+        return found
+
     def pair(fib_points, candidates):
         """Which FM candidates are the burn marks, in FIB order: the subset
         and order that an affine map from the FIB points fits best. Affine,
@@ -2307,9 +2396,45 @@ def render_correlation(h: Harness) -> None:
         fm_image = widget.fm_image if hasattr(widget, "fm_image") else led.fm_image
         # the FIB fiducials are seeded from the burn coordinates; the FM side is
         # picked here, on the marks in the reflection channel at the middle plane
-        seeded = [
-            (c.point.x, c.point.y) for c in widget._coords_tab.fib_list.coordinates
-        ]
+        # The FIB fiducials are seeded from the coordinates the burn was asked
+        # for. The burn runs at another current, and the beam shifts with the
+        # current (what the milling-current alignment corrects), so the marks
+        # land a little off the points. Refine each seed onto its mark in the
+        # reference image, as the dialog asks the user to.
+        from fibsem.correlation.structures import Coordinate, PointXYZ
+
+        fib_list = widget._coords_tab.fib_list
+        marks = fib_marks(led.image)
+        if os.environ.get("FIBSEM_GUIDE_DEBUG"):
+            import logging as _logging
+
+            _logging.warning(
+                {
+                    "msg": "guide_fib_seeds",
+                    "seeds": [
+                        (round(c.point.x), round(c.point.y))
+                        for c in fib_list.coordinates
+                    ],
+                    "fib_file": led.combobox_fib_filenames.currentData(),
+                }
+            )
+        refined = []
+        for c in fib_list.coordinates:
+            d, (mx, my) = min(
+                (np.hypot(x - c.point.x, y - c.point.y), (x, y)) for x, y in marks
+            )
+            if d * float(led.image.metadata.pixel_size.x) > 5e-6:
+                raise RuntimeError(
+                    f"no burn mark near FIB point {c.point.x, c.point.y}"
+                )
+            refined.append(
+                Coordinate(PointXYZ(float(mx), float(my), 0.0), PointType.FIB)
+            )
+        fib_list.coordinates = refined
+        widget._refresh_canvas(widget._point_specs[PointType.FIB].adapter)
+        widget._coords_tab.update_headers()
+        widget.data_changed.emit(widget.data)
+        seeded = [(c.point.x, c.point.y) for c in refined]
         arr = fm_image.data
         while arr.ndim > 4:
             arr = arr[0]
@@ -2319,8 +2444,25 @@ def render_correlation(h: Harness) -> None:
             raise RuntimeError(
                 f"found {len(candidates)} burn marks in the FM reflection"
             )
-        for x, y in pair(seeded, candidates):
+        fm_points = pair(seeded, candidates)
+        for x, y in fm_points:
             widget._on_canvas_add_requested(x, y, PointType.FM)
+
+        def fm_rects(size=34):
+            """Boxes round the burn marks in the FM canvas, in dialog coords:
+            matplotlib's display pixels are y-up and at device resolution."""
+            canvas = widget._fm_display.canvas
+            dpr = canvas.devicePixelRatioF()
+            rects = []
+            for x, y in fm_points:
+                dx, dy = canvas._ax.transData.transform((x, y))
+                local = QPoint(int(dx / dpr), int(canvas.height() - dy / dpr))
+                centre = canvas.mapTo(dialog, local)
+                rects.append(
+                    QRect(centre.x() - size // 2, centre.y() - size // 2, size, size)
+                )
+            return rects
+
         # the point of interest: the brightest cell in the GFP channel, away
         # from the edges
         gfp = ndi.gaussian_filter(arr[1, z].astype(np.float32), 3)
@@ -2331,7 +2473,7 @@ def render_correlation(h: Harness) -> None:
             float(cx + margin), float(cy + margin), PointType.POI
         )
         h.pump(800)
-        h.shot("correlation-coordinates", target=dialog)
+        h.shot("correlation-coordinates", target=dialog, callout_rects=fm_rects())
         widget._btn_run.click()
         waited = 0
         while widget.result is None and waited < 60000:
@@ -2370,8 +2512,12 @@ def render_correlation(h: Harness) -> None:
         ctw.CorrelationTabDialog.exec_ = original_exec
         ctw.QMessageBox.question = original_question
 
-    # the accepted point of interest on the Lamella tab
+    # the accepted point of interest on the Lamella tab, on the reference at
+    # the milling task's own field (the larger of the burn task's two)
     led.listWidget_selected_task.select("Rough Milling")
+    h.pump(400)
+    if finals:
+        fib_combo.setCurrentIndex(min(finals))
     h.pump(800)
     h.shot(
         "lamella-after-correlation",

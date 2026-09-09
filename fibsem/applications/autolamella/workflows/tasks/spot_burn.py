@@ -25,7 +25,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
     task_type: ClassVar[str] = "SPOT_BURN_FIDUCIAL"
     display_name: ClassVar[str] = "Spot Burn Fiducial"
     milling_current: float = field(
-        default=60.0e-12,  # in Amperes
+        default=100.0e-12,  # in Amperes; below this the marks are too faint to find
         metadata=field_meta(tooltip="Milling current in Amperes", unit="A", scale=1e12),
     )
     exposure_time: int = field(
@@ -98,7 +98,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             milling=cfg.milling,
             reference_imaging=cfg.reference_imaging,
             # coerce numeric params: older protocols may have stored these as strings
-            milling_current=float(params.get("milling_current", 60.0e-12)),
+            milling_current=float(params.get("milling_current", 100.0e-12)),
             exposure_time=int(float(params.get("exposure_time", 10))),
             autofocus=bool(params.get("autofocus", False)),
             coordinates=coordinates,
