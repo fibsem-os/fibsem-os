@@ -1568,7 +1568,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
 
         column.addWidget(
             _label(
-                "Not set up here: imaging and milling defaults, and sample holder slot "
+                "Not set up here: the beam and imaging defaults, and sample holder slot "
                 "positions. Both use the values shipped with the configuration and stay "
                 "editable afterwards.",
                 10,
