@@ -477,6 +477,11 @@ def setup_session(
     # set default image_settings path
     settings.image.path = session_path
 
+    # Remembered so a calibration action can write back to the file it came from.
+    microscope.configuration_path = str(
+        config_path if config_path is not None else cfg.DEFAULT_CONFIGURATION_PATH
+    )
+
     logging.info(f"Finished setup for session: {session}")
 
     return microscope, settings
@@ -633,6 +638,26 @@ def report_unrecognised_configuration_keys(config: dict, source: str = "") -> Li
             f"not read and will not save back: {', '.join(unknown)}"
         )
     return unknown
+
+
+def write_objective_calibration(
+    path: Union[str, Path],
+    focus_position: Optional[float],
+    limit_position: Optional[float],
+) -> None:
+    """Record the objective's calibration in the configuration file at *path*.
+
+    Touches `calibration.objective` and nothing else: the file is read, that one
+    block is replaced, and it is written back. The rest of the file -- including
+    whatever a person wrote there by hand -- is preserved at the parsed level. The
+    only writer of a calibration is a calibration action, which is what this is.
+    """
+    config = load_yaml(os.path.join(path)) or {}
+    config.setdefault("calibration", {})["objective"] = {
+        "focus_position": focus_position,
+        "limit_position": limit_position,
+    }
+    save_yaml(path, config)
 
 
 def load_protocol(protocol_path: Path = None) -> dict:
