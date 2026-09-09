@@ -376,15 +376,29 @@ class FibsemMicroscope(ABC):
         else:
             self.move_stage_absolute(stage_position)
 
-    def _axis_restrictions_apply(self) -> bool:
+    def _axis_restrictions_apply(
+        self, position: Optional[FibsemStagePosition] = None
+    ) -> bool:
         """Whether the microscope refuses z and rotation, so an absolute move drops them.
 
         Two halves, and they are not the same rule.
 
-        The **orientation** half is a compustage flipped to face its objective. It
-        stays as it was: `get_stage_orientation` can never return "FM" on an offset
-        mount -- the FM is a device there and `orientations["FM"]` is a copy of the FIB
-        entry -- so that half is naturally confined to the mounting it was written for.
+        The **orientation** half asks where the move is *going*, not where the stage is
+        standing. Asking the current pose is what dropped z from the very move that was
+        leaving the fluorescence pose: the stage landed at the requested x/y/t at the old
+        z-height, and the operator pressed Move a second time to finish it. Measured on
+        the Arctis (Aug 2026): with the objective retracted, z and t are both available
+        at t = -180, so a move out of that pose has nothing to lose. A move *into* it is
+        still restricted here -- more conservative than the measurement requires, and
+        free, because the one path that enters the pose sends r and t only.
+
+        `position` is the destination. Without one, or with a partial pose that has no
+        orientation to read (`_safe_rotation_movement` sends a bare tilt), the stage's
+        own pose stands in -- what such a move got before.
+
+        `get_stage_orientation` can never return "FM" on an offset mount -- the FM is a
+        device there and `orientations["FM"]` is a copy of the FIB entry -- so that half
+        is naturally confined to the mounting it was written for.
 
         The **objective** half is gated on `stage_is_compustage` **temporarily**, and
         that gate belongs to FIB-640 to remove. It has only ever run on a compustage,
@@ -402,7 +416,14 @@ class FibsemMicroscope(ABC):
         that preference, and is also where the axis pair gets settled: it measured
         z and t, not z and r.
         """
-        if self.get_stage_orientation() == "FM":
+        destination = (
+            position
+            if position is not None
+            and position.r is not None
+            and position.t is not None
+            else None
+        )
+        if self.get_stage_orientation(destination) == "FM":
             return True
 
         return (
