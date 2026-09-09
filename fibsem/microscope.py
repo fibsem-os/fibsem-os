@@ -1152,6 +1152,11 @@ class FibsemMicroscope(ABC):
             if not self.system.stage.holders:
                 self.system.stage.holders = previous_stage.holders
                 self.system.stage.active_holder = previous_stage.active_holder
+            else:
+                # The file chose a holder, so the running `Stage` -- built once at
+                # connect -- has to be rebuilt around it, or `system.stage` says one
+                # holder while `_stage.holder` still moves to the slots of another.
+                self._create_sample_stage()
 
         if self.is_available("manipulator"):
             self.system.manipulator = system_settings.manipulator

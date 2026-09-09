@@ -312,3 +312,8 @@ def test_a_configuration_that_names_holders_wins_over_the_live_one():
 
     assert microscope.system.stage.active_holder == "Flat Shuttle"
     assert set(microscope.system.stage.holders) == {"Flat Shuttle"}
+    # And the running Stage moves with it: a configuration record naming one holder
+    # while the Stage still drives to another's slots is the disagreement this exists
+    # to rule out.
+    assert microscope._stage.holder is microscope.system.stage.holders["Flat Shuttle"]
+    assert microscope._stage.holder._parent is microscope
