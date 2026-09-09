@@ -57,6 +57,10 @@ def test_disabled_until_there_is_a_microscope(qapp):
 
 def test_the_form_shows_the_configured_defaults(widget, microscope):
     assert widget.electron.voltage.value() == microscope.system.electron.beam.voltage
+    # The shipped 1536x1024, not the first item in the list: a tuple did not
+    # survive the combo box and the form showed 768x512 for every configuration.
+    assert widget.electron.resolution.value() == "1536x1024"
+    assert widget.electron.detector_type.value() == "ETD"
     assert widget.ion.voltage.value() == microscope.system.ion.beam.voltage
     assert widget.electron.hfw.value() == pytest.approx(
         microscope.system.electron.beam.hfw * 1e6

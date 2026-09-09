@@ -51,8 +51,20 @@ def _format_current(a) -> str:
     return f"{a * 1e12:.1f} pA"
 
 
-def _format_resolution(r) -> str:
-    return f"{int(r[0])} x {int(r[1])}"
+# Resolutions travel through the combo box as "WxH" strings: a tuple does not survive
+# the QVariant round trip `findData` uses to select an item, so `set_value` fell
+# back to its closest-numeric rule, which cannot compare tuples and picked index 0.
+def _resolution_key(r) -> str:
+    return f"{int(r[0])}x{int(r[1])}"
+
+
+def _resolution_from_key(key: str) -> Tuple[int, int]:
+    w, h = key.split("x")
+    return int(w), int(h)
+
+
+def _format_resolution(key: str) -> str:
+    return key.replace("x", " x ")
 
 
 class BeamDefaultsForm(QGroupBox):
@@ -99,11 +111,10 @@ class BeamDefaultsForm(QGroupBox):
         record = getattr(microscope.system, beam.name.lower())
         self._set_choices(self.voltage, available("voltage"), record.beam.voltage)
         self._set_choices(self.current, available("current"), record.beam.beam_current)
-        resolutions = [tuple(r) for r in STANDARD_RESOLUTIONS]
         self._set_choices(
             self.resolution,
-            resolutions,
-            tuple(record.beam.resolution) if record.beam.resolution else None,
+            [_resolution_key(r) for r in STANDARD_RESOLUTIONS],
+            _resolution_key(record.beam.resolution) if record.beam.resolution else None,
         )
         self._set_choices(
             self.detector_type, available("detector_type"), record.detector.type
@@ -128,7 +139,7 @@ class BeamDefaultsForm(QGroupBox):
         if beam.hfw is not None:
             self.hfw.setValue(beam.hfw * METRE_TO_MICRON)
         if beam.resolution is not None:
-            self.resolution.set_value(tuple(beam.resolution))
+            self.resolution.set_value(_resolution_key(beam.resolution))
         if beam.dwell_time is not None:
             self.dwell_time.setValue(beam.dwell_time * 1e6)
         if detector.type is not None:
@@ -141,8 +152,8 @@ class BeamDefaultsForm(QGroupBox):
         record.beam.voltage = self.voltage.value()
         record.beam.beam_current = self.current.value()
         record.beam.hfw = self.hfw.value() * MICRON_TO_METRE
-        resolution = self.resolution.value()
-        record.beam.resolution = tuple(resolution) if resolution else None
+        key = self.resolution.value()
+        record.beam.resolution = _resolution_from_key(key) if key else None
         record.beam.dwell_time = self.dwell_time.value() * 1e-6
         record.detector.type = self.detector_type.value()
         record.detector.mode = self.detector_mode.value()
