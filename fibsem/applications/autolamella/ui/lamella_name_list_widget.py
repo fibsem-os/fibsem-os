@@ -40,6 +40,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     DefectState,
     DefectType,
+    PoseProvenance,
 )
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
@@ -87,6 +88,39 @@ def _lamella_defect_icon(lamella) -> tuple[str, str, str]:
     return "mdi:check-circle", stylesheets.GREEN_COLOR, "No defect"
 
 
+def _lamella_pose_icon(lamella) -> tuple[str, str, str] | None:
+    """(icon_name, colour, tooltip) for the pose-provenance mark, or None for nothing.
+
+    A stale pose is the thing to see at a glance -- somebody centred it by hand and
+    the other pose has moved since. A derived pose gets a quieter mark, so the rows
+    still to be centred by hand can be found. Two observed poses say nothing.
+    """
+    provenance_of = getattr(lamella, "provenance_of", None)
+    poses = getattr(lamella, "poses", None) or {}
+    if provenance_of is None or not poses:
+        return None
+    states = {name: provenance_of(name) for name in poses}
+    stale = [name.lower() for name, p in states.items() if p is PoseProvenance.STALE]
+    if stale:
+        return (
+            "mdi:link-variant-off",
+            stylesheets.SEMANTIC_WARNING_COLOR,
+            f"The {' and '.join(stale)} pose may be stale: the other pose has moved "
+            f"since it was set by hand.",
+        )
+    derived = [
+        name.lower() for name, p in states.items() if p is PoseProvenance.DERIVED
+    ]
+    if derived:
+        return (
+            "mdi:link-variant",
+            stylesheets.GRAY_ICON_COLOR,
+            f"The {' and '.join(derived)} pose is derived from the other, not yet "
+            f"centred by hand.",
+        )
+    return None
+
+
 class _LamellaRow(QWidget):
     """Single row: name + status labels + optional toolbuttons."""
 
@@ -112,6 +146,14 @@ class _LamellaRow(QWidget):
 
         self.status_label = QLabel()
         layout.addWidget(self.status_label, stretch=1)
+
+        # Pose provenance: a mark, not a control. Hidden when there is nothing to say.
+        self.pose_icon = QLabel()
+        self.pose_icon.setFixedSize(_LAMELLA_BTN_SIZE)
+        self.pose_icon.setAlignment(Qt.AlignCenter)
+        self.pose_icon.setStyleSheet("background: transparent;")
+        self.pose_icon.setVisible(False)
+        layout.addWidget(self.pose_icon)
 
         # Defect button
         self.btn_defect = QToolButton()
@@ -244,6 +286,16 @@ class _LamellaRow(QWidget):
         text, style = _lamella_status_text(self.lamella)
         self.status_label.setText(text)
         self.status_label.setStyleSheet(style)
+        mark = _lamella_pose_icon(self.lamella)
+        if mark is None:
+            self.pose_icon.setVisible(False)
+        else:
+            icon_name, icon_color, tooltip = mark
+            self.pose_icon.setPixmap(
+                fibsem_icon(icon_name, color=icon_color).pixmap(16, 16)
+            )
+            self.pose_icon.setToolTip(tooltip)
+            self.pose_icon.setVisible(True)
         # Update defect icon if visible
         if self.btn_defect.isVisible():
             icon_name, icon_color, tooltip = _lamella_defect_icon(self.lamella)
