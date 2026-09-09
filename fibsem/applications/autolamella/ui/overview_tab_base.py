@@ -46,12 +46,15 @@ from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QCheckBox, QVBoxLayout, QWidget
 
+import fibsem.config as fibsem_cfg
+from fibsem.applications.autolamella.structures import PoseProvenance
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
 from fibsem.ui import notification_service
+from fibsem.ui.utils import message_box_ui
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.structures import FibsemStagePosition
@@ -82,6 +85,17 @@ class AutoLamellaOverviewTabBase(QWidget):
     # Which overview this is, for the lines logged about it.
     OVERVIEW_NOUN = "overview"
 
+    # The Link checkbox under the lamella list: whether moving a lamella on this canvas
+    # also derives its *other* pose. `LINK_PREFERENCE` names the field on
+    # `PosePreferences` this tab reads and writes; `LINKED_POSE` the pose that gets
+    # derived (the key in `Lamella.poses`), and `LINKED_POSE_NOUN` how a sentence
+    # names it. None means this tab has no other pose to link.
+    LINK_PREFERENCE: Optional[str] = None
+    LINK_LABEL = ""
+    LINK_TOOLTIP = ""
+    LINKED_POSE = ""
+    LINKED_POSE_NOUN = ""
+
     def __init__(self, autolamella_ui, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.autolamella_ui = autolamella_ui
@@ -108,6 +122,30 @@ class AutoLamellaOverviewTabBase(QWidget):
         self.lamella_list.move_to_requested.connect(self._on_move_to_requested)
         self.lamella_list.remove_requested.connect(self._on_remove_requested)
         self._configure_list()
+
+        # The list and, under it, the Link checkbox -- one section in the widget's
+        # settings column, so the switch sits with the positions it governs rather
+        # than in a preferences dialog nobody opens mid-session. A checkbox rather
+        # than a confirmation per drag: a dialog on every move is the kind people
+        # learn to click through without reading (FIB-831).
+        self.positions_panel = QWidget()
+        panel_layout = QVBoxLayout(self.positions_panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(4)
+        panel_layout.addWidget(self.lamella_list)
+        self.link_checkbox: Optional[QCheckBox] = None
+        if self.LINK_PREFERENCE is not None:
+            self.link_checkbox = QCheckBox(self.LINK_LABEL)
+            self.link_checkbox.setToolTip(self.LINK_TOOLTIP)
+            self.link_checkbox.setChecked(
+                getattr(fibsem_cfg.load_user_preferences().poses, self.LINK_PREFERENCE)
+            )
+            self.link_checkbox.toggled.connect(self._on_link_toggled)
+            panel_layout.addWidget(self.link_checkbox)
+        # The experiment (by path) whose observed pose the user has already agreed to
+        # overwrite. Asked once, not per drag; forgotten when the experiment changes
+        # or the tab is rebuilt, which is as long as "this experiment" honestly lasts.
+        self._overwrite_confirmed_for: Optional[str] = None
 
     # ── what a subclass supplies ─────────────────────────────────────────
 
@@ -156,6 +194,75 @@ class AutoLamellaOverviewTabBase(QWidget):
         why this one is not shared."""
         raise NotImplementedError
 
+    # ── linking the other pose ───────────────────────────────────────────
+
+    @property
+    def link_enabled(self) -> bool:
+        """Whether a move on this canvas derives the lamella's other pose."""
+        if self.link_checkbox is not None:
+            return self.link_checkbox.isChecked()
+        if self.LINK_PREFERENCE is None:
+            return False
+        return getattr(fibsem_cfg.load_user_preferences().poses, self.LINK_PREFERENCE)
+
+    def _on_link_toggled(self, checked: bool) -> None:
+        """Remember the choice: it is about how this person works, not this session."""
+        preferences = fibsem_cfg.load_user_preferences()
+        setattr(preferences.poses, self.LINK_PREFERENCE, bool(checked))
+        fibsem_cfg.save_user_preferences(preferences)
+
+    def _overwrite_warning(self, lamella) -> Optional[str]:
+        """The sentence to show before a linked move overwrites an observed pose.
+
+        None when there is nothing to warn about: linking is off, the other pose was
+        derived (a guess replacing a guess), there is none, or this experiment's
+        user already said yes once. A pose somebody centred by hand is the one thing
+        the Link preference must not quietly rewrite.
+        """
+        if not self.link_enabled or not self.LINKED_POSE:
+            return None
+        if lamella.poses.get(self.LINKED_POSE) is None:
+            return None
+        if lamella.provenance_of(self.LINKED_POSE) is not PoseProvenance.OBSERVED:
+            return None
+        experiment = self.experiment
+        if experiment is not None and self._overwrite_confirmed_for == str(
+            experiment.path
+        ):
+            return None
+        return (
+            f"This also overwrites the {self.LINKED_POSE_NOUN} of {lamella.name}, "
+            f"which was set by hand (Link is on). You will not be asked again for "
+            f"this experiment."
+        )
+
+    def _remember_overwrite_confirmed(self) -> None:
+        experiment = self.experiment
+        if experiment is not None:
+            self._overwrite_confirmed_for = str(experiment.path)
+
+    def _link_for(self, lamella) -> bool:
+        """Whether *this* move derives the other pose, asking first if it has to.
+
+        Declining does not cancel the move -- the pose the user dragged still moves --
+        it only leaves the other pose where it was, marked stale. For a tab whose move
+        already confirms (the fluorescence one), fold `_overwrite_warning` into that
+        dialog instead of calling this.
+        """
+        if not self.link_enabled:
+            return False
+        warning = self._overwrite_warning(lamella)
+        if warning is None:
+            return True
+        if message_box_ui(
+            title=f"Overwrite the {self.LINKED_POSE_NOUN}?",
+            text=f"{warning}\n\nDerive it from the new position?",
+            parent=self,
+        ):
+            self._remember_overwrite_confirmed()
+            return True
+        return False
+
     # ── what the window asks ─────────────────────────────────────────────
 
     @property
@@ -176,11 +283,15 @@ class AutoLamellaOverviewTabBase(QWidget):
 
     @property
     def microscope(self):
-        return self.autolamella_ui.microscope if self.autolamella_ui is not None else None
+        return (
+            self.autolamella_ui.microscope if self.autolamella_ui is not None else None
+        )
 
     @property
     def experiment(self):
-        return self.autolamella_ui.experiment if self.autolamella_ui is not None else None
+        return (
+            self.autolamella_ui.experiment if self.autolamella_ui is not None else None
+        )
 
     def refresh_microscope(self) -> None:
         """Build, rebuild or drop the overview widget to match the instrument.
@@ -215,7 +326,7 @@ class AutoLamellaOverviewTabBase(QWidget):
         self.overview.acquiring_changed.connect(self.acquiring_changed)
         # In the settings column rather than beside it: the positions are the subject of
         # this tab, and a column of their own would read as a third pane.
-        self.overview.add_settings_section("Lamella Positions", self.lamella_list)
+        self.overview.add_settings_section("Lamella Positions", self.positions_panel)
 
         self._microscope = microscope
         self.layout().addWidget(self.overview)
@@ -231,17 +342,19 @@ class AutoLamellaOverviewTabBase(QWidget):
         """
         if self.overview is None:
             return
-        # Taken back before the widget goes. `add_settings_section` reparents the list
-        # into the overview's column, so Qt destroying the overview would destroy the
-        # list with it, and the next `refresh_microscope` would hand a dead C++ object
-        # to `add_settings_section`. The list belongs to this tab and outlives any one
-        # overview, so it is moved out rather than left to be collected.
+        # Taken back before the widget goes. `add_settings_section` reparents the
+        # positions panel (the list and its Link checkbox) into the overview's column,
+        # so Qt destroying the overview would destroy the panel with it, and the next
+        # `refresh_microscope` would hand a dead C++ object to `add_settings_section`.
+        # The panel belongs to this tab and outlives any one overview, so it is moved
+        # out rather than left to be collected.
         #
         # Kept as a precondition rather than because a test proves it: under the
         # offscreen platform the deferred delete does not actually run, so the failure
         # it prevents cannot be reproduced there.
-        self.lamella_list.setParent(self)
-        self.lamella_list.hide()
+        self.positions_panel.setParent(self)
+        self.positions_panel.hide()
+        self._overwrite_confirmed_for = None
         try:
             self.overview.close()
         except Exception as e:
