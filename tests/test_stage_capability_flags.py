@@ -67,9 +67,14 @@ def test_no_shipped_file_states_a_manipulator_capability(filename: str, key: str
     They said `false` in all eight, which is the dataclass default, so removing them
     changed no instrument's behaviour -- and a manipulator's axes are the
     instrument's to report, not a file's to restate.
+
+    `.get`, because the whole block has since gone from the AutoScript files:
+    `manipulator.enabled` is now probed as well, and a block with nothing left in it
+    was removed rather than left empty. An absent block states no capability, which is
+    what this asks.
     """
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
-    assert key not in config["manipulator"]
+    assert key not in (config.get("manipulator") or {})
 
 
 @pytest.mark.parametrize("key", ["tilt", "rotation"])

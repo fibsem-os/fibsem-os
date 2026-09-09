@@ -1535,7 +1535,7 @@ class DemoMicroscope(FibsemMicroscope):
         # TODO: universalise this for demo, tescan
         """
 
-        use_multichem = self.is_available("multichem")
+        use_multichem = self.is_available("gis_multichem")
         port = gis_settings.port
         gas = gis_settings.gas
         duration = gis_settings.duration

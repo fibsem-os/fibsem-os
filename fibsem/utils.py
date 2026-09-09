@@ -578,6 +578,10 @@ CONFIGURATION_SCHEMA: Dict[str, Set[str]] = {
     # `rotation` and `tilt` are the manipulator's own axes. A file could only ever
     # restate them, and every shipped one said `false`; the instrument knows.
     "manipulator": {"enabled"},
+    # Still read, so an existing file naming them loads and they are not reported as
+    # unrecognised -- but the ThermoFisher configurations no longer state them, and on
+    # AutoScript the instrument's answer overwrites whatever a file says. Kept for the
+    # backends that cannot be asked (Tescan, Odemis).
     "gis": {"enabled", "multichem", "sputter_coater"},
     "imaging": {"beam_type", "resolution", "hfw", "dwell_time", "autocontrast", "save"},
     # No `milling:` block. It was read into a `MicroscopeSettings.milling` that nothing

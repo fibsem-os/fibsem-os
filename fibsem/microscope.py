@@ -241,8 +241,62 @@ class FibsemMicroscope(ABC):
         # it is `_get_axis_limits` itself raising, and on a compustage that is a
         # lookup of a module constant, which cannot.
         self._read_stage_capabilities()
+        self._read_hardware_capabilities()
 
         self._stage = _create_sample_stage(self)
+
+    # ---- fitted subsystems, asked of the instrument ----------------------
+    #
+    # Each probe answers `True`, `False`, or `None` for "this backend cannot say".
+    # `None` is the important one: it leaves the field exactly as the configuration
+    # left it, so a backend with no way to ask, or a probe that raises, can never
+    # take a subsystem away from a site that has one. The failure this guards is not
+    # symmetric -- a GIS that wrongly appears is a menu entry that errors, a GIS that
+    # wrongly disappears is a working instrument that lost a feature on upgrade.
+
+    def _probe_manipulator_installed(self) -> Optional[bool]:
+        """Whether a manipulator is fitted, or None if this backend cannot say."""
+        return None
+
+    def _probe_gis_installed(self) -> Optional[bool]:
+        return None
+
+    def _probe_multichem_installed(self) -> Optional[bool]:
+        return None
+
+    def _probe_sputter_coater_installed(self) -> Optional[bool]:
+        return None
+
+    def _read_hardware_capabilities(self) -> None:
+        """Ask the instrument which subsystems are fitted, and record them.
+
+        The same move as `_read_stage_capabilities`, one record over. These were
+        configuration keys -- `manipulator.enabled`, `gis.enabled`, `gis.multichem`,
+        `gis.sputter_coater` -- which meant a site could describe hardware it does not
+        have, or omit hardware it does, and nothing would disagree. The instrument
+        knows; asking it is both shorter and correct.
+
+        Called at connect and again after `apply_configuration` replaces the records,
+        for the reason the stage capability is: the file does not state these any
+        more, so a replacement would otherwise restore field defaults over what the
+        instrument said.
+        """
+        probes = (
+            (self._probe_manipulator_installed, self.system.manipulator, "enabled"),
+            (self._probe_gis_installed, self.system.gis, "enabled"),
+            (self._probe_multichem_installed, self.system.gis, "multichem"),
+            (self._probe_sputter_coater_installed, self.system.gis, "sputter_coater"),
+        )
+        for probe, record, field_name in probes:
+            try:
+                present = probe()
+            except Exception as e:
+                # A raising probe is ambiguous -- a missing subsystem and a sick
+                # connection look the same -- so it is read as "cannot say".
+                logging.debug(f"Capability probe {probe.__name__} failed: {e}")
+                continue
+            if present is not None:
+                setattr(record, field_name, bool(present))
 
     def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
         """The grid loader for a compustage system, or None when it has no autoloader.
@@ -1134,6 +1188,13 @@ class FibsemMicroscope(ABC):
 
         if self.is_available("gis"):
             self.system.gis = system_settings.gis
+
+        # Both records above were just replaced from a file that no longer states what
+        # is fitted, so re-ask the instrument -- the same reason the stage capability
+        # is re-read. Note this runs after both assignments, not inside either: the
+        # `is_available` guards read the very fields being restored, so probing before
+        # them would decide using the values on their way out.
+        self._read_hardware_capabilities()
 
         # dont update info -> read only
         logging.info("Microscope configuration applied.")

@@ -33,12 +33,6 @@ ion:
     dwell_time:                 1.0e-06                     # the default ion dwell time
     detector_mode:              SecondaryElectrons          # the detector mode of the ion beam                             [USER]
     detector_type:              ETD                         # the detector type of the ion beam                             [USER]
-manipulator:
-    enabled:                    false                       # manipulator is enabled                                        [USER]
-gis:
-    enabled:                    false                       # gis is enabled                                                [USER]
-    multichem:                  false                       # multichem is enabled                                          [USER]
-    sputter_coater:             false                       # sputter coater is enabled                                     [USER]                        
 imaging:
     beam_type:                  ELECTRON                    # the default imaging beam type (ELECTRON, or ION)              [USER]
     resolution:                 [1536, 1024]                # the default imaging resolution                        [pixel] [USER]
