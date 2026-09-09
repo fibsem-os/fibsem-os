@@ -50,13 +50,13 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
         ),
     )
     sync_fluorescence_pose: bool = field(
-        default=True,
+        default=False,
         metadata=field_meta(
             label="Sync Fluorescence Pose",
             tooltip="Move the lamella's fluorescence pose to follow the milling "
             "position recorded here, so a fluorescence task images the site as "
-            "set up rather than where the lamella was first marked. Off keeps "
-            "a fluorescence pose chosen by hand.",
+            "set up rather than where the lamella was first marked. Off (the "
+            "default) leaves the fluorescence pose as it was.",
         ),
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
@@ -177,8 +177,8 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # centring), so the fluorescence pose derived when it was marked now
         # describes where it used to be. Every UI path that moves a lamella
         # syncs it; a fluorescence stack taken from the stale pose lands tens
-        # of microns off the marks it is meant to show (FIB-954). Optional,
-        # for a fluorescence pose that was chosen by hand and should stay.
+        # of microns off the marks it is meant to show (FIB-954). Opt-in: the
+        # default leaves the pose alone, as the task always has.
         if self.config.sync_fluorescence_pose:
             sync_fluorescence_pose(self.microscope, self.lamella)
 

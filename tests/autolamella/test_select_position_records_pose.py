@@ -63,8 +63,8 @@ def test_the_task_records_pose_and_reference_either_way(
 def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path, sync):
     """On an instrument with a fluorescence microscope, the task leaves the
     fluorescence pose describing the position it recorded the milling pose
-    at, not the one the lamella was marked at (FIB-954). Off, a fluorescence
-    pose chosen by hand stays where it was."""
+    at, not the one the lamella was marked at (FIB-954), when asked to. Off,
+    the default, leaves the fluorescence pose where it was."""
     from fibsem.applications.autolamella.poses import (
         _to_fluorescence,
         build_lamella_poses,
@@ -116,5 +116,6 @@ def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path, sync):
             assert got.x == pytest.approx(stale.x, abs=1e-9)
             assert got.y == pytest.approx(stale.y, abs=1e-9)
         assert lamella.fluorescence_pose.objective_position is not None
+        assert SelectMillingPositionTaskConfig().sync_fluorescence_pose is False
     finally:
         microscope.disconnect()

@@ -2062,6 +2062,13 @@ def render_correlation(h: Harness) -> None:
             protocol.task_config[config.task_name] = config
             for lamella in experiment.positions:
                 lamella.task_config[config.task_name] = copy.deepcopy(config)
+        # the setup task moves the site; the stack should be taken where it
+        # ends up, so the fluorescence pose follows (off by default)
+        setup_name = protocol.workflow_config.tasks[0].name
+        for holder in [protocol.task_config] + [
+            lamella.task_config for lamella in experiment.positions
+        ]:
+            holder[setup_name].sync_fluorescence_pose = True
         # after the setup task, before the milling: burn, then image
         tasks = protocol.workflow_config.tasks
         setup, fiducial = tasks[0].name, tasks[1].name
@@ -2221,14 +2228,14 @@ def render_correlation(h: Harness) -> None:
     h.pump(800)
     led.listWidget_selected_task.select(SPOT)
     h.pump(600)
-    # the reference taken after the burn at the field the points were placed
-    # in: the final set is numbered largest field first, so the burn's field
-    # (field of view 1, the smaller) is the last of them
+    # the reference taken after the fiducial was milled, at the smaller of its
+    # fields, so the FIB image carries the marks and the fiducial the stack
+    # shows too (the final set is numbered largest field first)
     fib_combo = led.combobox_fib_filenames
     finals = [
         i
         for i in range(fib_combo.count())
-        if "Spot Burn" in str(fib_combo.itemData(i))
+        if "Mill Fiducial" in str(fib_combo.itemData(i))
         and "final" in str(fib_combo.itemData(i))
     ]
     if finals:
@@ -2405,6 +2412,8 @@ def render_correlation(h: Harness) -> None:
 
         fib_list = widget._coords_tab.fib_list
         marks = fib_marks(led.image)
+        if len(marks) < len(fib_list.coordinates):
+            raise RuntimeError(f"found {len(marks)} burn marks in the FIB reference")
         if os.environ.get("FIBSEM_GUIDE_DEBUG"):
             import logging as _logging
 
@@ -2418,18 +2427,14 @@ def render_correlation(h: Harness) -> None:
                     "fib_file": led.combobox_fib_filenames.currentData(),
                 }
             )
-        refined = []
-        for c in fib_list.coordinates:
-            d, (mx, my) = min(
-                (np.hypot(x - c.point.x, y - c.point.y), (x, y)) for x, y in marks
+        # the seeds are normalised to the burn's own image, so on this one they
+        # are at another scale: pair them to the marks by the fit, not by distance
+        refined = [
+            Coordinate(PointXYZ(float(mx), float(my), 0.0), PointType.FIB)
+            for mx, my in pair(
+                [(c.point.x, c.point.y) for c in fib_list.coordinates], marks
             )
-            if d * float(led.image.metadata.pixel_size.x) > 5e-6:
-                raise RuntimeError(
-                    f"no burn mark near FIB point {c.point.x, c.point.y}"
-                )
-            refined.append(
-                Coordinate(PointXYZ(float(mx), float(my), 0.0), PointType.FIB)
-            )
+        ]
         fib_list.coordinates = refined
         widget._refresh_canvas(widget._point_specs[PointType.FIB].adapter)
         widget._coords_tab.update_headers()
