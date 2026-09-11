@@ -358,10 +358,17 @@ class WorkflowConfigWidget(QWidget):
     # ------------------------------------------------------------------
 
     def set_config(self, config: AutoLamellaWorkflowConfig) -> None:
-        """Populate the list from an AutoLamellaWorkflowConfig."""
+        """Populate the list from an AutoLamellaWorkflowConfig, keeping the ticks.
+
+        Reached on every protocol edit (``workflow_config_changed``), not only when
+        the task set changes, and the ticked rows are the run selection. Rebuilding
+        them unticked emptied that selection on any field edit (FIB-967). Ticks are
+        matched by task name, so a task that is gone is simply not re-ticked.
+        """
+        checked = {task.name for task in self.get_selected()}
         self.clear()
         for task in config.tasks:
-            self.add_task(task)
+            self.add_task(task, checked=task.name in checked)
 
     def add_task(
         self, task: AutoLamellaTaskDescription, checked: bool = False

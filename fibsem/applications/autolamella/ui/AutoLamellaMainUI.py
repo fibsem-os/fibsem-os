@@ -3387,9 +3387,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if not hasattr(self, "lamella_list_widget"):
             return
         experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
-        self.lamella_list_widget.clear()
+        # The ticks and the selected card are the operator's, and this runs on every
+        # insert or removal: rebuild around them rather than through them (FIB-966).
+        selected = getattr(self, "_selected_card_lamella", None)
         self.lamella_card_container.clear()
-        self._on_lamella_card_selected(None)
         # The overview canvases are further displays of the same set, so they are
         # rebuilt here rather than from subscriptions of their own -- one handler for
         # "the lamellae changed" means the displays cannot end up disagreeing about what
@@ -3398,10 +3399,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # fill them.
         self._refresh_overview_positions()
         if experiment is None:
+            self.lamella_list_widget.clear()
+            self._on_lamella_card_selected(None)
             return
+        self.lamella_list_widget.set_lamellae(list(experiment.positions))
         for lamella in experiment.positions:
-            self.lamella_list_widget.add_lamella(lamella)
             self.lamella_card_container.add_lamella(lamella)
+        still_there = next(
+            (
+                lamella
+                for lamella in experiment.positions
+                if selected is not None and lamella.id == selected.id
+            ),
+            None,
+        )
+        if still_there is not None:
+            self.lamella_card_container.select_lamella(still_there.name)
+        self._on_lamella_card_selected(still_there)
         self._on_workflow_selection_changed()
         self._update_lamella_tab_enabled()
 
