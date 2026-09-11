@@ -439,6 +439,20 @@ class LamellaListWidget(QWidget):
             if self._row(i).checkbox.isChecked()
         ]
 
+    def set_lamellae(self, lamellae: List[Lamella]) -> None:
+        """Rebuild the rows from *lamellae*, keeping the ticks the user already has.
+
+        The host rebuilds on every insert or removal in the experiment, and the
+        ticked rows are its run selection. Rebuilding them unticked emptied that
+        selection, and silently disabled Run, every time a position was added
+        (FIB-966). Ticks are matched by lamella id, so a lamella that is gone is
+        simply not re-ticked.
+        """
+        checked = {lamella.id for lamella in self.get_selected()}
+        self.clear()
+        for lamella in lamellae:
+            self.add_lamella(lamella, checked=lamella.id in checked)
+
     def clear(self) -> None:
         self._list.clear()
 
