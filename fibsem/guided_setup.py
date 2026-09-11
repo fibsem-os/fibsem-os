@@ -375,13 +375,15 @@ def shipped_stage_values(model: MicroscopeModel) -> Dict[str, float]:
     from fibsem import utils
 
     try:
-        stage = utils.load_yaml(model.path).get("stage", {})
+        config = utils.load_yaml(model.path)
+        stage = (config.get("hardware") or {}).get("stage") or {}
+        calibration = config.get("calibration") or {}
     except Exception as e:  # pragma: no cover - unreadable shipped file
         logger.warning(f"Could not read the stage values for {model.label}: {e}")
-        stage = {}
+        stage, calibration = {}, {}
     return {
         "rotation_reference": float(stage.get("rotation_reference", 0.0)),
-        "shuttle_pre_tilt": float(stage.get("shuttle_pre_tilt", 0.0)),
+        "shuttle_pre_tilt": float(calibration.get("shuttle_pre_tilt", 0.0)),
     }
 
 
@@ -588,10 +590,11 @@ def build_configuration(choices: SetupChoices) -> dict:
     # problem. So it follows the manufacturer rather than the file that happened to be
     # the starting point. This is a no-op for every shipped file, all of which already
     # agree with their manufacturer's defaults; it exists for the generic base.
+    hardware = config.setdefault("hardware", {})
     defaults = cfg.DEFAULT_CONFIGURATION_VALUES.get(manufacturer.config_value)
     if defaults:
-        config.setdefault("ion", {})["column_tilt"] = defaults["ion-column-tilt"]
-        config.setdefault("electron", {})["column_tilt"] = defaults[
+        hardware.setdefault("ion", {})["column_tilt"] = defaults["ion-column-tilt"]
+        hardware.setdefault("electron", {})["column_tilt"] = defaults[
             "electron-column-tilt"
         ]
 
@@ -601,7 +604,7 @@ def build_configuration(choices: SetupChoices) -> dict:
         # noise in a file people read by hand.
         config.setdefault("sim", {})["is_compustage"] = model.is_compustage
 
-    stage = config.setdefault("stage", {})
+    stage = hardware.setdefault("stage", {})
     if choices.rotation_reference is not None:
         stage["rotation_reference"] = float(choices.rotation_reference)
     # Written by no one now: `rotation_180` is derived from the reference and the
@@ -611,7 +614,11 @@ def build_configuration(choices: SetupChoices) -> dict:
     # exactly what someone would go on to edit.
     stage.pop("rotation_180", None)
     if choices.shuttle_pre_tilt is not None:
-        stage["shuttle_pre_tilt"] = float(choices.shuttle_pre_tilt)
+        # Calibration, not hardware: it is the shuttle's, and it moves onto the
+        # holder the first time one is named.
+        config.setdefault("calibration", {})["shuttle_pre_tilt"] = float(
+            choices.shuttle_pre_tilt
+        )
 
     return config
 

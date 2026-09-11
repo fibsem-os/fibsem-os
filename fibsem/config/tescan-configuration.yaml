@@ -5,43 +5,49 @@ info:
     name: tescan-microscope-configuration               # a descriptive name for your configuration                     [SPECIFIED]
     ip_address: localhost                                 # the ip address of the microscope PC                           [SPECIFIED]
     manufacturer: Tescan                                      # the microscope manufacturer                                    [SPECIFIED]        
-stage:
-    enabled:                    true                        # the stage is enabled                                          [USER]
-    rotation_reference:         180                         # the reference rotation value                                  [SPECIFIED] 
+hardware:                                                   # what the instrument is; cannot be asked
+    stage:
+        enabled:                    true                        # the stage is enabled                                          [USER]
+        rotation_reference:         180                         # the reference rotation value                                  [SPECIFIED] 
+    electron:                                              
+        enabled:                    true                        # the electron beam is enabled                                  [USER]
+        column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufacturer]
+        eucentric_height:           7.0e-3                      # the eucentric height of the electron beam                     [SPECIFIED]
+    ion:
+        enabled:                    true                        # the ion beam is enabled                                       [USER]
+        column_tilt:                55                          # the column tilt of the electron beam                          [SPECIFIED]
+        eucentric_height:           16.5e-3                     # the eucentric height of the ion beam                          [SPECIFIED]
+        plasma_gas:                 null                        # the plasma gas for the ion beam (plasma fib only)             [USER]
+    manipulator:
+        enabled:                    true                        # manipulator is enabled                                        [USER]
+    gis:
+        enabled:                    true                        # gis is enabled                                                [USER]
+        multichem:                  true                        # multichem is enabled                                          [USER]
+        sputter_coater:             false                       # sputter coater is enabled                                     [USER]                        
+calibration:                                                # measured at this instrument
     shuttle_pre_tilt:           0                           # the pre-tilt of the shuttle                                   [SPECIFIED]
-electron:                                              
-    enabled:                    true                        # the electron beam is enabled                                  [USER]
-    column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufacturer]
-    eucentric_height:           7.0e-3                      # the eucentric height of the electron beam                     [SPECIFIED]
-    voltage:                    2000                        # the voltage of the electron beam                              [USER]
-    current:                    50.0e-12                    # the current of the electron beam                              [USER]
-    resolution:                 [1536, 1024]                # the default electron resolution                       [pixel] [USER]
-    hfw:                        150.0e-6                    # the default electron hfw                              [metres][USER]
-    dwell_time:                 1.0e-06                     # the default electron dwell time
-    detector_mode:              null                        # the detector mode of the electron beam                        [USER]
-    detector_type:              E-T                         # the detector type of the electron beam                        [USER]
-ion:
-    enabled:                    true                        # the ion beam is enabled                                       [USER]
-    column_tilt:                55                          # the column tilt of the electron beam                          [SPECIFIED]
-    eucentric_height:           16.5e-3                     # the eucentric height of the ion beam                          [SPECIFIED]
-    plasma_gas:                 null                        # the plasma gas for the ion beam (plasma fib only)             [USER]
-    voltage:                    30000                       # the voltage of the ion beam                                   [USER]
-    current:                    2.0e-11                     # the current of the ion beam                                   [USER]
-    resolution:                 [1536, 1024]                # the default ion resolution                            [pixel] [USER]
-    hfw:                        150.0e-6                    # the default ion hfw                                   [metres][USER]
-    dwell_time:                 1.0e-06                     # the default ion dwell time
-    detector_mode:              null                        # the detector mode of the ion beam                             [USER]
-    detector_type:              SE                          # the detector type of the ion beam                             [USER]
-manipulator:
-    enabled:                    true                        # manipulator is enabled                                        [USER]
-gis:
-    enabled:                    true                        # gis is enabled                                                [USER]
-    multichem:                  true                        # multichem is enabled                                          [USER]
-    sputter_coater:             false                       # sputter coater is enabled                                     [USER]                        
-imaging:
-    beam_type:                  ELECTRON                    # the default imaging beam type (ELECTRON, or ION)              [USER]
-    resolution:                 [1536, 1024]                # the default imaging resolution                        [pixel] [USER]
-    hfw:                        150.0e-6                    # the default imaging hfw                               [metres][USER]
-    dwell_time:                 1.0e-06                     # the default imaging dwell time                        [second][USER]
-    autocontrast:               false                        # use autocontrast                                              [USER]
-    save:                       false                       # auto save images                                              [USER]
+defaults:                                                   # what a session starts from
+    apply_on_connect:           false                       # push these to the instrument at connect (not yet acted on)
+    electron:
+        voltage:                    2000                        # the voltage of the electron beam                              [USER]
+        current:                    50.0e-12                    # the current of the electron beam                              [USER]
+        resolution:                 [1536, 1024]                # the default electron resolution                       [pixel] [USER]
+        hfw:                        150.0e-6                    # the default electron hfw                              [metres][USER]
+        dwell_time:                 1.0e-06                     # the default electron dwell time
+        detector_mode:              null                        # the detector mode of the electron beam                        [USER]
+        detector_type:              E-T                         # the detector type of the electron beam                        [USER]
+    ion:
+        voltage:                    30000                       # the voltage of the ion beam                                   [USER]
+        current:                    2.0e-11                     # the current of the ion beam                                   [USER]
+        resolution:                 [1536, 1024]                # the default ion resolution                            [pixel] [USER]
+        hfw:                        150.0e-6                    # the default ion hfw                                   [metres][USER]
+        dwell_time:                 1.0e-06                     # the default ion dwell time
+        detector_mode:              null                        # the detector mode of the ion beam                             [USER]
+        detector_type:              SE                          # the detector type of the ion beam                             [USER]
+    imaging:
+        beam_type:                  ELECTRON                    # the default imaging beam type (ELECTRON, or ION)              [USER]
+        resolution:                 [1536, 1024]                # the default imaging resolution                        [pixel] [USER]
+        hfw:                        150.0e-6                    # the default imaging hfw                               [metres][USER]
+        dwell_time:                 1.0e-06                     # the default imaging dwell time                        [second][USER]
+        autocontrast:               false                        # use autocontrast                                              [USER]
+        save:                       false                       # auto save images                                              [USER]
