@@ -281,6 +281,28 @@ def test_capturing_snapshots_rather_than_aliasing(microscope):
     assert microscope.system.electron.beam.voltage == captured
 
 
+def test_capturing_takes_only_the_defaults(microscope):
+    """Not the beam shift, stigmation, scan rotation or working distance.
+
+    Those are alignment state. Captured, they would land in the file on Save and
+    be pushed back by Apply -- a working distance from one sample refocusing the
+    column on the next. The first version copied the whole record and moved the
+    simulated working distance from 7 mm to 4 mm on capture.
+    """
+    before = copy.deepcopy(microscope.system.electron.beam)
+    live = microscope.get_microscope_state().electron_beam
+    assert live.working_distance != before.working_distance, "fixture is blind"
+
+    microscope.capture_defaults()
+
+    after = microscope.system.electron.beam
+    assert after.working_distance == before.working_distance
+    assert after.shift == before.shift
+    assert after.stigmation == before.stigmation
+    assert after.scan_rotation == before.scan_rotation
+    assert after.voltage == live.voltage
+
+
 def test_capturing_leaves_the_hardware_description_alone(microscope):
     """Save reads the beams; it must not touch what the column *is*."""
     before_tilt = microscope.system.ion.column_tilt

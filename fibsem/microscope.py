@@ -268,10 +268,22 @@ class FibsemMicroscope(ABC):
             (state.electron_beam, state.electron_detector, self.system.electron),
             (state.ion_beam, state.ion_detector, self.system.ion),
         ):
+            # Only the defaults. `BeamSettings` also carries the beam shift, the
+            # stigmation, the scan rotation and the working distance, and those are
+            # alignment state: capturing them would put the shift the column
+            # happened to have into the file, and Apply would push it back.
             if beam is not None:
-                record.beam = deepcopy(beam)
+                for name in (
+                    "voltage",
+                    "beam_current",
+                    "hfw",
+                    "resolution",
+                    "dwell_time",
+                ):
+                    setattr(record.beam, name, deepcopy(getattr(beam, name)))
             if detector is not None:
-                record.detector = deepcopy(detector)
+                record.detector.type = detector.type
+                record.detector.mode = detector.mode
 
     def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
         """The grid loader for a compustage system, or None when it has no autoloader.
