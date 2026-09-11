@@ -575,10 +575,12 @@ class CoordinateListWidget(QWidget):
         self.order_changed.emit(list(self._coordinates))
 
     def _on_remove(self, coord: Coordinate) -> None:
-        if coord not in self._coordinates:
+        # Identity, not equality: the overlay and the tab widget both key on the
+        # object, and two coordinates can hold equal values and still be different points.
+        idx = next((i for i, c in enumerate(self._coordinates) if c is coord), None)
+        if idx is None:
             return
-        idx = self._coordinates.index(coord)
-        self._coordinates.remove(coord)
+        del self._coordinates[idx]
 
         next_coord = None
         if self._coordinates:
