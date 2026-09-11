@@ -178,7 +178,7 @@ def test_calibrate_opens_the_wizard_non_modal(qapp, microscope):
 
 
 def test_without_a_microscope_nothing_moves_or_calibrates(qapp):
-    holder = SampleHolder(name="h", capacity=1)
+    holder = SampleHolder(pre_tilt=0.0, name="h", capacity=1)
     holder._ensure_slots()
     _calibrate(holder.slots["Slot-01"])
     widget = SampleHolderWidget(microscope=None)

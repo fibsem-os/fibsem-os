@@ -162,11 +162,11 @@ def holder_slots(microscope) -> List[object]:
 def slot_landmark(microscope, slot: object) -> Optional[FibsemStagePosition]:
     """Where a holder slot sits, as a position that can be drawn in any view.
 
-    Slots are stored as x/y/z and **nothing else**: `default-sample-holder.yaml` gives
-    each one three numbers, and `SampleHolder.load` leaves `r` and `t` as None. Handed to
+    A slot position may carry x/y/z and **nothing else**: a holder file states three
+    numbers per slot and `SampleHolder.load` leaves `r` and `t` as None. Handed to
     `frame.to_canvas` that raises -- and the fluorescence tab did exactly that, so a
-    shipped two-slot shuttle would have drawn no slot markers at all. The simulator's
-    holder hides it: `_ensure_slots` invents its slot with r=0.
+    two-slot shuttle would have drawn no slot markers at all. The simulator's holder
+    hides it: `_ensure_slots` invents its slot with r=0.
 
     The missing rotation is the **SEM orientation**, which is the frame the holder file
     is written in. Stamped here rather than assumed away, because it is what makes a slot

@@ -521,6 +521,10 @@ LEGACY_CONFIGURATION_KEYS: Set[str] = {
     # `plasma: bool` was folded into `plasma_gas`: a column with a gas is a plasma
     # column. Still read, so `plasma: false` in an old file wins over a stray gas.
     "ion.plasma",
+    # The pre-tilt moved onto the holder (`stage.holders.<name>.pre_tilt`). Still
+    # read, so a file written before then loads with its pre-tilt; written back only
+    # while no holder is named, and never once one is.
+    "stage.shuttle_pre_tilt",
 }
 
 # Blocks accepted wholesale. `sim:` is a plain dict the simulator reads with `.get()`

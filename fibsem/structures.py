@@ -2228,7 +2228,17 @@ DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
 @dataclass
 class StageSystemSettings:
     rotation_reference: float
-    shuttle_pre_tilt: float
+    # Accepted as a constructor keyword, held as `_shuttle_pre_tilt`, and read back
+    # through the property below. An `InitVar` rather than a field because the value
+    # a caller passes is a *fallback* -- the answer comes from the active holder when
+    # there is one.
+    shuttle_pre_tilt: InitVar[float] = 0.0
+    # The fallback the property reads while no holder answers. A real field rather
+    # than a bare attribute set in `__post_init__`, so that `__eq__` and `__repr__`
+    # see it: two stages at 0 and 35 degrees must not compare equal, and a
+    # round-trip test that compares records must be able to notice a pre-tilt
+    # that was dropped on the way through the file.
+    _shuttle_pre_tilt: float = field(init=False, default=0.0)
     enabled: bool = True
     # Whether the stage has a rotation axis. Load-bearing: it is what `rotation_180`
     # below is derived from, so it describes the geometry and not merely a permission.
@@ -2292,10 +2302,50 @@ class StageSystemSettings:
             return self.rotation_reference
         return (self.rotation_reference + 180) % 360
 
+    def __post_init__(self, shuttle_pre_tilt: float) -> None:
+        self._shuttle_pre_tilt = float(shuttle_pre_tilt)
+
+    @property
+    def shuttle_pre_tilt(self) -> float:
+        """The pre-tilt of the shuttle on the stage, in degrees.
+
+        The holder answers when there is one that says. Physically correct: the
+        pre-tilt is a property of the shuttle, not of the stage it sits on, so
+        swapping a 35 degree shuttle for a flat one should change it -- and today
+        that means editing the stage block by hand, where forgetting silently wrongs
+        every projection.
+
+        The fallback is not decoration. A `StageSystemSettings` built from a
+        configuration has no holder until `_create_sample_stage` resolves one, and
+        every holder file written before this carries no pre-tilt. Returning 0.0 in
+        either case would turn a 35 degree site flat, which is the one outcome this
+        change must not produce. So the configured value stands until a holder
+        states otherwise.
+        """
+        holder = self.holders.get(self.active_holder)
+        if holder is not None:
+            return holder.pre_tilt
+        return self._shuttle_pre_tilt
+
+    @shuttle_pre_tilt.setter
+    def shuttle_pre_tilt(self, value: float) -> None:
+        """Setting it sets the active holder's, which is what it means.
+
+        A setter rather than a read-only property because around twenty-five test
+        files use `microscope.system.stage.shuttle_pre_tilt = 35` as their setup
+        idiom, and because it reads correctly: the stage's pre-tilt *is* whatever
+        holder is on it, so changing one is changing the other. The fallback is
+        written too, so the two cannot drift apart through this path.
+        """
+        value = float(value)
+        self._shuttle_pre_tilt = value
+        holder = self.holders.get(self.active_holder)
+        if holder is not None:
+            holder.pre_tilt = value
+
     def to_dict(self):
-        return {
+        ddict = {
             "rotation_reference": self.rotation_reference,
-            "shuttle_pre_tilt": self.shuttle_pre_tilt,
             "enabled": self.enabled,
             "rotation": self.rotation,
             "milling_angle": self.milling_angle,
@@ -2312,6 +2362,14 @@ class StageSystemSettings:
             },
             "active_holder": self.active_holder,
         }
+        # The pre-tilt has one home in the file. Once a holder is named it lives on
+        # the holder, and writing it here as well would be a second copy that a hand
+        # edit could put out of step -- silently, in the term every projection uses.
+        # Until then (a record loaded from an old file and not yet connected) the
+        # stage-level key is the only place the value has, so it is kept.
+        if not self.holders:
+            ddict["shuttle_pre_tilt"] = self.shuttle_pre_tilt
+        return ddict
 
     @staticmethod
     def from_dict(settings: dict):
@@ -2342,11 +2400,28 @@ class StageSystemSettings:
                 else deepcopy(DEFAULT_STAGE_DEVICES)
             ),
             holders={
-                name: SampleHolder.from_dict(holder)
+                name: _configured_holder_from(name, holder)
                 for name, holder in (settings.get("holders") or {}).items()
             },
             active_holder=settings.get("active_holder", ""),
         )
+
+
+def _configured_holder_from(name: str, data: dict) -> "SampleHolder":
+    """A holder entry in `stage.holders`, which must state its pre-tilt.
+
+    `SampleHolder.from_dict` reads a silent file as 0.0, and that is safe for a
+    `sample-holder.yaml` because `_resolve_configured_holder` overwrites it with the
+    configured value before use. A holder *in the configuration* gets no such
+    overwrite -- it is the configured value -- so silence here would turn a 35
+    degree shuttle flat with nothing to report. It is an error instead.
+    """
+    if (data or {}).get("pre_tilt") is None:
+        raise ValueError(
+            f"stage.holders.{name} states no pre_tilt. Every holder in the "
+            "configuration must say its pre-tilt in degrees (0 for a flat shuttle)."
+        )
+    return SampleHolder.from_dict(data)
 
 
 @dataclass
@@ -4293,6 +4368,29 @@ class GridSlot:
 
 @dataclass
 class SampleHolder:
+    # First, and with no default, so it cannot be left out. The pre-tilt is a property
+    # of *this holder* -- swap a 35 degree shuttle for a flat one and it changes with
+    # the shuttle, which is why it stopped being a field on the stage.
+    #
+    # Required because the alternatives both fail quietly. A default of 0.0 turns a
+    # construction site that forgot into a flat shuttle and wrongs every projection
+    # made from it, with nothing to report; a `None` sentinel spreads its own handling
+    # into every reader, and one reader that formats it instead becomes a hard abort
+    # (PyQt5 turns an exception in a slot into `qFatal`). Ordered first because a
+    # dataclass cannot put a non-default field after defaulted ones, and
+    # `@dataclass(kw_only=True)` is 3.10+ while this package supports 3.8.
+    #
+    # Absence in a *file* is a different question and is not this field's to answer:
+    # `from_dict` supplies the configured value, and `_resolve_configured_holder`
+    # seeds it at connect.
+    #
+    # This used to be a property reading *back* from
+    # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
+    # both cannot exist: the stage reads the holder, so a holder that read the stage
+    # would recurse until the interpreter gave up.
+    pre_tilt: float = field(
+        metadata={"unit": "°", "tooltip": "Pre-tilt of this holder, in degrees"}
+    )
     name: str = field(
         default="Sample Holder", metadata={"tooltip": "Name of the sample holder"}
     )
@@ -4311,12 +4409,6 @@ class SampleHolder:
 
     def __post_init__(self) -> None:
         self._parent: Optional["FibsemMicroscope"] = None
-
-    @property
-    def pre_tilt(self) -> float:
-        if self._parent is not None:
-            return self._parent.system.stage.shuttle_pre_tilt
-        return 0.0
 
     @property
     def reference_rotation(self) -> float:
@@ -4414,6 +4506,7 @@ class SampleHolder:
             "capacity": self.capacity,
             "slots": slots,
             "description": self.description,
+            "pre_tilt": self.pre_tilt,
         }
 
     # -- occupancy: which grid is in which slot, kept apart from the calibration --
@@ -4457,7 +4550,13 @@ class SampleHolder:
             name: GridSlot.from_dict(slot_data)
             for name, slot_data in data.get("slots", {}).items()
         }
+        # A file that does not state one reads as 0.0 here, and that is safe only
+        # because of what happens next: `_resolve_configured_holder` overwrites it
+        # with the configured pre-tilt before the holder is used. The required field
+        # constrains *constructions in code*, which is where a forgotten pre-tilt has
+        # nothing else to catch it; a silent file is caught at connect instead.
         holder = SampleHolder(
+            pre_tilt=float(data.get("pre_tilt") or 0.0),
             name=data.get("name", "Sample Holder"),
             capacity=data.get("capacity", max(len(slots), 1)),
             slots=slots,
@@ -4487,3 +4586,34 @@ class SampleHolder:
                 default_flow_style=False,
                 sort_keys=False,
             )
+
+
+# The holder a system starts with when nothing else describes one: no `stage.holders`
+# in the configuration, and no `sample-holder.yaml` beside it.
+#
+# This used to be `default-sample-holder.yaml`, a shipped file. Once the holder moved
+# into the microscope configuration the file was down to four fields and two empty
+# slot stubs -- everything else in it was null -- and its name, "Pre-Tilted 35deg
+# Shuttle", had become a claim the object could contradict: a flat system loaded a
+# holder called that carrying a pre-tilt of 0, and the widget printed both. A default
+# with no calibration in it is a code default, next to `DEFAULT_STAGE_DEVICES` and
+# `DEFAULT_DEVICE_RANGE`, which are already here.
+#
+# A function rather than a module constant because a holder is mutable and gets a
+# `_parent` bound to it; one shared instance would be handed to every microscope.
+def default_sample_holder(pre_tilt: float) -> "SampleHolder":
+    """A two-slot shuttle with nothing calibrated on it.
+
+    `pre_tilt` is required for the same reason it is required on the holder: this is
+    the one caller that has to decide, and the configured value is what it passes.
+    The name deliberately describes the slot count rather than a geometry, so it
+    cannot disagree with the number beside it.
+    """
+    holder = SampleHolder(
+        pre_tilt=pre_tilt,
+        name="Default Shuttle",
+        capacity=2,
+        description="Two grid slots, uncalibrated. Replace or calibrate before use.",
+    )
+    holder._ensure_slots()
+    return holder

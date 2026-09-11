@@ -53,7 +53,7 @@ class TestRecordRoundTrip:
 
 class TestDiscardUntrustedPositions:
     def _holder(self, **slots):
-        holder = SampleHolder(name="h", capacity=2)
+        holder = SampleHolder(pre_tilt=0.0, name="h", capacity=2)
         holder._ensure_slots()
         for name, (position, record) in slots.items():
             holder.slots[name].position = position

@@ -27,12 +27,14 @@ from fibsem.structures import (
     SlotCalibration,
     StageSystemSettings,
     SystemSettings,
+    default_sample_holder,
 )
 
 
 def _calibrated_holder(name: str = "Pre-Tilted 35deg Shuttle") -> SampleHolder:
     """A holder as a calibrated site has it: a real position and the record proving it."""
     return SampleHolder(
+        pre_tilt=35.0,
         name=name,
         capacity=2,
         slots={
@@ -261,9 +263,23 @@ def test_the_schema_knows_about_the_new_keys():
     )
 
 
-def test_the_default_holder_file_still_ships():
-    """The migration's third case reads it, so its absence would be a silent break."""
-    assert os.path.exists(cfg.DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH)
+def test_the_default_holder_is_built_in_code_and_states_its_own_pre_tilt():
+    """The third case builds a holder rather than reading a shipped file.
+
+    `default-sample-holder.yaml` was that file. Once the holder moved into the
+    microscope configuration it was down to four fields and two empty slot stubs, and
+    its name -- "Pre-Tilted 35deg Shuttle" -- had become a claim the object could
+    contradict: on a flat system it loaded a holder called that carrying a pre-tilt of
+    0, and the widget printed both. The name now describes the slot count, which
+    cannot disagree with the number beside it.
+    """
+    holder = default_sample_holder(pre_tilt=35.0)
+
+    assert holder.pre_tilt == 35.0
+    assert holder.capacity == 2
+    assert sorted(holder.slots) == ["Slot-01", "Slot-02"]
+    assert not any(slot.is_calibrated for slot in holder.slots.values())
+    assert "35" not in holder.name, "the name must not claim a geometry it cannot keep"
 
 
 # ---------------------------------------------------------------------------
@@ -317,3 +333,184 @@ def test_a_configuration_that_names_holders_wins_over_the_live_one():
     # to rule out.
     assert microscope._stage.holder is microscope.system.stage.holders["Flat Shuttle"]
     assert microscope._stage.holder._parent is microscope
+
+
+# ---------------------------------------------------------------------------
+# Pre-tilt belongs to the holder
+# ---------------------------------------------------------------------------
+
+
+def test_the_stage_reads_its_pre_tilt_from_the_active_holder():
+    """Physically correct: swap a 35 degree shuttle for a flat one and the pre-tilt
+    changes with it, rather than needing the stage block edited by hand."""
+    pre_tilted = SampleHolder(name="Pre-Tilted", pre_tilt=35.0)
+    flat = SampleHolder(name="Flat", pre_tilt=0.0)
+    stage = _stage_settings(
+        holders={"Pre-Tilted": pre_tilted, "Flat": flat}, active_holder="Pre-Tilted"
+    )
+
+    assert stage.shuttle_pre_tilt == 35.0
+
+    stage.active_holder = "Flat"
+    assert stage.shuttle_pre_tilt == 0.0
+
+
+def test_setting_the_stage_pre_tilt_sets_the_holders():
+    """A setter, not a read-only property: around twenty-five test files use
+    `stage.shuttle_pre_tilt = 35` as their setup idiom, and it reads correctly --
+    the stage's pre-tilt *is* whatever holder is on it."""
+    holder = SampleHolder(name="h", pre_tilt=35.0)
+    stage = _stage_settings(holders={"h": holder}, active_holder="h")
+
+    stage.shuttle_pre_tilt = 12.0
+
+    assert holder.pre_tilt == 12.0
+    assert stage.shuttle_pre_tilt == 12.0
+
+
+def test_a_stage_with_no_holder_keeps_its_configured_pre_tilt():
+    """Every `StageSystemSettings` built from a configuration is in this state until
+    `_create_sample_stage` resolves a holder. Answering 0.0 here would turn a 35
+    degree site flat for the whole of that window."""
+    stage = _stage_settings(shuttle_pre_tilt=35.0)
+    assert stage.shuttle_pre_tilt == 35.0
+
+
+def test_a_holder_file_silent_on_pre_tilt_does_not_flatten_the_stage(
+    monkeypatch, tmp_path
+):
+    """Every holder file written before this change is silent on pre-tilt.
+
+    Reading that silence as "flat" is the most damaging thing this change could do,
+    because nothing would report it -- the projections would simply come out wrong.
+    The required field does not answer this on its own: a file cannot be made to state
+    something it does not contain, so the seeding at connect is what covers it.
+    """
+    data = _calibrated_holder().to_dict(include_grids=False)
+    del data["pre_tilt"]
+    path = tmp_path / "sample-holder.yaml"
+    path.write_text(yaml.dump(data))
+    monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+
+    stage = _stage_settings(shuttle_pre_tilt=35.0)
+    resolved = _resolve_configured_holder(stage)
+
+    assert resolved.pre_tilt == 35.0
+    assert stage.shuttle_pre_tilt == 35.0
+
+
+def test_a_holder_imported_from_a_file_takes_the_configured_pre_tilt(
+    monkeypatch, tmp_path
+):
+    """Even when the file states one of its own.
+
+    Holder files carried a `pre_tilt` once, and it has been ignored ever since the
+    value became derived from the stage. Honouring it now would silently resurrect a
+    number that has not been in effect for however long that file has been sitting
+    there -- in the term every projection is built on.
+    """
+    data = _calibrated_holder().to_dict(include_grids=False)
+    data["pre_tilt"] = 15.0  # stale: ignored since it became derived
+    path = tmp_path / "sample-holder.yaml"
+    path.write_text(yaml.dump(data))
+    monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+
+    stage = _stage_settings(shuttle_pre_tilt=35.0)
+    resolved = _resolve_configured_holder(stage)
+
+    assert resolved.pre_tilt == 35.0, "a stale file pre-tilt was resurrected"
+    assert stage.shuttle_pre_tilt == 35.0
+
+
+def test_the_pre_tilt_survives_the_configuration_round_trip():
+    holder = SampleHolder(name="Pre-Tilted", pre_tilt=35.0)
+    stage = _stage_settings(
+        shuttle_pre_tilt=0.0, holders={"Pre-Tilted": holder}, active_holder="Pre-Tilted"
+    )
+
+    restored = StageSystemSettings.from_dict(stage.to_dict())
+
+    assert restored.holders["Pre-Tilted"].pre_tilt == 35.0
+    assert restored.shuttle_pre_tilt == 35.0
+
+
+def test_the_pre_tilt_has_one_home_in_the_file():
+    """Once a holder is named, the stage block stops carrying `shuttle_pre_tilt`.
+
+    Two copies of one number is how a hand edit puts them out of step -- and the
+    holder's would win, silently. Before a holder is named the stage-level key is
+    the only place the value has, so a record loaded from an old file and saved
+    without connecting still round-trips.
+    """
+    unconnected = _stage_settings(shuttle_pre_tilt=35.0)
+    assert unconnected.to_dict()["shuttle_pre_tilt"] == 35.0
+
+    holder = SampleHolder(name="Pre-Tilted", pre_tilt=35.0)
+    named = _stage_settings(holders={"Pre-Tilted": holder}, active_holder="Pre-Tilted")
+    written = named.to_dict()
+    assert "shuttle_pre_tilt" not in written
+    assert written["holders"]["Pre-Tilted"]["pre_tilt"] == 35.0
+
+
+def test_a_configured_holder_that_states_no_pre_tilt_is_an_error():
+    """The one place silence cannot be caught later.
+
+    A holder file that says nothing is overwritten with the configured value at
+    connect. A holder *in the configuration* is the configured value, so a missing
+    pre-tilt there would read as 0 -- a flat shuttle -- with nothing to report.
+    """
+    with pytest.raises(ValueError, match="stage.holders.Silent states no pre_tilt"):
+        StageSystemSettings.from_dict(
+            {
+                "rotation_reference": 0.0,
+                "shuttle_pre_tilt": 35.0,
+                "holders": {"Silent": {"name": "Silent", "capacity": 2}},
+                "active_holder": "Silent",
+            }
+        )
+
+
+def test_two_stages_that_differ_only_in_pre_tilt_are_not_equal():
+    """`shuttle_pre_tilt` is an `InitVar`, which a dataclass leaves out of `__eq__`
+    and `__repr__`. The value it initialises is a real field so both see it --
+    otherwise the configuration round-trip test compares records that cannot tell
+    a 35 degree site from a flat one."""
+    tilted = _stage_settings(shuttle_pre_tilt=35.0)
+    flat = _stage_settings(shuttle_pre_tilt=0.0)
+    assert tilted != flat
+    assert "35.0" in repr(tilted)
+
+
+def test_the_holder_no_longer_reads_the_stage():
+    """The recursion this change had to remove.
+
+    `SampleHolder.pre_tilt` was a property reading back from
+    `_parent.system.stage.shuttle_pre_tilt`. With the stage now reading the holder,
+    leaving that in place would have made the pair recurse until the interpreter gave
+    up -- and it would have done so on the first real connect, not in a test.
+    """
+    assert not isinstance(
+        type(SampleHolder(pre_tilt=0.0, name="h")).__dict__.get("pre_tilt"), property
+    )
+
+
+def test_the_compustage_holder_states_its_pre_tilt():
+    """It is built in `_create_sample_stage` rather than resolved from the
+    configuration, so it is the one holder that does not pass through
+    `_resolve_configured_holder` and has to be given a pre-tilt explicitly.
+
+    Missing it was not a quiet wrong number, it was a crash: the sample holder panel
+    formats the value with `:g`, `None` raises `TypeError`, and under PyQt5 an
+    exception inside a slot is `qFatal` -- the whole process aborts on connect. The
+    non-UI suite did not see it; `tests/ui` did.
+    """
+    from fibsem.microscopes._stage import _create_sample_stage
+
+    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
+    assert microscope.stage_is_compustage, "fixture no longer exercises the compustage"
+
+    holder = _create_sample_stage(microscope).holder
+
+    assert holder.pre_tilt is not None
+    assert holder.pre_tilt == microscope.system.stage.shuttle_pre_tilt
