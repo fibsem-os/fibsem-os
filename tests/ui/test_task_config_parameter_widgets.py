@@ -88,7 +88,9 @@ class SampleTaskConfig(AutoLamellaTaskConfig):
     with_items: str = field(default="b", metadata={"items": ["a", "b", "c"]})
     # The two that used to be silently destroyed.
     nested: NestedSettings = field(default_factory=NestedSettings)
-    nested_list: List[NestedSettings] = field(default_factory=lambda: [NestedSettings()])
+    nested_list: List[NestedSettings] = field(
+        default_factory=lambda: [NestedSettings()]
+    )
 
 
 # Both forms in the module share one dispatch; run every test against both so a
@@ -242,7 +244,11 @@ def test_a_literal_field_offers_its_allowed_values(qapp, form_cls):
     combo = param_widget.widget
 
     assert isinstance(combo, ValueComboBox)
-    assert [combo.itemData(i) for i in range(combo.count())] == ["cells", "hpf", "other"]
+    assert [combo.itemData(i) for i in range(combo.count())] == [
+        "cells",
+        "hpf",
+        "other",
+    ]
     assert combo.currentData() == "hpf"
 
     combo.setCurrentIndex(0)
@@ -409,7 +415,9 @@ def test_an_unset_optional_string_reads_back_as_none(qapp, form_cls):
         ("a_literal", lambda w: w.setCurrentIndex(0), "cells"),
     ],
 )
-def test_editing_a_control_reaches_the_config(qapp, form_cls, field_name, drive, expected):
+def test_editing_a_control_reaches_the_config(
+    qapp, form_cls, field_name, drive, expected
+):
     """Drive the widget's own signal, not the handler.
 
     The tests around this one called `form._on_parameter_changed(name)` directly,
@@ -469,3 +477,31 @@ def test_an_edit_survives_switching_task_and_coming_back(qapp, form_cls):
 
     assert config.a_float == 9.0
     assert _control(form, "a_float").widget.value() == 9.0
+
+
+def test_the_config_form_opens_no_session_and_takes_the_hosts_microscope(
+    qapp, monkeypatch
+):
+    """Building the widget used to call utils.setup_session() -- a connection to
+    whatever the default configuration named. Now a host hands the microscope in,
+    and without one the milling section is simply not built."""
+    from fibsem import utils
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("the widget must not open a session of its own")
+
+    monkeypatch.setattr(utils, "setup_session", _forbidden)
+
+    form = AutoLamellaTaskConfigWidget(task_config=SampleTaskConfig())
+    assert form.milling_task_widget is None
+
+
+def test_with_a_microscope_the_config_form_builds_its_milling_section(qapp):
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    form = AutoLamellaTaskConfigWidget(
+        task_config=SampleTaskConfig(), microscope=microscope
+    )
+    assert form.milling_task_widget is not None
+    assert form.milling_task_widget.microscope is microscope

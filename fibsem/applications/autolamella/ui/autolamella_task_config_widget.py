@@ -28,8 +28,8 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QCollapsible
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.microscope import FibsemMicroscope
 from fibsem.ui.widgets.custom_widgets import TitledPanel, align_form
 from fibsem.ui.widgets.form_builder import Control, FormDefaults, build_control
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
@@ -121,20 +121,32 @@ def build_parameter_rows(
 
 
 class AutoLamellaTaskConfigWidget(QWidget):
-    """Widget for configuring AutoLamella task parameters."""
+    """Widget for configuring AutoLamella task parameters.
+
+    The milling section needs a microscope, and the host hands one in. It used
+    to open a session of its own at construction -- `utils.setup_session()` with
+    no arguments, so whatever the default configuration named -- which is a
+    connection side effect from building a widget. With no microscope the
+    parameters section is built and the milling section is left out.
+
+    No tab hosts this widget today; the Protocol and Lamella tabs build the
+    parameters form and the milling viewer separately.
+    """
 
     config_changed = pyqtSignal(AutoLamellaTaskConfig)
 
     def __init__(
         self,
         task_config: Optional[AutoLamellaTaskConfig] = None,
+        microscope: Optional[FibsemMicroscope] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self.task_config = task_config
+        self.microscope = microscope
         self._rows: List[_Row] = []
         self._advanced_visible = False
-        self.milling_task_widget: MillingTaskViewerWidget
+        self.milling_task_widget: Optional[MillingTaskViewerWidget] = None
 
         self._setup_ui()
         if self.task_config:
@@ -155,28 +167,21 @@ class AutoLamellaTaskConfigWidget(QWidget):
 
         self.task_params_collapsible.addWidget(self.params_widget)
 
-        # Create collapsible section for milling parameters
-        self.milling_params_collapsible = QCollapsible("Milling Task Parameters", self)
-
-        # initialise milling_task_widget
-        microscope, settings = (
-            utils.setup_session()
-        )  # TODO: pass in from the parent if available...
-        self.milling_task_widget = MillingTaskViewerWidget(
-            microscope=microscope,
-            milling_enabled=False,
-            parent=self,
-        )
-        self.milling_task_widget.setMinimumHeight(600)
-        self.milling_params_collapsible.addWidget(self.milling_task_widget)
-
         self.main_layout.addWidget(self.task_params_collapsible)  # type: ignore
-        self.main_layout.addWidget(self.milling_params_collapsible)  # type: ignore
 
-        # Connect milling widget signals
-        self.milling_task_widget.settings_changed.connect(
-            self._on_milling_config_updated
-        )
+        # The milling section, only with a microscope to drive it
+        self.milling_params_collapsible = QCollapsible("Milling Task Parameters", self)
+        if self.microscope is not None:
+            self.milling_task_widget = MillingTaskViewerWidget(
+                microscope=self.microscope,
+                milling_enabled=False,
+                parent=self,
+            )
+            self.milling_params_collapsible.addWidget(self.milling_task_widget)
+            self.milling_task_widget.settings_changed.connect(
+                self._on_milling_config_updated
+            )
+            self.main_layout.addWidget(self.milling_params_collapsible)  # type: ignore
 
         self.main_layout.addStretch()
 
@@ -206,8 +211,10 @@ class AutoLamellaTaskConfigWidget(QWidget):
         else:
             self.task_params_collapsible.hide()
 
-        # Show/hide milling parameters section
-        if self.task_config.milling:
+        # Show/hide milling parameters section (absent without a microscope)
+        if self.milling_task_widget is None:
+            self._current_milling_key = None
+        elif self.task_config.milling:
             self._current_milling_key = next(iter(self.task_config.milling))
             self.milling_task_widget.set_config(
                 self.task_config.milling[self._current_milling_key]
