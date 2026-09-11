@@ -245,6 +245,21 @@ class TestMovingAPosition:
                 "the fluorescence pose was left behind at the old location"
             )
 
+    def test_moving_announces_the_change(self, tab, microscope):
+        """Writing a pose emits nothing of its own -- `poses` is a plain dict and the
+        evented list only sees slot reassignment -- so the tab has to say it. The
+        window re-marks the *other* overview tab and the lamella cards from this; miss
+        it and they go on showing the old place, indistinguishable from a stale pose."""
+        lamella = _lamella(tab, microscope)
+        announced = []
+        tab.experiment.positions.events.changed.connect(lambda *a: announced.append(a))
+
+        tab._on_move_requested(
+            lamella.name, _at(microscope.get_stage_position(), dx=50e-6)
+        )
+
+        assert len(announced) == 1
+
     def test_moving_an_unknown_name_does_nothing(self, tab, microscope):
         _lamella(tab, microscope)
         tab._on_move_requested("not-a-lamella", _at(microscope.get_stage_position()))
@@ -452,6 +467,30 @@ class TestItMarksTheFluorescenceSidePose:
         assert [row.lamella.name for row in fm_tab.lamella_list._rows()] == [
             lamella.name
         ]
+
+    def test_moving_announces_the_change(self, fm_tab, microscope, monkeypatch):
+        """Same contract as the beam tab's: the other canvas and the cards learn of
+        the move from this signal alone."""
+        from fibsem.applications.autolamella.ui import (
+            autolamella_fluorescence_overview_tab as module,
+        )
+
+        monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
+        monkeypatch.setattr(
+            fm_tab.autolamella_ui, "update_ui", lambda: None, raising=False
+        )
+        lamella = _lamella(fm_tab, microscope, dx=40e-6)
+        announced = []
+        fm_tab.experiment.positions.events.changed.connect(
+            lambda *a: announced.append(a)
+        )
+
+        fm_tab._on_move_requested(
+            lamella.name,
+            _at(lamella.fluorescence_pose.stage_position, dx=50e-6),
+        )
+
+        assert len(announced) == 1
 
     def test_move_to_drives_to_the_fluorescence_pose(self, fm_tab, microscope):
         """Moving to the milling pose from here would swing the stage 180 degrees away

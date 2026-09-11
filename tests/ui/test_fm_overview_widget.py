@@ -14,6 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+from psygnal.containers import EventedList
 
 pytest.importorskip("PyQt5")
 
@@ -1833,12 +1834,15 @@ def test_the_frame_can_be_anchored_at_a_chosen_position(qapp, interactive_widget
         qapp.processEvents()
 
 
-def test_anchoring_again_returns_to_following_the_stage(qapp, interactive_widget):
+def test_anchoring_again_returns_to_the_device_origin(qapp, interactive_widget):
+    """`set_origin(None)` hands the anchor back to the automatic one, which is the
+    FM device's configured origin rather than wherever the stage is standing."""
     from fibsem.structures import FibsemStagePosition
 
     widget = interactive_widget
     widget.canvas.clear_overviews()
     stage = widget._current_stage_position()
+    device = widget.microscope.system.stage.devices["FM"].origin
     widget.set_origin(
         FibsemStagePosition(
             x=stage.x + 1e-3,
@@ -1854,9 +1858,37 @@ def test_anchoring_again_returns_to_following_the_stage(qapp, interactive_widget
     widget.set_origin(None)
     qapp.processEvents()
 
-    # re-derived from the stage on the next use, rather than left unset
+    # re-derived on the next use, rather than left unset
     assert widget._frame() is not None
-    assert widget.origin.x == pytest.approx(stage.x)
+    assert widget.origin.x == pytest.approx(device.x or 0.0)
+    assert widget.origin.t == pytest.approx(stage.t)
+
+
+def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
+    """Canvas zero is where the objective looks, which on an offset mount is 48.8 mm
+    from where the stage stands when the tab is built. Anchoring at the stage put
+    every marker, image and overlay the canvas would ever show 48.8 mm from zero."""
+    import os
+
+    import fibsem.config as cfg
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+    )
+    microscope.move_to_orientation("SEM")
+    assert microscope.get_current_device() == "FIBSEM"
+    widget = FMOverviewWidget(microscope)
+    try:
+        frame = widget._frame()
+        assert frame is not None
+        assert widget.origin.x == pytest.approx(48.8e-3)
+        assert widget.origin.y == pytest.approx(0.0)
+        # the pose is the stage's, not the device's: the device declares only a place
+        assert widget.origin.t == pytest.approx(microscope.get_stage_position().t)
+    finally:
+        widget.deleteLater()
+        qapp.processEvents()
 
 
 def test_the_frame_cannot_be_re_anchored_under_placed_images(qapp, interactive_widget):
@@ -3318,7 +3350,9 @@ def _experiment_with(positions, tmp_path):
     class _Exp:
         def __init__(self):
             self.path = str(tmp_path)
-            self.positions = list(positions)
+            # Evented, as the real one is: the tab announces a moved pose through
+            # `positions.events.changed`, the only notification a pose write gets.
+            self.positions = EventedList(positions)
             self.saves = 0
 
         def save(self):
@@ -3381,10 +3415,11 @@ def _real_lamella(name, microscope, tmp_path, x=100e-6, y=50e-6):
 
 
 def test_adding_declares_the_fluorescence_orientation(qapp, tmp_path):
-    """Not left to be derived. On a compustage the answer would be the same; on an
-    offset mount it would not, and the wrong answer there is a lamella with a milling
-    pose 48 mm off the beam axis that nothing rejects until something tries to mill it
-    (FIB-93). Declaring it turns that into a refusal with a user to tell."""
+    """Not left to be derived. `build_lamella_poses` can read the side off the
+    position on either mounting now, but this tab *knows* which side it is marking
+    from, and saying so costs nothing: a declared side is checked against the
+    geometry rather than trusted, so the worst case is a refusal with a user to tell
+    rather than a lamella built from a misread position."""
     from fibsem.applications.autolamella.poses import FLUORESCENCE_ORIENTATION
 
     host = _wired_host(qapp, tmp_path)
@@ -3476,7 +3511,7 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     before = deepcopy(lamella.poses)
 
     asked = []
@@ -3510,7 +3545,7 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     target = _named("target", 400e-6, -200e-6)
@@ -3545,7 +3580,7 @@ def test_a_move_rewrites_the_stage_positions_and_nothing_else(
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_pose.electron_detector.brightness = 0.123
     lamella.fluorescence_pose.objective_position = 7.7e-3
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.fm_overview_tab._on_move_requested(
@@ -3571,7 +3606,7 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_pose.electron_detector.brightness = 0.123
     del lamella.poses["FLUORESCENCE"]
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.fm_overview_tab._on_move_requested(
@@ -3599,7 +3634,7 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_angle = 999.0
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.fm_overview_tab._on_move_requested(
@@ -3623,7 +3658,7 @@ def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
 
     host = _wired_host(qapp, tmp_path)
     lamella = _real_lamella("Lamella-01", host.autolamella_ui.microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     asked = []
     monkeypatch.setattr(
         module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or True
@@ -3841,7 +3876,7 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     host._update_fm_overview_positions()
     before = host.fm_overview_widget._positions[0].x
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
@@ -4268,9 +4303,11 @@ def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
     passes either way. The target is pinned first so that path is skipped -- dragging the
     grid somewhere and then re-posing the stage is exactly when nothing else would.
 
-    The origin is also put *off* the grid centre. Anchored on it, the limits box and the
-    grid boundary sit at canvas zero whatever the pose -- a zero offset stays zero
-    through any rotation -- so the test would pass by drawing nothing that could move.
+    The origin is also put *off* the grid centre, explicitly -- the automatic anchor
+    is the device origin, which on this compustage *is* the grid centre. Anchored on
+    it, the limits box and the grid boundary sit at canvas zero whatever the pose -- a
+    zero offset stays zero through any rotation -- so the test would pass by drawing
+    nothing that could move.
     """
     from fibsem.structures import FibsemStagePosition
 
@@ -4280,7 +4317,8 @@ def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
         FibsemStagePosition(x=250e-6, y=-180e-6, z=0.0, r=fm.r, t=fm.t)
     )
     widget = FMOverviewWidget(microscope)
-    widget._refresh_tile_grid()  # fixes the origin, off-centre
+    widget.set_origin(microscope.get_stage_position())  # off-centre, on purpose
+    widget._refresh_tile_grid()
     qapp.processEvents()
     before = [(spec.cx, spec.cy) for spec in widget.stage_overlay._specs]
     assert any(cx or cy for cx, cy in before), "nothing drawn that a re-pose could move"
