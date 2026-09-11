@@ -561,6 +561,53 @@ def uncalibrated_message(slot_name: str) -> str:
     )
 
 
+def _resolve_configured_holder(stage_settings) -> SampleHolder:
+    """The holder on the stage: from the configuration, or imported into it.
+
+    Three cases, in order.
+
+    **The configuration names one.** `stage.holders` with an `active_holder` that
+    picks one out of it. This is where a system ends up once its configuration has
+    been saved, and the only case that involves no files.
+
+    **It does not, and the site has a `sample-holder.yaml`.** The holder moved into the
+    microscope configuration, but every calibrated site has its slot positions in the
+    old file and those are not reproducible -- someone stood at the microscope and
+    captured them. So the file is imported as an entry and selected, and the site keeps
+    its calibration without being shown a list it did not ask for.
+
+    Read-only: nothing is written back here. The imported holder is on
+    `stage.holders`, so the next save of the configuration carries it, but a session
+    that saves nothing leaves both files exactly as it found them. Re-importing every
+    session costs nothing and is safer than rewriting a user's configuration on their
+    behalf at connect time.
+
+    **Neither.** The shipped default, as before.
+    """
+    active = stage_settings.active_holder
+    configured = stage_settings.holders.get(active) if active else None
+    if configured is not None:
+        return configured
+
+    path = Path(SAMPLE_HOLDER_CONFIGURATION_PATH)
+    migrating = path.exists()
+    if not migrating:
+        logging.info(f"Sample holder config not found at {path}, using default.")
+        path = Path(DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH)
+
+    holder = SampleHolder.load(path)
+    if migrating:
+        logging.info(
+            f"Imported sample holder '{holder.name}' from {path} for this session. "
+            "The file is not written back; it is imported again at every connect."
+        )
+    # Selected either way, so a session that saves its configuration records which
+    # holder it was actually using rather than an empty selection.
+    stage_settings.holders[holder.name] = holder
+    stage_settings.active_holder = holder.name
+    return holder
+
+
 def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
     if microscope.stage_is_compustage:
         # The working slot is the compustage origin by construction: the loader puts
@@ -586,11 +633,7 @@ def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
         # from its config, a real system wraps its autoloader.
         loader: Optional[SampleGridLoader] = microscope._create_grid_loader()
     else:
-        path = Path(SAMPLE_HOLDER_CONFIGURATION_PATH)
-        if not path.exists():
-            logging.info(f"Sample holder config not found at {path}, using default.")
-            path = Path(DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH)
-        holder = SampleHolder.load(path)
+        holder = _resolve_configured_holder(microscope.system.stage)
         # Trust only positions the wizard captured against this stage geometry. The
         # old stamping of SEM r/t onto whatever x/y/z the file held is gone: a
         # calibrated position carries its own r/t, and an uncalibrated one has none.
