@@ -147,6 +147,19 @@ class BeamDefaultsForm(QGroupBox):
         if detector.mode is not None:
             self.detector_mode.set_value(detector.mode)
 
+    def defaults_to_dict(self) -> dict:
+        """The form's seven values, in the file's spelling."""
+        key = self.resolution.value()
+        return {
+            "voltage": self.voltage.value(),
+            "current": self.current.value(),
+            "hfw": self.hfw.value() * MICRON_TO_METRE,
+            "resolution": list(_resolution_from_key(key)) if key else None,
+            "dwell_time": self.dwell_time.value() * 1e-6,
+            "detector_type": self.detector_type.value(),
+            "detector_mode": self.detector_mode.value(),
+        }
+
     def write_into(self, record: BeamSystemSettings) -> None:
         """Copy the form into the record. Only the defaults; nothing about the column."""
         record.beam.voltage = self.voltage.value()
@@ -239,12 +252,16 @@ class MicroscopeDefaultsWidget(QWidget):
             )
             return
         self.write_form_into_system()
-        # The beam halves of what `SystemSettings.to_dict` writes under `defaults:`.
-        # The imaging defaults are the acquire tab's, and `apply_on_connect` is not
-        # this panel's to change, so neither is written from here.
-        defaults = self.microscope.system.to_dict()["defaults"]
+        # Exactly the seven keys the form shows, for each beam. Not the whole beam
+        # record: that also carries the beam shift, stigmation, scan rotation and
+        # working distance, which are alignment state -- written here they would be
+        # pushed back by Apply. The imaging defaults are the acquire tab's, and
+        # `apply_on_connect` is not this panel's to change.
         updates = {
-            "defaults": {"electron": defaults["electron"], "ion": defaults["ion"]}
+            "defaults": {
+                "electron": self.electron.defaults_to_dict(),
+                "ion": self.ion.defaults_to_dict(),
+            }
         }
         try:
             utils.write_configuration(path, updates)

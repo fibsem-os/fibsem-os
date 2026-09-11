@@ -23,6 +23,28 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def toasts(monkeypatch):
+    """Toasts go to a list, not to the notification service.
+
+    The service is a module-level QObject owned by whichever QApplication first
+    created it; a later test module's teardown can delete it, and the next toast
+    raises "wrapped C/C++ object has been deleted" from inside the widget under
+    test. The widgets' own behaviour is what these tests are about.
+    """
+    from fibsem.ui import notification_service
+
+    shown = []
+    monkeypatch.setattr(
+        notification_service,
+        "show_toast",
+        lambda message, notification_type="info": shown.append(
+            (message, notification_type)
+        ),
+    )
+    return shown
+
+
 @pytest.fixture()
 def microscope(tmp_path):
     import yaml
@@ -97,6 +119,26 @@ def test_saving_writes_the_defaults_section_and_nothing_else(widget, microscope)
     assert utils.unrecognised_configuration_keys(written) == []
     reloaded = MicroscopeSettings.from_dict(written)
     assert reloaded.system.ion.beam.voltage == 8000
+
+
+def test_saving_writes_the_seven_keys_and_no_alignment_state(widget, microscope):
+    """Not the beam shift, stigmation, scan rotation or working distance -- those
+    are alignment state, and written here Apply would push them back."""
+    microscope.system.electron.beam.working_distance = 0.0042
+    microscope.system.electron.beam.scan_rotation = 1.5
+
+    widget.save_to_configuration()
+
+    written = utils.load_yaml(microscope.configuration_path)["defaults"]["electron"]
+    assert set(written) == {
+        "voltage",
+        "current",
+        "hfw",
+        "resolution",
+        "dwell_time",
+        "detector_type",
+        "detector_mode",
+    }
 
 
 def test_saving_does_not_touch_the_column(widget, microscope):
