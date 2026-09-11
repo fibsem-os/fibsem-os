@@ -657,7 +657,43 @@ def write_objective_calibration(
         "focus_position": focus_position,
         "limit_position": limit_position,
     }
-    save_yaml(path, config)
+    _write_configuration_file(path, config)
+
+
+def _plain(value):
+    """*value* with numpy scalars, tuples and numpy arrays as YAML-native types.
+
+    `yaml.safe_load` refuses a document that `yaml.dump` wrote a numpy scalar into
+    -- it comes out as a `!!python/object/apply:numpy...` tag -- so one instrument
+    value of the wrong type would leave a site with a configuration that no longer
+    loads. Everything written to the file goes through here first.
+    """
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if hasattr(value, "tolist"):  # numpy scalar or array
+        return _plain(value.tolist())
+    if isinstance(value, (bool, int, float, str)) or value is None:
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def _write_configuration_file(path: Union[str, Path], config: dict) -> None:
+    """Write a configuration dict to exactly *path*.
+
+    Not `save_yaml`: that forces a `.yaml` suffix, so a site whose file is
+    `site.yml` would get a sibling `site.yaml` written and its own file left
+    untouched; it sorts keys, which turns the sections into alphabetical order;
+    and it uses the unsafe dumper, which writes numpy scalars as tags that
+    `safe_load` cannot read back.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        yaml.safe_dump(_plain(config), f, sort_keys=False, indent=4)
 
 
 def load_protocol(protocol_path: Path = None) -> dict:

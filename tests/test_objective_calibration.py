@@ -124,6 +124,32 @@ def test_an_unstated_calibration_leaves_the_objective_alone():
 # ---------------------------------------------------------------------------
 
 
+def test_writing_goes_to_the_file_named_and_keeps_its_shape(tmp_path):
+    """Three ways the generic YAML writer would have gone wrong.
+
+    It forces a `.yaml` suffix, so `site.yml` gets a sibling written and stays
+    untouched; it sorts keys, so the sections come back alphabetical; and its
+    dumper writes a numpy scalar as a tag `safe_load` refuses -- one instrument
+    value of the wrong type and the configuration no longer loads.
+    """
+    import numpy as np
+
+    path = tmp_path / "site.yml"
+    original = utils.load_yaml(IFLM)
+    path.write_text(yaml.safe_dump(original, sort_keys=False))
+    order = list(original)
+
+    utils.write_objective_calibration(path, np.float64(7.3e-3), np.float32(8.4e-3))
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["site.yml"]
+    written = utils.load_yaml(str(path))  # safe_load: raises on a numpy tag
+    assert list(written) == order
+    assert written["calibration"]["objective"]["focus_position"] == pytest.approx(
+        7.3e-3
+    )
+    assert "numpy" not in path.read_text()
+
+
 def test_writing_the_calibration_touches_only_that_block(tmp_path):
     path = tmp_path / "site.yaml"
     original = utils.load_yaml(IFLM)
