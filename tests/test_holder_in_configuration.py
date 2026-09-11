@@ -470,6 +470,17 @@ def test_a_configured_holder_that_states_no_pre_tilt_is_an_error():
         )
 
 
+def test_two_stages_that_differ_only_in_pre_tilt_are_not_equal():
+    """`shuttle_pre_tilt` is an `InitVar`, which a dataclass leaves out of `__eq__`
+    and `__repr__`. The value it initialises is a real field so both see it --
+    otherwise the configuration round-trip test compares records that cannot tell
+    a 35 degree site from a flat one."""
+    tilted = _stage_settings(shuttle_pre_tilt=35.0)
+    flat = _stage_settings(shuttle_pre_tilt=0.0)
+    assert tilted != flat
+    assert "35.0" in repr(tilted)
+
+
 def test_the_holder_no_longer_reads_the_stage():
     """The recursion this change had to remove.
 

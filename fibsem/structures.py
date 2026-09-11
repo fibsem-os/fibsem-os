@@ -2233,6 +2233,12 @@ class StageSystemSettings:
     # a caller passes is a *fallback* -- the answer comes from the active holder when
     # there is one.
     shuttle_pre_tilt: InitVar[float] = 0.0
+    # The fallback the property reads while no holder answers. A real field rather
+    # than a bare attribute set in `__post_init__`, so that `__eq__` and `__repr__`
+    # see it: two stages at 0 and 35 degrees must not compare equal, and a
+    # round-trip test that compares records must be able to notice a pre-tilt
+    # that was dropped on the way through the file.
+    _shuttle_pre_tilt: float = field(init=False, default=0.0)
     enabled: bool = True
     # Whether the stage has a rotation axis. Load-bearing: it is what `rotation_180`
     # below is derived from, so it describes the geometry and not merely a permission.
