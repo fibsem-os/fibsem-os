@@ -213,7 +213,7 @@ def test_no_call_site_asks_for_the_key_that_matches_nothing():
     offenders = [
         f"{path.relative_to(root.parent)}:{i}"
         for path in root.rglob("*.py")
-        for i, line in enumerate(path.read_text().splitlines(), 1)
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if re.search(r'is_available\(\s*["\']multichem["\']', line)
     ]
     assert offenders == []
