@@ -582,7 +582,9 @@ class FMCanvasWidget(QWidget):
                 if not layer.manual:
                     layer.autocontrast = True
                     layer.clim = None
-            else:
+            elif not layer.manual:
+                # Same guard as above: a z-scrub holds one MIP-derived clim across
+                # planes, but never over a contrast range the user set by hand.
                 clim = self._mip_clim.get(layer.name)
                 if clim is None:
                     clim = auto_clim(stack.max(axis=0))
