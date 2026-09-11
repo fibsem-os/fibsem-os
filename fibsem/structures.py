@@ -2333,8 +2333,16 @@ class BeamSystemSettings:
     detector: FibsemDetectorSettings
     eucentric_height: float
     column_tilt: float
-    plasma: bool = False
+    # The plasma source's gas, or None for a column with no plasma source. One value
+    # for one fact: there used to be a `plasma: bool` beside this, and the pair could
+    # disagree -- `plasma: true` with no gas, or a gas with `plasma: false` -- and
+    # every shipped file spelt "no gas" as the YAML *string* "None".
     plasma_gas: Optional[str] = None
+
+    @property
+    def plasma(self) -> bool:
+        """Whether this is a plasma column. Derived: a plasma column has a gas."""
+        return self.plasma_gas is not None
 
     def to_dict(self):
         ddict = {
@@ -2349,7 +2357,6 @@ class BeamSystemSettings:
         # a key no shipped file has ever carried and nothing reads. An electron
         # column has no plasma source.
         if self.beam_type is BeamType.ION:
-            ddict["plasma"] = self.plasma
             ddict["plasma_gas"] = self.plasma_gas
         ddict.update(self.beam.to_dict())
         ddict.update(self.detector.to_dict())
@@ -2384,9 +2391,25 @@ class BeamSystemSettings:
             detector=FibsemDetectorSettings.from_dict(settings),
             eucentric_height=settings.get("eucentric_height", 0.0),
             column_tilt=settings.get("column_tilt", default_column_tilt),
-            plasma=settings.get("plasma", False),
-            plasma_gas=settings.get("plasma_gas", None),
+            plasma_gas=_plasma_gas_from(settings),
         )
+
+
+def _plasma_gas_from(settings: dict) -> Optional[str]:
+    """The plasma gas a block states, or None for a column without one.
+
+    Reads the old two-key spelling as well as the new one. `plasma: false` means no
+    plasma source whatever the gas key says, because the flag was the one the
+    drivers consulted. And the shipped files wrote "no gas" as `plasma_gas: None`,
+    which YAML reads as the *string* "None", so that spelling (and its lower-case
+    and empty cousins) is read as None too.
+    """
+    if settings.get("plasma") is False:
+        return None
+    gas = settings.get("plasma_gas")
+    if gas is None or str(gas).strip().lower() in ("", "none", "null"):
+        return None
+    return str(gas)
 
 
 @dataclass

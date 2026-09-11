@@ -22,8 +22,7 @@ ion:
     enabled:                    true                        
     column_tilt:                52                         
     eucentric_height:           16.5e-3                     
-    plasma:                     false                       
-    plasma_gas:                 None                        
+    plasma_gas:                 null                        
     voltage:                    30000                       
     current:                    2.0e-11                     
     resolution:                 [1536, 1024]                

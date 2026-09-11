@@ -3506,12 +3506,6 @@ class ThermoMicroscope(FibsemMicroscope):
             else:
                 raise ValueError(f"Unknown beam type: {beam_type} for {key}")
 
-        # ion beam properties
-        if key == "plasma":
-            if beam_type is BeamType.ION:
-                self.system.ion.plasma = value
-                return
-
         # electron beam properties
         if beam_type is BeamType.ELECTRON:
             if key == "angular_correction_angle":
