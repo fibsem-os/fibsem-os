@@ -314,20 +314,20 @@ def test_capturing_leaves_the_hardware_description_alone(microscope):
     assert microscope.system.electron.eucentric_height == before_eucentric
 
 
-def test_the_detector_keys_in_every_shipped_file_are_read_by_nothing():
-    """A defect this change surfaced without causing, recorded rather than fixed.
+def test_the_detector_keys_in_every_shipped_file_are_read():
+    """A defect older than the schema work, fixed here because the Defaults panel
+    made it destructive.
 
     Every shipped configuration states `detector_type: ETD` and
     `detector_mode: SecondaryElectrons`. `BeamSystemSettings.to_dict` writes those
-    names, but `FibsemDetectorSettings.from_dict` reads `type` and `mode`, so nothing
-    ever reads them back -- the detector loads as `Unknown` on every system. Confirmed
-    on stock `origin/main`, so it predates the schema work.
+    names, but `FibsemDetectorSettings.from_dict` read `type` and `mode`, so nothing
+    ever read them back: the detector loaded as "Unknown" on every system, and a
+    file saved from the application lost its detector on the next load. With a
+    panel that reads the record and writes it back, "Unknown" would have replaced
+    every site's ETD on the first Save.
 
-    Not fixed here on purpose. `set_beam_system_settings` pushes
-    `settings.detector` to the instrument, so making the keys readable changes what
-    Apply sends to real hardware. That belongs in its own change with a bench check,
-    not inside a refactor whose whole claim is that it changes no configuration's
-    meaning.
+    What changes on hardware: Apply now pushes the detector the file names rather
+    than "Unknown". That is what the file always intended.
     """
     config = _load("microscope-configuration.yaml")
     defaults = config["defaults"]["electron"]
@@ -336,5 +336,17 @@ def test_the_detector_keys_in_every_shipped_file_are_read_by_nothing():
 
     settings = MicroscopeSettings.from_dict(config)
 
-    assert settings.system.electron.detector.type == "Unknown"
-    assert settings.system.electron.detector.mode == "Unknown"
+    assert settings.system.electron.detector.type == "ETD"
+    assert settings.system.electron.detector.mode == "SecondaryElectrons"
+
+
+def test_the_detector_round_trips_through_a_saved_file():
+    """Brightness and contrast too: written as `detector_brightness`, they were read
+    as `brightness` and came back as the default."""
+    settings = MicroscopeSettings.from_dict(_load("microscope-configuration.yaml"))
+    settings.system.ion.detector.brightness = 0.37
+    settings.system.ion.detector.contrast = 0.62
+
+    reloaded = MicroscopeSettings.from_dict(copy.deepcopy(settings.to_dict()))
+
+    assert reloaded.system.ion.detector == settings.system.ion.detector

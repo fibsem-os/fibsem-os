@@ -640,24 +640,76 @@ def report_unrecognised_configuration_keys(config: dict, source: str = "") -> Li
     return unknown
 
 
+def _deep_update(target: dict, updates: dict) -> dict:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _deep_update(target[key], value)
+        else:
+            target[key] = value
+    return target
+
+
+def write_configuration(path: Union[str, Path], updates: dict) -> None:
+    """Write *updates* into the configuration file at *path*, and nothing else.
+
+    The file is read, the nested keys in *updates* are set (a dict merges into the
+    block it names; anything else replaces the value there), and it is written back.
+    The rest of the file -- including whatever a person wrote there by hand -- is
+    preserved at the parsed level. This is the one writer of the file from the
+    application: a calibration action writes `calibration.*`, the defaults panel
+    writes `defaults.*`, and neither can disturb the other's section.
+    """
+    config = load_yaml(os.path.join(path)) or {}
+    _deep_update(config, updates)
+    _retire_legacy_duplicates(config)
+    _write_configuration_file(path, config)
+
+
+def _retire_legacy_duplicates(config: dict) -> None:
+    """Drop a key from an old flat block once its new home states it.
+
+    A file written before the sections existed keeps its flat blocks, and the
+    reader accepts them. Writing `defaults.electron.voltage` into such a file
+    would otherwise leave `electron.voltage` beside it -- two homes for one value,
+    the reader silently preferring the new one, and the warning suppressed by the
+    legacy alias. Here the old copy goes, and an emptied block goes with it.
+    """
+    for block, aliases in LEGACY_CONFIGURATION_BLOCKS.items():
+        old = config.get(block)
+        if not isinstance(old, dict):
+            continue
+        for alias in aliases:
+            new_home = config
+            for part in alias.split("."):
+                new_home = new_home.get(part) if isinstance(new_home, dict) else None
+                if new_home is None:
+                    break
+            if not isinstance(new_home, dict):
+                continue
+            for key in list(old):
+                if key in new_home:
+                    del old[key]
+        if not old:
+            del config[block]
+
+
 def write_objective_calibration(
     path: Union[str, Path],
     focus_position: Optional[float],
     limit_position: Optional[float],
 ) -> None:
-    """Record the objective's calibration in the configuration file at *path*.
-
-    Touches `calibration.objective` and nothing else: the file is read, that one
-    block is replaced, and it is written back. The rest of the file -- including
-    whatever a person wrote there by hand -- is preserved at the parsed level. The
-    only writer of a calibration is a calibration action, which is what this is.
-    """
-    config = load_yaml(os.path.join(path)) or {}
-    config.setdefault("calibration", {})["objective"] = {
-        "focus_position": focus_position,
-        "limit_position": limit_position,
-    }
-    _write_configuration_file(path, config)
+    """Record the objective's calibration in the configuration file at *path*."""
+    write_configuration(
+        path,
+        {
+            "calibration": {
+                "objective": {
+                    "focus_position": focus_position,
+                    "limit_position": limit_position,
+                }
+            }
+        },
+    )
 
 
 def _plain(value):
