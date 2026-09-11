@@ -375,15 +375,6 @@ class FMOverviewSettingsWidget(QWidget):
 
     # ── value ────────────────────────────────────────────────────────────
 
-    def set_channel_names(self, names: List[str]) -> None:
-        current = self.combo_autofocus_channel.value()
-        self.combo_autofocus_channel.blockSignals(True)
-        self.combo_autofocus_channel.clear()
-        self.combo_autofocus_channel.add_values(list(names))
-        if current in names:
-            self.combo_autofocus_channel.set_value(current)
-        self.combo_autofocus_channel.blockSignals(False)
-
     def set_channel_settings(self, channels: List[ChannelSettings]) -> None:
         """Keep the focus-channel choices in step with the channels being acquired."""
         self.autofocus_widget.update_channels(list(channels))
