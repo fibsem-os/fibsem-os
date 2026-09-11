@@ -477,6 +477,11 @@ def setup_session(
     # set default image_settings path
     settings.image.path = session_path
 
+    # Remembered so a calibration action can write back to the file it came from.
+    microscope.configuration_path = str(
+        config_path if config_path is not None else cfg.DEFAULT_CONFIGURATION_PATH
+    )
+
     logging.info(f"Finished setup for session: {session}")
 
     return microscope, settings
@@ -633,6 +638,62 @@ def report_unrecognised_configuration_keys(config: dict, source: str = "") -> Li
             f"not read and will not save back: {', '.join(unknown)}"
         )
     return unknown
+
+
+def write_objective_calibration(
+    path: Union[str, Path],
+    focus_position: Optional[float],
+    limit_position: Optional[float],
+) -> None:
+    """Record the objective's calibration in the configuration file at *path*.
+
+    Touches `calibration.objective` and nothing else: the file is read, that one
+    block is replaced, and it is written back. The rest of the file -- including
+    whatever a person wrote there by hand -- is preserved at the parsed level. The
+    only writer of a calibration is a calibration action, which is what this is.
+    """
+    config = load_yaml(os.path.join(path)) or {}
+    config.setdefault("calibration", {})["objective"] = {
+        "focus_position": focus_position,
+        "limit_position": limit_position,
+    }
+    _write_configuration_file(path, config)
+
+
+def _plain(value):
+    """*value* with numpy scalars, tuples and numpy arrays as YAML-native types.
+
+    `yaml.safe_load` refuses a document that `yaml.dump` wrote a numpy scalar into
+    -- it comes out as a `!!python/object/apply:numpy...` tag -- so one instrument
+    value of the wrong type would leave a site with a configuration that no longer
+    loads. Everything written to the file goes through here first.
+    """
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if hasattr(value, "tolist"):  # numpy scalar or array
+        return _plain(value.tolist())
+    if isinstance(value, (bool, int, float, str)) or value is None:
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def _write_configuration_file(path: Union[str, Path], config: dict) -> None:
+    """Write a configuration dict to exactly *path*.
+
+    Not `save_yaml`: that forces a `.yaml` suffix, so a site whose file is
+    `site.yml` would get a sibling `site.yaml` written and its own file left
+    untouched; it sorts keys, which turns the sections into alphabetical order;
+    and it uses the unsafe dumper, which writes numpy scalars as tags that
+    `safe_load` cannot read back.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        yaml.safe_dump(_plain(config), f, sort_keys=False, indent=4)
 
 
 def load_protocol(protocol_path: Path = None) -> dict:
