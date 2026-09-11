@@ -103,3 +103,74 @@ def test_list_widget_removes_by_identity_not_equality():
     assert lw.coordinates == [twin_a]
     assert lw.coordinates[0] is twin_a
     lw.close()
+
+
+# ── FIB-965: which row is selected after a removal ───────────────────────
+
+
+def _list_with(n: int) -> CoordinateListWidget:
+    lw = CoordinateListWidget(point_type=PointType.FIB)
+    lw.coordinates = [
+        Coordinate(PointXYZ(10 * i, 10 * i, 0), PointType.FIB) for i in range(n)
+    ]
+    return lw
+
+
+def test_remove_coordinate_selects_the_neighbour_and_emits_nothing():
+    lw = _list_with(5)
+    coords = lw.coordinates
+    lw.select_coordinate_silent(coords[3])
+    emitted = []
+    lw.coordinate_selected.connect(lambda c: emitted.append(("selected", c)))
+    lw.coordinate_removed.connect(lambda c: emitted.append(("removed", c)))
+
+    assert lw.remove_coordinate(coords[3]) is True
+
+    assert lw.coordinates == [coords[0], coords[1], coords[2], coords[4]]
+    assert lw.selected_coordinate is coords[4]
+    assert emitted == []
+    lw.close()
+
+
+def test_remove_coordinate_of_the_last_row_selects_the_new_last():
+    lw = _list_with(3)
+    coords = lw.coordinates
+    lw.remove_coordinate(coords[2])
+    assert lw.selected_coordinate is coords[1]
+    assert lw.remove_coordinate(coords[2]) is False  # already gone
+    lw.close()
+
+
+def test_trash_button_emits_the_removal_before_the_new_selection():
+    lw = _list_with(3)
+    coords = lw.coordinates
+    order = []
+    lw.coordinate_removed.connect(lambda c: order.append(("removed", c)))
+    lw.coordinate_selected.connect(lambda c: order.append(("selected", c)))
+
+    lw._on_remove(coords[0])
+
+    assert order == [("removed", coords[0]), ("selected", coords[1])]
+    lw.close()
+
+
+def test_canvas_delete_in_the_tab_widget_selects_the_neighbour_not_row_1():
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
+        CorrelationTabWidget,
+    )
+
+    tab = CorrelationTabWidget()
+    spec = tab._point_specs[PointType.FIB]
+    spec.list_widget.coordinates = [
+        Coordinate(PointXYZ(10 * i, 10 * i, 0), PointType.FIB) for i in range(5)
+    ]
+    coords = spec.list_widget.coordinates
+    tab._refresh_canvas(spec.adapter)
+    spec.list_widget.select_coordinate_silent(coords[3])
+
+    tab._on_canvas_removed(coords[3])  # what the canvas's Delete key reaches
+
+    assert spec.list_widget.coordinates == [coords[0], coords[1], coords[2], coords[4]]
+    assert spec.list_widget.selected_coordinate is coords[4]
+    assert spec.adapter._surface.picking.points.selected_coordinate() is coords[4]
+    tab.close()

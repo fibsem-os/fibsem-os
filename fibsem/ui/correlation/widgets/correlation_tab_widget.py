@@ -3014,12 +3014,13 @@ class CorrelationTabWidget(QWidget):
 
     def _on_canvas_removed(self, coord: Coordinate) -> None:
         spec = self._point_specs[coord.point_type]
-        spec.list_widget.coordinates = [
-            c for c in spec.list_widget.coordinates if c is not coord
-        ]
+        # Through the list's own removal, so the neighbour ends up selected, the
+        # same as the row's trash button. Assigning `coordinates` selects row 1.
+        spec.list_widget.remove_coordinate(coord)
         if spec.on_cleared is not None and not spec.list_widget.coordinates:
             spec.on_cleared()
         self._refresh_canvas(spec.adapter)
+        self._select_only(spec, spec.list_widget.selected_coordinate)
         self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
 
@@ -3079,6 +3080,7 @@ class CorrelationTabWidget(QWidget):
         if spec.on_cleared is not None and not spec.list_widget.coordinates:
             spec.on_cleared()
         self._refresh_canvas(spec.adapter)
+        self._select_only(spec, spec.list_widget.selected_coordinate)
         self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
 
