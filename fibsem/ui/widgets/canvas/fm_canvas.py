@@ -16,9 +16,10 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QPoint, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt5.QtWidgets import (
+    QApplication,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -102,6 +103,8 @@ QFrame#channelRow {{ border-radius: 7px; background: transparent; }}
 QFrame#channelRow:hover {{ background: {ROW_ALT_COLOR}; }}
 QFrame#channelRow[selected="true"] {{ background: {BORDER_COLOR}; }}
 QToolButton#eyeBtn {{ border: none; background: transparent; padding: 0; }}
+QToolButton#closeBtn {{ border: none; background: transparent; border-radius: 9px; padding: 0; }}
+QToolButton#closeBtn:hover {{ background: {BORDER_COLOR}; }}
 #chName {{ color: {TEXT_STRONG_COLOR}; font-size: 13px; }}
 QComboBox {{ background: {PANEL_COLOR}; color: {TEXT_STRONG_COLOR}; border: 1px solid {BORDER_COLOR};
             border-radius: 6px; padding: 4px 8px; font-size: 12px; }}
@@ -316,6 +319,8 @@ class FMCanvasWidget(QWidget):
 
         self._panel = FMLayersPanel(self)
         self._panel.changed.connect(self._restyle)
+        self._panel.moved.connect(self._on_panel_moved)
+        self._panel.close_requested.connect(self._close_layers_panel)
         self._panel.hide()
 
     # ── public API ────────────────────────────────────────────────────────
@@ -654,16 +659,43 @@ class FMCanvasWidget(QWidget):
         else:
             self._panel.hide()
 
+    # Where the user last dragged the panel to, as an offset from the canvas's
+    # top-right corner. Class-level on purpose: the correlation dialog builds a fresh
+    # FM canvas per site, and the panel should reopen where it was left, not snap
+    # back to the corner every site. None = never moved = the default spot.
+    _panel_offset: Optional[QPoint] = None
+
+    def _panel_anchor(self) -> QPoint:
+        """The canvas's top-right corner in global coordinates (the toolbar lives there)."""
+        return self.canvas.mapToGlobal(QPoint(self.canvas.width() - 8, 44))
+
     def _position_panel(self) -> None:
         self._panel.adjustSize()
-        # top-level window → anchor near the canvas top-right in global coordinates
-        anchor = self.canvas.mapToGlobal(QPoint(self.canvas.width() - 8, 44))
-        self._panel.move(anchor.x() - self._panel.width(), anchor.y())
+        anchor = self._panel_anchor()
+        if FMCanvasWidget._panel_offset is None:
+            pos = QPoint(anchor.x() - self._panel.width(), anchor.y())
+        else:
+            pos = anchor + FMCanvasWidget._panel_offset
+        self._panel.move(_clamp_to_screen(pos, self._panel.size(), anchor))
+
+    def _on_panel_moved(self) -> None:
+        FMCanvasWidget._panel_offset = self._panel.pos() - self._panel_anchor()
+
+    def _close_layers_panel(self) -> None:
+        self._panel.hide()
+        self._btn_layers.setChecked(False)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if self._panel.isVisible():
             self._position_panel()
+
+    def hideEvent(self, event) -> None:
+        # The panel is a top-level tool window, so it does not go away with this
+        # widget on its own: closing the correlation dialog for one site left it
+        # floating over whatever came next (FIB-962).
+        self._close_layers_panel()
+        super().hideEvent(event)
 
 
 class FMRealSpaceCanvasWidget(FMCanvasWidget):
@@ -1010,12 +1042,29 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         self._pixel_size = pixel_size
 
 
+def _clamp_to_screen(pos: QPoint, size: QSize, near: QPoint) -> QPoint:
+    """Keep a top-level panel fully on the screen that holds *near*.
+
+    A remembered offset can point off-screen once the window moves to a smaller
+    display, and a frameless window with its header off-screen cannot be dragged back.
+    """
+    screen = QApplication.screenAt(near) or QApplication.primaryScreen()
+    if screen is None:
+        return pos
+    avail: QRect = screen.availableGeometry()
+    x = min(max(pos.x(), avail.left()), avail.right() - size.width() + 1)
+    y = min(max(pos.y(), avail.top()), avail.bottom() - size.height() + 1)
+    return QPoint(x, y)
+
+
 class FMLayersPanel(QFrame):
     """Floating per-channel controls — a dark channel list (eye toggle + colour chip
     + name) over a detail panel (colormap / opacity / gamma / contrast) for the
     selected channel. Emits :attr:`changed` whenever an edit needs a re-composite."""
 
     changed = pyqtSignal()
+    moved = pyqtSignal()  # the user finished dragging the panel somewhere
+    close_requested = pyqtSignal()  # the × in the header
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -1023,6 +1072,8 @@ class FMLayersPanel(QFrame):
         # matplotlib canvas, and as a child widget its native sliders were forced
         # to repaint (and flicker) on every canvas redraw during a slider drag.
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        # Cursor-to-window offset while the header is being dragged; None otherwise.
+        self._drag_origin: Optional[QPoint] = None
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName("fmPanel")
         self.setStyleSheet(_PANEL_QSS)
@@ -1053,7 +1104,29 @@ class FMLayersPanel(QFrame):
         header.addWidget(hicon)
         header.addWidget(title)
         header.addStretch()
-        root.addLayout(header)
+        grip = QLabel()
+        grip.setToolTip("Drag to move")
+        grip.setPixmap(
+            fibsem_icon("mdi:drag-horizontal-variant", color=TEXT_MUTED_COLOR).pixmap(
+                QSize(16, 16)
+            )
+        )
+        header.addWidget(grip)
+        self._btn_close = QToolButton()
+        self._btn_close.setObjectName("closeBtn")
+        self._btn_close.setToolTip("Close")
+        self._btn_close.setIcon(fibsem_icon("mdi:close", color=TEXT_MUTED_COLOR))
+        self._btn_close.setIconSize(QSize(14, 14))
+        self._btn_close.setFixedSize(18, 18)
+        self._btn_close.setCursor(Qt.PointingHandCursor)
+        self._btn_close.clicked.connect(self.close_requested)
+        header.addWidget(self._btn_close)
+        # The whole header row is the drag handle; kept as a widget so the mouse
+        # handlers below can tell a drag from a click on the controls beneath it.
+        self._header = QWidget()
+        self._header.setLayout(header)
+        self._header.setCursor(Qt.OpenHandCursor)
+        root.addWidget(self._header)
         root.addSpacing(12)
 
         # channel list
@@ -1144,6 +1217,34 @@ class FMLayersPanel(QFrame):
         self.btn_reset.setCursor(Qt.PointingHandCursor)
         self.btn_reset.clicked.connect(self._on_reset)
         root.addWidget(self.btn_reset)
+
+    # ── drag to move ──────────────────────────────────────────────────────
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._header.geometry().contains(
+            event.pos()
+        ):
+            self._drag_origin = event.globalPos() - self.frameGeometry().topLeft()
+            self._header.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._drag_origin is not None:
+            self.move(event.globalPos() - self._drag_origin)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._drag_origin is not None:
+            self._drag_origin = None
+            self._header.setCursor(Qt.OpenHandCursor)
+            self.moved.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def _slider_row(self, root, label: str, lo: int, hi: int, val: int):
         head = QHBoxLayout()
