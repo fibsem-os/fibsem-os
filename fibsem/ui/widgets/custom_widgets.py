@@ -866,8 +866,10 @@ class TaskNameListWidget(QWidget):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         outer.addWidget(self._list)
 
-        # Per-task status chips, by task name; reapplied when the list repopulates.
+        # Per-task status chips and tooltips, by task name; reapplied when the
+        # list repopulates.
         self._states: Dict[str, Tuple[str, str]] = {}
+        self._tooltips: Dict[str, str] = {}
 
         # Wire signals
         self._list.itemSelectionChanged.connect(
@@ -934,6 +936,16 @@ class TaskNameListWidget(QWidget):
         self._list.blockSignals(False)
         if self._states:
             self.set_task_states(self._states)
+        if self._tooltips:
+            self.set_task_tooltips(self._tooltips)
+
+    def set_task_tooltips(self, tooltips: Mapping[str, str]) -> None:
+        """A tooltip per named row. The row itself stays plain text: what a task is
+        and how the workflow runs it are read here, edited elsewhere."""
+        self._tooltips = dict(tooltips)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            item.setToolTip(self._tooltips.get(item.text(), ""))
 
     def select(self, name: str) -> None:
         """Select the item with the given name (exact match)."""
