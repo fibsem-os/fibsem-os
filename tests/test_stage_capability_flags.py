@@ -5,9 +5,15 @@ were not. `rotation` distinguishes the two mountings this project drives -- it i
 `rotation_180` is derived from (FIB-834) -- while `tilt` had one reachable value, was
 read by nothing, and existed only as somewhere for a typo to sit.
 
-The tests below pin both halves of that: that nothing lost a capability it was using,
-and that the asymmetry with the *manipulator*, which keeps its own `tilt`, is deliberate
-rather than an edit that missed a line.
+The manipulator's identically-spelled `rotation` and `tilt` have since followed the
+stage's out of the files, for a different reason: they said `false` everywhere, which
+is the default, and the axes an arm has are the instrument's to report. What used to
+be an asymmetry worth asserting is now a shared rule, and the hazard it guarded -- a
+manipulator quietly given an axis it does not have -- moved from the file to the
+default.
+
+The tests below pin that nothing lost a capability it was using, and that nothing
+gains one it never had.
 """
 
 import os
@@ -21,7 +27,11 @@ from fibsem.microscopes.simulator import (
     STAGE_LIMITS_COMPUSTAGE,
     STAGE_LIMITS_DEFAULT,
 )
-from fibsem.structures import StageSystemSettings, SystemSettings
+from fibsem.structures import (
+    ManipulatorSystemSettings,
+    StageSystemSettings,
+    SystemSettings,
+)
 
 # Named rather than globbed. `fibsem/config/*.yaml` is gitignored with an allowlist
 # for the shipped files, so a configuration the developer saved from the wizard sits
@@ -51,17 +61,28 @@ def test_no_shipped_file_states_a_stage_capability(filename: str, key: str):
 
 @pytest.mark.parametrize("filename", CONFIGS)
 @pytest.mark.parametrize("key", ["tilt", "rotation"])
-def test_the_manipulator_keeps_its_own(filename: str, key: str):
-    """The asymmetry is the point, so it is asserted rather than left to be noticed.
+def test_no_shipped_file_states_a_manipulator_capability(filename: str, key: str):
+    """The manipulator's keys have now followed the stage's out of the files.
 
-    A manipulator that cannot tilt is an ordinary manipulator; a stage that cannot tilt
-    is not a stage this project drives. The two blocks spell these keys the same and
-    mean different things, which is exactly how a scoped edit goes wrong -- a line
-    removed from the wrong block would silently give every manipulator an axis it does
-    not have, and no other test in the suite would notice.
+    They said `false` in all eight, which is the dataclass default, so removing them
+    changed no instrument's behaviour -- and a manipulator's axes are the
+    instrument's to report, not a file's to restate.
     """
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
-    assert key in config["manipulator"]
+    assert key not in config["manipulator"]
+
+
+@pytest.mark.parametrize("key", ["tilt", "rotation"])
+def test_a_manipulator_does_not_gain_an_axis_by_default(key: str):
+    """What the removed keys were holding down.
+
+    The two blocks spell these keys the same and mean different things, which is how a
+    scoped edit goes wrong: a manipulator quietly given an axis it does not have.
+    While the files said `false` that was safe by restatement; now it is safe by
+    default, and this is the test that says so. `False` is the only correct default --
+    an axis assumed present is a move the hardware will refuse.
+    """
+    assert getattr(ManipulatorSystemSettings.from_dict({}), key) is False
 
 
 @pytest.mark.parametrize(
@@ -101,7 +122,6 @@ def test_a_stored_stage_tilt_is_ignored_rather_than_rejected():
         {
             "rotation_reference": 0.0,
             "shuttle_pre_tilt": 35.0,
-            "manipulator_height_limit": 0.0037,
             "tilt": False,
         }
     )
