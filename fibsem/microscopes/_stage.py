@@ -598,8 +598,8 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
     holder = SampleHolder.load(path)
     if migrating:
         logging.info(
-            f"Imported sample holder '{holder.name}' from {path} into the microscope "
-            "configuration. Save the configuration to keep it there."
+            f"Imported sample holder '{holder.name}' from {path} for this session. "
+            "The file is not written back; it is imported again at every connect."
         )
     # Selected either way, so a session that saves its configuration records which
     # holder it was actually using rather than an empty selection.
