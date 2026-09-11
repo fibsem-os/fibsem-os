@@ -26,13 +26,10 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import QCollapsible
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.ui.widgets.custom_widgets import TitledPanel, align_form
 from fibsem.ui.widgets.form_builder import Control, FormDefaults, build_control
-from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
 # What this form falls back to for keys a field does not declare. These are the
 # bounds and precision it already had hardcoded; passing them keeps the form
@@ -120,155 +117,11 @@ def build_parameter_rows(
     return rows
 
 
-class AutoLamellaTaskConfigWidget(QWidget):
-    """Widget for configuring AutoLamella task parameters."""
-
-    config_changed = pyqtSignal(AutoLamellaTaskConfig)
-
-    def __init__(
-        self,
-        task_config: Optional[AutoLamellaTaskConfig] = None,
-        parent: Optional[QWidget] = None,
-    ):
-        super().__init__(parent)
-        self.task_config = task_config
-        self._rows: List[_Row] = []
-        self._advanced_visible = False
-        self.milling_task_widget: MillingTaskViewerWidget
-
-        self._setup_ui()
-        if self.task_config:
-            self._update_from_config()
-
-    def _setup_ui(self):
-        """Create and configure all UI elements."""
-        self.main_layout = QVBoxLayout()
-        self.setLayout(self.main_layout)
-
-        # Create collapsible section for task parameters
-        self.task_params_collapsible = QCollapsible("Task Parameters", self)
-
-        # Create content widget for parameters
-        self.params_widget = QWidget()
-        self.grid_layout = QGridLayout(self.params_widget)
-        align_form(self.grid_layout)
-
-        self.task_params_collapsible.addWidget(self.params_widget)
-
-        # Create collapsible section for milling parameters
-        self.milling_params_collapsible = QCollapsible("Milling Task Parameters", self)
-
-        # initialise milling_task_widget
-        microscope, settings = (
-            utils.setup_session()
-        )  # TODO: pass in from the parent if available...
-        self.milling_task_widget = MillingTaskViewerWidget(
-            microscope=microscope,
-            milling_enabled=False,
-            parent=self,
-        )
-        self.milling_task_widget.setMinimumHeight(600)
-        self.milling_params_collapsible.addWidget(self.milling_task_widget)
-
-        self.main_layout.addWidget(self.task_params_collapsible)  # type: ignore
-        self.main_layout.addWidget(self.milling_params_collapsible)  # type: ignore
-
-        # Connect milling widget signals
-        self.milling_task_widget.settings_changed.connect(
-            self._on_milling_config_updated
-        )
-
-        self.main_layout.addStretch()
-
-    def set_task_config(self, task_config: Optional[AutoLamellaTaskConfig]):
-        """Set the task configuration to edit."""
-        self.task_config = task_config
-        self._update_from_config()
-
-    def _update_from_config(self):
-        """Update the UI from the current task configuration."""
-        if not self.task_config:
-            return
-
-        self._clear_form()
-
-        if self.task_config.parameters:
-            self._rows = build_parameter_rows(self.task_config, self.grid_layout)
-            for row in self._rows:
-                # A read-only row displays a value it cannot reconstruct; wiring
-                # it up would let a focus-out write the displayed text back.
-                if row.control.editable:
-                    row.control.connect(
-                        lambda name=row.field: self._on_parameter_changed(name)
-                    )
-            self._update_visibility()
-            self.task_params_collapsible.show()
-        else:
-            self.task_params_collapsible.hide()
-
-        # Show/hide milling parameters section
-        if self.task_config.milling:
-            self._current_milling_key = next(iter(self.task_config.milling))
-            self.milling_task_widget.set_config(
-                self.task_config.milling[self._current_milling_key]
-            )
-            self.milling_params_collapsible.show()
-        else:
-            self._current_milling_key = None
-            self.milling_task_widget.clear()
-            self.milling_params_collapsible.hide()
-
-    def _update_visibility(self) -> None:
-        for row in self._rows:
-            visible = (not row.advanced) or self._advanced_visible
-            row.label.setVisible(visible)
-            row.control.widget.setVisible(visible)
-
-    def set_advanced_visible(self, show: bool) -> None:
-        self._advanced_visible = show
-        self._update_visibility()
-
-    def _on_parameter_changed(self, field_name: str):
-        """Handle parameter value changes."""
-        row = next((r for r in self._rows if r.field == field_name), None)
-        if row is None or not row.control.editable:
-            return
-        setattr(self.task_config, field_name, row.control.read())
-        self.config_changed.emit(self.task_config)
-
-    def _on_milling_config_updated(self, milling_config):
-        """Handle milling task config updates."""
-        if self.task_config and hasattr(self.task_config, "milling"):
-            key = getattr(self, "_current_milling_key", None)
-            if key and self.task_config.milling is not None:
-                self.task_config.milling[key] = milling_config
-
-            # Emit change signal
-            self.config_changed.emit(self.task_config)
-
-    def _clear_form(self):
-        """Clear all widgets from the grid layout.
-
-        Rows are dropped BEFORE the widgets are removed: if Qt moves focus
-        during removal, a re-entrant rebuild would iterate self._rows and touch
-        already-deleted C++ wrappers.
-        """
-        self._rows = []
-        while self.grid_layout.count():
-            child = self.grid_layout.takeAt(0)
-            if child and child.widget():
-                child.widget().setParent(None)
-
-    def get_task_config(self) -> Optional[AutoLamellaTaskConfig]:
-        """Get the current task configuration."""
-        return self.task_config
-
-
 class AutoLamellaTaskParametersConfigWidget(QWidget):
     """The task parameters on their own, in a titled panel.
 
-    Same rows as AutoLamellaTaskConfigWidget, without the milling and reference
-    imaging sections -- used where those are shown elsewhere.
+    The milling and reference imaging sections are separate widgets, laid out
+    beside this one by the Protocol and Lamella tabs.
     """
 
     config_changed = pyqtSignal(AutoLamellaTaskConfig)
@@ -377,10 +230,10 @@ if __name__ == "__main__":
     app = QApplication.instance() or QApplication([])
     windows = []
     for config, title in (
-        (test_config, "AutoLamella Task Config Widget Test"),
+        (test_config, "AutoLamella Task Parameters Widget Test"),
         (acquire_config, acquire_config.task_name),
     ):
-        widget = AutoLamellaTaskConfigWidget(config)
+        widget = AutoLamellaTaskParametersConfigWidget(config)
         widget.config_changed.connect(lambda config: print(f"Config changed: {config}"))
         widget.setWindowTitle(title)
         widget.show()
