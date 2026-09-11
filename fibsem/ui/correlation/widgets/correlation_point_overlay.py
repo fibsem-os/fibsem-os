@@ -35,6 +35,7 @@ reordering. Index bookkeeping on removal — including shifting ``_selected`` �
 stays in the base, which is precisely the part a translation layer would have
 had to reimplement.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -57,17 +58,17 @@ if TYPE_CHECKING:
 # rather than to match the app palette — the same reasoning that keeps the
 # NEUTRAL_* ramp out of the tinted tokens.
 POINT_COLORS: Dict[PointType, str] = {
-    PointType.FIB:        "#00ff00",
-    PointType.FM:         "#00e5ff",
-    PointType.POI:        "#ff00ff",
-    PointType.SURFACE:    ORANGE_COLOR,
+    PointType.FIB: "#00ff00",
+    PointType.FM: "#00e5ff",
+    PointType.POI: "#ff00ff",
+    PointType.SURFACE: ORANGE_COLOR,
     PointType.SURFACE_FM: "#ffea00",
 }
 POINT_MARKERS: Dict[PointType, str] = {
-    PointType.FIB:        "o",
-    PointType.FM:         "o",
-    PointType.POI:        "o",
-    PointType.SURFACE:    "+",
+    PointType.FIB: "o",
+    PointType.FM: "o",
+    PointType.POI: "o",
+    PointType.SURFACE: "+",
     PointType.SURFACE_FM: "+",
 }
 MARKER_SIZE = 5.0  # the base draws the selected marker at size * 1.4 = 7.0
@@ -110,7 +111,8 @@ def legend_handle(
 
     edge_color, edge_width = marker_edge(color, marker, hollow)
     return Line2D(
-        [], [],
+        [],
+        [],
         marker=marker,
         markersize=7,
         color=color,
@@ -143,7 +145,7 @@ class CorrelationPointOverlay(PointOverlay):
     # ones still fire; consumers here should use these.
     coordinate_selected = pyqtSignal(object)  # Coordinate
     coordinate_moved = pyqtSignal(object)  # Coordinate (drag finished)
-    coordinate_removed = pyqtSignal(object)  # Coordinate (before removal)
+    coordinate_removed = pyqtSignal(object)  # Coordinate (emitted after removal)
     # The view decides which PointType a new point gets (it owns the menu), so
     # the overlay only reports where the user asked for one.
     add_requested = pyqtSignal(float, float)  # x, y
@@ -160,7 +162,6 @@ class CorrelationPointOverlay(PointOverlay):
         self._surface_coord: Optional[Coordinate] = None
         self.point_selected.connect(self._emit_selected)
         self.point_moved.connect(self._emit_moved)
-        self.point_removed.connect(self._emit_removed)
 
     # ── model ─────────────────────────────────────────────────────────────
 
@@ -196,7 +197,9 @@ class CorrelationPointOverlay(PointOverlay):
 
     def selected_coordinate(self) -> Optional[Coordinate]:
         idx = self._selected
-        return self._coords[idx] if idx is not None and idx < len(self._coords) else None
+        return (
+            self._coords[idx] if idx is not None and idx < len(self._coords) else None
+        )
 
     def set_selected_coordinate(self, coord: Optional[Coordinate]) -> None:
         """Select by identity. Silent, like the base's ``set_selected``."""
@@ -223,12 +226,15 @@ class CorrelationPointOverlay(PointOverlay):
     def remove_point(self, index: int) -> None:
         if index < 0 or index >= len(self._coords):
             return
-        # super() emits point_removed(index) before it pops, so _emit_removed can
-        # still read _coords[index]; pop only once it returns.
-        super().remove_point(index)
-        self._coords.pop(index)
+        # Pop our side first so _coords stays index-aligned with the base's
+        # _points while super() redraws, then announce the Coordinate only once
+        # the overlay is fully consistent: the tab widget answers by rebuilding
+        # us from its model, which must not race a half-finished removal.
+        coord = self._coords.pop(index)
         self._names = generate_names(self._coords)
+        super().remove_point(index)
         self._refresh_chrome()
+        self.coordinate_removed.emit(coord)
 
     def clear_points(self) -> None:
         super().clear_points()
@@ -454,10 +460,6 @@ class CorrelationPointOverlay(PointOverlay):
         coord.point.x, coord.point.y = float(x), float(y)
         self.coordinate_moved.emit(coord)
 
-    def _emit_removed(self, idx: int) -> None:
-        if idx < len(self._coords):
-            self.coordinate_removed.emit(self._coords[idx])
-
     def _refresh_chrome(self) -> None:
         """Re-derive the labels and the legend after the coordinate set changes.
 
@@ -634,7 +636,8 @@ class CorrelationResultOverlay(CanvasOverlay):
         edge_color, edge_width = marker_edge(group.color, group.marker, group.hollow)
         for i, (x, y) in enumerate(group.points, start=1):
             (line,) = self._ax.plot(
-                x, y,
+                x,
+                y,
                 marker=group.marker,
                 markersize=group.size,
                 color=group.color,
