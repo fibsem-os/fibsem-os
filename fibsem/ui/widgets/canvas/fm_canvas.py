@@ -694,8 +694,21 @@ class FMCanvasWidget(QWidget):
         # The panel is a top-level tool window, so it does not go away with this
         # widget on its own: closing the correlation dialog for one site left it
         # floating over whatever came next (FIB-962).
-        self._close_layers_panel()
         super().hideEvent(event)
+        # Also reached from C++ while a parent window is being destroyed: Qt hides
+        # the children first. When that destruction is a Python garbage-collection
+        # pass, this wrapper's instance dict may already have been cleared, and an
+        # exception raised inside a Qt virtual is fatal under PyQt5 (the process
+        # aborts). So look the attributes up tolerantly and never raise here.
+        panel = self.__dict__.get("_panel")
+        button = self.__dict__.get("_btn_layers")
+        if panel is None or button is None:
+            return
+        try:
+            panel.hide()
+            button.setChecked(False)
+        except RuntimeError:  # wrapped C/C++ object already deleted
+            pass
 
 
 class FMRealSpaceCanvasWidget(FMCanvasWidget):
