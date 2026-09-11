@@ -1311,13 +1311,13 @@ class BeamSettings:
         current = state_dict.get("beam_current", state_dict.get("current", None))
 
         beam_settings = BeamSettings(
-            beam_type=BeamType[state_dict["beam_type"].upper()],
+            beam_type=BeamType[state_dict.get("beam_type", "ELECTRON").upper()],
             working_distance=wd,
             beam_current=current,
-            voltage=state_dict["voltage"],
-            hfw=state_dict["hfw"],
-            resolution=state_dict["resolution"],
-            dwell_time=state_dict["dwell_time"],
+            voltage=state_dict.get("voltage"),
+            hfw=state_dict.get("hfw"),
+            resolution=state_dict.get("resolution"),
+            dwell_time=state_dict.get("dwell_time"),
             stigmation=stigmation,
             shift=shift,
             scan_rotation=state_dict.get("scan_rotation", 0.0),
@@ -2183,6 +2183,20 @@ class StageDeviceSettings:
 # per-device windows are how it happened.
 DEFAULT_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
 
+# The ion column's angle from the electron column, in degrees. A property of the
+# instrument rather than a preference, and the same on every dual-beam this supports,
+# which is why a file that omits it can still be read correctly. Declared once because
+# it is read in two places -- the config reader and the geometry recorded on an image
+# -- and they must not be able to disagree about it.
+DEFAULT_FIB_COLUMN_TILT: float = 52.0
+
+# The version of the microscope configuration file format. Written by
+# `MicroscopeSettings.to_dict` and stated by every shipped file. Nothing branches on
+# it yet: it exists because a format change cannot migrate a file that does not say
+# what format it is, and the field cannot be added retrospectively -- a file without
+# it is indistinguishable from one written before it existed.
+CONFIGURATION_VERSION: int = 1
+
 # **The default is the objective under the grid**: the FM shares the beams' origin, and
 # is told apart by the pose the sample is held in. A site whose objective is offset --
 # piescope, METEOR, iFLM, all in the TFS SDB chamber -- declares the traverse instead,
@@ -2292,9 +2306,9 @@ class StageSystemSettings:
         # stored value that disagrees with the derivation is a value someone typed
         # wrong, and reading it back would preserve the mistake.
         return StageSystemSettings(
-            rotation_reference=settings["rotation_reference"],
-            shuttle_pre_tilt=settings["shuttle_pre_tilt"],
-            manipulator_height_limit=settings["manipulator_height_limit"],
+            rotation_reference=settings.get("rotation_reference", 0.0),
+            shuttle_pre_tilt=settings.get("shuttle_pre_tilt", 0.0),
+            manipulator_height_limit=settings.get("manipulator_height_limit", 0.0037),
             enabled=settings.get("enabled", True),
             rotation=settings.get("rotation", True),
             milling_angle=settings.get("milling_angle", 15.0),
@@ -2348,13 +2362,25 @@ class BeamSystemSettings:
 
     @staticmethod
     def from_dict(settings: dict) -> "BeamSystemSettings":
+        beam_type = BeamType[settings.get("beam_type", "ELECTRON")]
+
+        # The default depends on which column this is, so it cannot be a single
+        # number: an absent electron column tilt is 0, an absent ion column tilt is
+        # not. Taken from `FibsemHardwareGeometry`, which already declares both --
+        # the alternative is two independent defaults for one physical constant,
+        # which is how a config missing its `ion:` block came to load with a 52
+        # degree column recorded as 0.
+        default_column_tilt = (
+            DEFAULT_FIB_COLUMN_TILT if beam_type is BeamType.ION else 0.0
+        )
+
         return BeamSystemSettings(
-            beam_type=BeamType[settings["beam_type"]],
-            enabled=settings["enabled"],
+            beam_type=beam_type,
+            enabled=settings.get("enabled", True),
             beam=BeamSettings.from_dict(settings),
             detector=FibsemDetectorSettings.from_dict(settings),
-            eucentric_height=settings["eucentric_height"],
-            column_tilt=settings["column_tilt"],
+            eucentric_height=settings.get("eucentric_height", 0.0),
+            column_tilt=settings.get("column_tilt", default_column_tilt),
             plasma=settings.get("plasma", False),
             plasma_gas=settings.get("plasma_gas", None),
         )
@@ -2376,9 +2402,9 @@ class ManipulatorSystemSettings:
     @staticmethod
     def from_dict(settings: dict):
         return ManipulatorSystemSettings(
-            enabled=settings["enabled"],
-            rotation=settings["rotation"],
-            tilt=settings["tilt"],
+            enabled=settings.get("enabled", True),
+            rotation=settings.get("rotation", False),
+            tilt=settings.get("tilt", False),
         )
 
 
@@ -2399,9 +2425,9 @@ class GISSystemSettings:
     @staticmethod
     def from_dict(settings: dict):
         return GISSystemSettings(
-            enabled=settings["enabled"],
-            multichem=settings["multichem"],
-            sputter_coater=settings["sputter_coater"],
+            enabled=settings.get("enabled", False),
+            multichem=settings.get("multichem", False),
+            sputter_coater=settings.get("sputter_coater", False),
         )
 
 
@@ -2538,17 +2564,25 @@ class SystemSettings:
     @staticmethod
     def from_dict(settings: dict):
 
-        # TODO: remove this once the settings are updated
-        settings["electron"]["beam_type"] = BeamType.ELECTRON.name
-        settings["ion"]["beam_type"] = BeamType.ION.name
+        # A missing *section* defaults like a missing field. A configuration that
+        # drops a block it does not need -- no GIS, no manipulator -- is a
+        # configuration, not a corrupt file, and this is what lets a key be removed
+        # from the shipped files without every existing one raising `KeyError` at
+        # load.
+        electron = dict(settings.get("electron") or {})
+        ion = dict(settings.get("ion") or {})
+        electron["beam_type"] = BeamType.ELECTRON.name
+        ion["beam_type"] = BeamType.ION.name
 
         return SystemSettings(
-            stage=StageSystemSettings.from_dict(settings["stage"]),
-            electron=BeamSystemSettings.from_dict(settings["electron"]),
-            ion=BeamSystemSettings.from_dict(settings["ion"]),
-            manipulator=ManipulatorSystemSettings.from_dict(settings["manipulator"]),
-            gis=GISSystemSettings.from_dict(settings["gis"]),
-            info=SystemInfo.from_dict(settings["info"]),
+            stage=StageSystemSettings.from_dict(settings.get("stage") or {}),
+            electron=BeamSystemSettings.from_dict(electron),
+            ion=BeamSystemSettings.from_dict(ion),
+            manipulator=ManipulatorSystemSettings.from_dict(
+                settings.get("manipulator") or {}
+            ),
+            gis=GISSystemSettings.from_dict(settings.get("gis") or {}),
+            info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
             # The same `fm:` block `MicroscopeSettings.from_dict` reads `config` from.
             # Two readers, one key each: this is the hardware fact, that is a path to
@@ -2663,7 +2697,8 @@ class FibsemHardwareGeometry:
     """
 
     column_tilt: float = 0.0  # electron column
-    fib_column_tilt: float = 52.0  # ion column; fixes the compustage FIB pose
+    # ion column; fixes the compustage FIB pose
+    fib_column_tilt: float = DEFAULT_FIB_COLUMN_TILT
     shuttle_pre_tilt: float = 0.0
     rotation_reference: float = 0.0
     rotation_180: float = 180.0
@@ -2710,7 +2745,7 @@ class FibsemHardwareGeometry:
         # point of the record is that such a file still loads.
         return cls(
             column_tilt=ddict.get("column_tilt", 0.0),
-            fib_column_tilt=ddict.get("fib_column_tilt", 52.0),
+            fib_column_tilt=ddict.get("fib_column_tilt", DEFAULT_FIB_COLUMN_TILT),
             shuttle_pre_tilt=ddict.get("shuttle_pre_tilt", 0.0),
             rotation_reference=ddict.get("rotation_reference", 0.0),
             rotation_180=ddict.get("rotation_180", 180.0),
@@ -2746,6 +2781,7 @@ class MicroscopeSettings:
 
     def to_dict(self) -> dict:
         settings_dict = {
+            "version": CONFIGURATION_VERSION,
             "imaging": self.image.to_dict(),
             "protocol": self.protocol,
             "milling": self.milling.to_dict(),
@@ -2776,9 +2812,9 @@ class MicroscopeSettings:
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),
-            image=ImageSettings.from_dict(settings["imaging"]),
+            image=ImageSettings.from_dict(settings.get("imaging") or {}),
             protocol=protocol,
-            milling=FibsemMillingSettings.from_dict(settings["milling"]),
+            milling=FibsemMillingSettings.from_dict(settings.get("milling") or {}),
             fm=fm_config,
         )
 
@@ -3164,10 +3200,12 @@ class FibsemImageMetadata:
         """Recover the geometry from a pre-v6 `system` blob.
 
         Read with `.get()` chains rather than by building a `SystemSettings` first.
-        That constructor is bracket-indexed throughout -- a blob missing any of
-        `stage`, `electron`, `ion`, `manipulator`, `gis` or `info` raises KeyError --
-        and inheriting that here would break exactly the old files this exists to
-        load. See `tests/test_metadata_fixtures.py`.
+        That constructor used to be bracket-indexed and raise on a blob missing any
+        block, which would have broken exactly the old files this exists to load; it
+        now defaults instead, so the two routes agree and the choice is no longer
+        load-bearing. The agreement is not free, though -- it holds because both
+        declare the FIB column tilt from one constant -- and
+        `tests/test_metadata_fixtures.py` pins it.
 
         Compustage is recovered the way the reprojection used to detect it, by model
         name, falling back to the simulator flag. That match is wrong -- a capability

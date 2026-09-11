@@ -1,3 +1,4 @@
+version: 1                                                  # configuration schema version
 info:
     name: sim-tfs-arctis-configuration               
     ip_address: 192.168.0.1                                 

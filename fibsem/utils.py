@@ -1,4 +1,5 @@
 import datetime
+import functools
 import glob
 import json
 import logging
@@ -7,7 +8,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Set, Tuple, Union
 
 import yaml
 from PIL import Image
@@ -501,6 +502,8 @@ def load_microscope_configuration(
     # load config
     config = load_yaml(os.path.join(config_path))
 
+    report_unrecognised_configuration_keys(config, source=str(config_path))
+
     # load protocol
     protocol = load_protocol(protocol_path)
 
@@ -508,6 +511,79 @@ def load_microscope_configuration(
     settings = MicroscopeSettings.from_dict(config, protocol=protocol)
 
     return settings
+
+
+# Keys a configuration may carry that this version reads for migration and never
+# writes back. Empty today. When a key moves house -- `stage.shuttle_pre_tilt` onto
+# the holder, the beam defaults into their own block -- the old spelling is still read
+# so existing files load, and is listed here so it is not reported as unrecognised.
+LEGACY_CONFIGURATION_KEYS: Set[str] = set()
+
+# Blocks accepted wholesale. `sim:` is a plain dict the simulator reads with `.get()`
+# rather than a dataclass, and `protocol:` is the application's; policing either would
+# invent warnings every time a backend gains a key.
+OPEN_CONFIGURATION_BLOCKS = ("sim", "protocol")
+
+
+@functools.lru_cache(maxsize=1)
+def written_configuration_keys() -> Set[str]:
+    """Every dotted path `MicroscopeSettings.to_dict` writes.
+
+    This *is* the schema. There is no hand-written table of known keys, because a
+    table is a second copy of what the writer does and the two drift: the first
+    attempt at one was written from the shipped YAML files and rejected 23 keys that
+    `to_dict` writes on every save. Derived from the writer, the set of keys that will
+    be saved back is by construction the set of keys that are saved back.
+
+    One level deep, blocks and their keys. A value that is itself a dict (`stage.devices`)
+    is accepted wholesale under its key.
+    """
+    written = MicroscopeSettings.from_dict({}).to_dict()
+    keys: Set[str] = set()
+    for block, value in written.items():
+        keys.add(block)
+        if isinstance(value, dict):
+            keys.update(f"{block}.{key}" for key in value)
+    return keys
+
+
+def unrecognised_configuration_keys(config: dict) -> List[str]:
+    """Dotted paths in *config* that this version will not write back.
+
+    A configuration may hold others -- one written before a key was removed, or
+    hand-edited with a guess -- and those are ignored, which is the contract that
+    lets old files keep working. But ignored *silently* is how
+    `imaging.imaging_current` came to be a setting a user could type, save, reload
+    and never see again: `ImageSettings` has no such field, so it was dropped on load
+    and nothing said so. One line at load is the difference between "my setting
+    vanished" and "my setting is not supported".
+    """
+    known = written_configuration_keys() | LEGACY_CONFIGURATION_KEYS
+    unknown: List[str] = []
+    for block, value in (config or {}).items():
+        if block in OPEN_CONFIGURATION_BLOCKS:
+            continue
+        if block not in known:
+            unknown.append(block)
+            continue
+        if not isinstance(value, dict):
+            continue
+        unknown.extend(
+            f"{block}.{key}" for key in value if f"{block}.{key}" not in known
+        )
+    return sorted(unknown)
+
+
+def report_unrecognised_configuration_keys(config: dict, source: str = "") -> List[str]:
+    """Log the keys this version ignores, once, and return them."""
+    unknown = unrecognised_configuration_keys(config)
+    if unknown:
+        where = f" in {source}" if source else ""
+        logging.info(
+            f"Configuration{where} contains {len(unknown)} key(s) this version does "
+            f"not read and will not save back: {', '.join(unknown)}"
+        )
+    return unknown
 
 
 def load_protocol(protocol_path: Path = None) -> dict:
