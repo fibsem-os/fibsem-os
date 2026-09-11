@@ -18,12 +18,6 @@ hardware:                                                   # what the instrumen
         column_tilt:                52                          # the column tilt of the electron beam                          [SPECIFIED]
         eucentric_height:           16.5e-3                     # the eucentric height of the ion beam                          [SPECIFIED]
         plasma_gas:                 null                        # the plasma gas for the ion beam (plasma fib only)             [USER]
-    manipulator:
-        enabled:                    true                        # manipulator is enabled                                        [USER]
-    gis:
-        enabled:                    true                        # gis is enabled                                                [USER]
-        multichem:                  false                        # multichem is enabled                                          [USER]
-        sputter_coater:             false                       # sputter coater is enabled                                     [USER]                        
 calibration:                                                # measured at this instrument
     shuttle_pre_tilt:           35.0                        # the pre-tilt of the shuttle                                   [SPECIFIED]
 defaults:                                                   # what a session starts from

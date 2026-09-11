@@ -2544,9 +2544,13 @@ class ManipulatorSystemSettings:
 
 @dataclass
 class GISSystemSettings:
-    enabled: bool
-    multichem: bool
-    sputter_coater: bool
+    # What is fitted is not in the configuration file. It is asked of the instrument
+    # where the backend can (AutoScript), and is the backend's own answer where it
+    # cannot -- see `FibsemMicroscope._read_hardware_capabilities`. These are the
+    # runtime record of that answer, and `is_available("gis")` reads them.
+    enabled: bool = False
+    multichem: bool = False
+    sputter_coater: bool = False
     inserted: bool = False
 
     def to_dict(self):
@@ -2726,12 +2730,14 @@ class SystemSettings:
         }
         return {
             "info": self.info.to_dict(),
+            # No `manipulator:` or `gis:`. What is fitted is the instrument's to
+            # report (or the backend's, where it cannot be asked), not a file's to
+            # state; a file that said so could describe hardware a site does not have,
+            # or omit hardware it does, and nothing would disagree.
             "hardware": {
                 "stage": stage,
                 "electron": electron,
                 "ion": ion,
-                "manipulator": self.manipulator.to_dict(),
-                "gis": self.gis.to_dict(),
                 "fm": self.fm.to_dict(),
             },
             "calibration": calibration,
@@ -2779,8 +2785,9 @@ class SystemSettings:
             stage=StageSystemSettings.from_dict(stage),
             electron=BeamSystemSettings.from_dict(electron),
             ion=BeamSystemSettings.from_dict(ion),
-            manipulator=ManipulatorSystemSettings.from_dict(block("manipulator")),
-            gis=GISSystemSettings.from_dict(block("gis")),
+            # Not read from the file: filled in at connect by the backend.
+            manipulator=ManipulatorSystemSettings(),
+            gis=GISSystemSettings(),
             info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
             fm=FluorescenceSystemSettings.from_dict(block("fm")),

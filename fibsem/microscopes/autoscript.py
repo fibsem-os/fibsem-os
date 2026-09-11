@@ -1854,6 +1854,41 @@ class ThermoMicroscope(FibsemMicroscope):
             view_tilt=self._beam_view_tilt(beam_type),
         )
 
+    # ---- fitted subsystems, as AutoScript reports them --------------------
+
+    #: For a probe that cannot say. Multichem is the exception on these instruments,
+    #: so it is the one assumed absent.
+    DEFAULT_FITTED = {
+        "manipulator": True,
+        "gis": True,
+        "gis_multichem": False,
+        "gis_sputter_coater": False,
+    }
+
+    def _probe_manipulator_installed(self) -> Optional[bool]:
+        """`specimen.manipulator.is_installed` -- documented, read-only, a bool."""
+        return bool(self.connection.specimen.manipulator.is_installed)
+
+    def _probe_gis_installed(self) -> Optional[bool]:
+        """A GIS is fitted when the instrument lists at least one port.
+
+        There is no `gas.is_installed`; the ports are the honest form of the question,
+        and they are what `get_available_values("gis_ports")` already reads.
+        """
+        return bool(self.connection.gas.list_all_gis_ports())
+
+    def _probe_multichem_installed(self) -> Optional[bool]:
+        return bool(self.connection.gas.list_all_multichem_ports())
+
+    def _probe_sputter_coater_installed(self) -> Optional[bool]:
+        """The probe `run_sputter_coater` already makes before it will run.
+
+        It raises `NotImplementedError` on an instrument whose `specimen` has no
+        `sputter_coater` attribute at all, so the attribute's presence is the test --
+        the same one, asked at connect instead of at the point of use.
+        """
+        return hasattr(self.connection.specimen, "sputter_coater")
+
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the stage axis limits for x, y, z, t, r."""
         from fibsem.microscopes.simulator import (
@@ -3172,7 +3207,7 @@ class ThermoMicroscope(FibsemMicroscope):
         if key == "gis_ports":
             if self.is_available("gis"):
                 values = self.connection.gas.list_all_gis_ports()
-            elif self.is_available("multichem"):
+            elif self.is_available("gis_multichem"):
                 values = self.connection.gas.list_all_multichem_ports()
             else:
                 values = []
