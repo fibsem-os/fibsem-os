@@ -15,6 +15,8 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -657,9 +659,17 @@ class TitledPanel(QWidget):
         Capped to the header's height: a stock QPushButton is 30px and would
         otherwise grow the header, so it becomes a compact header button instead.
         """
-        widget.setMaximumHeight(_PANEL_HEADER_HEIGHT)
+        # Cap, never raise: a widget that fixed itself smaller (a 14px chip) keeps
+        # that, and is centred rather than stretched to the header -- which is what
+        # raising its maximum did, and left the chip touching both edges.
+        if widget.minimumHeight() > _PANEL_HEADER_HEIGHT:
+            widget.setMinimumHeight(_PANEL_HEADER_HEIGHT)
+        if widget.maximumHeight() > _PANEL_HEADER_HEIGHT:
+            widget.setMaximumHeight(_PANEL_HEADER_HEIGHT)
         # Insert before the collapse button (always the last item)
-        self._header_layout.insertWidget(self._header_layout.count() - 1, widget)
+        self._header_layout.insertWidget(
+            self._header_layout.count() - 1, widget, 0, Qt.AlignVCenter
+        )
 
     def set_content(self, widget: QWidget) -> None:
         """Replace the body content with widget."""
@@ -856,8 +866,10 @@ class TaskNameListWidget(QWidget):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         outer.addWidget(self._list)
 
-        # Per-task status chips, by task name; reapplied when the list repopulates.
+        # Per-task status chips and tooltips, by task name; reapplied when the
+        # list repopulates.
         self._states: Dict[str, Tuple[str, str]] = {}
+        self._tooltips: Dict[str, str] = {}
 
         # Wire signals
         self._list.itemSelectionChanged.connect(
@@ -924,6 +936,16 @@ class TaskNameListWidget(QWidget):
         self._list.blockSignals(False)
         if self._states:
             self.set_task_states(self._states)
+        if self._tooltips:
+            self.set_task_tooltips(self._tooltips)
+
+    def set_task_tooltips(self, tooltips: Mapping[str, str]) -> None:
+        """A tooltip per named row. The row itself stays plain text: what a task is
+        and how the workflow runs it are read here, edited elsewhere."""
+        self._tooltips = dict(tooltips)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            item.setToolTip(self._tooltips.get(item.text(), ""))
 
     def select(self, name: str) -> None:
         """Select the item with the given name (exact match)."""
@@ -1029,6 +1051,94 @@ class ElidedLabel(QLabel):
         # draws the elided string, so the stylesheet colour survives.
         if elided != super().text():
             super().setText(elided)
+
+
+# One label column for every settings form in a column of panels, so the controls
+# line up from panel to panel. Wide enough for "Reacquire Alignment Reference".
+FORM_LABEL_WIDTH = 150
+
+
+class FormGrid(QGridLayout):
+    """A two-column form that folds its hidden rows away.
+
+    QFormLayout keeps the vertical spacing of a row whose widgets are hidden, so
+    a form with its advanced rows hidden ended in a band of nothing the height
+    of those rows' gaps. QGridLayout drops an empty row's spacing along with the
+    row. This speaks the three QFormLayout calls the generated forms use --
+    addRow, rowCount, removeRow -- over a grid, so those forms fold correctly
+    without changing how they are built. `align_form` treats it as the grid it is.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._rows: List[Tuple[QWidget, QWidget]] = []
+
+    def addRow(self, label, field: QWidget) -> None:  # noqa: N802 - Qt naming
+        if isinstance(label, str):
+            label = QLabel(label)
+        row = len(self._rows)
+        self.addWidget(label, row, 0)
+        self.addWidget(field, row, 1)
+        self._rows.append((label, field))
+
+    def rowCount(self) -> int:  # noqa: N802 - Qt naming
+        # QGridLayout.rowCount never shrinks; the forms ask how many rows are live.
+        return len(self._rows)
+
+    def removeRow(self, row: int) -> None:  # noqa: N802 - Qt naming
+        label, field = self._rows.pop(row)
+        for widget in (label, field):
+            self.removeWidget(widget)
+            widget.setParent(None)
+            widget.deleteLater()
+
+
+def align_form(layout) -> None:
+    """Give *layout* the shared label column: labels FORM_LABEL_WIDTH, fields the rest.
+
+    Forms in the editor column used to size their label column each to their own
+    longest label, or split the width in half, so reading down the column no two
+    panels lined their controls up. Works on a QGridLayout (labels in column 0)
+    and a QFormLayout (labels in the label role); call it after the rows exist for
+    a form that is rebuilt.
+    """
+    if isinstance(layout, QGridLayout):
+        layout.setColumnMinimumWidth(0, FORM_LABEL_WIDTH)
+        layout.setColumnStretch(1, 1)
+    elif isinstance(layout, QFormLayout):
+        # AllNonFixedFieldsGrow, not ExpandingFieldsGrow: the generated controls
+        # keep Qt's Preferred policy, which the latter leaves at natural width.
+        layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        for row in range(layout.rowCount()):
+            item = layout.itemAt(row, QFormLayout.LabelRole)
+            if item is not None and item.widget() is not None:
+                item.widget().setMinimumWidth(FORM_LABEL_WIDTH)
+
+
+def header_chip(text: str, colour: str) -> QLabel:
+    """A `chip` sized for a panel header: 14px tall, 9px text, tinted like the rest.
+
+    For state a header should show while the panel is collapsed -- "on", "off",
+    "3 stages". `chip()` is built for a card or a row and comes out 20px, which in a
+    24px header reads as a button.
+    """
+    label = QLabel(text)
+    label.setAlignment(Qt.AlignCenter)
+    label.setFixedHeight(14)
+    set_header_chip(label, text, colour)
+    return label
+
+
+def set_header_chip(label: QLabel, text: str, colour: str) -> None:
+    """Re-word and re-tint a `header_chip`: "on" in the accent, "off" muted."""
+    rgb = QColor(colour)
+    tint = f"rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15)"
+    label.setText(text)
+    style_with_tooltip(
+        label,
+        f"background-color: {tint}; color: {colour};"
+        " padding: 0px 5px; border-radius: 7px; font-size: 9px;",
+    )
 
 
 def chip(text: str, colour: str, font_size: int = 11) -> QLabel:

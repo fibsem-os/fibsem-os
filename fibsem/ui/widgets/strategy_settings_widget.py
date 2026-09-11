@@ -7,7 +7,6 @@ from typing import Any, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QFormLayout,
     QLabel,
     QVBoxLayout,
     QWidget,
@@ -16,15 +15,16 @@ from PyQt5.QtWidgets import (
 from fibsem.milling.base import MillingStrategy, get_strategy
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.ui.tokens import (
-    NEUTRAL_700,
+    TEXT_MUTED_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import ValueComboBox
+from fibsem.ui.widgets.custom_widgets import FormGrid, ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
 
 
 @dataclass
 class _Row:
     """One built form row: the label, the control, and whether it is advanced."""
+
     label: QLabel
     control: Control
     field: str
@@ -65,22 +65,23 @@ class FibsemStrategySettingsWidget(QWidget):
         outer.setSpacing(4)
 
         # Strategy type selector — fixed, not rebuilt
-        type_form = QFormLayout()
+        type_form = FormGrid()
         type_form.setContentsMargins(0, 0, 0, 0)
         self._type_combo = ValueComboBox(
             get_strategy_names(), value=self._strategy.name
         )
-        type_form.addRow("Strategy:", self._type_combo)
+        type_form.addRow("Strategy", self._type_combo)
+        align_form(type_form)
         outer.addLayout(type_form)
 
         # Config field form — rebuilt on type change
-        self._config_form = QFormLayout()
+        self._config_form = FormGrid()
         self._config_form.setContentsMargins(0, 0, 0, 0)
         outer.addLayout(self._config_form)
 
         # Empty-state label (shown when strategy has no config fields)
         self._empty_label = QLabel("No configuration options.")
-        self._empty_label.setStyleSheet(f"color: {NEUTRAL_700}; font-style: italic;")
+        self._empty_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 11px;")
         self._empty_label.setVisible(False)
         outer.addWidget(self._empty_label)
 
@@ -98,7 +99,7 @@ class FibsemStrategySettingsWidget(QWidget):
         locked = strategy.name not in names
         self._type_combo.blockSignals(True)
         self._type_combo.clear()
-        for name in ([strategy.name] if locked else names):
+        for name in [strategy.name] if locked else names:
             self._type_combo.addItem(name, name)
         self._type_combo.set_value(strategy.name)
         self._type_combo.blockSignals(False)
@@ -142,6 +143,7 @@ class FibsemStrategySettingsWidget(QWidget):
                 )
             )
 
+        align_form(self._config_form)
         self._empty_label.setVisible(len(self._rows) == 0)
         self._update_visibility()
 

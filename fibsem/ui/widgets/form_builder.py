@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import re
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from enum import Enum
@@ -73,6 +74,7 @@ class FormDefaults:
     int_range: Optional[Tuple[int, int]] = None
     step: Optional[float] = None
     decimals: Optional[int] = None
+
 
 # A point is an offset from the image centre, so it is signed by definition and
 # must never inherit a floor of zero. The pattern form carried this same pair as
@@ -135,7 +137,7 @@ def effective_scale(metadata: dict) -> Optional[float]:
     """
     base = metadata.get("scale")
     dims = metadata.get("dimensions")
-    return (base ** dims) if (base and dims) else base
+    return (base**dims) if (base and dims) else base
 
 
 def display_suffix(metadata: dict) -> str:
@@ -152,9 +154,26 @@ def display_suffix(metadata: dict) -> str:
     return utils._get_display_unit(base, unit) if base else unit
 
 
+def _enum_label(member: Any) -> str:
+    """``CleaningCrossSection`` -> ``Cleaning Cross Section``, ``EACH_ROW`` -> ``Each Row``."""
+    if not isinstance(member, Enum):
+        return str(member)
+    name = member.name
+    if "_" in name or name.isupper():
+        return " ".join(part.capitalize() for part in name.split("_"))
+    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name)
+
+
 def _combo(items: Sequence[Any], value: Any, metadata: dict) -> Control:
+    # "CleaningCrossSection" and "EACH_ROW" are names for code; the form shows
+    # words. Here rather than on the Enum branch alone: a field can also reach a
+    # combo through declared `items`, as cross_section does. A declared
+    # format_fn still wins.
+    format_fn = metadata.get("format_fn")
+    if format_fn is None and any(isinstance(item, Enum) for item in items):
+        format_fn = _enum_label
     control = ValueComboBox(
-        list(items), value, metadata.get("unit"), format_fn=metadata.get("format_fn")
+        list(items), value, metadata.get("unit"), format_fn=format_fn
     )
     # ValueComboBox's constructor skips `set_value` for None, which leaves the
     # first item selected. `None` is a real choice for an Optional field -- the
@@ -175,7 +194,9 @@ def _combo(items: Sequence[Any], value: Any, metadata: dict) -> Control:
     )
 
 
-def _point(value: Point, metadata: dict, fallback: Optional[Tuple[float, float]]) -> Control:
+def _point(
+    value: Point, metadata: dict, fallback: Optional[Tuple[float, float]]
+) -> Control:
     """Two spinboxes for a Point-typed field.
 
     Dispatched on the declared `type`, not on the field being called "point", so
@@ -288,7 +309,9 @@ def _scalar_list(value: Any, annotation: Any) -> Control:
     item_type = item_types[0] if item_types else str
     control = QLineEdit()
     control.setPlaceholderText("Enter comma-separated values")
-    control.setText(", ".join(str(v) for v in value) if isinstance(value, list) else str(value))
+    control.setText(
+        ", ".join(str(v) for v in value) if isinstance(value, list) else str(value)
+    )
 
     def read() -> List[Any]:
         text = control.text().strip()
@@ -346,7 +369,9 @@ def build_control(
     kind = type_ if type_ is not None else annotation
 
     if items == "dynamic":
-        resolved = dynamic_items(metadata["microscope_parameter"]) if dynamic_items else None
+        resolved = (
+            dynamic_items(metadata["microscope_parameter"]) if dynamic_items else None
+        )
         return _combo(resolved if resolved else [value], value, metadata)
 
     if items:
@@ -405,7 +430,9 @@ def build_control(
         control.setValue(int(round(value * scale)))
         return Control(
             widget=control,
-            read=lambda: int(round(control.value() / scale)) if scale else control.value(),
+            read=lambda: (
+                int(round(control.value() / scale)) if scale else control.value()
+            ),
             write=lambda new: control.setValue(int(round(new * scale))),
             signals=(control.valueChanged,),
         )
@@ -418,7 +445,9 @@ def build_control(
             minimum,
             maximum,
             metadata.get("step") if metadata.get("step") is not None else defaults.step,
-            metadata.get("decimals") if metadata.get("decimals") is not None else defaults.decimals,
+            metadata.get("decimals")
+            if metadata.get("decimals") is not None
+            else defaults.decimals,
         )
         control.setValue(value * scale)
         return Control(
@@ -441,7 +470,9 @@ def build_control(
     if annotation is None:
         # A milling form, which has no annotation to fall back on: nothing here
         # can render this, and there is no value in showing it disabled.
-        logging.warning("No control for field of type %r (value %r)", type_, type(value))
+        logging.warning(
+            "No control for field of type %r (value %r)", type_, type(value)
+        )
         return None
 
     # Debug, not warning: the form says this itself, visibly and in the right

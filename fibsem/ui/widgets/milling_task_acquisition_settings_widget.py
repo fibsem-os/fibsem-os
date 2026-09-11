@@ -1,7 +1,8 @@
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QCheckBox, QHBoxLayout, QVBoxLayout, QWidget
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QWidget
 
 from fibsem.milling.tasks import MillingTaskAcquisitionSettings
+from fibsem.ui.widgets.custom_widgets import align_form
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 
@@ -35,18 +36,21 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
         Args:
             show_advanced: Whether to show advanced settings in the image settings widget
         """
-        layout = QVBoxLayout()
+        layout = QGridLayout()
+        layout.setContentsMargins(4, 4, 4, 4)
+        align_form(layout)
         self.setLayout(layout)
 
-        # Enabled checkbox
-        self.acquire_sem_checkbox = QCheckBox("Acquire SEM Image")
+        # One row per beam -- label, then a bare checkbox -- the shape every other
+        # boolean in the editor has.
+        self.acquire_sem_checkbox = QCheckBox()
         self.acquire_sem_checkbox.setChecked(True)
         self.acquire_sem_checkbox.setToolTip(
             self._settings.__dataclass_fields__["acquire_sem"].metadata.get(
                 "tooltip", ""
             )
         )
-        self.acquire_fib_checkbox = QCheckBox("Acquire FIB Image")
+        self.acquire_fib_checkbox = QCheckBox()
         self.acquire_fib_checkbox.setChecked(True)
         self.acquire_fib_checkbox.setToolTip(
             self._settings.__dataclass_fields__["acquire_fib"].metadata.get(
@@ -56,13 +60,13 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
 
         # Image settings widget
         self.image_settings_widget = ImageSettingsWidget(show_advanced=show_advanced)
-        self.image_settings_widget.show_field_of_view(False) # uses milling task fov
+        self.image_settings_widget.show_field_of_view(False)  # uses milling task fov
 
-        hbox = QHBoxLayout()
-        hbox.addWidget(self.acquire_sem_checkbox)
-        hbox.addWidget(self.acquire_fib_checkbox)
-        layout.addLayout(hbox)
-        layout.addWidget(self.image_settings_widget)
+        layout.addWidget(QLabel("SEM Image"), 0, 0)
+        layout.addWidget(self.acquire_sem_checkbox, 0, 1, alignment=Qt.AlignLeft)
+        layout.addWidget(QLabel("FIB Image"), 1, 0)
+        layout.addWidget(self.acquire_fib_checkbox, 1, 1, alignment=Qt.AlignLeft)
+        layout.addWidget(self.image_settings_widget, 2, 0, 1, 2)
 
     def _connect_signals(self):
         """Connect widget signals to their respective handlers."""
