@@ -1717,7 +1717,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self._timelapse_timestamps.append(now)
 
             n = len(self._timelapse_frames)
-            self.fm_canvas.set_timelapse_length(n)
+            self.fm_canvas.set_timelapse_length(n)  # the new frame is reachable
+            if self._is_scrubbing:
+                # The operator is looking at an earlier frame: the display path
+                # above already holds it, and the slider and label must describe
+                # it, not the frame that just arrived (FIB-968).
+                return
             # Advance slider to latest without triggering scrub (live display stays untouched)
             self.fm_canvas.time_slider.blockSignals(True)
             self.fm_canvas.time_slider.setValue(n - 1)

@@ -574,12 +574,21 @@ class CoordinateListWidget(QWidget):
             self._header.update_selection(self._selected_coordinate)
         self.order_changed.emit(list(self._coordinates))
 
-    def _on_remove(self, coord: Coordinate) -> None:
+    def remove_coordinate(self, coord: Coordinate) -> bool:
+        """Remove *coord*'s row and select its neighbour, without emitting anything.
+
+        The caller decides what the removal means: the row's own trash button emits
+        ``coordinate_removed`` and then the neighbour's selection; the canvas path is
+        echoing a removal that already happened and only needs the list to follow.
+        Selecting the first row instead, as assigning ``coordinates`` does, was what
+        made a canvas delete jump the selection to row 1 (FIB-965).
+        Returns False if *coord* is not here.
+        """
         # Identity, not equality: the overlay and the tab widget both key on the
         # object, and two coordinates can hold equal values and still be different points.
         idx = next((i for i, c in enumerate(self._coordinates) if c is coord), None)
         if idx is None:
-            return
+            return False
         del self._coordinates[idx]
 
         next_coord = None
@@ -593,11 +602,23 @@ class CoordinateListWidget(QWidget):
         self._rebuild_rows()
 
         if next_coord is not None:
-            self._set_selected(next_coord)
+            self.blockSignals(True)
+            try:
+                self._set_selected(next_coord)
+            finally:
+                self.blockSignals(False)
         else:
             self._header.update_selection(None)
+        return True
 
-        self.coordinate_removed.emit(coord)
+    def _on_remove(self, coord: Coordinate) -> None:
+        # Removal first, then the neighbour's selection: the tab widget answers
+        # coordinate_removed by rebuilding the overlay, which drops its selection,
+        # so a selection announced before the removal was wiped by it (FIB-965).
+        if self.remove_coordinate(coord):
+            self.coordinate_removed.emit(coord)
+            if self._selected_coordinate is not None:
+                self.coordinate_selected.emit(self._selected_coordinate)
 
     def add_coordinate(self, coord: Coordinate) -> None:
         """Append a coordinate, rebuild its row, and select it."""
