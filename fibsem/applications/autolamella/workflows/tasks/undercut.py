@@ -249,10 +249,10 @@ class MillUndercutTask(AutoLamellaTask):
 
             det_y += offset if np.isclose(scan_rotation, 0) else -offset
             # current_milling_config.stages[0].pattern.point.y += det_y
-            # current_milling_config.stages[0].pattern.point.y = (
-            #     deepcopy(milling_task_config.stages[i]).pattern.point.y + det_y
-            # )
-            current_milling_config.stages[0].pattern.point.y = baseline_point_y[i] + det_y
+            current_milling_config.stages[0].pattern.point.y = (
+                deepcopy(milling_task_config.stages[i]).pattern.point.y + det_y
+            )
+            # current_milling_config.stages[0].pattern.point.y = baseline_point_y[i] + det_y
 
             # mill undercut
             self.log_status_message(f"MILL_UNDERCUT_{nid}")
@@ -279,27 +279,10 @@ class MillUndercutTask(AutoLamellaTask):
         # log undercut stages
         self.config.milling[UNDERCUT_KEY] = deepcopy(milling_task_config)
 
-        # # re-align to lamella centre
-        # self.log_status_message("ALIGN_FINAL", "Aligning Final Position...")
-        # image_settings.beam_type = BeamType.ION
-        # image_settings.hfw = fcfg.REFERENCE_HFW_HIGH
+        # write pose
+        self.lamella.milling_pose = self.microscope.get_microscope_state()
+        self.lamella.update_milling_angle(self.microscope)
 
-        # features = [LamellaCentre()]
-        # det = update_detection_ui(
-        #     microscope=self.microscope,
-        #     image_settings=image_settings,
-        #     checkpoint=checkpoint,
-        #     features=features,
-        #     parent_ui=self.parent_ui,
-        #     validate=self.validate,
-        #     msg=self.lamella.status_info,
-        # )
-
-        # # align vertical
-        # self.microscope.vertical_move(
-        #     dx=det.features[0].feature_m.x,
-        #     dy=det.features[0].feature_m.y,
-        # )
 
         # acquire reference images
         self._acquire_set_of_reference_images(image_settings)
