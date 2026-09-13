@@ -192,7 +192,8 @@ class LandingPost(Feature):
     def detect(
         self, img: np.ndarray, mask: np.ndarray = None, point: Point = None
     ) -> "LandingPost":
-        self.px = detect_landing_post_v4(mask, idx=self.class_id, point=point)
+        self.px = detect_centre_point(mask == self.class_id)
+        # self.px = detect_landing_post_v4(mask, idx=self.class_id, point=point)
         # self.px = detect_landing_post_v3(img, landing_pt=None)
         return self.px
 
@@ -573,6 +574,8 @@ def detect_centre_point(mask: np.ndarray, threshold: int = 500) -> Point:
 
         # centre coordinate as tuple
         centre_px = Point(x=x_mid, y=y_mid)
+    else:
+        logging.warning(f'Detected Threshold {len(idx[0])} Did not meet threshold value {threshold}')
     return centre_px
 
 
@@ -631,6 +634,8 @@ def detect_median_edge(mask: np.ndarray, edge: str, threshold: int = 250) -> Poi
                 edge_px = Point(x=px, y=y_max)
         except Exception as e:
             logging.warning(f"Error detecting edge: {e}")
+    else:
+        logging.warning(f'Detected Threshold {len(edge_mask[0])} Did not meet threshold value {threshold}')
     return Point(x=int(edge_px.x), y=int(edge_px.y))
 
 
@@ -1030,8 +1035,9 @@ def take_image_and_detect_features(
         )
         image_settings.reduced_area = None
 
+    # this seems unnecessary, it is saving the same image many times
     image_settings.filename = f"ml-{utils.current_timestamp_v2()}"
-    image_settings.save = True
+    image_settings.save = False
 
     # take new image
     image = acquire.new_image(microscope, image_settings)
