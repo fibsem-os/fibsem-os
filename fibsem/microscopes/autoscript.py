@@ -170,7 +170,7 @@ except Exception as e:
 
 try:
     # for some reason, some versions of autoscript doesnt support these two methods. causes the connection to break,
-    # since they are only used for fast acquisition, they are gated here so that only that function is disabled
+    # since they are only used for fast acquisition, they are gated here so only that function is disabled
     # TODO: figure out what's going on here. This also happens on TFS Aquilos
     from autoscript_sdb_microscope_client.enumerations import (
         ImagingState,

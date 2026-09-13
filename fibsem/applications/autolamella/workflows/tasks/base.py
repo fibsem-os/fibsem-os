@@ -801,6 +801,98 @@ class AutoLamellaTask(ABC):
             timeout=INSTRUCTION_TIMEOUT_S,
         )
 
+    def _align_with_ml_locally(
+        self,
+        image_settings: ImageSettings,
+        milling_key: str = None,
+        checkpoint: str = None,
+        attempts: int = None,
+        feature: Type[Feature] = LamellaCentre(),
+        vertical_only: bool = False,
+    ) -> bool:
+        """Align to the feature (Default is Lamella Centre) using an ML model, within the current area.
+        Like CrossCorrelation alignment, runs detection and moves based on detection.
+        performs this 3 times to ensure performance of the model is good and alignment is correct.
+        """
+        if checkpoint is None:
+            checkpoint = self.config.model_checkpoint
+
+        if attempts is None:
+            attempts = 1 if self.validate else MAX_ALIGNMENT_ATTEMPTS
+
+        detected_successfully = False
+
+        self.log_status_message("ALIGN_WITH_ML", "Aligning with ML Model...")
+        features = [feature]
+        for i in range(attempts):
+            logging.info(f"ML-based alignment attempt {i + 1} of {attempts}...")
+            det = update_detection_ui(
+                microscope=self.microscope,
+                image_settings=image_settings,
+                checkpoint=checkpoint,
+                features=features,
+                parent_ui=self.parent_ui,
+                validate=self.validate,
+                msg=self.lamella.status_info,
+            )
+
+            if not det.features[0].detect_success: # if the detection has failed,
+                detected_successfully = False
+                if not self.validate: # do not continue if unsupervised
+                    logging.info(f"Feature {feature.name} not detected, aborting since running unsupervised")
+                continue
+            else:
+                detected_successfully = True
+
+            if vertical_only:
+                self.microscope.vertical_move(
+                    dy=det.features[0].feature_m.y,
+                )
+            else:
+                self.microscope.vertical_move(
+                    dx=det.features[0].feature_m.x,
+                    dy=det.features[0].feature_m.y,
+                )
+
+
+            self._refresh_view(
+                image_settings=image_settings,
+                field_of_view=self.config.imaging.field_of_view,
+            )
+
+
+
+        return detected_successfully
+
+    def _refresh_view(
+        self,
+        image_settings: ImageSettings,
+        field_of_view: float,
+        acquire_sem: bool = True,
+        acquire_fib: bool = True,
+    ) -> None:
+        """
+        ake images and update the UI to refresh the view. This can be used after moving the stage
+        or changing the beam to ensure the user has an updated view of the sample.
+        DOES NOT SAVE IMAGES on purpose to avoid filling up storage with unnecessary images.
+
+        Args:
+        image_settings (ImageSettings): The image settings to use for acquisition.
+            field_of_view (float): The field of view to use for acquisition.
+            acquire_sem (bool): Whether to acquire SEM images.
+            acquire_fib (bool): Whether to acquire FIB images.
+        """
+        image_settings.hfw = field_of_view
+        image_settings.save = False
+
+        sem_image, fib_image = acquire.acquire_channels(
+            self.microscope,
+            image_settings,
+            acquire_sem=acquire_sem,
+            acquire_fib=acquire_fib,
+        )
+        set_images_ui(self.parent_ui, sem_image, fib_image)
+
     def _save_images_for_ml_training(
         self,
         image_settings: ImageSettings = None,
