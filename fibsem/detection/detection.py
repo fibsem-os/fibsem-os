@@ -1092,34 +1092,19 @@ def move_based_on_detection(
 
 
 
-def mask_contours(image):
-    # Find contours
-    contours = measure.find_contours(image, 0.5)
+def mask_contours(image, min_area: int = 0):
+    # Label connected components in the binary mask
+    labeled = measure.label(image)
 
-    # Create a mask with the same shape as the input image
-    mask = np.zeros_like(image, dtype=np.uint8)
+    # Filter out regions smaller than min_area, using the actual mask pixels
+    if min_area > 0:
+        for region in measure.regionprops(labeled):
+            if region.area < min_area:
+                labeled[labeled == region.label] = 0
+        # Re-label to get contiguous indices after filtering
+        labeled = measure.label(labeled > 0)
 
-    # Mask the area inside each contour
-    for i, contour in enumerate(contours):
-        # Convert the contour coordinates to integers
-        contour = np.round(contour).astype(int)
-
-        # Create a polygonal mask for this contour
-        rr, cc = np.meshgrid(np.arange(mask.shape[0]), np.arange(mask.shape[1]), indexing='ij')
-        inside_contour = np.zeros_like(mask, dtype=np.uint8)
-        inside_contour[rr, cc] = 0
-        inside_contour[contour[:, 0], contour[:, 1]] = i+1
-
-        # mask the area inside the contour
-        ymin, ymax = np.min(contour[:, 0]), np.max(contour[:, 0])
-        xmin, xmax = np.min(contour[:, 1]), np.max(contour[:, 1])
-
-        inside_contour[ymin:ymax, xmin:xmax] = i+1
-
-        # Apply the mask for this contour
-        mask = mask + inside_contour
-
-    return mask
+    return labeled.astype(np.uint8)
 
 
 
