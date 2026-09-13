@@ -173,31 +173,41 @@ def build_projection(
     *,
     z_slice: float,
     fm_shape: Optional[Tuple[int, int]] = None,
+    refit_rotation: bool = True,
 ) -> Projection:
-    """The FM->FIB map from the geometry and whatever pairs are confirmed.
+    """The FM->FIB map from the prior and whatever pairs are confirmed.
 
-    Rotation and scale are the geometry's; the translation is the mean offset
+    Rotation and scale are the prior's; the translation is the mean offset
     of the independent pairs when there are any, else the stage metadata's.
     From :data:`MIN_PAIRS_FOR_ROTATION_REFIT` pairs the rotation is refitted
-    (seeded from the geometry) as well. With no pairs at all, a stage
+    (seeded from the prior) as well -- unless ``refit_rotation`` is False,
+    which a caller passes when the prior is itself a fitted transform from a
+    previous run: a handful of coplanar burns cannot pin a rotation better
+    than a full earlier fit did (measured: five pairs refitted the rotation
+    18 degrees off and quadrupled the residual), so the rotation is left to
+    the final fit. With no pairs at all, a stage
     translation that lands the FIB points off the FM image -- an odemis-written
     stack records its position in odemis's own frame -- is replaced by centring
     the FIB points on the FM image, so the first predictions are at least on
     screen; the first drop supplies the real translation.
 
-    ``z_slice`` is the depth predictions are placed at: the slice on screen. A
-    FIB point fixes a *line* through the FM volume, not a point -- on a METEOR
-    one slice of depth moves the FIB position by about four pixels -- so the
-    prediction is that line's crossing of the displayed slice, and the caller
-    re-places predictions as the slice changes. The burns are then found by
-    scrolling until a marker sits on one.
+    ``z_slice`` is the depth to predict at when no pair has one: the slice on
+    screen when Project is pressed. With pairs, their mean z is used -- the
+    burns are on one surface, to within a few slices. A FIB point fixes a line
+    through the volume, not a point, so a burn deeper or shallower than that
+    plane sits a little along that line from its ring; predictions stay put
+    while the user scrolls, and the drop supplies the depth.
     """
     pairs = independent_pairs(fib, fm)
     zan = nominal.z_anisotropy
-    z_iso = float(z_slice) * zan
+    z_iso = (
+        float(np.mean([b.point.z for _, b in pairs])) * zan
+        if pairs
+        else float(z_slice) * zan
+    )
     P = nominal.projection
     refit = False
-    if len(pairs) >= MIN_PAIRS_FOR_ROTATION_REFIT:
+    if refit_rotation and len(pairs) >= MIN_PAIRS_FOR_ROTATION_REFIT:
         from fibsem.correlation.correlation_v2 import _fit_from_seed
 
         fm_iso = np.array([[b.point.x, b.point.y, b.point.z * zan] for _, b in pairs])

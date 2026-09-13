@@ -154,6 +154,7 @@ def test_one_confirmed_pair_moves_the_rest_by_its_offset_and_leaves_it_alone(nom
     i = next(k for k, c in enumerate(fm) if c.status == PointStatus.SUGGESTED)
     fm[i].point.x += 40.0
     fm[i].point.y -= 25.0
+    fm[i].point.z = 7.0
     fm[i].status = PointStatus.ADJUSTED
     fm[i].provenance = PointProvenance.USER
     proj = build_projection(nominal, fib, fm, z_slice=5.0)
@@ -161,35 +162,20 @@ def test_one_confirmed_pair_moves_the_rest_by_its_offset_and_leaves_it_alone(nom
     assert "translation from 1 pair" == proj.note
     moved = place_predictions(proj, fib, fm)
     assert fm[i] not in moved
-    after = np.array([[c.point.x, c.point.y] for c in fm])
-    delta = after - before
     others = [k for k in range(len(fm)) if k != i]
-    assert np.allclose(delta[others], delta[i], atol=1e-6)
-    # the rest stay in the displayed slice (a FIB point fixes a line through the
-    # volume, and the prediction is where that line crosses the slice on
-    # screen), and are no longer "suggested"
-    assert all(fm[k].point.z == pytest.approx(5.0) for k in others)
-    assert all(fm[k].status == PointStatus.PREDICTED for k in others)
-
-
-def test_predictions_follow_the_displayed_slice(nominal):
-    fib = _fib(ARCTIS)
-    fm = predictions_for(fib, [], z_slice=5.0)
-    place_predictions(build_projection(nominal, fib, fm, z_slice=5.0), fib, fm)
-    at5 = np.array([[c.point.x, c.point.y] for c in fm])
-    place_predictions(build_projection(nominal, fib, fm, z_slice=9.0), fib, fm)
-    at9 = np.array([[c.point.x, c.point.y] for c in fm])
-    assert all(c.point.z == pytest.approx(9.0) for c in fm)
-    # every prediction slid by the same in-plane step: four slices along the
-    # depth line, which the transform maps back into the FIB image exactly
-    step = at9 - at5
-    assert np.allclose(step, step[0], atol=1e-6)
-    assert np.linalg.norm(step[0]) > 0
-    for a, b in zip(fib, fm):
-        proj = build_projection(nominal, fib, fm, z_slice=9.0)
-        assert proj.fib_from_fm(b.point.x, b.point.y, 9.0) == pytest.approx(
-            (a.point.x, a.point.y), abs=1e-6
+    # every re-placed prediction maps back onto its FIB point through the
+    # translation the placed pair fixed
+    for k in others:
+        assert proj.fib_from_fm(fm[k].point.x, fm[k].point.y, fm[k].point.z) == (
+            pytest.approx((fib[k].point.x, fib[k].point.y), abs=1e-6)
         )
+    assert proj.fib_from_fm(fm[i].point.x, fm[i].point.y, fm[i].point.z) == (
+        pytest.approx((fib[i].point.x, fib[i].point.y), abs=1e-6)
+    )
+    # the rest move to the placed pair's slice (the burns share a surface) and
+    # are no longer "suggested"
+    assert all(fm[k].point.z == pytest.approx(7.0) for k in others)
+    assert all(fm[k].status == PointStatus.PREDICTED for k in others)
 
 
 def test_accepted_predictions_do_not_refine_the_map(nominal):
@@ -226,3 +212,17 @@ def _complete(rows):
     from fibsem.correlation.geometry import _complete_rotation
 
     return _complete_rotation(rows)
+
+
+def test_a_fitted_prior_is_not_refitted_from_a_few_pairs(nominal):
+    fib = _fib(ARCTIS)
+    fm = predictions_for(fib, [], z_slice=5.0)
+    place_predictions(build_projection(nominal, fib, fm, z_slice=5.0), fib, fm)
+    for c in fm[:MIN_PAIRS_FOR_ROTATION_REFIT]:
+        c.point.x += 3.0
+        c.status = PointStatus.ADJUSTED
+        c.provenance = PointProvenance.USER
+    proj = build_projection(nominal, fib, fm, z_slice=5.0, refit_rotation=False)
+    assert proj.n_pairs == MIN_PAIRS_FOR_ROTATION_REFIT and not proj.rotation_refit
+    assert np.allclose(proj.matrix, nominal.projection)
+    assert proj.note.startswith("translation from")

@@ -2074,9 +2074,6 @@ class CorrelationTabWidget(QWidget):
             self.accept_all_predictions
         )
         self.data_changed.connect(self._refresh_prediction_panel)
-        # A FIB point fixes a line through the FM volume; the prediction is
-        # where that line crosses the slice on screen, so it follows the slider.
-        self._fm_display._z_slider.valueChanged.connect(self._on_fm_slice_changed)
 
         # Bottom bar run button
         self._btn_run.clicked.connect(self._run)
@@ -2434,6 +2431,15 @@ class CorrelationTabWidget(QWidget):
         new = predictions_for(fib, cl.fm_list.coordinates, z_slice=z_slice)
         if new:
             cl.fm_list.coordinates = cl.fm_list.coordinates + new
+        elif not any(c.status in PointStatus.TENTATIVE for c in cl.fm_list.coordinates):
+            # every FIB point has an FM partner and none of them is a
+            # prediction: there is nothing to place and nothing to move
+            self._lbl_status.setText(
+                "Nothing to project: every FIB fiducial already has an FM "
+                "fiducial, and none is a prediction. Remove the FM fiducials "
+                "you want predicted, or reseed from the Setup tab."
+            )
+            return
         projection = self._place_predictions(nominal)
         if projection is None:
             return
@@ -2444,7 +2450,7 @@ class CorrelationTabWidget(QWidget):
         )
         self._lbl_status.setText(
             f"{n_pred} FM prediction{'s' if n_pred != 1 else ''} {projection.note}. "
-            "Scroll z until one sits on its burn, drag it there, then project again."
+            "Drag them onto their burns, then project again."
         )
 
     def _place_predictions(self, nominal) -> Optional["Projection"]:
@@ -2457,6 +2463,9 @@ class CorrelationTabWidget(QWidget):
                 fm,
                 z_slice=float(self._fm_display.current_z),
                 fm_shape=tuple(self._fm_image.data.shape[-2:]),
+                # a previous run's rotation beats one refitted from a few
+                # coplanar burns; only the geometry's is worth refitting
+                refit_rotation=self._prior_transform() is None,
             )
             moved = place_predictions(projection, fib, fm)
         except np.linalg.LinAlgError as exc:
@@ -2467,22 +2476,6 @@ class CorrelationTabWidget(QWidget):
         self._refresh_canvas(self._fm_adapter)
         cl.update_headers()
         return projection
-
-    def _on_fm_slice_changed(self, _value: int) -> None:
-        """Re-place the predictions at the new slice; confirmed points stay.
-
-        No ``data_changed``: a prediction is not an input to the fit, so its
-        sliding with the slice neither stales a result nor needs a save.
-        """
-        cl = self._coords_tab
-        if not any(c.status in PointStatus.TENTATIVE for c in cl.fm_list.coordinates):
-            return
-        if self._fib_image is None or self._fm_image is None:
-            return
-        nominal, _ = self._nominal_transform()
-        if nominal is None:
-            return
-        self._place_predictions(nominal)
 
     def accept_all_predictions(self) -> None:
         """Turn every remaining prediction into a fiducial where it is.
@@ -2515,8 +2508,7 @@ class CorrelationTabWidget(QWidget):
         loaded = self._fib_image is not None and self._fm_image is not None
         nominal, note = self._nominal_transform() if loaded else (None, "")
         can_project = loaded and nominal is not None and bool(fib)
-        assumed = self._fm_transform_assumption() if loaded else ""
-        assumption = f" ({assumed})" if assumed else ""
+        source = self._transform_source() if loaded else ""
         cl.btn_project.setEnabled(can_project)
         cl.btn_accept_predictions.setEnabled(n_tentative > 0)
         if not loaded:
@@ -2525,22 +2517,29 @@ class CorrelationTabWidget(QWidget):
             hint = f"Not available: {note}."
         elif not fib:
             hint = (
-                f"Transform from geometry{assumption}. Needs FIB fiducials first: "
-                "seed spot burns on the Images tab, or click them on the FIB image."
+                f"Transform {source}. Needs FIB fiducials first: seed spot burns "
+                "on the Images tab, or click them on the FIB image."
             )
         elif not fm:
             hint = (
-                f"Transform from geometry{assumption}. Project places an FM "
-                f"prediction for each of the {len(fib)} FIB fiducials."
+                f"Transform {source}. Project places an FM prediction for each "
+                f"of the {len(fib)} FIB fiducials."
             )
         elif n_tentative:
             n_suggested = sum(1 for c in fm if c.status == PointStatus.SUGGESTED)
             if n_pairs == 0:
                 hint = (
-                    f"{n_tentative} predicted; they follow the z slider, so scroll "
-                    "until one sits on its burn, then drag it there. Start with the "
-                    f"{n_suggested} highlighted ones, they span the pattern best. "
+                    f"{n_tentative} predicted. Drag the {n_suggested} highlighted "
+                    "ones onto their burns first, they span the pattern best; a "
+                    "burn can sit a little off its ring along the depth direction. "
                     "Predictions never enter the fit."
+                )
+            elif self._prior_transform() is not None:
+                hint = (
+                    f"{n_tentative} predicted, {n_pairs} placed. Project again to "
+                    f"move the predictions by the translation from your "
+                    f"{n_pairs} pair{'s' if n_pairs != 1 else ''}; the rotation is "
+                    "the previous run's until the correlation is run."
                 )
             elif n_pairs < MIN_PAIRS_FOR_ROTATION_REFIT:
                 hint = (
@@ -3070,6 +3069,19 @@ class CorrelationTabWidget(QWidget):
         self._worker.errored.connect(self._on_run_error)
         self._worker.start()
 
+    def set_prior_runs(self, runs) -> None:
+        """Previous correlation runs to take the transform prior from.
+
+        ``(label, run)`` pairs, most specific first (see
+        :func:`fibsem.correlation.prior.experiment_runs`). The first run with
+        a fitted transform becomes the prior for predictions and for seeding
+        the fit; the hardware geometry is the fallback. Only rotation and
+        scale are taken from it; the translation comes from the placed pairs.
+        """
+        self._prior_runs = list(runs or [])
+        if self._fib_image is not None and self._fm_image is not None:
+            self.data_changed.emit(self.data)
+
     def set_assumed_fm_transform(
         self, transform: Optional[CameraImageTransform]
     ) -> None:
@@ -3083,6 +3095,36 @@ class CorrelationTabWidget(QWidget):
         self._fm_transform_assumed = transform
         if self._fib_image is not None and self._fm_image is not None:
             self.data_changed.emit(self.data)
+
+    def _prior_transform(self, translation=None):
+        """The fitted transform of a previous run, in this pair's units, or None."""
+        from fibsem.correlation.prior import prior_from_runs
+
+        runs = getattr(self, "_prior_runs", None)
+        if not runs:
+            return None
+        fm_md = self._fm_image.metadata
+        fib_md = self._fib_image.metadata
+        fm_px = getattr(fm_md, "pixel_size_x", None)
+        fm_pz = getattr(fm_md, "pixel_size_z", None)
+        fib_px = getattr(getattr(fib_md, "pixel_size", None), "x", None)
+        if not (fm_px and fm_pz and fib_px):
+            return None
+        return prior_from_runs(
+            runs,
+            fm_pixel_size=fm_px,
+            fm_pixel_size_z=fm_pz,
+            fib_pixel_size=fib_px,
+            translation=translation,
+        )
+
+    def _transform_source(self) -> str:
+        """One clause naming where the transform prior comes from."""
+        prior = self._prior_transform()
+        if prior is not None:
+            return f"from a previous run ({prior.source})"
+        assumed = self._fm_transform_assumption()
+        return "from geometry" + (f" ({assumed})" if assumed else "")
 
     def _fm_transform_assumption(self) -> str:
         """One clause naming the assumed transform when the seed rests on it."""
@@ -3122,19 +3164,25 @@ class CorrelationTabWidget(QWidget):
             and getattr(self._fm_image.metadata, "geometry", None) is None
         ):
             fm_geometry = fm_geometry_for(fib_geometry, assumed)
+        geometry, note = None, ""
         try:
-            return (
-                nominal_transform(
-                    self._fib_image, self._fm_image, fm_geometry=fm_geometry
-                ),
-                "",
+            geometry = nominal_transform(
+                self._fib_image, self._fm_image, fm_geometry=fm_geometry
             )
         except NominalTransformError as exc:
             logging.info(f"Correlation fit not seeded from geometry: {exc}")
-            return None, str(exc)
+            note = str(exc)
         except Exception as exc:  # a seed is an aid; never block the run on it
             logging.warning(f"Could not build the nominal correlation transform: {exc}")
-            return None, "the nominal transform could not be built"
+            note = "the nominal transform could not be built"
+        # A previous run's fitted rotation and scale beat the geometry's; its
+        # translation is that run's stage offset, so the geometry's is used.
+        prior = self._prior_transform(
+            translation=geometry.translation if geometry is not None else None
+        )
+        if prior is not None:
+            return prior.transform, ""
+        return geometry, note
 
     @staticmethod
     def _seed_status(result: CorrelationResult) -> str:
@@ -4027,6 +4075,12 @@ class CorrelationTabDialog(QDialog):
     def add_lamella_setup(self, **kwargs):
         return self.widget.add_lamella_setup(**kwargs)
 
+    def set_prior_runs(self, runs) -> None:
+        self.widget.set_prior_runs(runs)
+
+    def set_assumed_fm_transform(self, transform) -> None:
+        self.widget.set_assumed_fm_transform(transform)
+
     @property
     def correlation_config(self) -> "CorrelationConfig":
         """The (possibly edited) config to write back to the protocol on close."""
@@ -4131,6 +4185,24 @@ def find_spot_burns(project_dir: str) -> Tuple[List[Point], str]:
             return [], f"{lamella_name}: spot-burn task has no coordinates"
         return [], f"{lamella_name}: no spot-burn task in the experiment"
     return [], f"{lamella_name!r} is not a lamella in {experiment_file}"
+
+
+def _experiment_and_lamella_dirs(
+    project_dir: str,
+) -> Tuple[Optional[str], Optional[str]]:
+    """The experiment folder above a run or lamella folder, and the lamella folder."""
+    path = os.path.abspath(project_dir)
+    lamella_dir = None
+    probe = path
+    for _ in range(6):
+        if os.path.isfile(os.path.join(probe, "experiment.yaml")):
+            return probe, lamella_dir
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            break
+        lamella_dir = probe
+        probe = parent
+    return None, None
 
 
 def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
@@ -4238,6 +4310,11 @@ def main() -> None:
             widget.add_lamella_setup(spot_burns=burns)
         else:
             logging.info(f"No spot-burn pattern: {reason}")
+        experiment_dir, lamella_dir = _experiment_and_lamella_dirs(args.project)
+        if experiment_dir:
+            from fibsem.correlation.prior import experiment_runs
+
+            widget.set_prior_runs(experiment_runs(experiment_dir, lamella_dir))
     widget.show()
 
     sys.exit(app.exec_())

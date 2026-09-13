@@ -344,22 +344,22 @@ def test_find_spot_burns_reads_the_experiment_above_the_run(tmp_path):
     assert burns == [] and "experiment.yaml" in reason
 
 
-def test_predictions_follow_the_z_slider_without_staling_anything(loaded):
+def test_predictions_stay_put_when_the_slider_moves(loaded):
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
     fm = _fm(loaded)
-    fm[0].point.x += 5.0
-    loaded._on_canvas_moved(fm[0])
-    dropped = (fm[0].point.x, fm[0].point.y, fm[0].point.z)
-    before = np.array([[c.point.x, c.point.y] for c in fm[1:]])
-    saves = []
-    loaded.data_changed.connect(lambda d: saves.append(d))
+    before = [(c.point.x, c.point.y, c.point.z) for c in fm]
     slider = loaded._fm_display._z_slider
     slider.setValue(slider.value() + 2)
-    after = np.array([[c.point.x, c.point.y] for c in fm[1:]])
-    assert all(c.point.z == pytest.approx(slider.value()) for c in fm[1:])
-    step = after - before
-    assert np.allclose(step, step[0], atol=1e-6) and np.linalg.norm(step[0]) > 0
-    # the confirmed point did not move, and nothing was announced as an edit
-    assert (fm[0].point.x, fm[0].point.y, fm[0].point.z) == dropped
-    assert saves == []
+    assert [(c.point.x, c.point.y, c.point.z) for c in fm] == before
+
+
+def test_project_with_nothing_to_predict_says_so(loaded):
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded._coords_tab.fm_list.coordinates = [
+        Coordinate(PointXYZ(10.0 * i, 20.0 * i, 3.0), PointType.FM) for i in range(7)
+    ]
+    before = [(c.point.x, c.point.y) for c in _fm(loaded)]
+    loaded.project_fm_from_fib()
+    assert loaded._lbl_status.text().startswith("Nothing to project")
+    assert [(c.point.x, c.point.y) for c in _fm(loaded)] == before
