@@ -38,10 +38,11 @@ except ImportError as e:
 
 @dataclass
 class Feature(ABC):
-    px: Point 
+    px: Point
     feature_m: Point
     color = "white"
     name: str = None
+    detect_success: bool = True
 
     @abstractmethod
     def detect(self, img: np.ndarray, mask: np.ndarray=None, point:Point=None) -> 'Feature':
@@ -176,7 +177,7 @@ class LandingGridCentre(Feature):
     class_name: str = "landing_post"
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'LandingGridCentre':
-        mask = mask == self.class_id  
+        mask = mask == self.class_id
         self.px = detect_centre_point(mask, threshold=500)
         return self.px
 
@@ -190,7 +191,7 @@ class LandingGridLeftEdge(Feature):
     class_name: str = "landing_post"
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'LandingGridLeftEdge':
-        mask = mask == self.class_id  
+        mask = mask == self.class_id
         self.px = detect_grid_edge(mask, edge="left")
         return self.px
 
@@ -204,7 +205,7 @@ class LandingGridRightEdge(Feature):
     class_name: str = "landing_post"
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'LandingGridRightEdge':
-        mask = mask == self.class_id  
+        mask = mask == self.class_id
         self.px = detect_grid_edge(mask, edge="right")
         return self.px
 
@@ -287,7 +288,7 @@ class VolumeBlockBottomEdge(Feature):
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'VolumeBlockBottomEdge':
         self.px = detect_median_edge(mask == 5, edge="bottom")
-        return self.px    
+        return self.px
 
 
 @dataclass
@@ -299,7 +300,7 @@ class VolumeBlockTopLeftCorner(Feature):
     class_idx: int = 5
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'VolumeBlockTopLeftCorner':
-        try:    
+        try:
             objects = get_objects(mask)
             objects = [obj for obj in objects if obj["class"] == self.class_idx]
             px = Point.from_list(objects[0]["keypoints"]["top_left"])
@@ -307,7 +308,7 @@ class VolumeBlockTopLeftCorner(Feature):
             print(e)
             px = Point(0,0)
         self.px = px
-        return self.px  
+        return self.px
 
 @dataclass
 class VolumeBlockTopRightCorner(Feature):
@@ -318,7 +319,7 @@ class VolumeBlockTopRightCorner(Feature):
     class_idx: int = 5
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'VolumeBlockTopRightCorner':
-        try:    
+        try:
             objects = get_objects(mask)
             objects = [obj for obj in objects if obj["class"] == self.class_idx]
             px = Point.from_list(objects[0]["keypoints"]["top_right"])
@@ -326,7 +327,7 @@ class VolumeBlockTopRightCorner(Feature):
             print(e)
             px = Point(0,0)
         self.px = px
-        return self.px 
+        return self.px
 
 
 @dataclass
@@ -338,7 +339,7 @@ class VolumeBlockBottomLeftCorner(Feature):
     class_idx: int = 5
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'VolumeBlockBottomLeftCorner':
-        try:    
+        try:
             objects = get_objects(mask)
             objects = [obj for obj in objects if obj["class"] == self.class_idx]
             px = Point.from_list(objects[0]["keypoints"]["bottom_left"])
@@ -346,7 +347,7 @@ class VolumeBlockBottomLeftCorner(Feature):
             print(e)
             px = Point(0,0)
         self.px = px
-        return self.px  
+        return self.px
 
 @dataclass
 class VolumeBlockBottomRightCorner(Feature):
@@ -357,7 +358,7 @@ class VolumeBlockBottomRightCorner(Feature):
     class_idx: int = 5
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'VolumeBlockBottomRightCorner':
-        try:    
+        try:
             objects = get_objects(mask)
             objects = [obj for obj in objects if obj["class"] == self.class_idx]
             px = Point.from_list(objects[0]["keypoints"]["bottom_right"])
@@ -365,7 +366,7 @@ class VolumeBlockBottomRightCorner(Feature):
             print(e)
             px = Point(0,0)
         self.px = px
-        return self.px  
+        return self.px
 
 @dataclass
 class AdaptiveLamellaCentre(Feature):
@@ -379,16 +380,16 @@ class AdaptiveLamellaCentre(Feature):
 
 # TODO: we can probably consolidate this, rather than have so many classes
 # Feature(class_idx, name, keypoint)
-                
-__FEATURES__ = [ImageCentre, NeedleTip, 
-                LamellaCentre, LamellaLeftEdge, LamellaRightEdge, 
+
+__FEATURES__ = [ImageCentre, NeedleTip,
+                LamellaCentre, LamellaLeftEdge, LamellaRightEdge,
         LandingPost, LandingGridCentre, LandingGridLeftEdge, LandingGridRightEdge,
-    CoreFeature, LamellaTopEdge, LamellaBottomEdge, 
-    NeedleTipBottom, 
+    CoreFeature, LamellaTopEdge, LamellaBottomEdge,
+    NeedleTipBottom,
     CopperAdapterCentre, CopperAdapterTopEdge, CopperAdapterBottomEdge,
-    VolumeBlockCentre, VolumeBlockTopEdge, VolumeBlockBottomEdge, 
+    VolumeBlockCentre, VolumeBlockTopEdge, VolumeBlockBottomEdge,
     VolumeBlockTopLeftCorner, VolumeBlockTopRightCorner, VolumeBlockBottomLeftCorner, VolumeBlockBottomRightCorner, AdaptiveLamellaCentre ]
- 
+
 
 
 # Detection and Drawing Tools
@@ -421,7 +422,7 @@ def detect_landing_post_v3(img: np.ndarray, landing_pt: Point = None, sigma=3) -
     px = detect_closest_edge_v2(edge, landing_pt)
     return px
 
-    
+
 # TODO: generalise this to detect any edge
 def detect_landing_post_v4(mask: np.ndarray, idx: int = 3, point: Point = None) -> Point:
     if point is None:
@@ -554,16 +555,16 @@ def detect_absolute_edge(mask, edge: str, _filter:str = "largest", _mode: str = 
         if edge == "right":
             if coord[1] > px[1]:
                 px = coord
-                
-        
+
+
         if edge == "left":
             if coord[1] < px[1]:
                 px = coord
-        
+
         if edge == "top":
             if coord[0] < px[0]:
                 px = coord
-        
+
         if edge == "bottom":
             if coord[0] > px[0]:
                 px = coord
@@ -620,7 +621,13 @@ def detect_lamella(
 
     if isinstance(feature, LamellaBottomEdge):
         px = detect_median_edge(lamella_mask, edge="bottom")
-    
+
+    if np.isclose(0, px.x) or np.isclose(0, px.y):
+        feature.detect_success = False
+        logging.warning(f"Lamella detection failed for {feature.name}")
+    else:
+        feature.detect_success = True
+
     return px
 
 
@@ -655,7 +662,7 @@ def detect_needle_v4(mask: np.ndarray, idx:int=2) -> Point:
 
 def detect_needle_v5(mask: np.ndarray, idx:int=2, edge: str ="right") -> Point:
     needle_mask = mask == idx
-    return detect_absolute_edge(needle_mask, edge=edge, 
+    return detect_absolute_edge(needle_mask, edge=edge,
         _filter="largest", _mode="median", threshold=150)
 
 def edge_detection(img: np.ndarray, sigma=3) -> np.ndarray:
@@ -765,8 +772,8 @@ class DetectedFeatures:
     @property
     def distance(self):
         assert len(self.features) >= 2, "Need at least two features to calculate distance"
-        return self.features[0].px.distance(self.features[1].px)._to_metres(self.pixelsize) + self._offset        
-        
+        return self.features[0].px.distance(self.features[1].px)._to_metres(self.pixelsize) + self._offset
+
     @distance.setter
     def distance(self, value: Point) -> None:
         self._distance = value
@@ -782,35 +789,55 @@ class DetectedFeatures:
             "pixelsize": self.pixelsize,
             "offset": self._offset.to_dict(),
         }
-        
+
+
 def detect_features_v2(
-    img: np.ndarray, mask: np.ndarray,
+    img: np.ndarray,
+    mask: np.ndarray,
     features: Sequence[Feature],
     filter: bool = True,
-    point: Optional[Point] = None
+    point: Optional[Point] = None,
 ) -> List[Feature]:
 
     detection_features = []
 
     for feature in features:
-        
-        if isinstance(feature, (LamellaCentre, LamellaLeftEdge, LamellaRightEdge, LamellaTopEdge, LamellaBottomEdge, CoreFeature, AdaptiveLamellaCentre)):
+        if isinstance(
+            feature,
+            (
+                LamellaCentre,
+                LamellaLeftEdge,
+                LamellaRightEdge,
+                LamellaTopEdge,
+                LamellaBottomEdge,
+                CoreFeature,
+                AdaptiveLamellaCentre,
+                CopperAdapterCentre,
+                CopperAdapterTopEdge,
+                CopperAdapterBottomEdge,
+                VolumeBlockCentre,
+                VolumeBlockTopEdge,
+                VolumeBlockBottomEdge,
+                VolumeBlockTopLeftCorner,
+                VolumeBlockTopRightCorner,
+                VolumeBlockBottomLeftCorner,
+                VolumeBlockBottomRightCorner,
+            ),
+        ):
             feature = detect_multi_features(img, mask, feature)
             if filter:
-                feature = filter_best_feature(mask, feature, 
-                                              method="closest", 
-                                              point=point)
+                feature = filter_best_feature(
+                    mask, feature, method="closest", point=point
+                )
         else:
-            feature.detect(img=img,mask=mask) 
+            feature.detect(img=img, mask=mask)
 
         if isinstance(feature, list):
             detection_features.extend(feature)
         else:
             detection_features.append(feature)
 
-        
     return detection_features
-
 
 def detect_features(
     image: Union[np.ndarray, FibsemImage],
@@ -833,7 +860,7 @@ def detect_features(
         except Exception as e: # default (wrong value)
             logging.debug(f"Error getting pixelsize: {e}, using default value of 25nm")
             pixelsize = 25e-9
-        
+
     # model inference
     mask = model.inference(image, rgb=False)
     if mask.ndim == 3:
@@ -843,9 +870,9 @@ def detect_features(
         rgb = decode_segmap_v2(mask)
 
     # detect features
-    features = detect_features_v2(img=image, 
-                                  mask=mask, 
-                                  features=features, 
+    features = detect_features_v2(img=image,
+                                  mask=mask,
+                                  features=features,
                                   filter=filter, point=point)
 
     det = DetectedFeatures(
@@ -874,7 +901,7 @@ def take_image_and_detect_features(
     point: Optional[Union[Point, FibsemStagePosition]] = None,
     checkpoint: str = cfg.DEFAULT_CHECKPOINT
 ) -> DetectedFeatures:
-    
+
     from fibsem import acquire, utils
     from fibsem.segmentation.model import load_model
 
@@ -883,7 +910,7 @@ def take_image_and_detect_features(
             "Reduced area is not compatible with model detection, disabling..."
         )
         image_settings.reduced_area = None
-    
+
     image_settings.filename = f"ml-{utils.current_timestamp_v2()}"
     image_settings.save = True
 
@@ -923,7 +950,7 @@ def plot_detection(det: DetectedFeatures):
     fig, ax = plt.subplots(1, 1, figsize=(12, 7))
 
     fig = plot_det(det, ax)
-    
+
     return fig
 
 
@@ -932,21 +959,21 @@ def plot_det(det: DetectedFeatures, ax: plt.Axes, title: str = "Prediction", sho
     if det.rgb is not None:
         ax.imshow(det.rgb, alpha=0.3)
     ax.set_title(title)
-    
+
 
     # get unique feature names
     names = []
     for f in det.features:
         if f.name not in names:
             names.append(f.name)
-    
+
 
     for f in det.features:
-        ax.plot(f.px.x, f.px.y, 
-                "o",  color=f.color, 
-                markersize=5, markeredgecolor="w", 
+        ax.plot(f.px.x, f.px.y,
+                "o",  color=f.color,
+                markersize=5, markeredgecolor="w",
                 label=f.name if names.count(f.name) == 1 else None)
-        
+
         # remove from names list
         if names.count(f.name) == 1:
             names.remove(f.name)
@@ -959,7 +986,7 @@ def plot_det(det: DetectedFeatures, ax: plt.Axes, title: str = "Prediction", sho
     # if len(det.features) == 2:
     #     # plot white line between features
     #     ax.plot([det.features[0].px.x, det.features[1].px.x],
-    #             [det.features[0].px.y, det.features[1].px.y], 
+    #             [det.features[0].px.y, det.features[1].px.y],
     #             color="w", linestyle="--")
 
     if show:
@@ -985,7 +1012,7 @@ def plot_detections(dets: List[DetectedFeatures], titles: List[str] = None) -> p
             fig = plot_det(det, ax, title=titles[i], show=False)
         else:
             plot_det(det, ax[i], title=titles[i], show=False)
-    
+
     plt.subplots_adjust(wspace=0.05, hspace=0.05)
     # plt.show()
 
@@ -1041,11 +1068,11 @@ def move_based_on_detection(
         if np.isclose(microscope.get_scan_rotation(beam_type), np.pi):
             dx *= -1.0
             dy *= -1.0
-        
+
         # NOTE (pat): double check this on liftout?
         if beam_type == BeamType.ELECTRON:
             dy *= -1.0
-                
+
         microscope.move_manipulator_corrected(
             dx=dx,
             dy=dy,
@@ -1098,23 +1125,42 @@ def mask_contours(image):
 
 
 # TODO: need passthrough for the params
-def detect_multi_features(image: np.ndarray, mask: np.ndarray, feature: Feature, class_idx: int = 1):
-    
+def detect_multi_features(
+    image: np.ndarray, mask: np.ndarray, feature: Feature, class_idx: int = 1
+):
+
     if isinstance(feature, AdaptiveLamellaCentre):
         class_idx = 2
+    elif isinstance(
+        feature, (CopperAdapterCentre, CopperAdapterTopEdge, CopperAdapterBottomEdge)
+    ):
+        class_idx = 5
+    elif isinstance(
+        feature,
+        (
+            VolumeBlockCentre,
+            VolumeBlockTopEdge,
+            VolumeBlockBottomEdge,
+            VolumeBlockTopLeftCorner,
+            VolumeBlockTopRightCorner,
+            VolumeBlockBottomLeftCorner,
+            VolumeBlockBottomRightCorner,
+        ),
+    ):
+        class_idx = 6
 
-    mask = mask == class_idx # filter to class 
+    mask = mask == class_idx  # filter to class
     mask = mask_contours(mask)
     idxs = np.unique(mask)
 
     features = []
     for idx in idxs:
-        if idx==0:
+        if idx == 0:
             continue
 
         # create a new image
         feature_mask = np.zeros_like(mask)
-        feature_mask[mask==idx] = class_idx
+        feature_mask[mask == idx] = class_idx
 
         # detect features
         feature.detect(image, feature_mask)
@@ -1123,9 +1169,9 @@ def detect_multi_features(image: np.ndarray, mask: np.ndarray, feature: Feature,
     if features == []:
         logging.info(f"No features detected for {feature.name}")
         # set at centre of image
-        feature.px = Point(x=image.shape[1]//2, y=image.shape[0]//2)
+        feature.px = Point(x=image.shape[1] // 2, y=image.shape[0] // 2)
         features = [deepcopy(feature)]
-    
+
     return features
 
 
@@ -1159,9 +1205,9 @@ def get_feature(name: str) -> Feature:
 def _detect_positions(microscope: FibsemMicroscope, settings: MicroscopeSettings, image: FibsemImage, mask:np.ndarray, features: List[Feature]) -> List[FibsemStagePosition]:
 
     # detect features
-    features = detect_features_v2(img=image, 
-                                mask=mask, 
-                                features=features, 
+    features = detect_features_v2(img=image,
+                                mask=mask,
+                                features=features,
                                 filter=False, point=None)
 
     # convert image coordinates to microscope coordinates # TODO: check why we reverse the points axis?
@@ -1208,7 +1254,7 @@ def plot_instance_masks(image: np.ndarray, mask: np.ndarray, objects: List[dict]
             axx = ax
         else:
             axx = ax[i]
-            
+
         axx.imshow(image, cmap="gray", alpha=0.7)
         axx.imshow(decode_segmap_v2(mask, tmp_cmap_rgb), alpha=0.3)
         axx.set_title(f"{segcfg.CLASS_LABELS[c]}_{instance}")
@@ -1217,22 +1263,22 @@ def plot_instance_masks(image: np.ndarray, mask: np.ndarray, objects: List[dict]
         axx.axis("off")
 
     plt.subplots_adjust(wspace=0.05, hspace=0.05)
-    
+
     if show:
         plt.show()
 
     return fig
 
 
-def plot_instance_masks_grid(image: np.ndarray, mask: np.ndarray, 
-                             objects: List[dict], ncols: int = 5, 
+def plot_instance_masks_grid(image: np.ndarray, mask: np.ndarray,
+                             objects: List[dict], ncols: int = 5,
                              show: bool = True):
     """Plot image with instance masks overlayed"""
     # plot instance masks
     # craete grid from objects list, with
-    #  nrows = n unique classes, and 
+    #  nrows = n unique classes, and
     # ncols = n unique instance of eaach class
-    
+
     # get unique classes and instances
 
     # TODO: add class names to title / axes
@@ -1286,7 +1332,7 @@ def plot_instance_masks_grid(image: np.ndarray, mask: np.ndarray,
             # set class label has yaxis title
             if j == 0:
                 axx.set_ylabel(segcfg.CLASS_LABELS[c], rotation=0, ha="right", va="center", fontsize=20)
-                
+
 
         # if not enough objects to fill the grid, remove the remaining axes
         if len(plot_objects[c]) < nc:
@@ -1294,7 +1340,7 @@ def plot_instance_masks_grid(image: np.ndarray, mask: np.ndarray,
                 ax[i][j].axis("off")
 
     plt.subplots_adjust(wspace=0.05, hspace=0.05)
-    
+
     if show:
         plt.show()
 
@@ -1302,12 +1348,12 @@ def plot_instance_masks_grid(image: np.ndarray, mask: np.ndarray,
 
 def plot_bounding_boxes(image: np.ndarray, mask: np.ndarray, objects: List[dict], show:bool = True):
     """Plot image with bounding boxes around detected objects"""
-    
+
     # plot bounding boxes
     fig = plt.figure(figsize=(10, 10))
     plt.imshow(image, cmap="gray", alpha=0.7)
-    plt.imshow(decode_segmap_v2(mask, segcfg.CLASS_COLORS_RGB), alpha=0.3)            
-    
+    plt.imshow(decode_segmap_v2(mask, segcfg.CLASS_COLORS_RGB), alpha=0.3)
+
 
     n_objects = len(objects)
     classes = []
@@ -1320,17 +1366,17 @@ def plot_bounding_boxes(image: np.ndarray, mask: np.ndarray, objects: List[dict]
         # if the class is the same as the name, only plot the label once
         if segcfg.CLASS_LABELS[c] in classes:
             label = None
-        else: 
+        else:
             cls_name = segcfg.CLASS_LABELS[c]
             # limit the number of instances to 5
             label = f"{cls_name}_{instance}" if n_objects <= 5 else f"{cls_name}"
             classes.append(cls_name)
 
         # plot bounding box as rectangle
-        rect = patches.Rectangle((xstart, ystart), xstop - xstart, ystop - ystart, 
-                                linewidth=1, linestyle="--", 
-                                edgecolor=segcfg.CLASS_COLORS[c], 
-                                facecolor='none', 
+        rect = patches.Rectangle((xstart, ystart), xstop - xstart, ystop - ystart,
+                                linewidth=1, linestyle="--",
+                                edgecolor=segcfg.CLASS_COLORS[c],
+                                facecolor='none',
                                 label=label)
         plt.gca().add_patch(rect)
 
@@ -1349,14 +1395,14 @@ def plot_keypoints(mask: np.ndarray, objects: List[dict]):
         keypoints = obj["keypoints"]
 
         mask = np.zeros_like(mask)
-        mask[imask[:, 0], imask[:, 1]] = 1   
-        
+        mask[imask[:, 0], imask[:, 1]] = 1
+
         # filter points for specific classes
         mmap = {
             "lamella": ["centre", "bottom_edge", "top_edge", "left_edge", "right_edge"],
             "manipulator": ["top_left", "top_right", "bottom_left", "bottom_right"],
             "copper_adaptor": ["centre", "bottom_edge", "top_edge"],
-        }   
+        }
 
         cname = segcfg.CLASS_LABELS[c]
 
@@ -1365,12 +1411,12 @@ def plot_keypoints(mask: np.ndarray, objects: List[dict]):
 
         plt.title(f"{cname}_{instance}")
         plt.imshow(mask, cmap="gray") # TODO: decode segmap?
-            
+
         for l, p in keypoints.items():
-            
+
             if l not in mmap[cname]:
                 continue
-                
+
             l = l.title().replace("_", "")
             c = cname.title().replace("_", "")
             plt.plot(p[0], p[1], "+", label=f"{c}{l}")
@@ -1390,7 +1436,7 @@ def get_objects(mask: np.ndarray, ignore_classes: List[int] = [0, 3], min_pixels
         label = measure.label(mask_c).astype(np.uint8)
         instances = np.unique(label)  # 0 = background, 1 = instance 1, 2 = instance 2, etc.
         for instance in instances[1:]: # skip background
-            
+
             # get bounding box
             instance_mask = np.argwhere(label==instance)
 
@@ -1401,15 +1447,15 @@ def get_objects(mask: np.ndarray, ignore_classes: List[int] = [0, 3], min_pixels
 
             (ystart, xstart), (ystop, xstop) = instance_mask.min(0), instance_mask.max(0) + 1
             bbox = [(ystart, xstart), (ystop, xstop)]
-            
+
             # get keypoints
             kmask = np.zeros_like(mask)
-            kmask[instance_mask[:, 0], instance_mask[:, 1]] = 1   
+            kmask[instance_mask[:, 0], instance_mask[:, 1]] = 1
             keypoints = get_keypoints(kmask) # TODO: fix inefficiency here
 
             # save instance masks
-            odict = {"class": c, "instance": instance, 
-                     "mask": instance_mask, 
+            odict = {"class": c, "instance": instance,
+                     "mask": instance_mask,
                      "bbox": bbox, "keypoints": keypoints}
             objects.append(copy.deepcopy(odict))
 
@@ -1419,7 +1465,7 @@ def get_objects(mask: np.ndarray, ignore_classes: List[int] = [0, 3], min_pixels
 def get_keypoints(mask: np.ndarray) -> dict:
         """Get keypoints from instance mask.
         Args:
-            mask (np.ndarray): instance mask    
+            mask (np.ndarray): instance mask
         """
 
         # get center of mass, from list of points
@@ -1441,8 +1487,8 @@ def get_keypoints(mask: np.ndarray) -> dict:
 
         # get width and height
         w = xmax - xmin
-        h = ymax - ymin   
-        
+        h = ymax - ymin
+
         # corners
         tl = xmin, ymin
         tr = xmax, ymin
@@ -1450,12 +1496,12 @@ def get_keypoints(mask: np.ndarray) -> dict:
         br = xmax, ymax
 
         pts = [centre, bot, top, left, right, tl, tr, bl, br]
-        labels = ["centre", "bottom_edge", "top_edge", "left_edge", "right_edge", 
+        labels = ["centre", "bottom_edge", "top_edge", "left_edge", "right_edge",
                 "top_left", "top_right", "bottom_left", "bottom_right"]
 
         keypoints = dict(zip(labels, pts))
 
-        return keypoints 
+        return keypoints
 
 
 # SAVE/ LOAD data as json
@@ -1471,9 +1517,9 @@ def save_json(data, filename):
             if isinstance(obj, (np.uint8, np.int64, np.uint64)):
                 return int(obj)
             return json.JSONEncoder.default(self, obj)
-    
 
-    # save json  to file 
+
+    # save json  to file
     with open(filename, "w") as f:
         json.dump(data, f, cls=NumpyEncoder, indent=4)
 
@@ -1494,17 +1540,17 @@ def generate_segmentation_objects(data_path: str, labels_path: str, dataset_json
     progress = tqdm(filenames)
     for img_fname, label_fname in progress:
         progress.set_description(f"Processing {os.path.basename(img_fname)}")
-        
+
         # image = tff.imread(img_fname)
         mask = tff.imread(label_fname)
 
         # get objects
         objects = get_objects(mask, min_pixels=min_pixels)
 
-        # save 
-        dat.append(copy.deepcopy({"filename": os.path.basename(img_fname), 
-                                "path": os.path.dirname(img_fname), 
-                                "mask_filename": os.path.basename(label_fname), 
+        # save
+        dat.append(copy.deepcopy({"filename": os.path.basename(img_fname),
+                                "path": os.path.dirname(img_fname),
+                                "mask_filename": os.path.basename(label_fname),
                                 "mask_path": os.path.dirname(label_fname),
                                 "objects": objects}))
 
@@ -1516,31 +1562,31 @@ def generate_segmentation_objects(data_path: str, labels_path: str, dataset_json
 
 def crop_threshold_to_polygon(image: np.ndarray, bbox: Optional[Tuple[int, int, int, int]] = None, threshold: float = 0.5) -> List[Tuple[int, int]]:
     """
-    Crop an image using a bounding box, apply threshold segmentation, and return a polygon 
+    Crop an image using a bounding box, apply threshold segmentation, and return a polygon
     of the thresholded values in image coordinates.
-    
+
     Args:
         image: Input image as numpy array
         bbox: Bounding box as (x_min, y_min, x_max, y_max) in image coordinates
-        threshold: Threshold value for segmentation (0.0 to 1.0 for normalized images, 
+        threshold: Threshold value for segmentation (0.0 to 1.0 for normalized images,
                   or 0-255 for uint8 images)
-    
+
     Returns:
-        List of (x, y) coordinate tuples representing the polygon boundary 
+        List of (x, y) coordinate tuples representing the polygon boundary
         in original image coordinates
     """
     if bbox is None:
         # If no bounding box is provided, use the entire image
         bbox = (0, 0, image.shape[1], image.shape[0])
     x_min, y_min, x_max, y_max = bbox
-    
+
     # Validate bounding box
     height, width = image.shape[:2]
     x_min = max(0, min(x_min, width - 1))
     y_min = max(0, min(y_min, height - 1))
     x_max = max(x_min + 1, min(x_max, width))
     y_max = max(y_min + 1, min(y_max, height))
-    
+
     # Crop the image to the bounding box
     mask = np.zeros_like(image)
     mask[y_min:y_max, x_min:x_max] = 1
@@ -1554,14 +1600,14 @@ def crop_threshold_to_polygon(image: np.ndarray, bbox: Optional[Tuple[int, int, 
 
     # Find contours of the thresholded region
     contours = measure.find_contours(image.astype(float), 0.5, mask=binary_mask)
-    
+
     if not contours:
         # Return empty polygon if no contours found
         return []
-    
+
     # Get the largest contour (main object)
     largest_contour = max(contours, key=len)
-    
+
     # Convert contour coordinates back to original image coordinates
     # Note: find_contours returns (row, col) format, we want (x, y)
     polygon = []
@@ -1569,5 +1615,5 @@ def crop_threshold_to_polygon(image: np.ndarray, bbox: Optional[Tuple[int, int, 
         x = int(col)
         y = int(row)
         polygon.append((x, y))
-    
+
     return polygon

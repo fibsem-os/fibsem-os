@@ -37,6 +37,19 @@ class MillTrenchTaskConfig(AutoLamellaTaskConfig):
         default=None,
         metadata=field_meta(tooltip="The orientation to perform trench milling in", items=("SEM", "FIB", "MILLING", None)),
     )
+
+    model_checkpoint: str = field(
+         default="autolamella-waffle-20240107.pt",
+         metadata={"parameter": True, "help": "ML model checkpoint"}
+     )
+
+    for_liftout: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether the trench is being milled for a liftout protocol. Enabling this flag means this will run only for the lamella marked as for liftout block."
+        },
+    )
+
     task_type: ClassVar[str] = "MILL_TRENCH"
     display_name: ClassVar[str] = "Trench Milling"
 

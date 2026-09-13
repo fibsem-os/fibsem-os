@@ -35,6 +35,35 @@ class MillUndercutTaskConfig(AutoLamellaTaskConfig):
         metadata=field_meta(tooltip="The angles to mill the undercuts at",
                             unit=constants.DEGREE_SYMBOL),
     )
+
+    model_checkpoint: str = field(
+         default="autolamella-waffle-20240107.pt",
+         metadata={"parameter": True, "help": "ML model checkpoint"}
+     )
+
+    for_liftout: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether the undercut task is being performed for a liftout protocol. Enabling this flag means this will run only for the lamella marked as for liftout block."
+        },
+    )
+
+    auto_abort: bool = field(
+        default=True,
+        metadata={
+            "help": "Auto abort the step and mark lamella as defect if ML detection for undercut fails. This allows overmilling to be avoided on lamellae where detections went wrong"
+        },
+    )
+
+    gate_det_based_on_trench_milling: bool = field(
+        default=False,
+        metadata={
+            "help": "WARNING: Experimental feature: Add measure for ML detection based on Trench milling step, estimates lamella size of undercut from known geometry from trench milling"
+            + "Helps make ML detection more robust and makes sure bad detections do not ruin sample, Trench milling step must precede undercut. Built primarily for Waffle Method"
+        },
+    )
+
+
     task_type: ClassVar[str] = "MILL_UNDERCUT"
     display_name: ClassVar[str] = "Undercut Milling"
 
@@ -54,7 +83,7 @@ class MillUndercutTask(AutoLamellaTask):
         image_settings = self.config.imaging
         image_settings.path = self.lamella.path
 
-        checkpoint = "autolamella-waffle-20240107.pt" # if self.lamella.protocol.options.checkpoint is None else self.lamella.protocol.options.checkpoint
+        checkpoint = self.config.model_checkpoint
 
         # move to sem orientation
         self.log_status_message("MOVE_TO_UNDERCUT", "Moving to Undercut Position...")
