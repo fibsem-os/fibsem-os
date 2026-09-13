@@ -617,6 +617,15 @@ class AutoscriptSampleLoader(SampleGridLoader):
         self._apply_hardware_slots(list(self._autoloader.get_slots(True)))
 
     def _apply_hardware_slots(self, hw_slots: list) -> None:
+        # The rows as the hardware gave them, before any reading of ours: what a
+        # bench session needs from the log when the Sample view shows every slot
+        # as unknown or empty and the question is what AutoScript actually said.
+        logging.info(
+            "Autoloader slots: " + ", ".join(_describe_hw(hw, hw.id) for hw in hw_slots)
+        )
+        stage = getattr(self._autoloader, "stage", None)
+        if stage is not None:
+            logging.info(f"Autoloader stage: {_describe_hw(stage)}")
         if hw_slots:
             self.capacity = len(hw_slots)
 
@@ -694,6 +703,13 @@ class AutoscriptSampleLoader(SampleGridLoader):
             self._autoloader.unload()
         except Exception as e:
             raise GridExchangeError(f"Autoloader could not unload: {e}") from e
+
+
+def _describe_hw(hw, label=None) -> str:
+    """``id=State 'description'`` for a slot, ``State 'description'`` for the stage."""
+    described = (getattr(hw, "sample_description", "") or "").strip()
+    text = _slot_state(hw) + (f" '{described}'" if described else "")
+    return f"{label}={text}" if label is not None else text
 
 
 def _slot_state(hw_slot) -> str:
