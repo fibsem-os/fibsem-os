@@ -721,7 +721,7 @@ def detect_lamella(
     # lamella_mask = masks.apply_circular_mask(lamella_mask, radius=mask_radius)
 
     if isinstance(feature, LamellaCentre):
-        px = detect_centre_point(lamella_mask)
+        px = detect_centre_point(lamella_mask, threshold=feature.pix_threshold)
 
     if isinstance(feature, LamellaLeftEdge):
         # px = detect_corner(lamella_mask, left=True)
@@ -731,13 +731,13 @@ def detect_lamella(
 
     if isinstance(feature, LamellaRightEdge):
         # px = detect_corner(lamella_mask, left=False)
-        px = detect_median_edge(lamella_mask, edge="right")
+        px = detect_median_edge(lamella_mask, edge="right", threshold=feature.pix_threshold)
 
     if isinstance(feature, LamellaTopEdge):
-        px = detect_median_edge(lamella_mask, edge="top")
+        px = detect_median_edge(lamella_mask, edge="top", threshold=feature.pix_threshold)
 
     if isinstance(feature, LamellaBottomEdge):
-        px = detect_median_edge(lamella_mask, edge="bottom")
+        px = detect_median_edge(lamella_mask, edge="bottom", threshold=feature.pix_threshold)
 
     if np.isclose(0, px.x) or np.isclose(0, px.y):
         feature.detect_success = False
