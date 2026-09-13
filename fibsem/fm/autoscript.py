@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from typing import Literal, Optional, Tuple, Union
 
 import numpy as np
+from autoscript_sdb_microscope_client import SdbMicroscopeClient
 from autoscript_sdb_microscope_client.enumerations import (
     CameraEmissionType,
     CameraFilterType,
@@ -21,7 +22,6 @@ from fibsem.fm.microscope import (
     LightSource,
     ObjectiveLens,
 )
-from fibsem.microscope import SdbMicroscopeClient
 
 COLOR_TO_WAVELENGTH = {
     CameraEmissionType.BLUE: 365,
