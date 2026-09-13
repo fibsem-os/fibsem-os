@@ -1380,6 +1380,7 @@ class ThermoMicroscope(FibsemMicroscope):
     def _acquisition_worker(self, beam_type: BeamType):
         """Worker thread for image acquisition."""
         # TODO: add lock
+
         self.set_channel(channel=beam_type)
 
         try:
@@ -1389,7 +1390,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
                 # fast continuous acquisition
                 USE_FAST_ACQUISITION = True
-                if USE_FAST_ACQUISITION:
+                if USE_FAST_ACQUISITION and AS_FAST_AQ_HELPERS:
                     self._fast_acquisition_worker(beam_type=beam_type)
                     if self._stop_acquisition_event.is_set():
                         break
@@ -1408,43 +1409,36 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _fast_acquisition_worker(self, beam_type: BeamType):
 
-        if not AS_FAST_AQ_HELPERS:
-            raise NotImplementedError(
-                "Check version of Autoscript and check if ImagingState Enumeration is supported"
-            )
+        try:
+            with self._threading_lock:
+                self.set_channel(channel=beam_type)  # re-force active channel...?
+                self.connection.imaging.start_acquisition()
 
-            return
-        else:
-            try:
+            while self.connection.imaging.state == ImagingState.ACQUIRING:
+                if self._stop_acquisition_event.is_set():
+                    self.connection.imaging.stop_acquisition()
+                    break
                 with self._threading_lock:
-                    self.set_channel(channel=beam_type)  # re-force active channel...?
-                    self.connection.imaging.start_acquisition()
+                    self.set_channel(
+                        channel=beam_type
+                    )  # re-force active channel...?
+                    adorned_image = self.connection.imaging.get_image(
+                        GetImageSettings(wait_for_frame=True)
+                    )
+                    image = self._construct_image(
+                        adorned_image, beam_type=beam_type
+                    )
 
-                while self.connection.imaging.state == ImagingState.ACQUIRING:
-                    if self._stop_acquisition_event.is_set():
-                        self.connection.imaging.stop_acquisition()
-                        break
-                    with self._threading_lock:
-                        self.set_channel(
-                            channel=beam_type
-                        )  # re-force active channel...?
-                        adorned_image = self.connection.imaging.get_image(
-                            GetImageSettings(wait_for_frame=True)
-                        )
-                        image = self._construct_image(
-                            adorned_image, beam_type=beam_type
-                        )
-
-                        logging.info(f"Acquired Image: {image.data.shape}")
-                        # emit the acquired image
-                        if beam_type is BeamType.ELECTRON:
-                            self.sem_acquisition_signal.emit(image)
-                        if beam_type is BeamType.ION:
-                            self.fib_acquisition_signal.emit(image)
-            except Exception as e:
-                logging.error(f"Exception occurred during fast acquisition: {e}")
-            finally:
-                self.connection.imaging.stop_acquisition()
+                    logging.info(f"Acquired Image: {image.data.shape}")
+                    # emit the acquired image
+                    if beam_type is BeamType.ELECTRON:
+                        self.sem_acquisition_signal.emit(image)
+                    if beam_type is BeamType.ION:
+                        self.fib_acquisition_signal.emit(image)
+        except Exception as e:
+            logging.error(f"Exception occurred during fast acquisition: {e}")
+        finally:
+            self.connection.imaging.stop_acquisition()
 
     def _construct_image(
         self, adorned_image: AdornedImage, beam_type: BeamType
