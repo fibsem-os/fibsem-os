@@ -281,7 +281,6 @@ class MillUndercutTask(AutoLamellaTask):
 
         # write pose
         self.lamella.milling_pose = self.microscope.get_microscope_state()
-        self.lamella.update_milling_angle(self.microscope)
 
 
         # acquire reference images
