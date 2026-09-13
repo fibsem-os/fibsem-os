@@ -26,7 +26,11 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 
-_FIELDS = ("name", "description", "version")
+_FIELDS = ("name", "description", "version","lamella_type")
+
+_FIELD_LABELS = {
+    "lamella_type": "Lamella Type"
+}
 
 
 class ProtocolHeaderWidget(QWidget):
@@ -80,7 +84,7 @@ class ProtocolDetailsDialog(QDialog):
         self.edits: Dict[str, QLineEdit] = {}
         for field in _FIELDS:
             edit = QLineEdit(getattr(protocol, field, "") or "")
-            form.addRow(field.capitalize(), edit)
+            form.addRow(_FIELD_LABELS.get(field,field.capitalize()), edit)
             self.edits[field] = edit
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)

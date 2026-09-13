@@ -64,6 +64,7 @@ fibsem/ui/test_qt.py
 scripts/dev-notebook2.ipynb
 scripts/launch-autolamella.sh
 fibsem/applications/autolamella/log/*
+fibsem/applications/autolamella/ml/*
 fibsem/fm/*.ome.tiff
 notes.md
 fibsem/ui/test-ndv.py

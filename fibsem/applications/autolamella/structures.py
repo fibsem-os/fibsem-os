@@ -553,6 +553,7 @@ class AutoLamellaTaskProtocol:
     description: str = "Protocol for AutoLamella"
     version: str = "1.0"
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    lamella_type: str = "On Grid"
     task_config: EventedDict[str, AutoLamellaTaskConfig] = field(
         default_factory=lambda: EventedDict()
     )  # unique_name: AutoLamellaTaskConfig
@@ -576,6 +577,7 @@ class AutoLamellaTaskProtocol:
             "name": self.name,
             "description": self.description,
             "version": self.version,
+            "lamella_type": self.lamella_type,
             "tasks": {k: v.to_dict() for k, v in self.task_config.items()},
             "workflow": self.workflow_config.to_dict(),
             "options": self.options.to_dict(),
@@ -595,6 +597,7 @@ class AutoLamellaTaskProtocol:
             name=data.get("name", "AutoLamella Task Protocol"),
             description=data.get("description", "Protocol for AutoLamella"),
             version=data.get("version", "1.0"),
+            lamella_type=data.get("lamella_type", "On Grid"),
             task_config=task_config,
             workflow_config=workflow_config,
             options=AutoLamellaWorkflowOptions.from_dict(data.get("options", {})),
@@ -952,6 +955,8 @@ class Lamella:
     # does not track grids (every experiment before grid records existed). A
     # back-reference only; grid -> lamella is derived by filtering on it.
     grid_id: Optional[str] = None
+    is_liftout_block: bool = False  # whether this lamella is intended for liftout, used to determine which tasks to run in liftout protocols
+    lamella_type: str = "On Grid"  # to know what type of lamella based on experiment
 
     def __post_init__(self):
         # Deliberately does not create ``path``. Constructing a Lamella is not a
@@ -1137,6 +1142,8 @@ class Lamella:
             "poi": self.poi.to_dict(),
             "description": self.description,
             "grid_id": self.grid_id,
+            "is_liftout_block": self.is_liftout_block,
+            "lamella_type": self.lamella_type,
         }
 
     @property
@@ -1193,6 +1200,8 @@ class Lamella:
             poi=Point.from_dict(data.get("poi", {"x": 0, "y": 0})),
             description=data.get("description", ""),
             grid_id=data.get("grid_id"),
+            is_liftout_block=data.get("is_liftout_block", False),
+            lamella_type=data.get("lamella_type", "On Grid"),
         )
 
     def load_reference_image(self, fname) -> FibsemImage:
@@ -1613,7 +1622,7 @@ class Experiment:
 
     def __repr__(self) -> str:
 
-        return f"""Experiment: 
+        return f"""Experiment:
         Path: {self.path}
         Positions: {len(self.positions)}
         """
@@ -1954,7 +1963,7 @@ class Experiment:
 
         # create the lamella
         lamella = Lamella(
-            petname=name, path=path, number=number, task_config=deepcopy(task_config)
+            petname=name, path=path, number=number, task_config=deepcopy(task_config),lamella_type=self.task_protocol.lamella_type
         )
         if template.alignment_area is not None:
             lamella.alignment_area = deepcopy(template.alignment_area)

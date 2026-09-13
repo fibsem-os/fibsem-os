@@ -114,6 +114,12 @@ class MillUndercutTask(AutoLamellaTask):
             hfw=align_feature_hfw,
         )
 
+        self._save_images_for_ml_training(
+            image_settings=align_coincident_image_settings,
+            acquire_sem=True,
+            acquire_fib=True,
+        )
+
         # mill under cut
         milling_task_config = self.config.milling[UNDERCUT_KEY]
         post_milled_undercut_stages = []

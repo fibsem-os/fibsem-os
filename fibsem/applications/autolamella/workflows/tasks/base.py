@@ -27,6 +27,7 @@ import numpy as np
 
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
+from fibsem.applications.autolamella.config import ML_PATH
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -799,6 +800,67 @@ class AutoLamellaTask(ABC):
             abort=lambda: _abort_requested(self.parent_ui),
             timeout=INSTRUCTION_TIMEOUT_S,
         )
+
+    def _save_images_for_ml_training(
+        self,
+        image_settings: ImageSettings = None,
+        acquire_sem: bool = True,
+        acquire_fib: bool = True,
+        sem_image: FibsemImage = None,
+        fib_image: FibsemImage = None,
+    ) -> None:
+        """
+        Save images for machine learning training.
+
+        """
+
+        image_provided = sem_image is not None or fib_image is not None
+
+        desc = self.lamella.lamella_type
+
+        ## save files to directory of this name
+
+        ## make directory if it doesn't exist
+        savedir = os.path.join(ML_PATH, desc, self.config.task_name)
+
+        save_dir_EB = os.path.join(savedir,"EB")
+        os.makedirs(save_dir_EB, exist_ok=True)
+
+        save_dir_IB = os.path.join(savedir,"IB")
+        os.makedirs(save_dir_IB, exist_ok=True)
+
+        ## save image with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{desc}_{timestamp}.tif"
+
+        if image_provided:
+            if sem_image is not None:
+                sem_image.save(os.path.join(save_dir_EB, f"{filename}_EB.tif"))
+            if fib_image is not None:
+                fib_image.save(os.path.join(save_dir_IB, f"{filename}_IB.tif"))
+        else:
+            if image_settings is None:
+                logging.warning(
+                    "No images or image settings provided for ML training data. Skipping saving images."
+                )
+                return
+
+            # acquire new images if not provided
+            image_settings.save = False
+
+            sem_image, fib_image = acquire.acquire_channels(
+                self.microscope,
+                image_settings,
+                acquire_sem=acquire_sem,
+                acquire_fib=acquire_fib,
+            )
+            if sem_image is not None and acquire_sem:
+                sem_image.save(os.path.join(save_dir_EB, f"{filename}_EB.tif"))
+            if fib_image is not None and acquire_fib:
+                fib_image.save(os.path.join(save_dir_IB, f"{filename}_IB.tif"))
+
+        logging.info(f"Saved image for ML training at {savedir}")
+
 
 
 def get_task_supervision(

@@ -760,5 +760,6 @@ AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(
     AUTOLAMELLA_BASE_PATH, "protocol", "task-protocol.yaml"
 )
 AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
+AUTOLAMELLA_ML_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, 'ml')
 
 os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
