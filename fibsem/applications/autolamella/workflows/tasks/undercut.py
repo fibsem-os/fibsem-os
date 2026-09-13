@@ -91,17 +91,27 @@ class MillUndercutTask(AutoLamellaTask):
                                                                      self.config.orientation)
         self.microscope.safe_absolute_stage_movement(undercut_position)
         # TODO: support compucentric offset
+        #
+        # change image hfw for aligning
+        align_coincident_image_settings = deepcopy(image_settings)
+
+        align_feature_hfw = fcfg.REFERENCE_HFW_HIGH
+        # if lamella is used for liftout, we expect it to be large and require a larger hfw for alignment
+        if self.config.for_liftout:
+            align_feature_hfw = fcfg.REFERENCE_HFW_INIT_NEEDLE_VIEW_IB
+            feature = LamellaCentre()
 
         # align feature coincident
         feature = LamellaCentre()
         lamella = align_feature_coincident(
             microscope=self.microscope,
-            image_settings=image_settings,
+            image_settings=align_coincident_image_settings,
             lamella=self.lamella,
             checkpoint=checkpoint,
             parent_ui=self.parent_ui,
             validate=self.validate,
             feature=feature,
+            hfw=align_feature_hfw,
         )
 
         # mill under cut
