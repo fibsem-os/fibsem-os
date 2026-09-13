@@ -101,6 +101,8 @@ class LamellaCentre(Feature):
     px: Point = None
     color = "red"
     name: str = "LamellaCentre"
+    pix_threshold: int = 500 # pixel gating detection, if for some reason approx pixel count is known, try
+
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'LamellaCentre':
         self.px = detect_lamella(mask, self)
@@ -113,6 +115,7 @@ class LamellaLeftEdge(Feature):
     px: Point = None
     color = "red"
     name: str = "LamellaLeftEdge"
+    pix_threshold: int = 250
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'LamellaLeftEdge':
         self.px = detect_lamella(mask, self)
@@ -125,6 +128,7 @@ class LamellaRightEdge(Feature):
     px: Point = None
     color = "red"
     name: str = "LamellaRightEdge"
+    pix_threshold: int = 250
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'LamellaRightEdge':
         self.px = detect_lamella(mask, self)
@@ -136,6 +140,7 @@ class LamellaTopEdge(Feature):
     px: Point = None
     color = "red"
     name: str = "LamellaTopEdge"
+    pix_threshold: int = 250
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'LamellaTopEdge':
         self.px = detect_lamella(mask, self)
@@ -147,6 +152,7 @@ class LamellaBottomEdge(Feature):
     px: Point = None
     color = "red"
     name: str = "LamellaBottomEdge"
+    pix_threshold: int = 250
 
     def detect(self, img: np.ndarray, mask: np.ndarray = None, point:Point=None) -> 'LamellaBottomEdge':
         self.px = detect_lamella(mask, self)
@@ -608,7 +614,7 @@ def detect_lamella(
 
     if isinstance(feature, LamellaLeftEdge):
         # px = detect_corner(lamella_mask, left=True)
-        px = detect_median_edge(lamella_mask, edge="left")
+        px = detect_median_edge(lamella_mask, edge="left", threshold=feature.pix_threshold)
 
 
     if isinstance(feature, LamellaRightEdge):
