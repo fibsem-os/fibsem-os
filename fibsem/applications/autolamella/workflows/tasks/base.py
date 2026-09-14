@@ -28,9 +28,12 @@ import numpy as np
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
 from fibsem.applications.autolamella.proposals import (
+    TASK_RESULT,
     Decision,
     DecisionOutcome,
+    Proposal,
     auto_author,
+    supersede,
 )
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
@@ -110,6 +113,11 @@ class AutoLamellaTask(ABC):
 
     config_cls: ClassVar[AutoLamellaTaskConfig]
     config: AutoLamellaTaskConfig
+    # Whether what this task did is worth a row in the Review tab: a
+    # property of the task type, declared here, never a protocol choice. Off
+    # for tasks whose product nobody reviews on its own (the fiducial, a
+    # reference-image acquisition).
+    records_result: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -231,6 +239,11 @@ class AutoLamellaTask(ABC):
                     "Cancelled by user." if cancelled else str(e)
                 )
                 self._record_outcome()
+                # A failure is exactly when someone wants to look; a Stop is
+                # not, whoever pressed it already knows.
+                if not cancelled:
+                    self._record_task_result(failure=str(e))
+                    self._auto_decide_proposal()
             except Exception:
                 logging.exception(f"Could not record the outcome of {self.task_name}")
             self._fire_hook(
@@ -244,8 +257,63 @@ class AutoLamellaTask(ABC):
             # That is silently wrong, and wrong exactly when the record matters most.
             self.microscope.experiment.clear_workflow_metadata()
         self.post_task()
+        self._record_task_result()
         self._auto_decide_proposal()
         self._fire_hook("task_completed")
+
+    def _record_task_result(self, failure: str = "") -> None:
+        """Leave what this task did as a proposal for someone to look at.
+
+        For any task type that records a result, in every mode: gated, it
+        waits for the Review tab; not gated, the producer confirms it after
+        the task and the row is there to check. No values: the result is not
+        a number anyone changes, it is the final reference images, named in
+        provenance from the outputs this run recorded. A task that proposed a
+        kind of its own during this run (Setup proposes the milling position)
+        is left alone: one proposal per task, and the richer one wins. A
+        re-run supersedes a decided result like any other proposal.
+        """
+        if not (self.records and type(self).records_result):
+            return
+        state = self.lamella.task_state
+        existing = self.lamella.proposals.get(self.task_name)
+        if existing is not None and existing.created_at >= (
+            state.start_timestamp or 0.0
+        ):
+            # this run's own proposal, of its own kind -- pending (gated) or
+            # already decided by the operator's inline answer, either way it
+            # is the richer record and this one must not paper over it
+            return
+        outputs = getattr(state, "outputs", {}) or {}
+        fib = (outputs.get("final_fib") or [""])[-1]
+        sem = (outputs.get("final_sem") or [""])[-1]
+        proposal = Proposal(
+            kind=TASK_RESULT,
+            values={},
+            provenance={
+                "proposer": self.task_name,  # the auto decision's author
+                "task_name": self.task_name,
+                "status": state.status.name,
+                "started_at": state.start_timestamp,
+                "ended_at": state.end_timestamp,
+                "reference_image": fib,
+                "reference_image_eb": sem,
+                "failure": failure,
+            },
+        )
+        self.lamella.proposals[self.task_name] = supersede(
+            existing if existing is not None and not existing.pending else None,
+            proposal,
+        )
+        logging.info(
+            {
+                "msg": "proposal_recorded",
+                "lamella": self.lamella.name,
+                "task_name": self.task_name,
+                "kind": TASK_RESULT,
+                "provenance": proposal.provenance,
+            }
+        )
 
     def _record_outcome(self) -> None:
         """Freeze the finished task_state into task_history.
