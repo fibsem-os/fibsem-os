@@ -50,6 +50,7 @@ from PyQt5.QtWidgets import (
 from fibsem import conversions
 from fibsem.applications.autolamella.proposals import (
     MILLING_SETUP,
+    TASK_RESULT,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -79,7 +80,7 @@ __all__ = [
     "waiting_on",
 ]
 
-_KIND_LABELS = {MILLING_SETUP: "Milling positions"}
+_KIND_LABELS = {MILLING_SETUP: "Milling positions", TASK_RESULT: "Task results"}
 
 _HEADER_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 10px; font-weight: 600; "
@@ -239,14 +240,19 @@ def describe_decision(
     when = clock(d.timestamp)
     if d.outcome is DecisionOutcome.Rejected:
         return f"Rejected by {who} at {when} — {d.reason}"
-    if not d.values and proposal.applied is not None:
-        applied = proposal.applied
+    # A producer's own decision applied values (or, with none, recorded the
+    # result); a person's later empty decision is the look that was owed.
+    verb = "Applied" if proposal.values else "Recorded"
+    auto = proposal.applied or next(
+        (x for x in proposal.decisions if x.author.startswith("auto:")), None
+    )
+    if not d.values and auto is not None and auto is not d:
         return (
-            f"Applied by {author_label(applied.author, experiment)} at "
-            f"{clock(applied.timestamp)} · checked by {who} at {when}"
+            f"{verb} by {author_label(auto.author, experiment)} at "
+            f"{clock(auto.timestamp)} · checked by {who} at {when}"
         )
     if d.author.startswith("auto:"):
-        return f"Applied by {who} at {when} · not checked yet"
+        return f"{verb} by {who} at {when} · not checked yet"
     delta = proposal.delta(d).get("poi")
     moved = (
         f" · moved ({delta.x * 1e6:+.2f}, {delta.y * 1e6:+.2f}) µm"
@@ -274,6 +280,9 @@ class MillingSetupReviewRenderer(ReviewRenderer):
     """One reference image, one draggable marker: the point of interest as the
     task proposed it, pre-placed. Same overlay and same drag as the inline
     question; what changes is when it happens."""
+
+    CELLS = ("proposer", "confidence", "proposed", "image")
+    PENDING_HINT = "Drag the marker to correct it"
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -327,7 +336,7 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         grid.setHorizontalSpacing(18)
         grid.setVerticalSpacing(1)
         self._cell_values: Dict[str, QLabel] = {}
-        for col, key in enumerate(("proposer", "confidence", "proposed", "image")):
+        for col, key in enumerate(self.CELLS):
             k = QLabel(key.upper())
             k.setStyleSheet(_CELL_KEY_STYLE)
             v = QLabel("—")
@@ -335,7 +344,7 @@ class MillingSetupReviewRenderer(ReviewRenderer):
             grid.addWidget(k, 0, col)
             grid.addWidget(v, 1, col)
             self._cell_values[key] = v
-        grid.setColumnStretch(4, 1)
+        grid.setColumnStretch(len(self.CELLS), 1)
         # kept for callers that read the readout as text
         self.readout = QLabel()
         self.readout.hide()
@@ -568,7 +577,8 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         if not gated:
             self.waiting.setText("Nothing is waiting on this.")
         elif applied is not None:
-            self.waiting.setText("Applied, not waiting: " + ", ".join(gated))
+            verb = "Applied" if getattr(self._proposal, "values", None) else "Recorded"
+            self.waiting.setText(f"{verb}, not waiting: " + ", ".join(gated))
         elif decided is None:
             self.waiting.setText("Waiting on this: " + ", ".join(gated))
         elif decided.outcome is DecisionOutcome.Rejected:
@@ -603,19 +613,22 @@ class MillingSetupReviewRenderer(ReviewRenderer):
                 "font-size: 12px;"
             )
             self.decision.show()
+            what = "Applied as proposed" if self._proposal.values else "Recorded"
             self.status.setText(
-                "Applied as proposed · acknowledge, or re-run the task to change it"
+                f"{what} · acknowledge, or re-run the task to change it"
             )
             return
         self.decision.hide()
         beam = "beam is busy elsewhere" if self._running else "beam is idle"
-        self.status.setText(f"Drag the marker to correct it · no deadline · {beam}")
+        self.status.setText(f"{self.PENDING_HINT} · no deadline · {beam}")
 
 
-def _load_reference_image(item: Any, proposal: Proposal) -> Optional[FibsemImage]:
+def _load_reference_image(
+    item: Any, proposal: Proposal, key: str = "reference_image"
+) -> Optional[FibsemImage]:
     """The image the proposal's values sit on, from its provenance. A delta only
     means something against the same image, so nothing else is shown."""
-    path = proposal.provenance.get("reference_image")
+    path = proposal.provenance.get(key)
     if not path:
         return None
     item_dir = str(getattr(item, "path", ""))
@@ -635,6 +648,119 @@ def _load_reference_image(item: Any, proposal: Proposal) -> Optional[FibsemImage
     except Exception:
         logging.exception(f"Could not load the reference image for review: {path}")
         return None
+
+
+@register_review_renderer(TASK_RESULT)
+class TaskResultReviewRenderer(MillingSetupReviewRenderer):
+    """What a task did: its final ion and electron images, side by side, and
+    the two verbs. Nothing to drag, nothing to write; confirm says it looks
+    right, reject retires the lamella."""
+
+    CELLS = ("task", "outcome", "duration", "image")
+    PENDING_HINT = "Look at the result"
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.btn_confirm.setToolTip("Enter — this looks right")
+        self._electron: Optional[FibsemImage] = None
+
+    def set_proposal(
+        self, experiment: Experiment, item: Any, task_name: str, proposal: Proposal
+    ) -> None:
+        self._experiment = experiment
+        self._item = item
+        self._task_name = task_name
+        self._proposal = proposal
+        self._image = _load_reference_image(item, proposal)
+        self._electron = _load_reference_image(item, proposal, "reference_image_eb")
+        p = proposal.provenance
+
+        self.title.setText(getattr(item, "name", ""))
+        self.task_chip.setText(task_name)
+        self._cell_values["task"].setText(task_name)
+        failure = str(p.get("failure") or "")
+        status = str(p.get("status") or "")
+        self._cell_values["outcome"].setText(
+            f"failed · {failure}" if failure else status.lower() or "—"
+        )
+        started, ended = p.get("started_at"), p.get("ended_at")
+        self._cell_values["duration"].setText(
+            _duration(ended - started)
+            if isinstance(started, (int, float)) and isinstance(ended, (int, float))
+            else "—"
+        )
+        names = [
+            os.path.basename(str(p.get(k) or ""))
+            for k in ("reference_image", "reference_image_eb")
+        ]
+        names = [n for n in names if n]
+        self._cell_values["image"].setText(
+            (
+                ("final" if any("_final" in n for n in names) else " · ".join(names))
+                + f" · {clock(proposal.created_at)}"
+            ).strip(" ·")
+            if names
+            else f"none recorded · {clock(proposal.created_at)}"
+        )
+        self.readout.setText(
+            "\n".join(f"{k} {v.text()}" for k, v in self._cell_values.items())
+        )
+        self._gated = waiting_on(experiment, task_name)
+        self._decided = None
+        self._applied = None
+        self.btn_confirm.setText("Confirm · looks right")
+        self._refresh_waiting()
+        self._controller.remove_overlay(BeamType.ION, "poi")
+        self._controller.remove_overlay(BeamType.ION, "confirmed")
+        self._controller.arm_overlay(BeamType.ION, None)
+        if self._image is not None:
+            self._controller.set_image(BeamType.ION, self._image)
+        if self._electron is not None:
+            self._controller.set_image(BeamType.ELECTRON, self._electron)
+        self._controller.widget.set_sem_visible(self._electron is not None)
+        self._refresh_status()
+
+    def current_values(self) -> Dict[str, Any]:
+        return {}
+
+    def _refresh_status(self) -> None:
+        super()._refresh_status()
+        if (
+            self._proposal is not None
+            and self._image is None
+            and getattr(self, "_electron", None) is None
+            and getattr(self, "_decided", None) is None
+        ):
+            self.status.setText(
+                "No reference images were recorded for this run · " + self.status.text()
+            )
+
+    def set_to_check(self, applied: Optional[Decision]) -> None:
+        self._applied = applied
+        if applied is None:
+            return
+        self.btn_confirm.setText("Acknowledge")
+        self.btn_confirm.setToolTip("Enter — record that you looked")
+        self.btn_confirm.setEnabled(True)
+        self.btn_reject.setEnabled(True)
+        self._refresh_waiting()
+        self._refresh_status()
+
+    def set_read_only(self, decided: Optional[Decision]) -> None:
+        self._decided = decided
+        self.btn_confirm.setEnabled(decided is None)
+        self.btn_reject.setEnabled(decided is None)
+        self._refresh_waiting()
+        self._refresh_status()
+
+
+def _duration(seconds: float) -> str:
+    seconds = max(0.0, float(seconds))
+    if seconds < 60:
+        return f"{seconds:.0f} s"
+    if seconds < 3600:
+        return f"{seconds / 60:.1f} min"
+    return f"{seconds / 3600:.1f} h"
 
 
 class _UnknownKindRenderer(ReviewRenderer):
