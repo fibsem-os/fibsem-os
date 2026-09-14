@@ -430,21 +430,25 @@ def test_author_labels_and_row_details():
     assert R.describe_decision(p, exp).startswith("Confirmed by you at ")
 
 
-def test_the_row_toggle_sets_review_and_follows_the_flag(qapp, monkeypatch):
+def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
     from fibsem.applications.autolamella.ui import workflow_config_widget as W
 
+    monkeypatch.setattr(W, "_agent_supervision_available", lambda: False)
     monkeypatch.setattr(W, "_review_available", lambda: True)
     task = AutoLamellaTaskDescription(name=SETUP, supervise=True, required=True)
     row = WorkflowTaskRowWidget(task)
-    assert row.btn_review.isVisibleTo(row)
+    assert row.btn_attention.text() == "Supervised"
     changed = []
     row.review_changed.connect(changed.append)
-    row.btn_review.click()
-    assert task.review is True and changed == [task]
-    assert "Review" in row.btn_review.toolTip()
-    row.btn_review.click()
-    assert task.review is False
+    row.btn_attention.click()
+    assert task.review is True and task.supervise is False and changed == [task]
+    assert row.btn_attention.text() == "Review"
+    row.btn_attention.click()
+    assert task.review is False and row.btn_attention.text() == "Automated"
 
     monkeypatch.setattr(W, "_review_available", lambda: False)
-    hidden = WorkflowTaskRowWidget(task)
-    assert not hidden.btn_review.isVisibleTo(hidden)
+    task.review = True
+    off = WorkflowTaskRowWidget(task)
+    assert off.btn_attention.text() == "Automated", "runs as what it will run as"
+    off.btn_attention.click()
+    assert task.review is False and task.supervise is True, "Review is not offered"
