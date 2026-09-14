@@ -692,6 +692,7 @@ class QtResponder(QObject):
             milling_config=request.milling_config,
             fib_image=request.fib_image,
             fm_image=request.fm_image,
+            monitoring_channel=request.monitoring_channel,
             on_continue=lambda: self.answer_confirm(True),
             on_skip=lambda: self.answer_confirm(False),
         )

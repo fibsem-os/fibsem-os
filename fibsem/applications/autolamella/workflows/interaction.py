@@ -216,6 +216,9 @@ class SetupCoincidenceMilling(Request[Optional["CoincidenceSetup"]]):
     milling_config: "FibsemMillingTaskConfig"
     fib_image: Optional["FibsemImage"] = None
     fm_image: Optional["FluorescenceImage"] = None
+    # the mill's monitoring channel, for the operator to tune against the live
+    # frame; answered back on CoincidenceSetup.monitoring_channel
+    monitoring_channel: Optional["ChannelSettings"] = None
     message: str = "Place the boxes, then Save and Continue"
 
 
