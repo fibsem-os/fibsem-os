@@ -908,6 +908,9 @@ class _CoordinatesTab(QWidget):
         fit_form = QFormLayout(fit_body)
         fit_form.setContentsMargins(8, 4, 8, 4)
         fit_form.setSpacing(4)
+        # The choices are one or two words; a combo stretched to the panel's
+        # width reads as a text field. Fields keep their own width.
+        fit_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
 
         # Where the projection comes from, one line; the numbers live in the
         # tooltip. The link ignores (or restores) a previous run's placement
@@ -957,6 +960,15 @@ class _CoordinatesTab(QWidget):
             self._auto_accept_check,
         ):
             _ctl.setStyleSheet(CONTROL_STYLE)
+        for _combo in (
+            self._fib_method_combo,
+            self._fm_fid_method_combo,
+            self._fm_poi_method_combo,
+            self._fm_fid_ch_combo,
+            self._fm_poi_ch_combo,
+        ):
+            _combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            _combo.setMinimumContentsLength(10)
         self._auto_accept_check.setToolTip(
             "Apply fits immediately without the confirm dialog.\n"
             "Failed or far-off fits still ask for confirmation."
