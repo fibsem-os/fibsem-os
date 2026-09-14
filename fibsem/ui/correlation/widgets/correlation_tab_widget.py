@@ -955,29 +955,29 @@ class _CoordinatesTab(QWidget):
         self._lbl_projection.setTextFormat(Qt.RichText)
         self._lbl_projection.setStyleSheet(BODY_STYLE)
         self._lbl_projection.linkActivated.connect(self.projection_link_activated)
-        fit_form.addRow(_form_label("Projection:"), self._lbl_projection)
+        fit_form.addRow(_form_label("Projection"), self._lbl_projection)
 
         # ValueComboBox installs a WheelBlocker, so scrolling this panel can't
         # silently change a fit setting on the way past. The channel combos start
         # empty and are refilled by rebuild_channel_combos — the blocker lives on
         # the widget, so it survives clear()/addItem().
         self._fib_method_combo = ValueComboBox(_FIT_METHODS, value="Hole")
-        fit_form.addRow(_form_label("FIB method:"), self._fib_method_combo)
+        fit_form.addRow(_form_label("FIB method"), self._fib_method_combo)
 
         self._fm_fid_method_combo = ValueComboBox(_FIT_METHODS, value="None")
-        fit_form.addRow(_form_label("FM Fid. method:"), self._fm_fid_method_combo)
+        fit_form.addRow(_form_label("FM Fid. method"), self._fm_fid_method_combo)
 
         self._fm_poi_method_combo = ValueComboBox(_FIT_METHODS, value="Gaussian")
-        fit_form.addRow(_form_label("FM POI method:"), self._fm_poi_method_combo)
+        fit_form.addRow(_form_label("FM POI method"), self._fm_poi_method_combo)
 
         self._fm_fid_ch_combo = ValueComboBox([])
-        fit_form.addRow(_form_label("FM Fid. channel:"), self._fm_fid_ch_combo)
+        fit_form.addRow(_form_label("FM Fid. channel"), self._fm_fid_ch_combo)
 
         self._fm_poi_ch_combo = ValueComboBox([])
-        fit_form.addRow(_form_label("FM POI channel:"), self._fm_poi_ch_combo)
+        fit_form.addRow(_form_label("FM POI channel"), self._fm_poi_ch_combo)
 
         self._show_diag_check = QCheckBox()
-        fit_form.addRow(_form_label("Show diagnostic:"), self._show_diag_check)
+        fit_form.addRow(_form_label("Show diagnostic"), self._show_diag_check)
 
         # Opt-in: apply fits without the confirm dialog. Off by default (the
         # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
@@ -999,7 +999,7 @@ class _CoordinatesTab(QWidget):
             "Apply fits immediately without the confirm dialog.\n"
             "Failed or far-off fits still ask for confirmation."
         )
-        fit_form.addRow(_form_label("Auto-accept fits:"), self._auto_accept_check)
+        fit_form.addRow(_form_label("Auto-accept fits"), self._auto_accept_check)
 
         fit_help = QLabel(
             "Each fit opens a confirmation to accept or reject \u2014 unless "
