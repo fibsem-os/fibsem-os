@@ -231,6 +231,7 @@ def test_author_labels_and_row_details():
     assert R.author_label("human:Pat", exp) == "you"
     assert R.author_label("human:Sam", exp) == "Sam"
     assert R.author_label("agent:claude", exp) == "agent · claude"
+    assert R.author_label("auto:centre-of-image", exp) == "auto · centre-of-image"
     p = Proposal(kind=MILLING_SETUP, values={"poi": Point(0, 0)})
     p.decisions.append(
         Decision(
@@ -261,10 +262,13 @@ def test_the_row_toggle_sets_review_and_follows_the_flag(qapp, monkeypatch):
     changed = []
     row.review_changed.connect(changed.append)
     row.btn_review.click()
-    assert task.review is True and changed == [task]
+    assert task.review == "gate" and changed == [task]
     assert "Review" in row.btn_review.toolTip()
     row.btn_review.click()
-    assert task.review is False
+    assert task.review == "advise"
+    assert "Advise" in row.btn_review.toolTip()
+    row.btn_review.click()
+    assert task.review == "off"
 
     monkeypatch.setattr(W, "_review_available", lambda: False)
     hidden = WorkflowTaskRowWidget(task)

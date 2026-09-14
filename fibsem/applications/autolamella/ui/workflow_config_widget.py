@@ -18,6 +18,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.applications.autolamella.proposals import (
+    REVIEW_ADVISE,
+    REVIEW_GATE,
+    REVIEW_MODES,
+)
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
@@ -101,12 +106,20 @@ def _review_available() -> bool:
 
 
 def _review_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
-    if task.review:
+    if task.review == REVIEW_GATE:
         return (
             "mdi:clipboard-check",
             stylesheets.PRIMARY_COLOR,
-            "Review — the task proposes its answer for the Review tab instead of "
-            "asking at the beam. Click to change.",
+            "Review — the task proposes its answer for the Review tab, and the "
+            "tasks that need it wait for a decision. Click to change.",
+        )
+    if task.review == REVIEW_ADVISE:
+        return (
+            "mdi:clipboard-text",
+            stylesheets.PRIMARY_COLOR,
+            "Advise — the task proposes its answer and applies it; the run "
+            "continues and the proposal is in the Review tab to check later. "
+            "Click to change.",
         )
     return (
         "mdi:clipboard-outline",
@@ -270,7 +283,10 @@ class WorkflowTaskRowWidget(QWidget):
         self.supervised_changed.emit(task)
 
     def _on_review_clicked(self) -> None:
-        self.task.review = not self.task.review
+        """Cycle off -> gate -> advise -> off."""
+        modes = list(REVIEW_MODES)
+        current = modes.index(self.task.review) if self.task.review in modes else 0
+        self.task.review = modes[(current + 1) % len(modes)]
         self.refresh()
         self.review_changed.emit(self.task)
 

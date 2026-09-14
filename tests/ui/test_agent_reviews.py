@@ -159,6 +159,7 @@ def test_reviews_lists_the_pending_proposal_with_its_image(ui):
     assert review["kind"] == MILLING_SETUP
     assert review["values"] == {"poi": {"x": 0.0, "y": 0.0}}
     assert review["gating"] is True
+    assert review["mode"] == "gate"
     assert review["waiting_on"] == [ROUGH]
     assert review["reference_image"]["width"] > 0
     assert review["reference_image"]["image_b64_jpeg"]

@@ -152,7 +152,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
 
         # select point of interest -- under review it is proposed at the end of
         # the task instead, on the final reference image
-        if self.config.select_poi and not self.review:
+        if self.config.select_poi and not self.proposes:
             poi = select_poi_ui(
                 parent_ui=self.parent_ui,
                 # the FIB image the reference acquisition above displayed — the
@@ -196,7 +196,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # propose the point of interest for review, on the final reference
         # image -- the last thing acquired, at the stored pose, and the one the
         # Review tab shows
-        if self.config.select_poi and self.review:
+        if self.config.select_poi and self.proposes:
             self._propose_poi()
 
     def _propose_poi(self) -> None:

@@ -64,6 +64,35 @@ def agent_author(model: str) -> str:
     return f"agent:{model}" if model else "agent:"
 
 
+def auto_author(proposer: str) -> str:
+    """The author of a decision nobody made: in advise mode the producer
+    confirms its own proposal so the run continues, and the record says so."""
+    return f"auto:{proposer}" if proposer else "auto:"
+
+
+# ---------------------------------------------------------------------------
+# Review modes: how a task's proposal is treated, set per task in the protocol
+# ---------------------------------------------------------------------------
+
+REVIEW_OFF = "off"  # the task asks inline (or does not propose at all)
+REVIEW_GATE = "gate"  # the consumer waits for a decision
+REVIEW_ADVISE = "advise"  # auto-confirmed; the run continues, a person looks later
+REVIEW_MODES = (REVIEW_OFF, REVIEW_GATE, REVIEW_ADVISE)
+
+
+def normalise_review_mode(value: Any) -> str:
+    """``review`` was a bool before it was a mode: True reads as gate, False
+    as off, so a protocol written by either version loads unchanged."""
+    if value is None or value is False:
+        return REVIEW_OFF
+    if value is True:
+        return REVIEW_GATE
+    mode = str(value).strip().lower()
+    if mode not in REVIEW_MODES:
+        raise ValueError(f"review must be one of {REVIEW_MODES}, not {value!r}")
+    return mode
+
+
 # ---------------------------------------------------------------------------
 # Kinds: declared in code by the producing task, never configured
 # ---------------------------------------------------------------------------
