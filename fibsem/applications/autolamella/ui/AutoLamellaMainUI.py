@@ -2587,6 +2587,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         until the screening flow has run on the Arctis and a fixed holder.
         """
         self.grids_tab = GridsTabWidget()
+        # The Positions view makes lamellae through the application widget, the
+        # one path every lamella is made by.
+        self.grids_tab.set_autolamella_ui(self.autolamella_ui)
         # Fires on disconnect too, with microscope None; the tab redraws its chips
         # from whatever stage there is.
         self.autolamella_ui.system_widget.connected_signal.connect(

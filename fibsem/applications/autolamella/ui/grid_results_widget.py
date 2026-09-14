@@ -14,7 +14,7 @@ import os
 from datetime import datetime
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QFrame,
@@ -48,7 +48,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_900,
     OK_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import ElidedLabel
+from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 
 _TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-friendly size
 
@@ -109,7 +109,9 @@ def latest_runs(grid: GridRecord) -> dict:
 
 class _HistoryRow(QWidget):
     """One history entry: a separator, a line saying what and how it went,
-    and the image it recorded, if any."""
+    and the image it recorded, if any -- with an offer to mark positions on it."""
+
+    mark_clicked = pyqtSignal(str)  # the image's path
 
     def __init__(
         self,
@@ -156,6 +158,17 @@ class _HistoryRow(QWidget):
             f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
         )
         line.addWidget(self.detail_label, 1)
+        # The hand-off from screening to milling: this overview on the Positions
+        # view, where lamellae are marked. Only for an entry that recorded one.
+        self.btn_mark: Optional[IconToolButton] = None
+        if image is not None:
+            self.btn_mark = IconToolButton(
+                "mdi:map-marker-plus",
+                tooltip="Mark positions on this overview",
+                size=22,
+            )
+            self.btn_mark.clicked.connect(lambda: self.mark_clicked.emit(image))
+            line.addWidget(self.btn_mark)
         layout.addLayout(line)
 
         self.tile: Optional[ClickableLabel] = None
@@ -197,6 +210,9 @@ class _HistoryRow(QWidget):
 
 class GridResultsWidget(QWidget):
     """The selected grid: its name, the latest run, and its history with images."""
+
+    # (GridRecord, image path): an overview to mark positions on.
+    mark_requested = pyqtSignal(object, str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -315,6 +331,9 @@ class GridResultsWidget(QWidget):
                 state,
                 thumbnail_for(experiment, grid, state),
                 image_for(experiment, grid, state),
+            )
+            row.mark_clicked.connect(
+                lambda path: self.mark_requested.emit(self._grid, path)
             )
             self._rows_layout.addWidget(row)
             self._rows.append(row)
