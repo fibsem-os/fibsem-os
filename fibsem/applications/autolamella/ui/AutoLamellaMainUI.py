@@ -75,6 +75,7 @@ from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
+from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as GRID_LOAD_STEP,
 )
@@ -1570,6 +1571,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = [t.name for t in selected_tasks]
         lamella_names = [lam.name for lam in selected_lamella]
 
+        # Before the estimate and the confirmation: a linked lamella whose grid
+        # is in the magazine cannot be run at all, and there is no override.
+        refused = self._lamella_run_refusal(selected_lamella)
+        if refused:
+            QMessageBox.warning(self, "Cannot run", refused)
+            return
+
         if not confirm_run_workflow_dialog(
             ui.experiment, lamella_names, task_names, parent=self
         ):
@@ -1589,6 +1597,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Clear selections after starting workflow
         self.lamella_workflow_widget.lamella_list.set_all_selected(False)
         self.lamella_workflow_widget.workflow.set_all_selected(False)
+
+    def _lamella_run_refusal(self, lamellae) -> str:
+        """Why these lamellae cannot run now, or "": a lamella linked to a grid
+        that is not on the stage. Reads the inventory first; see `grid_gate`."""
+        ui = self.autolamella_ui
+        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        if ui is None or ui.experiment is None or stage is None:
+            return ""
+        return run_refusal(ui.experiment, stage, lamellae)
 
     def _grid_workflow_active(self) -> bool:
         """Whether the Workflow tab's Grids view is the one showing: Run acts on it."""
@@ -2888,6 +2905,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._show_queue_message(
                 "Select at least one lamella and one task to add to the queue."
             )
+            return
+
+        refused = self._lamella_run_refusal(lamellae)
+        if refused:
+            QMessageBox.warning(self, "Cannot add to the queue", refused)
             return
 
         lamella_names = [lam.name for lam in lamellae]
