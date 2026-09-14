@@ -48,7 +48,7 @@ def microscope():
     microscope.disconnect()
 
 
-def _experiment(tmp_path: Path, microscope, review: bool) -> Experiment:
+def _experiment(tmp_path: Path, microscope, review) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
     exp.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
@@ -99,7 +99,7 @@ def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
 def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, review=True)
     task = _task(microscope, exp, flag=True)
-    assert task.review is True
+    assert task.review is True and task.records
     lamella = exp.positions[0]
     rough_point = (
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
@@ -190,18 +190,73 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_review"
 
 
-def test_without_the_flag_or_without_review_nothing_is_proposed(microscope, tmp_path):
+def test_without_the_flag_nothing_is_recorded(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, review=True)
     task = _task(microscope, exp, flag=False)
-    assert task.review is False
+    assert task.review is False and not task.records
     task.run()
     assert exp.positions[0].proposals == {}
 
-    exp = _experiment(tmp_path / "b", microscope, review=False)
+
+def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
+    """Not gated, nobody asked inline: the proposal is recorded exactly as
+    under a gate, then confirmed as proposed by the producer, through the
+    same decide path a person's confirm takes. The author says nobody looked;
+    the run never waits."""
+    exp = _experiment(tmp_path, microscope, review=False)
     task = _task(microscope, exp, flag=True)
-    assert task.review is False
+    assert task.review is False and task.records
+    lamella = exp.positions[0]
+    heard = []
+    exp.decided.connect(lambda item_id, task_name: heard.append(task_name))
+
     task.run()
-    assert exp.positions[0].proposals == {}
+
+    proposal = lamella.proposals[SETUP]
+    assert not proposal.pending
+    assert proposal.values == {"poi": Point(0.0, 0.0)}, "the proposal is untouched"
+    assert proposal.current.outcome is DecisionOutcome.Confirmed
+    assert proposal.current.author == "auto:centre-of-image"
+    assert proposal.current.via == "workflow"
+    assert proposal.current.values == proposal.values, "confirmed as proposed"
+    assert proposal.delta() == {"poi": Point(0.0, 0.0)}
+    assert heard == [SETUP], "the tab hears it like any other decision"
+    assert task.task_manager._defer_reason(lamella, ROUGH) is None, "nothing waits"
+    assert lamella.has_completed_task(SETUP)
+
+    # A re-run supersedes the auto-confirmed proposal like a person's.
+    _task(microscope, exp, flag=True).run()
+    fresh = lamella.proposals[SETUP]
+    assert fresh is not proposal and not fresh.pending
+    assert fresh.superseded == [proposal]
+
+
+def test_supervised_the_inline_answer_is_the_decision(
+    microscope, tmp_path, monkeypatch
+):
+    """The operator picked the point in the workflow's own question. That
+    answer is the decision on the record, made in the workflow, and the delta
+    against the proposer's point is captured without anyone opening the tab.
+    Nothing is to check: a person already looked."""
+    from fibsem.applications.autolamella.workflows.tasks import select_position as S
+
+    monkeypatch.setattr(S, "select_poi_ui", lambda **kwargs: Point(2e-6, -1e-6))
+    exp = _experiment(tmp_path, microscope, review=False)
+    task = _task(microscope, exp, flag=True)
+    lamella = exp.positions[0]
+
+    task.run()
+
+    proposal = lamella.proposals[SETUP]
+    assert proposal.values == {"poi": Point(0.0, 0.0)}, "what the proposer said"
+    d = proposal.current
+    assert d.outcome is DecisionOutcome.Confirmed and d.via == "workflow"
+    assert d.author.startswith("human:")
+    assert d.values == {"poi": Point(2e-6, -1e-6)}
+    assert proposal.delta()["poi"] == Point(2e-6, -1e-6)
+    assert not d.author.startswith("auto:"), "a person decided it"
+    assert lamella.poi == Point(2e-6, -1e-6), "applied inline, once"
+    assert task.task_manager._defer_reason(lamella, ROUGH) is None
 
 
 def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
@@ -217,11 +272,18 @@ def test_review_round_trips_through_the_protocol():
     d = AutoLamellaTaskDescription(
         name=SETUP, supervise=True, required=True, review=True
     )
+    assert d.to_dict()["review"] is True
     again = AutoLamellaTaskDescription.from_dict(d.to_dict())
     assert again.review is True
     old = AutoLamellaTaskDescription.from_dict(
         {"name": SETUP, "supervise": True, "required": True, "requires": []}
     )
     assert old.review is False
+    # one interim version wrote a mode string; it still loads
+    for legacy, flag in (("gate", True), ("advise", False), ("off", False)):
+        interim = AutoLamellaTaskDescription.from_dict(
+            {"name": SETUP, "supervise": True, "required": True, "review": legacy}
+        )
+        assert interim.review is flag, legacy
     cfg_ = AutoLamellaWorkflowConfig(tasks=[d])
     assert cfg_.get_review(SETUP) is True and cfg_.get_review("nope") is False

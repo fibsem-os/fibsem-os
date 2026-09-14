@@ -301,6 +301,15 @@ class AutoLamellaTaskConfig(ABC):
         self.reference_imaging.imaging = value
 
 
+def _review_flag(value: Any) -> bool:
+    """``review`` as a bool. For one interim version it was a mode string;
+    a protocol saved then still loads: "gate" is the gate, anything else is
+    not (the record it asked for is what every task does now)."""
+    if isinstance(value, str):
+        return value.strip().lower() in ("gate", "true", "yes", "on")
+    return bool(value)
+
+
 @evented
 @dataclass
 class AutoLamellaTaskDescription:
@@ -314,14 +323,18 @@ class AutoLamellaTaskDescription:
     # agent answers; the operator can still answer first). Display-and-watchdog
     # semantics only — prompts are raised identically either way.
     supervisor: str = "human"
-    # Propose and review: the task completes and leaves its answer as a proposal
-    # for someone to confirm or reject later, off the beam, instead of asking
-    # inline. Only tasks that know how to propose honour it (Setup Lamella
-    # Position, to start with); the consumer that requires this task is
-    # deferred until the proposal is decided. Independent of ``supervise``: a
-    # task can still block on the questions that genuinely need a person at
-    # the beam and propose the rest. Ignored unless the feature flag is on.
+    # Review: the task's proposal gates the tasks that require it -- they are
+    # deferred until someone confirms or rejects it in the Review tab, off the
+    # microscope. This is the only thing the protocol decides about review.
+    # Whether a task records a proposal at all is a property of the task kind
+    # (in code), and it records in every mode: automated (the producer
+    # confirms its own proposal and the run goes on), supervised (the answer
+    # given in the workflow is the decision) or review (this flag). Ignored
+    # unless the feature flag is on.
     review: bool = False
+
+    def __post_init__(self) -> None:
+        self.review = _review_flag(self.review)
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -424,7 +437,7 @@ class AutoLamellaWorkflowConfig:
         return False
 
     def get_review(self, task_name: str) -> bool:
-        """Whether a task should propose rather than ask (see
+        """Whether the task's proposal gates the tasks that require it (see
         AutoLamellaTaskDescription.review)."""
         for task in self.tasks:
             if task.name == task_name:

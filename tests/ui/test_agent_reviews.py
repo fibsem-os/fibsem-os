@@ -159,6 +159,7 @@ def test_reviews_lists_the_pending_proposal_with_its_image(ui):
     assert review["kind"] == MILLING_SETUP
     assert review["values"] == {"poi": {"x": 0.0, "y": 0.0}}
     assert review["gating"] is True
+    assert review["gated"] is True
     assert review["waiting_on"] == [ROUGH]
     assert review["reference_image"]["width"] > 0
     assert review["reference_image"]["image_b64_jpeg"]
@@ -184,6 +185,7 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
         body = resp.json()
         assert body["applied"] is True
         assert body["delta"]["poi"] == {"x": 2e-6, "y": -1e-6}
+        assert lamella.proposals[SETUP].current.via == "server"
         assert ROUGH in body["synced_tasks"]
         assert lamella.poi == Point(2e-6, -1e-6)
         proposal = lamella.proposals[SETUP]

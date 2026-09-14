@@ -104,14 +104,15 @@ def _review_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
     if task.review:
         return (
             "mdi:clipboard-check",
-            stylesheets.PRIMARY_COLOR,
-            "Review — the task proposes its answer for the Review tab instead of "
-            "asking at the beam. Click to change.",
+            stylesheets.REVIEW_COLOR,
+            "Review — the tasks that need this one's answer wait until it is "
+            "confirmed in the Review tab. Click to change.",
         )
     return (
         "mdi:clipboard-outline",
         stylesheets.AUTOMATED_COLOR,
-        "Asks inline — the task waits at the beam for its answer. Click to change.",
+        "Not gated — the run continues; what the task did is in the Review tab "
+        "to check. Click to change.",
     )
 
 
