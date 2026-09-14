@@ -88,6 +88,16 @@ class TestWithALoader:
         assert seen == [record.id]  # already there when the listeners redraw
         assert exp.get_lamellae_for_grid(record) == [lamella]
 
+    def test_an_explicit_grid_wins_over_the_loaded_one(self, arctis):
+        """A lamella marked on a grid's overview belongs to that grid, whether or
+        not it is on the stage: the caller's grid is taken as given."""
+        exp = arctis.experiment
+        stage = arctis.microscope._stage
+        exp.sync_grids_from_inventory(stage)
+        stage.ensure_loaded("Grid-02")
+        other = exp.get_grid_by_name("Grid-01")
+        assert arctis.add_new_lamella(grid_id=other.id).grid_id == other.id
+
     def test_nothing_loaded_leaves_it_none(self, arctis):
         exp = arctis.experiment
         exp.sync_grids_from_inventory(arctis.microscope._stage)

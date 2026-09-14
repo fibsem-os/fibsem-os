@@ -2205,6 +2205,7 @@ class AutoLamellaUI(QMainWindow):
         name: Optional[str] = None,
         objective_position: Optional[float] = None,
         marked_at: Optional[str] = None,
+        grid_id: Optional[str] = None,
     ) -> Lamella:
         """Add a lamella to the experiment.
 
@@ -2218,6 +2219,9 @@ class AutoLamellaUI(QMainWindow):
             marked_at: The orientation *stage_position* is in, for a caller that knows.
                 Left alone it is read off the position, which is right on a compustage
                 and cannot be on an offset mount -- see `build_lamella_poses`.
+            grid_id: The grid this lamella is on, for a caller that knows -- one
+                marked on a grid's overview belongs to that grid whether or not it
+                is on the stage. Left alone it is resolved from the stage.
         Returns:
             lamella: The created lamella.
         """
@@ -2246,7 +2250,11 @@ class AutoLamellaUI(QMainWindow):
             task_config=self.experiment.task_protocol.task_config,
             name=name,
             fluorescence_pose=poses.fluorescence,
-            grid_id=self._grid_id_for_new_lamella(poses.milling.stage_position),
+            grid_id=(
+                grid_id
+                if grid_id is not None
+                else self._grid_id_for_new_lamella(poses.milling.stage_position)
+            ),
         )
         lamella = self.experiment.positions[-1]
 

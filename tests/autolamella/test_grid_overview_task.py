@@ -239,3 +239,18 @@ def test_write_thumbnail_bounds_the_size_and_is_atomic(tmp_path):
     with Image.open(path) as im:
         assert max(im.size) == 512
     assert [p.name for p in (tmp_path / "t").iterdir()] == ["thumb.png"]
+
+
+def test_the_saved_overview_says_which_grid_it_is_of(microscope, experiment):
+    """The mosaic carries the task's provenance like every single image does:
+    the grid it was taken for, on `metadata.experiment`. That is what lets a
+    lamella marked on the overview later be given this grid rather than
+    whichever one is on the stage (FIB-71)."""
+    from fibsem.structures import FibsemImage
+
+    grid = experiment.get_grid_by_name("grid-aspen")
+    run_grid_task(microscope, "overview_sem", experiment, grid)
+    (overview,) = grid_outputs(experiment, grid, "overview_sem")
+    saved = FibsemImage.load(overview)
+    assert saved.metadata.experiment.item_id == grid.id
+    assert saved.metadata.experiment.item_name == "grid-aspen"

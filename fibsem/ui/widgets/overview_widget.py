@@ -356,6 +356,12 @@ def _as_colour_and_coverage(
     return out
 
 
+def _item_of(image: FibsemImage) -> Tuple[Optional[str], Optional[str]]:
+    """The experiment item an image was taken for, off its own provenance."""
+    ref = getattr(getattr(image, "metadata", None), "experiment", None)
+    return getattr(ref, "item_id", None), getattr(ref, "item_name", None)
+
+
 class _PlacedTile(NamedTuple):
     """One image a record placed: what it holds, where it was taken, what it covers.
 
@@ -479,6 +485,12 @@ class OverviewRecord:
         # What was placed, kept so a view switch can re-place it. Display-reduced --
         # see `FibsemOverviewWidget._stored_tile`.
         self.images: List["_PlacedTile"] = []
+        # Which item of the experiment this overview is of, from the image's own
+        # provenance (`metadata.experiment.item_id`, stamped by the task that took
+        # it). A grid task stamps its grid, so a lamella marked on this overview
+        # can be given that grid rather than whichever one happens to be loaded.
+        self.item_id: Optional[str] = None
+        self.item_name: Optional[str] = None
         # How many tiles the run has acquired, once something says. An overview is one
         # image on the canvas now, so the images it holds no longer count them, and a
         # mosaic loaded from disk cannot say how many it was made of -- which is why
@@ -521,7 +533,9 @@ class FibsemOverviewWidget(QWidget):
     # A user right-clicked the canvas and asked for a position there. Requests, not
     # commands: this widget knows nothing about lamellae, so a host that owns an
     # experiment decides what a position means and whether to ask first.
-    position_add_requested = pyqtSignal(object)  # FibsemStagePosition
+    # (FibsemStagePosition, record id or None): the record the click landed on, so
+    # the listener can mark the lamella against what that overview is of.
+    position_add_requested = pyqtSignal(object, object)
     position_move_requested = pyqtSignal(str, object)  # name, FibsemStagePosition
     # A marked position was clicked, by the name it was marked under.
     position_selected = pyqtSignal(str)
@@ -551,6 +565,9 @@ class FibsemOverviewWidget(QWidget):
         self._worker: Optional[FunctionWorker] = None
         self._records: Dict[str, OverviewRecord] = {}
         self._record_count = 0
+        # Canvas key -> (centre in metres, (width, height) in metres), as placed: the
+        # ground each tile covers, for asking which overview a click landed on.
+        self._extents: Dict[str, Tuple[Tuple[float, float], Tuple[float, float]]] = {}
         # Canvas key -> the *base* tile behind it, the auto-stretched one. Contrast is
         # applied on the way to the canvas and never written back here, so moving a
         # slider twice adjusts the original twice rather than compounding.
@@ -1831,6 +1848,8 @@ class FibsemOverviewWidget(QWidget):
         except Exception as e:
             logger.debug(f"Could not place an image: {e}")
             return None
+        if key is not None:
+            self._extents[key] = (centre, tile.covers)
         return self.canvas.add_image(
             self._for_display(tile),
             centre=centre,
@@ -1869,6 +1888,7 @@ class FibsemOverviewWidget(QWidget):
         )
         record.pixel_size = self._pixel_size_of(image)
         record.images.append(tile)
+        record.item_id, record.item_name = _item_of(image)
         self._records[record_id] = record
         self._refresh_overview_list()
         return record_id
@@ -1968,7 +1988,34 @@ class FibsemOverviewWidget(QWidget):
         record.keys = [key]
         record.images = [tile]
         record.pixel_size = self._pixel_size_of(mosaic)
+        record.item_id, record.item_name = _item_of(mosaic)
         self._refresh_overview_list()
+
+    def record_at(self, x: float, y: float) -> Optional[OverviewRecord]:
+        """The overview under a canvas point: the most recently placed one whose
+        ground covers it, or None over bare canvas."""
+        try:
+            px, py = self.canvas.canvas_to_metres(x, y)
+        except Exception as e:
+            logger.debug(f"Could not resolve the clicked point: {e}")
+            return None
+        for record in reversed(list(self._records.values())):
+            for key in record.keys:
+                extent = self._extents.get(key)
+                if extent is None:
+                    continue
+                (cx, cy), (w, h) = extent
+                if abs(px - cx) <= w / 2 and abs(py - cy) <= h / 2:
+                    return record
+        return None
+
+    def item_of(self, record_id: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        """Which item of the experiment a record is an overview of: (id, name),
+        both None when the image did not say or the record is unknown."""
+        record = self._records.get(record_id or "")
+        if record is None:
+            return None, None
+        return record.item_id, record.item_name
 
     def set_overview_visible(self, record_id: str, visible: bool) -> bool:
         """Show or hide every tile of one overview. False if the id is unknown."""
@@ -2747,7 +2794,7 @@ class FibsemOverviewWidget(QWidget):
         config = ContextMenuConfig()
         config.add_action(
             "Add New Position Here",
-            callback=lambda: self.position_add_requested.emit(target),
+            callback=lambda: self._request_add_at(x, y, target),
             tooltip=f"Add a position at {self._describe(target)}",
         )
         selected = self._selected_position
@@ -2758,6 +2805,11 @@ class FibsemOverviewWidget(QWidget):
                 tooltip=f"Move {selected} to {self._describe(target)}",
             )
         return config
+
+    def _request_add_at(self, x: float, y: float, target: FibsemStagePosition) -> None:
+        """Ask for a lamella at *target*, naming the overview the click was on."""
+        record = self.record_at(x, y)
+        self.position_add_requested.emit(target, record.id if record else None)
 
     def _stage_position_at(self, x: float, y: float) -> Optional[FibsemStagePosition]:
         """The stage position a canvas point names, or None if it is not usable.
