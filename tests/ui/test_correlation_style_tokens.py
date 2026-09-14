@@ -27,7 +27,7 @@ FONT_SIZE = re.compile(r"font-size:\s*\d+px")
 
 def _code_lines(path: Path):
     """Source lines with comments stripped, so a hex in a comment does not count."""
-    for n, line in enumerate(path.read_text().splitlines(), 1):
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         code = line.split("#", 1)[0] if not HEX.search(line.split("#", 1)[0]) else line
         yield n, code
 
@@ -45,7 +45,10 @@ def test_no_inline_font_sizes_in_the_correlation_widgets():
     hits = []
     for name in CHECKED:
         for n, line in (
-            (n, l) for n, l in enumerate((WIDGETS / name).read_text().splitlines(), 1)
+            (n, l)
+            for n, l in enumerate(
+                (WIDGETS / name).read_text(encoding="utf-8").splitlines(), 1
+            )
         ):
             if FONT_SIZE.search(line):
                 hits.append(f"{name}:{n}: {line.strip()}")
