@@ -2596,6 +2596,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         # the FM region, from fractions of the frame to pixels
         self._show_stored_fm_roi(config.fm_roi)
+        self._refresh_rect_info()
 
         # the mill's monitoring channel, as the one channel to tune here; the
         # manual channel list comes back on exit
@@ -2709,6 +2710,24 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.fm_canvas.rect_overlay.set_rect(
             roi.left * W, roi.top * H, roi.width * W, roi.height * H
         )
+        self._refresh_rect_info()
+
+    def _refresh_rect_info(self) -> None:
+        """Push both overlays' rectangles to the info panel.
+
+        The overlays emit ``rect_changed`` on a drag, not on ``set_rect``, so a
+        box drawn by a task (setup and monitor modes) would otherwise leave the
+        panel reading "—" until the operator touched it.
+        """
+        try:
+            fm = self.fm_canvas.rect_overlay.get_rect()
+            if fm:
+                self._info_widget.update_fm(fm)
+            fib = self.fib_canvas.rect_overlay.get_rect()
+            if fib:
+                self._info_widget.update_fib(fib)
+        except Exception:
+            logging.debug("Could not refresh the rectangle info", exc_info=True)
 
     def _read_fm_roi(self) -> Optional["FibsemRectangle"]:
         """The FM rectangle as a fraction of the frame, None when there is none."""
@@ -2798,6 +2817,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             None,
         )
         self._show_stored_fm_roi(bbox)
+        self._refresh_rect_info()
 
         # attach: the strategies' live stats, the controls seeded from their config
         self._reset_timelapse()
