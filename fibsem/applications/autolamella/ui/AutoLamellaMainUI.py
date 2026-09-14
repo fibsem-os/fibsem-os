@@ -2627,6 +2627,52 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if holder_panel is not None:
             holder_panel.holder_changed.connect(self._on_holder_changed)
 
+    def _on_mark_on_overview(self, grid, path: str, modality: str) -> None:
+        """A grid's overview from the Grids tab onto the Overview canvas.
+
+        The hand-off from screening to milling: the overview is placed by its own
+        recorded position, the Overview tab comes to the front, and a lamella
+        marked on it belongs to the grid the image says it is of.
+        """
+        from fibsem.applications.autolamella.ui.overview_container_tab import (
+            MODALITY_FIBSEM,
+            MODALITY_FLUORESCENCE,
+        )
+
+        container = getattr(self, "overview_tab", None)
+        if container is None:
+            return
+        modality = (
+            MODALITY_FLUORESCENCE
+            if modality == MODALITY_FLUORESCENCE
+            else MODALITY_FIBSEM
+        )
+        if not container.set_modality(modality):
+            notification_service.show_toast(
+                container.unavailable_reason(modality), "warning"
+            )
+            return
+        tab = (
+            container.fm_tab
+            if modality == MODALITY_FLUORESCENCE
+            else container.beam_tab
+        )
+        overview = getattr(tab, "overview", None)
+        if overview is None:
+            notification_service.show_toast(
+                "Connect to a microscope to open an overview.", "warning"
+            )
+            return
+        if overview.load_overview(path) is None:
+            return  # said why
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i) == "Overview":
+                self.tab_widget.setCurrentIndex(i)
+                break
+        notification_service.show_toast(
+            f"{grid.name}: right-click the overview to mark lamellae on it.", "info"
+        )
+
     def _refresh_sample_view(self) -> None:
         """Redraw Microscope → Sample from the stage. Looked up each time: the
         Sample view is rebuilt on every connect."""
@@ -2755,6 +2801,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # And the Sample view: a load or unload from a card changes what is on
         # the stage, and that view draws from the stage without polling it.
         self.grids_tab.experiment_changed.connect(self._refresh_sample_view)
+        # A results row's "mark lamellae": that overview onto the Overview canvas.
+        self.grids_tab.mark_requested.connect(self._on_mark_on_overview)
         self.workflow_left_tabs.currentChanged.connect(
             self._on_workflow_selection_changed
         )

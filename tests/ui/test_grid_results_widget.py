@@ -139,3 +139,39 @@ def test_the_grids_tab_follows_card_selection(qapp, experiment, grid):
     assert tab.results_widget.grid is grid
     tab.cards._on_card_clicked(grid)
     assert tab.results_widget.grid is None
+
+
+def test_a_row_with_an_image_offers_to_mark_lamellae_on_it(qapp, experiment, grid):
+    """The hand-off from screening to milling: the row's marker button names the
+    overview and which canvas it belongs on. An entry with no image offers nothing."""
+    from fibsem.applications.autolamella.ui.overview_container_tab import (
+        MODALITY_FIBSEM,
+        MODALITY_FLUORESCENCE,
+    )
+
+    root = experiment.grid_path(grid)
+    (root / "overview_fm").mkdir(parents=True, exist_ok=True)
+    (root / "overview_fm" / "mosaic.ome.tiff").write_bytes(b"")
+    grid.task_history.append(
+        entry(
+            "overview_fm",
+            AutoLamellaTaskStatus.Completed,
+            outputs={"overview_fm": ["overview_fm/mosaic.ome.tiff"]},
+        )
+    )
+    widget = GridResultsWidget()
+    widget.set_experiment(experiment)
+    widget.set_grid(grid)
+    rows = {r.state.name + ("" if r.image else "-none"): r for r in widget.rows}
+    assert rows[LOAD_ENTRY_NAME + "-none"].btn_mark is None
+    assert rows["overview_fm-none"].btn_mark is None  # the failed one recorded nothing
+    seen = []
+    widget.mark_requested.connect(
+        lambda g, path, modality: seen.append((g, path, modality))
+    )
+    rows["overview_sem"].btn_mark.click()
+    rows["overview_fm"].btn_mark.click()
+    assert seen == [
+        (grid, str(root / "overview_sem" / "overview.tif"), MODALITY_FIBSEM),
+        (grid, str(root / "overview_fm" / "mosaic.ome.tiff"), MODALITY_FLUORESCENCE),
+    ]

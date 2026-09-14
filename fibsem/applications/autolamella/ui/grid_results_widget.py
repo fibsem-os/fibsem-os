@@ -14,7 +14,7 @@ import os
 from datetime import datetime
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QFrame,
@@ -35,6 +35,10 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
     ClickableLabel,
     ExpandedImageDialog,
 )
+from fibsem.applications.autolamella.ui.overview_container_tab import (
+    MODALITY_FIBSEM,
+    MODALITY_FLUORESCENCE,
+)
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
 )
@@ -48,7 +52,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_900,
     OK_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import ElidedLabel
+from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 
 _TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-friendly size
 
@@ -107,9 +111,19 @@ def latest_runs(grid: GridRecord) -> dict:
     return latest
 
 
+def modality_of(state: AutoLamellaTaskState) -> str:
+    """Which Overview canvas an entry's image belongs on: the fluorescence one
+    for an FM overview, the beam one for everything else."""
+    if any(role.startswith("overview_fm") for role in state.outputs):
+        return MODALITY_FLUORESCENCE
+    return MODALITY_FIBSEM
+
+
 class _HistoryRow(QWidget):
     """One history entry: a separator, a line saying what and how it went,
-    and the image it recorded, if any."""
+    and the image it recorded, if any -- with an offer to mark lamellae on it."""
+
+    mark_clicked = pyqtSignal(str)  # the image's path
 
     def __init__(
         self,
@@ -156,6 +170,17 @@ class _HistoryRow(QWidget):
             f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
         )
         line.addWidget(self.detail_label, 1)
+        # The hand-off from screening to milling: this overview onto the Overview
+        # canvas, where lamellae are marked. Only for an entry that recorded one.
+        self.btn_mark: Optional[IconToolButton] = None
+        if image is not None:
+            self.btn_mark = IconToolButton(
+                "mdi:map-marker-plus",
+                tooltip="Mark lamellae on this overview (opens it on the Overview tab)",
+                size=22,
+            )
+            self.btn_mark.clicked.connect(lambda: self.mark_clicked.emit(image))
+            line.addWidget(self.btn_mark)
         layout.addLayout(line)
 
         self.tile: Optional[ClickableLabel] = None
@@ -197,6 +222,10 @@ class _HistoryRow(QWidget):
 
 class GridResultsWidget(QWidget):
     """The selected grid: its name, the latest run, and its history with images."""
+
+    # (GridRecord, image path, modality): an overview to put on the Overview
+    # canvas so lamellae can be marked on it.
+    mark_requested = pyqtSignal(object, str, str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -315,6 +344,11 @@ class GridResultsWidget(QWidget):
                 state,
                 thumbnail_for(experiment, grid, state),
                 image_for(experiment, grid, state),
+            )
+            row.mark_clicked.connect(
+                lambda path, state=state: self.mark_requested.emit(
+                    self._grid, path, modality_of(state)
+                )
             )
             self._rows_layout.addWidget(row)
             self._rows.append(row)

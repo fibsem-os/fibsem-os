@@ -390,3 +390,51 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     assert sample_states() == ["occupied", "loaded"]
     card._action_unload.trigger()
     assert sample_states() == ["occupied", "occupied"]
+
+
+def test_a_mark_request_reaches_the_window_and_the_overview_canvas(main_ui, tmp_path):
+    """From a results row to the Overview tab: the overview is placed on the beam
+    canvas and the tab comes to the front. A fluorescence overview on a system
+    without an FM is refused with a reason, not an exception."""
+    from fibsem.applications.autolamella.ui.overview_container_tab import (
+        MODALITY_FIBSEM,
+        MODALITY_FLUORESCENCE,
+    )
+    from fibsem.structures import BeamType, FibsemImage, ImageSettings
+
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    microscope = ui.microscope
+    microscope.fm = None
+    main_ui.overview_tab.refresh_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    ui.experiment = exp
+    grid = exp.add_grid(GridRecord(name="grid-oak"))
+    main_ui.grids_tab.set_experiment(exp)
+
+    image = FibsemImage.generate_blank_image(resolution=(64, 64), hfw=100e-6)
+    state = microscope.get_microscope_state(beam_type=BeamType.ELECTRON)
+    state.stage_position = microscope.get_stage_position()
+    image.metadata.image_settings = ImageSettings(
+        hfw=100e-6, beam_type=BeamType.ELECTRON
+    )
+    image.metadata.microscope_state = state
+    image.metadata.system_info = microscope.system.info
+    image.metadata.hardware_geometry = microscope.hardware_geometry()
+    image.metadata.experiment.item_id = grid.id
+    image.metadata.experiment.item_name = grid.name
+    path = str(tmp_path / "overview.tif")
+    image.save(path)
+
+    canvas = main_ui.beam_overview_tab.overview
+    assert canvas is not None and canvas.overviews == []
+    main_ui.grids_tab.mark_requested.emit(grid, path, MODALITY_FIBSEM)
+    assert len(canvas.overviews) == 1
+    assert canvas.item_of(canvas.overviews[0].id) == (grid.id, "grid-oak")
+    tabs = main_ui.tab_widget
+    assert tabs.tabText(tabs.currentIndex()) == "Overview"
+
+    main_ui.grids_tab.mark_requested.emit(grid, path, MODALITY_FLUORESCENCE)
+    assert len(canvas.overviews) == 1  # refused: no fluorescence microscope

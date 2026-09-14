@@ -45,6 +45,9 @@ class GridsTabWidget(QWidget):
     """Cards for the experiment's grids, with Protocol and Results beside them."""
 
     grid_selected = pyqtSignal(object)  # GridRecord | None
+    # (GridRecord, image path, modality): a results row asked to mark lamellae on
+    # that overview; the window puts it on the Overview canvas.
+    mark_requested = pyqtSignal(object, str, str)
     # The experiment's grid records changed here (inventory, a rename, a quality),
     # and were saved; hosts drawing them elsewhere should refresh.
     experiment_changed = pyqtSignal()
@@ -136,6 +139,7 @@ class GridsTabWidget(QWidget):
         # The grid protocol is edited on the Protocol tab, beside the lamella one.
         self.results_widget = GridResultsWidget()
         self.cards.grid_selected.connect(self.results_widget.set_grid)
+        self.results_widget.mark_requested.connect(self.mark_requested)
         splitter.addWidget(self.results_widget)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([_STRIP_WIDTH, 99999])
