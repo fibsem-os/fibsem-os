@@ -2596,6 +2596,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if holder_panel is not None:
             holder_panel.holder_changed.connect(self._on_holder_changed)
 
+    def _refresh_sample_view(self) -> None:
+        """Redraw Microscope → Sample from the stage. Looked up each time: the
+        Sample view is rebuilt on every connect."""
+        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        if sample is not None:
+            sample.refresh()
+
     def _on_holder_changed(self, _holder) -> None:
         for tab in (
             getattr(self, "beam_overview_tab", None),
@@ -2714,6 +2721,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # An inventory, a rename, a manual load on the Grids tab: the run view's
         # rows and chips follow. Built after the Grids tab, so the signal exists.
         self.grids_tab.experiment_changed.connect(self.grid_workflow_widget.refresh)
+        # And the Sample view: a load or unload from a card changes what is on
+        # the stage, and that view draws from the stage without polling it.
+        self.grids_tab.experiment_changed.connect(self._refresh_sample_view)
         self.workflow_left_tabs.currentChanged.connect(
             self._on_workflow_selection_changed
         )
