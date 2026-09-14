@@ -45,10 +45,22 @@ REQUIRES_FONT_PX = 10
 REQUIRES_MAX_WIDTH = 170
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
+# The attention chip: one word, no icon (the word is the state, the colour
+# is the mode), fixed width so the row does not jump between states.
+# "Supervised" is the widest word it shows; the old two buttons took 72px.
+_CHIP_WIDTH = 78
 _BTN_SPACER_WIDTH = (
-    _BTN_SIZE.width() * 4 + 8 * 3
-)  # schedule + supervise + edit + remove + 3 gaps
+    _BTN_SIZE.width() * 3 + _CHIP_WIDTH + 8 * 3
+)  # schedule + attention chip + edit + remove + 3 gaps
 _BTN_STYLE = stylesheets.TOOLBUTTON_ICON_STYLESHEET
+# Long labels on purpose: the short set (Auto / Superv. / Review) reads badly
+# and the long ones fit at the chip's width.
+ATTENTION_LABELS = {
+    "automated": "Automated",
+    "supervised": "Supervised",
+    "agent": "Agent",
+    "review": "Review",
+}
 
 
 class _DraggableTaskList(QListWidget):
@@ -100,38 +112,89 @@ def _review_available() -> bool:
         return False
 
 
-def _review_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
-    if task.review:
-        return (
-            "mdi:clipboard-check",
-            stylesheets.REVIEW_COLOR,
-            "Review — the tasks that need this one's answer wait until it is "
-            "confirmed in the Review tab. Click to change.",
-        )
-    return (
-        "mdi:clipboard-outline",
-        stylesheets.AUTOMATED_COLOR,
-        "Not gated — the run continues; what the task did is in the Review tab "
-        "to check. Click to change.",
-    )
+def attention_state(
+    task: AutoLamellaTaskDescription,
+    agent_available: Optional[bool] = None,
+    review_available: Optional[bool] = None,
+) -> str:
+    """Which of the chip's states the task is in: the one question the user
+    has about a task, *when am I involved?*, read from the two protocol fields.
 
-
-def _supervise_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
-    """Return (icon_name, icon_color, tooltip) for the supervision indicator."""
-    if (
-        task.supervise
-        and getattr(task, "supervisor", "human") == "agent"
-        and _agent_supervision_available()
-    ):
-        return (
-            "mdi:star-four-points",
-            stylesheets.BORDER_STATE_COLOURS["agent"],
-            "Agent — the connected agent answers this task's questions "
-            "(you can always answer first). Click to change.",
-        )
+    ``supervise`` wins over ``review`` when a saved protocol has both (a
+    combination the chip never writes): if you are at the microscope for it
+    you answer there. A stored ``supervisor: agent`` shows as plain Supervised
+    while the agent-server preference is off, and a stored ``review: true``
+    shows as Automated while interactive review is off -- the state it will
+    actually run in, not the one in the file.
+    """
+    if agent_available is None:
+        agent_available = _agent_supervision_available()
+    if review_available is None:
+        review_available = _review_available()
     if task.supervise:
-        return "mdi:account-hard-hat", stylesheets.PRIMARY_COLOR, "Supervised"
-    return "mdi:lightning-bolt-circle", stylesheets.AUTOMATED_COLOR, "Automated"
+        if getattr(task, "supervisor", "human") == "agent" and agent_available:
+            return "agent"
+        return "supervised"
+    if task.review and review_available:
+        return "review"
+    return "automated"
+
+
+def _attention_chip(
+    task: AutoLamellaTaskDescription, has_dependents: bool = True
+) -> tuple[str, str, str]:
+    """(label, colour, tooltip) for the chip: the word is the state, the
+    colour is the mode's."""
+    state = attention_state(task)
+    label = ATTENTION_LABELS[state]
+    if state == "agent":
+        return (
+            label,
+            stylesheets.BORDER_STATE_COLOURS["agent"],
+            "Agent — the connected agent answers this task's questions in the "
+            "workflow (you can always answer first). Click to change.",
+        )
+    if state == "supervised":
+        return (
+            label,
+            stylesheets.PRIMARY_COLOR,
+            "Supervised — asks you in the workflow, at the microscope; your "
+            "answer is the decision on the record. Click to change.",
+        )
+    if state == "review":
+        tip = (
+            "Review — the next task waits for your decision in the Review tab. "
+            "Click to change."
+        )
+        if not has_dependents:
+            tip = (
+                "Review — but nothing requires this task, so nothing waits on "
+                "the decision. Add a requirement to a later task, or click to "
+                "change."
+            )
+        return label, stylesheets.REVIEW_COLOR, tip
+    tip = (
+        "Automated — runs without anyone; what it did is listed in the Review "
+        "tab to check. Click to change."
+    )
+    if task.review and not task.supervise:
+        tip = (
+            "Runs as Automated: the protocol says Review, but interactive "
+            "review is off in Preferences. Click to change."
+        )
+    return label, stylesheets.AUTOMATED_COLOR, tip
+
+
+def _chip_style(colour: str, muted: bool = False) -> str:
+    fg = NEUTRAL_700 if muted else colour
+    border = NEUTRAL_700 if muted else colour
+    return (
+        "QToolButton { border: 1px solid "
+        + border
+        + "; border-radius: 3px; padding: 1px 4px; background: transparent; "
+        + f"color: {fg}; font-size: 11px; }}"
+        "QToolButton:hover { background: rgba(255, 255, 255, 25); }"
+    )
 
 
 def _requires_text(task: AutoLamellaTaskDescription, font: QFont) -> str:
@@ -152,6 +215,14 @@ def _requires_text(task: AutoLamellaTaskDescription, font: QFont) -> str:
 
 
 class WorkflowTaskRowWidget(QWidget):
+    """One task: its name, what it waits for, and one chip for when a person
+    is involved (Automated / Supervised / Review), plus schedule, edit, remove.
+
+    The chip writes two protocol fields, ``supervise`` and ``review``, and
+    emits ``supervised_changed`` or ``review_changed`` for whichever changed,
+    so the hosts that listened to two buttons need no change.
+    """
+
     supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     review_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     edit_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
@@ -208,16 +279,19 @@ class WorkflowTaskRowWidget(QWidget):
         self.btn_schedule.setStyleSheet(_BTN_STYLE)
         layout.addWidget(self.btn_schedule)
 
-        self.btn_supervise = QToolButton()
-        self.btn_supervise.setFixedSize(_BTN_SIZE)
-        self.btn_supervise.setStyleSheet(_BTN_STYLE)
-        layout.addWidget(self.btn_supervise)
-
-        self.btn_review = QToolButton()
-        self.btn_review.setFixedSize(_BTN_SIZE)
-        self.btn_review.setStyleSheet(_BTN_STYLE)
-        self.btn_review.setVisible(_review_available())
-        layout.addWidget(self.btn_review)
+        # One chip in place of a supervise button and a review button: the
+        # word on it is the state, the colour is the run mode's (automated
+        # green, supervised blue, review teal, agent the agent border).
+        self.btn_attention = QToolButton()
+        self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.btn_attention.setFixedSize(_CHIP_WIDTH, _BTN_SIZE.height() - 8)
+        self.btn_attention.setCursor(Qt.PointingHandCursor)
+        self.btn_attention.setFocusPolicy(Qt.NoFocus)
+        layout.addWidget(self.btn_attention)
+        self._has_dependents = True
+        # kept for callers that showed or hid the old buttons
+        self.btn_supervise = self.btn_attention
+        self.btn_review = self.btn_attention
 
         self.btn_edit = IconToolButton(
             icon="mdi:pencil", tooltip="Edit", size=_BTN_SIZE.width()
@@ -240,40 +314,49 @@ class WorkflowTaskRowWidget(QWidget):
             lambda s: self.selection_changed.emit(self.task, bool(s))
         )
         self.btn_schedule.clicked.connect(lambda: self.edit_clicked.emit(self.task))
-        self.btn_supervise.clicked.connect(self._on_supervise_clicked)
-        self.btn_review.clicked.connect(self._on_review_clicked)
+        self.btn_attention.clicked.connect(self._on_attention_clicked)
         self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.task))
         self.btn_remove.clicked.connect(self._on_remove_clicked)
 
         self.refresh()
 
-    def _on_supervise_clicked(self) -> None:
-        """Cycle the supervision state: Automated → Supervised → Agent → Automated.
+    def set_has_dependents(self, has_dependents: bool) -> None:
+        """Whether any later task requires this one. A Review state on a
+        task nothing requires gates nothing, and the row says so."""
+        if has_dependents != self._has_dependents:
+            self._has_dependents = has_dependents
+            self.refresh()
 
-        The Agent step exists only while the agent-server preference is on;
-        without it this is the old two-state toggle. Leaving the agent state
-        resets ``supervisor`` to human so no hidden designation survives the
-        cycle.
+    def _on_attention_clicked(self) -> None:
+        """Cycle Automated → Supervised → Agent → Review → Automated.
+
+        The Agent step exists only while the agent-server preference is on,
+        the Review step only while interactive review is on; with neither this
+        is the old two-state toggle. Each state writes both fields, so no
+        hidden combination survives a click: leaving Agent resets
+        ``supervisor`` to human, leaving Review clears ``review``.
         """
         task = self.task
-        if not task.supervise:
-            task.supervise = True
-            task.supervisor = "human"
-        elif (
-            getattr(task, "supervisor", "human") != "agent"
-            and _agent_supervision_available()
-        ):
-            task.supervisor = "agent"
-        else:
-            task.supervise = False
-            task.supervisor = "human"
+        order = ["automated", "supervised"]
+        if _agent_supervision_available():
+            order.append("agent")
+        if _review_available():
+            order.append("review")
+        current = attention_state(task)
+        following = order[(order.index(current) + 1) % len(order)]
+        before = (task.supervise, getattr(task, "supervisor", "human"), task.review)
+        task.supervise = following in ("supervised", "agent")
+        task.supervisor = "agent" if following == "agent" else "human"
+        task.review = following == "review"
         self.refresh()
-        self.supervised_changed.emit(task)
+        if before[:2] != (task.supervise, task.supervisor):
+            self.supervised_changed.emit(task)
+        if before[2] != task.review:
+            self.review_changed.emit(task)
 
-    def _on_review_clicked(self) -> None:
-        self.task.review = not self.task.review
-        self.refresh()
-        self.review_changed.emit(self.task)
+    # the old names, for callers that drove the two buttons directly
+    _on_supervise_clicked = _on_attention_clicked
+    _on_review_clicked = _on_attention_clicked
 
     def _on_remove_clicked(self) -> None:
         reply = QMessageBox.question(
@@ -295,12 +378,28 @@ class WorkflowTaskRowWidget(QWidget):
         self.setToolTip(
             "Requires: " + ", ".join(self.task.requires) if self.task.requires else ""
         )
-        icon_name, icon_color, tooltip = _supervise_icon(self.task)
-        self.btn_supervise.setIcon(fibsem_icon(icon_name, color=icon_color))
-        self.btn_supervise.setToolTip(tooltip)
-        icon_name, icon_color, tooltip = _review_icon(self.task)
-        self.btn_review.setIcon(fibsem_icon(icon_name, color=icon_color))
-        self.btn_review.setToolTip(tooltip)
+        label, colour, tooltip = _attention_chip(self.task, self._has_dependents)
+        # the file says Review but the preference is off: shown as it will run
+        downgraded = (
+            self.task.review and not self.task.supervise and not _review_available()
+        )
+        self.btn_attention.setText(label)
+        self.btn_attention.setToolTip(tooltip)
+        self.btn_attention.setStyleSheet(_chip_style(colour, muted=downgraded))
+        if attention_state(self.task) == "review" and not self._has_dependents:
+            # the column keeps the task's own dependency when it has one; the
+            # colour and the chip's tooltip carry the warning
+            if not self.task.requires:
+                self.requires_label.setText("nothing waits on this")
+            self.requires_label.setStyleSheet(
+                f"background: transparent; color: {stylesheets.WARN_COLOR}; "
+                f"font-size: {REQUIRES_FONT_PX}px;"
+            )
+        else:
+            self.requires_label.setStyleSheet(
+                f"background: transparent; color: {REQUIRES_COLOUR}; "
+                f"font-size: {REQUIRES_FONT_PX}px;"
+            )
         if self.task.scheduled_at is not None:
             self.btn_schedule.setIcon(
                 fibsem_icon("mdi:clock", color=stylesheets.WHITE_ICON_COLOR)
@@ -368,8 +467,7 @@ class WorkflowConfigWidget(QWidget):
 
         self._btn_visible = {
             "schedule": True,
-            "supervise": True,
-            "review": _review_available(),
+            "supervise": True,  # the attention chip
             "edit": True,
             "remove": True,
         }
@@ -424,8 +522,18 @@ class WorkflowConfigWidget(QWidget):
 
         self._connect_row(row)
         self._apply_btn_visibility(row)
+        self._refresh_dependents()
         self._sync_select_all()
         return row
+
+    def _refresh_dependents(self) -> None:
+        """Tell each row whether a later task requires it: the fact the
+        Review state needs to be honest about."""
+        tasks = self.get_tasks()
+        required = {req for task in tasks for req in task.requires}
+        for i in range(self._list.count()):
+            row = self._row(i)
+            row.set_has_dependents(row.task.name in required)
 
     def _connect_row(self, row: WorkflowTaskRowWidget) -> None:
         row.supervised_changed.connect(self.supervised_changed)
@@ -440,14 +548,15 @@ class WorkflowConfigWidget(QWidget):
             self._row(i).btn_schedule.setVisible(visible)
 
     def enable_supervise_button(self, visible: bool) -> None:
+        """Show or hide the attention chip."""
         self._btn_visible["supervise"] = visible
         for i in range(self._list.count()):
-            self._row(i).btn_supervise.setVisible(visible)
+            self._row(i).btn_attention.setVisible(visible)
 
-    def enable_review_button(self, visible: bool) -> None:
-        self._btn_visible["review"] = visible
-        for i in range(self._list.count()):
-            self._row(i).btn_review.setVisible(visible)
+    def enable_review_button(self, _visible: bool) -> None:
+        """The Review state is offered by the preference, not by a host; a
+        host that flips the preference re-reads the rows through here."""
+        self.refresh_all()
 
     def enable_edit_button(self, visible: bool) -> None:
         self._btn_visible["edit"] = visible
@@ -477,6 +586,7 @@ class WorkflowConfigWidget(QWidget):
     def refresh_all(self) -> None:
         for i in range(self._list.count()):
             self._row(i).refresh()
+        self._refresh_dependents()
 
     def get_tasks(self) -> List[AutoLamellaTaskDescription]:
         """Return tasks in current display order."""
@@ -522,8 +632,7 @@ class WorkflowConfigWidget(QWidget):
 
     def _apply_btn_visibility(self, row: WorkflowTaskRowWidget) -> None:
         row.btn_schedule.setVisible(self._btn_visible["schedule"])
-        row.btn_supervise.setVisible(self._btn_visible["supervise"])
-        row.btn_review.setVisible(self._btn_visible["review"])
+        row.btn_attention.setVisible(self._btn_visible["supervise"])
         row.btn_edit.setVisible(self._btn_visible["edit"])
         row.btn_remove.setVisible(self._btn_visible["remove"])
 
@@ -554,6 +663,7 @@ class WorkflowConfigWidget(QWidget):
             self._list.setItemWidget(item, row)
             self._connect_row(row)
             self._apply_btn_visibility(row)
+        self._refresh_dependents()
         self._sync_select_all()
         self.order_changed.emit(tasks)
 

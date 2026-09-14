@@ -235,7 +235,7 @@ class LamellaWorkflowWidget(QWidget):
 
         # ── instructions ─────────────────────────────────────────────────
         self._instructions_label = QLabel(
-            "Drag to reorder  \u2022  click supervision icon to toggle  \u2022  use \u270e to edit task details"
+            "Drag to reorder  \u2022  click the chip to change when you are involved  \u2022  use \u270e to edit task details"
         )
         self._instructions_label.setStyleSheet(
             f"color: {NEUTRAL_500}; font-size: 10px; padding: 2px 6px 4px 6px;"
