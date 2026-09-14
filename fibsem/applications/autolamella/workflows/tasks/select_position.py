@@ -10,7 +10,10 @@ import numpy as np
 from fibsem import constants
 from fibsem.applications.autolamella.proposals import (
     MILLING_SETUP,
+    Decision,
+    DecisionOutcome,
     Proposal,
+    human_author,
     supersede,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
@@ -140,8 +143,10 @@ class SelectMillingPositionTask(AutoLamellaTask):
             )
 
         # select point of interest -- under review it is proposed at the end of
-        # the task instead, on the final reference image
-        if self.config.select_poi and not self.proposes:
+        # the task instead, on the final reference image; otherwise the answer
+        # given here (supervised) is the decision on that proposal
+        chosen: Optional[Point] = None
+        if self.config.select_poi and not self.review:
             poi = select_poi_ui(
                 parent_ui=self.parent_ui,
                 # the FIB image the reference acquisition above displayed — the
@@ -152,6 +157,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 initial_poi=self.lamella.poi,
             )
             if poi is not None:
+                chosen = poi
                 self.lamella.poi = poi
                 synced = self.lamella.sync_tasks_to_poi()
                 if synced:
@@ -174,22 +180,27 @@ class SelectMillingPositionTask(AutoLamellaTask):
         self.lamella.milling_pose = self.microscope.get_microscope_state()
         self.lamella.update_milling_angle(self.microscope)
 
-        # propose the point of interest for review, on the final reference
+        # record the point of interest as a proposal, on the final reference
         # image -- the last thing acquired, at the stored pose, and the one the
-        # Review tab shows
-        if self.config.select_poi and self.proposes:
-            self._propose_poi()
+        # Review tab shows. Gated: it waits there. Answered inline above: that
+        # answer is its decision. Neither: the producer confirms it after the
+        # task, and the row is there to check.
+        if self.config.select_poi and self.records:
+            self._propose_poi(decided=chosen)
 
-    def _propose_poi(self) -> None:
-        """Leave the point of interest as a proposal instead of asking for it.
+    def _propose_poi(self, decided: Optional[Point] = None) -> None:
+        """Leave the point of interest as a proposal, in every mode.
 
         The task still completes -- everything after this step is independent
         of the point (only the rough and polishing patterns follow it, and they
-        follow it when a decision writes it through). ``lamella.poi`` is not
-        written here and the patterns are not synced: both happen in
+        follow it when a decision writes it through). Gated, ``lamella.poi`` is
+        not written here and the patterns are not synced: both happen in
         Experiment.decide on confirm, so the lamella is never in a state
         nobody sanctioned and the proposed point survives beside the confirmed
-        one for the delta.
+        one for the delta. ``decided`` is the operator's inline answer, when
+        the task asked for one: it is already applied, so it is recorded as
+        the decision without a second write-through, and the delta between it
+        and the proposer's point is what supervised runs used to throw away.
 
         Re-running the task is a deliberate act: a proposal that already has
         decisions is superseded, not kept and not overwritten. It moves, with
@@ -221,6 +232,17 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 f"{self.lamella.name}: {self.task_name} re-run; the decided "
                 "proposal is superseded and a new one is pending."
             )
+        if decided is not None:
+            experiment = getattr(self.task_manager, "experiment", None)
+            author = experiment.author() if experiment is not None else human_author("")
+            proposal.decisions.append(
+                Decision(
+                    outcome=DecisionOutcome.Confirmed,
+                    author=author,
+                    values={"poi": decided},
+                    via="workflow",
+                )
+            )
         self.lamella.proposals[self.task_name] = supersede(
             existing if existing is not None and not existing.pending else None,
             proposal,
@@ -233,6 +255,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 "kind": proposal.kind,
                 "values": {k: v.to_dict() for k, v in proposal.values.items()},
                 "provenance": proposal.provenance,
+                "decided_inline": decided is not None,
             }
         )
 

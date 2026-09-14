@@ -262,13 +262,10 @@ def test_the_row_toggle_sets_review_and_follows_the_flag(qapp, monkeypatch):
     changed = []
     row.review_changed.connect(changed.append)
     row.btn_review.click()
-    assert task.review == "gate" and changed == [task]
+    assert task.review is True and changed == [task]
     assert "Review" in row.btn_review.toolTip()
     row.btn_review.click()
-    assert task.review == "advise"
-    assert "Advise" in row.btn_review.toolTip()
-    row.btn_review.click()
-    assert task.review == "off"
+    assert task.review is False
 
     monkeypatch.setattr(W, "_review_available", lambda: False)
     hidden = WorkflowTaskRowWidget(task)

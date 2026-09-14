@@ -71,29 +71,6 @@ def auto_author(proposer: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Review modes: how a task's proposal is treated, set per task in the protocol
-# ---------------------------------------------------------------------------
-
-REVIEW_OFF = "off"  # the task asks inline (or does not propose at all)
-REVIEW_GATE = "gate"  # the consumer waits for a decision
-REVIEW_ADVISE = "advise"  # auto-confirmed; the run continues, a person looks later
-REVIEW_MODES = (REVIEW_OFF, REVIEW_GATE, REVIEW_ADVISE)
-
-
-def normalise_review_mode(value: Any) -> str:
-    """``review`` was a bool before it was a mode: True reads as gate, False
-    as off, so a protocol written by either version loads unchanged."""
-    if value is None or value is False:
-        return REVIEW_OFF
-    if value is True:
-        return REVIEW_GATE
-    mode = str(value).strip().lower()
-    if mode not in REVIEW_MODES:
-        raise ValueError(f"review must be one of {REVIEW_MODES}, not {value!r}")
-    return mode
-
-
-# ---------------------------------------------------------------------------
 # Kinds: declared in code by the producing task, never configured
 # ---------------------------------------------------------------------------
 
@@ -250,10 +227,15 @@ class Decision:
     decision beside the first, with its own author and time."""
 
     outcome: DecisionOutcome
-    author: str  # "human:<name>" | "agent:<model>"
+    author: str  # "human:<name>" | "agent:<model>" | "auto:<producer>"
     values: Dict[str, Any] = field(default_factory=dict)  # confirmed values
     reason: str = ""  # required on Rejected
     timestamp: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
+    # Where it was decided: "workflow" (inline, in the task's own question, or
+    # the producer confirming its own proposal), "review" (the Review tab) or
+    # "server" (an agent over the API). The author says who; this says where,
+    # so an export can tell an inline answer from a tab decision.
+    via: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -262,6 +244,7 @@ class Decision:
             "values": _encode_values(self.values),
             "reason": self.reason,
             "timestamp": self.timestamp,
+            "via": self.via,
         }
 
     @classmethod
@@ -272,6 +255,7 @@ class Decision:
             values=_decode_values(data.get("values", {})),
             reason=data.get("reason", ""),
             timestamp=data.get("timestamp", 0.0),
+            via=data.get("via", ""),
         )
 
 
