@@ -2623,12 +2623,42 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if loader is not None:
             loader.loader_changed.connect(self.grids_tab.refresh)
             loader.loader_changed.connect(self.grid_workflow_widget.refresh)
+            loader.loader_changed.connect(self._refresh_grid_context)
+        self._refresh_grid_context()
         # Calibrating a slot from the Sample view changes what the Overview
         # tabs should draw by default; they re-resolve rather than wait for a
         # reconnect.
         holder_panel = getattr(sample, "holder_widget", None)
         if holder_panel is not None:
             holder_panel.holder_changed.connect(self._on_holder_changed)
+
+    def _grid_context(self):
+        """`GridRecord.id -> (name, on the stage)` for the lamella displays,
+        from the experiment's records and what the stage already knows. No
+        hardware call: the stage answers from its last read."""
+        experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
+        if experiment is None or not experiment.grids:
+            return None
+        loaded = set()
+        stage = getattr(self.autolamella_ui.microscope, "_stage", None)
+        if stage is not None:
+            try:
+                loaded = {e.name for e in stage.grid_inventory() if e.loaded}
+            except Exception as e:  # noqa: BLE001 - drawn as "not on the stage"
+                logging.debug(f"Could not read the grid inventory: {e}")
+        return {g.id: (g.name, g.name in loaded) for g in experiment.grids}
+
+    def _refresh_grid_context(self, *_args) -> None:
+        """Push the grid context to every lamella display. Called on every
+        load, unload and exchange, and on every list rebuild."""
+        context = self._grid_context()
+        for widget in (
+            getattr(self, "lamella_card_container", None),
+            getattr(self, "lamella_list_widget", None),
+            getattr(self.autolamella_ui, "lamella_list", None),
+        ):
+            if widget is not None:
+                widget.set_grid_context(context)
 
     def _refresh_sample_view(self) -> None:
         """Redraw Microscope → Sample from the stage. Looked up each time: the
@@ -2758,6 +2788,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # And the Sample view: a load or unload from a card changes what is on
         # the stage, and that view draws from the stage without polling it.
         self.grids_tab.experiment_changed.connect(self._refresh_sample_view)
+        # And the lamella lists: their grid chips say whether each lamella's
+        # grid is on the stage.
+        self.grids_tab.experiment_changed.connect(self._refresh_grid_context)
         self.workflow_left_tabs.currentChanged.connect(
             self._on_workflow_selection_changed
         )
@@ -3446,6 +3479,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_list_widget.clear()
             self._on_lamella_card_selected(None)
             return
+        self._refresh_grid_context()
         self.lamella_list_widget.set_lamellae(list(experiment.positions))
         for lamella in experiment.positions:
             self.lamella_card_container.add_lamella(lamella)
