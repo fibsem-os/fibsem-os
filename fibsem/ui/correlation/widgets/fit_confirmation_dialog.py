@@ -7,6 +7,7 @@ as a :class:`PointFitResult` and shown here for the user to accept or reject.
 The result type is list-ready: a batch fit (multiple selected points) produces
 a list of ``PointFitResult``, which a future summary dialog can present together.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,9 +28,13 @@ from PyQt5.QtWidgets import (
 from fibsem.correlation.structures import Coordinate, PointXYZ
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
+    BODY_MUTED_STYLE,
+    BODY_STYLE,
     CANVAS_BG,
-    NEUTRAL_300,
-    TEXT_MUTED_COLOR,
+    PANEL_COLOR,
+    TEXT_COLOR,
+    state_color,
+    state_style,
 )
 
 # Per-axis displacement below which a fit is treated as "no change" (the fit
@@ -39,9 +44,9 @@ _UNCHANGED_EPS = 0.001
 
 
 class FitStatus(Enum):
-    OK = "ok"                # fit moved the point
+    OK = "ok"  # fit moved the point
     UNCHANGED = "unchanged"  # fit landed on (≈) the input position
-    ERROR = "error"          # fit raised / produced no position
+    ERROR = "error"  # fit raised / produced no position
 
 
 @dataclass
@@ -56,7 +61,7 @@ class PointFitResult:
     status: FitStatus
     message: Optional[str] = None
     channel_name: Optional[str] = None  # display label for `channel` (FM only)
-    detail: Optional[str] = None        # raw error, surfaced as a tooltip
+    detail: Optional[str] = None  # raw error, surfaced as a tooltip
     diagnostic: object = None  # FitDiagnostic; rendered on demand, not serialised
 
     @property
@@ -105,10 +110,12 @@ class PointFitResult:
 
 
 # (background, foreground) per status — napari-dark chips
+# Chip colours by outcome: the semantic text colour on the panel ground, with a
+# border in the same colour, rather than a tinted background of its own.
 _STATUS_STYLE = {
-    FitStatus.OK:        ("#1b5e20", "#a5d6a7"),
-    FitStatus.UNCHANGED: ("#5d4037", "#ffcc80"),
-    FitStatus.ERROR:     ("#5a1f1f", "#ef9a9a"),
+    FitStatus.OK: state_color("ok"),
+    FitStatus.UNCHANGED: state_color("warn"),
+    FitStatus.ERROR: state_color("error"),
 }
 
 
@@ -156,14 +163,14 @@ def _fmt_delta(initial: PointXYZ, fitted: PointXYZ) -> str:
     )
 
 
-def _kv(key: str, value: str, value_color: str = NEUTRAL_300) -> QWidget:
+def _kv(key: str, value: str, value_color: str = TEXT_COLOR) -> QWidget:
     w = QWidget()
     row = QHBoxLayout(w)
     row.setContentsMargins(0, 0, 0, 0)
     k = QLabel(key)
-    k.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 12px;")
+    k.setStyleSheet(BODY_MUTED_STYLE)
     v = QLabel(value)
-    v.setStyleSheet(f"color: {value_color}; font-size: 12px;")
+    v.setStyleSheet(f"{BODY_STYLE} color: {value_color};")
     v.setTextFormat(Qt.TextFormat.PlainText)
     row.addWidget(k)
     row.addStretch(1)
@@ -188,17 +195,17 @@ class FitConfirmationDialog(QDialog):
         self._result = result
         self.setWindowTitle("Confirm fit")
         self.setModal(True)
-        self.setStyleSheet(f"background: {CANVAS_BG}; color: {NEUTRAL_300};")
+        self.setStyleSheet(f"background: {CANVAS_BG}; color: {TEXT_COLOR};")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 12)
         layout.setSpacing(10)
 
-        bg, fg = _STATUS_STYLE[result.status]
+        tone = _STATUS_STYLE[result.status]
         status = QLabel(_status_text(result))
         status.setStyleSheet(
-            f"background: {bg}; color: {fg}; border-radius: 10px; "
-            f"padding: 4px 12px; font-size: 12px;"
+            f"{BODY_STYLE} color: {tone}; background: {PANEL_COLOR}; "
+            f"border: 1px solid {tone}; border-radius: 10px; padding: 4px 12px;"
         )
         if result.detail:  # raw error kept reachable without cluttering the chip
             status.setToolTip(result.detail)
@@ -211,7 +218,7 @@ class FitConfirmationDialog(QDialog):
             reason = QLabel(result.message)
             reason.setWordWrap(True)
             reason.setMaximumWidth(440)
-            reason.setStyleSheet("color: #d9b3b3; font-size: 12px;")
+            reason.setStyleSheet(state_style("error"))
             if result.detail:
                 reason.setToolTip(result.detail)
             layout.addWidget(reason)
@@ -256,7 +263,7 @@ class FitConfirmationDialog(QDialog):
         details.addWidget(_kv("before", _fmt_xyz(result.initial)))
         if result.fitted is not None:
             details.addWidget(
-                _kv("after", _fmt_xyz(result.fitted), value_color="#7fd4ff")
+                _kv("after", _fmt_xyz(result.fitted), value_color=state_color("info"))
             )
             details.addWidget(
                 _kv("Δ x, y, z", _fmt_delta(result.initial, result.fitted))

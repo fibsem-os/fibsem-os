@@ -35,8 +35,12 @@ from fibsem.ui.icon import (
     fibsem_icon,
 )
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
     CANVAS_BG,
-    GRAY_TEXT_COLOR,
+    CAPTION_STYLE,
+    CAPTION_VALUE_STYLE,
+    NUMBER_STYLE,
+    TEXT_MUTED_COLOR,
     WARN_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
@@ -52,7 +56,7 @@ _ROW_RIGHT_WIDTH = DRAG_HANDLE_WIDTH
 # white so it reads as "lit up"; otherwise a muted grey — dimmer than the light
 # trash/edit icons — so it recedes to a placeholder.
 _FITTED_ICON_COLOR = stylesheets.WHITE_ICON_COLOR
-_UNFITTED_ICON_COLOR = "#6b6f76"
+_UNFITTED_ICON_COLOR = TEXT_MUTED_COLOR
 
 _POINT_TYPE_COLORS: Dict[PointType, str] = {
     PointType.FIB: "lime",
@@ -151,7 +155,7 @@ class _CoordinateListHeader(QWidget):
 
         def _lbl(text: str, width: Optional[int] = None) -> QLabel:
             lbl = QLabel(text)
-            lbl.setStyleSheet("color: #aaa; font-size: 10px; background: transparent;")
+            lbl.setStyleSheet(f"{CAPTION_STYLE} background: transparent;")
             if width is not None:
                 lbl.setFixedWidth(width)
             return lbl
@@ -238,7 +242,7 @@ class CoordinateRowWidget(QWidget):
         self.name_label.setFixedWidth(name_width)
         # Omit `background: transparent` — it's the QLabel default, and an
         # unscoped rule bleeds into this label's QToolTip background.
-        self.name_label.setStyleSheet(f"color: {GRAY_TEXT_COLOR}; font-size: 11px;")
+        self.name_label.setStyleSheet(CAPTION_VALUE_STYLE)
         self.name_label.setToolTip("Auto-generated coordinate name")
         layout.addWidget(self.name_label)
 
@@ -266,7 +270,7 @@ class CoordinateRowWidget(QWidget):
 
         # Compact number font + padding so the rows stay short
         for _spin in (self.x_spin, self.y_spin, self.z_spin):
-            _spin.setStyleSheet("font-size: 11px; padding: 1px 6px;")
+            _spin.setStyleSheet(f"{NUMBER_STYLE} padding: 1px 6px;")
 
         layout.addStretch(1)
 
@@ -474,7 +478,7 @@ class CoordinateListWidget(QWidget):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #3a3d42;")
+        sep.setStyleSheet(f"color: {BORDER_COLOR};")
         layout.addWidget(sep)
 
         self._list = _DraggableCoordinateList()
@@ -486,7 +490,7 @@ class CoordinateListWidget(QWidget):
         self._empty_label = QLabel("No coordinates")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setStyleSheet(
-            "color: #666; font-style: italic; padding: 8px;"
+            f"{CAPTION_STYLE} font-style: italic; padding: 8px;"
         )
         self._empty_label.setVisible(True)
         layout.addWidget(self._empty_label)
