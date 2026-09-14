@@ -49,6 +49,11 @@ _NAME_FIXED_WIDTH = 100
 _SPIN_FIXED_WIDTH = 75
 _BTN_SIZE = QSize(24, 24)
 _ROW_HEIGHT = 28
+# A list shows every row up to this many, then scrolls. Sized to content rather
+# than left at Qt's default height, which showed seven rows and hid the eighth
+# fiducial under the next panel's header with only the count to say so
+# (FIB-978).
+_MAX_VISIBLE_ROWS = 12
 # Spacer in header aligning with drag handle in rows (layout spacing handles the 4px gap)
 _ROW_RIGHT_WIDTH = DRAG_HANDLE_WIDTH
 
@@ -485,7 +490,9 @@ class CoordinateListWidget(QWidget):
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setFrameShape(QFrame.Shape.NoFrame)
         layout.addWidget(self._list)
+        self._fit_height_to_rows()
 
         self._empty_label = QLabel("No coordinates")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -547,6 +554,20 @@ class CoordinateListWidget(QWidget):
         for coord, name in zip(self._coordinates, names):
             self._add_row(coord, name)
         self._empty_label.setVisible(len(self._coordinates) == 0)
+        self._fit_height_to_rows()
+
+    def _fit_height_to_rows(self) -> None:
+        """Size the list to its rows, up to ``_MAX_VISIBLE_ROWS``, then scroll.
+
+        The tab around these lists scrolls as a whole; a list that scrolls
+        inside it at a fixed default height hides rows, and a hidden row is a
+        hidden fiducial. With no rows the list takes no space and the empty
+        label shows instead.
+        """
+        n = self._list.count()
+        shown = min(n, _MAX_VISIBLE_ROWS)
+        self._list.setFixedHeight(shown * _ROW_HEIGHT + (4 if shown else 0))
+        self._list.setVisible(n > 0)
 
     def _add_row(self, coord: Coordinate, name: str) -> None:
         row_widget = CoordinateRowWidget(
@@ -561,6 +582,7 @@ class CoordinateListWidget(QWidget):
         item.setSizeHint(QSize(0, _ROW_HEIGHT))
         self._list.addItem(item)
         self._list.setItemWidget(item, row_widget)
+        self._fit_height_to_rows()
 
     def _connect_row(self, row_widget: CoordinateRowWidget) -> None:
         row_widget.row_clicked.connect(self._on_row_clicked)
