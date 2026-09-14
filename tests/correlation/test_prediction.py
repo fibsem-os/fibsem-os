@@ -74,9 +74,9 @@ def test_predictions_are_not_pairs_and_accepted_predictions_are_not_evidence():
     fm[0].status = PointStatus.ACCEPTED
     assert len(usable_pairs(fib, fm)) == 1
     assert independent_pairs(fib, fm) == []
-    # moved by the user: evidence
+    # moved by the user: evidence, whatever its provenance says about its origin
     fm[1].status = PointStatus.PLACED
-    fm[1].provenance = PointProvenance.USER
+    assert fm[1].provenance == PointProvenance.PROJECTED
     assert len(independent_pairs(fib, fm)) == 1
     # rejected: neither
     fm[1].status = PointStatus.REJECTED

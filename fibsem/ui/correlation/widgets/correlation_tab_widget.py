@@ -792,6 +792,24 @@ class _ImagesTab(QWidget):
 # ---------------------------------------------------------------------------
 
 
+def _count_sentence(coords: List[Coordinate]) -> str:
+    """\"8\" for a list of placed points; the states spelled out when any differ."""
+    n = len(coords)
+    if not n:
+        return "0"
+    predicted = sum(1 for c in coords if c.status in PointStatus.TENTATIVE)
+    rejected = sum(1 for c in coords if c.status == PointStatus.REJECTED)
+    placed = n - predicted - rejected
+    if not predicted and not rejected:
+        return str(n)
+    parts = [f"{placed} placed"] if placed else []
+    if predicted:
+        parts.append(f"{predicted} predicted")
+    if rejected:
+        parts.append(f"{rejected} removed")
+    return " \u00b7 ".join(parts)
+
+
 class _CoordinatesTab(QWidget):
     """Coordinate list widgets + fit settings + load/save."""
 
@@ -821,6 +839,14 @@ class _CoordinatesTab(QWidget):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
+
+        hint = QLabel(
+            "Select a point and press <b>F</b> to fit it or <b>Delete</b> to "
+            "remove it; right-click for more. Fit settings are on the Setup tab."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"{CAPTION_STYLE} padding: 4px 6px 2px;")
+        layout.addWidget(hint)
 
         # FIB fiducials
         self.fib_list = CoordinateListWidget(point_type=PointType.FIB)
@@ -962,22 +988,23 @@ class _CoordinatesTab(QWidget):
         fit_form.addRow(_form_label("Auto-accept fits:"), self._auto_accept_check)
 
         fit_help = QLabel(
-            "Select a point and press <b>F</b> to fit it. Each fit opens a "
-            "confirmation to accept or reject — unless <b>Auto-accept</b> is on "
-            "(failed or far-off fits still ask)."
+            "Each fit opens a confirmation to accept or reject \u2014 unless "
+            "<b>Auto-accept</b> is on (failed or far-off fits still ask)."
         )
         fit_help.setWordWrap(True)
         fit_help.setStyleSheet(f"{CAPTION_STYLE} padding-top: 4px;")
         fit_form.addRow(fit_help)
 
+        # The panel is built here because its controls are read by name from
+        # this tab, but it is shown on the Setup/Images tab beside the other
+        # experiment-level settings: at the bottom of this scrolling tab it was
+        # off screen exactly when a user was fitting (FIB-978 \u00a78).
         self._fit_panel = TitledPanel("Fit Settings", collapsible=True)
         self._fit_panel.set_content(fit_body)
-        layout.addWidget(self._fit_panel)
 
         # Advanced / set-once panels start collapsed to keep the tab compact.
         self._surface_panel.collapse()
         self._fm_surface_panel.collapse()
-        self._fit_panel.collapse()
 
         layout.addStretch(1)
         scroll.setWidget(container)
@@ -988,21 +1015,20 @@ class _CoordinatesTab(QWidget):
         outer.addWidget(scroll)
 
     def update_headers(self) -> None:
-        self._fib_count_label.setText(f"({len(self.fib_list.coordinates)})")
+        """One count sentence per panel: \"6 placed \u00b7 2 predicted \u00b7 1 removed\"."""
+        self._fib_count_label.setText(_count_sentence(self.fib_list.coordinates))
         fm = self.fm_list.coordinates
+        self._fm_count_label.setText(_count_sentence(fm))
         n_tentative = sum(1 for c in fm if c.status in PointStatus.TENTATIVE)
-        self._fm_count_label.setText(
-            f"({len(fm) - n_tentative} of {len(fm)} confirmed)"
-            if n_tentative
-            else f"({len(fm)})"
-        )
         self._predict_count_label.setText(
-            f"({n_tentative} predicted)" if n_tentative else ""
+            f"{n_tentative} predicted" if n_tentative else ""
         )
-        self._poi_count_label.setText(f"({len(self.poi_list.coordinates)})")
-        self._surface_count_label.setText(f"({len(self.surface_list.coordinates)})")
+        self._poi_count_label.setText(_count_sentence(self.poi_list.coordinates))
+        self._surface_count_label.setText(
+            _count_sentence(self.surface_list.coordinates)
+        )
         self._fm_surface_count_label.setText(
-            f"({len(self.fm_surface_list.coordinates)})"
+            _count_sentence(self.fm_surface_list.coordinates)
         )
 
     def rebuild_channel_combos(self, fm_image: Optional[FluorescenceImage]) -> None:
@@ -1815,6 +1841,8 @@ class CorrelationTabWidget(QWidget):
 
         # Right: tab widget stacked above run button
         self._build_side_widgets()
+        self._images_tab.add_setup_section(self._coords_tab._fit_panel)
+        self._coords_tab._fit_panel.collapse()
         self._tabs = QTabWidget()
         self._tabs.addTab(self._images_tab, "Images")
         self._tabs.addTab(self._coords_tab, "Coordinates")
@@ -2068,6 +2096,8 @@ class CorrelationTabWidget(QWidget):
             lw.coordinate_removed.connect(partial(self._on_list_removed, spec))
             lw.order_changed.connect(partial(self._on_list_reordered, spec))
             lw.refit_requested.connect(self._on_refit_requested)
+            lw.reset_requested.connect(partial(self._on_reset_requested, spec))
+            lw.reject_toggled.connect(partial(self._on_reject_toggled, spec))
 
         # File menu
         self._action_load_fib.triggered.connect(self._menu_load_fib)
@@ -3056,9 +3086,7 @@ class CorrelationTabWidget(QWidget):
         so a result over mostly accepted points is not read as an independent
         confirmation of the seed.
         """
-        accepted = sum(
-            1 for c in d.fm_coordinates if c.provenance == PointProvenance.PROJECTED
-        )
+        accepted = sum(1 for c in d.fm_coordinates if c.status == PointStatus.ACCEPTED)
         if not accepted:
             return ""
         placed = len(d.fm_coordinates) - accepted
@@ -3495,9 +3523,9 @@ class CorrelationTabWidget(QWidget):
         coord.fitted = False  # a manual drag supersedes any accepted fit
         if coord.status in PointStatus.TENTATIVE:
             # a drop on a prediction is the user's answer: from here on the
-            # point is evidence, and the projection never moves it again
+            # point is evidence, and the projection never moves it again. Its
+            # provenance stays "projected" -- that is where it came from.
             coord.status = PointStatus.PLACED
-            coord.provenance = PointProvenance.USER
             self._refresh_canvas(self._point_specs[coord.point_type].adapter)
         spec = self._point_specs[coord.point_type]
         spec.list_widget.refresh_coordinate(coord)
@@ -3571,6 +3599,33 @@ class CorrelationTabWidget(QWidget):
             spec.on_cleared()
         self._refresh_canvas(spec.adapter)
         self._coords_tab.update_headers()
+        self.data_changed.emit(self.data)
+
+    def _on_reset_requested(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
+        """Back to a prediction: the point is a guess again and re-projects."""
+        if coord.provenance != PointProvenance.PROJECTED:
+            return
+        coord.status = PointStatus.PREDICTED
+        coord.fitted = False
+        nominal, _ = self._nominal_transform()
+        if nominal is not None:
+            self._place_predictions(nominal)
+        spec.list_widget.refresh_coordinate(coord)
+        self._refresh_canvas(spec.adapter)
+        self._coords_tab.update_headers()
+        self._discard_result()
+        self.data_changed.emit(self.data)
+
+    def _on_reject_toggled(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
+        """Leave a point out of the fit, or bring it back; it stays on screen."""
+        if coord.status == PointStatus.REJECTED:
+            coord.status = PointStatus.FITTED if coord.fitted else PointStatus.PLACED
+        elif coord.status not in PointStatus.TENTATIVE:
+            coord.status = PointStatus.REJECTED
+        spec.list_widget.refresh_coordinate(coord)
+        self._refresh_canvas(spec.adapter)
+        self._coords_tab.update_headers()
+        self._discard_result()
         self.data_changed.emit(self.data)
 
     def _on_list_reordered(self, spec: _PointTypeSpec, _coords: list) -> None:
@@ -3867,6 +3922,9 @@ class CorrelationTabWidget(QWidget):
         self._fit_shortcut = QShortcut(QKeySequence("F"), self)
         self._fit_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._fit_shortcut.activated.connect(self._fit_selected_coordinate)
+        self._delete_shortcut = QShortcut(QKeySequence("Delete"), self)
+        self._delete_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._delete_shortcut.activated.connect(self._remove_selected_coordinate)
 
     def _selected_coordinate(self) -> Optional[Coordinate]:
         """The single selected coordinate across the lists (``_select_only``
@@ -3885,6 +3943,16 @@ class CorrelationTabWidget(QWidget):
         coord = self._selected_coordinate()
         if coord is not None:
             self._on_refit_requested(coord)
+
+    def _remove_selected_coordinate(self) -> None:
+        """`Delete` hotkey: remove the currently-selected coordinate."""
+        if isinstance(QApplication.focusWidget(), (QLineEdit, QAbstractSpinBox)):
+            return
+        coord = self._selected_coordinate()
+        if coord is None:
+            return
+        spec = self._point_specs[coord.point_type]
+        spec.list_widget._on_remove(coord)
 
     def _on_refit_requested(self, coord: Coordinate) -> None:
         """Auto-fit the coordinate, then confirm the result before applying it."""

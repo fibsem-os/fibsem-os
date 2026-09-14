@@ -135,11 +135,12 @@ def independent_pairs(
 
     A prediction the user accepted without moving it sits exactly where the
     map put it; using it to refine the map would confirm the map with itself.
+    That is a matter of status (``accepted``), not provenance: a dragged
+    prediction keeps its ``projected`` provenance -- provenance says where a
+    point came from and is set once -- and is evidence all the same.
     """
     return [
-        (a, b)
-        for a, b in usable_pairs(fib, fm)
-        if b.provenance != PointProvenance.PROJECTED
+        (a, b) for a, b in usable_pairs(fib, fm) if b.status != PointStatus.ACCEPTED
     ]
 
 

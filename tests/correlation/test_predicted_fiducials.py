@@ -179,8 +179,8 @@ def test_project_adds_predictions_that_never_feed_the_fit(loaded):
     assert not loaded._can_run()
     assert "7 FM predictions" in loaded._lbl_status.text()
     cl = loaded._coords_tab
-    assert cl._predict_count_label.text() == "(7 predicted)"
-    assert cl._fm_count_label.text() == "(0 of 7 confirmed)"
+    assert cl._predict_count_label.text() == "7 predicted"
+    assert cl._fm_count_label.text() == "7 predicted"
     assert cl.btn_accept_predictions.isEnabled()
     assert "3 highlighted" in cl._predict_hint.text()
 
@@ -232,7 +232,7 @@ def test_a_drop_confirms_the_pair_and_the_next_projection_moves_only_the_rest(
     fm[i].point.y -= 25.0
     loaded._on_canvas_moved(fm[i])
     assert fm[i].status == PointStatus.PLACED
-    assert fm[i].provenance == PointProvenance.USER
+    assert fm[i].provenance == PointProvenance.PROJECTED  # where it came from
     # the drop alone moves nothing else
     still = np.array([[c.point.x, c.point.y] for c in fm])
     others = [k for k in range(len(fm)) if k != i]
@@ -318,9 +318,9 @@ def test_list_rows_show_the_prediction_state(loaded):
     rows = [lw._list.itemWidget(lw._list.item(i)) for i in range(lw._list.count())]
     rows = [r for r in rows if isinstance(r, CoordinateRowWidget)]
     assert len(rows) == 7
-    tips = [r.fitted_icon.toolTip() for r in rows]
-    assert all(t.startswith("Predicted") for t in tips)
-    assert sum(1 for t in tips if "start here" in t) == 3
+    words = [r.state_label.text() for r in rows]
+    assert all(w.startswith("predicted") for w in words)
+    assert sum(1 for w in words if "start here" in w) == 3
 
 
 def test_find_spot_burns_reads_the_experiment_above_the_run(tmp_path):
@@ -364,3 +364,43 @@ def test_project_with_nothing_to_predict_says_so(loaded):
     loaded.project_fm_from_fib()
     assert loaded._lbl_status.text().startswith("Nothing to project")
     assert [(c.point.x, c.point.y) for c in _fm(loaded)] == before
+
+
+def test_reject_and_reset_from_the_row_menu_change_the_fit_inputs(loaded):
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    fm = _fm(loaded)
+    for c in fm[:5]:
+        c.point.x += 1.0
+        loaded._on_canvas_moved(c)
+    assert len(loaded.fit_data.fm_coordinates) == 5
+    lw = loaded._coords_tab.fm_list
+    # reject one placed point: out of the fit, still on screen, header says so
+    lw.reject_toggled.emit(fm[0])
+    assert fm[0].status == PointStatus.REJECTED
+    assert len(loaded.fit_data.fm_coordinates) == 4
+    assert len(loaded.data.fm_coordinates) == 7
+    assert "1 removed" in loaded._coords_tab._fm_count_label.text()
+    # and back
+    lw.reject_toggled.emit(fm[0])
+    assert fm[0].status == PointStatus.PLACED
+    assert len(loaded.fit_data.fm_coordinates) == 5
+    # reset a placed prediction: it is a guess again and moves back to the map
+    moved = (fm[1].point.x, fm[1].point.y)
+    lw.reset_requested.emit(fm[1])
+    assert fm[1].status == PointStatus.PREDICTED
+    assert (fm[1].point.x, fm[1].point.y) != moved
+    assert len(loaded.fit_data.fm_coordinates) == 4
+    # a hand-placed point (no projection behind it) cannot be reset
+    hand = Coordinate(PointXYZ(5.0, 5.0, 3.0), PointType.FM)
+    lw.reset_requested.emit(hand)
+    assert hand.status == ""
+
+
+def test_fit_settings_live_on_the_setup_tab_and_the_coordinates_tab_says_so(
+    loaded,
+):
+    panel = loaded._coords_tab._fit_panel
+    assert panel.parent() is not None
+    assert loaded._images_tab.isAncestorOf(panel)
+    assert not loaded._coords_tab.isAncestorOf(panel)
