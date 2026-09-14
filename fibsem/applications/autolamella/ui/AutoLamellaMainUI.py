@@ -1648,8 +1648,31 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ui._start_run_grid_workflow_thread(task_names, grid_names, inventory_first)
         self.set_workflow_running()
 
+    def _run_refuses_selection(self) -> str:
+        """Why the left panel's selection cannot join the running queue, or "".
+
+        A run has one manager, lamella or grid, and the Add button commits
+        whichever view is in front. A grid selection has nothing to join while
+        a lamella run is going, and the other way round; the button says so
+        rather than offering an add that the handler would refuse.
+        """
+        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+            GridTaskManager,
+        )
+
+        manager = getattr(self.autolamella_ui, "_task_manager", None)
+        if manager is None:
+            return ""
+        grid_run = isinstance(manager, GridTaskManager)
+        if self._grid_workflow_active() and not grid_run:
+            return "A lamella run is going; grid tasks cannot join it"
+        if not self._grid_workflow_active() and grid_run:
+            return "A grid run is going; lamella tasks cannot join it"
+        return ""
+
     def _on_workflow_selection_changed(self, _=None) -> None:
         """Enable the run button only when at least one lamella and one task are selected."""
+        refused = self._run_refuses_selection()
         if self._grid_workflow_active():
             n_grid = len(self.grid_workflow_widget.get_selected_grids())
             n_task = len(self.grid_workflow_widget.get_selected_task_names())
@@ -1663,12 +1686,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
             if hasattr(self, "workflow_timeline"):
                 self.workflow_timeline.set_add_enabled(
-                    valid,
-                    f"Add to the end of the queue: {n_grid} grid"
-                    f"{'s' if n_grid != 1 else ''}, {n_task} task"
-                    f"{'s' if n_task != 1 else ''}"
-                    if valid
-                    else "Select a present grid and a task to add to the queue",
+                    valid and not refused,
+                    refused
+                    or (
+                        f"Add to the end of the queue: {n_grid} grid"
+                        f"{'s' if n_grid != 1 else ''}, {n_task} task"
+                        f"{'s' if n_task != 1 else ''}"
+                        if valid
+                        else "Select a present grid and a task to add to the queue"
+                    ),
                 )
             return
         n_lam = len(self.lamella_workflow_widget.get_selected_lamella())
@@ -1699,7 +1725,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 )
             else:
                 tip = f"Select {' and '.join(missing)} to add to the queue"
-            self.workflow_timeline.set_add_enabled(valid, tip)
+            self.workflow_timeline.set_add_enabled(
+                valid and not refused, refused or tip
+            )
 
     def set_workflow_running(self, message: str | None = None):
         """Show stop button and update status message."""
@@ -1720,6 +1748,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # on with it — and go off again in hide_workflow_running.
         if hasattr(self, "workflow_timeline"):
             self.workflow_timeline.set_actions_enabled(True)
+            # Whether the front view's selection can join this run depends on
+            # which kind of run it is, so the Add button is re-read now.
+            self._on_workflow_selection_changed()
 
     def hide_workflow_running(self):
         """Hide the stop button and show run button."""
