@@ -142,6 +142,14 @@ class RectOverlay(QObject):
             self._x0, self._y0, self._x1 - self._x0, self._y1 - self._y0
         )
 
+    def set_linestyle(self, linestyle: str) -> None:
+        """Change the edge style (``"solid"``, ``"--"``, ...) and redraw."""
+        self._linestyle = linestyle
+        if self._ax is not None:
+            self._rebuild()
+            if self._canvas is not None:
+                self._canvas.draw_idle()
+
     def set_color(self, color: str, facecolor: Optional[str] = None) -> None:
         """Recolour the rectangle and its handles.
 
@@ -320,7 +328,10 @@ class RectOverlay(QObject):
             return
         # Clamp against the content bounds, which need not start at the origin.
         left, top, right, bottom = (
-            self._rect.x0, self._rect.y0, self._rect.x1, self._rect.y1
+            self._rect.x0,
+            self._rect.y0,
+            self._rect.x1,
+            self._rect.y1,
         )
 
         if self._drag_mode == "move":
