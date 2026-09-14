@@ -442,6 +442,10 @@ class CorrelationResult:
     # The fit verdict's evidence (FIB-956): fibsem.correlation.verdict
     # FitDiagnostics.to_dict(), computed after the fit when it was seeded.
     diagnostics: Optional[dict] = None
+    # Where the fiducials put FM pixel (0, 0) minus where the stage metadata
+    # put it, in microns in the FIB image's frame (x, y). The next lamella's
+    # first projection adds it to its own metadata translation (FIB-979).
+    placement_offset: Optional[list] = None
 
     @property
     def dimage_dz_px_per_slice(self) -> Optional[list]:
@@ -485,6 +489,7 @@ class CorrelationResult:
             "seed": self.seed,
             "diagnostics": self.diagnostics,
             "branch_check": self.branch_check,
+            "placement_offset": self.placement_offset,
         }
 
     @staticmethod
@@ -531,6 +536,7 @@ class CorrelationResult:
             seed=data.get("seed"),
             branch_check=data.get("branch_check"),
             diagnostics=data.get("diagnostics"),
+            placement_offset=data.get("placement_offset"),
         )
 
     def apply_refractive_index_correction(
