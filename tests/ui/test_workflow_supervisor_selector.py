@@ -151,3 +151,29 @@ def test_a_review_task_nothing_requires_says_so(qapp, monkeypatch):
     assert "nothing waits" in rows[1].btn_attention.toolTip()
     widget.deleteLater()
     qapp.processEvents()
+
+
+def test_a_schedule_shares_the_dependency_column(qapp, monkeypatch):
+    """The clock button only duplicated the pencil; the row now says when in
+    the same column as what it waits for, so a scheduled row is not a wider
+    row, and says nothing at all when there is no schedule."""
+    from datetime import datetime
+
+    monkeypatch.setattr(module, "_review_available", lambda: False)
+    task = AutoLamellaTaskDescription(
+        name="Rough", supervise=False, required=True, requires=["Fiducial"]
+    )
+    row = module.WorkflowTaskRowWidget(task)
+    assert row.requires_label.text() == "after Fiducial"
+    assert not hasattr(row, "btn_schedule")
+    task.scheduled_at = datetime(2026, 9, 15, 21, 30)
+    row.refresh()
+    assert row.requires_label.text() == "after Fiducial · at 15 Sep 21:30"
+    assert "Scheduled:" in row.toolTip() and "Requires:" in row.toolTip()
+    task.requires = []
+    row.refresh()
+    assert row.requires_label.text() == "at 15 Sep 21:30"
+    row.set_schedule_visible(False)
+    assert row.requires_label.text() == ""
+    row.deleteLater()
+    qapp.processEvents()

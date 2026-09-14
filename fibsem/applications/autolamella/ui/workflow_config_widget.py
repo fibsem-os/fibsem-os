@@ -45,14 +45,20 @@ REQUIRES_FONT_PX = 10
 REQUIRES_MAX_WIDTH = 170
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
-# The attention chip: one word, no icon (the word is the state, the colour
-# is the mode), fixed width so the row does not jump between states.
-# "Supervised" is the widest word it shows; the old two buttons took 72px.
-_CHIP_WIDTH = 78
+# The attention chip: the mode's icon (the same ones the lamella rows and
+# status chips use) and one word, fixed width so the row does not jump
+# between states. "Supervised" is the widest word it shows. The schedule
+# clock button, which only duplicated the pencil, gave up the width.
+_CHIP_WIDTH = 92
+_CHIP_ICONS = {
+    "automated": "mdi:lightning-bolt-circle",
+    "supervised": "mdi:account-hard-hat",
+    "agent": "mdi:star-four-points",
+    "review": "mdi:clipboard-check",
+}
 _BTN_SPACER_WIDTH = (
-    _BTN_SIZE.width() * 3 + _CHIP_WIDTH + 8 * 3
-)  # schedule + attention chip + edit + remove + 3 gaps
-_BTN_STYLE = stylesheets.TOOLBUTTON_ICON_STYLESHEET
+    _BTN_SIZE.width() * 2 + _CHIP_WIDTH + 8 * 2
+)  # attention chip + edit + remove + 2 gaps
 # Long labels on purpose: the short set (Auto / Superv. / Review) reads badly
 # and the long ones fit at the chip's width.
 ATTENTION_LABELS = {
@@ -191,26 +197,36 @@ def _chip_style(colour: str, muted: bool = False) -> str:
     return (
         "QToolButton { border: 1px solid "
         + border
-        + "; border-radius: 3px; padding: 1px 4px; background: transparent; "
-        + f"color: {fg}; font-size: 11px; }}"
+        + "; border-radius: 3px; padding: 1px 5px 1px 4px; background: transparent; "
+        + f"color: {fg}; font-size: 11px; text-align: left; }}"
         "QToolButton:hover { background: rgba(255, 255, 255, 25); }"
     )
 
 
-def _requires_text(task: AutoLamellaTaskDescription, font: QFont) -> str:
-    """What the task waits for, sized to the column that holds it.
+def _requires_text(
+    task: AutoLamellaTaskDescription, font: QFont, schedule: bool = True
+) -> str:
+    """What the task waits for, and when it is scheduled, sized to the
+    column that holds them.
 
-    Empty where a task has no dependency: "No requirements" on every row was what
-    buried the two or three that have one.
+    Empty where a task has neither: "No requirements" on every row was what
+    buried the two or three that have one. A schedule is set in the edit
+    dialog; the row only says when, in the same column, so a scheduled row
+    is not a wider row.
 
-    Elided rather than left to run. A task waiting on four others produced a label
-    wider than the row, and Qt cut it off mid-word; the row's tooltip carries the
-    full list.
+    Elided rather than left to run. A task waiting on four others produced a
+    label wider than the row, and Qt cut it off mid-word; the row's tooltip
+    carries the full list.
     """
-    if not task.requires:
+    parts = []
+    if task.requires:
+        parts.append("after " + ", ".join(task.requires))
+    if schedule and task.scheduled_at is not None:
+        parts.append("at " + task.scheduled_at.strftime("%d %b %H:%M"))
+    if not parts:
         return ""
     return QFontMetrics(font).elidedText(
-        "after " + ", ".join(task.requires), Qt.ElideRight, REQUIRES_MAX_WIDTH
+        " · ".join(parts), Qt.ElideRight, REQUIRES_MAX_WIDTH
     )
 
 
@@ -274,21 +290,18 @@ class WorkflowTaskRowWidget(QWidget):
         )
         layout.addWidget(self.requires_label)
 
-        self.btn_schedule = QToolButton()
-        self.btn_schedule.setFixedSize(_BTN_SIZE)
-        self.btn_schedule.setStyleSheet(_BTN_STYLE)
-        layout.addWidget(self.btn_schedule)
-
         # One chip in place of a supervise button and a review button: the
         # word on it is the state, the colour is the run mode's (automated
         # green, supervised blue, review teal, agent the agent border).
         self.btn_attention = QToolButton()
-        self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_attention.setIconSize(QSize(14, 14))
         self.btn_attention.setFixedSize(_CHIP_WIDTH, _BTN_SIZE.height() - 8)
         self.btn_attention.setCursor(Qt.PointingHandCursor)
         self.btn_attention.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self.btn_attention)
         self._has_dependents = True
+        self._schedule_visible = True
         # kept for callers that showed or hid the old buttons
         self.btn_supervise = self.btn_attention
         self.btn_review = self.btn_attention
@@ -313,11 +326,14 @@ class WorkflowTaskRowWidget(QWidget):
         self.checkbox.stateChanged.connect(
             lambda s: self.selection_changed.emit(self.task, bool(s))
         )
-        self.btn_schedule.clicked.connect(lambda: self.edit_clicked.emit(self.task))
         self.btn_attention.clicked.connect(self._on_attention_clicked)
         self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.task))
         self.btn_remove.clicked.connect(self._on_remove_clicked)
 
+        self.refresh()
+
+    def set_schedule_visible(self, visible: bool) -> None:
+        self._schedule_visible = visible
         self.refresh()
 
     def set_has_dependents(self, has_dependents: bool) -> None:
@@ -373,23 +389,38 @@ class WorkflowTaskRowWidget(QWidget):
         """Re-read all display fields from the stored task."""
         self.name_label.setText(self.task.name)
         self.requires_label.setText(
-            _requires_text(self.task, self.requires_label.font())
+            _requires_text(
+                self.task, self.requires_label.font(), self._schedule_visible
+            )
         )
-        self.setToolTip(
-            "Requires: " + ", ".join(self.task.requires) if self.task.requires else ""
-        )
+        tips = []
+        if self.task.requires:
+            tips.append("Requires: " + ", ".join(self.task.requires))
+        if self.task.scheduled_at is not None and self._schedule_visible:
+            tips.append(
+                "Scheduled: "
+                + self.task.scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
+                + " (set in the edit dialog)"
+            )
+        self.setToolTip("\n".join(tips))
         label, colour, tooltip = _attention_chip(self.task, self._has_dependents)
         # the file says Review but the preference is off: shown as it will run
         downgraded = (
             self.task.review and not self.task.supervise and not _review_available()
         )
         self.btn_attention.setText(label)
+        self.btn_attention.setIcon(
+            fibsem_icon(
+                _CHIP_ICONS[attention_state(self.task)],
+                color=NEUTRAL_700 if downgraded else colour,
+            )
+        )
         self.btn_attention.setToolTip(tooltip)
         self.btn_attention.setStyleSheet(_chip_style(colour, muted=downgraded))
         if attention_state(self.task) == "review" and not self._has_dependents:
             # the column keeps the task's own dependency when it has one; the
             # colour and the chip's tooltip carry the warning
-            if not self.task.requires:
+            if not self.requires_label.text():
                 self.requires_label.setText("nothing waits on this")
             self.requires_label.setStyleSheet(
                 f"background: transparent; color: {stylesheets.WARN_COLOR}; "
@@ -400,18 +431,6 @@ class WorkflowTaskRowWidget(QWidget):
                 f"background: transparent; color: {REQUIRES_COLOUR}; "
                 f"font-size: {REQUIRES_FONT_PX}px;"
             )
-        if self.task.scheduled_at is not None:
-            self.btn_schedule.setIcon(
-                fibsem_icon("mdi:clock", color=stylesheets.WHITE_ICON_COLOR)
-            )
-            self.btn_schedule.setToolTip(
-                f"Scheduled: {self.task.scheduled_at.strftime(DATETIME_DISPLAY_AMPM)}"
-            )
-        else:
-            self.btn_schedule.setIcon(
-                fibsem_icon("mdi:clock-outline", color=NEUTRAL_700)
-            )
-            self.btn_schedule.setToolTip("Not scheduled — click to set")
 
 
 class _WorkflowTaskListHeader(QWidget):
@@ -543,9 +562,10 @@ class WorkflowConfigWidget(QWidget):
         row.selection_changed.connect(self._on_row_selection_changed)
 
     def enable_schedule_button(self, visible: bool) -> None:
+        """Whether rows say when they are scheduled (the label, not a button)."""
         self._btn_visible["schedule"] = visible
         for i in range(self._list.count()):
-            self._row(i).btn_schedule.setVisible(visible)
+            self._row(i).set_schedule_visible(visible)
 
     def enable_supervise_button(self, visible: bool) -> None:
         """Show or hide the attention chip."""
@@ -631,7 +651,7 @@ class WorkflowConfigWidget(QWidget):
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
 
     def _apply_btn_visibility(self, row: WorkflowTaskRowWidget) -> None:
-        row.btn_schedule.setVisible(self._btn_visible["schedule"])
+        row.set_schedule_visible(self._btn_visible["schedule"])
         row.btn_attention.setVisible(self._btn_visible["supervise"])
         row.btn_edit.setVisible(self._btn_visible["edit"])
         row.btn_remove.setVisible(self._btn_visible["remove"])
