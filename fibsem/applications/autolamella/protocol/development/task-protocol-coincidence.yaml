@@ -192,7 +192,6 @@ tasks:
     Setup Coincidence Milling:
         task_type: SETUP_COINCIDENCE_MILLING
         parameters:
-            channel_name: Red Channel
             field_of_view: 80.0e-6
             intensity_drop_fraction: 0.4
             align_coincidence: false
@@ -205,6 +204,12 @@ tasks:
         parameters:
             setup_task: Setup Coincidence Milling
             acquire_fluorescence_images: true
+        monitoring_channel:
+            name: Monitoring
+            excitation_wavelength: 550
+            emission_wavelength: Fluorescence
+            power: 0.1
+            exposure_time: 0.1
         reference_imaging:
             acquire_sem: false
             acquire_fib: true

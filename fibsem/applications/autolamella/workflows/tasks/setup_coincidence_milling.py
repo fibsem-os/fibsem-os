@@ -46,8 +46,8 @@ COINCIDENCE_SETUP_REFERENCE_FILENAME = f"{COINCIDENCE_SETUP_REFERENCE_STEM}_ib.t
 class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
     """Per-site coincidence milling setup.
 
-    Everything here except ``channel_name``, ``field_of_view`` and
-    ``align_coincidence`` is written by the task from what the operator left in the
+    Everything here except ``field_of_view`` and ``align_coincidence`` is written
+    by the task from what the operator left in the
     viewer. The stage position is deliberately absent: it is always the lamella's
     milling pose at run time.
     """
@@ -55,13 +55,6 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
     task_type: ClassVar[str] = "SETUP_COINCIDENCE_MILLING"
     display_name: ClassVar[str] = "Setup Coincidence Milling"
 
-    channel_name: str = field(
-        default="Red Channel",
-        metadata=field_meta(
-            label="Channel",
-            tooltip="The fluorescence channel whose intensity is monitored while milling",
-        ),
-    )
     field_of_view: float = field(
         default=80e-6,
         metadata=field_meta(
@@ -146,7 +139,6 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
             task_name=cfg.task_name,
             milling=cfg.milling,
             reference_imaging=cfg.reference_imaging,
-            channel_name=str(params.get("channel_name", "Red Channel")),
             field_of_view=float(params.get("field_of_view", 80e-6)),
             intensity_drop_fraction=float(params.get("intensity_drop_fraction", 0.4)),
             align_coincidence=bool(params.get("align_coincidence", False)),
@@ -230,8 +222,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             self.log_status_message(
                 "RECORD_SETUP",
                 f"Recorded coincidence setup for {self.lamella.name}: "
-                f"objective {self.config.objective_position * 1e6:.1f} µm, "
-                f"channel {self.config.channel_name}.",
+                f"objective {self.config.objective_position * 1e6:.1f} µm.",
             )
         finally:
             # on every exit, including abort: an inserted objective blocks the next
@@ -301,21 +292,29 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             )
 
     def _find_channel(self):
-        """The configured channel, from the lamella's fluorescence task if it has one."""
-        from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
-            AcquireFluorescenceImageConfig,
+        """The mill's monitoring channel, so the frame looks like what the mill sees.
+
+        None (current channel) when the lamella has no Coincident Milling task.
+        """
+        mill = self._mill_task_config()
+        if mill is None:
+            logging.info(
+                f"{self.task_name}: {self.lamella.name} has no Coincident Milling "
+                "task; acquiring on the current channel."
+            )
+            return None
+        return deepcopy(mill.monitoring_channel)
+
+    def _mill_task_config(self):
+        """The lamella's Coincident Milling task config, or None."""
+        # local: mill_coincident imports this module
+        from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
+            MillCoincidentTaskConfig,
         )
 
         for task_config in self.lamella.task_config.values():
-            if not isinstance(task_config, AcquireFluorescenceImageConfig):
-                continue
-            for channel in task_config.channel_settings:
-                if channel.name == self.config.channel_name:
-                    return channel
-        logging.info(
-            f"{self.task_name}: channel '{self.config.channel_name}' is not in any "
-            "fluorescence task for this lamella; acquiring on the current channel."
-        )
+            if isinstance(task_config, MillCoincidentTaskConfig):
+                return task_config
         return None
 
     def _align_coincidence(self) -> None:
