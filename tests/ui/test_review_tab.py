@@ -293,6 +293,11 @@ def test_acknowledging_records_a_look_and_writes_nothing(tab, experiment, qapp):
     assert "checked by you at" in line
     tab.show_decided.setChecked(True)
     assert "Decided · 1" in tab.row_summaries()[0], "now it is decided"
+    from PyQt5.QtWidgets import QLabel
+
+    row = tab.list.itemWidget(tab.list.item(1))
+    labels = [w.text() for w in row.findChildren(QLabel)]
+    assert "checked" in labels, "the row says a look happened, not a delta"
 
 
 def test_after_an_acknowledgement_the_next_row_is_selected(tab, experiment, qapp):
