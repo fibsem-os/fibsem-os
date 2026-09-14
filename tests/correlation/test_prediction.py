@@ -69,13 +69,13 @@ def test_predictions_are_not_pairs_and_accepted_predictions_are_not_evidence():
     assert all(c.provenance == PointProvenance.PROJECTED for c in fm)
     assert usable_pairs(fib, fm) == []
     # three of them are the ones to drag first
-    assert sum(1 for c in fm if c.status == PointStatus.SUGGESTED) == 3
+    assert sum(1 for c in fm if c.suggested) == 3
     # accepted where the map put them: usable, but not evidence
-    fm[0].status = PointStatus.CONFIRMED
+    fm[0].status = PointStatus.ACCEPTED
     assert len(usable_pairs(fib, fm)) == 1
     assert independent_pairs(fib, fm) == []
     # moved by the user: evidence
-    fm[1].status = PointStatus.ADJUSTED
+    fm[1].status = PointStatus.PLACED
     fm[1].provenance = PointProvenance.USER
     assert len(independent_pairs(fib, fm)) == 1
     # rejected: neither
@@ -121,7 +121,7 @@ def test_with_no_pairs_the_map_is_the_geometry_and_predictions_are_rigid(nominal
             (a.point.x, a.point.y), abs=1e-6
         )
     # suggestions survive a projection without pairs
-    assert sum(1 for c in fm if c.status == PointStatus.SUGGESTED) == 3
+    assert sum(1 for c in fm if c.suggested) == 3
 
 
 def test_a_stage_translation_off_the_image_is_replaced_by_centring(nominal):
@@ -151,11 +151,11 @@ def test_one_confirmed_pair_moves_the_rest_by_its_offset_and_leaves_it_alone(nom
     fm = predictions_for(fib, [], z_slice=5.0)
     place_predictions(build_projection(nominal, fib, fm, z_slice=5.0), fib, fm)
     before = np.array([[c.point.x, c.point.y] for c in fm])
-    i = next(k for k, c in enumerate(fm) if c.status == PointStatus.SUGGESTED)
+    i = next(k for k, c in enumerate(fm) if c.suggested)
     fm[i].point.x += 40.0
     fm[i].point.y -= 25.0
     fm[i].point.z = 7.0
-    fm[i].status = PointStatus.ADJUSTED
+    fm[i].status = PointStatus.PLACED
     fm[i].provenance = PointProvenance.USER
     proj = build_projection(nominal, fib, fm, z_slice=5.0)
     assert proj.n_pairs == 1 and not proj.rotation_refit
@@ -175,7 +175,9 @@ def test_one_confirmed_pair_moves_the_rest_by_its_offset_and_leaves_it_alone(nom
     # the rest move to the placed pair's slice (the burns share a surface) and
     # are no longer "suggested"
     assert all(fm[k].point.z == pytest.approx(7.0) for k in others)
-    assert all(fm[k].status == PointStatus.PREDICTED for k in others)
+    assert all(
+        fm[k].status == PointStatus.PREDICTED and not fm[k].suggested for k in others
+    )
 
 
 def test_accepted_predictions_do_not_refine_the_map(nominal):
@@ -183,7 +185,7 @@ def test_accepted_predictions_do_not_refine_the_map(nominal):
     fm = predictions_for(fib, [], z_slice=5.0)
     place_predictions(build_projection(nominal, fib, fm, z_slice=5.0), fib, fm)
     for c in fm:
-        c.status = PointStatus.CONFIRMED  # accepted where the map put them
+        c.status = PointStatus.ACCEPTED  # taken where the map put them
     proj = build_projection(nominal, fib, fm, z_slice=5.0)
     assert proj.n_pairs == 0
     assert np.allclose(proj.translation, nominal.translation)
@@ -198,7 +200,7 @@ def test_enough_user_pairs_refit_the_rotation_from_the_seed(nominal):
     for c in fm[:n]:
         c.point.x += 3.0
         c.point.y -= 2.0
-        c.status = PointStatus.ADJUSTED
+        c.status = PointStatus.PLACED
         c.provenance = PointProvenance.USER
     proj = build_projection(nominal, fib, fm, z_slice=5.0)
     assert proj.n_pairs == n and proj.rotation_refit
@@ -220,9 +222,24 @@ def test_a_fitted_prior_is_not_refitted_from_a_few_pairs(nominal):
     place_predictions(build_projection(nominal, fib, fm, z_slice=5.0), fib, fm)
     for c in fm[:MIN_PAIRS_FOR_ROTATION_REFIT]:
         c.point.x += 3.0
-        c.status = PointStatus.ADJUSTED
+        c.status = PointStatus.PLACED
         c.provenance = PointProvenance.USER
     proj = build_projection(nominal, fib, fm, z_slice=5.0, refit_rotation=False)
     assert proj.n_pairs == MIN_PAIRS_FOR_ROTATION_REFIT and not proj.rotation_refit
     assert np.allclose(proj.matrix, nominal.projection)
     assert proj.note.startswith("translation from")
+
+
+def test_legacy_status_strings_read_back_into_the_vocabulary():
+    for old, new in PointStatus.LEGACY.items():
+        c = Coordinate.from_dict(
+            {"point": {"x": 1, "y": 2, "z": 3}, "point_type": "FM", "status": old}
+        )
+        assert c.status == new
+        assert not c.suggested
+    assert (
+        Coordinate.from_dict(
+            {"point": {"x": 1, "y": 2, "z": 3}, "point_type": "FM"}
+        ).status
+        == ""
+    )

@@ -321,7 +321,7 @@ class CorrelationPointOverlay(PointOverlay):
             line.set_markerfacecolor("none")
             line.set_markeredgecolor(self._point_color(idx, idx == self._selected))
             line.set_markeredgewidth(1.5)
-            if status == PointStatus.SUGGESTED:
+            if getattr(self._coords[idx], "suggested", False):
                 line.set_markersize(self._size * 1.8)
                 line.set_markeredgewidth(2.5)
         elif status == PointStatus.REJECTED:

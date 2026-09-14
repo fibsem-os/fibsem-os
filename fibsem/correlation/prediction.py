@@ -13,7 +13,7 @@ give. On the saved METEOR runs one pair puts the remaining predictions within
 a few pixels of their burns.
 
 Nothing here feeds a fit on its own. A prediction has ``status`` predicted or
-suggested until the user moves it, and only positions the user has placed (or
+until the user moves it, and only positions the user has placed (or
 a search has found) count as pairs. That is the line between a measurement
 and a guess, and it is what stops the projection from grading its own
 homework: the rotation the final fit recovers is checked against the geometry
@@ -272,8 +272,8 @@ def predictions_for(
 
     Pairs are by index, so the FIB points from ``len(fm)`` on are unpaired.
     The new points are placed at the origin; :func:`place_predictions` moves
-    them. When nothing has been confirmed yet the three that span the pattern
-    best are marked suggested.
+    them. When nothing has been placed yet the three that span the pattern
+    best are flagged ``suggested`` (a highlight, not a status).
     """
     new = [
         Coordinate(
@@ -287,7 +287,7 @@ def predictions_for(
     if new and not independent_pairs(fib, fm):
         unpaired = fib[len(fm) :]
         for i in suggest_indices([(c.point.x, c.point.y) for c in unpaired]):
-            new[i].status = PointStatus.SUGGESTED
+            new[i].suggested = True
     return new
 
 
@@ -296,9 +296,9 @@ def place_predictions(
 ) -> List[Coordinate]:
     """Move every tentative FM point to where its FIB partner projects.
 
-    Confirmed points are never touched. Returns the points that moved. Once
-    pairs exist the suggestion has done its job, and suggested points become
-    plain predictions so the highlight does not outlive its meaning.
+    Placed points are never touched. Returns the points that moved. Once
+    pairs exist the suggestion has done its job and the highlight is cleared
+    so it does not outlive its meaning.
     """
     moved: List[Coordinate] = []
     for a, b in zip(fib, fm):
@@ -306,7 +306,7 @@ def place_predictions(
             continue
         x, y, z = projection.fm_from_fib(a.point.x, a.point.y)
         b.point.x, b.point.y, b.point.z = x, y, z
-        if projection.n_pairs and b.status == PointStatus.SUGGESTED:
-            b.status = PointStatus.PREDICTED
+        if projection.n_pairs and b.suggested:
+            b.suggested = False
         moved.append(b)
     return moved

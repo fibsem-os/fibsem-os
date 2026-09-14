@@ -46,25 +46,40 @@ class PointStatus:
     """What has been established about a coordinate's position (FIB-956).
 
     Plain strings on ``Coordinate.status`` so a file written by an older build
-    reads back unchanged (the field defaults to ""). ``PREDICTED`` and
-    ``SUGGESTED`` positions came from a projection and have not been looked at;
-    they are drawn hollow and never feed a fit. ``ADJUSTED`` was placed by hand,
-    ``FITTED`` by an accepted local fit, ``CONFIRMED`` accepted as shown.
-    ``REJECTED`` stays on screen and in the file but is excluded from the fit.
+    reads back unchanged (the field defaults to ""). Three things are kept
+    apart: what the position *is* (this), where it *came from*
+    (:class:`PointProvenance`), and what the UI *emphasises*
+    (``Coordinate.suggested``, transient).
+
+    ``PREDICTED``: the projection put it here and nobody has looked; drawn
+    hollow, never fed to a fit. ``PLACED``: the user put it here. ``FITTED``:
+    the local image fitter landed it, from a placed or a predicted start.
+    ``ACCEPTED``: a prediction taken as it was, unmoved -- usable by the final
+    fit but no evidence for refining the map, since its position is the map's
+    own. ``REJECTED``: left out of the fit, by the user or by rejection; stays
+    on screen and in the file.
+
+    A failed fit is an event, not a state: the point stays what it was.
     """
 
     PREDICTED = "predicted"
-    SUGGESTED = "suggested"
-    ADJUSTED = "adjusted"
+    PLACED = "placed"
     FITTED = "fitted"
-    CONFIRMED = "confirmed"
-    FIT_FAILED = "fit_failed"
+    ACCEPTED = "accepted"
     REJECTED = "rejected"
 
     # positions the transform may be fitted to
-    USABLE = frozenset({"", ADJUSTED, FITTED, CONFIRMED, FIT_FAILED})
+    USABLE = frozenset({"", PLACED, FITTED, ACCEPTED})
     # positions that are only a guess
-    TENTATIVE = frozenset({PREDICTED, SUGGESTED})
+    TENTATIVE = frozenset({PREDICTED})
+
+    # what earlier builds wrote (2026-09-09 .. 2026-09-14)
+    LEGACY = {
+        "adjusted": PLACED,
+        "confirmed": ACCEPTED,
+        "suggested": PREDICTED,
+        "fit_failed": PLACED,
+    }
 
 
 class PointProvenance:
@@ -86,6 +101,9 @@ class Coordinate:
     # not position -- `matches_inputs` ignores both, as it ignores `fitted`.
     status: str = ""
     provenance: str = ""
+    # UI emphasis, not state: one of the predictions worth dragging first.
+    # Never saved; recomputed by the projection.
+    suggested: bool = field(default=False, compare=False)
 
     @property
     def usable(self) -> bool:
@@ -109,7 +127,9 @@ class Coordinate:
             point=point,
             point_type=point_type,
             fitted=data.get("fitted", False),
-            status=data.get("status", "") or "",
+            status=PointStatus.LEGACY.get(
+                data.get("status", "") or "", data.get("status", "") or ""
+            ),
             provenance=data.get("provenance", "") or "",
         )
 

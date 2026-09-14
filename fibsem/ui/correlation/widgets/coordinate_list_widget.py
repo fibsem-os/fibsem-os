@@ -372,7 +372,7 @@ class CoordinateRowWidget(QWidget):
         user has not moved yet (amber for the ones worth moving first)."""
         status = getattr(self.coord, "status", "")
         if status in PointStatus.TENTATIVE:
-            suggested = status == PointStatus.SUGGESTED
+            suggested = bool(getattr(self.coord, "suggested", False))
             self.fitted_icon.setPixmap(
                 self._icon_suggested if suggested else self._icon_predicted
             )

@@ -2487,7 +2487,7 @@ class CorrelationTabWidget(QWidget):
         changed = False
         for coord in cl.fm_list.coordinates:
             if coord.status in PointStatus.TENTATIVE:
-                coord.status = PointStatus.CONFIRMED
+                coord.status = PointStatus.ACCEPTED
                 cl.fm_list.refresh_coordinate(coord)
                 changed = True
         if not changed:
@@ -2526,7 +2526,7 @@ class CorrelationTabWidget(QWidget):
                 f"of the {len(fib)} FIB fiducials."
             )
         elif n_tentative:
-            n_suggested = sum(1 for c in fm if c.status == PointStatus.SUGGESTED)
+            n_suggested = sum(1 for c in fm if c.suggested)
             if n_pairs == 0:
                 hint = (
                     f"{n_tentative} predicted. Drag the {n_suggested} highlighted "
@@ -3482,7 +3482,7 @@ class CorrelationTabWidget(QWidget):
         if coord.status in PointStatus.TENTATIVE:
             # a drop on a prediction is the user's answer: from here on the
             # point is evidence, and the projection never moves it again
-            coord.status = PointStatus.ADJUSTED
+            coord.status = PointStatus.PLACED
             coord.provenance = PointProvenance.USER
             self._refresh_canvas(self._point_specs[coord.point_type].adapter)
         spec = self._point_specs[coord.point_type]

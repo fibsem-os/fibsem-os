@@ -170,7 +170,7 @@ def test_project_adds_predictions_that_never_feed_the_fit(loaded):
     assert len(fm) == len(_fib(loaded)) == 7
     assert all(c.status in PointStatus.TENTATIVE for c in fm)
     assert all(c.provenance == PointProvenance.PROJECTED for c in fm)
-    assert sum(1 for c in fm if c.status == PointStatus.SUGGESTED) == 3
+    assert sum(1 for c in fm if c.suggested) == 3
     # on screen and in the record ...
     assert len(loaded.data.fm_coordinates) == 7
     # ... but not in the fit
@@ -213,7 +213,8 @@ def test_predictions_are_saved_with_their_state(loaded, tmp_path):
     fm = raw["input_data"]["fm_coordinates"]
     assert len(fm) == 7
     assert all(c["provenance"] == PointProvenance.PROJECTED for c in fm)
-    assert sum(1 for c in fm if c["status"] == PointStatus.SUGGESTED) == 3
+    assert all(c["status"] == PointStatus.PREDICTED for c in fm)
+    assert "suggested" not in fm[0]  # a highlight, never saved
 
 
 # ── the drop and the re-projection ───────────────────────────────────────
@@ -225,12 +226,12 @@ def test_a_drop_confirms_the_pair_and_the_next_projection_moves_only_the_rest(
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
     fm = _fm(loaded)
-    i = next(k for k, c in enumerate(fm) if c.status == PointStatus.SUGGESTED)
+    i = next(k for k, c in enumerate(fm) if c.suggested)
     before = np.array([[c.point.x, c.point.y] for c in fm])
     fm[i].point.x += 40.0
     fm[i].point.y -= 25.0
     loaded._on_canvas_moved(fm[i])
-    assert fm[i].status == PointStatus.ADJUSTED
+    assert fm[i].status == PointStatus.PLACED
     assert fm[i].provenance == PointProvenance.USER
     # the drop alone moves nothing else
     still = np.array([[c.point.x, c.point.y] for c in fm])
@@ -248,7 +249,7 @@ def test_a_drop_confirms_the_pair_and_the_next_projection_moves_only_the_rest(
     # every prediction moved by the drop's offset; the dropped point did not move
     assert np.allclose(delta[others], delta[i], atol=1e-6)
     assert np.allclose(after[i], still[i])
-    assert fm[i].status == PointStatus.ADJUSTED
+    assert fm[i].status == PointStatus.PLACED
     assert all(fm[k].status == PointStatus.PREDICTED for k in others)
     assert "translation from 1 pair" in loaded._lbl_status.text()
 
@@ -261,7 +262,7 @@ def test_accept_all_keeps_provenance_and_the_status_line_says_so(loaded):
     loaded._on_canvas_moved(fm[0])
     loaded.accept_all_predictions()
     fm = _fm(loaded)
-    assert all(c.status == PointStatus.CONFIRMED for c in fm[1:])
+    assert all(c.status == PointStatus.ACCEPTED for c in fm[1:])
     assert all(c.provenance == PointProvenance.PROJECTED for c in fm[1:])
     assert not loaded._coords_tab.btn_accept_predictions.isEnabled()
     assert len(loaded.fit_data.fm_coordinates) == 7
@@ -281,7 +282,7 @@ def test_rejected_pairs_leave_the_fit_but_stay_on_screen(loaded):
     loaded.project_fm_from_fib()
     fm = _fm(loaded)
     for c in fm[:4]:
-        c.status = PointStatus.CONFIRMED
+        c.status = PointStatus.ACCEPTED
     fm[1].status = PointStatus.REJECTED
     assert len(loaded.fit_data.fib_coordinates) == 3
     assert len(loaded.data.fm_coordinates) == 7
