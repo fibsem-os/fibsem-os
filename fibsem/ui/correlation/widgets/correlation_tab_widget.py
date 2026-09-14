@@ -66,6 +66,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QShortcut,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
