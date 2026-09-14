@@ -529,3 +529,133 @@ def test_the_image_panes_split_by_aspect_ratio_until_the_user_drags(widget, tmp_
     before = widget._splitter.sizes()
     widget.set_fm_image(fm)
     assert widget._splitter.sizes() == before
+
+
+# ── the placement offset and the Method panel's projection row (FIB-979) ──
+
+
+def _offset_runs(offset_um, *, rms_um=0.5, age_days=0.0):
+    import time
+
+    from fibsem.correlation.history import CorrelationRun
+    from fibsem.correlation.structures import (
+        CorrelationInputData,
+        CorrelationResult,
+        CorrelationState,
+    )
+
+    px = ARCTIS["fib"]["pixel_size"]
+    result = CorrelationResult(
+        placement_offset=list(offset_um),
+        rms_error=rms_um * 1e-6 / px,
+        updated_at=time.time() - age_days * 86400,
+        input_data=CorrelationInputData(stored_fib_image_pixel_size=px),
+    )
+    run = CorrelationRun(path="/x/r", name="r", state=CorrelationState(result=result))
+    return [("02-other, run r", run)]
+
+
+def test_a_previous_runs_offset_moves_the_first_placement_and_can_be_ignored(loaded):
+    from fibsem.correlation.geometry import nominal_transform
+
+    bare = nominal_transform(loaded._fib_image, loaded._fm_image).translation
+    px_um = ARCTIS["fib"]["pixel_size"] * 1e6
+    cl = loaded._coords_tab
+
+    loaded.set_prior_runs(_offset_runs([3.0, -4.0], age_days=9))
+    nominal, _ = loaded._nominal_transform()
+    assert np.allclose(nominal.translation, bare + np.array([3.0, -4.0]) / px_um)
+    text = cl._lbl_projection.text()
+    assert "placed from 02-other (9 days ago)" in text and 'href="ignore"' in text
+    assert "(+3.0, -4.0) µm" in cl._lbl_projection.toolTip()
+    assert "FM px per slice along the beam" in cl._lbl_projection.toolTip()
+
+    loaded._on_projection_link("ignore")
+    nominal, _ = loaded._nominal_transform()
+    assert np.allclose(nominal.translation, bare)
+    text = cl._lbl_projection.text()
+    assert "placed from stage metadata" in text and 'href="use"' in text
+    assert "ignored for this lamella" in cl._lbl_projection.toolTip()
+
+    loaded._on_projection_link("use")
+    nominal, _ = loaded._nominal_transform()
+    assert np.allclose(nominal.translation, bare + np.array([3.0, -4.0]) / px_um)
+
+
+def test_a_poor_previous_run_does_not_supply_an_offset(loaded):
+    loaded.set_prior_runs(_offset_runs([3.0, -4.0], rms_um=5.0))
+    text = loaded._coords_tab._lbl_projection.text()
+    assert text == "geometry · placed from stage metadata"
+
+
+def test_a_run_records_the_offset_its_fiducials_measured(loaded):
+    """Pairs accepted where the offset-corrected projection put them measure
+    that same offset back; pairs the user moves change it by the move."""
+    from fibsem.correlation.structures import CorrelationResult
+
+    loaded.set_prior_runs(_offset_runs([3.0, -4.0]))
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    loaded.accept_all_predictions()
+    loaded._run_nominal, _ = loaded._nominal_transform()
+    result = CorrelationResult(input_data=loaded.fit_data)
+    assert np.allclose(loaded._measure_placement_offset(result), [3.0, -4.0], atol=1e-6)
+
+    # move every FM point 10 FM px in x: the FIB-side translation moves by
+    # minus the prior's in-plane map of that shift
+    P = loaded._run_nominal.projection
+    px_um = ARCTIS["fib"]["pixel_size"] * 1e6
+    for c in _fm(loaded):
+        c.point.x += 10.0
+    result = CorrelationResult(input_data=loaded.fit_data)
+    expected = np.array([3.0, -4.0]) - (P[:, :2] @ [10.0, 0.0]) * px_um
+    assert np.allclose(loaded._measure_placement_offset(result), expected, atol=1e-6)
+
+    loaded._on_run_finished(result)
+    assert loaded._result.placement_offset == pytest.approx(list(expected))
+
+
+def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
+    """One saved Arctis run was an unseeded fit 62 degrees from the geometry;
+    used as a prior it would project every ring on the wrong line."""
+    from fibsem.correlation.geometry import nominal_transform
+    from fibsem.correlation.history import CorrelationRun
+    from fibsem.correlation.structures import (
+        CorrelationInputData,
+        CorrelationResult,
+        CorrelationState,
+    )
+
+    geometry = nominal_transform(loaded._fib_image, loaded._fm_image)
+    a = np.radians(60.0)
+    about_x = np.array(
+        [[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]]
+    )
+    px = ARCTIS["fib"]["pixel_size"]
+
+    def runs(rotation):
+        result = CorrelationResult(
+            scale=geometry.scale,
+            rotation_quaternion=(rotation).tolist(),
+            translation=[0.0, 0.0, 0.0],
+            fm_z_scale=geometry.z_anisotropy,
+            input_data=CorrelationInputData(stored_fib_image_pixel_size=px),
+        )
+        run = CorrelationRun(path="/x", name="r", state=CorrelationState(result=result))
+        return [("02-other, run r", run)]
+
+    loaded.set_prior_runs(runs(about_x @ geometry.rotation))
+    assert loaded._prior_transform() is None
+    nominal, _ = loaded._nominal_transform()
+    assert np.allclose(nominal.projection, geometry.projection)
+    row = loaded._coords_tab._lbl_projection
+    assert row.text().startswith("geometry ·")
+    assert "02-other, run r not used: its rotation is 60° from the geometry" in (
+        row.toolTip()
+    )
+
+    loaded.set_prior_runs(runs(geometry.rotation))
+    assert loaded._prior_transform() is not None
+    assert loaded._coords_tab._lbl_projection.text().startswith(
+        "previous run (02-other) ·"
+    )

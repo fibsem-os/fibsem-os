@@ -147,3 +147,43 @@ def test_experiment_runs_puts_this_lamella_first_newest_first(tmp_path):
     assert ordered == ["this lamella, run r3", "01-a, run r2", "01-a, run r1"]
     ordered = [label for label, _ in experiment_runs(str(exp))]
     assert ordered == ["01-a, run r2", "01-a, run r1", "02-b, run r3"]
+
+
+# ── the placement offset (FIB-979) ──────────────────────────────────────
+
+
+def test_placement_offset_round_trips_through_the_result_file():
+    result = CorrelationResult(placement_offset=[-0.4, -8.8])
+    assert CorrelationResult.from_dict(result.to_dict()).placement_offset == [
+        -0.4,
+        -8.8,
+    ]
+    assert CorrelationResult.from_dict({"poi": []}).placement_offset is None
+
+
+def test_placement_offset_comes_from_the_first_run_that_measured_it_well():
+    from fibsem.correlation.prior import placement_offset_from_runs
+
+    px = ARCTIS["fib"]["pixel_size"]
+
+    def result(offset, rms_um, updated_at):
+        return CorrelationResult(
+            placement_offset=offset,
+            rms_error=rms_um * 1e-6 / px,
+            updated_at=updated_at,
+            input_data=CorrelationInputData(stored_fib_image_pixel_size=px),
+        )
+
+    now = 1_000_000.0
+    runs = [
+        ("this lamella, run a", _run("a", result(None, 0.3, now))),  # pre-FIB-979
+        ("this lamella, run b", _run("b", result([-18.3, -11.4], 5.0, now))),  # poor
+        ("02-other, run c", _run("c", result([-0.4, -8.8], 0.5, now - 2 * 86400))),
+        ("03-other, run d", _run("d", result([9.0, 9.0], 0.2, now))),
+    ]
+    got = placement_offset_from_runs(runs, now=now)
+    assert got is not None
+    assert got.source == "02-other, run c"
+    assert np.allclose(got.offset_um, [-0.4, -8.8])
+    assert got.age_days == pytest.approx(2.0)
+    assert placement_offset_from_runs(runs[:2], now=now) is None

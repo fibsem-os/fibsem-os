@@ -32,6 +32,7 @@ result_changed : CorrelationResult    — after a successful correlation run
 from __future__ import annotations
 
 import copy
+import dataclasses
 import io
 import logging
 import os
@@ -84,6 +85,7 @@ from fibsem.correlation.prediction import (
     independent_pairs,
     place_predictions,
     predictions_for,
+    usable_pairs,
 )
 from fibsem.correlation.refractive_index import ZetaParams
 from fibsem.correlation.structures import (
@@ -853,6 +855,7 @@ class _CoordinatesTab(QWidget):
     # Predicted fiducials (FIB-956): the parent projects and accepts
     project_requested = pyqtSignal()
     accept_predictions_requested = pyqtSignal()
+    projection_link_activated = pyqtSignal(str)  # "ignore" | "use"
 
     # Forwarded from list widgets — parent connects these
     fib_list: CoordinateListWidget
@@ -974,11 +977,22 @@ class _CoordinatesTab(QWidget):
         self._fm_surface_panel.add_header_widget(self._fm_surface_count_label)
         layout.addWidget(self._fm_surface_panel)
 
-        # Fit Settings
+        # Method: how the correlation will be done -- what the rings rest on,
+        # what fits a point, which channel, whether fits are auto-accepted.
         fit_body = QWidget()
         fit_form = QFormLayout(fit_body)
         fit_form.setContentsMargins(8, 4, 8, 4)
         fit_form.setSpacing(4)
+
+        # Where the projection comes from, one line; the numbers live in the
+        # tooltip. The link ignores (or restores) a previous run's placement
+        # offset for this lamella (FIB-979).
+        self._lbl_projection = QLabel("")
+        self._lbl_projection.setWordWrap(True)
+        self._lbl_projection.setTextFormat(Qt.RichText)
+        self._lbl_projection.setStyleSheet(BODY_STYLE)
+        self._lbl_projection.linkActivated.connect(self.projection_link_activated)
+        fit_form.addRow(_form_label("Projection:"), self._lbl_projection)
 
         # ValueComboBox installs a WheelBlocker, so scrolling this panel can't
         # silently change a fit setting on the way past. The channel combos start
@@ -1036,7 +1050,7 @@ class _CoordinatesTab(QWidget):
         # this tab, but it is shown on the Setup/Images tab beside the other
         # experiment-level settings: at the bottom of this scrolling tab it was
         # off screen exactly when a user was fitting (FIB-978 \u00a78).
-        self._fit_panel = TitledPanel("Fit Settings", collapsible=True)
+        self._fit_panel = TitledPanel("Method", collapsible=True)
         self._fit_panel.set_content(fit_body)
 
         # Advanced / set-once panels start collapsed to keep the tab compact.
@@ -1050,6 +1064,10 @@ class _CoordinatesTab(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         outer.addWidget(scroll)
+
+    def set_projection_text(self, text: str, tooltip: str = "") -> None:
+        self._lbl_projection.setText(text)
+        self._lbl_projection.setToolTip(tooltip)
 
     def update_headers(self) -> None:
         """One count sentence per panel: \"6 placed \u00b7 2 predicted \u00b7 1 removed\"."""
@@ -2093,6 +2111,7 @@ class CorrelationTabWidget(QWidget):
         self._images_tab = _ImagesTab()
         self._images_tab.confirm_image_change = self._confirm_image_change
         self._coords_tab = _CoordinatesTab()
+        self._coords_tab.projection_link_activated.connect(self._on_projection_link)
         self._results_tab = _ResultsTab()
         self._ri_tab = _RITab()
 
@@ -2686,6 +2705,9 @@ class CorrelationTabWidget(QWidget):
         nominal, note = self._nominal_transform() if loaded else (None, "")
         can_project = loaded and nominal is not None and bool(fib)
         source = self._transform_source() if loaded else ""
+        cl.set_projection_text(
+            *(self._projection_line(nominal) if loaded else ("none", ""))
+        )
         cl.btn_project.setEnabled(can_project)
         cl.btn_accept_predictions.setEnabled(n_tentative > 0)
         if not loaded:
@@ -3232,6 +3254,7 @@ class CorrelationTabWidget(QWidget):
         # a run in flight has no live result yet; a failed run leaves it that way
         self._set_result_live(False)
         nominal, self._seed_note = self._nominal_transform()
+        self._run_nominal = nominal
         self._worker = _CorrelationWorker(copy.deepcopy(self.fit_data), nominal=nominal)
         self._worker.result_ready.connect(self._on_run_finished)
         self._worker.errored.connect(self._on_run_error)
@@ -3264,10 +3287,22 @@ class CorrelationTabWidget(QWidget):
         if self._fib_image is not None and self._fm_image is not None:
             self.data_changed.emit(self.data)
 
+    # A previous run's rotation further than this from the geometry's is not
+    # a better prior but a different answer: the one Arctis run checked was an
+    # unseeded fit 62 degrees off (its depth column a tenth of the geometry's),
+    # while the METEOR fits sit 5-6 degrees from their derived geometry.
+    MAX_PRIOR_ANGLE_DEG = 15.0
+
     def _prior_transform(self, translation=None):
-        """The fitted transform of a previous run, in this pair's units, or None."""
+        """The fitted transform of a previous run, in this pair's units, or None.
+
+        A run whose rotation disagrees with the geometry by more than
+        :attr:`MAX_PRIOR_ANGLE_DEG` is passed over (``_prior_rejected`` says
+        which and by how much, for the Method panel); the geometry is used.
+        """
         from fibsem.correlation.prior import prior_from_runs
 
+        self._prior_rejected = None
         runs = getattr(self, "_prior_runs", None)
         if not runs:
             return None
@@ -3278,13 +3313,112 @@ class CorrelationTabWidget(QWidget):
         fib_px = getattr(getattr(fib_md, "pixel_size", None), "x", None)
         if not (fm_px and fm_pz and fib_px):
             return None
-        return prior_from_runs(
+        prior = prior_from_runs(
             runs,
             fm_pixel_size=fm_px,
             fm_pixel_size_z=fm_pz,
             fib_pixel_size=fib_px,
             translation=translation,
         )
+        geometry = self._geometry_transform()[0] if prior is not None else None
+        if geometry is not None:
+            angle = geometry.angle_to(prior.transform.rotation)
+            if angle > self.MAX_PRIOR_ANGLE_DEG:
+                logging.info(
+                    f"prior from {prior.source} is {angle:.0f} deg from the geometry; "
+                    "using the geometry"
+                )
+                self._prior_rejected = (prior.source, angle)
+                return None
+        return prior
+
+    def _placement_offset(self):
+        """A previous run's placement offset, or None (see FIB-979)."""
+        from fibsem.correlation.prior import placement_offset_from_runs
+
+        runs = getattr(self, "_prior_runs", None)
+        return placement_offset_from_runs(runs) if runs else None
+
+    def _on_projection_link(self, link: str) -> None:
+        """Ignore or restore the previous run's placement offset for this lamella."""
+        self._ignore_placement_offset = link == "ignore"
+        if self._fib_image is not None and self._fm_image is not None:
+            self.data_changed.emit(self.data)
+
+    @staticmethod
+    def _run_label(source: str) -> str:
+        """``"02-pro-moose, run 2026-…"`` -> ``"02-pro-moose"``; own runs -> ``"this lamella"``."""
+        return source.split(", run ")[0]
+
+    def _projection_line(self, nominal) -> Tuple[str, str]:
+        """The Method panel's projection row: one line, and the numbers as a tooltip."""
+        if nominal is None:
+            return "none", ""
+        prior = self._prior_transform()
+        rotation = (
+            f"previous run ({self._run_label(prior.source)})"
+            if prior is not None
+            else "geometry"
+        )
+        offset = self._placement_offset()
+        ignored = getattr(self, "_ignore_placement_offset", False)
+        if offset is None:
+            placement = "placed from stage metadata"
+        elif ignored:
+            placement = (
+                "placed from stage metadata "
+                f'(<a href="use" style="color:{ACCENT_COLOR}">use the offset from '
+                f"{self._run_label(offset.source)}</a>)"
+            )
+        else:
+            age = (
+                f" ({int(offset.age_days)} days ago)" if offset.age_days >= 1.0 else ""
+            )
+            placement = (
+                f"placed from {self._run_label(offset.source)}{age} · "
+                f'<a href="ignore" style="color:{ACCENT_COLOR}">Ignore</a>'
+            )
+        lines = []
+        fm_geometry = getattr(self._fm_image.metadata, "geometry", None)
+        assumed = self._fm_transform_assumption()
+        if prior is not None:
+            lines.append(f"Rotation and scale from {prior.source}")
+        elif fm_geometry is not None:
+            lines.append(
+                f"Rotation from geometry: FM stack records camera transform "
+                f"{fm_geometry.transform.value or 'none'}, "
+                f"camera tilt {fm_geometry.camera_tilt:g}°"
+            )
+        elif assumed:
+            lines.append(f"Rotation from geometry, {assumed}")
+        rejected = getattr(self, "_prior_rejected", None)
+        if rejected is not None:
+            lines.append(
+                f"Previous run {rejected[0]} not used: its rotation is "
+                f"{rejected[1]:.0f}° from the geometry's"
+            )
+        try:
+            # angle between the FM stack's axis and the FIB view
+            tilt = float(np.degrees(np.arccos(np.clip(nominal.rotation[2, 2], -1, 1))))
+            lines.append(f"Tilt {tilt:.1f}°, {nominal.scale:.2f} FIB px per FM px")
+            # how far a burn can sit from its ring per slice of scrolling
+            along = np.linalg.solve(
+                nominal.projection[:, :2], -nominal.projection[:, 2]
+            )
+            px_per_slice = float(np.linalg.norm(along)) * nominal.z_anisotropy
+            lines.append(
+                f"{nominal.fm_pixel_size_z * 1e6:.2f} µm per slice, "
+                f"{px_per_slice:.0f} FM px per slice along the beam"
+            )
+        except Exception:  # the tooltip is informational; never block on it
+            pass
+        if offset is not None:
+            ox, oy = offset.offset_um
+            lines.append(
+                f"Placement offset ({ox:+.1f}, {oy:+.1f}) µm from {offset.source}"
+                + (", ignored for this lamella" if ignored else "")
+            )
+        return f"{rotation} · {placement}", "\n".join(lines)
 
     def _transform_source(self) -> str:
         """One clause naming where the transform prior comes from."""
@@ -3304,17 +3438,8 @@ class CorrelationTabWidget(QWidget):
             return ""
         return f"assuming camera transform {assumed.value or 'none'}"
 
-    def _nominal_transform(self):
-        """The geometry's FM->FIB transform for the loaded images, or why there is none.
-
-        Returns ``(nominal, note)``: ``note`` is empty when a seed was built and
-        otherwise says what the images did not record, for the status line. An
-        image that records no geometry gets the unseeded fit it always had rather
-        than a seed built on a guess (FIB-881) -- unless the host has assumed a
-        camera transform (:meth:`set_assumed_fm_transform`), in which case the
-        FM geometry is the FIB image's with that transform and the derived
-        camera tilt.
-        """
+    def _geometry_transform(self):
+        """The geometry's own FM->FIB transform, or ``(None, why)``; no prior, no offset."""
         from fibsem.correlation.geometry import (
             NominalTransformError,
             fm_geometry_for,
@@ -3332,17 +3457,54 @@ class CorrelationTabWidget(QWidget):
             and getattr(self._fm_image.metadata, "geometry", None) is None
         ):
             fm_geometry = fm_geometry_for(fib_geometry, assumed)
-        geometry, note = None, ""
         try:
-            geometry = nominal_transform(
-                self._fib_image, self._fm_image, fm_geometry=fm_geometry
+            return (
+                nominal_transform(
+                    self._fib_image, self._fm_image, fm_geometry=fm_geometry
+                ),
+                "",
             )
         except NominalTransformError as exc:
             logging.info(f"Correlation fit not seeded from geometry: {exc}")
-            note = str(exc)
+            return None, str(exc)
         except Exception as exc:  # a seed is an aid; never block the run on it
             logging.warning(f"Could not build the nominal correlation transform: {exc}")
-            note = "the nominal transform could not be built"
+            return None, "the nominal transform could not be built"
+
+    def _nominal_transform(self):
+        """The geometry's FM->FIB transform for the loaded images, or why there is none.
+
+        Returns ``(nominal, note)``: ``note`` is empty when a seed was built and
+        otherwise says what the images did not record, for the status line. An
+        image that records no geometry gets the unseeded fit it always had rather
+        than a seed built on a guess (FIB-881) -- unless the host has assumed a
+        camera transform (:meth:`set_assumed_fm_transform`), in which case the
+        FM geometry is the FIB image's with that transform and the derived
+        camera tilt.
+        """
+        if self._fib_image is None or self._fm_image is None:
+            return None, ""
+        geometry, note = self._geometry_transform()
+        # The stage metadata misses by microns to tens of microns; a previous
+        # run measured that miss, so the first placement adds it (FIB-979).
+        # The bare metadata translation is kept to measure this run's miss.
+        self._metadata_translation = (
+            np.asarray(geometry.translation, dtype=float)
+            if geometry is not None
+            else None
+        )
+        offset = self._placement_offset()
+        if (
+            geometry is not None
+            and offset is not None
+            and not getattr(self, "_ignore_placement_offset", False)
+            and geometry.fib_pixel_size
+        ):
+            geometry = dataclasses.replace(
+                geometry,
+                translation=self._metadata_translation
+                + offset.offset_um / (geometry.fib_pixel_size * 1e6),
+            )
         # A previous run's fitted rotation and scale beat the geometry's; its
         # translation is that run's stage offset, so the geometry's is used.
         prior = self._prior_transform(
@@ -3393,7 +3555,35 @@ class CorrelationTabWidget(QWidget):
         that no longer exist. Marking it live regardless armed Continue on a
         result whose ``matches_inputs`` was already False (FIB-321).
         """
+        result.placement_offset = self._measure_placement_offset(result)
         self._on_result_ready(result, live=result.matches_inputs(self.fit_data))
+
+    def _measure_placement_offset(self, result: CorrelationResult) -> Optional[list]:
+        """This run's placement miss: where its fiducials put FM (0, 0) in the FIB
+        image minus where the stage metadata put it, in microns (FIB-979).
+
+        Measured with the prior's rotation and scale, the way the next lamella
+        will apply it. None when the run was not seeded or has no pairs.
+        """
+        nominal = getattr(self, "_run_nominal", None)
+        metadata_t = getattr(self, "_metadata_translation", None)
+        data = result.input_data
+        if nominal is None or metadata_t is None or data is None:
+            return None
+        pairs = usable_pairs(data.fib_coordinates, data.fm_coordinates)
+        fib_px = data.fib_image_pixel_size
+        if not pairs or not fib_px:
+            return None
+        try:
+            zan = nominal.z_anisotropy
+            fib = np.array([[a.point.x, a.point.y] for a, _ in pairs])
+            fm = np.array([[b.point.x, b.point.y, b.point.z * zan] for _, b in pairs])
+            t_pairs = np.mean(fib - (nominal.projection @ fm.T).T, axis=0)
+            offset_um = (t_pairs - metadata_t) * fib_px * 1e6
+            return [float(offset_um[0]), float(offset_um[1])]
+        except Exception as exc:  # a record for the next lamella; never block
+            logging.debug(f"placement offset not measured: {exc}")
+            return None
 
     def _on_result_ready(self, result: CorrelationResult, live: bool = True) -> None:
         """Adopt a result. ``live`` is False for a result that no longer describes
