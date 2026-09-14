@@ -59,6 +59,15 @@ if TYPE_CHECKING:
 __all__ = ["QtResponder"]
 
 
+def _has_coincidence_strategy(config) -> bool:
+    from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
+
+    return any(
+        isinstance(stage.strategy, CoincidenceMillingStrategy)
+        for stage in config.enabled_stages
+    )
+
+
 class QtResponder(QObject):
     """Answers workflow requests by driving the window's widgets, on the GUI thread."""
 
@@ -603,7 +612,45 @@ class QtResponder(QObject):
         )
         # None: the widget builds the config from the editor, so the operator's
         # edits are what actually runs — as the old start_milling_signal path did.
-        self._milling_widget().milling_widget.run_milling(None)
+        milling_widget = self._milling_widget().milling_widget
+        milling_widget.run_milling(None)
+        self._monitor_coincidence_mill(request, milling_widget)
+
+    def _monitor_coincidence_mill(
+        self, request: RunMillingTask, milling_widget
+    ) -> None:
+        """A supervised coincidence mill opens the viewer attached to the run.
+
+        Only when the question is supervised (``confirm``): an unsupervised batch
+        mills with the drop as its stop and never opens a window. The viewer
+        attaches to the strategies of the config the widget is actually running,
+        so the plot, the chip and the Supervised toggle act on the live run; its
+        Stop is the widget's Stop. Nothing here can fail the mill: a viewer that
+        will not open is logged and the run carries on without it.
+        """
+        if not request.confirm():
+            return
+        running = milling_widget.running_config
+        if running is None or not _has_coincidence_strategy(running):
+            return
+        try:
+            viewer = self._coincidence_viewer()
+            if viewer is None:
+                return
+            viewer.enter_monitor_mode(
+                milling_config=running,
+                on_stop=milling_widget.stop_milling,
+                title=request.config.name,
+            )
+        except Exception:
+            logging.exception(
+                "Could not open the coincidence viewer to monitor the mill"
+            )
+
+    def _release_coincidence_monitor(self) -> None:
+        viewer = getattr(self._ui, "_coincidence_viewer_window", None)
+        if viewer is not None and viewer.in_monitor_mode:
+            viewer.exit_monitor_mode()
 
     def _on_milling_finished(self) -> None:
         """GUI thread, from finished_milling_signal — success and failure alike."""
@@ -611,6 +658,7 @@ class QtResponder(QObject):
         if active is None:
             return  # a mill the operator ran outside a question
         self._active_milling = None
+        self._release_coincidence_monitor()
         request, future = active
         if future.cancelled():
             return
@@ -653,6 +701,7 @@ class QtResponder(QObject):
         pending, self._pending_question = self._pending_question, None
         milling, self._active_milling = self._active_milling, None
         burning, self._active_spot_burn = self._active_spot_burn, None
+        self._release_coincidence_monitor()
         for pair in (pending, milling, burning):
             if pair is not None:
                 pair[1].cancel()
