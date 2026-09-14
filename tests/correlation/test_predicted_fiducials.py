@@ -447,8 +447,9 @@ def test_a_previous_runs_offset_moves_the_first_placement_and_can_be_ignored(loa
     nominal, _ = loaded._nominal_transform()
     assert np.allclose(nominal.translation, bare + np.array([3.0, -4.0]) / px_um)
     text = cl._lbl_projection.text()
-    assert "placed from 02-other (9 days ago)" in text and 'href="ignore"' in text
-    assert "(+3.0, -4.0) µm" in cl._lbl_projection.toolTip()
+    assert "calibrated placement (9 days old)" in text and 'href="ignore"' in text
+    assert "02-other" not in text  # the source run is tooltip material
+    assert "(+3.0, -4.0) µm, measured by 02-other" in cl._lbl_projection.toolTip()
     assert "FM px per slice along the beam" in cl._lbl_projection.toolTip()
 
     loaded._on_projection_link("ignore")
