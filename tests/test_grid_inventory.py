@@ -525,3 +525,30 @@ class TestSlotState:
         _with_magazine(microscope, occupied=(1,))
         states = {e.state for e in microscope._stage.grid_inventory()}
         assert states == {GridSlotState.OCCUPIED, GridSlotState.EMPTY}
+
+
+class TestGridAtPosition:
+    def test_a_calibrated_slot_matches_within_the_grid_radius(self):
+        microscope = _fixed_demo()
+        stage = microscope._stage
+        slot = stage.holder.slots["Slot-01"]
+        slot.position = FibsemStagePosition(
+            name="Slot-01", x=-4e-3, y=1e-3, z=4e-3, r=0, t=0
+        )
+        slot.loaded_grid = SampleGrid(name="grid-ash")
+        near = FibsemStagePosition(x=-3.5e-3, y=1.4e-3, z=0, r=0, t=0)
+        far = FibsemStagePosition(x=-1e-3, y=1e-3, z=0, r=0, t=0)
+        assert stage.slot_at_position(near) is slot
+        assert stage.grid_at_position(near).name == "grid-ash"
+        assert stage.grid_at_position(far) is None
+        assert stage.grid_at_position(None) is None
+
+    def test_an_uncalibrated_slot_is_never_matched(self):
+        microscope = _fixed_demo()
+        stage = microscope._stage
+        for slot in stage.holder.slots.values():
+            slot.position = None
+            slot.loaded_grid = SampleGrid(name="g")
+        assert (
+            stage.grid_at_position(FibsemStagePosition(x=0, y=0, z=0, r=0, t=0)) is None
+        )
