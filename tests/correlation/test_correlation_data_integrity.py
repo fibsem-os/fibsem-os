@@ -10,6 +10,7 @@ Each of these let wrong data reach the experiment or the disk silently:
   the previous image;
 * FIB-318 — adopting new coordinates kept (and re-saved) the previous result.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -75,8 +76,9 @@ def test_legacy_result_load_copies_the_snapshot(tmp_path):
 
     state = load_correlation_file(str(path))
     assert state.input_data is not state.result.input_data
-    assert state.input_data.fib_coordinates[0] is not (
-        state.result.input_data.fib_coordinates[0]
+    assert (
+        state.input_data.fib_coordinates[0]
+        is not (state.result.input_data.fib_coordinates[0])
     )
 
     # editing the live point must make the result stale
@@ -114,6 +116,7 @@ def test_serialisation_survives_an_image_without_metadata():
 def test_autosave_failure_is_reported_not_swallowed(qapp, tmp_path, monkeypatch):
     w = _widget()
     w.set_project_dir(str(tmp_path))
+    w.set_data(CorrelationInputData())  # a load arms the auto-save (FIB-977)
 
     def _boom(self, filename):
         raise OSError("disk on fire")
@@ -159,7 +162,9 @@ def test_changing_the_image_clears_coordinates_and_result(qapp, monkeypatch):
     from PyQt5.QtWidgets import QMessageBox
 
     w = _widget()
-    w.set_fib_image(FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6))
+    w.set_fib_image(
+        FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6)
+    )
     w.set_data(_inputs(x=1382.0))
     w._load_result(_result(w.data), adopt_inputs=False)
 
