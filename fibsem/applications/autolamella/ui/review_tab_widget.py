@@ -904,11 +904,12 @@ class ReviewTabWidget(QWidget):
                         icon, colour = "mdi:close-circle-outline", DEFECT_RED_COLOR
                     else:
                         icon, colour = "mdi:check-circle-outline", OK_COLOR
-                    outcome = (
-                        f"rejected · {d.reason}"
-                        if rejected
-                        else delta_label(proposal, d)
-                    )
+                    if rejected:
+                        outcome = f"rejected · {d.reason}"
+                    elif not d.values:
+                        outcome = "checked"  # a look, nothing written
+                    else:
+                        outcome = delta_label(proposal, d)
                     self._add_row(
                         summary=f"{item.name} · {task_name} · "
                         + ("rejected" if rejected else "confirmed")
