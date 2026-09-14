@@ -42,6 +42,7 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     PRIMARY_COLOR_PRESSED,
     PURPLE_COLOR,
     RED_COLOR,
+    REVIEW_COLOR,
     ROW_ALT_COLOR,
     SEMANTIC_ERROR_COLOR,
     SEMANTIC_ERROR_HOVER_COLOR,
