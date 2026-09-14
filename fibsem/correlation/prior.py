@@ -122,6 +122,52 @@ def prior_from_runs(
     return None
 
 
+@dataclass(frozen=True)
+class PlacementOffset:
+    """A previous run's placement offset: microns in the FIB frame, and its source."""
+
+    offset_um: np.ndarray  # (2,)
+    source: str  # the run's label
+    age_days: float  # since that run was fitted
+
+
+# A run whose fiducials disagree by more than this cannot have measured the
+# offset (two poor Arctis fits on one lamella disagreed by 18 um in y).
+MAX_RMS_UM_FOR_OFFSET = 2.0
+
+
+def placement_offset_from_runs(
+    runs: Sequence[Tuple[str, CorrelationRun]],
+    *,
+    now: Optional[float] = None,
+    max_rms_um: float = MAX_RMS_UM_FOR_OFFSET,
+) -> Optional[PlacementOffset]:
+    """The first run, in the given order, that recorded a usable placement offset.
+
+    Skips runs without one (written before FIB-979) and runs whose fit was
+    too poor to have measured it. Same order as :func:`prior_from_runs`.
+    """
+    import time
+
+    for label, run in runs:
+        result = run.state.result
+        offset = getattr(result, "placement_offset", None) if result else None
+        if not offset or len(offset) != 2:
+            continue
+        fib_px = getattr(result.input_data, "fib_image_pixel_size", None)
+        rms_um = result.rms_error * fib_px * 1e6 if fib_px else None
+        if rms_um is None or rms_um > max_rms_um:
+            logging.debug(f"placement offset from {label} skipped: rms {rms_um} um")
+            continue
+        age = max(0.0, ((now if now is not None else time.time()) - result.updated_at))
+        return PlacementOffset(
+            offset_um=np.asarray(offset, dtype=float),
+            source=label,
+            age_days=age / 86400.0,
+        )
+    return None
+
+
 def experiment_runs(
     experiment_dir: str, lamella_dir: Optional[str] = None
 ) -> List[Tuple[str, CorrelationRun]]:
