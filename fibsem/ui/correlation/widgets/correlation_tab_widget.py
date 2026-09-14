@@ -3357,20 +3357,22 @@ class CorrelationTabWidget(QWidget):
         )
         offset = self._placement_offset()
         ignored = getattr(self, "_ignore_placement_offset", False)
+        # The source run is named in the tooltip only: "placed from <lamella>"
+        # on lamella 02's own tab read as a mix-up.
         if offset is None:
             placement = "placed from stage metadata"
         elif ignored:
             placement = (
                 "placed from stage metadata "
-                f'(<a href="use" style="color:{ACCENT_COLOR}">use the offset from '
-                f"{self._run_label(offset.source)}</a>)"
+                f'(<a href="use" style="color:{ACCENT_COLOR}">use the calibrated '
+                "placement</a>)"
             )
         else:
             age = (
-                f" ({int(offset.age_days)} days ago)" if offset.age_days >= 1.0 else ""
+                f" ({int(offset.age_days)} days old)" if offset.age_days >= 1.0 else ""
             )
             placement = (
-                f"placed from {self._run_label(offset.source)}{age} · "
+                f"calibrated placement{age} · "
                 f'<a href="ignore" style="color:{ACCENT_COLOR}">Ignore</a>'
             )
         lines = []
@@ -3410,7 +3412,8 @@ class CorrelationTabWidget(QWidget):
         if offset is not None:
             ox, oy = offset.offset_um
             lines.append(
-                f"Placement offset ({ox:+.1f}, {oy:+.1f}) µm from {offset.source}"
+                f"Calibrated placement: stage metadata + ({ox:+.1f}, {oy:+.1f}) µm, "
+                f"measured by {offset.source}"
                 + (", ignored for this lamella" if ignored else "")
             )
         return f"{rotation} · {placement}", "\n".join(lines)
