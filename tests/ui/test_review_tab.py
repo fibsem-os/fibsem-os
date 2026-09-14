@@ -226,6 +226,125 @@ def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
     assert tab.list.count() == 0
 
 
+def _auto_confirm(proposal: Proposal, proposer: str = "centre-of-image") -> None:
+    proposal.decisions.append(
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author=f"auto:{proposer}",
+            values=dict(proposal.values),
+        )
+    )
+
+
+def test_a_proposal_the_producer_applied_is_to_check_not_waiting(tab, experiment):
+    """Advise mode: the producer confirmed its own proposal, the run went on,
+    and a look is owed. It is neither pending (nothing waits on it) nor
+    decided (nobody looked), so it has its own group and its own verb."""
+    lamella = experiment.positions[0]
+    _auto_confirm(lamella.proposals[SETUP])
+    tab.refresh()
+    assert tab.pending_count == 0, "nothing is stalled on this"
+    assert tab.check_count == 1
+    texts = tab.row_summaries()
+    assert texts[0] == "To check · 1" and "to check" in texts[1]
+    renderer = tab.stack.currentWidget()
+    assert isinstance(renderer, R.MillingSetupReviewRenderer)
+    assert renderer.btn_confirm.text() == "Acknowledge"
+    assert renderer.btn_confirm.isEnabled() and renderer.btn_reject.isEnabled()
+    assert renderer.position.text() == "to check 1 of 1"
+    assert renderer.waiting.text().startswith("Applied, not waiting:")
+    assert "not checked yet" in renderer.decision.text()
+    assert renderer._controller.overlay_points(BeamType.ION, "confirmed"), (
+        "what was applied is on screen"
+    )
+    tab.show_decided.setChecked(True)
+    assert "Decided" not in " ".join(tab.row_summaries()), "not decided either"
+
+
+def test_acknowledging_records_a_look_and_writes_nothing(tab, experiment, qapp):
+    lamella = experiment.positions[0]
+    proposal = lamella.proposals[SETUP]
+    _auto_confirm(proposal)
+    tab.refresh()
+    poi_before = lamella.poi
+    rough_before = (
+        lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
+    )
+    counts = []
+    tab.counts_changed.connect(lambda w, c: counts.append((w, c)))
+
+    tab.confirm_current()
+    qapp.processEvents()
+
+    assert not proposal.to_check
+    ack = proposal.current
+    assert ack.outcome is DecisionOutcome.Confirmed
+    assert ack.author.startswith("human:") and ack.values == {}
+    assert proposal.applied.author == "auto:centre-of-image", "the applied one stays"
+    assert lamella.poi == poi_before
+    assert (
+        lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
+        == rough_before
+    )
+    assert tab.check_count == 0 and counts[-1] == (0, 0)
+    assert tab.stack.currentWidget() is tab.empty
+    line = R.describe_decision(proposal, experiment)
+    assert line.startswith("Applied by auto · centre-of-image at ")
+    assert "checked by you at" in line
+    tab.show_decided.setChecked(True)
+    assert "Decided · 1" in tab.row_summaries()[0], "now it is decided"
+    from PyQt5.QtWidgets import QLabel
+
+    row = tab.list.itemWidget(tab.list.item(1))
+    labels = [w.text() for w in row.findChildren(QLabel)]
+    assert "checked" in labels, "the row says a look happened, not a delta"
+
+
+def test_after_an_acknowledgement_the_next_row_is_selected(tab, experiment, qapp):
+    """A run of acknowledgements is a run of Returns."""
+    lamella = experiment.positions[0]
+    _auto_confirm(lamella.proposals[SETUP])
+    lamella.proposals[FIDUCIAL] = Proposal(
+        kind=MILLING_SETUP,
+        values={"poi": Point(0.0, 0.0)},
+        provenance={"proposer": "centre-of-image"},
+    )
+    _auto_confirm(lamella.proposals[FIDUCIAL])
+    tab.refresh()
+    assert tab.check_count == 2
+    tab._select_entry(0)
+    tab.confirm_current()
+    qapp.processEvents()
+    assert tab.check_count == 1
+    assert tab._current_index() == 0, "the row that took its place"
+    assert tab.stack.currentWidget().task_chip.text() == FIDUCIAL
+    tab.confirm_current()
+    assert tab.check_count == 0
+
+
+def test_rejecting_a_checked_proposal_still_retires_the_lamella(
+    tab, experiment, monkeypatch
+):
+    lamella = experiment.positions[0]
+    _auto_confirm(lamella.proposals[SETUP])
+    tab.refresh()
+    from PyQt5.QtWidgets import QInputDialog
+
+    monkeypatch.setattr(
+        QInputDialog, "getText", staticmethod(lambda *a, **k: ("milled wrong", True))
+    )
+    tab.reject_current()
+    assert lamella.is_failure and lamella.quality.reason == "milled wrong"
+    assert not lamella.proposals[SETUP].to_check
+
+
+def test_go_to_lamella_hands_the_item_over(tab, experiment):
+    heard = []
+    tab.open_item_requested.connect(heard.append)
+    tab.stack.currentWidget().btn_open.click()
+    assert heard == [experiment.positions[0]]
+
+
 def test_author_labels_and_row_details():
     exp = Experiment(path=Path("/tmp/claude-501/x"), name="e", metadata={"user": "Pat"})
     assert R.author_label("human:Pat", exp) == "you"

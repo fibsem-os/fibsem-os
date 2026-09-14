@@ -479,7 +479,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_pending_reviews",
-        description="Every proposal waiting for a decision (the Review tab's inbox): which item and task, the proposed values (a point of interest in metres, milling frame), confidence and alternatives when the proposer gave any, provenance, which tasks are waiting on the decision, and the reference image the values sit on as a JPEG preview. Empty when nothing is pending.",
+        description="Every proposal waiting for a decision (the Review tab's inbox, `reviews`): which item and task, the proposed values (a point of interest in metres, milling frame), confidence and alternatives when the proposer gave any, provenance, its review mode, which tasks are waiting on the decision, and the reference image the values sit on as a JPEG preview. `to_check` lists proposals a producer applied itself (advise mode) that nobody has looked at yet: the run did not wait on them; acknowledge one with decide_review Confirmed and no values, which records the look and writes nothing. Empty lists when nothing is pending.",
         method="GET",
         path="/app/reviews",
         scope="read",

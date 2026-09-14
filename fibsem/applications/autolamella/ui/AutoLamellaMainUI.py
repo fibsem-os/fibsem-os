@@ -2606,8 +2606,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         refresh, so the tab holds no state a decision could be lost in.
         """
         self.review_tab = ReviewTabWidget()
-        self.review_tab.pending_changed.connect(self._on_reviews_pending_changed)
+        self.review_tab.counts_changed.connect(self._on_reviews_counts_changed)
         self.review_tab.decided.connect(self._on_review_decided)
+        self.review_tab.open_item_requested.connect(self._on_review_open_item)
         self.tab_widget.addTab(self.review_tab, review_tab_icon(), "Review")
         self._apply_review_visibility()
 
@@ -2620,12 +2621,37 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if workflow is not None:
             workflow.workflow.enable_review_button(enabled)
 
-    def _on_reviews_pending_changed(self, count: int) -> None:
+    def _on_reviews_counts_changed(self, waiting: int, to_check: int) -> None:
+        """The tab badge carries both counts; only ``waiting`` means the run is
+        stalled on someone, and the orange border follows the manager, not
+        this badge, so a pile of things to check never looks like a stall."""
         tab = getattr(self, "review_tab", None)
         if tab is None:
             return
         index = self.tab_widget.indexOf(tab)
-        self.tab_widget.setTabText(index, f"Review ({count})" if count else "Review")
+        parts = []
+        if waiting:
+            parts.append(str(waiting))
+        if to_check:
+            parts.append(f"{to_check} to check")
+        self.tab_widget.setTabText(
+            index, f"Review ({' · '.join(parts)})" if parts else "Review"
+        )
+        self.tab_widget.setTabToolTip(
+            index,
+            f"{waiting} waiting for a decision, {to_check} applied and not yet checked",
+        )
+
+    def _on_review_open_item(self, item) -> None:
+        """Go to lamella: select it where it is edited. Editing is not a
+        review action, so the Review tab hands over rather than growing one."""
+        container = getattr(self, "_lamella_tab_container", None)
+        cards = getattr(self, "lamella_card_container", None)
+        if container is None or cards is None or item is None:
+            return
+        self.tab_widget.setCurrentWidget(container)
+        cards.select_lamella(item.name)
+        self._on_lamella_card_selected(item)
 
     def _on_review_decided(self, _item_id: str, _task_name: str) -> None:
         # The decision wrote through to the lamella (its point, its patterns,

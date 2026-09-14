@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem.applications.autolamella.proposals import (  # noqa: E402
     MILLING_SETUP,
+    Decision,
     DecisionOutcome,
     Proposal,
 )
@@ -163,6 +164,43 @@ def test_reviews_lists_the_pending_proposal_with_its_image(ui):
     assert review["waiting_on"] == [ROUGH]
     assert review["reference_image"]["width"] > 0
     assert review["reference_image"]["image_b64_jpeg"]
+
+
+def test_to_check_is_listed_and_an_agent_acknowledges_with_no_values(ui, qapp):
+    lamella = ui.experiment.positions[0]
+    proposal = lamella.proposals[SETUP]
+    proposal.decisions.append(
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="auto:centre-of-image",
+            values=dict(proposal.values),
+        )
+    )
+    with _client(ui) as client:
+        doc = client.get("/app/reviews", headers=AUTH).json()
+        assert doc["reviews"] == [], "nothing waits on it"
+        (check,) = doc["to_check"]
+        assert check["item_id"] == lamella.id and check["task_name"] == SETUP
+        assert check["decisions"][-1]["author"] == "auto:centre-of-image"
+
+        resp = _post_on_worker(
+            qapp,
+            client,
+            "/app/decide",
+            {
+                "item_id": lamella.id,
+                "task_name": SETUP,
+                "outcome": "Confirmed",
+                "author": "test-model",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["synced_tasks"] == [], "an acknowledgement writes nothing"
+        assert client.get("/app/reviews", headers=AUTH).json()["to_check"] == []
+    assert not proposal.to_check
+    assert (
+        proposal.current.author == "agent:test-model" and proposal.current.values == {}
+    )
 
 
 def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
