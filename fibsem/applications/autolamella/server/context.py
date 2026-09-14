@@ -852,8 +852,8 @@ class AgentContext:
         )
 
         protocol = getattr(experiment, "task_protocol", None)
-        reviews = []
-        for item, task_name, proposal in experiment.pending_proposals():
+
+        def describe(item, task_name, proposal):
             doc = to_plain(proposal.to_dict())
             doc.update(
                 {
@@ -871,8 +871,13 @@ class AgentContext:
             doc["reference_image"] = (
                 _preview_payload(image) if image is not None else None
             )
-            reviews.append(doc)
-        return {"available": True, "reviews": reviews}
+            return doc
+
+        reviews = [describe(*entry) for entry in experiment.pending_proposals()]
+        # Applied by the producer (advise mode), nobody has looked: an agent
+        # acknowledges one with Confirmed and no values, which writes nothing.
+        to_check = [describe(*entry) for entry in experiment.proposals_to_check()]
+        return {"available": True, "reviews": reviews, "to_check": to_check}
 
     def decide(
         self,

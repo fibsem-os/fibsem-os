@@ -300,6 +300,24 @@ class Proposal:
         kind = PROPOSAL_KINDS.get(self.kind)
         return kind.gating if kind is not None else True
 
+    @property
+    def to_check(self) -> bool:
+        """Applied by its own producer (advise mode) and not looked at since:
+        every decision so far is an ``auto:`` one. A person's acknowledgement
+        -- or their reject -- is a later decision, which clears it."""
+        return bool(self.decisions) and all(
+            d.author.startswith("auto:") for d in self.decisions
+        )
+
+    @property
+    def applied(self) -> Optional[Decision]:
+        """The decision whose values were written through: the latest
+        Confirmed one that carried values. An acknowledgement carries none."""
+        for d in reversed(self.decisions):
+            if d.outcome is DecisionOutcome.Confirmed and d.values:
+                return d
+        return None
+
     def delta(self, decision: Optional[Decision] = None) -> Dict[str, Any]:
         """confirmed - proposed per value, for the given (default: current)
         decision. Empty when there is no confirmed decision."""
