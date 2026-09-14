@@ -15,7 +15,6 @@ import pytest
 
 from fibsem.correlation.geometry import NominalTransform
 from fibsem.correlation.prediction import (
-    MIN_PAIRS_FOR_ROTATION_REFIT,
     build_projection,
     independent_pairs,
     place_predictions,
@@ -111,7 +110,7 @@ def test_with_no_pairs_the_map_is_the_geometry_and_predictions_are_rigid(nominal
     fib = _fib(ARCTIS)
     fm = predictions_for(fib, [], z_slice=5.0)
     proj = build_projection(nominal, fib, fm, z_slice=5.0)
-    assert proj.n_pairs == 0 and not proj.rotation_refit
+    assert proj.n_pairs == 0
     assert np.allclose(proj.matrix, nominal.projection)
     moved = place_predictions(proj, fib, fm)
     assert len(moved) == len(fm)
@@ -158,7 +157,7 @@ def test_one_confirmed_pair_moves_the_rest_by_its_offset_and_leaves_it_alone(nom
     fm[i].status = PointStatus.PLACED
     fm[i].provenance = PointProvenance.USER
     proj = build_projection(nominal, fib, fm, z_slice=5.0)
-    assert proj.n_pairs == 1 and not proj.rotation_refit
+    assert proj.n_pairs == 1
     assert "translation from 1 pair" == proj.note
     moved = place_predictions(proj, fib, fm)
     assert fm[i] not in moved
@@ -191,43 +190,27 @@ def test_accepted_predictions_do_not_refine_the_map(nominal):
     assert np.allclose(proj.translation, nominal.translation)
 
 
-def test_enough_user_pairs_refit_the_rotation_from_the_seed(nominal):
+def test_many_pairs_still_move_only_the_translation(nominal):
+    """Even with more pairs than a rotation has degrees of freedom the
+    re-projection keeps the prior's rotation: five burns on one surface
+    refitted it 18 degrees off on a METEOR lamella and tripled the ring
+    error on an Arctis one. The final fit owns the rotation."""
     fib = _fib(ARCTIS)
     fm = predictions_for(fib, [], z_slice=5.0)
     place_predictions(build_projection(nominal, fib, fm, z_slice=5.0), fib, fm)
-    # the user confirms the predictions after a small rigid shift
-    n = MIN_PAIRS_FOR_ROTATION_REFIT
-    for c in fm[:n]:
+    for c in fm[:6]:
         c.point.x += 3.0
         c.point.y -= 2.0
         c.status = PointStatus.PLACED
         c.provenance = PointProvenance.USER
     proj = build_projection(nominal, fib, fm, z_slice=5.0)
-    assert proj.n_pairs == n and proj.rotation_refit
-    assert "rotation refitted" in proj.note
-    # a rigid shift of the inputs is a translation: the rotation the refit
-    # finds is the geometry's, within the solver's tolerance
-    assert nominal.angle_to(_complete(proj.matrix / nominal.scale)) < 1.0
-
-
-def _complete(rows):
-    from fibsem.correlation.geometry import _complete_rotation
-
-    return _complete_rotation(rows)
-
-
-def test_a_fitted_prior_is_not_refitted_from_a_few_pairs(nominal):
-    fib = _fib(ARCTIS)
-    fm = predictions_for(fib, [], z_slice=5.0)
-    place_predictions(build_projection(nominal, fib, fm, z_slice=5.0), fib, fm)
-    for c in fm[:MIN_PAIRS_FOR_ROTATION_REFIT]:
-        c.point.x += 3.0
-        c.status = PointStatus.PLACED
-        c.provenance = PointProvenance.USER
-    proj = build_projection(nominal, fib, fm, z_slice=5.0, refit_rotation=False)
-    assert proj.n_pairs == MIN_PAIRS_FOR_ROTATION_REFIT and not proj.rotation_refit
+    assert proj.n_pairs == 6
     assert np.allclose(proj.matrix, nominal.projection)
-    assert proj.note.startswith("translation from")
+    assert proj.note == "translation from 6 pairs"
+    # the FM points moved, so the FIB-side translation moves by minus the
+    # shift put through the prior's in-plane map
+    shift = nominal.projection[:, :2] @ [3.0, -2.0]
+    assert np.allclose(proj.translation, nominal.translation - shift)
 
 
 def test_legacy_status_strings_read_back_into_the_vocabulary():
