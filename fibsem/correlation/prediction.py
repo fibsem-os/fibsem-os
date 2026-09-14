@@ -41,7 +41,6 @@ from fibsem.correlation.structures import (
 )
 
 __all__ = [
-    "MIN_PAIRS_FOR_ROTATION_REFIT",
     "Projection",
     "build_projection",
     "excluded_indices",
@@ -51,12 +50,6 @@ __all__ = [
     "suggest_indices",
     "usable_pairs",
 ]
-
-# Below this many independent pairs the re-projection moves the translation
-# only and keeps the geometry's rotation: a rotation fitted to fewer points
-# than it has degrees of freedom is the noise of those points, not a
-# correction to the prior.
-MIN_PAIRS_FOR_ROTATION_REFIT = 5
 
 
 @dataclass(frozen=True)
@@ -73,7 +66,6 @@ class Projection:
     z_iso: float
     z_anisotropy: float
     n_pairs: int
-    rotation_refit: bool
     centred: bool
     note: str
 
@@ -174,19 +166,17 @@ def build_projection(
     *,
     z_slice: float,
     fm_shape: Optional[Tuple[int, int]] = None,
-    refit_rotation: bool = True,
 ) -> Projection:
     """The FM->FIB map from the prior and whatever pairs are confirmed.
 
-    Rotation and scale are the prior's; the translation is the mean offset
-    of the independent pairs when there are any, else the stage metadata's.
-    From :data:`MIN_PAIRS_FOR_ROTATION_REFIT` pairs the rotation is refitted
-    (seeded from the prior) as well -- unless ``refit_rotation`` is False,
-    which a caller passes when the prior is itself a fitted transform from a
-    previous run: a handful of coplanar burns cannot pin a rotation better
-    than a full earlier fit did (measured: five pairs refitted the rotation
-    18 degrees off and quadrupled the residual), so the rotation is left to
-    the final fit. With no pairs at all, a stage
+    Rotation and scale are always the prior's; the translation is the mean
+    offset of the independent pairs when there are any, else the stage
+    metadata's. The rotation is never refitted here: a handful of burns on
+    one surface cannot pin it better than the geometry or an earlier full
+    fit did (measured: five pairs refitted the rotation 18 degrees off and
+    quadrupled the residual on a METEOR lamella, and tripled the ring error
+    on an Arctis one), so the rotation is left to the final fit. With no
+    pairs at all, a stage
     translation that lands the FIB points off the FM image -- an odemis-written
     stack records its position in odemis's own frame -- is replaced by centring
     the FIB points on the FM image, so the first predictions are at least on
@@ -207,20 +197,6 @@ def build_projection(
         else float(z_slice) * zan
     )
     P = nominal.projection
-    refit = False
-    if refit_rotation and len(pairs) >= MIN_PAIRS_FOR_ROTATION_REFIT:
-        from fibsem.correlation.correlation_v2 import _fit_from_seed
-
-        fm_iso = np.array([[b.point.x, b.point.y, b.point.z * zan] for _, b in pairs])
-        fib_xy = np.array([[a.point.x, a.point.y, 0.0] for a, _ in pairs])
-        try:
-            R, s, _rms = _fit_from_seed(
-                fm_iso, fib_xy, nominal.eulers_deg(), nominal.scale
-            )
-            P = s * R[:2, :]
-            refit = True
-        except Exception as exc:  # keep the geometry's rather than fail
-            logging.debug(f"seeded refit for re-projection failed: {exc}")
 
     centred = False
     if pairs:
@@ -232,11 +208,7 @@ def build_projection(
             ],
             axis=0,
         )
-        note = (
-            f"rotation refitted from {len(pairs)} pairs"
-            if refit
-            else f"translation from {len(pairs)} pair{'s' if len(pairs) != 1 else ''}"
-        )
+        note = f"translation from {len(pairs)} pair{'s' if len(pairs) != 1 else ''}"
     else:
         t = np.asarray(nominal.translation, dtype=float)
         note = "placed from the stage metadata"
@@ -257,7 +229,6 @@ def build_projection(
         z_iso=z_iso,
         z_anisotropy=zan,
         n_pairs=len(pairs),
-        rotation_refit=refit,
         centred=centred,
         note=note,
     )

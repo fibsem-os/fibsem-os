@@ -78,7 +78,6 @@ from fibsem.constants import DATETIME_FILE
 from fibsem.correlation.config import CorrelationConfig, FitSettings, RISettings
 from fibsem.correlation.correlation_v2 import run_correlation_from_data
 from fibsem.correlation.prediction import (
-    MIN_PAIRS_FOR_ROTATION_REFIT,
     Projection,
     build_projection,
     excluded_indices,
@@ -2606,9 +2605,6 @@ class CorrelationTabWidget(QWidget):
                 fm,
                 z_slice=float(self._fm_display.current_z),
                 fm_shape=tuple(self._fm_image.data.shape[-2:]),
-                # a previous run's rotation beats one refitted from a few
-                # coplanar burns; only the geometry's is worth refitting
-                refit_rotation=self._prior_transform() is None,
             )
             moved = place_predictions(projection, fib, fm)
         except np.linalg.LinAlgError as exc:
@@ -2677,24 +2673,17 @@ class CorrelationTabWidget(QWidget):
                     "burn can sit a little off its ring along the depth direction. "
                     "Predictions never enter the fit."
                 )
-            elif self._prior_transform() is not None:
-                hint = (
-                    f"{n_tentative} predicted, {n_pairs} placed. Project again to "
-                    f"move the predictions by the translation from your "
-                    f"{n_pairs} pair{'s' if n_pairs != 1 else ''}; the rotation is "
-                    "the previous run's until the correlation is run."
-                )
-            elif n_pairs < MIN_PAIRS_FOR_ROTATION_REFIT:
-                hint = (
-                    f"{n_tentative} predicted, {n_pairs} placed. Project again to "
-                    f"move the predictions by the translation from your "
-                    f"{n_pairs} pair{'s' if n_pairs != 1 else ''}; the rotation is "
-                    f"refitted from {MIN_PAIRS_FOR_ROTATION_REFIT}."
-                )
             else:
+                source = (
+                    "the previous run's"
+                    if self._prior_transform() is not None
+                    else "the geometry's"
+                )
                 hint = (
                     f"{n_tentative} predicted, {n_pairs} placed. Project again to "
-                    f"refit the rotation and translation from your {n_pairs} pairs."
+                    f"move the predictions by the translation from your "
+                    f"{n_pairs} pair{'s' if n_pairs != 1 else ''}; the rotation is "
+                    f"{source} until the correlation is run."
                 )
         else:
             hint = (
