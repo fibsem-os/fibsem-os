@@ -125,10 +125,48 @@ def test_development_protocol_loads_both_tasks():
     config = protocol.task_config["Coincidence Milling"]
     assert isinstance(config, MillCoincidentTaskConfig)
     assert config.setup_task == SETUP_NAME
+    assert config.monitoring_channel.name == "Monitoring"
+    assert config.monitoring_channel.exposure_time == 0.1
     assert isinstance(
         config.milling[MILL_COINCIDENT_KEY].stages[0].strategy,
         CoincidenceMillingStrategy,
     )
+
+
+def test_monitoring_channel_roundtrips_and_is_not_a_parameter():
+    from fibsem.fm.structures import ChannelSettings
+
+    config = MillCoincidentTaskConfig(
+        task_name="Coincidence Milling",
+        monitoring_channel=ChannelSettings(
+            name="Green", excitation_wavelength=488, power=0.05, exposure_time=0.05
+        ),
+    )
+    data = yaml.safe_load(yaml.safe_dump(config.to_dict()))
+    assert "monitoring_channel" not in data["parameters"]
+    loaded = MillCoincidentTaskConfig.from_dict(data)
+    assert loaded.monitoring_channel.name == "Green"
+    assert loaded.monitoring_channel.excitation_wavelength == 488
+    assert loaded.monitoring_channel.exposure_time == pytest.approx(0.05)
+
+
+def test_the_mill_sets_the_monitoring_channel_on_the_fm(microscope, tmp_path):
+    from fibsem.fm.structures import ChannelSettings
+
+    lamella = _lamella(microscope, tmp_path)
+    _run_setup(microscope, lamella)
+    task = _mill_task(microscope, lamella, timeout=3)
+    task.config.monitoring_channel = ChannelSettings(
+        name="Green", excitation_wavelength=488, power=0.05, exposure_time=0.05
+    )
+    # the final z-stack would set the fluorescence task's channels afterwards;
+    # skip it so the channel left on the FM is the one the mill monitored on
+    task.config.acquire_fluorescence_images = False
+
+    task.run()
+
+    assert microscope.fm.channel_name == "Green"
+    assert microscope.fm.filter_set.excitation_wavelength == 488
 
 
 def test_fails_before_moving_without_a_setup_record(microscope, tmp_path):

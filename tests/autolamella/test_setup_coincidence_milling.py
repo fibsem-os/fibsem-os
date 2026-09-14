@@ -86,7 +86,6 @@ def test_registered_as_a_builtin_task():
 def test_config_roundtrip_keeps_the_per_site_record():
     config = SetupCoincidenceMillingTaskConfig(
         task_name="Setup Coincidence Milling",
-        channel_name="Red Channel",
         intensity_drop_fraction=0.3,
         objective_position=2.418e-3,
         fm_roi=FibsemRectangle(0.44, 0.38, 0.16, 0.24),
@@ -130,7 +129,7 @@ def test_development_protocol_loads_the_task():
     protocol = AutoLamellaTaskProtocol.load(path)
     config = protocol.task_config["Setup Coincidence Milling"]
     assert isinstance(config, SetupCoincidenceMillingTaskConfig)
-    assert config.channel_name == "Red Channel"
+    assert config.field_of_view == 80.0e-6
 
 
 # ---------------------------------------------------------------------------

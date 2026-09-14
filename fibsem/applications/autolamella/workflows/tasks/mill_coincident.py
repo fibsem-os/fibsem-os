@@ -92,8 +92,51 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
             "lamella's fluorescence task settings",
         ),
     )
+    # The channel the strategy monitors while milling. Its own settings, not a
+    # name looked up in the fluorescence task: monitoring wants a short exposure
+    # at low power for many minutes of continuous frames, where a z-stack wants a
+    # long exposure at full power once. Protocol-level, shared by every site; the
+    # setup step tunes it against the live frame.
+    monitoring_channel: ChannelSettings = field(
+        default_factory=lambda: ChannelSettings(
+            name="Monitoring",
+            excitation_wavelength=550,
+            emission_wavelength="Fluorescence",
+            power=0.1,
+            exposure_time=0.1,
+        ),
+        metadata=field_meta(hidden=True),  # its own controls, not a form row
+    )
     task_type: ClassVar[str] = "MILL_COINCIDENT"
     display_name: ClassVar[str] = "Coincident Milling"
+
+    @property
+    def parameters(self) -> tuple[str, ...]:
+        # serialised under its own key below, as the fluorescence task does
+        return tuple(p for p in super().parameters if p != "monitoring_channel")
+
+    def to_dict(self) -> dict:
+        ddict = super().to_dict()
+        ddict["monitoring_channel"] = self.monitoring_channel.to_dict()
+        return ddict
+
+    @classmethod
+    def from_dict(cls, ddict: dict) -> "MillCoincidentTaskConfig":
+        cfg = AutoLamellaTaskConfig.from_dict(ddict)
+        params = ddict.get("parameters", {}) or {}
+        channel = ddict.get("monitoring_channel")
+        kwargs = dict(
+            task_name=cfg.task_name,
+            milling=cfg.milling,
+            reference_imaging=cfg.reference_imaging,
+            setup_task=str(params.get("setup_task", DEFAULT_SETUP_TASK_NAME)),
+            acquire_fluorescence_images=bool(
+                params.get("acquire_fluorescence_images", True)
+            ),
+        )
+        if channel is not None:
+            kwargs["monitoring_channel"] = ChannelSettings.from_dict(channel)
+        return cls(**kwargs)
 
     @property
     def opens_with_reference_alignment(self) -> bool:
@@ -246,10 +289,9 @@ class MillCoincidentTask(AutoLamellaTask):
 
         # the channel the strategy monitors is whatever the FM is set to when the
         # mill starts, so set it now
-        channel = self._find_channel(setup.channel_name)
-        if channel is not None:
-            self.set_fluorescence_channels_ui([channel])
-            self.microscope.fm.set_channel(channel)
+        channel = deepcopy(self.config.monitoring_channel)
+        self.set_fluorescence_channels_ui([channel])
+        self.microscope.fm.set_channel(channel)
         return milling_task_config
 
     def _record_end_reason(self, milling_task_config: FibsemMillingTaskConfig) -> None:
@@ -269,23 +311,6 @@ class MillCoincidentTask(AutoLamellaTask):
         for task_config in self.lamella.task_config.values():
             if isinstance(task_config, AcquireFluorescenceImageConfig):
                 return task_config
-        return None
-
-    def _find_channel(self, name: str) -> Optional[ChannelSettings]:
-        fm_config = self._fluorescence_config()
-        if fm_config is None:
-            logging.warning(
-                f"{self.task_name}: {self.lamella.name} has no fluorescence task; "
-                f"cannot look up channel '{name}'. Milling on the current channel."
-            )
-            return None
-        for channel in fm_config.channel_settings:
-            if channel.name == name:
-                return deepcopy(channel)
-        logging.warning(
-            f"{self.task_name}: channel '{name}' is not in the fluorescence task for "
-            f"{self.lamella.name}. Milling on the current channel."
-        )
         return None
 
     def _acquire_final_fluorescence_image(self) -> None:
