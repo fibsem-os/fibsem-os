@@ -106,6 +106,27 @@ class FitDiagnostics:
         """The headline: how well the fiducials agree (RMS or the target's spread)."""
         return max(self.rms_um, self.poi_jackknife_um or 0.0)
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "FitDiagnostics":
+        return cls(
+            rms_um=float(d["rms_um"]),
+            pairs=[
+                PairDiagnostic(
+                    int(p["index"]), float(p["residual_um"]), float(p["loo_error_um"])
+                )
+                for p in d.get("pairs", [])
+            ],
+            mirror_ratio=float(d["mirror_ratio"]),
+            depth_span_um=float(d["depth_span_um"]),
+            scale_ratio=float(d["scale_ratio"]),
+            n_pairs=int(d["n_pairs"]),
+            n_accepted=int(d.get("n_accepted", 0)),
+            poi_jackknife_um=d.get("poi_jackknife_um"),
+            poi_hull_distance_um=d.get("poi_hull_distance_um"),
+            worst=d.get("worst"),
+            suggested_z=d.get("suggested_z"),
+        )
+
     def to_dict(self) -> dict:
         return {
             "rms_um": self.rms_um,
@@ -364,10 +385,14 @@ def verdict(d: FitDiagnostics, rejected: Sequence[int] = ()) -> Verdict:
     if d.worst is not None:
         worst = d.pairs[d.worst]
         if worst.loo_error_um > LOO_BAD_UM:
-            removed = " and was removed" if d.worst in rejected else ""
+            tail = (
+                " and was removed."
+                if d.worst in rejected
+                else ". Remove it and run again."
+            )
             bad.append(
                 Reason(
-                    f"{_fm(d.worst)} is {worst.loo_error_um:.0f} µm off{removed}.",
+                    f"{_fm(d.worst)} is {worst.loo_error_um:.0f} µm off{tail}",
                     pair=d.worst,
                 )
             )

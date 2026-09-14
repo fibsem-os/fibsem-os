@@ -404,3 +404,109 @@ def test_fit_settings_live_on_the_setup_tab_and_the_coordinates_tab_says_so(
     assert panel.parent() is not None
     assert loaded._images_tab.isAncestorOf(panel)
     assert not loaded._coords_tab.isAncestorOf(panel)
+
+
+def _fake_seeded_result(loaded, diag: dict):
+    from fibsem.correlation.structures import (
+        CorrelationPointOfInterest,
+        CorrelationResult,
+    )
+
+    return CorrelationResult(
+        poi=[CorrelationPointOfInterest()],
+        rms_error=1.0,
+        input_data=loaded.fit_data,
+        seed={"eulers_deg": [0, 0, 0]},
+        branch_check={"selected": "nominal", "angle_to_nominal_deg": 0.4},
+        diagnostics=diag,
+    )
+
+
+def _diag(loo, worst=None, mirror=2.0, hull=0.0, jackknife=0.1, suggested_z=None):
+    return {
+        "rms_um": 0.3,
+        "pairs": [
+            {"index": i, "residual_um": v * 0.6, "loo_error_um": v}
+            for i, v in enumerate(loo)
+        ],
+        "mirror_ratio": mirror,
+        "depth_span_um": 3.0,
+        "scale_ratio": 1.0,
+        "n_pairs": len(loo),
+        "n_accepted": 0,
+        "poi_jackknife_um": jackknife,
+        "poi_hull_distance_um": hull,
+        "worst": worst,
+        "suggested_z": suggested_z,
+    }
+
+
+def test_a_seeded_run_shows_the_verdict_and_annotates_the_rows(loaded):
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    for c in _fm(loaded):
+        c.point.x += 1.0
+        loaded._on_canvas_moved(c)
+    loaded._coords_tab.poi_list.coordinates = [
+        Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
+    ]
+    loaded.data_changed.emit(loaded.data)
+    loo = [0.2, 0.3, 0.25, 0.2, 0.3, 0.2, 1.4]
+    loaded._on_run_finished(
+        _fake_seeded_result(loaded, _diag(loo, worst=6, suggested_z=5.0))
+    )
+    status = loaded._lbl_status.text()
+    assert "Check FM 7." in status
+    assert "1.4 µm off" in status and "slice 5" in status
+    assert 'href="pair:6"' in status
+    assert loaded._lbl_result.isHidden()  # the badge gave way to the line
+    assert loaded._btn_continue.isEnabled()  # check, not poor
+    # every FM row carries its leave-one-out error; the flagged one is amber
+    from fibsem.ui.correlation.widgets.coordinate_list_widget import (
+        CoordinateRowWidget,
+    )
+
+    lw = loaded._coords_tab.fm_list
+    rows = [
+        lw._list.itemWidget(lw._list.item(i))
+        for i in range(lw._list.count())
+        if isinstance(lw._list.itemWidget(lw._list.item(i)), CoordinateRowWidget)
+    ]
+    assert [r.state_label.text() for r in rows] == [f"{v:.1f} µm" for v in loo]
+    assert "e0a030" in rows[6].state_label.styleSheet()  # WARN_COLOR
+    # the link selects the pair
+    loaded._on_status_link("pair:6")
+    assert lw.selected_coordinate is _fm(loaded)[6]
+    # the Results tab speaks the same language
+    assert loaded._results_tab._lbl_worst.text().startswith("FM 7, 1.40 µm off")
+    assert "determined by the fiducials" in loaded._results_tab._lbl_depth.text()
+    assert loaded._results_tab._table.horizontalHeaderItem(2).text() == (
+        "Left-out error (µm)"
+    )
+    # an edit clears the notes: they describe a run that no longer matches
+    _fm(loaded)[0].point.x += 1.0
+    loaded._on_canvas_moved(_fm(loaded)[0])
+    assert rows[1].state_label.text() == ""
+
+
+def test_a_poor_verdict_disables_continue(loaded):
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    for c in _fm(loaded):
+        c.point.x += 1.0
+        loaded._on_canvas_moved(c)
+    loaded._coords_tab.poi_list.coordinates = [
+        Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
+    ]
+    loaded.data_changed.emit(loaded.data)
+    loaded._on_run_finished(
+        _fake_seeded_result(
+            loaded, _diag([6.0, 3.0, 2.5, 8.0, 5.0, 15.0, 4.0], worst=5, mirror=1.1)
+        )
+    )
+    status = loaded._lbl_status.text()
+    assert "Poor fit. Do not continue." in status
+    assert "cannot say which way is deeper" in status
+    assert "Remove it and run again" in status
+    assert not loaded._btn_continue.isEnabled()
+    assert "ambiguous" in loaded._results_tab._lbl_depth.text()

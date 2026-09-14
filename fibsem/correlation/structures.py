@@ -439,6 +439,9 @@ class CorrelationResult:
     fm_z_scale: float = 1.0
     seed: Optional[dict] = None
     branch_check: Optional[dict] = None
+    # The fit verdict's evidence (FIB-956): fibsem.correlation.verdict
+    # FitDiagnostics.to_dict(), computed after the fit when it was seeded.
+    diagnostics: Optional[dict] = None
 
     @property
     def dimage_dz_px_per_slice(self) -> Optional[list]:
@@ -480,6 +483,7 @@ class CorrelationResult:
             "updated_at": self.updated_at,
             "fm_z_scale": self.fm_z_scale,
             "seed": self.seed,
+            "diagnostics": self.diagnostics,
             "branch_check": self.branch_check,
         }
 
@@ -526,6 +530,7 @@ class CorrelationResult:
             fm_z_scale=data.get("fm_z_scale", 1.0),
             seed=data.get("seed"),
             branch_check=data.get("branch_check"),
+            diagnostics=data.get("diagnostics"),
         )
 
     def apply_refractive_index_correction(

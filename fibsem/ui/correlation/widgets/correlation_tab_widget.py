@@ -120,15 +120,19 @@ from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveInde
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
 from fibsem.ui.tokens import (
+    ACCENT_COLOR,
     BODY_MUTED_STYLE,
     BODY_STYLE,
     CANVAS_BG,
     CAPTION_STYLE,
     CAPTION_VALUE_STYLE,
     CONTROL_STYLE,
+    ERROR_COLOR,
+    OK_COLOR,
     SURFACE_COLOR,
     TABLE_STYLE,
     TEXT_MUTED_COLOR,
+    WARN_COLOR,
     state_color,
     state_style,
 )
@@ -325,9 +329,41 @@ class _CorrelationWorker(QThread):
     def run(self) -> None:
         try:
             result = run_correlation_from_data(self._data, nominal=self._nominal)
+            result.diagnostics = _diagnostics_for(self._data, self._nominal)
             self.result_ready.emit(result)
         except Exception as exc:
             self.errored.emit(str(exc))
+
+
+def _diagnostics_for(data: CorrelationInputData, nominal) -> Optional[dict]:
+    """The fit verdict's evidence for a seeded fit, or None when it cannot be
+    computed (no seed, too few pairs, no pixel sizes). Never raises: the
+    verdict is an aid, the result is the product."""
+    if nominal is None or len(data.fib_coordinates) < 4:
+        return None
+    try:
+        from fibsem.correlation.verdict import diagnose
+
+        fm_md = getattr(data.fm_image, "metadata", None)
+        fib_px = data.fib_image_pixel_size
+        fm_px = getattr(fm_md, "pixel_size_x", None)
+        fm_pz = getattr(fm_md, "pixel_size_z", None)
+        if not (fib_px and fm_px and fm_pz):
+            return None
+        poi = data.poi_coordinates[0].point if data.poi_coordinates else None
+        return diagnose(
+            [[c.point.x, c.point.y] for c in data.fib_coordinates],
+            [[c.point.x, c.point.y, c.point.z] for c in data.fm_coordinates],
+            nominal,
+            fib_pixel_size=fib_px,
+            fm_pixel_size=fm_px,
+            fm_pixel_size_z=fm_pz,
+            poi=[poi.x, poi.y, poi.z] if poi is not None else None,
+            accepted=[c.status == PointStatus.ACCEPTED for c in data.fm_coordinates],
+        ).to_dict()
+    except Exception as exc:
+        logging.warning(f"Fit diagnostics not computed: {exc}")
+        return None
 
 
 class _ProgressRelay(QObject):
@@ -1088,22 +1124,30 @@ class _ResultsTab(QWidget):
         summary_form = QFormLayout(summary_body)
         summary_form.setContentsMargins(8, 4, 8, 4)
         summary_form.setSpacing(4)
+        # The verdict's numbers (FIB-956), in the user's units. Euler angles
+        # and a raw translation said nothing to anyone (FIB-978).
+        self._lbl_agree = self._val("—")
+        self._lbl_worst = self._val("—")
+        self._lbl_depth = self._val("—")
+        self._lbl_span = self._val("—")
         self._lbl_scale = self._val("—")
-        self._lbl_rms = self._val("—")
-        self._lbl_mae = self._val("—")
-        self._lbl_rotation = self._val("—")
-        self._lbl_trans = self._val("—")
-        summary_form.addRow(_form_label("Scale:"), self._lbl_scale)
-        summary_form.addRow(_form_label("RMS Error:"), self._lbl_rms)
-        summary_form.addRow(_form_label("Mean Abs Error:"), self._lbl_mae)
-        summary_form.addRow(_form_label("Rotation:"), self._lbl_rotation)
-        summary_form.addRow(_form_label("Translation:"), self._lbl_trans)
+        self._lbl_seed = self._val("—")
+        self._lbl_pairs = self._val("—")
+        summary_form.addRow(_form_label("Fiducials agree within:"), self._lbl_agree)
+        summary_form.addRow(_form_label("Worst fiducial:"), self._lbl_worst)
+        summary_form.addRow(_form_label("Depth direction:"), self._lbl_depth)
+        summary_form.addRow(_form_label("Fiducial depth span:"), self._lbl_span)
+        summary_form.addRow(_form_label("Scale vs pixel sizes:"), self._lbl_scale)
+        summary_form.addRow(_form_label("Seeded from:"), self._lbl_seed)
+        summary_form.addRow(_form_label("Pairs:"), self._lbl_pairs)
         layout.addWidget(TitledPanel("Summary", content=summary_body))
 
         # Per-marker error table
         self._table = QTableWidget(0, 3)
         self._table.setStyleSheet(TABLE_STYLE)
-        self._table.setHorizontalHeaderLabels(["Marker", "dx (px)", "dy (px)"])
+        self._table.setHorizontalHeaderLabels(
+            ["Fiducial", "Error (µm)", "Left-out error (µm)"]
+        )
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
@@ -1111,7 +1155,7 @@ class _ResultsTab(QWidget):
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self._table.setMinimumHeight(120)
-        layout.addWidget(TitledPanel("Per-Marker Error", content=self._table))
+        layout.addWidget(TitledPanel("Per-Fiducial Error", content=self._table))
         layout.addStretch(1)
 
     @staticmethod
@@ -1120,45 +1164,94 @@ class _ResultsTab(QWidget):
         lbl.setStyleSheet(BODY_STYLE)
         return lbl
 
-    def set_result(self, result: CorrelationResult) -> None:
-        self._lbl_scale.setText(f"{result.scale:.4f}")
-        self._lbl_rms.setText(f"{result.rms_error:.2f} px")
+    def set_result(
+        self, result: CorrelationResult, fib_pixel_size_m: Optional[float] = None
+    ) -> None:
+        """Fill from the verdict's diagnostics when the run had them; otherwise
+        from the fit alone, in pixels (or µm when the pixel size is known)."""
+        um = fib_pixel_size_m * 1e6 if fib_pixel_size_m else None
 
-        if result.mean_absolute_error:
-            mae_str = ", ".join(f"{v:.2f}" for v in result.mean_absolute_error) + " px"
-        else:
-            mae_str = "—"
-        self._lbl_mae.setText(mae_str)
+        def dist(px: float) -> str:
+            return f"{px * um:.2f} µm" if um else f"{px:.2f} px"
 
-        if result.rotation_eulers:
-            self._lbl_rotation.setText(
-                "°, ".join(f"{v:.2f}" for v in result.rotation_eulers) + "°"
-            )
-        else:
-            self._lbl_rotation.setText("—")
-
-        if result.translation and len(result.translation) >= 2:
-            self._lbl_trans.setText(
-                ", ".join(f"{v:.1f}" for v in result.translation[:2])
-            )
-        else:
-            self._lbl_trans.setText("—")
-
+        diag = result.diagnostics
         markers = result.delta_2d
-        self._table.setRowCount(len(markers))
-        _fit_table_height(self._table, len(markers))
-        for i, pt in enumerate(markers):
-            self._table.setItem(i, 0, _ro_item(f"M{i + 1}"))
-            self._table.setItem(i, 1, _ro_item(f"{pt.x:.2f}"))
-            self._table.setItem(i, 2, _ro_item(f"{pt.y:.2f}"))
+        if diag:
+            from fibsem.correlation.verdict import FitDiagnostics
+
+            d = FitDiagnostics.from_dict(diag)
+            self._lbl_agree.setText(f"{d.agreement_um:.2f} µm")
+            if d.worst is not None and d.pairs:
+                w = d.pairs[d.worst]
+                z = (
+                    f"; fits the others best at slice {d.suggested_z:.0f}"
+                    if d.suggested_z is not None
+                    else ""
+                )
+                self._lbl_worst.setText(
+                    f"FM {d.worst + 1}, {w.loo_error_um:.2f} µm off{z}"
+                )
+            else:
+                self._lbl_worst.setText("—")
+            self._lbl_depth.setText(
+                "ambiguous — the mirrored fit is nearly as good"
+                if d.mirror_ratio < 1.3
+                else f"determined by the fiducials (mirrored fit {d.mirror_ratio:.1f}× worse)"
+            )
+            self._lbl_span.setText(f"{d.depth_span_um:.1f} µm")
+            off = abs(d.scale_ratio - 1) * 100
+            self._lbl_scale.setText(
+                "match" if off < 0.5 else f"{off:.1f} % off; check the FM pixel size"
+            )
+            placed = d.n_pairs - d.n_accepted
+            self._lbl_pairs.setText(
+                f"{d.n_pairs}"
+                + (
+                    f" ({placed} placed by you, {d.n_accepted} accepted)"
+                    if d.n_accepted
+                    else ""
+                )
+            )
+            self._table.setHorizontalHeaderLabels(
+                ["Fiducial", "Error (µm)", "Left-out error (µm)"]
+            )
+            self._table.setRowCount(len(d.pairs))
+            _fit_table_height(self._table, len(d.pairs))
+            for i, p in enumerate(d.pairs):
+                self._table.setItem(i, 0, _ro_item(f"FM {p.index + 1}"))
+                self._table.setItem(i, 1, _ro_item(f"{p.residual_um:.2f}"))
+                self._table.setItem(i, 2, _ro_item(f"{p.loo_error_um:.2f}"))
+        else:
+            self._lbl_agree.setText(dist(result.rms_error) + " (RMS)")
+            self._lbl_worst.setText("—")
+            self._lbl_depth.setText("—")
+            self._lbl_span.setText("—")
+            self._lbl_scale.setText(f"{result.scale:.4f} (fitted)")
+            self._lbl_pairs.setText(str(len(markers)))
+            self._table.setHorizontalHeaderLabels(["Fiducial", "dx (px)", "dy (px)"])
+            self._table.setRowCount(len(markers))
+            _fit_table_height(self._table, len(markers))
+            for i, pt in enumerate(markers):
+                self._table.setItem(i, 0, _ro_item(f"FM {i + 1}"))
+                self._table.setItem(i, 1, _ro_item(f"{pt.x:.2f}"))
+                self._table.setItem(i, 2, _ro_item(f"{pt.y:.2f}"))
+        check = result.branch_check or {}
+        if result.seed is not None:
+            self._lbl_seed.setText(
+                f"geometry, fit {check.get('angle_to_nominal_deg', 0.0):.1f}° away"
+            )
+        else:
+            self._lbl_seed.setText("nothing (unseeded fit)")
 
     def clear(self) -> None:
         for lbl in (
+            self._lbl_agree,
+            self._lbl_worst,
+            self._lbl_depth,
+            self._lbl_span,
             self._lbl_scale,
-            self._lbl_rms,
-            self._lbl_mae,
-            self._lbl_rotation,
-            self._lbl_trans,
+            self._lbl_seed,
+            self._lbl_pairs,
         ):
             lbl.setText("—")
         self._table.setRowCount(0)
@@ -1977,6 +2070,9 @@ class CorrelationTabWidget(QWidget):
         run_layout.setSpacing(4)
 
         self._lbl_status = QLabel("Load images and add ≥ 4 FIB / FM pairs and ≥ 1 POI.")
+        self._lbl_status.setTextFormat(Qt.TextFormat.RichText)
+        self._lbl_status.setOpenExternalLinks(False)
+        self._lbl_status.linkActivated.connect(self._on_status_link)
         self._lbl_status.setStyleSheet(BODY_STYLE)
         self._lbl_status.setWordWrap(True)
         run_layout.addWidget(self._lbl_status)
@@ -2148,6 +2244,7 @@ class CorrelationTabWidget(QWidget):
             self._lbl_result.setVisible(False)  # text is set again by a fresh run
 
     def _on_data_changed(self, data: CorrelationInputData) -> None:
+        self._coords_tab.fm_list.set_notes({})
         # Any coordinate edit invalidates the last run: the transform no longer
         # fits the points it is displayed against.
         self._set_result_live(False)
@@ -3273,7 +3370,7 @@ class CorrelationTabWidget(QWidget):
         """Adopt a result. ``live`` is False for a result that no longer describes
         the current points (FIB-295)."""
         self._result = result
-        self._results_tab.set_result(result)
+        self._results_tab.set_result(result, self._fib_pixel_size_m())
         self._ri_tab.set_result(
             result, input_data=self.data, fm_pixel_size_z=self._fm_pixel_size_z()
         )
@@ -3329,13 +3426,73 @@ class CorrelationTabWidget(QWidget):
             )
         else:
             self._lbl_status.setText("Done.")
-        if live:
+        if live and result.diagnostics:
+            self._show_verdict(result)
+        elif live:
             note = self._seed_status(result)
             if not note and getattr(self, "_seed_note", ""):
                 note = f"unseeded fit: {self._seed_note}"
             if note:
                 self._lbl_status.setText(f"{self._lbl_status.text()} — {note}")
         self.result_changed.emit(result)
+
+    # ------------------------------------------------------------------
+    # The fit verdict (FIB-956)
+    # ------------------------------------------------------------------
+
+    def _show_verdict(self, result: CorrelationResult) -> None:
+        """One tier-coloured line with at most two reasons; a reason that
+        names a fiducial is a link that selects it. The per-pair leave-one-out
+        error goes onto the FM rows. Replaces the RMS badge and the seed note,
+        whose numbers now live on the Results tab."""
+        from fibsem.correlation.verdict import FitDiagnostics, verdict
+
+        d = FitDiagnostics.from_dict(result.diagnostics)
+        v = verdict(d)
+        colour = {"good": OK_COLOR, "check": WARN_COLOR, "bad": ERROR_COLOR}[v.tier]
+        parts = [f'<span style="color:{colour}; font-weight:600">{v.headline}</span>']
+        for r in v.reasons:
+            text = r.text
+            if r.pair is not None:
+                name = f"FM {r.pair + 1}"
+                text = text.replace(
+                    name,
+                    f'<a href="pair:{r.pair}" style="color:{ACCENT_COLOR}">{name}</a>',
+                    1,
+                )
+            parts.append(text)
+        self._lbl_status.setText(" ".join(parts))
+        self._lbl_result.setVisible(False)
+        if v.tier == "bad":
+            self._btn_continue.setEnabled(False)
+            self._btn_continue.setToolTip(
+                "The fit is poor; fix the fiducials and run again."
+            )
+        flagged = {d.worst} if v.tier != "good" and d.worst is not None else set()
+        fm = self._coords_tab.fm_list.coordinates
+        usable = [c for c in fm if c.usable]
+        notes = {}
+        for p in d.pairs:
+            if p.index < len(usable):
+                tone = (
+                    "error"
+                    if p.loo_error_um > 2.0
+                    else ("warn" if p.index in flagged else "muted")
+                )
+                notes[id(usable[p.index])] = (f"{p.loo_error_um:.1f} µm", tone)
+        self._coords_tab.fm_list.set_notes(notes)
+
+    def _on_status_link(self, href: str) -> None:
+        """A fiducial named in the verdict selects that pair on both canvases."""
+        if not href.startswith("pair:"):
+            return
+        index = int(href.split(":", 1)[1])
+        spec = self._point_specs[PointType.FM]
+        usable = [c for c in spec.list_widget.coordinates if c.usable]
+        if index < len(usable):
+            coord = usable[index]
+            spec.list_widget.select_coordinate_silent(coord)
+            self._select_only(spec, coord)
 
     def _fib_pixel_size_m(self) -> Optional[float]:
         """FIB pixel size in metres, or None. A result loaded from JSON has no
