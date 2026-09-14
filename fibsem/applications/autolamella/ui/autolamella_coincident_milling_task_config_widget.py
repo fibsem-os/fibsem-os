@@ -79,12 +79,16 @@ class AutoLamellaCoincidentMillingTaskConfigWidget(QWidget):
         config: Optional[MillCoincidentTaskConfig] = None,
         parent: Optional[QWidget] = None,
         channel_sources: Optional[Callable[[], List[ChannelSettings]]] = None,
+        detach_milling: bool = False,
     ):
         super().__init__(parent)
         self.microscope = microscope
         self.config = config if config is not None else MillCoincidentTaskConfig()
         # where "Copy from…" gets its channels: the host knows the protocol
         self._channel_sources = channel_sources
+        # A host with a milling column of its own (the protocol-level editor)
+        # places ``milling_panel`` there itself; everything else stays here.
+        self._detach_milling = detach_milling
         self._loading = False
         self._setup_ui()
         self._connect_signals()
@@ -260,6 +264,17 @@ class AutoLamellaCoincidentMillingTaskConfigWidget(QWidget):
         outer.addStretch()
 
         self.setStyleSheet(stylesheets.NAPARI_STYLE)
+
+    def set_shown(self, visible: bool) -> None:
+        """Show or hide the whole widget, a detached milling panel included.
+
+        Hosts call this rather than ``setVisible``: a panel placed in another
+        column is not this widget's child, so Qt's own visibility does not reach
+        it.
+        """
+        self.setVisible(visible)
+        if self._detach_milling:
+            self.milling_panel.setVisible(visible)
 
     @staticmethod
     def _add_row(
