@@ -488,10 +488,15 @@ class LamellaCardWidget(QWidget):
         # the magazine would act on whatever grid *is* on the stage, so both are
         # withheld with the reason in the menu.
         grid = grid_of(self.lamella, self._grid_context)
-        apply_grid_label(self._grid_label, grid, grids_named(self._grid_context))
         status_text, status_style = _status_text(self.lamella)
         if self._mode == MODE_COMPACT:
             status_text = short_status(status_text)  # no room for the time
+        apply_grid_label(
+            self._grid_label,
+            grid,
+            grids_named(self._grid_context),
+            bool(status_text),
+        )
         self._status_label.setText(status_text)
         self._status_label.setStyleSheet(
             f"font-size: {DETAIL_FONT_PX}px; background: transparent; {status_style}"

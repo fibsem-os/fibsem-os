@@ -230,8 +230,8 @@ class _LamellaRow(QWidget):
 
         self.name_label.setText(self.lamella.name)
         self.setToolTip(self.lamella.description or "")
-        apply_grid_label(self.grid_label, self._grid, self._grid_named)
         text, style = _lamella_status_text(self.lamella)
+        apply_grid_label(self.grid_label, self._grid, self._grid_named, bool(text))
         self.status_label.setText(text)
         self.status_label.setStyleSheet(
             f"font-size: {_DETAIL_FONT_PX}px; "

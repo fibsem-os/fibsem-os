@@ -127,14 +127,13 @@ class TestTheCard:
         container.set_grid_context(_context(experiment, {"grid-oak"}))
         oak, elm, none = cards["on-oak"], cards["on-elm"], cards["unlinked"]
         assert (
-            oak._grid_label.text() == "grid-oak ·"
+            oak._grid_label.text() == "grid-oak"
             and _colour(oak._grid_label) == "accent"
         )
         assert oak._action_move.isEnabled()
         assert oak._action_move.text() == "Move to Position"
         assert (
-            elm._grid_label.text() == "grid-elm ·"
-            and _colour(elm._grid_label) == "muted"
+            elm._grid_label.text() == "grid-elm" and _colour(elm._grid_label) == "muted"
         )
         assert elm._grid_label.toolTip() == "grid-elm is not on the stage"
         assert not elm._action_move.isEnabled()
@@ -151,7 +150,7 @@ class TestTheCard:
         assert _colour(oak._grid_label) == "muted"
         # And a card added afterwards gets the context it missed.
         late = container.add_lamella(lamellae["on-oak"])
-        assert late._grid_label.text() == "grid-oak ·"
+        assert late._grid_label.text() == "grid-oak"
 
     def test_one_grid_is_not_named(self, experiment, lamellae, tidy):
         container = LamellaCardContainer(columns=1)
@@ -187,7 +186,7 @@ class TestTheCard:
         assert card._status_label.text() == ""
         for mode in ("standard", "compact", "cozy"):
             container.set_mode(mode)
-            assert card._grid_label.text() == "grid-oak ·"
+            assert card._grid_label.text() == "grid-oak"
             assert card._grid_label.parent() is not None
 
 
@@ -197,7 +196,7 @@ class TestTheRows:
         widget.set_grid_context(_context(experiment, {"grid-oak"}))
         widget.set_lamellae(list(lamellae.values()))
         rows = {widget._row(i).lamella.name: widget._row(i) for i in range(3)}
-        assert rows["on-oak"].grid_label.text() == "grid-oak ·"
+        assert rows["on-oak"].grid_label.text() == "grid-oak"
         assert _colour(rows["on-oak"].grid_label) == "accent"
         assert rows["on-elm"].grid_label.toolTip() == "grid-elm is not on the stage"
         assert not rows["unlinked"].grid_label.isVisibleTo(rows["unlinked"])
@@ -219,7 +218,7 @@ class TestTheRows:
         widget.set_lamella(list(lamellae.values()))
         rows = {r.lamella.name: r for r in widget._rows()}
         oak, elm = rows["on-oak"], rows["on-elm"]
-        assert oak.grid_label.text() == "grid-oak ·"
+        assert oak.grid_label.text() == "grid-oak"
         assert oak.action_move_to.isEnabled()
         assert not elm.action_move_to.isEnabled()
         assert not elm.action_update.isEnabled()
@@ -292,7 +291,7 @@ class TestFromTheWindow:
 
         card = main_ui.lamella_card_container._cards[exp.positions[0].id]
         row = main_ui.lamella_list_widget._row(0)
-        assert card._grid_label.text() == "Grid-02 ·"
+        assert card._grid_label.text() == "Grid-02"
         assert _colour(card._grid_label) == "muted"
         assert not card._action_move.isEnabled()
         assert row.grid_label.toolTip() == "Grid-02 is not on the stage"

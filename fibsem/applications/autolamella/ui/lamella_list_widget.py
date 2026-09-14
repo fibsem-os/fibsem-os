@@ -74,16 +74,20 @@ def not_on_stage_reason(grid: Optional[Tuple[str, bool]]) -> str:
 
 
 def apply_grid_label(
-    label: QLabel, grid: Optional[Tuple[str, bool]], shown: bool
+    label: QLabel,
+    grid: Optional[Tuple[str, bool]],
+    shown: bool,
+    followed: bool = True,
 ) -> None:
     """The grid's name ahead of the status: accent while that grid is on the
-    stage, muted while it is not; hidden when there is nothing to say."""
+    stage, muted while it is not; hidden when there is nothing to say. The
+    separator is drawn only when a status follows (*followed*)."""
     if grid is None or not shown:
         label.setVisible(False)
         label.setText("")
         return
     name, loaded = grid
-    label.setText(f"{name} ·")
+    label.setText(f"{name} ·" if followed else name)
     label.setStyleSheet(
         f"font-size: {DETAIL_FONT_PX}px; background: transparent; "
         f"color: {ACCENT_COLOR if loaded else NEUTRAL_550};"
@@ -373,8 +377,10 @@ class LamellaRowWidget(QWidget):
         self.btn_defect.setVisible(has_defect(self.lamella))
 
         grid = grid_of(self.lamella, self._grid_context)
-        apply_grid_label(self.grid_label, grid, grids_named(self._grid_context))
         status_text, status_style = _status_text(self.lamella)
+        apply_grid_label(
+            self.grid_label, grid, grids_named(self._grid_context), bool(status_text)
+        )
         self.status_label.setText(status_text)
         self.status_label.setStyleSheet(
             f"font-size: {DETAIL_FONT_PX}px; "
