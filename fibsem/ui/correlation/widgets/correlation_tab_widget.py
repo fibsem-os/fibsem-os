@@ -297,8 +297,11 @@ def _form_label(text: str) -> QLabel:
     ``QFormLayout.addRow("Name:", w)`` builds the label at the default app font
     size, which renders *larger* than the 11-12px values in these panels — the
     field name ends up shouting over its own data. Pass this instead.
+
+    No trailing colon: the rows here read as name and value side by side,
+    and the colon was the one piece of punctuation on the tab.
     """
-    lbl = QLabel(text)
+    lbl = QLabel(text.rstrip(":"))
     lbl.setStyleSheet(CAPTION_STYLE)
     return lbl
 
@@ -560,8 +563,8 @@ class _ImagesTab(QWidget):
         self._lbl_fib_shape.setStyleSheet(CAPTION_VALUE_STYLE)
         self._lbl_fib_px = QLabel("—")
         self._lbl_fib_px.setStyleSheet(CAPTION_VALUE_STYLE)
-        fib_form.addRow(_form_label("Shape:"), self._lbl_fib_shape)
-        fib_form.addRow(_form_label("Pixel size:"), self._lbl_fib_px)
+        fib_form.addRow(_form_label("Shape"), self._lbl_fib_shape)
+        fib_form.addRow(_form_label("Pixel size"), self._lbl_fib_px)
         fib_layout.addLayout(fib_form)
 
         layout.addWidget(TitledPanel("FIB Image", content=fib_body, collapsible=False))
@@ -591,9 +594,9 @@ class _ImagesTab(QWidget):
         self._lbl_fm_px = QLabel("—")
         self._lbl_fm_px.setStyleSheet(CAPTION_VALUE_STYLE)
         self._lbl_fm_px.setWordWrap(True)
-        fm_form.addRow(_form_label("Shape (C×Z×Y×X):"), self._lbl_fm_shape)
-        fm_form.addRow(_form_label("Channels:"), self._lbl_fm_ch)
-        fm_form.addRow(_form_label("Pixel size:"), self._lbl_fm_px)
+        fm_form.addRow(_form_label("Shape (C×Z×Y×X)"), self._lbl_fm_shape)
+        fm_form.addRow(_form_label("Channels"), self._lbl_fm_ch)
+        fm_form.addRow(_form_label("Pixel size"), self._lbl_fm_px)
 
         # The interpolate action rides the Z-slices row — it acts on the z axis,
         # so it reads as the action on that number rather than a stray button.
@@ -614,7 +617,7 @@ class _ImagesTab(QWidget):
         self._btn_interpolate.setEnabled(False)  # enabled once a z-stack is loaded
         self._btn_interpolate.clicked.connect(lambda: self.interpolate_requested.emit())
         z_row_layout.addWidget(self._btn_interpolate)
-        fm_form.addRow(_form_label("Z-slices:"), z_row)
+        fm_form.addRow(_form_label("Z-slices"), z_row)
 
         fm_layout.addLayout(fm_form)
 
@@ -957,6 +960,9 @@ class _CoordinatesTab(QWidget):
         fit_form = QFormLayout(fit_body)
         fit_form.setContentsMargins(8, 4, 8, 4)
         fit_form.setSpacing(4)
+        # The choices are one or two words; a combo stretched to the panel's
+        # width reads as a text field. Fields keep their own width.
+        fit_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
 
         # Where the projection comes from, one line; the numbers live in the
         # tooltip. The link ignores (or restores) a previous run's placement
@@ -1006,6 +1012,15 @@ class _CoordinatesTab(QWidget):
             self._auto_accept_check,
         ):
             _ctl.setStyleSheet(CONTROL_STYLE)
+        for _combo in (
+            self._fib_method_combo,
+            self._fm_fid_method_combo,
+            self._fm_poi_method_combo,
+            self._fm_fid_ch_combo,
+            self._fm_poi_ch_combo,
+        ):
+            _combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            _combo.setMinimumContentsLength(10)
         self._auto_accept_check.setToolTip(
             "Apply fits immediately without the confirm dialog.\n"
             "Failed or far-off fits still ask for confirmation."
@@ -1122,11 +1137,11 @@ class _ResultsTab(QWidget):
         self._lbl_mae = self._val("—")
         self._lbl_rotation = self._val("—")
         self._lbl_trans = self._val("—")
-        summary_form.addRow(_form_label("Scale:"), self._lbl_scale)
-        summary_form.addRow(_form_label("RMS Error:"), self._lbl_rms)
-        summary_form.addRow(_form_label("Mean Abs Error:"), self._lbl_mae)
-        summary_form.addRow(_form_label("Rotation:"), self._lbl_rotation)
-        summary_form.addRow(_form_label("Translation:"), self._lbl_trans)
+        summary_form.addRow(_form_label("Scale"), self._lbl_scale)
+        summary_form.addRow(_form_label("RMS Error"), self._lbl_rms)
+        summary_form.addRow(_form_label("Mean Abs Error"), self._lbl_mae)
+        summary_form.addRow(_form_label("Rotation"), self._lbl_rotation)
+        summary_form.addRow(_form_label("Translation"), self._lbl_trans)
         layout.addWidget(TitledPanel("Summary", content=summary_body))
 
         # Per-marker error table
