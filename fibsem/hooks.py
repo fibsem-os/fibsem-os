@@ -77,12 +77,24 @@ EVENT_CATEGORIES: Dict[str, List[HookEvent]] = {
     "any_skip": [
         HookEvent.TASK_SKIPPED,
     ],
+    # The run gave up waiting on a decision. Nothing failed and nobody pressed
+    # Stop, but work remains and only a person (or an agent) can unblock it --
+    # which is why it is the one terminal outcome worth waking someone up about.
+    "any_stall": [
+        HookEvent.WORKFLOW_STALLED,
+    ],
 }
 
 # Broader groups are unions of categories, computed rather than hand-listed, so
 # classifying a new event once puts it into every group that should contain it.
 _GROUP_UNIONS: Dict[str, List[str]] = {
-    "any_terminal": ["any_completion", "any_failure", "any_cancellation", "any_skip"],
+    "any_terminal": [
+        "any_completion",
+        "any_failure",
+        "any_cancellation",
+        "any_skip",
+        "any_stall",
+    ],
 }
 
 EVENT_GROUPS: Dict[str, List[HookEvent]] = dict(EVENT_CATEGORIES)
