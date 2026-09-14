@@ -742,6 +742,7 @@ class QtResponder(QObject):
             fib_image=request.fib_image,
             fm_image=request.fm_image,
             monitoring_channel=request.monitoring_channel,
+            task_name=request.config.task_name,
             on_continue=lambda: self.answer_confirm(True),
             on_skip=lambda: self.answer_confirm(False),
         )

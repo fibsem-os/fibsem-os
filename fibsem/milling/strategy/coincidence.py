@@ -193,6 +193,8 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self.parent_ui: Optional["FibsemMillingWidget2"] = None
         # why the last run's monitor loop ended: "stopped", "drop", "timeout"
         self.end_reason: Optional[str] = None
+        # when the run's timeout lands, for the stats a viewer shows
+        self._timeout_end_time: Optional[float] = None
 
     def __deepcopy__(self, memo: dict) -> "CoincidenceMillingStrategy":
         """Copy the configuration and the outcome, not the run.
@@ -380,6 +382,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         start_time = time.time()
         estimated_end_time = start_time + estimated_time
         timeout_end_time = start_time + self.config.timeout
+        self._timeout_end_time = timeout_end_time
         max_end_time = min(timeout_end_time, estimated_end_time)
         SLEEP_DURATION = 1  # seconds
 
@@ -525,6 +528,10 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                     "peak_rolling_mean": self._peak_rolling_mean,
                     "threshold_value": 0.0,
                     "warmup_complete": False,
+                    "below_threshold_count": 0,
+                    "consecutive_count": int(self.config.consecutive_triggers),
+                    "timeout_remaining": self._timeout_remaining(),
+                    "elapsed_time": elapsed,
                 }
             )
             self._stats_records.append(
@@ -558,6 +565,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         else:
             self._consecutive_trigger_count = 0
 
+        below_threshold_count = self._consecutive_trigger_count
         drop_detected = self._consecutive_trigger_count >= int(
             self.config.consecutive_triggers
         )
@@ -585,10 +593,19 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             "drop_detected": drop_detected,
             "drop_fraction": drop_fraction,
             "threshold_fraction": 1.0 - self.config.intensity_drop_fraction,
-            "consecutive_count": self.config.consecutive_triggers,
+            "consecutive_count": int(self.config.consecutive_triggers),
+            # how many frames in a row are below the threshold right now, out of
+            # the N that fire the latch; and how long until the run times out
+            "below_threshold_count": below_threshold_count,
+            "timeout_remaining": self._timeout_remaining(),
         }
         self.intensity_stats_signal.emit(stats)
         self._stats_records.append(stats)
+
+    def _timeout_remaining(self) -> Optional[float]:
+        if self._timeout_end_time is None:
+            return None
+        return max(0.0, self._timeout_end_time - time.time())
 
     def save_run_summary_figure(self) -> Optional[str]:
         """Save a 2x2 PNG of pre/post FIB and first/last FM images plus an
