@@ -701,6 +701,12 @@ class _ImagesTab(QWidget):
         method = getattr(self, "_method_panel", None)
         index = layout.indexOf(method) if method is not None else -1
         layout.insertWidget(index if index >= 0 else layout.count() - 1, section)
+        # Inherited Settings reads last: what the experiment already decided,
+        # after what to start from and how it fits.
+        inherited = getattr(section, "inherited_panel", None)
+        if inherited is not None and method is not None:
+            section.layout().removeWidget(inherited)
+            layout.insertWidget(layout.indexOf(method) + 1, inherited)
 
     # ------------------------------------------------------------------
     # Browse / load

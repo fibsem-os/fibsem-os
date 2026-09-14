@@ -404,10 +404,12 @@ def test_fit_settings_live_on_the_setup_tab_and_the_coordinates_tab_says_so(
     assert panel.parent() is not None
     assert loaded._images_tab.isAncestorOf(panel)
     assert not loaded._coords_tab.isAncestorOf(panel)
-    # what to start from comes before how it fits
+    # what to start from, how it fits, then what the experiment decided
     section = loaded.add_lamella_setup(spot_burns=_burns(ARCTIS))
     layout = loaded._images_tab._content_layout
     assert layout.indexOf(section) < layout.indexOf(panel)
+    assert layout.indexOf(panel) < layout.indexOf(section.inherited_panel)
+    assert section.inherited_panel.isVisibleTo(loaded._images_tab)
 
 
 def _fake_seeded_result(loaded, diag: dict):
