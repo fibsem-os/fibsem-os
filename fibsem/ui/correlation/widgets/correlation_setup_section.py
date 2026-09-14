@@ -27,6 +27,7 @@ from typing import Callable, List, Optional
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QRadioButton,
@@ -188,7 +189,12 @@ class CorrelationSetupSection(QWidget):
         run_layout.setContentsMargins(20, 0, 0, 0)
         self.run_combo = ValueComboBox([format_run_label(r) for r in self._prev_runs])
         self.run_combo.setStyleSheet(_CONTROL_STYLE)
-        run_layout.addWidget(self.run_combo, 1)
+        # Run names are short; sized to them like the Method panel's combos,
+        # not stretched like the image pickers that hold paths.
+        self.run_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.run_combo.setMinimumContentsLength(10)
+        run_layout.addWidget(self.run_combo)
+        run_layout.addStretch(1)
         col.addWidget(run_row)
 
         self._prev_caption = _caption(
