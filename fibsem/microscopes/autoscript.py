@@ -630,6 +630,13 @@ class AutoscriptSampleLoader(SampleGridLoader):
             self.capacity = len(hw_slots)
 
         loaded = {s.loaded_grid.name for s in self.holder.occupied_slots}
+        # Up to 4.13 the home slot of the grid on the stage reads Empty, but it
+        # keeps its description. If the stage names the same grid, that is the
+        # pairing a fresh connect otherwise lacks: the grid goes back in its home
+        # slot as well as the working slot. A non-empty name match only.
+        stage_name = ""
+        if stage is not None and _slot_state(stage) == "Occupied":
+            stage_name = (getattr(stage, "sample_description", "") or "").strip()
         slots: dict = {}
         unknown: set = set()
         on_stage: Optional[SampleGrid] = None
@@ -657,6 +664,13 @@ class AutoscriptSampleLoader(SampleGridLoader):
                 grid = (
                     previous.loaded_grid
                 )  # <= 4.13: its home reads Empty while loaded
+            elif (
+                state == "Empty"
+                and stage_name
+                and (getattr(hw, "sample_description", "") or "").strip() == stage_name
+            ):
+                grid = SampleGrid(name=stage_name)  # <= 4.13: paired by name
+                on_stage = grid
             elif state == "Unknown":
                 logging.warning(f"Autoloader slot {number} has not been scanned.")
                 unknown.add(name)

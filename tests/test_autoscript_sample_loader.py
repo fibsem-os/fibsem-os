@@ -169,6 +169,37 @@ class TestInventory:
         loader.run_inventory()
         assert [g.name for g in microscope._stage.loaded_grids] == ["grid-birch"]
 
+    def test_on_4_13_the_stage_grid_is_paired_with_its_home_slot_by_name(self):
+        """The home slot reads Empty on 4.13, but keeps its description; the
+        stage names the same grid. On a fresh connect the grid goes back in its
+        home row, present and LOADED, not only in the working slot."""
+        from fibsem.microscopes._stage import GridSlotState
+
+        hw = FakeAutoloader(occupied={2: "grid-elm", 4: "grid-birch"})
+        hw.load(4)
+        assert hw._slots[3].state == "Empty" and hw._slots[3].sample_description
+        microscope, loader = _microscope_with(hw)
+        loader.get_inventory()
+        rows = {r.name: r for r in microscope._stage.grid_inventory() if r.present}
+        assert set(rows) == {"grid-elm", "grid-birch"}
+        assert rows["grid-birch"].state is GridSlotState.LOADED
+        assert rows["grid-birch"].slot_name == "Slot-04"
+        assert loader.working_slot.loaded_grid is loader.slots["Slot-04"].loaded_grid
+        # Already loaded: asking for it is no exchange.
+        before = len(hw.calls)
+        microscope._stage.ensure_loaded("grid-birch")
+        assert hw.calls[before:] == []
+
+    def test_an_unnamed_stage_grid_is_not_paired(self):
+        """No description on either side: nothing to match, so the grid stays
+        "Grid-on-stage" in the working slot and the empty slots stay empty."""
+        hw = FakeAutoloader(occupied={4: ""})
+        hw.load(4)
+        microscope, loader = _microscope_with(hw)
+        loader.get_inventory()
+        assert [g.name for g in microscope._stage.loaded_grids] == ["Grid-on-stage"]
+        assert loader.slots["Slot-04"].loaded_grid is None
+
     def test_slots_are_unknown_until_the_hardware_has_answered(self):
         """Before any inventory every magazine slot is UNKNOWN, and nothing is
         present: the UI says "run an inventory" rather than "empty". After a
