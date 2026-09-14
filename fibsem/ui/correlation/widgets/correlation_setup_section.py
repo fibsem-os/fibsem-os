@@ -195,6 +195,7 @@ class CorrelationSetupSection(QWidget):
         # not stretched like the image pickers that hold paths.
         self.run_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.run_combo.setMinimumContentsLength(10)
+        self.run_combo.setMinimumWidth(150)
         run_layout.addWidget(self.run_combo)
         run_layout.addStretch(1)
         col.addWidget(run_row)
@@ -203,9 +204,6 @@ class CorrelationSetupSection(QWidget):
             "Carries the FM POI + fiducials from that run forward.", indent=20
         )
         col.addWidget(self._prev_caption)
-        col.addWidget(
-            _caption("Seeded points are placed as-is — refine them on the canvas.")
-        )
         return body
 
     def _build_inherited_body(self) -> QWidget:
