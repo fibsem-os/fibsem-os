@@ -49,6 +49,10 @@ __all__ = [
 
 # The one kind v1 has. Its consumer mills, so a reject retires the item.
 MILLING_SETUP = "milling_setup"
+# What a task did, for someone to look at: no values, the final reference
+# images in provenance. Recorded by the base task class for any task whose
+# review is on and that did not propose a kind of its own.
+TASK_RESULT = "task_result"
 
 
 class DecisionOutcome(Enum):
@@ -103,6 +107,9 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
 register_proposal_kind(
     ProposalKind(name=MILLING_SETUP, gating=True, values=("poi", "fiducial"))
 )
+# Gating: a gate on Rough Milling means polishing waits until someone has
+# looked at the trench, and a reject there retires the lamella.
+register_proposal_kind(ProposalKind(name=TASK_RESULT, gating=True, values=()))
 
 
 # ---------------------------------------------------------------------------
