@@ -897,7 +897,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         is_coincident_task = isinstance(task_config, MillCoincidentTaskConfig)
         coincident_widget = self.coincident_milling_task_config_widget
-        coincident_widget.setVisible(is_coincident_task)
+        coincident_widget.set_shown(is_coincident_task)
         if is_coincident_task:
             # its own widget owns the milling column; the generic editor stands
             # down (clear drops its overlay so ours is the one on the canvas)

@@ -433,6 +433,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 config=None,
                 parent=self,
                 channel_sources=self._fluorescence_task_channels,
+                detach_milling=True,  # its Milling section takes column 3
             )
         )
 
@@ -540,7 +541,15 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         col3_scroll = QScrollArea()
         col3_scroll.setWidgetResizable(True)
         col3_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
-        col3_scroll.setWidget(self.milling_task_editor)
+        # The coincident milling widget's Milling section takes this column
+        # when its task is selected and the generic editor hides.
+        col3_content = QWidget()
+        col3_layout = QVBoxLayout(col3_content)
+        col3_layout.setContentsMargins(0, 0, 0, 0)
+        col3_layout.addWidget(self.milling_task_editor)
+        col3_layout.addWidget(self.coincident_milling_task_config_widget.milling_panel)
+        col3_layout.addStretch()
+        col3_scroll.setWidget(col3_content)
 
         # --- 3-column splitter ---
         splitter = QSplitter(Qt.Horizontal)  # type: ignore
@@ -672,7 +681,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             self.milling_task_editor.clear()
             self.milling_task_editor.setVisible(False)
             self.fluorescence_acquisition_task_config_widget.setVisible(False)
-            self.coincident_milling_task_config_widget.setVisible(False)
+            self.coincident_milling_task_config_widget.set_shown(False)
             return
         self.task_parameters_config_widget.setVisible(True)
         self.ref_image_params_widget.setVisible(True)
@@ -708,7 +717,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         # special handling for the coincident milling task: its own widget owns
         # the parameters, the milling config and the reference imaging defaults
         is_coincident_task = isinstance(task_config, MillCoincidentTaskConfig)
-        self.coincident_milling_task_config_widget.setVisible(is_coincident_task)
+        self.coincident_milling_task_config_widget.set_shown(is_coincident_task)
         if is_coincident_task:
             self.task_parameters_config_widget.setVisible(False)
             self.ref_image_params_widget.setVisible(False)
@@ -1116,10 +1125,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 self.task_parameters_config_widget,
                 self.ref_image_params_widget,
                 self.fluorescence_acquisition_task_config_widget,
-                self.coincident_milling_task_config_widget,
                 self.milling_task_editor,
             ):
                 widget.setVisible(False)
+            self.coincident_milling_task_config_widget.set_shown(False)
             self.pushButton_edit_spot_burn.setVisible(False)
             self.grid_protocol.refresh()
         else:
