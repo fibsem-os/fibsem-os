@@ -132,6 +132,15 @@ def test_enter_shows_the_stored_boxes_and_locks_the_site(viewer, qapp):
     for stage in viewer.milling_viewer_widget.get_config().enabled_stages:
         assert stage.pattern.point.x == pytest.approx(2.0e-6)
         assert stage.pattern.point.y == pytest.approx(-1.0e-6)
+    # the task-mode chrome: who owns the viewer, where the objective started,
+    # what the setup reads as
+    assert viewer.label_task_lock.isVisible()
+    assert "Locked to test by the task" == viewer.label_task_lock.text()
+    assert viewer.label_objective_hint.isVisible()
+    assert "No objective height known" in viewer.label_objective_hint.text()
+    assert viewer._info_widget._setup_container.isVisible()
+    assert "30 % drop" in viewer._info_widget._setup_label.text()
+    assert "as stored" in viewer._info_widget._setup_label.text()
 
 
 def test_read_result_reports_what_the_operator_left(viewer, qapp):
@@ -154,6 +163,10 @@ def test_read_result_reports_what_the_operator_left(viewer, qapp):
     viewer.spin_drop_threshold.setValue(55)
     viewer.chk_copy_setup.setChecked(True)
     qapp.processEvents()
+
+    # anything touched reads as unsaved until Save and Continue
+    assert "unsaved changes" in viewer._info_widget._setup_label.text()
+    assert "55 % drop" in viewer._info_widget._setup_label.text()
 
     result = viewer.read_setup_result()
 
@@ -238,6 +251,9 @@ def test_continue_and_skip_fire_their_callbacks_and_exit_restores(viewer, qapp):
     assert viewer.btn_milling.isVisible()
     assert not viewer.btn_setup_continue.isVisible()
     assert not viewer.spin_drop_threshold.isVisible()
+    assert not viewer.label_task_lock.isVisible()
+    assert not viewer.label_objective_hint.isVisible()
+    assert not viewer._info_widget._setup_container.isVisible()
     assert viewer.lamella_list_widget.isEnabled()
     assert viewer.milling_viewer_widget.get_config().name == manual_before
 
