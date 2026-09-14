@@ -460,6 +460,13 @@ class AutoLamellaWorkflowConfig:
 @dataclass
 class AutoLamellaWorkflowOptions:
     turn_beams_off: bool = False
+    # How long a run whose remaining work all waits on a review keeps waiting for
+    # one, in seconds of *inactivity* -- every decision resets the clock, so a
+    # slow reviewer mid-sitting is never cut off, only an absent one. 0 exits at
+    # once (the old behaviour); None waits until stopped, for an unattended run
+    # with an agent deciding. Separate from any per-proposal deadline: this is
+    # whether the workflow thread stays parked, not who may decide.
+    review_wait: Optional[float] = 1800.0
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

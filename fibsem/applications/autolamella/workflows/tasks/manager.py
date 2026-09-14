@@ -20,7 +20,7 @@ from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
-from fibsem.utils import format_time_remaining
+from fibsem.utils import format_duration, format_time_remaining
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -103,6 +103,14 @@ class BaseTaskManager:
         # preference change takes effect on the next Run and never mid-run.
         # Off: nothing is ever deferred and every task behaves as before.
         self.review_enabled = review_enabled()
+        # Set by Experiment.decide (via _on_decided) so a run parked on a review
+        # wakes and rescans; cleared at the top of every scan.
+        self._decision_event = threading.Event()
+        # The third way a run ends: not completed, not cancelled -- drained with
+        # work still waiting on a decision, and the wait ran out. Read after the
+        # run by whoever launched it.
+        self.stalled = False
+        self.stall_reason = ""
 
         # Stamp the experiment onto the images this run acquires. Done here rather
         # than only in the UI so a headless run through run_tasks() records it too;
@@ -320,26 +328,124 @@ class TaskManager(BaseTaskManager):
         self._experiment_was_complete = False
 
     def run(
-        self, task_names: List[str], required_lamella: Optional[List[str]] = None
+        self,
+        task_names: List[str],
+        required_lamella: Optional[List[str]] = None,
+        resume: bool = False,
     ) -> None:
         """Run the specified tasks for all lamellas in the experiment.
         Args:
             task_names: List of task names to run.
             required_lamella: List of lamella names to run tasks on. If None, all lamellas are processed.
+            resume: Leave out every (lamella, task) pair the lamella has already
+                completed. Re-running a completed pair is deliberately allowed
+                and is how a task is re-run -- but after a stalled run it would
+                re-run the producer that left the proposal the operator has just
+                reviewed, re-move the stage, and overwrite that proposal. Resume
+                is the launch that continues instead.
         """
         if required_lamella is None:
             required_lamella = [p.name for p in self.experiment.positions]
 
-        self.queue.build_from_matrix(task_names, required_lamella)
+        if resume:
+            pairs = [
+                (name, task)
+                for task in task_names
+                for name in required_lamella
+                if not self._has_completed(name, task)
+            ]
+            self.queue.build_from_pairs(
+                pairs, task_names=task_names, item_names=required_lamella
+            )
+        else:
+            self.queue.build_from_matrix(task_names, required_lamella)
         self._run_queue()
+
+    def _has_completed(self, lamella_name: str, task_name: str) -> bool:
+        lamella = self.experiment.get_lamella_by_name(lamella_name)
+        return lamella is not None and lamella.has_completed_task(task_name)
+
+    def _on_decided(self, item_id: str, task_name: str) -> None:
+        self._decision_event.set()
+
+    def _review_wait(self) -> Optional[float]:
+        protocol = self.experiment.task_protocol
+        options = getattr(protocol, "options", None)
+        if options is None:
+            return 1800.0
+        return options.review_wait
+
+    def _wait_for_a_decision(self) -> bool:
+        """Nothing is runnable now. Wait for a decision that would change that,
+        or give up.
+
+        True: a decision landed, rescan. False: stop rescanning -- the run was
+        stopped, the wait ran out (``stalled``), or nothing left could ever be
+        unblocked by a decision, which is a bug in the plan rather than a stall
+        and is reported as one.
+        """
+        deferred = self.deferred_items()
+        awaiting = [i for i, reason in deferred if reason == "awaiting_review"]
+        if not awaiting:
+            self.stalled = True
+            self.stall_reason = (
+                f"{len(deferred)} task(s) cannot run and no decision would change "
+                "that: "
+                + ", ".join(f"{i.item_name}/{i.task_name}" for i, _ in deferred)
+            )
+            logging.error(self.stall_reason)
+            return False
+
+        review_wait = self._review_wait()
+        n = len({i.item_name for i in awaiting})
+        update_status_ui(
+            self.parent_ui,
+            "",
+            workflow_info=f"Waiting on {n} decision(s) before the next task can run.",
+            check_abort=False,
+        )
+        if review_wait is not None and review_wait <= 0:
+            self.stalled = True
+            self.stall_reason = f"{n} decision(s) pending; not waiting (review_wait=0)."
+            return False
+
+        deadline = None if review_wait is None else time.monotonic() + review_wait
+        while not self.is_stopped:
+            timeout = 1.0
+            if deadline is not None:
+                timeout = min(1.0, deadline - time.monotonic())
+                if timeout <= 0:
+                    self.stalled = True
+                    self.stall_reason = (
+                        f"{n} decision(s) still pending after "
+                        f"{format_duration(review_wait)} without one."
+                    )
+                    return False
+            if self._decision_event.wait(timeout):
+                return True
+        return False
 
     def _run_queue(self) -> None:
         """Process queue items until empty or stopped."""
         self._snapshot_completion()
         self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
+        self.experiment.decided.connect(self._on_decided)
+        try:
+            self._run_items()
+        finally:
+            self.experiment.decided.disconnect(self._on_decided)
+
+    def _run_items(self) -> None:
         while not self.is_stopped:
+            # Cleared before the scan, so a decision that lands between a scan
+            # finding nothing and the wait starting is not lost.
+            self._decision_event.clear()
             item = self.queue.next(skip=self._is_deferred)
             if item is None:
+                if self.queue.is_empty:
+                    break
+                if self._wait_for_a_decision():
+                    continue
                 break
 
             # A stop_task click that landed between two tasks was aimed at the one
@@ -437,6 +543,28 @@ class TaskManager(BaseTaskManager):
                 self.parent_ui,
                 "",
                 workflow_info="Workflow cancelled by user.",
+                check_abort=False,
+            )
+        elif self.stalled:
+            # Drained but not done. Not completed -- work remains -- and not
+            # cancelled -- nobody pressed Stop. The experiment is not finishable
+            # from here either. Items that never ran stay NotStarted; proposals
+            # stay pending; Resume picks the run up where it stopped.
+            pending = sum(
+                1 for _i, reason in self.deferred_items() if reason == "awaiting_review"
+            )
+            fire_event(
+                self.hook_manager,
+                HookEvent.WORKFLOW_STALLED,
+                decisions_pending=pending,
+                **self.hook_run_context(),
+            )
+            logging.warning(f"Workflow stalled: {self.stall_reason}")
+            update_status_ui(
+                self.parent_ui,
+                "",
+                workflow_info=f"Workflow stalled: {self.stall_reason} "
+                "Decide in the Review tab, then Resume.",
                 check_abort=False,
             )
         else:
