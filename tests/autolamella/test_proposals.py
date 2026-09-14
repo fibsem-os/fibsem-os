@@ -91,6 +91,12 @@ def test_proposal_round_trips_through_yaml_with_points_intact():
     assert not again.pending
 
 
+def test_a_decision_records_where_it_was_made():
+    d = Decision(outcome=DecisionOutcome.Confirmed, author="human:a", via="workflow")
+    assert Decision.from_dict(d.to_dict()).via == "workflow"
+    assert Decision.from_dict({"outcome": "Confirmed", "author": "human:a"}).via == ""
+
+
 def test_a_superseded_proposal_stays_on_the_record_flat_and_oldest_first():
     from fibsem.applications.autolamella.proposals import supersede
 

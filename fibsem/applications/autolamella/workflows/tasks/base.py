@@ -28,8 +28,6 @@ import numpy as np
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
 from fibsem.applications.autolamella.proposals import (
-    REVIEW_ADVISE,
-    REVIEW_OFF,
     Decision,
     DecisionOutcome,
     auto_author,
@@ -153,32 +151,35 @@ class AutoLamellaTask(ABC):
         return get_task_supervision(self.task_name, self.parent_ui)
 
     @property
-    def review(self) -> str:
-        """This task's review mode, one of REVIEW_MODES: "off" unless the
-        feature flag is on (read once per run by the manager) and the protocol
-        sets a mode on this task. Read through the manager rather than the UI
-        so a headless run can propose too."""
+    def records(self) -> bool:
+        """Whether this task leaves a proposal on the record at all. The
+        feature flag, read once per run by the manager; read through the
+        manager rather than the UI so a headless run records too. What a task
+        proposes is its own business; that it does is not a protocol choice."""
         manager = self.task_manager
-        if manager is None or not getattr(manager, "review_enabled", False):
-            return REVIEW_OFF
-        protocol = getattr(manager.experiment, "task_protocol", None)
-        if protocol is None:
-            return REVIEW_OFF
-        return protocol.get_review(self.task_name)
+        return bool(manager is not None and getattr(manager, "review_enabled", False))
 
     @property
-    def proposes(self) -> bool:
-        """Whether this task leaves its answer as a proposal instead of asking
-        for it inline: any mode but off."""
-        return self.review != REVIEW_OFF
+    def review(self) -> bool:
+        """Whether this task's proposal gates the tasks that require it: the
+        protocol's ``review`` on this task, and the flag. A gated proposal is
+        left pending for the Review tab; an ungated one is decided in the
+        workflow, by the operator's inline answer or by the producer itself."""
+        if not self.records:
+            return False
+        protocol = getattr(self.task_manager.experiment, "task_protocol", None)
+        if protocol is None:
+            return False
+        return bool(protocol.get_review(self.task_name))
 
     def _auto_decide_proposal(self) -> None:
-        """Advise mode: the producer confirms its own proposal, as proposed,
-        so nothing downstream defers. Through Experiment.decide like any other
-        decision -- same lock, same thread, same write-through -- which is why
-        it runs after post_task, once this task is no longer in progress.
-        The author says nobody looked; a person's look is a later decision."""
-        if self.review != REVIEW_ADVISE:
+        """An ungated proposal nobody answered inline is the producer's to
+        confirm, as proposed, so nothing downstream defers. Through
+        Experiment.decide like any other decision -- same lock, same thread,
+        same write-through -- which is why it runs after post_task, once this
+        task is no longer in progress. The author says nobody looked; a
+        person's look is a later decision on the same record."""
+        if self.review:
             return
         proposal = self.lamella.proposals.get(self.task_name)
         if proposal is None or not proposal.pending:
@@ -190,6 +191,7 @@ class AutoLamellaTask(ABC):
             outcome=DecisionOutcome.Confirmed,
             author=auto_author(proposal.provenance.get("proposer", self.task_name)),
             values=dict(proposal.values),
+            via="workflow",
         )
         try:
             result = experiment.decide(self.lamella.id, self.task_name, decision)

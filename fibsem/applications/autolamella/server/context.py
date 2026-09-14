@@ -861,7 +861,9 @@ class AgentContext:
                     "item_name": item.name,
                     "task_name": task_name,
                     "gating": proposal.gating,
-                    "mode": protocol.get_review(task_name) if protocol else "off",
+                    "gated": bool(protocol.get_review(task_name))
+                    if protocol
+                    else False,
                     "waiting_on": waiting_on(experiment, task_name),
                 }
             )
@@ -907,6 +909,7 @@ class AgentContext:
             author=agent_author(author or "remote"),
             values=_decode_values(values or {}),
             reason=reason,
+            via="server",
         )
         result = experiment.decide(item_id, task_name, decision)
         doc = result.to_dict()

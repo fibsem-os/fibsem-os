@@ -902,6 +902,7 @@ class ReviewTabWidget(QWidget):
         decision = Decision(
             outcome=DecisionOutcome.Confirmed,
             author=self._experiment.author(),
+            via="review",
             values=renderer.current_values(),
         )
         self._apply(item, task_name, decision)
@@ -925,6 +926,7 @@ class ReviewTabWidget(QWidget):
         decision = Decision(
             outcome=DecisionOutcome.Rejected,
             author=self._experiment.author(),
+            via="review",
             reason=reason,
         )
         self._apply(item, task_name, decision)
