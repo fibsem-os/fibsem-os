@@ -28,6 +28,7 @@ import math
 import os
 import time
 from collections import deque
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Callable, Optional
@@ -517,6 +518,7 @@ class _SetupSession:
     manual_milling_config: Optional["FibsemMillingTaskConfig"]
     on_continue: Optional[Callable[[], None]]
     on_skip: Optional[Callable[[], None]]
+    manual_channels: Optional[list] = None
 
 
 class FluorescenceCoincidenceViewerWidget(QWidget):
@@ -2517,6 +2519,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         milling_config: "FibsemMillingTaskConfig",
         fib_image: Optional[FibsemImage] = None,
         fm_image: Optional[FluorescenceImage] = None,
+        monitoring_channel: Optional["ChannelSettings"] = None,
         on_continue: Optional[Callable[[], None]] = None,
         on_skip: Optional[Callable[[], None]] = None,
     ) -> None:
@@ -2571,6 +2574,16 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # the FM region, from fractions of the frame to pixels
         self._show_stored_fm_roi(config.fm_roi)
 
+        # the mill's monitoring channel, as the one channel to tune here; the
+        # manual channel list comes back on exit
+        self._setup.manual_channels = (
+            list(self.fm_channel_widget.channel_settings)
+            if getattr(self, "fm_channel_widget", None) is not None
+            else None
+        )
+        if monitoring_channel is not None and self._setup.manual_channels is not None:
+            self.fm_channel_widget.channel_settings = [deepcopy(monitoring_channel)]
+
         # the drop fraction, editable before any run (FIB-377)
         self.spin_drop_threshold.blockSignals(True)
         self.spin_drop_threshold.setValue(
@@ -2608,17 +2621,15 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is not None and self.microscope.fm is not None:
             objective_position = self.microscope.fm.objective.position
 
-        channel_name = session.config.channel_name
-        channel = getattr(self, "fm_channel_widget", None)
-        selected = channel.selected_channel if channel is not None else None
-        if selected is not None and selected.name:
-            channel_name = selected.name
+        widget = getattr(self, "fm_channel_widget", None)
+        selected = widget.selected_channel if widget is not None else None
+        monitoring_channel = deepcopy(selected) if selected is not None else None
 
         return CoincidenceSetup(
             objective_position=objective_position,
             fm_roi=self._read_fm_roi(),
             pattern_offset=self._read_pattern_offset(session.config.pattern_offset),
-            channel_name=channel_name,
+            monitoring_channel=monitoring_channel,
             intensity_drop_fraction=self.spin_drop_threshold.value() / 100.0,
             copy_to_unset=self.chk_copy_setup.isChecked(),
         )
@@ -2637,6 +2648,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         ):
             self.milling_viewer_widget.set_config(session.manual_milling_config)
             self._update_fib_rect_from_pattern()
+        if session.manual_channels:
+            self.fm_channel_widget.channel_settings = session.manual_channels
         self.spin_drop_threshold.setVisible(False)
         self.chk_copy_setup.setVisible(False)
         self.btn_setup_skip.setVisible(False)

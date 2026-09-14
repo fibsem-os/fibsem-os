@@ -37,7 +37,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import _abort_requested
-from fibsem.fm.structures import FluorescenceImage
+from fibsem.fm.structures import ChannelSettings, FluorescenceImage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemRectangle, Point, field_meta
 
@@ -57,15 +57,17 @@ class CoincidenceSetup:
     The answer to :class:`SetupCoincidenceMilling`. ``objective_position`` is
     where the objective actually is on Save, not a typed value; ``fm_roi`` is a
     fraction of the FM frame, ``pattern_offset`` metres from the FIB image centre.
+    ``monitoring_channel`` is the mill's channel as the operator tuned it against
+    the live frame; it lands on the Coincident Milling task, not on this record.
     ``copy_to_unset`` asks the task to seed every other site that has no setup
-    yet with the boxes, channel and drop fraction -- never the objective height,
-    which is per site by nature.
+    yet with the boxes and drop fraction -- never the objective height, which is
+    per site by nature.
     """
 
     objective_position: Optional[float] = None
     fm_roi: Optional[FibsemRectangle] = None
     pattern_offset: Point = field(default_factory=lambda: Point(0.0, 0.0))
-    channel_name: Optional[str] = None
+    monitoring_channel: Optional[ChannelSettings] = None
     intensity_drop_fraction: Optional[float] = None
     copy_to_unset: bool = False
 
@@ -156,8 +158,6 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
             self.objective_position = float(setup.objective_position)
         self.fm_roi = deepcopy(setup.fm_roi)
         self.pattern_offset = deepcopy(setup.pattern_offset)
-        if setup.channel_name:
-            self.channel_name = setup.channel_name
         if setup.intensity_drop_fraction is not None:
             self.intensity_drop_fraction = float(setup.intensity_drop_fraction)
 
@@ -165,7 +165,6 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
         """Seed this (unset) site's boxes from another site's. Not the objective."""
         self.fm_roi = deepcopy(other.fm_roi)
         self.pattern_offset = deepcopy(other.pattern_offset)
-        self.channel_name = other.channel_name
         self.intensity_drop_fraction = other.intensity_drop_fraction
 
     def to_dict(self) -> dict:
@@ -270,6 +269,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
                     )
                     return
                 self.config.apply_setup(setup)
+                self._apply_monitoring_channel(setup)
 
             # 5. the record. Whatever the operator left is now this site's setup.
             self.config.objective_position = self._current_objective_position(
@@ -418,6 +418,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
                 milling_config=self._milling_config_for_boxes(),
                 fib_image=self._last_fib_image,
                 fm_image=fm_image,
+                monitoring_channel=self._find_channel(),
                 message=(
                     f"Place the milling box and FM region for {self.lamella.name}. "
                     "Save and Continue when done, or Skip Site."
@@ -425,6 +426,23 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             ),
             abort=lambda: _abort_requested(self.parent_ui),
         )
+
+    def _apply_monitoring_channel(self, setup: CoincidenceSetup) -> None:
+        """The channel as tuned in the viewer goes onto the Coincident Milling task.
+
+        Protocol-level rather than per site: the dye does not change between
+        sites, and the mill reads it from its own config.
+        """
+        if setup.monitoring_channel is None:
+            return
+        mill = self._mill_task_config()
+        if mill is None:
+            logging.info(
+                f"{self.task_name}: {self.lamella.name} has no Coincident Milling "
+                "task to record the monitoring channel on."
+            )
+            return
+        mill.monitoring_channel = deepcopy(setup.monitoring_channel)
 
     def _milling_config_for_boxes(self) -> FibsemMillingTaskConfig:
         """A copy of the lamella's coincident milling config, offset pre-applied."""

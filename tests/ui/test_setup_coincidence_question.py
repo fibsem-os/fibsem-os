@@ -62,6 +62,14 @@ def ui(qapp, tmp_path, monkeypatch):
     experiment.positions.append(lamella)
     widget.experiment = experiment
     widget._lamella = lamella
+    # the site's mill task: its monitoring channel is what setup seeds and tunes
+    from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
+        MillCoincidentTaskConfig,
+    )
+
+    lamella.task_config["Coincidence Milling"] = MillCoincidentTaskConfig(
+        task_name="Coincidence Milling"
+    )
 
     yield widget
     viewer = getattr(widget, "_coincidence_viewer_window", None)
@@ -125,11 +133,16 @@ def test_save_and_continue_records_what_the_operator_left(ui, qapp):
     assert viewer._selected_lamella is lamella
     assert ui.WAITING_FOR_USER_INTERACTION
 
-    # the operator places the boxes and saves
+    # the FM tab shows the mill's monitoring channel, and only it
+    channels = viewer.fm_channel_widget.channel_settings
+    assert [c.name for c in channels] == ["Monitoring"]
+
+    # the operator places the boxes, tunes the exposure, and saves
     H, W = viewer.fm_canvas._img_shape
     viewer.fm_canvas.rect_overlay.set_rect(0.3 * W, 0.3 * H, 0.2 * W, 0.2 * H)
     viewer.milling_viewer_widget._move_patterns(Point(2.0e-6, 1.0e-6), move_all=True)
     viewer.spin_drop_threshold.setValue(35)
+    viewer.fm_channel_widget.selected_channel.exposure_time = 0.05
     qapp.processEvents()
     viewer.btn_setup_continue.click()
 
@@ -145,6 +158,10 @@ def test_save_and_continue_records_what_the_operator_left(ui, qapp):
     assert config.pattern_offset.x == pytest.approx(2.0e-6)
     assert config.pattern_offset.y == pytest.approx(1.0e-6)
     assert config.intensity_drop_fraction == pytest.approx(0.35)
+    # the tuned channel landed on the mill task, not on the setup record
+    mill = lamella.task_config["Coincidence Milling"]
+    assert mill.monitoring_channel.name == "Monitoring"
+    assert mill.monitoring_channel.exposure_time == pytest.approx(0.05)
     # the viewer is released and the prompt is down
     assert not viewer.in_setup_mode
     assert viewer.btn_milling.isVisible()
