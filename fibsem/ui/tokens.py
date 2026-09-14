@@ -88,6 +88,11 @@ ACCENT_COLOR = "#50a6ff"  # links, selected state, informational chips
 OK_COLOR = "#4caf50"  # success
 WARN_COLOR = "#e0a030"  # loaded but inactive, degraded, needs attention
 ERROR_COLOR = "#d04040"  # failure
+# A task whose answer goes to the Review tab before the run continues. Its
+# own hue on purpose: green and blue are the automated and supervised run
+# modes, and orange is the border's "waiting on you now", a live state that a
+# chip merely configured to gate must not wear out.
+REVIEW_COLOR = "#2bb3a3"
 
 # The disabled pair. Every semantic button sheet renders its :disabled state in
 # these two, and until now both were bare literals repeated across the file --

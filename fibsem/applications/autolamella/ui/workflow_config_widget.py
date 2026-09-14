@@ -104,7 +104,7 @@ def _review_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
     if task.review:
         return (
             "mdi:clipboard-check",
-            stylesheets.PRIMARY_COLOR,
+            stylesheets.REVIEW_COLOR,
             "Review — the tasks that need this one's answer wait until it is "
             "confirmed in the Review tab. Click to change.",
         )
