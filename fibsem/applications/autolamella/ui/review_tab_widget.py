@@ -186,6 +186,7 @@ class ReviewRenderer(QWidget):
 
     confirm_requested = pyqtSignal()
     reject_requested = pyqtSignal()
+    open_item_requested = pyqtSignal(object)  # the item: go and edit it there
 
     def set_proposal(
         self, experiment: Experiment, item: Any, task_name: str, proposal: Proposal
@@ -201,6 +202,11 @@ class ReviewRenderer(QWidget):
     def set_read_only(self, decided: Optional[Decision]) -> None:
         """Show a decided proposal as it was decided: no verbs. None re-arms."""
 
+    def set_to_check(self, applied: Optional[Decision]) -> None:
+        """Show a proposal its producer applied itself: the values are not
+        editable (they were used), the primary verb is Acknowledge, and
+        Reject keeps its meaning. None leaves this state."""
+
     def set_position(self, text: str) -> None:
         """Where this sits in the list ("3 of 12"); shown, never acted on."""
 
@@ -208,11 +214,12 @@ class ReviewRenderer(QWidget):
 def decided_proposals(experiment: Experiment) -> List[tuple]:
     """Every decided proposal as (item, task_name, proposal, superseded),
     newest decision first: the other half of the inbox, derived the same way.
-    ``superseded`` marks one a re-run replaced."""
+    ``superseded`` marks one a re-run replaced. A proposal still to check is
+    not here; it has its own group."""
     decided = []
     for item in list(experiment.positions) + list(experiment.grids):
         for task_name, proposal in item.proposals.items():
-            if not proposal.pending:
+            if not proposal.pending and not proposal.to_check:
                 decided.append((item, task_name, proposal, False))
             for p in proposal.superseded:
                 if not p.pending:
@@ -232,6 +239,14 @@ def describe_decision(
     when = clock(d.timestamp)
     if d.outcome is DecisionOutcome.Rejected:
         return f"Rejected by {who} at {when} — {d.reason}"
+    if not d.values and proposal.applied is not None:
+        applied = proposal.applied
+        return (
+            f"Applied by {author_label(applied.author, experiment)} at "
+            f"{clock(applied.timestamp)} · checked by {who} at {when}"
+        )
+    if d.author.startswith("auto:"):
+        return f"Applied by {who} at {when} · not checked yet"
     delta = proposal.delta(d).get("poi")
     moved = (
         f" · moved ({delta.x * 1e6:+.2f}, {delta.y * 1e6:+.2f}) µm"
@@ -282,10 +297,22 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self.task_chip.setStyleSheet(_CHIP_STYLE)
         self.position = QLabel()
         self.position.setStyleSheet(_MUTED_STYLE)
+        self.btn_open = QPushButton("Go to lamella")
+        self.btn_open.setFlat(True)
+        self.btn_open.setCursor(Qt.PointingHandCursor)
+        self.btn_open.setStyleSheet(
+            f"QPushButton {{ color: {GRAY_SECONDARY_COLOR}; background: transparent; "
+            "border: none; font-size: 11px; padding: 0 4px; }"
+            f"QPushButton:hover {{ color: {GRAY_TEXT_COLOR}; }}"
+        )
+        self.btn_open.setToolTip(
+            "Select this lamella in the Lamella tab, where its settings are edited"
+        )
         head = QHBoxLayout()
         head.addWidget(self.title)
         head.addWidget(self.task_chip)
         head.addStretch(1)
+        head.addWidget(self.btn_open)
         head.addWidget(self.position)
 
         # proposer · confidence · proposed · image, as one strip of cells
@@ -348,8 +375,10 @@ class MillingSetupReviewRenderer(ReviewRenderer):
 
         self.btn_confirm.clicked.connect(self.confirm_requested)
         self.btn_reject.clicked.connect(self.reject_requested)
+        self.btn_open.clicked.connect(lambda: self.open_item_requested.emit(self._item))
         self._running = False
         self._decided: Optional[Decision] = None
+        self._applied: Optional[Decision] = None
         self._refresh_status()
 
     # -- ReviewRenderer ------------------------------------------------------
@@ -391,6 +420,9 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         )
         self._gated = waiting_on(experiment, task_name)
         self._decided = None
+        self._applied = None
+        self.btn_confirm.setText("Confirm")
+        self.btn_confirm.setToolTip("Enter — this is the answer; the delta is computed")
         self._refresh_waiting()
         self._controller.remove_overlay(BeamType.ION, "confirmed")
 
@@ -450,6 +482,52 @@ class MillingSetupReviewRenderer(ReviewRenderer):
     def set_position(self, text: str) -> None:
         self.position.setText(text)
 
+    def set_to_check(self, applied: Optional[Decision]) -> None:
+        self._applied = applied
+        if applied is None:
+            return
+        # The values were used: the marker is not for dragging. The confirmed
+        # marker (which for centre-of-image sits on the proposed one) is drawn
+        # so what was applied is what is on screen.
+        self._draw_confirmed(applied)
+        self._controller.arm_overlay(BeamType.ION, None)
+        self.btn_confirm.setText("Acknowledge")
+        self.btn_confirm.setToolTip(
+            "Enter — record that you looked; nothing is written, the values "
+            "were already applied"
+        )
+        self.btn_confirm.setEnabled(True)
+        self.btn_reject.setEnabled(True)
+        self._refresh_waiting()
+        self._refresh_status()
+
+    def _draw_confirmed(self, decision: Decision) -> None:
+        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
+        if self._image is None:
+            return
+        confirmed = decision.values.get("poi")
+        if not isinstance(confirmed, Point):
+            return
+        px = conversions.microscope_image_to_image_coordinates(
+            confirmed, self._image.data.shape, self._image.metadata.pixel_size.x
+        )
+        self._controller.set_overlay(
+            BeamType.ION,
+            PointsSpec(
+                id="confirmed",
+                points=[(px.x, px.y)],
+                color=ORANGE_COLOR,
+                selected_color=ORANGE_COLOR,
+                marker="+",
+                size=14,
+                edge_width=1.2,
+                legend_label=None,  # the decision line says it
+                add_on_right_click=False,
+                removable=False,
+            ),
+        )
+
     def set_read_only(self, decided: Optional[Decision]) -> None:
         from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 
@@ -486,8 +564,11 @@ class MillingSetupReviewRenderer(ReviewRenderer):
     def _refresh_waiting(self) -> None:
         gated = getattr(self, "_gated", [])
         decided = getattr(self, "_decided", None)
+        applied = getattr(self, "_applied", None)
         if not gated:
             self.waiting.setText("Nothing is waiting on this.")
+        elif applied is not None:
+            self.waiting.setText("Applied, not waiting: " + ", ".join(gated))
         elif decided is None:
             self.waiting.setText("Waiting on this: " + ", ".join(gated))
         elif decided.outcome is DecisionOutcome.Rejected:
@@ -510,6 +591,21 @@ class MillingSetupReviewRenderer(ReviewRenderer):
             )
             self.decision.show()
             self.status.setText("Read-only · re-run the task to propose again")
+            return
+        applied = getattr(self, "_applied", None)
+        if applied is not None and self._proposal is not None:
+            self.decision.setText(
+                f"◦  {describe_decision(self._proposal, self._experiment)}"
+            )
+            self.decision.setStyleSheet(
+                f"color: {GRAY_TEXT_COLOR}; background: {SURFACE_COLOR}; "
+                f"border-left: 3px solid {GRAY_SECONDARY_COLOR}; padding: 6px 10px; "
+                "font-size: 12px;"
+            )
+            self.decision.show()
+            self.status.setText(
+                "Applied as proposed · acknowledge, or re-run the task to change it"
+            )
             return
         self.decision.hide()
         beam = "beam is busy elsewhere" if self._running else "beam is idle"
@@ -580,6 +676,9 @@ class _UnknownKindRenderer(ReviewRenderer):
     def set_read_only(self, decided: Optional[Decision]) -> None:
         self.btn_confirm.setEnabled(decided is None)
         self.btn_reject.setEnabled(decided is None)
+
+    def set_to_check(self, applied: Optional[Decision]) -> None:
+        self.btn_confirm.setText("Acknowledge" if applied else "Confirm as proposed")
 
 
 # ---------------------------------------------------------------------------
@@ -652,12 +751,16 @@ class ReviewTabWidget(QWidget):
 
     decided = pyqtSignal(str, str)  # item_id, task_name -- after it was applied
     pending_changed = pyqtSignal(int)  # how many are waiting, for the tab badge
+    # waiting, to check: only waiting means the run is stalled on someone
+    counts_changed = pyqtSignal(int, int)
+    open_item_requested = pyqtSignal(object)  # go to this item where it is edited
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._experiment: Optional[Experiment] = None
-        # (item, task_name, proposal, decided) per list row; decided rows are
-        # read-only and do not count as pending
+        # (item, task_name, proposal, state) per list row, state one of
+        # "waiting" (a decision gates a consumer), "check" (the producer applied
+        # it; a look is owed) or "decided" (read-only). Only waiting is pending.
         self._entries: List[tuple] = []
         self._renderers: Dict[str, ReviewRenderer] = {}
         self._running = False
@@ -733,10 +836,17 @@ class ReviewTabWidget(QWidget):
     def pending_count(self) -> int:
         return getattr(self, "_pending", 0)
 
+    @property
+    def check_count(self) -> int:
+        return getattr(self, "_to_check", 0)
+
     def refresh(self) -> None:
         """Re-derive the inbox from the experiment. Keeps the selection on the
-        same (item, task) when it is still pending."""
+        same (item, task) while it is listed; when it has left the list (just
+        decided, just acknowledged) the row that took its place is selected,
+        so a run of acknowledgements is a run of Returns."""
         current = self._current_key()
+        previous_index = self._current_index()
         self._entries = []
         self.list.blockSignals(True)
         self.list.clear()
@@ -759,9 +869,27 @@ class ReviewTabWidget(QWidget):
                         if blocks
                         else "blocks nothing",
                     ),
-                    entry=(item, task_name, proposal, False),
+                    entry=(item, task_name, proposal, "waiting"),
                 )
             pending = len(self._entries)
+            to_check = experiment.proposals_to_check()
+            if to_check:
+                self.list.addItem(_group_header(f"To check · {len(to_check)}"))
+            for item, task_name, proposal in to_check:
+                applied = proposal.applied or proposal.current
+                self._add_row(
+                    summary=f"{item.name} · {task_name} · to check",
+                    widget=_InboxRow(
+                        "mdi:circle-outline",
+                        GRAY_SECONDARY_COLOR,
+                        item.name,
+                        task_name,
+                        f"applied {age(applied.timestamp)}",
+                        author_label(applied.author, experiment),
+                    ),
+                    entry=(item, task_name, proposal, "check"),
+                    tooltip=describe_decision(proposal, experiment),
+                )
             if self.show_decided.isChecked():
                 decided = decided_proposals(experiment)
                 if decided:
@@ -794,21 +922,27 @@ class ReviewTabWidget(QWidget):
                             outcome,
                             dim=superseded,
                         ),
-                        entry=(item, task_name, proposal, True),
+                        entry=(item, task_name, proposal, "decided"),
                         tooltip=describe_decision(proposal, experiment),
                     )
         else:
             pending = 0
+            to_check = []
         self.list.blockSignals(False)
         self._pending = pending
+        self._to_check = len(to_check)
         self.pending_changed.emit(pending)
+        self.counts_changed.emit(pending, len(to_check))
 
-        select = 0
+        select = None
         if current is not None:
-            for i, (item, task_name, _p, _d) in enumerate(self._entries):
+            for i, (item, task_name, _p, _s) in enumerate(self._entries):
                 if (item.id, task_name) == current:
                     select = i
                     break
+        if select is None:
+            # the row that took the decided one's place, or the last row
+            select = min(previous_index or 0, max(len(self._entries) - 1, 0))
         if self._entries:
             self._select_entry(select)
         else:
@@ -846,7 +980,7 @@ class ReviewTabWidget(QWidget):
         index = self._current_index()
         if index is None:
             return None
-        item, task_name, _p, _d = self._entries[index]
+        item, task_name, _p, _s = self._entries[index]
         return (item.id, task_name)
 
     def _current_index(self) -> Optional[int]:
@@ -866,16 +1000,18 @@ class ReviewTabWidget(QWidget):
         index = self._current_index()
         if index is None or self._experiment is None:
             return
-        item, task_name, proposal, decided = self._entries[index]
+        item, task_name, proposal, state = self._entries[index]
         renderer = self._renderer_for(proposal.kind)
         renderer.set_proposal(self._experiment, item, task_name, proposal)
         renderer.set_running(self._running)
-        renderer.set_read_only(proposal.current if decided else None)
-        same = [i for i, e in enumerate(self._entries) if e[3] == decided]
-        nth = same.index(index) + 1 if index in same else 0
-        renderer.set_position(
-            f"decided {nth} of {len(same)}" if decided else f"{nth} of {len(same)}"
+        renderer.set_read_only(proposal.current if state == "decided" else None)
+        renderer.set_to_check(
+            (proposal.applied or proposal.current) if state == "check" else None
         )
+        same = [i for i, e in enumerate(self._entries) if e[3] == state]
+        nth = same.index(index) + 1 if index in same else 0
+        prefix = {"decided": "decided ", "check": "to check "}.get(state, "")
+        renderer.set_position(f"{prefix}{nth} of {len(same)}")
         self.stack.setCurrentWidget(renderer)
 
     def _renderer_for(self, kind: str) -> ReviewRenderer:
@@ -885,6 +1021,7 @@ class ReviewTabWidget(QWidget):
             renderer = cls()
             renderer.confirm_requested.connect(self.confirm_current)
             renderer.reject_requested.connect(self.reject_current)
+            renderer.open_item_requested.connect(self.open_item_requested)
             self.stack.addWidget(renderer)
             self._renderers[kind] = renderer
         return renderer
@@ -892,18 +1029,25 @@ class ReviewTabWidget(QWidget):
     # -- the two verbs -------------------------------------------------------
 
     def confirm_current(self) -> None:
+        """Confirm a waiting proposal with the values as the reviewer left
+        them; acknowledge a to-check one with no values at all. Empty values
+        write nothing through, so the acknowledgement is record-only by
+        construction: it says someone looked, and that is all it says."""
         index = self._current_index()
         if index is None or self._experiment is None:
             return
-        item, task_name, proposal, decided = self._entries[index]
-        if decided:
+        item, task_name, proposal, state = self._entries[index]
+        if state == "decided":
             return
-        renderer = self._renderer_for(proposal.kind)
+        if state == "check":
+            values: Dict[str, Any] = {}
+        else:
+            values = self._renderer_for(proposal.kind).current_values()
         decision = Decision(
             outcome=DecisionOutcome.Confirmed,
             author=self._experiment.author(),
             via="review",
-            values=renderer.current_values(),
+            values=values,
         )
         self._apply(item, task_name, decision)
 
@@ -911,8 +1055,8 @@ class ReviewTabWidget(QWidget):
         index = self._current_index()
         if index is None or self._experiment is None:
             return
-        item, task_name, proposal, decided = self._entries[index]
-        if decided:
+        item, task_name, proposal, state = self._entries[index]
+        if state == "decided":
             return
         retires = "This retires the lamella." if proposal.gating else ""
         reason, ok = QInputDialog.getText(

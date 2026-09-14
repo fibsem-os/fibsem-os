@@ -245,3 +245,42 @@ def test_an_event_without_status_bar_text_leaves_the_bar_alone(main_ui):
     )
 
     assert main_ui.status_bar.currentMessage() == "previous message"
+
+
+def test_the_review_badge_counts_to_check_apart_from_waiting(main_ui):
+    """Only waiting means the run is stalled on someone; a pile of things to
+    check is a different number, and the border does not follow it."""
+    tab_widget = main_ui.tab_widget
+    index = tab_widget.indexOf(main_ui.review_tab)
+    main_ui.review_tab.counts_changed.emit(3, 2)
+    assert tab_widget.tabText(index) == "Review (3 · 2 to check)"
+    main_ui.review_tab.counts_changed.emit(0, 2)
+    assert tab_widget.tabText(index) == "Review (2 to check)"
+    assert main_ui._border_state != "waiting"
+    main_ui.review_tab.counts_changed.emit(1, 0)
+    assert tab_widget.tabText(index) == "Review (1)"
+    main_ui.review_tab.counts_changed.emit(0, 0)
+    assert tab_widget.tabText(index) == "Review"
+
+
+def test_go_to_lamella_selects_it_where_it_is_edited(main_ui, tmp_path):
+    """Editing is not a review action: the Review tab hands the lamella over
+    to the tab where its settings live, selected."""
+    from psygnal.containers import EventedDict
+
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskProtocol,
+        Experiment,
+    )
+    from fibsem.structures import MicroscopeState
+
+    ui = main_ui.autolamella_ui
+    exp = Experiment(path=tmp_path, name="goto-exp")
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    exp.add_new_lamella(MicroscopeState(), EventedDict({}))
+    ui.experiment = exp
+    main_ui._rebuild_lamella_list()
+    lamella = exp.positions[0]
+    main_ui.review_tab.open_item_requested.emit(lamella)
+    assert main_ui.tab_widget.currentWidget() is main_ui._lamella_tab_container
+    assert main_ui.lamella_card_container._selected_id == lamella.id
