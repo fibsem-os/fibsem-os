@@ -1033,13 +1033,13 @@ class _CoordinatesTab(QWidget):
         self._fm_poi_ch_combo = ValueComboBox([])
         fit_form.addRow(_form_label("FM POI channel"), self._fm_poi_ch_combo)
 
-        self._show_diag_check = QCheckBox()
-        fit_form.addRow(_form_label("Show diagnostic"), self._show_diag_check)
+        # A checkbox carries its own label: the two share one row.
+        self._show_diag_check = QCheckBox("Show diagnostic")
 
         # Opt-in: apply fits without the confirm dialog. Off by default (the
         # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
         # fits still surface the dialog — see _on_refit_requested.
-        self._auto_accept_check = QCheckBox()
+        self._auto_accept_check = QCheckBox("Auto-accept fits")
 
         # Match the 11-12px labels these sit beside (see _form_label).
         for _ctl in (
@@ -1066,7 +1066,14 @@ class _CoordinatesTab(QWidget):
             "Apply fits immediately without the confirm dialog.\n"
             "Failed or far-off fits still ask for confirmation."
         )
-        fit_form.addRow(_form_label("Auto-accept fits"), self._auto_accept_check)
+        checks = QWidget()
+        checks_layout = QHBoxLayout(checks)
+        checks_layout.setContentsMargins(0, 2, 0, 0)
+        checks_layout.setSpacing(16)
+        checks_layout.addWidget(self._show_diag_check)
+        checks_layout.addWidget(self._auto_accept_check)
+        checks_layout.addStretch(1)
+        fit_form.addRow(checks)
 
         fit_help = QLabel(
             "Each fit opens a confirmation to accept or reject \u2014 unless "
