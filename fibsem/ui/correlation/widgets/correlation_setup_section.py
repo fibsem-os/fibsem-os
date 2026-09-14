@@ -18,6 +18,7 @@ Deliberately not here, because the widget already provides it:
 * fit / refractive-index settings → their own tabs (summarised read-only here)
 * interpolation                   → the Images tab's *Interpolate…* action
 """
+
 from __future__ import annotations
 
 import datetime
@@ -26,6 +27,7 @@ from typing import Callable, List, Optional
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QRadioButton,
@@ -185,18 +187,23 @@ class CorrelationSetupSection(QWidget):
         run_row = QWidget()
         run_layout = QHBoxLayout(run_row)
         run_layout.setContentsMargins(20, 0, 0, 0)
-        self.run_combo = ValueComboBox(
-            [format_run_label(r) for r in self._prev_runs]
-        )
+        self.run_combo = ValueComboBox([format_run_label(r) for r in self._prev_runs])
         self.run_combo.setStyleSheet(_CONTROL_STYLE)
-        run_layout.addWidget(self.run_combo, 1)
+        # Run names are short; sized to them like the Method panel's combos,
+        # not stretched like the image pickers that hold paths.
+        self.run_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.run_combo.setMinimumContentsLength(10)
+        run_layout.addWidget(self.run_combo)
+        run_layout.addStretch(1)
         col.addWidget(run_row)
 
         self._prev_caption = _caption(
             "Carries the FM POI + fiducials from that run forward.", indent=20
         )
         col.addWidget(self._prev_caption)
-        col.addWidget(_caption("Seeded points are placed as-is — refine them on the canvas."))
+        col.addWidget(
+            _caption("Seeded points are placed as-is — refine them on the canvas.")
+        )
         return body
 
     def _build_inherited_body(self) -> QWidget:
