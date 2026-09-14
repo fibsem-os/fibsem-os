@@ -31,6 +31,7 @@ from psygnal.containers import EventedDict, EventedList
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.proposals import (
+    REVIEW_OFF,
     Decision,
     DecisionOutcome,
     DecisionResult,
@@ -38,6 +39,7 @@ from fibsem.applications.autolamella.proposals import (
     has_value_writer,
     human_author,
     known_value_names,
+    normalise_review_mode,
     proposals_from_dict,
     proposals_to_dict,
     write_value,
@@ -315,13 +317,21 @@ class AutoLamellaTaskDescription:
     # semantics only — prompts are raised identically either way.
     supervisor: str = "human"
     # Propose and review: the task completes and leaves its answer as a proposal
-    # for someone to confirm or reject later, off the beam, instead of asking
-    # inline. Only tasks that know how to propose honour it (Setup Lamella
-    # Position, to start with); the consumer that requires this task is
-    # deferred until the proposal is decided. Independent of ``supervise``: a
-    # task can still block on the questions that genuinely need a person at
-    # the beam and propose the rest. Ignored unless the feature flag is on.
-    review: bool = False
+    # instead of asking inline. Only tasks that know how to propose honour it
+    # (Setup Lamella Position, to start with). One of REVIEW_MODES:
+    #   "off"    -- asks inline, proposes nothing.
+    #   "gate"   -- the consumer that requires this task is deferred until
+    #               someone confirms or rejects the proposal, off the beam.
+    #   "advise" -- the producer confirms its own proposal so the run never
+    #               waits; the record is there for someone to look at later.
+    # A bool (the field's first shape) still loads: True is gate, False off.
+    # Independent of ``supervise``: a task can still block on the questions
+    # that genuinely need a person at the beam and propose the rest. Ignored
+    # unless the feature flag is on.
+    review: str = "off"
+
+    def __post_init__(self) -> None:
+        self.review = normalise_review_mode(self.review)
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -423,13 +433,13 @@ class AutoLamellaWorkflowConfig:
                 return task.supervise
         return False
 
-    def get_review(self, task_name: str) -> bool:
-        """Whether a task should propose rather than ask (see
-        AutoLamellaTaskDescription.review)."""
+    def get_review(self, task_name: str) -> str:
+        """The task's review mode, one of REVIEW_MODES (see
+        AutoLamellaTaskDescription.review); "off" for a task not in the protocol."""
         for task in self.tasks:
             if task.name == task_name:
                 return task.review
-        return False
+        return REVIEW_OFF
 
     def get_supervisor(self, task_name: str) -> str:
         """Who a supervised task's questions are addressed to: human or agent."""
@@ -677,7 +687,7 @@ class AutoLamellaTaskProtocol:
         """Check if a task requires supervision."""
         return self.workflow_config.get_supervision(task_name)
 
-    def get_review(self, task_name: str) -> bool:
+    def get_review(self, task_name: str) -> str:
         return self.workflow_config.get_review(task_name)
 
     def get_supervisor(self, task_name: str) -> str:

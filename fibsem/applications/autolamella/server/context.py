@@ -851,6 +851,7 @@ class AgentContext:
             waiting_on,
         )
 
+        protocol = getattr(experiment, "task_protocol", None)
         reviews = []
         for item, task_name, proposal in experiment.pending_proposals():
             doc = to_plain(proposal.to_dict())
@@ -860,6 +861,7 @@ class AgentContext:
                     "item_name": item.name,
                     "task_name": task_name,
                     "gating": proposal.gating,
+                    "mode": protocol.get_review(task_name) if protocol else "off",
                     "waiting_on": waiting_on(experiment, task_name),
                 }
             )

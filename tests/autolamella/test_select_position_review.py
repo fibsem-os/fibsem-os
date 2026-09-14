@@ -48,7 +48,7 @@ def microscope():
     microscope.disconnect()
 
 
-def _experiment(tmp_path: Path, microscope, review: bool) -> Experiment:
+def _experiment(tmp_path: Path, microscope, review) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
     exp.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
@@ -99,7 +99,7 @@ def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
 def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, review=True)
     task = _task(microscope, exp, flag=True)
-    assert task.review is True
+    assert task.review == "gate" and task.proposes
     lamella = exp.positions[0]
     rough_point = (
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
@@ -193,15 +193,46 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
 def test_without_the_flag_or_without_review_nothing_is_proposed(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, review=True)
     task = _task(microscope, exp, flag=False)
-    assert task.review is False
+    assert task.review == "off" and not task.proposes
     task.run()
     assert exp.positions[0].proposals == {}
 
     exp = _experiment(tmp_path / "b", microscope, review=False)
     task = _task(microscope, exp, flag=True)
-    assert task.review is False
+    assert task.review == "off" and not task.proposes
     task.run()
     assert exp.positions[0].proposals == {}
+
+
+def test_in_advise_mode_the_producer_confirms_its_own_proposal(microscope, tmp_path):
+    """The run never waits: the proposal is recorded exactly as under gate,
+    then confirmed as proposed by the producer, through the same decide path
+    a person's confirm takes. The author says nobody looked."""
+    exp = _experiment(tmp_path, microscope, review="advise")
+    task = _task(microscope, exp, flag=True)
+    assert task.review == "advise" and task.proposes
+    lamella = exp.positions[0]
+    heard = []
+    exp.decided.connect(lambda item_id, task_name: heard.append(task_name))
+
+    task.run()
+
+    proposal = lamella.proposals[SETUP]
+    assert not proposal.pending
+    assert proposal.values == {"poi": Point(0.0, 0.0)}, "the proposal is untouched"
+    assert proposal.current.outcome is DecisionOutcome.Confirmed
+    assert proposal.current.author == "auto:centre-of-image"
+    assert proposal.current.values == proposal.values, "confirmed as proposed"
+    assert proposal.delta() == {"poi": Point(0.0, 0.0)}
+    assert heard == [SETUP], "the tab hears it like any other decision"
+    assert task.task_manager._defer_reason(lamella, ROUGH) is None, "nothing waits"
+    assert lamella.has_completed_task(SETUP)
+
+    # A re-run supersedes the auto-confirmed proposal like a person's.
+    _task(microscope, exp, flag=True).run()
+    fresh = lamella.proposals[SETUP]
+    assert fresh is not proposal and not fresh.pending
+    assert fresh.superseded == [proposal]
 
 
 def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
@@ -217,11 +248,25 @@ def test_review_round_trips_through_the_protocol():
     d = AutoLamellaTaskDescription(
         name=SETUP, supervise=True, required=True, review=True
     )
+    assert d.review == "gate", "a bool is the field's first shape: True is gate"
+    assert d.to_dict()["review"] == "gate"
     again = AutoLamellaTaskDescription.from_dict(d.to_dict())
-    assert again.review is True
+    assert again.review == "gate"
     old = AutoLamellaTaskDescription.from_dict(
         {"name": SETUP, "supervise": True, "required": True, "requires": []}
     )
-    assert old.review is False
+    assert old.review == "off"
+    older = AutoLamellaTaskDescription.from_dict(
+        {"name": SETUP, "supervise": True, "required": True, "review": False}
+    )
+    assert older.review == "off"
+    advise = AutoLamellaTaskDescription.from_dict(
+        {"name": SETUP, "supervise": True, "required": True, "review": "advise"}
+    )
+    assert advise.review == "advise"
+    with pytest.raises(ValueError):
+        AutoLamellaTaskDescription(
+            name=SETUP, supervise=True, required=True, review="maybe"
+        )
     cfg_ = AutoLamellaWorkflowConfig(tasks=[d])
-    assert cfg_.get_review(SETUP) is True and cfg_.get_review("nope") is False
+    assert cfg_.get_review(SETUP) == "gate" and cfg_.get_review("nope") == "off"
