@@ -439,6 +439,10 @@ class CorrelationResult:
     fm_z_scale: float = 1.0
     seed: Optional[dict] = None
     branch_check: Optional[dict] = None
+    # Where the fiducials put FM pixel (0, 0) minus where the stage metadata
+    # put it, in microns in the FIB image's frame (x, y). The next lamella's
+    # first projection adds it to its own metadata translation (FIB-979).
+    placement_offset: Optional[list] = None
 
     @property
     def dimage_dz_px_per_slice(self) -> Optional[list]:
@@ -481,6 +485,7 @@ class CorrelationResult:
             "fm_z_scale": self.fm_z_scale,
             "seed": self.seed,
             "branch_check": self.branch_check,
+            "placement_offset": self.placement_offset,
         }
 
     @staticmethod
@@ -526,6 +531,7 @@ class CorrelationResult:
             fm_z_scale=data.get("fm_z_scale", 1.0),
             seed=data.get("seed"),
             branch_check=data.get("branch_check"),
+            placement_offset=data.get("placement_offset"),
         )
 
     def apply_refractive_index_correction(
