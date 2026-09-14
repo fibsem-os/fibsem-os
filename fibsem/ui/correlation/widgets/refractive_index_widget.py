@@ -162,6 +162,7 @@ class RefractiveIndexWidget(QWidget):
             maximum=30.0,
             step=1.0,
             decimals=0,
+            no_buttons=True,
             tooltip=_TILT_TOOLTIP,
         )
         self._spin_depth = ValueSpinBox(
@@ -170,6 +171,7 @@ class RefractiveIndexWidget(QWidget):
             maximum=14.5,
             step=0.5,
             decimals=1,
+            no_buttons=True,
             tooltip="Estimated depth of the feature below the coverslip (has little effect below ~20 µm)",
         )
         self._spin_na = ValueSpinBox(
@@ -177,6 +179,7 @@ class RefractiveIndexWidget(QWidget):
             maximum=0.9,
             step=0.1,
             decimals=2,
+            no_buttons=True,
             tooltip="Numerical aperture of the objective lens",
         )
         self._spin_n2 = ValueSpinBox(
@@ -184,6 +187,7 @@ class RefractiveIndexWidget(QWidget):
             maximum=1.46,
             step=0.04,
             decimals=2,
+            no_buttons=True,
             tooltip="Refractive index of the sample medium (n=1.0 is vacuum/air)",
         )
         # Wavelength spinbox works in nm; converted to µm for LUT lookup
@@ -193,6 +197,7 @@ class RefractiveIndexWidget(QWidget):
             maximum=720.0,
             step=10.0,
             decimals=0,
+            no_buttons=True,
             tooltip="Excitation wavelength of the fluorescence channel",
         )
 
@@ -207,6 +212,7 @@ class RefractiveIndexWidget(QWidget):
             maximum=10.0,
             step=0.01,
             decimals=3,
+            no_buttons=True,
             tooltip="Correction factor (ζ) applied to the depth below the surface",
         )
         # Resolved once, so the initial value, the tooltip that advertises it and
