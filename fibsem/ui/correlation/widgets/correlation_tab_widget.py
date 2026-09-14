@@ -647,10 +647,21 @@ class _ImagesTab(QWidget):
             else:
                 self._fm_loaded_path = current
 
-    def add_setup_section(self, section: QWidget) -> None:
-        """Insert the lamella setup section before the tab's trailing stretch."""
+    def add_method_panel(self, panel: QWidget) -> None:
+        """The Method panel sits last: how the fit is done comes after what it
+        starts from (the lamella setup section, when there is one)."""
+        self._method_panel = panel
         layout = self._content_layout
-        layout.insertWidget(layout.count() - 1, section)
+        layout.insertWidget(layout.count() - 1, panel)
+
+    def add_setup_section(self, section: QWidget) -> None:
+        """Insert the lamella setup section above the Method panel (and always
+        before the tab's trailing stretch): the tab reads project, images, what
+        to start from, how it fits."""
+        layout = self._content_layout
+        method = getattr(self, "_method_panel", None)
+        index = layout.indexOf(method) if method is not None else -1
+        layout.insertWidget(index if index >= 0 else layout.count() - 1, section)
 
     # ------------------------------------------------------------------
     # Browse / load
@@ -1859,7 +1870,7 @@ class CorrelationTabWidget(QWidget):
 
         # Right: tab widget stacked above run button
         self._build_side_widgets()
-        self._images_tab.add_setup_section(self._coords_tab._fit_panel)
+        self._images_tab.add_method_panel(self._coords_tab._fit_panel)
         self._coords_tab._fit_panel.collapse()
         self._tabs = QTabWidget()
         self._tabs.addTab(self._images_tab, "Images")

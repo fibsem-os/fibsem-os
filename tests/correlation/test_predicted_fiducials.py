@@ -404,6 +404,10 @@ def test_fit_settings_live_on_the_setup_tab_and_the_coordinates_tab_says_so(
     assert panel.parent() is not None
     assert loaded._images_tab.isAncestorOf(panel)
     assert not loaded._coords_tab.isAncestorOf(panel)
+    # what to start from comes before how it fits
+    section = loaded.add_lamella_setup(spot_burns=_burns(ARCTIS))
+    layout = loaded._images_tab._content_layout
+    assert layout.indexOf(section) < layout.indexOf(panel)
 
 
 # ── the placement offset and the Method panel's projection row (FIB-979) ──
