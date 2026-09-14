@@ -177,3 +177,57 @@ def test_a_schedule_shares_the_dependency_column(qapp, monkeypatch):
     assert row.requires_label.text() == ""
     row.deleteLater()
     qapp.processEvents()
+
+
+def test_remove_lives_in_the_edit_dialog_not_on_the_row(qapp, monkeypatch):
+    """A trash can on every row was the one thing there nobody pressed. The
+    edit dialog offers Remove task…, confirms, closes, and the list drops the
+    row and announces it on the same signal the hosts already listen to."""
+    from PyQt5.QtWidgets import QMessageBox
+
+    from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
+        LamellaWorkflowWidget,
+    )
+
+    monkeypatch.setattr(module, "_review_available", lambda: False)
+    setup = AutoLamellaTaskDescription(name="Setup", supervise=False, required=True)
+    rough = AutoLamellaTaskDescription(name="Rough", supervise=False, required=True)
+    widget = LamellaWorkflowWidget()
+    widget.workflow.set_config(AutoLamellaWorkflowConfig(tasks=[setup, rough]))
+    row = widget.workflow._row(0)
+    assert not hasattr(row, "btn_remove")
+    removed = []
+    widget.task_remove_requested.connect(removed.append)
+
+    # No is no
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No)
+    )
+    widget._on_task_edit_requested(setup)
+    dialog = widget._editor_dialog
+    assert dialog.editor._remove_btn.isVisibleTo(dialog)
+    dialog.editor._remove_btn.click()
+    assert removed == [] and [t.name for t in widget.workflow.get_tasks()] == [
+        "Setup",
+        "Rough",
+    ]
+    dialog.reject()
+
+    # Yes removes, closes the dialog, and announces the task
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
+    )
+    widget._on_task_edit_requested(setup)
+    dialog.editor._remove_btn.click()
+    qapp.processEvents()
+    assert removed == [setup]
+    assert [t.name for t in widget.workflow.get_tasks()] == ["Rough"]
+    assert not dialog.isVisible()
+
+    # a host that never removes hides the button
+    widget.workflow.enable_remove_button(False)
+    widget._on_task_edit_requested(rough)
+    assert not dialog.editor._remove_btn.isVisibleTo(dialog)
+    dialog.reject()
+    widget.deleteLater()
+    qapp.processEvents()

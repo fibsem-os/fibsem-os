@@ -12,7 +12,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -56,9 +55,7 @@ _CHIP_ICONS = {
     "agent": "mdi:star-four-points",
     "review": "mdi:clipboard-check",
 }
-_BTN_SPACER_WIDTH = (
-    _BTN_SIZE.width() * 2 + _CHIP_WIDTH + 8 * 2
-)  # attention chip + edit + remove + 2 gaps
+_BTN_SPACER_WIDTH = _BTN_SIZE.width() + _CHIP_WIDTH + 8  # attention chip + edit + 1 gap
 # Long labels on purpose: the short set (Auto / Superv. / Review) reads badly
 # and the long ones fit at the chip's width.
 ATTENTION_LABELS = {
@@ -242,7 +239,6 @@ class WorkflowTaskRowWidget(QWidget):
     supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     review_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     edit_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
-    remove_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
     selection_changed = pyqtSignal(object, bool)  # AutoLamellaTaskDescription, checked
 
     def __init__(
@@ -306,15 +302,14 @@ class WorkflowTaskRowWidget(QWidget):
         self.btn_supervise = self.btn_attention
         self.btn_review = self.btn_attention
 
+        # Edit opens the dialog, which is also where a task is removed: a
+        # trash can on every row was the one thing there nobody pressed.
         self.btn_edit = IconToolButton(
-            icon="mdi:pencil", tooltip="Edit", size=_BTN_SIZE.width()
+            icon="mdi:pencil",
+            tooltip="Edit, schedule or remove",
+            size=_BTN_SIZE.width(),
         )
         layout.addWidget(self.btn_edit)
-
-        self.btn_remove = IconToolButton(
-            icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE.width()
-        )
-        layout.addWidget(self.btn_remove)
 
         drag_icon = QLabel()
         drag_icon.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
@@ -328,7 +323,6 @@ class WorkflowTaskRowWidget(QWidget):
         )
         self.btn_attention.clicked.connect(self._on_attention_clicked)
         self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.task))
-        self.btn_remove.clicked.connect(self._on_remove_clicked)
 
         self.refresh()
 
@@ -373,17 +367,6 @@ class WorkflowTaskRowWidget(QWidget):
     # the old names, for callers that drove the two buttons directly
     _on_supervise_clicked = _on_attention_clicked
     _on_review_clicked = _on_attention_clicked
-
-    def _on_remove_clicked(self) -> None:
-        reply = QMessageBox.question(
-            self,
-            "Remove Task",
-            f"Remove <b>{self.task.name}</b> from workflow?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            self.remove_clicked.emit(self.task)
 
     def refresh(self) -> None:
         """Re-read all display fields from the stored task."""
@@ -565,7 +548,6 @@ class WorkflowConfigWidget(QWidget):
         row.supervised_changed.connect(self.supervised_changed)
         row.review_changed.connect(self.review_changed)
         row.edit_clicked.connect(self.edit_requested)
-        row.remove_clicked.connect(self._on_remove_clicked)
         row.selection_changed.connect(self._on_row_selection_changed)
 
     def enable_schedule_button(self, visible: bool) -> None:
@@ -591,9 +573,13 @@ class WorkflowConfigWidget(QWidget):
             self._row(i).btn_edit.setVisible(visible)
 
     def enable_remove_button(self, visible: bool) -> None:
+        """Whether tasks may be removed at all. Removal lives in the edit
+        dialog now; the host reads ``remove_allowed`` when it opens one."""
         self._btn_visible["remove"] = visible
-        for i in range(self._list.count()):
-            self._row(i).btn_remove.setVisible(visible)
+
+    @property
+    def remove_allowed(self) -> bool:
+        return self._btn_visible["remove"]
 
     def remove_task(self, task: AutoLamellaTaskDescription) -> None:
         for i in range(self._list.count()):
@@ -661,11 +647,14 @@ class WorkflowConfigWidget(QWidget):
         row.set_schedule_visible(self._btn_visible["schedule"])
         row.btn_attention.setVisible(self._btn_visible["supervise"])
         row.btn_edit.setVisible(self._btn_visible["edit"])
-        row.btn_remove.setVisible(self._btn_visible["remove"])
 
-    def _on_remove_clicked(self, task: AutoLamellaTaskDescription) -> None:
+    def request_remove(self, task: AutoLamellaTaskDescription) -> None:
+        """Drop the task's row and announce it. The confirmation happened in
+        the edit dialog; this is the one removal path."""
         self.remove_task(task)
         self.remove_requested.emit(task)
+
+    _on_remove_clicked = request_remove  # the old name
 
     def _on_row_selection_changed(
         self, task: AutoLamellaTaskDescription, checked: bool
