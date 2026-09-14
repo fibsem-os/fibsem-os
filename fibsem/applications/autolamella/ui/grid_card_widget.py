@@ -442,7 +442,7 @@ class GridCardWidget(QWidget):
             self._thumb_label.setPixmap(QPixmap())
             self._thumb_label.setText("")
 
-        # Load brings a grid into the beam; only with a loader, and only for a grid
+        # Load brings a grid onto the stage; only with a loader, and only for a grid
         # that is present and not already there. Unload for the one that is.
         can = self._controls_enabled
         self._action_load.setVisible(self._has_loader and not self.loaded)
