@@ -905,14 +905,16 @@ class _CoordinatesTab(QWidget):
         fit_form.setContentsMargins(8, 4, 8, 4)
         fit_form.setSpacing(4)
         # The choices are one or two words; a combo stretched to the panel's
-        # width reads as a text field. Fields keep their own width.
-        fit_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
+        # width reads as a text field. Only the projection line, which wraps,
+        # takes the width.
+        fit_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
         # Where the projection comes from, one line; the numbers live in the
         # tooltip. The link ignores (or restores) a previous run's placement
         # offset for this lamella (FIB-979).
         self._lbl_projection = QLabel("")
         self._lbl_projection.setWordWrap(True)
+        self._lbl_projection.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self._lbl_projection.setTextFormat(Qt.RichText)
         self._lbl_projection.setStyleSheet("font-size: 12px;")
         self._lbl_projection.linkActivated.connect(self.projection_link_activated)
