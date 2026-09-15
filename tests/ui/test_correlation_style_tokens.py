@@ -21,15 +21,18 @@ CHECKED = [
     "fm_interpolate_dialog.py",
 ]
 # Point-type colours live in the overlay on purpose; the canvases are matplotlib.
-HEX = re.compile(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b")
+# A hex colour inside a string literal. Stripping "comments" at the first '#'
+# would strip every colour too, so the guard looks inside quotes.
+HEX = re.compile(r"""["'][^"'\n]*#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b""")
 FONT_SIZE = re.compile(r"font-size:\s*\d+px")
 
 
 def _code_lines(path: Path):
-    """Source lines with comments stripped, so a hex in a comment does not count."""
+    """Source lines that are not comment lines."""
     for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        code = line.split("#", 1)[0] if not HEX.search(line.split("#", 1)[0]) else line
-        yield n, code
+        if line.strip().startswith("#"):
+            continue
+        yield n, line
 
 
 def test_no_hex_colour_literals_in_the_correlation_widgets():

@@ -112,6 +112,7 @@ from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
 from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
     CorrelationFMCanvasWidget,
 )
+from fibsem.ui.correlation.widgets.correlation_point_overlay import POINT_COLORS
 from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
     FitConfirmationDialog,
     FitStatus,
@@ -2133,7 +2134,7 @@ class CorrelationTabWidget(QWidget):
         """Status line, Run and Continue, and the RMS badge."""
         run_bar = QWidget()
         run_bar.setStyleSheet(
-            f"background: {CANVAS_BG}; border-top: 1px solid #3a3d42;"
+            f"background: {CANVAS_BG}; border-top: 1px solid {BORDER_COLOR};"
         )
         run_layout = QVBoxLayout(run_bar)
         run_layout.setContentsMargins(8, 6, 8, 6)
@@ -3901,16 +3902,20 @@ class CorrelationTabWidget(QWidget):
         """Draw reprojected error markers and POI on the FIB canvas."""
         self._fib_canvas.clear_overlay()
 
-        # Reprojected FM fiducials — red "x", smaller, labeled E1/E2/...
+        # Reprojected FM fiducials: a hollow ring in the FM colour on each FIB
+        # point, unlabeled. A second label on every burn ("FIB 6" + "E6") made
+        # the canvas unreadable after a run; the residual is on the row and the
+        # Results tab (FIB-978).
         error_pts = [(r.x, r.y) for r in result.reprojected_3d]
         if error_pts:
             self._fib_canvas.add_overlay_points(
                 error_pts,
-                color="#ff4444",
-                label_prefix="E",
-                size=4,
+                color=POINT_COLORS[PointType.FM],
+                size=7,
                 marker="o",
-                legend_label="FM reprojected (E)",
+                hollow=True,
+                show_labels=False,
+                legend_label="FM fiducials, reprojected",
             )
 
         # Ghost: where the POI would land without the RI pre-correction —
@@ -3920,25 +3925,25 @@ class CorrelationTabWidget(QWidget):
         if ghost_pts:
             self._fib_canvas.add_overlay_points(
                 ghost_pts,
-                color="#ff00ff",
+                color=POINT_COLORS[PointType.POI],
                 size=7,
                 marker="o",
                 alpha=0.7,
                 show_labels=False,
                 hollow=True,
-                legend_label="POI uncorrected",
+                legend_label="Target before depth correction",
             )
 
-        # Reprojected POI — magenta circle, labeled P1/P2/...
+        # The correlated target: a filled POI-coloured marker, labeled "POI 1"
         poi_pts = [(p.image_px.x, p.image_px.y) for p in result.poi]
         if poi_pts:
             self._fib_canvas.add_overlay_points(
                 poi_pts,
-                color="#ff00ff",
-                label_prefix="P",
+                color=POINT_COLORS[PointType.POI],
+                label_prefix="POI ",
                 size=5,
                 marker="o",
-                legend_label="POI (P)",
+                legend_label="Target (POI)",
             )
 
     # ------------------------------------------------------------------

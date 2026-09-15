@@ -77,9 +77,11 @@ MARKER_SIZE = 5.0  # the base draws the selected marker at size * 1.4 = 7.0
 # complement of all of them: it rescues SURFACE and FM-SURFACE against a bright
 # image, where they otherwise disappear entirely. A *white* stroke is the wrong
 # choice for the same reason -- it merges into a bright background, which is
-# exactly where the outline has to work. 0.5 matches the old canvas; heavier
-# starts eating the glyph at this font size.
-LABEL_OUTLINE = [pe.withStroke(linewidth=0.5, foreground="black")]
+# exactly where the outline has to work. The stroke is drawn *behind* the
+# glyph (``Normal`` re-draws the text on top), so it can be heavy enough to
+# hold a label on a burned, white patch of FIB image without eating the
+# letters -- at 0.5 the FIB labels vanished there (FIB-978).
+LABEL_OUTLINE = [pe.withStroke(linewidth=2.0, foreground="black"), pe.Normal()]
 
 
 LABEL_FONTSIZE = 8
