@@ -270,8 +270,16 @@ class CoordinateRowWidget(QWidget):
             w.installEventFilter(self)
 
         self._selected = False
+        self._note: Optional[tuple] = None  # (text, tone) from the last run
         self._connect_signals()
         self.refresh()
+
+    def set_note(self, note: Optional[tuple]) -> None:
+        """A per-run remark for the state column -- the point's leave-one-out
+        error after a run -- shown when the state word is empty. ``(text,
+        tone)`` or None."""
+        self._note = note
+        self._update_state()
 
     def _connect_signals(self) -> None:
         self.btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.coord))
@@ -413,6 +421,8 @@ class CoordinateRowWidget(QWidget):
         tone = _state_tone(self.coord)
         if text.startswith("predicted") and self._off_image():
             text, tone = "predicted \u00b7 off image", "warn"
+        if not text and self._note:
+            text, tone = self._note
         self.state_label.setText(text)
         self.state_label.setStyleSheet(state_style(tone, 11))
         muted = status == PointStatus.REJECTED
@@ -587,6 +597,16 @@ class CoordinateListWidget(QWidget):
         self._empty_label.setVisible(len(self._coordinates) == 0)
         self._fit_height_to_rows()
 
+    def set_notes(self, notes: dict) -> None:
+        """Per-point remarks from the last run, keyed by coordinate identity:
+        ``{id(coord): (text, tone)}``. An empty dict clears them."""
+        self._notes = dict(notes)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            w = self._list.itemWidget(item) if item is not None else None
+            if isinstance(w, CoordinateRowWidget):
+                w.set_note(self._notes.get(id(w.coord)))
+
     def _fit_height_to_rows(self) -> None:
         """Size the list to its rows, up to ``_MAX_VISIBLE_ROWS``, then scroll.
 
@@ -607,6 +627,7 @@ class CoordinateListWidget(QWidget):
         if any(v is not None for v in (self._x_max, self._y_max, self._z_max)):
             row_widget.set_axis_maxima(self._x_max, self._y_max, self._z_max)
         self._connect_row(row_widget)
+        row_widget.set_note(getattr(self, "_notes", {}).get(id(coord)))
 
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, coord)
