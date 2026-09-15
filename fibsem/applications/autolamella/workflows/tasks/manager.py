@@ -399,14 +399,28 @@ class TaskManager(BaseTaskManager):
         review_wait = self._review_wait()
         n = len({i.item_name for i in awaiting})
         self._set_waiting_for_review(n)
+        # The one place where "why is nothing happening" is a fair question:
+        # say so, once on the way in and once on the way out.
+        held = ", ".join(f"{i.item_name}/{i.task_name}" for i in awaiting)
+        started = time.monotonic()
         try:
             if review_wait is not None and review_wait <= 0:
                 self.stalled = True
                 self.stall_reason = (
                     f"{n} decision(s) pending; not waiting (review_wait=0)."
                 )
+                logging.info(self.stall_reason)
                 return False
 
+            logging.info(
+                f"Parked: {len(awaiting)} task(s) wait on {n} decision(s) in the "
+                f"Review tab ({held}); "
+                + (
+                    "waiting until one is made."
+                    if review_wait is None
+                    else f"giving up after {format_duration(review_wait)} without one."
+                )
+            )
             deadline = None if review_wait is None else time.monotonic() + review_wait
             while not self.is_stopped:
                 timeout = 1.0
@@ -418,9 +432,16 @@ class TaskManager(BaseTaskManager):
                             f"{n} decision(s) still pending after "
                             f"{format_duration(review_wait)} without one."
                         )
+                        logging.warning(self.stall_reason)
                         return False
                 if self._decision_event.wait(timeout):
+                    logging.info(
+                        "A decision landed after "
+                        f"{format_duration(time.monotonic() - started)} parked; "
+                        "rescanning the queue."
+                    )
                     return True
+            logging.info("Stopped while parked on a decision.")
             return False
         finally:
             self._set_waiting_for_review(0)

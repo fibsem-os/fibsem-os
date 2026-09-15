@@ -177,8 +177,9 @@ def test_without_the_flag_the_result_is_recorded_but_never_gates(microscope, tmp
 
 def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path):
     """A run records outputs; a task proposes a kind. Which kind is the task
-    type's say, in code, not the protocol's: the fiducial's product is
-    reviewed with what uses it, so it proposes nothing."""
+    type's say, in code, not the protocol's. Every shipped task leaves images,
+    so every shipped task proposes; None is reserved for a type with nothing
+    to look at, and is exercised here by hand."""
     from fibsem.applications.autolamella.workflows.tasks.fiducial import (
         MillFiducialTask,
     )
@@ -189,8 +190,8 @@ def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path
         SelectMillingPositionTask,
     )
 
-    assert MillFiducialTask.proposal_kind is None
-    assert AcquireReferenceImageTask.proposal_kind is None
+    assert MillFiducialTask.proposal_kind == TASK_RESULT, "a bad fiducial is gateable"
+    assert AcquireReferenceImageTask.proposal_kind == TASK_RESULT
     assert MillRoughTask.proposal_kind == TASK_RESULT
     assert SelectMillingPositionTask.proposal_kind == MILLING_SETUP
     exp = _experiment(tmp_path, microscope, review=True)

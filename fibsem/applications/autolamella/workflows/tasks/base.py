@@ -115,11 +115,12 @@ class AutoLamellaTask(ABC):
     config: AutoLamellaTaskConfig
     # What this task type proposes, for the Review tab: a property of the type,
     # declared here, never a protocol choice, and independent of the mode it
-    # runs in. TASK_RESULT ("here is what I did, look") for most tasks; a
-    # richer kind for a task whose output is a value someone might change
-    # (Setup proposes the milling position); None for a task whose product is
-    # reviewed with what uses it (the fiducial, a reference-image acquisition).
-    # A run records outputs (files, by role); a task proposes a kind.
+    # runs in. TASK_RESULT ("here is what I did, look") for every task that
+    # leaves images or values, which is every shipped task; a richer kind for
+    # one whose output is a value someone might change (Setup proposes the
+    # milling position); None only for a type with nothing to look at, so
+    # that a Review chip on its row is never a silent no-op. A run records
+    # outputs (files, by role); a task proposes a kind.
     proposal_kind: ClassVar[Optional[str]] = TASK_RESULT
 
     def __init__(
