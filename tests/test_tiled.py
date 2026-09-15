@@ -802,6 +802,29 @@ def _autofocus_runner(mode, settings=None, af_result="sentinel"):
     return runner, calls, _fake_run_auto_focus
 
 
+def test_the_sweep_scores_the_centred_half_frame_unless_told_otherwise(tmp_path):
+    """The Image tab's Auto Focus scores the middle half of the frame; the overview's
+    sweep scored the whole tile, seams and all, and read as soft tiles. The default
+    is filled on the runner's copy: the caller's settings stay as they were, and an
+    area the settings do name is kept."""
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+    from fibsem.structures import AutoFocusMode, FibsemRectangle
+
+    settings = _make_settings(1, 1)
+    settings.autofocus_mode = AutoFocusMode.ONCE
+    runner, _ = _demo_runner(settings, tmp_path)
+    area = runner._af_settings.reduced_area
+    assert (area.left, area.top, area.width, area.height) == (0.25, 0.25, 0.5, 0.5)
+    assert settings.autofocus_settings.reduced_area is None
+    assert runner._af_settings.passes == settings.autofocus_settings.passes
+
+    named = FibsemRectangle(left=0.1, top=0.1, width=0.3, height=0.3)
+    settings = _make_settings(1, 1)
+    settings.autofocus_settings = AutoFocusSettings(reduced_area=named)
+    runner, _ = _demo_runner(settings, tmp_path)
+    assert runner._af_settings.reduced_area is named
+
+
 def test_the_sweep_is_given_the_tiles_own_field_of_view(monkeypatch):
     """`run_auto_focus`'s `hfw` defaults to 150 um. An overview tile is routinely 500 um
     or wider, so taking the default would score probe images framing a different picture
