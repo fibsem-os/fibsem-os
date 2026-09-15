@@ -323,6 +323,37 @@ def test_after_an_acknowledgement_the_next_row_is_selected(tab, experiment, qapp
     assert tab.check_count == 0
 
 
+def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
+    tab, experiment, qapp
+):
+    """A log that piled up while the tab was hidden clears in one click; what
+    is waiting for a real decision is untouched."""
+    lamella = experiment.positions[0]
+    _auto_confirm(lamella.proposals[SETUP])
+    lamella.proposals[FIDUCIAL] = Proposal(
+        kind=MILLING_SETUP, values={"poi": Point(0.0, 0.0)}, provenance={}
+    )
+    _auto_confirm(lamella.proposals[FIDUCIAL])
+    lamella.proposals[ROUGH] = Proposal(
+        kind=MILLING_SETUP, values={"poi": Point(0.0, 0.0)}
+    )
+    tab.refresh()
+    assert tab.check_count == 2 and tab.pending_count == 1
+    assert tab.list.itemWidget(tab.list.item(0)) is None, "waiting has no action"
+    check_header = tab.list.itemWidget(tab.list.item(2))
+    assert isinstance(check_header, R._GroupHeaderRow)
+    assert check_header.button.text() == "Mark all as checked"
+
+    check_header.button.click()
+    qapp.processEvents()
+
+    assert tab.check_count == 0 and tab.pending_count == 1, "waiting is untouched"
+    for name in (SETUP, FIDUCIAL):
+        d = lamella.proposals[name].current
+        assert d.author.startswith("human:") and d.values == {} and d.via == "review"
+    assert lamella.proposals[ROUGH].pending
+
+
 def test_rejecting_a_checked_proposal_still_retires_the_lamella(
     tab, experiment, monkeypatch
 ):

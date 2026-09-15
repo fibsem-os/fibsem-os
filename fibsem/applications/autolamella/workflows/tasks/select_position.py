@@ -68,6 +68,8 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
 class SelectMillingPositionTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
 
+    proposal_kind = MILLING_SETUP  # the milling position, a value someone may change
+
     config: SelectMillingPositionTaskConfig
     config_cls: ClassVar[Type[SelectMillingPositionTaskConfig]] = (
         SelectMillingPositionTaskConfig
@@ -185,7 +187,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # Review tab shows. Gated: it waits there. Answered inline above: that
         # answer is its decision. Neither: the producer confirms it after the
         # task, and the row is there to check.
-        if self.config.select_poi and self.records:
+        if self.config.select_poi:
             self._propose_poi(decided=chosen)
 
     def _propose_poi(self, decided: Optional[Point] = None) -> None:

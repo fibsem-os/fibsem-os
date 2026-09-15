@@ -60,6 +60,7 @@ from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
+    ACCENT_COLOR,
     DEFECT_RED_COLOR,
     GRAY_ICON_COLOR,
     GRAY_SECONDARY_COLOR,
@@ -867,6 +868,35 @@ def _group_header(text: str) -> QListWidgetItem:
     return header
 
 
+class _GroupHeaderRow(QWidget):
+    """A group header with an action on its right: the to-check group's
+    "Mark all as checked", so a log that piled up while the tab was hidden
+    clears in one click."""
+
+    def __init__(self, text: str, action: str, slot) -> None:
+        super().__init__()
+        self.setStyleSheet("background: transparent;")
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(3, 0, 8, 0)
+        # the same size and colour the plain group headers get from the list
+        self.label = QLabel(text)
+        self.label.setStyleSheet(f"color: {GRAY_TEXT_COLOR}; background: transparent;")
+        layout.addWidget(self.label)
+        layout.addStretch(1)
+        self.button = QPushButton(action)
+        self.button.setFlat(True)
+        self.button.setCursor(Qt.PointingHandCursor)
+        self.button.setFocusPolicy(Qt.NoFocus)
+        self.button.setStyleSheet(
+            f"QPushButton {{ color: {ACCENT_COLOR}; background: transparent; "
+            "border: none; font-size: 11px; padding: 0 2px; }"
+            f"QPushButton:hover {{ color: {GRAY_TEXT_COLOR}; }}"
+        )
+        self.button.clicked.connect(slot)
+        layout.addWidget(self.button)
+
+
 # ---------------------------------------------------------------------------
 # The tab
 # ---------------------------------------------------------------------------
@@ -1000,7 +1030,17 @@ class ReviewTabWidget(QWidget):
             pending = len(self._entries)
             to_check = experiment.proposals_to_check()
             if to_check:
-                self.list.addItem(_group_header(f"To check · {len(to_check)}"))
+                header = _group_header(f"To check · {len(to_check)}")
+                header.setText("")  # the widget draws it
+                self.list.addItem(header)
+                widget = _GroupHeaderRow(
+                    f"To check · {len(to_check)}",
+                    "Mark all as checked",
+                    self.acknowledge_all,
+                )
+                header.setData(Qt.UserRole + 1, f"To check · {len(to_check)}")
+                header.setSizeHint(QSize(0, max(widget.sizeHint().height(), 24)))
+                self.list.setItemWidget(header, widget)
             for item, task_name, proposal in to_check:
                 applied = proposal.applied or proposal.current
                 self._add_row(
@@ -1177,6 +1217,36 @@ class ReviewTabWidget(QWidget):
             values=values,
         )
         self._apply(item, task_name, decision)
+
+    def acknowledge_all(self) -> None:
+        """Record a look on every to-check proposal, one decision each with no
+        values (writes nothing), then one save. What was waiting is untouched."""
+        experiment = self._experiment
+        if experiment is None:
+            return
+        author = experiment.author()
+        done = 0
+        for item, task_name, _proposal in experiment.proposals_to_check():
+            result = experiment.decide(
+                item.id,
+                task_name,
+                Decision(
+                    outcome=DecisionOutcome.Confirmed,
+                    author=author,
+                    values={},
+                    via="review",
+                ),
+            )
+            if result.applied:
+                done += 1
+        if not done:
+            return
+        try:
+            experiment.save()
+        except Exception:
+            logging.exception("saving the experiment after acknowledging failed")
+        self.decided.emit("", "")
+        self.refresh()
 
     def reject_current(self) -> None:
         index = self._current_index()
