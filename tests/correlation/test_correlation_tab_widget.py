@@ -1204,8 +1204,9 @@ def test_advanced_panels_start_collapsed(qapp):
     # Advanced / set-once panels collapse by default...
     assert cl._surface_panel._btn_collapse.isChecked() is False
     assert cl._fm_surface_panel._btn_collapse.isChecked() is False
-    assert cl._fit_panel._btn_collapse.isChecked() is False
-    # ...while the everyday fiducial/POI panels stay expanded.
+    # ...while the everyday fiducial/POI panels stay expanded, and so does
+    # Method, which on the Setup tab carries the Projection row.
+    assert cl._fit_panel._btn_collapse.isChecked() is True
     assert cl._fib_panel._btn_collapse.isChecked() is True
     assert cl._fm_panel._btn_collapse.isChecked() is True
     assert cl._poi_panel._btn_collapse.isChecked() is True
@@ -1691,24 +1692,59 @@ def test_accept_is_default_button_not_the_toggle(qapp):
     assert not dlg._toggle_btn.autoDefault()
 
 
-def test_fitted_icon_reflects_state(qapp):
+def test_row_state_word_is_empty_for_a_placed_point_and_names_the_rest(qapp):
+    from fibsem.correlation.structures import PointProvenance, PointStatus
     from fibsem.ui.correlation.widgets.coordinate_list_widget import (
+        CoordinateRowWidget,
+        state_text,
+    )
+
+    coord = _coord(pt=PointType.FM)
+    row = CoordinateRowWidget(coord, "FM 1")
+    assert row.state_label.text() == ""  # placed: no chrome
+    coord.status = PointStatus.FITTED
+    row.refresh()
+    assert row.state_label.text() == "fitted"
+    coord.status = PointStatus.PREDICTED
+    coord.provenance = PointProvenance.PROJECTED
+    row.refresh()
+    assert row.state_label.text() == "predicted"
+    coord.suggested = True
+    row.refresh()
+    assert "start here" in row.state_label.text()
+    coord.status = PointStatus.REJECTED
+    row.refresh()
+    assert row.state_label.text() == "removed from fit"
+    assert row.name_label.font().strikeOut()
+    # the legacy flag alone still reads as fitted
+    legacy = _coord(pt=PointType.FIB)
+    legacy.fitted = True
+    assert state_text(legacy) == "fitted"
+
+
+def test_row_actions_show_only_on_the_selected_row(qapp):
+    from fibsem.ui.correlation.widgets.coordinate_list_widget import (
+        CoordinateListWidget,
         CoordinateRowWidget,
     )
 
-    coord = _coord(pt=PointType.FIB)
-    coord.fitted = True
-    row = CoordinateRowWidget(coord, "FIB-0")
-    # Always visible (an aligned status column); state is encoded by colour.
-    assert not row.fitted_icon.isHidden()
-    assert "confirmed" in row.fitted_icon.toolTip()
-    fitted_key = row.fitted_icon.pixmap().cacheKey()
-
-    coord.fitted = False  # a manual edit supersedes the fit
-    row.refresh()
-    assert not row.fitted_icon.isHidden()  # still shown...
-    assert "Manually" in row.fitted_icon.toolTip()  # ...but recoloured
-    assert row.fitted_icon.pixmap().cacheKey() != fitted_key
+    lw = CoordinateListWidget(point_type=PointType.FIB)
+    lw.coordinates = [_coord(x=1.0), _coord(x=2.0), _coord(x=3.0)]
+    rows = [
+        lw._list.itemWidget(lw._list.item(i))
+        for i in range(lw._list.count())
+        if isinstance(lw._list.itemWidget(lw._list.item(i)), CoordinateRowWidget)
+    ]
+    assert len(rows) == 3
+    # the setter selects the first row
+    assert [r.actions.isVisibleTo(r) for r in rows] == [True, False, False]
+    lw.select_coordinate_silent(lw.coordinates[2])
+    assert [r.actions.isVisibleTo(r) for r in rows] == [False, False, True]
+    # the row buttons carry the list's signals
+    got = []
+    lw.refit_requested.connect(got.append)
+    rows[2].btn_fit.click()
+    assert got == [lw.coordinates[2]]
 
 
 def test_tooltip_labels_have_no_unscoped_background(qapp):
@@ -1720,9 +1756,9 @@ def test_tooltip_labels_have_no_unscoped_background(qapp):
     )
 
     row = CoordinateRowWidget(_coord(pt=PointType.FIB), "FIB-0")
-    assert row.fitted_icon.toolTip()  # it does have a tooltip
-    assert "background" not in row.fitted_icon.styleSheet()
+    assert row.name_label.toolTip()  # it does have a tooltip
     assert "background" not in row.name_label.styleSheet()
+    assert "background" not in row.state_label.styleSheet()
 
 
 def test_name_col_width_is_compact_for_short_types(qapp):

@@ -180,8 +180,8 @@ def test_project_adds_predictions_that_never_feed_the_fit(loaded):
     assert not loaded._can_run()
     assert "7 FM predictions" in loaded._lbl_status.text()
     cl = loaded._coords_tab
-    assert cl._predict_count_label.text() == "(7 predicted)"
-    assert cl._fm_count_label.text() == "(0 of 7 confirmed)"
+    assert cl._fm_count_label.text() == "7 predicted"
+    assert cl._fm_count_label.text() == "7 predicted"
     assert cl.btn_accept_predictions.isEnabled()
     assert "3 highlighted" in cl._predict_hint.text()
 
@@ -233,7 +233,7 @@ def test_a_drop_confirms_the_pair_and_the_next_projection_moves_only_the_rest(
     fm[i].point.y -= 25.0
     loaded._on_canvas_moved(fm[i])
     assert fm[i].status == PointStatus.PLACED
-    assert fm[i].provenance == PointProvenance.USER
+    assert fm[i].provenance == PointProvenance.PROJECTED  # where it came from
     # the drop alone moves nothing else
     still = np.array([[c.point.x, c.point.y] for c in fm])
     others = [k for k in range(len(fm)) if k != i]
@@ -308,6 +308,19 @@ def test_the_run_gate_counts_confirmed_pairs_only(loaded):
 # ── the list row and the spot-burn lookup ────────────────────────────────
 
 
+def test_the_projection_row_lives_in_the_fm_panel(loaded):
+    """Project and Accept all are the FM list's actions and sit under it, in
+    its panel; there is no Predicted Fiducials panel of their own."""
+    from fibsem.ui.widgets.custom_widgets import TitledPanel
+
+    cl = loaded._coords_tab
+    titles = [p._title_label.text() for p in cl.findChildren(TitledPanel)]
+    assert "Predicted Fiducials" not in titles
+    assert cl._fm_panel.isAncestorOf(cl.btn_project)
+    assert cl._fm_panel.isAncestorOf(cl.btn_accept_predictions)
+    assert cl._fm_panel.isAncestorOf(cl._predict_hint)
+
+
 def test_list_rows_show_the_prediction_state(loaded):
     from fibsem.ui.correlation.widgets.coordinate_list_widget import (
         CoordinateRowWidget,
@@ -319,9 +332,79 @@ def test_list_rows_show_the_prediction_state(loaded):
     rows = [lw._list.itemWidget(lw._list.item(i)) for i in range(lw._list.count())]
     rows = [r for r in rows if isinstance(r, CoordinateRowWidget)]
     assert len(rows) == 7
-    tips = [r.fitted_icon.toolTip() for r in rows]
-    assert all(t.startswith("Predicted") for t in tips)
-    assert sum(1 for t in tips if "start here" in t) == 3
+    words = [r.state_label.text() for r in rows]
+    assert all(w.startswith("predicted") for w in words)
+    assert sum(1 for w in words if "start here" in w) == 3
+
+
+def test_a_moved_point_is_placed_whatever_it_was(loaded):
+    """Dragging a fitted or accepted point makes it the user's: the row's
+    state word goes, and an accepted point becomes evidence for the map."""
+    from fibsem.correlation.prediction import independent_pairs
+
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    loaded.accept_all_predictions()
+    fib, fm = loaded._coords_tab.fib_list.coordinates, _fm(loaded)
+    assert independent_pairs(fib, fm) == []
+    fm[0].point.x += 1.0
+    loaded._on_canvas_moved(fm[0])
+    assert fm[0].status == PointStatus.PLACED
+    assert fm[0].provenance == PointProvenance.PROJECTED  # where it came from
+    assert len(independent_pairs(fib, fm)) == 1
+
+    fm[1].status = PointStatus.FITTED
+    fm[1].fitted = True
+    lw = loaded._coords_tab.fm_list
+    lw.refresh_coordinate(fm[1])
+    row = lw._list.itemWidget(lw._list.item(1))
+    assert row.state_label.text() == "fitted"
+    loaded._on_list_changed(loaded._point_specs[PointType.FM], fm[1], "z", 5.0)
+    assert fm[1].status == PointStatus.PLACED and not fm[1].fitted
+    assert row.state_label.text() == ""
+
+
+def test_a_prediction_off_the_image_shows_its_true_place_read_only(loaded):
+    """The row's fields are held to the image for typing. A projection can
+    put a prediction outside it; the row then says so and shows the real
+    number instead of a clamped 0.0, and the fields cannot be edited until
+    the ring is dragged in."""
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    fm = _fm(loaded)
+    lw = loaded._coords_tab.fm_list
+    row = lw._list.itemWidget(lw._list.item(0))
+    assert row.x_spin.isEnabled() and row.y_spin.isEnabled()
+
+    fm[0].point.y = -115.6
+    lw.refresh_coordinate(fm[0])
+    assert row.y_spin.cleanText() == "-115.6"
+    assert not row.x_spin.isEnabled() and not row.y_spin.isEnabled()
+    assert row.state_label.text() == "predicted \u00b7 off image"
+    assert "Outside the image" in row.y_spin.toolTip()
+
+    fm[0].point.y = 40.0  # dragged in from the canvas
+    lw.refresh_coordinate(fm[0])
+    assert row.y_spin.cleanText() == "40.0"
+    assert row.x_spin.isEnabled() and row.y_spin.isEnabled()
+    assert row.state_label.text().startswith("predicted")
+    assert "off image" not in row.state_label.text()
+    assert row.y_spin.minimum() == 0.0  # typing is held to the image again
+
+
+def test_rows_show_z_as_a_slice_unless_fitted(loaded):
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    fm = _fm(loaded)
+    lw = loaded._coords_tab.fm_list
+    row = lw._list.itemWidget(lw._list.item(0))
+    assert row.z_spin.decimals() == 0
+    assert "." not in row.z_spin.cleanText()
+    fm[0].point.z = 2.4  # within the stack: the row clamps to the axis
+    fm[0].status = PointStatus.FITTED
+    lw.refresh_coordinate(fm[0])
+    assert row.z_spin.decimals() == 1
+    assert row.z_spin.cleanText() == "2.4"
 
 
 def test_find_spot_burns_reads_the_experiment_above_the_run(tmp_path):
@@ -367,6 +450,52 @@ def test_project_with_nothing_to_predict_says_so(loaded):
     assert [(c.point.x, c.point.y) for c in _fm(loaded)] == before
 
 
+def test_reject_and_reset_from_the_row_menu_change_the_fit_inputs(loaded):
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    fm = _fm(loaded)
+    for c in fm[:5]:
+        c.point.x += 1.0
+        loaded._on_canvas_moved(c)
+    assert len(loaded.fit_data.fm_coordinates) == 5
+    lw = loaded._coords_tab.fm_list
+    # reject one placed point: out of the fit, still on screen, header says so
+    lw.reject_toggled.emit(fm[0])
+    assert fm[0].status == PointStatus.REJECTED
+    assert len(loaded.fit_data.fm_coordinates) == 4
+    assert len(loaded.data.fm_coordinates) == 7
+    assert "1 removed" in loaded._coords_tab._fm_count_label.text()
+    # and back
+    lw.reject_toggled.emit(fm[0])
+    assert fm[0].status == PointStatus.PLACED
+    assert len(loaded.fit_data.fm_coordinates) == 5
+    # reset a placed prediction: it is a guess again and moves back to the map
+    moved = (fm[1].point.x, fm[1].point.y)
+    lw.reset_requested.emit(fm[1])
+    assert fm[1].status == PointStatus.PREDICTED
+    assert (fm[1].point.x, fm[1].point.y) != moved
+    assert len(loaded.fit_data.fm_coordinates) == 4
+    # a hand-placed point (no projection behind it) cannot be reset
+    hand = Coordinate(PointXYZ(5.0, 5.0, 3.0), PointType.FM)
+    lw.reset_requested.emit(hand)
+    assert hand.status == ""
+
+
+def test_fit_settings_live_on_the_setup_tab_and_the_coordinates_tab_says_so(
+    loaded,
+):
+    panel = loaded._coords_tab._fit_panel
+    assert panel.parent() is not None
+    assert loaded._images_tab.isAncestorOf(panel)
+    assert not loaded._coords_tab.isAncestorOf(panel)
+    # what to start from, how it fits, then what the experiment decided
+    section = loaded.add_lamella_setup(spot_burns=_burns(ARCTIS))
+    layout = loaded._images_tab._content_layout
+    assert layout.indexOf(section) < layout.indexOf(panel)
+    assert layout.indexOf(panel) < layout.indexOf(section.inherited_panel)
+    assert section.inherited_panel.isVisibleTo(loaded._images_tab)
+
+
 # ── the placement offset and the Method panel's projection row (FIB-979) ──
 
 
@@ -397,9 +526,6 @@ def test_a_previous_runs_offset_moves_the_first_placement_and_can_be_ignored(loa
     bare = nominal_transform(loaded._fib_image, loaded._fm_image).translation
     px_um = ARCTIS["fib"]["pixel_size"] * 1e6
     cl = loaded._coords_tab
-    assert (
-        cl._fit_panel.title() == "Method" if hasattr(cl._fit_panel, "title") else True
-    )
 
     loaded.set_prior_runs(_offset_runs([3.0, -4.0], age_days=9))
     nominal, _ = loaded._nominal_transform()
@@ -480,7 +606,7 @@ def test_a_run_records_the_offset_its_fiducials_measured(loaded):
     px_um = ARCTIS["fib"]["pixel_size"] * 1e6
     for c in _fm(loaded)[:2]:
         c.point.x += 10.0
-        c.provenance = PointProvenance.USER
+        c.status = PointStatus.PLACED  # the user's, from here on
     result = CorrelationResult(input_data=loaded.fit_data)
     expected = np.array([3.0, -4.0]) - (P[:, :2] @ [10.0, 0.0]) * px_um
     assert np.allclose(loaded._measure_placement_offset(result), expected, atol=1e-6)
