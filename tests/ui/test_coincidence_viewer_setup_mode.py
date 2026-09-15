@@ -219,11 +219,18 @@ def test_fib_drag_moves_every_stage_in_setup_mode(viewer, qapp):
     for stage in stages:
         assert stage.pattern.point.x == pytest.approx(4e-6, rel=0.05)
         assert stage.pattern.point.y == pytest.approx(2e-6, rel=0.05)
-    # both stages' real shapes are drawn on the FIB canvas, not just one box
+    # both stages' real shapes are drawn on the FIB canvas, not just one box,
+    # each with its scan direction: the first arrow down, the second up
+    from matplotlib.text import Annotation
+
     overlay = viewer.fib_canvas.pattern_overlay
     assert len(overlay._stages) == 2
     assert overlay._image is not None
     assert len(overlay._artists) >= 2
+    arrows = [a for a in overlay._artists if isinstance(a, Annotation)]
+    assert len(arrows) == 2
+    assert arrows[0].xy[1] > arrows[0].xyann[1]  # TopToBottom: y grows downward
+    assert arrows[1].xy[1] < arrows[1].xyann[1]  # BottomToTop
 
 
 def test_continue_and_skip_fire_their_callbacks_and_exit_restores(viewer, qapp):
