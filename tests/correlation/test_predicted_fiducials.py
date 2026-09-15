@@ -492,7 +492,7 @@ def test_a_run_records_the_offset_its_fiducials_measured(loaded):
     px_um = ARCTIS["fib"]["pixel_size"] * 1e6
     for c in _fm(loaded)[:2]:
         c.point.x += 10.0
-        c.provenance = PointProvenance.USER
+        c.status = PointStatus.PLACED  # the user's, from here on
     result = CorrelationResult(input_data=loaded.fit_data)
     expected = np.array([3.0, -4.0]) - (P[:, :2] @ [10.0, 0.0]) * px_um
     assert np.allclose(loaded._measure_placement_offset(result), expected, atol=1e-6)
