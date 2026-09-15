@@ -2121,6 +2121,9 @@ class _StubHost:
     _overviews_allowed = _Real._overviews_allowed
     _rebuild_lamella_list = _Real._rebuild_lamella_list
     _wire_position_events = _Real._wire_position_events
+    # The rebuild pushes the grid context to the lamella displays first.
+    _grid_context = _Real._grid_context
+    _refresh_grid_context = _Real._refresh_grid_context
 
     def __init__(self, microscope=None, experiment=None):
         from PyQt5.QtWidgets import QTabWidget
@@ -3657,6 +3660,9 @@ class _ListStub:
 
     def select_lamella(self, name):
         pass
+
+    def set_grid_context(self, context):
+        self.grid_context = context
 
 
 def _list_host(qapp, tmp_path, experiment=None):
