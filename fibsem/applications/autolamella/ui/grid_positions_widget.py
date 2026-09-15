@@ -211,14 +211,16 @@ class GridPositionsWidget(QWidget):
         loaded: bool = False,
         can_load: bool = False,
     ) -> None:
-        """Show *grid*'s stored overviews. Images are read from disk here, once
-        per grid; `refresh` re-marks positions without re-reading them."""
+        """Show *grid*'s stored overviews. A new grid starts the canvas afresh;
+        the same grid keeps what is placed, and `refresh` adds any overview
+        that has landed since."""
         same = grid is not None and self._grid is not None and grid.id == self._grid.id
         self._grid = grid
         self._loaded = loaded
         self._can_load = can_load
         if not same:
-            self._load_images()
+            self.canvas.clear()
+            self._paths = {}
         self.refresh()
 
     def set_stage_state(self, loaded: bool, can_load: bool) -> None:
@@ -235,11 +237,19 @@ class GridPositionsWidget(QWidget):
         return getattr(self._autolamella_ui, "microscope", None)
 
     def _load_images(self) -> None:
-        self.canvas.clear()
-        self._paths = {}
+        """Place every overview the grid's history records that is not on the
+        canvas yet. Each image is read from disk once; a refresh while a grid
+        task is running picks up what it saved without re-reading the rest."""
         grid, experiment = self._grid, self._experiment
         if grid is None or experiment is None:
+            self.canvas.clear()
+            self._paths = {}
             return
+        placed = {os.path.normpath(p) for p in self._paths.values()}
+        first = not self._paths
+        # `set_image` switches the canvas to the image's view; an overview
+        # landing mid-session must not pull the user off the view they are on.
+        current = self.canvas.view
         for state in grid.task_history:
             if (
                 state.name == _LOAD_ENTRY_NAME
@@ -247,7 +257,7 @@ class GridPositionsWidget(QWidget):
             ):
                 continue
             path = image_for(experiment, grid, state)
-            if path is None:
+            if path is None or os.path.normpath(path) in placed:
                 continue
             try:
                 image = _load_overview(path)
@@ -263,9 +273,12 @@ class GridPositionsWidget(QWidget):
                 )
                 continue
             self._paths[record_id] = path
+            placed.add(os.path.normpath(path))
         views = self.canvas.views
-        if views:
+        if first and views:
             self.canvas.show_view(views[0])
+        elif current in views and self.canvas.view != current:
+            self.canvas.show_view(current)
 
     def show_overview(self, path: str) -> bool:
         """Bring the view holding the overview at *path* to the front."""
@@ -286,6 +299,7 @@ class GridPositionsWidget(QWidget):
     # -- drawing ---------------------------------------------------------------
 
     def refresh(self) -> None:
+        self._load_images()
         grid, experiment = self._grid, self._experiment
         has_grid = grid is not None and experiment is not None
         for widget in (self.chips_row, self.btn_load, self.btn_done):

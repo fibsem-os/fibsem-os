@@ -39,7 +39,7 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.structures import BeamType, FibsemImage, ImageSettings
+from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM
 
 _app = QApplication.instance() or QApplication([])
@@ -296,3 +296,33 @@ class TestFromTheGridsTab:
         assert stage.loaded_grids and stage.loaded_grids[0].name == "Grid-02"
         assert positions.state_label.text() == "No stored overview · on the stage"
         assert not positions.btn_load.isVisible()
+
+
+class TestNewOverviewsArrive:
+    def test_an_overview_saved_while_the_grid_is_showing_is_placed_on_refresh(
+        self, widget, ui, grid
+    ):
+        """A grid task finishing while its Positions view is open: the next
+        refresh places the new image, keeps what was placed, and keeps the view
+        the user was on."""
+        experiment, microscope = ui.experiment, ui.microscope
+        widget.canvas.show_view(VIEW_FM)
+        before = len(widget.canvas.overviews)
+
+        root = experiment.grid_path(grid)
+        (root / "overview_sem_2").mkdir()
+        sem = microscope.get_stage_position()
+        later = FibsemStagePosition(
+            x=sem.x + 150e-6, y=sem.y, z=sem.z, r=sem.r, t=sem.t
+        )
+        _save_beam_overview(
+            microscope, root / "overview_sem_2/overview.tif", BeamType.ELECTRON, later
+        )
+        grid.task_history.append(_entry("overview_sem", "overview_sem_2/overview.tif"))
+
+        widget.refresh()
+        assert len(widget.canvas.overviews) == before + 1
+        assert widget.canvas.view == VIEW_FM  # the user's view is kept
+        # And a second refresh reads nothing again.
+        widget.refresh()
+        assert len(widget.canvas.overviews) == before + 1
