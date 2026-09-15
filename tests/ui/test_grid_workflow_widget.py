@@ -414,8 +414,20 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     main_ui._on_add_to_queue(run_next=False)
     assert len(manager.queue.items) == 4
 
-    # a lamella run refuses grid tasks
+    # a lamella run refuses grid tasks, and the Add button says so instead of
+    # offering an add the handler would refuse (seen on the bench: it was
+    # enabled with a grid ticked during a lamella run)
     ui._task_manager = TaskManager(microscope, exp, parent_ui=ui)
+    main_ui._on_workflow_selection_changed()
+    # The button's own flag: the timeline as a whole is only enabled once an
+    # experiment is loaded through the window, which this harness skips.
+    add = main_ui.workflow_timeline._btn_add
+    own = lambda: add.isEnabledTo(add.parentWidget())  # noqa: E731
+    assert not own() and "lamella run is going" in add.toolTip()
     main_ui._on_add_to_queue(run_next=False)
     assert len(ui._task_manager.queue.items) == 0
+    ui._task_manager = manager  # back to the grid run: a ticked grid can join
+    view._grid_rows["grid-birch"].checkbox.setChecked(True)
+    main_ui._on_workflow_selection_changed()
+    assert own() and add.toolTip().startswith("Add to the end of the queue")
     ui._task_manager = None
