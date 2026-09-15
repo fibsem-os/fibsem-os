@@ -109,6 +109,9 @@ _ROW_HEIGHT = 30
 # scan either column. Petnames are two words and a number; this fits them.
 _ROW_NAME_WIDTH = 132
 _ROW_NAME_STYLE = f"color: {GRAY_TEXT_COLOR}; font-size: 13px; font-weight: 600; background: transparent;"
+_ROW_NAME_QUIET_STYLE = (
+    f"color: {GRAY_TEXT_COLOR}; font-size: 13px; background: transparent;"
+)
 _ROW_TASK_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 11px; background: transparent;"
 )
@@ -803,7 +806,11 @@ class _InboxRow(QWidget):
         task: str,
         right: str,
         dim: bool = False,
+        quiet: bool = False,
     ) -> None:
+        """``quiet``: a decided row. A filled dot and a bold name are the
+        "act on me" signal; a decided row keeps the colour but hollows the
+        dot and drops the bold, so it reads as done. ``dim``: superseded."""
         super().__init__()
         # The list paints the row's background and selection; the widget must
         # not paint the app's default one over it.
@@ -815,19 +822,25 @@ class _InboxRow(QWidget):
         self.dot = QLabel()
         self.dot.setFixedSize(8, 8)
         self.dot.setStyleSheet(
-            f"background: {colour}; border-radius: 4px; border: none;"
+            f"background: transparent; border-radius: 4px; border: 1.5px solid {colour};"
+            if quiet or dim
+            else f"background: {colour}; border-radius: 4px; border: none;"
         )
         layout.addWidget(self.dot, 0, Qt.AlignVCenter)
         # elided to the column, never clipped mid-glyph; the full name is the
         # tooltip. The font is set directly so the metrics match the style.
         font = QFont(self.font())
         font.setPixelSize(13 if not dim else 11)
-        font.setBold(not dim)
+        font.setBold(not (dim or quiet))
         self.name = QLabel(
             QFontMetrics(font).elidedText(name, Qt.ElideRight, _ROW_NAME_WIDTH - 6)
         )
         self.name.setFont(font)
-        self.name.setStyleSheet(_ROW_TASK_STYLE if dim else _ROW_NAME_STYLE)
+        self.name.setStyleSheet(
+            _ROW_TASK_STYLE
+            if dim
+            else (_ROW_NAME_QUIET_STYLE if quiet else _ROW_NAME_STYLE)
+        )
         self.name.setFixedWidth(_ROW_NAME_WIDTH)
         self.name.setToolTip(name)
         layout.addWidget(self.name, 0, Qt.AlignVCenter)
@@ -1065,12 +1078,14 @@ class ReviewTabWidget(QWidget):
                         widget=_InboxRow(
                             colour,
                             item.name,
-                            task_name + (" · superseded" if superseded else ""),
+                            task_name,
                             clock(d.timestamp),
                             dim=superseded,
+                            quiet=True,
                         ),
                         entry=(item, task_name, proposal, "decided"),
-                        tooltip=describe_decision(proposal, experiment),
+                        tooltip=describe_decision(proposal, experiment)
+                        + ("\nSuperseded by a re-run." if superseded else ""),
                     )
         else:
             pending = 0
