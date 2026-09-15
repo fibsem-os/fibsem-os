@@ -53,6 +53,23 @@ def saved_protocol(experiment) -> dict:
     return yaml.safe_load((Path(experiment.path) / "protocol.yaml").read_text())
 
 
+def test_a_beam_overview_can_be_taken_at_the_milling_pose(widget, experiment):
+    """SEM, FIB, or MILLING: a FIB overview at the milling pose shows the grid as
+    the lamellae will be milled, which is the one a tester went looking for."""
+    from fibsem.applications.autolamella.ui.grid_protocol_widget import _ORIENTATIONS
+
+    assert _ORIENTATIONS == ["SEM", "FIB", "MILLING"]
+    widget.add_task(BEAM, "overview_milling")
+    editor = widget.editor_panel.editor_for(BEAM)
+    items = [editor.orientation.itemText(i) for i in range(editor.orientation.count())]
+    assert items == ["SEM", "FIB", "MILLING"]
+    editor.orientation.setCurrentText("MILLING")
+    config = widget.apply_selected()
+    assert config.orientation == "MILLING"
+    saved = saved_protocol(experiment)["grid_tasks"]["tasks"]["overview_milling"]
+    assert saved["orientation"] == "MILLING"
+
+
 def test_without_a_task_protocol_there_is_nothing_to_edit(qapp, tmp_path):
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()

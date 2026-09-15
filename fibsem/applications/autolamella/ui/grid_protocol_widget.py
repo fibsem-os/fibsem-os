@@ -51,9 +51,10 @@ from fibsem.ui.widgets.fibsem_overview_settings_widget import (
     FibsemOverviewSettingsWidget,
 )
 
-# The poses a beam overview can be taken at. The stage knows more (MILLING), but
-# an overview of a grid is taken flat to one beam or the other.
-_ORIENTATIONS = ["SEM", "FIB"]
+# The poses a beam overview can be taken at: flat to either beam, or the milling
+# pose, so a FIB overview can show the grid as the lamellae will be milled. The
+# stage knows FM too, which is the fluorescence task's business.
+_ORIENTATIONS = ["SEM", "FIB", "MILLING"]
 
 # The name a new task gets, by type, before the person renames it. The role the
 # task records under follows the beam, so the default name says which.

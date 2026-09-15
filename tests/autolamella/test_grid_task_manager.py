@@ -423,6 +423,34 @@ class TestStopAndStatus:
 
 
 class TestEndToEnd:
+    def test_a_real_overview_at_the_milling_pose(
+        self, microscope, experiment, tmp_path
+    ):
+        """The task re-expresses the slot's calibrated position for MILLING as it
+        does for FIB, and the overview lands under the grid like any other."""
+        experiment.grid_protocol.add(
+            BeamOverviewGridTaskConfig(
+                task_name="overview_milling",
+                orientation="MILLING",
+                settings=_small_settings(BeamType.ION),
+            )
+        )
+        manager = run_grid_tasks(
+            microscope,
+            experiment,
+            task_names=["overview_milling"],
+            grid_names=["Grid-01"],
+        )
+        assert all(i.status is Status.Completed for i in manager.queue.items)
+        grid = experiment.get_grid_by_name("Grid-01")
+        (path,) = grid_outputs(experiment, grid, "overview_fib")
+        assert path.startswith(
+            str(tmp_path / "exp" / "grids" / "Grid-01" / "overview_milling")
+        )
+        slot = microscope._stage.holder.find_slot_by_grid_name("Grid-01")
+        expected = microscope.get_target_position(slot.position, "MILLING")
+        assert microscope.get_stage_orientation(expected) == "MILLING"
+
     def test_real_overviews_land_under_each_grid(
         self, microscope, experiment, tmp_path
     ):
