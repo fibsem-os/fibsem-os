@@ -41,6 +41,7 @@ from matplotlib.patches import (  # noqa: E402
     Rectangle,
     Wedge,
 )
+from matplotlib.text import Annotation  # noqa: E402
 
 from fibsem.milling.base import FibsemMillingStage  # noqa: E402
 from fibsem.milling.patterning.patterns2 import (  # noqa: E402
@@ -48,6 +49,7 @@ from fibsem.milling.patterning.patterns2 import (  # noqa: E402
     CirclePattern,
     PolygonPattern,
     RectanglePattern,
+    TrenchPattern,
 )
 from fibsem.structures import (  # noqa: E402
     BeamType,
@@ -308,6 +310,105 @@ def test_a_normal_shape_keeps_its_stage_colour(axes):
 
     patch = next(a for a in overlay._artists if isinstance(a, Polygon))
     assert patch.get_edgecolor()[:3] != pytest.approx((0.0, 0.0, 0.0))
+
+
+# ── scan direction arrows ───────────────────────────────────────────────
+
+
+def _rect_stage(name: str, scan_direction: str, x_um: float = 0.0):
+    pattern = RectanglePattern(
+        width=6e-6, height=10e-6, depth=1e-6, scan_direction=scan_direction
+    )
+    pattern.point = Point(x_um * 1e-6, 0)
+    return FibsemMillingStage(name=name, pattern=pattern)
+
+
+def _arrows(overlay):
+    return [a for a in overlay._artists if isinstance(a, Annotation)]
+
+
+def _arrow_vector(arrow: Annotation):
+    (x_s, y_s), (x_e, y_e) = arrow.xyann, arrow.xy
+    return x_e - x_s, y_e - y_s
+
+
+def test_scan_direction_arrows_are_off_by_default(axes):
+    overlay = _overlay(axes)
+    overlay.set_stages([_rect_stage("a", "TopToBottom")], _image())
+    assert _arrows(overlay) == []
+
+
+def test_each_rectangle_gets_an_arrow_along_its_scan_direction(axes):
+    """Top-to-bottom points down the image (y grows downwards); bottom-to-top up."""
+    overlay = MillingPatternOverlay(show_scan_direction=True)
+    overlay.attach(axes, _FakeCanvas())
+    overlay.set_stages(
+        [_rect_stage("down", "TopToBottom"), _rect_stage("up", "BottomToTop", 20)],
+        _image(),
+    )
+
+    arrows = _arrows(overlay)
+    assert len(arrows) == 2
+    dx, dy = _arrow_vector(arrows[0])
+    assert dx == 0 and dy > 0
+    dx, dy = _arrow_vector(arrows[1])
+    assert dx == 0 and dy < 0
+    # the arrow runs most of the rectangle's height, inset from the edges
+    assert abs(dy) == pytest.approx(10e-6 / PIXEL_SIZE * 0.7)
+    # in the stage's colour: the second stage is not the first's
+    assert (
+        arrows[0].arrow_patch.get_edgecolor() != arrows[1].arrow_patch.get_edgecolor()
+    )
+
+
+def test_coincident_stages_get_their_arrows_side_by_side(axes):
+    """A top-to-bottom pass then a bottom-to-top one at the same position: the
+    two opposite arrows sit left and right of centre, not on top of each other."""
+    overlay = MillingPatternOverlay(show_scan_direction=True)
+    overlay.attach(axes, _FakeCanvas())
+    overlay.set_stages(
+        [_rect_stage("down", "TopToBottom"), _rect_stage("up", "BottomToTop")],
+        _image(),
+    )
+
+    first, second = _arrows(overlay)
+    assert first.xy[0] < RESOLUTION / 2 < second.xy[0]
+    # both stay inside the rectangle
+    half_width = 6e-6 / PIXEL_SIZE / 2
+    assert abs(first.xy[0] - RESOLUTION / 2) < half_width
+    assert abs(second.xy[0] - RESOLUTION / 2) < half_width
+
+
+def test_a_trench_draws_an_arrow_per_half_toward_the_centre(axes):
+    """A trench has no editable scan direction, but each half mills toward the
+    lamella: the upper half top-to-bottom, the lower half bottom-to-top."""
+    overlay = MillingPatternOverlay(show_scan_direction=True)
+    overlay.attach(axes, _FakeCanvas())
+    pattern = TrenchPattern(
+        width=10e-6,
+        upper_trench_height=3e-6,
+        lower_trench_height=3e-6,
+        spacing=2e-6,
+        depth=1e-6,
+    )
+    pattern.point = Point(0, 0)
+    overlay.set_stages([FibsemMillingStage(name="trench", pattern=pattern)], _image())
+
+    arrows = sorted(_arrows(overlay), key=lambda a: a.xyann[1])
+    assert len(arrows) == 2
+    upper, lower = arrows
+    assert _arrow_vector(upper)[1] > 0  # down, toward the centre
+    assert _arrow_vector(lower)[1] < 0  # up, toward the centre
+
+
+def test_clearing_removes_the_arrows(axes):
+    overlay = MillingPatternOverlay(show_scan_direction=True)
+    overlay.attach(axes, _FakeCanvas())
+    overlay.set_stages([_rect_stage("a", "TopToBottom")], _image())
+    assert _arrows(overlay)
+    overlay.clear()
+    assert _arrows(overlay) == []
+    assert not any(isinstance(a, Annotation) for a in axes.texts)
 
 
 if __name__ == "__main__":

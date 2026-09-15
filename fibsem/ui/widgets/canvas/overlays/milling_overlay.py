@@ -63,15 +63,29 @@ _LINEWIDTH = 1.0  # default pattern edge width
 _LINEWIDTH_SELECTED = 2.5  # selected stage edge width
 _BACKGROUND_COLOUR = "black"  # background milling stages
 _EXCLUSION_COLOUR = "black"  # exclusion shapes, whatever their stage's colour
+_ARROW_MARGIN = 0.15  # arrow inset from the rectangle edge, fraction of its length
+# scan direction -> (dx, dy) unit vector in image pixels (y down)
+_SCAN_DIRECTIONS = {
+    "TopToBottom": (0.0, 1.0),
+    "BottomToTop": (0.0, -1.0),
+    "LeftToRight": (1.0, 0.0),
+    "RightToLeft": (-1.0, 0.0),
+}
 
 
 class MillingPatternOverlay(CanvasOverlay):
     """Display-only overlay rendering milling stage patterns + per-stage crosshairs.
 
     Call :meth:`set_stages` to (re)draw, :meth:`clear` to hide.
+
+    ``show_scan_direction`` draws an arrow along each rectangle's scan direction
+    in the stage's colour. Stages sharing one position (a top-to-bottom pass
+    then a bottom-to-top one) get their arrows side by side across the box, so
+    both directions stay readable.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, show_scan_direction: bool = False) -> None:
+        self._show_scan_direction = show_scan_direction
         self._ax = None
         self._canvas: Optional[FibsemImageCanvas] = None
         self._artists: list = []
@@ -178,6 +192,7 @@ class MillingPatternOverlay(CanvasOverlay):
                 )
 
         # foreground stages (per-colour; selected is thicker and on top)
+        n_stages = len(self._stages)
         for i, stage in enumerate(self._stages):
             colour = COLOURS[i % len(COLOURS)]
             selected = i == self._selected_index
@@ -187,6 +202,10 @@ class MillingPatternOverlay(CanvasOverlay):
                 self._draw_stage(
                     stage, shape, pixelsize, colour, linewidth=linewidth, zorder=zorder
                 )
+                if self._show_scan_direction:
+                    self._draw_scan_arrows(
+                        stage, shape, pixelsize, colour, slot=(i, n_stages)
+                    )
             except Exception:
                 _logger.exception(
                     "MillingPatternOverlay: failed to draw stage %r",
@@ -236,6 +255,47 @@ class MillingPatternOverlay(CanvasOverlay):
         self._draw_crosshair(
             stage.pattern.point, shape, pixelsize, colour, zorder + 0.5
         )
+
+    def _draw_scan_arrows(
+        self, stage, shape, pixelsize: float, colour: str, *, slot
+    ) -> None:
+        """An arrow per rectangle of *stage* along its scan direction.
+
+        ``slot`` = (index, count) places the arrow across the rectangle so the
+        arrows of *count* coincident stages sit side by side instead of on top
+        of each other. Rotation is ignored: the arrow is drawn axis-aligned at
+        the rectangle's centre.
+        """
+        index, count = slot
+        for ps in stage.define_patterns():
+            if not isinstance(ps, FibsemRectangleSettings):
+                continue
+            direction = _SCAN_DIRECTIONS.get(getattr(ps, "scan_direction", ""))
+            if direction is None:
+                continue
+            centre = microscope_image_to_image_coordinates(
+                Point(x=ps.centre_x, y=ps.centre_y), shape, pixelsize
+            )
+            w_px, h_px = ps.width / pixelsize, ps.height / pixelsize
+            dx, dy = direction
+            # along the arrow: the rectangle's extent in that axis, inset
+            # across: spread the stages' arrows over the middle of the box
+            along = (h_px if dy else w_px) * (0.5 - _ARROW_MARGIN)
+            across_extent = w_px if dy else h_px
+            across = (index - (count - 1) / 2) * across_extent / (count + 1)
+            ax_, ay_ = (across, 0.0) if dy else (0.0, across)
+            x_s, y_s = centre.x - dx * along + ax_, centre.y - dy * along + ay_
+            x_e, y_e = centre.x + dx * along + ax_, centre.y + dy * along + ay_
+            artist = self._ax.annotate(
+                "",
+                xy=(x_e, y_e),
+                xytext=(x_s, y_s),
+                arrowprops=dict(
+                    arrowstyle="-|>", color=colour, lw=1.5, mutation_scale=14
+                ),
+                zorder=_PATTERN_ZORDER + 3,
+            )
+            self._artists.append(artist)
 
     def _shape_to_artists(
         self, ps, shape, pixelsize: float, colour: str, linewidth: float, zorder: float
