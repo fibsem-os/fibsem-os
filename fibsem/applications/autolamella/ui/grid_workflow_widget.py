@@ -707,7 +707,8 @@ class GridRunPreflightDialog(QDialog):
         layout.addWidget(
             meta_label(
                 "A grid that will not load is skipped and the run continues. "
-                "Stop ends the run at the next step."
+                "Stop ends the run at the next step; during an exchange, before "
+                "the load."
             )
         )
 
