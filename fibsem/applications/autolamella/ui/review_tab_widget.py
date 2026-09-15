@@ -70,7 +70,6 @@ from fibsem.ui.tokens import (
     ORANGE_COLOR,
     PANEL_COLOR,
     PRIMARY_COLOR,
-    REVIEW_COLOR,
     SURFACE_COLOR,
 )
 
@@ -607,7 +606,7 @@ class MillingSetupReviewRenderer(ReviewRenderer):
             colour = DEFECT_RED_COLOR
         else:
             text = f"Waiting for your decision · {_held_text(len(gated))}"
-            colour = REVIEW_COLOR
+            colour = ORANGE_COLOR  # waiting on you now: the border's colour
             if gated:
                 tip.append("Held until you decide: " + ", ".join(gated) + ".")
         if self._image is None:
@@ -1030,7 +1029,7 @@ class ReviewTabWidget(QWidget):
                 self._add_row(
                     summary=f"{item.name} · {task_name} · waiting",
                     widget=_InboxRow(
-                        REVIEW_COLOR, item.name, task_name, age(proposal.created_at)
+                        ORANGE_COLOR, item.name, task_name, age(proposal.created_at)
                     ),
                     entry=(item, task_name, proposal, "waiting"),
                     tooltip="Waiting for your decision"
