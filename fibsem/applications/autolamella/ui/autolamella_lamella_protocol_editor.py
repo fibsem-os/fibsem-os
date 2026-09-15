@@ -1159,6 +1159,14 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             fm_current=fm_current,
         )
         section.emit_current_seed()  # apply the default source, live on the canvas
+        # Predicted fiducials (FIB-956) take their rotation and scale from a
+        # previous run -- this lamella's first, then any other's on this system.
+        if experiment is not None and getattr(experiment, "path", None):
+            from fibsem.correlation.prior import experiment_runs
+
+            dialog.set_prior_runs(
+                experiment_runs(str(experiment.path), selected_lamella.path)
+            )
 
         if dialog.exec_() != QDialog.Accepted:
             return

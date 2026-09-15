@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.correlation.structures import Coordinate, PointStatus, PointType
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
@@ -37,6 +37,7 @@ from fibsem.ui.icon import (
 from fibsem.ui.tokens import (
     CANVAS_BG,
     GRAY_TEXT_COLOR,
+    WARN_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
 
@@ -279,6 +280,12 @@ class CoordinateRowWidget(QWidget):
         self._icon_unfitted = fibsem_icon(
             "mdi:target", color=_UNFITTED_ICON_COLOR
         ).pixmap(QSize(14, 14))
+        self._icon_predicted = fibsem_icon(
+            "mdi:circle-outline", color=_UNFITTED_ICON_COLOR
+        ).pixmap(QSize(14, 14))
+        self._icon_suggested = fibsem_icon(
+            "mdi:circle-outline", color=WARN_COLOR
+        ).pixmap(QSize(14, 14))
         self.fitted_icon = QLabel()
         self.fitted_icon.setFixedSize(16, 16)
         # No `background: transparent` stylesheet: a QLabel is already
@@ -360,7 +367,20 @@ class CoordinateRowWidget(QWidget):
         self._update_fitted_icon()
 
     def _update_fitted_icon(self) -> None:
-        """Colour the always-visible indicator by fit state (green vs grey)."""
+        """Colour the always-visible indicator by state: white for an accepted
+        fit, grey for a placed point, and a hollow ring for a prediction the
+        user has not moved yet (amber for the ones worth moving first)."""
+        status = getattr(self.coord, "status", "")
+        if status in PointStatus.TENTATIVE:
+            suggested = bool(getattr(self.coord, "suggested", False))
+            self.fitted_icon.setPixmap(
+                self._icon_suggested if suggested else self._icon_predicted
+            )
+            self.fitted_icon.setToolTip(
+                "Predicted from the FIB fiducial — drag it onto the burn"
+                + (" (one of the best-spread three; start here)" if suggested else "")
+            )
+            return
         fitted = bool(getattr(self.coord, "fitted", False))
         self.fitted_icon.setPixmap(self._icon_fitted if fitted else self._icon_unfitted)
         self.fitted_icon.setToolTip(
