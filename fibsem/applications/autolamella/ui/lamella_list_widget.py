@@ -8,6 +8,7 @@ from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor, QImage, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QAction,
     QCheckBox,
     QFrame,
     QHBoxLayout,
@@ -140,7 +141,6 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
 
 _BTN_SIZE = QSize(24, 24)
 _ROW_HEIGHT = 34
-_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 2 + 8  # defect + actions, one gap
 
 
 class _LamellaTooltip(QWidget):
@@ -401,6 +401,89 @@ class _ToggleLabel(QLabel):
         super().mousePressEvent(event)
 
 
+# The filter's two fixed choices; a grid's own key is its record id.
+FILTER_ALL = "all"
+FILTER_NO_GRID = "none"
+
+
+class _GridFilterButton(QToolButton):
+    """A filter icon whose menu narrows the list to one grid's lamellae (FIB-667).
+
+    Shown only when the experiment has more than one grid: with one there is
+    nothing to choose between. "All grids" is the resting state; "No grid"
+    appears when some lamellae are linked to none. The icon takes the accent
+    while a filter is on, so a narrowed list is never mistaken for the whole.
+    """
+
+    filter_changed = pyqtSignal(str)  # FILTER_ALL, FILTER_NO_GRID or a grid id
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(_BTN_SIZE)
+        self.setStyleSheet(
+            stylesheets.TOOLBUTTON_ICON_STYLESHEET
+            + " QToolButton::menu-indicator { image: none; }"
+        )
+        self.setPopupMode(QToolButton.InstantPopup)
+        self._menu = QMenu(self)
+        self.setMenu(self._menu)
+        self._actions: Dict[str, QAction] = {}
+        self._names: Dict[str, str] = {}
+        self._selected = FILTER_ALL
+        self._paint()
+        self.setVisible(False)
+
+    @property
+    def selected(self) -> str:
+        return self._selected
+
+    def set_choices(self, grids: List[Tuple[str, str]], unlinked: bool) -> None:
+        """*grids* as (id, name); *unlinked* whether a "No grid" entry is needed.
+        Keeps the current choice when it is still on offer."""
+        self._menu.clear()
+        self._actions = {}
+        choices = [(FILTER_ALL, "All grids")] + list(grids)
+        if unlinked:
+            choices.append((FILTER_NO_GRID, "No grid"))
+        self._names = dict(choices)
+        if self._selected not in self._names:
+            self._selected = FILTER_ALL
+        for key, text in choices:
+            action = self._menu.addAction(text)
+            action.setCheckable(True)
+            action.setChecked(key == self._selected)
+            action.triggered.connect(lambda _c=False, k=key: self.select(k))
+            self._actions[key] = action
+        self._paint()
+        self.setVisible(len(grids) > 1)
+
+    def select(self, key: str) -> None:
+        if key not in self._actions:
+            key = FILTER_ALL
+        self._selected = key
+        for k, action in self._actions.items():
+            action.setChecked(k == key)
+        self._paint()
+        self.filter_changed.emit(key)
+
+    def action(self, key: str):
+        return self._actions.get(key)
+
+    def _paint(self) -> None:
+        on = self._selected != FILTER_ALL
+        self.setIcon(
+            fibsem_icon(
+                "mdi:filter-variant",
+                color=ACCENT_COLOR if on else stylesheets.GRAY_ICON_COLOR,
+            )
+        )
+        self.setToolTip(
+            f"Showing {self._names.get(self._selected, 'all grids')}"
+            if on
+            else "Filter by grid"
+        )
+
+
 class _LamellaListHeader(QWidget):
     select_all_changed = pyqtSignal(bool)
 
@@ -433,10 +516,14 @@ class _LamellaListHeader(QWidget):
         )
         layout.addWidget(status_header, 1)
 
+        # Over the rows' two trailing buttons: a blank where the defect icon
+        # sits, and the grid filter over the actions column.
         spacer = QWidget()
-        spacer.setFixedWidth(_BTN_SPACER_WIDTH)
+        spacer.setFixedWidth(_BTN_SIZE.width())
         spacer.setStyleSheet("background: transparent;")
         layout.addWidget(spacer)
+        self.grid_filter = _GridFilterButton()
+        layout.addWidget(self.grid_filter)
 
         self.checkbox_all.stateChanged.connect(
             lambda s: self.select_all_changed.emit(bool(s))
@@ -461,6 +548,8 @@ class LamellaListWidget(QWidget):
 
         self._header = _LamellaListHeader()
         layout.addWidget(self._header)
+        self.grid_filter = self._header.grid_filter
+        self.grid_filter.filter_changed.connect(self._apply_grid_filter)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
@@ -494,10 +583,57 @@ class LamellaListWidget(QWidget):
 
     def set_grid_context(self, context: Optional[GridContext]) -> None:
         """Which grid each lamella is on and whether it is on the stage; the
-        rows name the grid on their status line. Kept for rows added later."""
+        rows name the grid on their status line, and the filter offers the
+        grids. Kept for rows added later."""
         self._grid_context = context
         for i in range(self._list.count()):
             self._row(i).set_grid_context(context)
+        self._refresh_grid_filter()
+
+    # ------------------------------------------------------------------
+    # Filtering by grid (FIB-667)
+    # ------------------------------------------------------------------
+
+    def _refresh_grid_filter(self) -> None:
+        context = getattr(self, "_grid_context", None) or {}
+        grids = [(grid_id, name) for grid_id, (name, _) in context.items()]
+        unlinked = any(
+            grid_of(self._row(i).lamella, context) is None
+            for i in range(self._list.count())
+        )
+        self.grid_filter.set_choices(grids, unlinked)
+        self._apply_grid_filter(self.grid_filter.selected)
+
+    def _row_passes(self, row: "LamellaRowWidget", key: str) -> bool:
+        if key == FILTER_ALL:
+            return True
+        grid_id = getattr(row.lamella, "grid_id", None)
+        context = getattr(self, "_grid_context", None) or {}
+        known = grid_id if grid_id in context else None
+        if key == FILTER_NO_GRID:
+            return known is None
+        return known == key
+
+    def _apply_grid_filter(self, key: str) -> None:
+        """Hide the rows not on the chosen grid, and untick them: a hidden
+        tick would run a lamella the list is not showing."""
+        for i in range(self._list.count()):
+            row = self._row(i)
+            shown = self._row_passes(row, key)
+            self._list.item(i).setHidden(not shown)
+            if not shown and row.checkbox.isChecked():
+                row.checkbox.blockSignals(True)
+                row.checkbox.setChecked(False)
+                row.checkbox.blockSignals(False)
+        self._sync_select_all()
+        self.selection_changed.emit(self.get_selected())
+
+    def _visible_rows(self) -> List["LamellaRowWidget"]:
+        return [
+            self._row(i)
+            for i in range(self._list.count())
+            if not self._list.item(i).isHidden()
+        ]
 
     def add_lamella(self, lamella: Lamella, checked: bool = False) -> LamellaRowWidget:
         row = LamellaRowWidget(lamella, checked)
@@ -506,6 +642,7 @@ class LamellaListWidget(QWidget):
         item.setSizeHint(QSize(0, _ROW_HEIGHT))
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
+        item.setHidden(not self._row_passes(row, self.grid_filter.selected))
 
         row.move_to_clicked.connect(self.move_to_requested)
         row.edit_clicked.connect(self.edit_requested)
@@ -559,11 +696,8 @@ class LamellaListWidget(QWidget):
             self._row(i).refresh()
 
     def get_selected(self) -> List[Lamella]:
-        return [
-            self._row(i).lamella
-            for i in range(self._list.count())
-            if self._row(i).checkbox.isChecked()
-        ]
+        """The ticked lamellae among those the list is showing."""
+        return [row.lamella for row in self._visible_rows() if row.checkbox.isChecked()]
 
     def set_lamellae(self, lamellae: List[Lamella]) -> None:
         """Rebuild the rows from *lamellae*, keeping the ticks the user already has.
@@ -578,6 +712,8 @@ class LamellaListWidget(QWidget):
         self.clear()
         for lamella in lamellae:
             self.add_lamella(lamella, checked=lamella.id in checked)
+        # The filter's choices depend on the rows (whether any is unlinked).
+        self._refresh_grid_filter()
 
     def clear(self) -> None:
         self._list.clear()
@@ -590,8 +726,7 @@ class LamellaListWidget(QWidget):
         the header's slot directly, which left the box reading "Select All" over a
         list where nothing was ticked (FIB-577).
         """
-        for i in range(self._list.count()):
-            row = self._row(i)
+        for row in self._visible_rows():
             row.checkbox.blockSignals(True)
             row.checkbox.setChecked(checked)
             row.checkbox.blockSignals(False)
@@ -623,10 +758,11 @@ class LamellaListWidget(QWidget):
         self.selection_changed.emit(self.get_selected())
 
     def _sync_select_all(self) -> None:
-        count = self._list.count()
+        rows = self._visible_rows()
+        count = len(rows)
         if count == 0:
             return
-        n_checked = sum(self._row(i).checkbox.isChecked() for i in range(count))
+        n_checked = sum(row.checkbox.isChecked() for row in rows)
         cb = self._header.checkbox_all
         cb.blockSignals(True)
         if n_checked == 0:

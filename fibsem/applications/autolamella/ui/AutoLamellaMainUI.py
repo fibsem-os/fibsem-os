@@ -2709,6 +2709,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # With the flag off the selector has one page; a tab bar with a lone
             # "Lamella" tab is chrome the lamella workflow never had.
             left.tabBar().setVisible(enabled)
+            # And with it showing, the list's own "Lamella" title says the same
+            # thing twice.
+            self.lamella_workflow_widget.set_section_title_visible(not enabled)
         editor = getattr(self, "task_widget", None)
         if editor is not None:
             editor.set_grid_protocol_visible(enabled)
