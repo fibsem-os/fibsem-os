@@ -9,6 +9,7 @@ pixels; the fits themselves are covered by the correlation util tests.
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -323,6 +324,48 @@ def test_list_rows_show_the_prediction_state(loaded):
     assert sum(1 for w in words if "start here" in w) == 3
 
 
+def test_a_moved_point_is_placed_whatever_it_was(loaded):
+    """Dragging a fitted or accepted point makes it the user's: the row's
+    state word goes, and an accepted point becomes evidence for the map."""
+    from fibsem.correlation.prediction import independent_pairs
+
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    loaded.accept_all_predictions()
+    fib, fm = loaded._coords_tab.fib_list.coordinates, _fm(loaded)
+    assert independent_pairs(fib, fm) == []
+    fm[0].point.x += 1.0
+    loaded._on_canvas_moved(fm[0])
+    assert fm[0].status == PointStatus.PLACED
+    assert fm[0].provenance == PointProvenance.PROJECTED  # where it came from
+    assert len(independent_pairs(fib, fm)) == 1
+
+    fm[1].status = PointStatus.FITTED
+    fm[1].fitted = True
+    lw = loaded._coords_tab.fm_list
+    lw.refresh_coordinate(fm[1])
+    row = lw._list.itemWidget(lw._list.item(1))
+    assert row.state_label.text() == "fitted"
+    loaded._on_list_changed(loaded._point_specs[PointType.FM], fm[1], "z", 5.0)
+    assert fm[1].status == PointStatus.PLACED and not fm[1].fitted
+    assert row.state_label.text() == ""
+
+
+def test_rows_show_z_as_a_slice_unless_fitted(loaded):
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    fm = _fm(loaded)
+    lw = loaded._coords_tab.fm_list
+    row = lw._list.itemWidget(lw._list.item(0))
+    assert row.z_spin.decimals() == 0
+    assert "." not in row.z_spin.cleanText()
+    fm[0].point.z = 2.4  # within the stack: the row clamps to the axis
+    fm[0].status = PointStatus.FITTED
+    lw.refresh_coordinate(fm[0])
+    assert row.z_spin.decimals() == 1
+    assert row.z_spin.cleanText() == "2.4"
+
+
 def test_find_spot_burns_reads_the_experiment_above_the_run(tmp_path):
     experiment = tmp_path / "AutoLamella-x"
     lamella = experiment / "03-quick-tomcat"
@@ -610,6 +653,36 @@ def test_a_previous_runs_offset_moves_the_first_placement_and_can_be_ignored(loa
     loaded._on_projection_link("use")
     nominal, _ = loaded._nominal_transform()
     assert np.allclose(nominal.translation, bare + np.array([3.0, -4.0]) / px_um)
+
+
+def test_ignoring_the_offset_leaves_a_live_result_live(loaded):
+    """Ignore changes the next projection, not the points, so Continue stays."""
+    from fibsem.correlation.structures import (
+        CorrelationPointOfInterest,
+        CorrelationResult,
+    )
+
+    loaded.set_prior_runs(_offset_runs([3.0, -4.0]))
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    for c in _fm(loaded):
+        c.point.x += 1.0
+        loaded._on_canvas_moved(c)
+    loaded._coords_tab.poi_list.coordinates = [
+        Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
+    ]
+    loaded.data_changed.emit(loaded.data)
+    loaded._on_run_finished(
+        CorrelationResult(
+            poi=[CorrelationPointOfInterest()],
+            rms_error=1.0,
+            input_data=copy.deepcopy(loaded.fit_data),
+        )
+    )
+    assert loaded._btn_continue.isEnabled()
+    loaded._on_projection_link("ignore")
+    assert 'href="use"' in loaded._coords_tab._lbl_projection.text()
+    assert loaded._btn_continue.isEnabled()
 
 
 def test_a_poor_previous_run_does_not_supply_an_offset(loaded):
