@@ -3347,11 +3347,28 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_list_widget.refresh_lamella(lamella)
             self.lamella_card_container.refresh_lamella(lamella)
             self.autolamella_ui.lamella_list.refresh_lamella(lamella)
+            # The Overview pages' lists carry the same status column; without
+            # this they sat stale for the whole run (FIB-995).
+            for lamella_list in self._overview_lamella_lists():
+                lamella_list.refresh_lamella(lamella)
         else:
             self.lamella_list_widget.refresh_all()
             self.lamella_card_container.refresh_all()
             self.autolamella_ui.lamella_list.refresh_all()
+            for lamella_list in self._overview_lamella_lists():
+                lamella_list.refresh_all()
         self._on_lamella_card_selected(getattr(self, "_selected_card_lamella", None))
+
+    def _overview_lamella_lists(self):
+        """The lamella list beside each Overview page, whichever pages exist."""
+        return [
+            tab.lamella_list
+            for tab in (
+                getattr(self, "beam_overview_tab", None),
+                getattr(self, "fm_overview_tab", None),
+            )
+            if tab is not None and getattr(tab, "lamella_list", None) is not None
+        ]
 
     def _on_agent_server_dialog(self) -> None:
         """Open the session dialog: status, token, and scope arming."""
