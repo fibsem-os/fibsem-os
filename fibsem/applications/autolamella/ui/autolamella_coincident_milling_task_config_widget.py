@@ -322,12 +322,6 @@ class AutoLamellaCoincidentMillingTaskConfigWidget(QWidget):
         # channel's name) directly beneath it; the panel is the header here
         self.channel_widget._panel._header.setVisible(False)
         channel_layout.addWidget(self.channel_widget)
-        channel_hint = QLabel(
-            "The channel the mill watches. Short exposure, low power: it runs for minutes."
-        )
-        channel_hint.setStyleSheet(_HINT_STYLE)
-        channel_hint.setWordWrap(True)
-        channel_layout.addWidget(channel_hint)
 
         row = 0
         self.spin_drop = QSpinBox()
