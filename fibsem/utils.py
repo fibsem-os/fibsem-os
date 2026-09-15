@@ -532,8 +532,6 @@ LEGACY_CONFIGURATION_BLOCKS: Dict[str, Tuple[str, ...]] = {
     "stage": ("hardware.stage", "calibration"),
     "electron": ("hardware.electron", "defaults.electron"),
     "ion": ("hardware.ion", "defaults.ion"),
-    "manipulator": ("hardware.manipulator",),
-    "gis": ("hardware.gis",),
     "fm": ("hardware.fm",),
     "imaging": ("defaults.imaging",),
 }

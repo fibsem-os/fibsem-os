@@ -16,12 +16,6 @@ hardware:                                                   # what the instrumen
         column_tilt:                52                         
         eucentric_height:           16.5e-3                     
         plasma_gas:                 null                        
-    manipulator:
-        enabled:                    false                        
-    gis:
-        enabled:                    true                        
-        multichem:                  false                       
-        sputter_coater:             false                                             
     fm:
       enabled: true
     #   config: /home/patrick/github/fibsem/fibsem/config/fm/fm-configuration-default.yaml
@@ -53,6 +47,8 @@ defaults:                                                   # what a session sta
         autocontrast:               false                        
         save:                       false                       
 sim:
+    has_manipulator: false                                  # stand in for the hardware probe
+    has_gis_multichem: false                                # stand in for the hardware probe
     sem: null # "/path/to/sem/image/data"                   
     fib: null # "/path/to/fib/image/data"                   
     use_cycle: true

@@ -240,6 +240,15 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
 
+    #: An Odemis system has no manipulator; the rest matches the shipped file. Nothing
+    #: here can ask the instrument, so this is the backend's own answer.
+    DEFAULT_FITTED = {
+        "manipulator": False,
+        "gis": True,
+        "gis_multichem": True,
+        "gis_sputter_coater": False,
+    }
+
     milling_progress_signal = Signal(MillingProgress)
     _last_imaging_settings: ImageSettings
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)

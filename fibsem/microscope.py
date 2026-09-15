@@ -241,8 +241,62 @@ class FibsemMicroscope(ABC):
         # it is `_get_axis_limits` itself raising, and on a compustage that is a
         # lookup of a module constant, which cannot.
         self._read_stage_capabilities()
+        self._read_hardware_capabilities()
 
         self._stage = _create_sample_stage(self)
+
+    # ---- fitted subsystems ---------------------------------------------------
+    #
+    # Whether a manipulator, a GIS, a multichem or a sputter coater is fitted used to
+    # be four configuration keys, which meant a site could describe hardware it does
+    # not have, or omit hardware it does, and nothing would disagree. They are not in
+    # the file any more. A backend that can ask the instrument does (AutoScript); one
+    # that cannot answers for itself with `DEFAULT_FITTED`, which is what its shipped
+    # configuration used to say. Each probe returns True, False, or None for "cannot
+    # say", and None falls back to the class default rather than to "not fitted" --
+    # a subsystem that wrongly appears is a menu entry that errors, one that wrongly
+    # disappears is a working instrument that lost a feature on upgrade.
+
+    #: What this backend assumes is fitted when it cannot ask.
+    DEFAULT_FITTED: Dict[str, bool] = {
+        "manipulator": True,
+        "gis": True,
+        "gis_multichem": True,
+        "gis_sputter_coater": False,
+    }
+
+    def _probe_manipulator_installed(self) -> Optional[bool]:
+        """Whether a manipulator is fitted, or None if this backend cannot say."""
+        return None
+
+    def _probe_gis_installed(self) -> Optional[bool]:
+        return None
+
+    def _probe_multichem_installed(self) -> Optional[bool]:
+        return None
+
+    def _probe_sputter_coater_installed(self) -> Optional[bool]:
+        return None
+
+    def _read_hardware_capabilities(self) -> None:
+        """Ask the instrument which subsystems are fitted, and record the answers."""
+        probes = (
+            ("manipulator", self._probe_manipulator_installed),
+            ("gis", self._probe_gis_installed),
+            ("gis_multichem", self._probe_multichem_installed),
+            ("gis_sputter_coater", self._probe_sputter_coater_installed),
+        )
+        for key, probe in probes:
+            try:
+                present = probe()
+            except Exception as e:
+                # A raising probe is ambiguous -- a missing subsystem and a sick
+                # connection look the same -- so it is read as "cannot say".
+                logging.debug(f"Capability probe {probe.__name__} failed: {e}")
+                present = None
+            if present is None:
+                present = self.DEFAULT_FITTED[key]
+            self.set_available(key, bool(present))
 
     def capture_defaults(self) -> None:
         """Record what the instrument is doing now as the defaults a session starts from.
@@ -1208,11 +1262,10 @@ class FibsemMicroscope(ABC):
                 # holder while `_stage.holder` still moves to the slots of another.
                 self._create_sample_stage()
 
-        if self.is_available("manipulator"):
-            self.system.manipulator = system_settings.manipulator
-
-        if self.is_available("gis"):
-            self.system.gis = system_settings.gis
+        # `system_settings.manipulator` and `.gis` are not taken from the incoming
+        # settings: what is fitted is not in the file, so the incoming records only
+        # carry defaults, and the ones already here carry what the instrument (or
+        # the backend) said at connect.
 
         # dont update info -> read only
         logging.info("Microscope configuration applied.")
