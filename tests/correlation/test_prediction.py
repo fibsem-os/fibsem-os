@@ -123,6 +123,25 @@ def test_with_no_pairs_the_map_is_the_geometry_and_predictions_are_rigid(nominal
     assert sum(1 for c in fm if c.suggested) == 3
 
 
+def test_start_here_goes_to_predictions_the_user_can_see(nominal):
+    """A ring off the image cannot be dragged, so the suggestion is made
+    from where the predictions landed, among those inside the image."""
+    fib = _fib(ARCTIS)
+    fm = predictions_for(fib, [], z_slice=5.0)
+    proj = build_projection(nominal, fib, fm, z_slice=5.0)
+    place_predictions(proj, fib, fm)
+    ys = sorted(b.point.y for b in fm)
+    # a frame that cuts off the lowest-y predictions
+    cut = (int(ys[len(ys) // 2]), 10_000)
+    place_predictions(proj, fib, fm, fm_shape=cut)
+    chosen = [b for b in fm if b.suggested]
+    assert len(chosen) == 3
+    assert all(0 <= b.point.y <= cut[0] for b in chosen)
+    # without a shape every prediction is a candidate again
+    place_predictions(proj, fib, fm)
+    assert sum(1 for c in fm if c.suggested) == 3
+
+
 def test_a_stage_translation_off_the_image_is_replaced_by_centring(nominal):
     fib = _fib(ARCTIS)
     fm = predictions_for(fib, [], z_slice=5.0)

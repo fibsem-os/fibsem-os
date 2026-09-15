@@ -48,6 +48,8 @@ __all__ = [
     "place_predictions",
     "predictions_for",
     "suggest_indices",
+    "suggest_visible",
+    "on_image",
     "usable_pairs",
 ]
 
@@ -264,13 +266,20 @@ def predictions_for(
 
 
 def place_predictions(
-    projection: Projection, fib: Sequence[Coordinate], fm: Sequence[Coordinate]
+    projection: Projection,
+    fib: Sequence[Coordinate],
+    fm: Sequence[Coordinate],
+    *,
+    fm_shape: Optional[Tuple[int, int]] = None,
 ) -> List[Coordinate]:
     """Move every tentative FM point to where its FIB partner projects.
 
     Placed points are never touched. Returns the points that moved. Once
     pairs exist the suggestion has done its job and the highlight is cleared
-    so it does not outlive its meaning.
+    so it does not outlive its meaning. Before any pair, the suggestion is
+    made again from where the predictions landed: a ring off the image
+    (``fm_shape`` = (height, width)) cannot be dragged, so "start here" goes
+    to the three best-spread predictions the user can see.
     """
     moved: List[Coordinate] = []
     for a, b in zip(fib, fm):
@@ -278,7 +287,32 @@ def place_predictions(
             continue
         x, y, z = projection.fm_from_fib(a.point.x, a.point.y)
         b.point.x, b.point.y, b.point.z = x, y, z
-        if projection.n_pairs and b.suggested:
-            b.suggested = False
         moved.append(b)
+    if projection.n_pairs:
+        for b in moved:
+            b.suggested = False
+    else:
+        suggest_visible(fib, fm, fm_shape)
     return moved
+
+
+def on_image(point: PointXYZ, fm_shape: Optional[Tuple[int, int]]) -> bool:
+    """Inside the FM image's axes; True when the shape is unknown."""
+    if fm_shape is None:
+        return True
+    h, w = fm_shape
+    return 0.0 <= point.x <= w and 0.0 <= point.y <= h
+
+
+def suggest_visible(
+    fib: Sequence[Coordinate],
+    fm: Sequence[Coordinate],
+    fm_shape: Optional[Tuple[int, int]] = None,
+) -> None:
+    """Flag the three best-spread predictions that are on the image."""
+    tentative = [i for i, b in enumerate(fm) if b.status in PointStatus.TENTATIVE]
+    for i in tentative:
+        fm[i].suggested = False
+    visible = [i for i in tentative if on_image(fm[i].point, fm_shape)]
+    for k in suggest_indices([(fib[i].point.x, fib[i].point.y) for i in visible]):
+        fm[visible[k]].suggested = True

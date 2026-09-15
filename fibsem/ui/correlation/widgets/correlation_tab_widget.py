@@ -2747,7 +2747,9 @@ class CorrelationTabWidget(QWidget):
                 z_slice=float(self._fm_display.current_z),
                 fm_shape=tuple(self._fm_image.data.shape[-2:]),
             )
-            moved = place_predictions(projection, fib, fm)
+            moved = place_predictions(
+                projection, fib, fm, fm_shape=tuple(self._fm_image.data.shape[-2:])
+            )
         except np.linalg.LinAlgError as exc:
             self._lbl_status.setText(f"Cannot project: {exc}")
             return None
