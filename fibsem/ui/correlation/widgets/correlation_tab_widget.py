@@ -3311,10 +3311,25 @@ class CorrelationTabWidget(QWidget):
         """
         if self._fib_image is None or self._fm_image is None:
             return "Load the FIB and FM images on the Setup tab."
-        # ``d`` is the fit's view (a predicted FM point drops its FIB partner
-        # too), so the FIB count is the list's own: seeded burns are progress.
-        n_fib = len(self._coords_tab.fib_list.coordinates)
-        n_fm, n_poi = len(d.fm_coordinates), len(d.poi_coordinates)
+        # ``d`` is the fit's view, which drops a rejected pair and a predicted
+        # FM point's FIB partner too; the sentence counts what the user sees:
+        # points on either side, less the rows rejected from the fit, and on
+        # the FM side only those placed (a prediction is not a pair yet).
+        cl = self._coords_tab
+        fib_all, fm_all = cl.fib_list.coordinates, cl.fm_list.coordinates
+        rejected = {
+            i
+            for coords in (fib_all, fm_all)
+            for i, c in enumerate(coords)
+            if c.status == PointStatus.REJECTED
+        }
+        n_fib = sum(1 for i, _ in enumerate(fib_all) if i not in rejected)
+        n_fm = sum(
+            1
+            for i, c in enumerate(fm_all)
+            if i not in rejected and c.status not in PointStatus.TENTATIVE
+        )
+        n_poi = len(d.poi_coordinates)
         if ok:
             stale = self._result is not None and not self._result.matches_inputs(d)
             lead = (

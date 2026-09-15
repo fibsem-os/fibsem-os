@@ -887,6 +887,11 @@ def test_the_status_line_names_the_next_step_and_the_bar_shows_one_primary_butto
         c.point.x += 1.0
         loaded._on_canvas_moved(c)
     assert status.text() == "Place the target on the FM image."
+    # a pair rejected from the fit is out on both sides: still the target
+    fm[1].status = PointStatus.REJECTED
+    loaded.data_changed.emit(loaded.data)
+    assert status.text() == "Place the target on the FM image."
+    fm[1].status = PointStatus.PLACED
     loaded._coords_tab.poi_list.coordinates = [
         Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
     ]
