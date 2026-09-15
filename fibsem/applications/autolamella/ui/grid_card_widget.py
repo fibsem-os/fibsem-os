@@ -30,8 +30,8 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Experiment,
-    GridQuality,
     GridRecord,
+    Verdict,
 )
 from fibsem.applications.autolamella.task_outputs import latest_grid_output
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
@@ -97,9 +97,10 @@ QToolButton::menu-indicator { image: none; }
 """
 
 _QUALITY_ICON = {
-    GridQuality.UNASSESSED: ("mdi:help-circle-outline", NEUTRAL_550, "Unassessed"),
-    GridQuality.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
-    GridQuality.POOR: ("mdi:close-circle", stylesheets.DEFECT_RED_COLOR, "Poor"),
+    Verdict.UNASSESSED: ("mdi:help-circle-outline", NEUTRAL_550, "Unassessed"),
+    Verdict.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
+    Verdict.REWORK: ("mdi:wrench", stylesheets.ORANGE_COLOR, "Rework"),
+    Verdict.FAILED: ("mdi:close-circle", stylesheets.DEFECT_RED_COLOR, "Failed"),
 }
 
 
@@ -424,7 +425,7 @@ class GridCardWidget(QWidget):
         slot = f"slot {self._entry.index + 1:02d}" if present else "not in the holder"
         self._status_label.setToolTip(f"{text} · {slot}")
 
-        icon, icon_colour, verdict = _QUALITY_ICON[grid.quality]
+        icon, icon_colour, verdict = _QUALITY_ICON[grid.quality.verdict]
         self._btn_quality.setIcon(fibsem_icon(icon, color=icon_colour))
         self._btn_quality.setToolTip(
             f"Quality: {verdict}. A person's verdict; no task sets it."
@@ -475,10 +476,10 @@ class GridCardWidget(QWidget):
         if chosen in actions:
             self.set_quality(actions[chosen])
 
-    def set_quality(self, quality: GridQuality) -> None:
-        if quality is self.grid.quality:
+    def set_quality(self, verdict: Verdict) -> None:
+        if verdict is self.grid.quality.verdict:
             return
-        self.grid.quality = quality
+        self.grid.quality.set_defect(state=verdict)
         self.refresh()
         self.quality_changed.emit(self.grid)
 
