@@ -69,6 +69,7 @@ from fibsem.ui.tokens import (
     ORANGE_COLOR,
     PANEL_COLOR,
     PRIMARY_COLOR,
+    REVIEW_COLOR,
     SURFACE_COLOR,
 )
 
@@ -276,14 +277,32 @@ def register_review_renderer(
     return _register
 
 
+def _via_text(via: str) -> str:
+    return {
+        "review": "in the Review tab",
+        "workflow": "in the workflow",
+        "server": "by the agent",
+    }.get(via, "")
+
+
+def _held_text(n: int) -> str:
+    return f"{n} task{'s' if n != 1 else ''} held" if n else "nothing is held"
+
+
 @register_review_renderer(MILLING_SETUP)
 class MillingSetupReviewRenderer(ReviewRenderer):
     """One reference image, one draggable marker: the point of interest as the
     task proposed it, pre-placed. Same overlay and same drag as the inline
-    question; what changes is when it happens."""
+    question; what changes is when it happens.
 
-    CELLS = ("proposer", "confidence", "proposed", "image")
-    PENDING_HINT = "Drag the marker to correct it"
+    Below the image, one line a person can say out loud (the state), with
+    the record -- who proposed what, on which image, the exact delta, what
+    was held or went ahead, where it was decided -- in that line's tooltip.
+    Subclasses for other kinds override ``_fact`` and ``_state_words``.
+    """
+
+    PENDING_HINT = "Enter — this is the answer; drag the marker to correct it first"
+    CONFIRM_LABEL = "Confirm"
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -297,16 +316,20 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self._task_name = ""
         self._proposal: Optional[Proposal] = None
         self._image: Optional[FibsemImage] = None
+        self._gated: List[str] = []
+        self._decided: Optional[Decision] = None
+        self._applied: Optional[Decision] = None
+        self._running = False
+        self._position = ""
 
         self._controller = MicroscopeViewController(view=LamellaEditorView())
         self._controller.widget.show_beams()
 
+        # header: name and task only
         self.title = QLabel()
         self.title.setStyleSheet(_TITLE_STYLE)
         self.task_chip = QLabel()
         self.task_chip.setStyleSheet(_CHIP_STYLE)
-        self.position = QLabel()
-        self.position.setStyleSheet(_MUTED_STYLE)
         self.btn_open = QPushButton("Go to lamella")
         self.btn_open.setFlat(True)
         self.btn_open.setCursor(Qt.PointingHandCursor)
@@ -323,52 +346,26 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         head.addWidget(self.task_chip)
         head.addStretch(1)
         head.addWidget(self.btn_open)
-        head.addWidget(self.position)
 
-        # proposer · confidence · proposed · image, as one strip of cells
-        self.cells = QFrame()
-        self.cells.setObjectName("review_cells")
-        # by object name: a bare QFrame selector would restyle the QLabels too
-        self.cells.setStyleSheet(
-            f"#review_cells {{ background: {PANEL_COLOR}; border-radius: 3px; }}"
-        )
-        grid = QGridLayout(self.cells)
-        grid.setContentsMargins(10, 6, 10, 6)
-        grid.setHorizontalSpacing(18)
-        grid.setVerticalSpacing(1)
-        self._cell_values: Dict[str, QLabel] = {}
-        for col, key in enumerate(self.CELLS):
-            k = QLabel(key.upper())
-            k.setStyleSheet(_CELL_KEY_STYLE)
-            v = QLabel("—")
-            v.setStyleSheet(_CELL_VALUE_STYLE)
-            grid.addWidget(k, 0, col)
-            grid.addWidget(v, 1, col)
-            self._cell_values[key] = v
-        grid.setColumnStretch(len(self.CELLS), 1)
-        # kept for callers that read the readout as text
+        # the one line, coloured by state; everything else is its tooltip
+        self.line = QLabel()
+        self.line.setWordWrap(True)
+        self.line.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # kept for callers that read the state as text
         self.readout = QLabel()
         self.readout.hide()
 
-        self.decision = QLabel()
-        self.decision.setWordWrap(True)
-        self.decision.hide()
-        self.waiting = QLabel()
-        self.waiting.setStyleSheet(_MUTED_STYLE)
-        self.waiting.setWordWrap(True)
-
-        self.btn_confirm = QPushButton("Confirm")
+        # actions: position on the left, the two verbs on the right
+        self.position = QLabel()
+        self.position.setStyleSheet(_MUTED_STYLE)
+        self.btn_confirm = QPushButton(self.CONFIRM_LABEL)
         self.btn_confirm.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
-        self.btn_confirm.setToolTip("Enter — this is the answer; the delta is computed")
+        self.btn_confirm.setToolTip(self.PENDING_HINT)
         self.btn_reject = QPushButton("Reject · mark lamella failed")
         self.btn_reject.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.btn_reject.setToolTip("R — nothing further here; retires the lamella")
-        self.status = QLabel()
-        self.status.setStyleSheet(_MUTED_STYLE)
-        # status on the left, verbs on the right, primary first: the same
-        # placement as Run / Stop on the status bar
         actions = QHBoxLayout()
-        actions.addWidget(self.status)
+        actions.addWidget(self.position)
         actions.addStretch(1)
         actions.addWidget(self.btn_confirm)
         actions.addWidget(self.btn_reject)
@@ -378,70 +375,43 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         layout.setSpacing(8)
         layout.addLayout(head)
         layout.addWidget(self._controller.widget, 1)
-        layout.addWidget(self.cells)
-        layout.addWidget(self.decision)
-        layout.addWidget(self.waiting)
+        layout.addWidget(self.line)
         layout.addLayout(actions)
 
         self.btn_confirm.clicked.connect(self.confirm_requested)
         self.btn_reject.clicked.connect(self.reject_requested)
         self.btn_open.clicked.connect(lambda: self.open_item_requested.emit(self._item))
-        self._running = False
-        self._decided: Optional[Decision] = None
-        self._applied: Optional[Decision] = None
-        self._refresh_status()
+        self._refresh_line()
 
-    # -- ReviewRenderer ------------------------------------------------------
+    # -- what this kind says about itself -------------------------------------
 
-    def set_proposal(
-        self, experiment: Experiment, item: Any, task_name: str, proposal: Proposal
-    ) -> None:
+    def _fact(self) -> str:
+        """The record's first sentence: what was proposed, from what."""
+        proposal = self._proposal
+        if proposal is None:
+            return ""
+        poi = proposal.values.get("poi")
+        where = os.path.basename(str(proposal.provenance.get("reference_image", "")))
+        image = "the final image" if "_final_" in where else (where or "the image")
+        value = (
+            f", {poi.x * 1e6:+.2f}, {poi.y * 1e6:+.2f} µm"
+            if isinstance(poi, Point)
+            else ""
+        )
+        return (
+            f"Point of interest proposed by {proposal.provenance.get('proposer', '?')} "
+            f"at {clock(proposal.created_at)} on {image}{value}."
+        )
+
+    def _state_words(self) -> tuple:
+        """(applied verb, re-run task) for the to-check line and its tooltip."""
+        return "Applied", self._task_name
+
+    def _draw_values(self) -> None:
+        """Put the proposed value on the image; subclasses with none skip it."""
         from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 
-        self._experiment = experiment
-        self._item = item
-        self._task_name = task_name
-        self._proposal = proposal
-        self._image = _load_reference_image(item, proposal)
-
-        self.title.setText(getattr(item, "name", ""))
-        self.task_chip.setText(task_name)
-        poi = proposal.values.get("poi")
-        self._cell_values["proposer"].setText(
-            str(proposal.provenance.get("proposer", "?"))
-        )
-        self._cell_values["confidence"].setText(
-            "—" if proposal.confidence is None else f"{proposal.confidence:.2f}"
-        )
-        self._cell_values["proposed"].setText(
-            f"{poi.x * 1e6:+.2f}, {poi.y * 1e6:+.2f} µm"
-            if isinstance(poi, Point)
-            else "—"
-        )
-        image_name = os.path.basename(
-            str(proposal.provenance.get("reference_image", ""))
-        )
-        which = "final" if "_final_" in image_name else image_name or "—"
-        self._cell_values["image"].setText(
-            f"{which} · {clock(proposal.created_at)}".strip(" ·")
-        )
-        self.readout.setText(
-            "\n".join(f"{k} {v.text()}" for k, v in self._cell_values.items())
-        )
-        self._gated = waiting_on(experiment, task_name)
-        self._decided = None
-        self._applied = None
-        self.btn_confirm.setText("Confirm")
-        self.btn_confirm.setToolTip("Enter — this is the answer; the delta is computed")
-        self._refresh_waiting()
-        self._controller.remove_overlay(BeamType.ION, "confirmed")
-
-        if self._image is None:
-            self.status.setText(
-                "Reference image not found — confirm uses the proposed point."
-            )
-            return
-        self._controller.set_image(BeamType.ION, self._image)
+        poi = self._proposal.values.get("poi") if self._proposal else None
         if isinstance(poi, Point):
             px = conversions.microscope_image_to_image_coordinates(
                 poi, self._image.data.shape, self._image.metadata.pixel_size.x
@@ -468,7 +438,31 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self._controller.arm_overlay(
             BeamType.ION, "poi", label="POI", icon="mdi:map-marker"
         )
-        self._refresh_status()
+
+    # -- ReviewRenderer ------------------------------------------------------
+
+    def set_proposal(
+        self, experiment: Experiment, item: Any, task_name: str, proposal: Proposal
+    ) -> None:
+        self._experiment = experiment
+        self._item = item
+        self._task_name = task_name
+        self._proposal = proposal
+        self._image = _load_reference_image(item, proposal)
+        self._gated = waiting_on(experiment, task_name)
+        self._decided = None
+        self._applied = None
+        self.title.setText(getattr(item, "name", ""))
+        self.task_chip.setText(task_name)
+        self.btn_confirm.setText(self.CONFIRM_LABEL)
+        self.btn_confirm.setToolTip(self.PENDING_HINT)
+        self._controller.remove_overlay(BeamType.ION, "poi")
+        self._controller.remove_overlay(BeamType.ION, "confirmed")
+        self._controller.widget.set_sem_visible(False)
+        if self._image is not None:
+            self._controller.set_image(BeamType.ION, self._image)
+            self._draw_values()
+        self._refresh_line()
 
     def current_values(self) -> Dict[str, Any]:
         proposal = self._proposal
@@ -487,29 +481,27 @@ class MillingSetupReviewRenderer(ReviewRenderer):
 
     def set_running(self, running: bool) -> None:
         self._running = running
-        self._refresh_status()
 
     def set_position(self, text: str) -> None:
-        self.position.setText(text)
+        self._position = text
+        self._refresh_line()
 
     def set_to_check(self, applied: Optional[Decision]) -> None:
         self._applied = applied
         if applied is None:
             return
-        # The values were used: the marker is not for dragging. The confirmed
-        # marker (which for centre-of-image sits on the proposed one) is drawn
-        # so what was applied is what is on screen.
+        # the values were used: the marker is not for dragging. The confirmed
+        # marker (for centre-of-image, on the proposed one) shows what applied.
         self._draw_confirmed(applied)
         self._controller.arm_overlay(BeamType.ION, None)
         self.btn_confirm.setText("Acknowledge")
         self.btn_confirm.setToolTip(
             "Enter — record that you looked; nothing is written, the values "
-            "were already applied"
+            f"were already applied. Re-run {self._task_name} to change them."
         )
         self.btn_confirm.setEnabled(True)
         self.btn_reject.setEnabled(True)
-        self._refresh_waiting()
-        self._refresh_status()
+        self._refresh_line()
 
     def _draw_confirmed(self, decision: Decision) -> None:
         from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
@@ -532,96 +524,98 @@ class MillingSetupReviewRenderer(ReviewRenderer):
                 marker="+",
                 size=14,
                 edge_width=1.2,
-                legend_label=None,  # the decision line says it
+                legend_label=None,  # the line says it
                 add_on_right_click=False,
                 removable=False,
             ),
         )
 
     def set_read_only(self, decided: Optional[Decision]) -> None:
-        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
-
         self._decided = decided
         self.btn_confirm.setEnabled(decided is None)
         self.btn_reject.setEnabled(decided is None)
         if decided is not None and self._image is not None:
-            # the proposed marker stays where it was; the confirmed one is drawn
-            # beside it so the delta is visible, and neither is draggable
-            confirmed = decided.values.get("poi")
-            if isinstance(confirmed, Point):
-                px = conversions.microscope_image_to_image_coordinates(
-                    confirmed, self._image.data.shape, self._image.metadata.pixel_size.x
-                )
-                self._controller.set_overlay(
-                    BeamType.ION,
-                    PointsSpec(
-                        id="confirmed",
-                        points=[(px.x, px.y)],
-                        color=ORANGE_COLOR,
-                        selected_color=ORANGE_COLOR,
-                        marker="+",
-                        size=14,
-                        edge_width=1.2,
-                        legend_label=None,  # the decision line says it
-                        add_on_right_click=False,
-                        removable=False,
-                    ),
-                )
+            # the proposed marker stays where it was; the confirmed one is
+            # drawn beside it so the delta is visible, and neither is draggable
+            self._draw_confirmed(decided)
             self._controller.arm_overlay(BeamType.ION, None)
-        self._refresh_waiting()
-        self._refresh_status()
+        self._refresh_line()
 
-    def _refresh_waiting(self) -> None:
-        gated = getattr(self, "_gated", [])
-        decided = getattr(self, "_decided", None)
-        applied = getattr(self, "_applied", None)
-        if not gated:
-            self.waiting.setText("Nothing is waiting on this.")
+    # -- the line ------------------------------------------------------------
+
+    def _refresh_line(self) -> None:
+        proposal = self._proposal
+        if proposal is None:
+            self.line.setText("")
+            self.position.setText(self._position)
+            return
+        experiment = self._experiment
+        gated = self._gated
+        decided = self._decided
+        applied = self._applied
+        tip = [self._fact()]
+        position = self._position
+        failure = str(proposal.provenance.get("failure") or "")
+
+        if decided is not None:
+            who = author_label(decided.author, experiment)
+            when = clock(decided.timestamp)
+            via = _via_text(decided.via)
+            if decided.outcome is DecisionOutcome.Rejected:
+                text = f"✗  Rejected by {who} at {when} · {decided.reason}"
+                colour = DEFECT_RED_COLOR
+                tip.append(f"Rejected {via}: {decided.reason}.".replace("  ", " "))
+                if gated:
+                    tip.append("Skipped, lamella failed: " + ", ".join(gated) + ".")
+            else:
+                label = delta_label(proposal, decided)
+                if not decided.values:
+                    label = "checked"
+                text = f"✓  Confirmed by {who} at {when}" + (
+                    f" · {label}" if label else ""
+                )
+                colour = OK_COLOR
+                delta = proposal.delta(decided).get("poi")
+                if isinstance(delta, Point):
+                    tip.append(
+                        f"Confirmed {via} at ({delta.x * 1e6:+.2f}, "
+                        f"{delta.y * 1e6:+.2f}) µm from the proposal.".replace(
+                            "  ", " "
+                        )
+                    )
+                else:
+                    tip.append(f"Confirmed {via}.".replace("  ", " "))
+                if gated:
+                    tip.append("Unblocked: " + ", ".join(gated) + ".")
+            position = f"{position} · read-only".strip(" ·")
         elif applied is not None:
-            verb = "Applied" if getattr(self._proposal, "values", None) else "Recorded"
-            self.waiting.setText(f"{verb}, not waiting: " + ", ".join(gated))
-        elif decided is None:
-            self.waiting.setText("Waiting on this: " + ", ".join(gated))
-        elif decided.outcome is DecisionOutcome.Rejected:
-            self.waiting.setText("Skipped, lamella failed: " + ", ".join(gated))
+            verb, rerun = self._state_words()
+            text = (
+                f"{verb} automatically at {clock(applied.timestamp)} · not checked yet"
+            )
+            colour = GRAY_SECONDARY_COLOR
+            if gated:
+                tip.append(", ".join(gated) + " went ahead.")
+            tip.append(
+                f"Acknowledge records that you looked; re-run {rerun} to change it."
+            )
+        elif failure:
+            text = failure
+            colour = DEFECT_RED_COLOR
         else:
-            self.waiting.setText("Unblocked: " + ", ".join(gated))
-
-    def _refresh_status(self) -> None:
-        decided = getattr(self, "_decided", None)
-        if decided is not None and self._proposal is not None:
-            rejected = decided.outcome is DecisionOutcome.Rejected
-            colour = DEFECT_RED_COLOR if rejected else OK_COLOR
-            icon = "✗" if rejected else "✓"
-            self.decision.setText(
-                f"{icon}  {describe_decision(self._proposal, self._experiment)}"
+            text = f"Waiting for your decision · {_held_text(len(gated))}"
+            colour = REVIEW_COLOR
+            if gated:
+                tip.append("Held until you decide: " + ", ".join(gated) + ".")
+        if self._image is None:
+            tip.append(
+                "The reference image was not found; confirm uses the proposed values."
             )
-            self.decision.setStyleSheet(
-                f"color: {colour}; background: {SURFACE_COLOR}; border-left: 3px solid "
-                f"{colour}; padding: 6px 10px; font-size: 12px;"
-            )
-            self.decision.show()
-            self.status.setText("Read-only · re-run the task to propose again")
-            return
-        applied = getattr(self, "_applied", None)
-        if applied is not None and self._proposal is not None:
-            self.decision.setText(
-                f"◦  {describe_decision(self._proposal, self._experiment)}"
-            )
-            self.decision.setStyleSheet(
-                f"color: {GRAY_TEXT_COLOR}; background: {SURFACE_COLOR}; "
-                f"border-left: 3px solid {GRAY_SECONDARY_COLOR}; padding: 6px 10px; "
-                "font-size: 12px;"
-            )
-            self.decision.show()
-            what = "Applied as proposed" if self._proposal.values else "Recorded"
-            self.status.setText(
-                f"{what} · acknowledge, or re-run the task to change it"
-            )
-            return
-        self.decision.hide()
-        beam = "beam is busy elsewhere" if self._running else "beam is idle"
-        self.status.setText(f"{self.PENDING_HINT} · no deadline · {beam}")
+        self.line.setText(text)
+        self.line.setStyleSheet(f"color: {colour}; font-size: 12px; padding: 2px 0;")
+        self.line.setToolTip("\n".join(t for t in tip if t))
+        self.position.setText(position)
+        self.readout.setText(text + "\n" + "\n".join(tip))
 
 
 def _load_reference_image(
@@ -657,102 +651,83 @@ class TaskResultReviewRenderer(MillingSetupReviewRenderer):
     the two verbs. Nothing to drag, nothing to write; confirm says it looks
     right, reject retires the lamella."""
 
-    CELLS = ("task", "outcome", "duration", "image")
-    PENDING_HINT = "Look at the result"
+    PENDING_HINT = "Enter — this looks right"
+    CONFIRM_LABEL = "Confirm · looks right"
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.btn_confirm.setToolTip("Enter — this looks right")
         self._electron: Optional[FibsemImage] = None
 
-    def set_proposal(
-        self, experiment: Experiment, item: Any, task_name: str, proposal: Proposal
-    ) -> None:
-        self._experiment = experiment
-        self._item = item
-        self._task_name = task_name
-        self._proposal = proposal
-        self._image = _load_reference_image(item, proposal)
-        self._electron = _load_reference_image(item, proposal, "reference_image_eb")
-        p = proposal.provenance
-
-        self.title.setText(getattr(item, "name", ""))
-        self.task_chip.setText(task_name)
-        self._cell_values["task"].setText(task_name)
-        failure = str(p.get("failure") or "")
-        status = str(p.get("status") or "")
-        self._cell_values["outcome"].setText(
-            f"failed · {failure}" if failure else status.lower() or "—"
-        )
+    def _fact(self) -> str:
+        p = self._proposal.provenance if self._proposal else {}
+        task = self._task_name
         started, ended = p.get("started_at"), p.get("ended_at")
-        self._cell_values["duration"].setText(
+        took = (
             _duration(ended - started)
             if isinstance(started, (int, float)) and isinstance(ended, (int, float))
-            else "—"
+            else None
         )
+        failure = str(p.get("failure") or "")
+        if failure:
+            head = (
+                f"{task} failed" + (f" after {took}" if took else "") + f": {failure}."
+            )
+        else:
+            head = f"{task} completed" + (f" in {took}" if took else "") + "."
         names = [
             os.path.basename(str(p.get(k) or ""))
             for k in ("reference_image", "reference_image_eb")
         ]
         names = [n for n in names if n]
-        self._cell_values["image"].setText(
-            (
-                ("final" if any("_final" in n for n in names) else " · ".join(names))
-                + f" · {clock(proposal.created_at)}"
-            ).strip(" ·")
-            if names
-            else f"none recorded · {clock(proposal.created_at)}"
+        if not names:
+            return head + " No reference images were recorded."
+        when = clock(self._proposal.created_at) if self._proposal else ""
+        which = (
+            "Final images" if any("_final" in n for n in names) else " · ".join(names)
         )
-        self.readout.setText(
-            "\n".join(f"{k} {v.text()}" for k, v in self._cell_values.items())
-        )
-        self._gated = waiting_on(experiment, task_name)
-        self._decided = None
-        self._applied = None
-        self.btn_confirm.setText("Confirm · looks right")
-        self._refresh_waiting()
-        self._controller.remove_overlay(BeamType.ION, "poi")
-        self._controller.remove_overlay(BeamType.ION, "confirmed")
-        self._controller.arm_overlay(BeamType.ION, None)
-        if self._image is not None:
-            self._controller.set_image(BeamType.ION, self._image)
+        return f"{head} {which} at {when}."
+
+    def _state_words(self) -> tuple:
+        return "Recorded", self._task_name
+
+    def _draw_values(self) -> None:
+        return  # nothing to place; the images are the result
+
+    def _draw_confirmed(self, decision: Decision) -> None:
+        return
+
+    def set_proposal(
+        self, experiment: Experiment, item: Any, task_name: str, proposal: Proposal
+    ) -> None:
+        super().set_proposal(experiment, item, task_name, proposal)
+        self._electron = _load_reference_image(item, proposal, "reference_image_eb")
         if self._electron is not None:
             self._controller.set_image(BeamType.ELECTRON, self._electron)
         self._controller.widget.set_sem_visible(self._electron is not None)
-        self._refresh_status()
+        self._controller.arm_overlay(BeamType.ION, None)
+        self._refresh_line()
 
     def current_values(self) -> Dict[str, Any]:
         return {}
 
-    def _refresh_status(self) -> None:
-        super()._refresh_status()
-        if (
-            self._proposal is not None
-            and self._image is None
-            and getattr(self, "_electron", None) is None
-            and getattr(self, "_decided", None) is None
-        ):
-            self.status.setText(
-                "No reference images were recorded for this run · " + self.status.text()
-            )
-
-    def set_to_check(self, applied: Optional[Decision]) -> None:
-        self._applied = applied
-        if applied is None:
+    def _refresh_line(self) -> None:
+        super()._refresh_line()
+        p = self._proposal
+        if p is None:
             return
-        self.btn_confirm.setText("Acknowledge")
-        self.btn_confirm.setToolTip("Enter — record that you looked")
-        self.btn_confirm.setEnabled(True)
-        self.btn_reject.setEnabled(True)
-        self._refresh_waiting()
-        self._refresh_status()
-
-    def set_read_only(self, decided: Optional[Decision]) -> None:
-        self._decided = decided
-        self.btn_confirm.setEnabled(decided is None)
-        self.btn_reject.setEnabled(decided is None)
-        self._refresh_waiting()
-        self._refresh_status()
+        failure = str(p.provenance.get("failure") or "")
+        if failure and self._decided is None and self._applied is None:
+            # the failure is the line, in the error colour; the tooltip has the rest
+            started, ended = (
+                p.provenance.get("started_at"),
+                p.provenance.get("ended_at"),
+            )
+            took = (
+                f" after {_duration(ended - started)}"
+                if isinstance(started, (int, float)) and isinstance(ended, (int, float))
+                else ""
+            )
+            self.line.setText(f"{self._task_name} failed{took} · {failure}")
 
 
 def _duration(seconds: float) -> str:
