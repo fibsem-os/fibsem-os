@@ -1553,11 +1553,6 @@ class SampleScene:
             # in reflection the holes and rips read dark, the rim bright
             canvas[holes] -= bars * HOLE_DEPTH
             canvas[rips] -= bars * RIP_DEPTH
-            if self.milled:
-                canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
-                halo = self.halo_mask(xs_world, ys_world, pixel_size)
-                if halo is not None:
-                    canvas[halo] += bars * FM_HALO
         # ice reflects strongly and barely fluoresces
         ice = 0.9 if bars >= 1.0 else 0.04
 
@@ -1593,6 +1588,14 @@ class SampleScene:
             u = cx + (f.x + ax) / pixel_size
             v = cy + (f.y * fs + ay) / pixel_size
             self._stamp_feature(canvas, f, u, v, pixel_size, fs, 0.0, intensity=weight)
+        # milled regions after the features: a trench or a burn removes the
+        # material, so in reflection it reads dark through whatever cell was
+        # there, and a burn's rim stays visible on top of it (FIB-954)
+        if bars > 0 and self.milled:
+            canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
+            halo = self.halo_mask(xs_world, ys_world, pixel_size)
+            if halo is not None:
+                canvas[halo] += bars * FM_HALO
         canvas[rim] = RIM_INTENSITY if bars >= 1.0 else 0.0
         canvas[beyond] = 0.0
 
