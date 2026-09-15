@@ -30,7 +30,6 @@ def _stage(**overrides) -> StageSystemSettings:
     fields = dict(
         rotation_reference=0.0,
         shuttle_pre_tilt=35.0,
-        manipulator_height_limit=0.0037,
     )
     fields.update(overrides)
     return StageSystemSettings(**fields)
@@ -152,7 +151,6 @@ def test_a_stored_value_is_ignored_rather_than_honoured():
             "rotation_reference": 0.0,
             "rotation_180": 99.0,
             "shuttle_pre_tilt": 35.0,
-            "manipulator_height_limit": 0.0037,
         }
     )
     assert stage.rotation_180 == 180.0
