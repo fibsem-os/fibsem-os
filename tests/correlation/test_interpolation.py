@@ -4,6 +4,7 @@ Pure-array + FluorescenceImage-level; no Qt. Uses small synthetic volumes so it
 runs fast and deterministically, with the numbers chosen to mirror the real
 METEOR case (500 nm z step, 130 nm XY -> isotropic).
 """
+
 import numpy as np
 import pytest
 
@@ -52,7 +53,10 @@ def test_multi_channel_progress_callback_is_ui_agnostic():
     img = np.random.rand(3, 5, 4, 4).astype(np.float32)
     calls = []
     multi_channel_interpolation(
-        img, 500e-9, 250e-9, progress_callback=lambda done, total: calls.append((done, total))
+        img,
+        500e-9,
+        250e-9,
+        progress_callback=lambda done, total: calls.append((done, total)),
     )
     # one call before the loop, one after each of the 3 channels
     assert calls == [(0, 3), (1, 3), (2, 3), (3, 3)]
@@ -190,6 +194,43 @@ def test_dialog_defaults_to_isotropic(qapp):
     assert dlg.target_z_size_m() == pytest.approx(fm.metadata.pixel_size_x)
     assert dlg.method() == "linear"
     assert "→ 81 slices" in dlg._preview.text()
+
+
+def test_dialog_opens_with_fm_points_placed(qapp):
+    """The warn row (FM points will be rescaled) draws its icon in the warn
+    colour from the tokens; the dialog once named a constant that no longer
+    existed and raised on open."""
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+    from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
+
+    fm = FluorescenceImage(
+        data=np.zeros((1, 4, 8, 8), dtype=np.uint16),
+        metadata=FluorescenceImageMetadata(
+            acquisition_date="2026-08-05T00:00:00",
+            pixel_size_x=1e-7,
+            pixel_size_y=1e-7,
+            pixel_size_z=3e-7,
+            resolution=(8, 8),
+            channels=[
+                FluorescenceChannelMetadata(
+                    name="GFP",
+                    color="#00FF00",
+                    excitation_wavelength=488,
+                    emission_wavelength=509,
+                    power=1.0,
+                    exposure_time=0.1,
+                    gain=1.0,
+                    offset=0.0,
+                )
+            ],
+        ),
+    )
+    dlg = InterpolateZDialog(fm, fm_point_count=3)
+    assert "→" in dlg._preview.text()
 
 
 def test_dialog_unchecking_isotropic_frees_the_spinbox(qapp):
