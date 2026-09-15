@@ -261,7 +261,7 @@ class MillUndercutTask(AutoLamellaTask):
                 current_milling_config, msg=msg
             )
 
-            milling_task_config.stages[i] = current_milling_config.stages[0]
+            # milling_task_config.stages[i] = current_milling_config.stages[0]
 
             ## charge neutralise (seems to build up a lot)
 
