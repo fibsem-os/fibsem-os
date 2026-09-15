@@ -350,6 +350,7 @@ class CoordinateRowWidget(QWidget):
         z_max: Optional[float] = None,
     ) -> None:
         """Constrain spinbox ranges to image shape. Pass None to leave unconstrained."""
+        self._axis_max = (x_max, y_max)
         if x_max is not None:
             self.x_spin.setMinimum(0.0)
             self.x_spin.setMaximum(float(x_max))
@@ -359,13 +360,42 @@ class CoordinateRowWidget(QWidget):
         if z_max is not None:
             self.z_spin.setMinimum(0.0)
             self.z_spin.setMaximum(float(z_max))
+        self.refresh()
+
+    def _off_image(self) -> bool:
+        """Outside the image's axes: only a projection can put a point there."""
+        x_max, y_max = getattr(self, "_axis_max", (None, None))
+        p = self.coord.point
+        return (x_max is not None and not 0.0 <= p.x <= x_max) or (
+            y_max is not None and not 0.0 <= p.y <= y_max
+        )
 
     def refresh(self) -> None:
         """Re-sync the fields and the state word from the coordinate, silently."""
         for w in (self.x_spin, self.y_spin, self.z_spin):
             w.blockSignals(True)
-        self.x_spin.setValue(self.coord.point.x)
-        self.y_spin.setValue(self.coord.point.y)
+        # A typed value is held to the image. A projection can land outside
+        # it; the row then shows the true number, read-only, rather than the
+        # clamped 0.0 it used to show. The user drags the ring in from the
+        # canvas or projects again after a drop.
+        off = self._off_image()
+        x_max, y_max = getattr(self, "_axis_max", (None, None))
+        for spin, value, top in (
+            (self.x_spin, self.coord.point.x, x_max),
+            (self.y_spin, self.coord.point.y, y_max),
+        ):
+            if off:
+                spin.setRange(-1e6, 1e6)
+            elif top is not None:
+                spin.setRange(0.0, float(top))
+            spin.setValue(value)
+            spin.setEnabled(not off)
+            spin.setToolTip(
+                "Outside the image. Drag its ring in from the canvas, or "
+                "project again after placing a pair."
+                if off
+                else ""
+            )
         # z is a slice: an integer unless the fitter found a sub-slice depth
         # (or the value is fractional anyway, as an older file's may be)
         z = self.coord.point.z
@@ -389,6 +419,8 @@ class CoordinateRowWidget(QWidget):
             self.dot.setStyleSheet(f"background: {colour}; border-radius: 5px;")
         text = state_text(self.coord)
         tone = _state_tone(self.coord)
+        if text.startswith("predicted") and self._off_image():
+            text, tone = "predicted \u00b7 off image", "warn"
         if not text and self._note:
             text, tone = self._note
         self.state_label.setText(text)
