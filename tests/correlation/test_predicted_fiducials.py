@@ -180,7 +180,7 @@ def test_project_adds_predictions_that_never_feed_the_fit(loaded):
     assert not loaded._can_run()
     assert "7 FM predictions" in loaded._lbl_status.text()
     cl = loaded._coords_tab
-    assert cl._predict_count_label.text() == "7 predicted"
+    assert cl._fm_count_label.text() == "7 predicted"
     assert cl._fm_count_label.text() == "7 predicted"
     assert cl.btn_accept_predictions.isEnabled()
     assert "3 highlighted" in cl._predict_hint.text()
@@ -306,6 +306,19 @@ def test_the_run_gate_counts_confirmed_pairs_only(loaded):
 
 
 # ── the list row and the spot-burn lookup ────────────────────────────────
+
+
+def test_the_projection_row_lives_in_the_fm_panel(loaded):
+    """Project and Accept all are the FM list's actions and sit under it, in
+    its panel; there is no Predicted Fiducials panel of their own."""
+    from fibsem.ui.widgets.custom_widgets import TitledPanel
+
+    cl = loaded._coords_tab
+    titles = [p._title_label.text() for p in cl.findChildren(TitledPanel)]
+    assert "Predicted Fiducials" not in titles
+    assert cl._fm_panel.isAncestorOf(cl.btn_project)
+    assert cl._fm_panel.isAncestorOf(cl.btn_accept_predictions)
+    assert cl._fm_panel.isAncestorOf(cl._predict_hint)
 
 
 def test_list_rows_show_the_prediction_state(loaded):
