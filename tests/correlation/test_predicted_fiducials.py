@@ -9,6 +9,7 @@ pixels; the fits themselves are covered by the correlation util tests.
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -419,6 +420,36 @@ def test_a_previous_runs_offset_moves_the_first_placement_and_can_be_ignored(loa
     loaded._on_projection_link("use")
     nominal, _ = loaded._nominal_transform()
     assert np.allclose(nominal.translation, bare + np.array([3.0, -4.0]) / px_um)
+
+
+def test_ignoring_the_offset_leaves_a_live_result_live(loaded):
+    """Ignore changes the next projection, not the points, so Continue stays."""
+    from fibsem.correlation.structures import (
+        CorrelationPointOfInterest,
+        CorrelationResult,
+    )
+
+    loaded.set_prior_runs(_offset_runs([3.0, -4.0]))
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    for c in _fm(loaded):
+        c.point.x += 1.0
+        loaded._on_canvas_moved(c)
+    loaded._coords_tab.poi_list.coordinates = [
+        Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
+    ]
+    loaded.data_changed.emit(loaded.data)
+    loaded._on_run_finished(
+        CorrelationResult(
+            poi=[CorrelationPointOfInterest()],
+            rms_error=1.0,
+            input_data=copy.deepcopy(loaded.fit_data),
+        )
+    )
+    assert loaded._btn_continue.isEnabled()
+    loaded._on_projection_link("ignore")
+    assert 'href="use"' in loaded._coords_tab._lbl_projection.text()
+    assert loaded._btn_continue.isEnabled()
 
 
 def test_a_poor_previous_run_does_not_supply_an_offset(loaded):
