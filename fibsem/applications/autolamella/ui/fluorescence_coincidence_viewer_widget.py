@@ -106,7 +106,7 @@ if TYPE_CHECKING:
 _BG = SURFACE_COLOR
 _HEADER_BG = CANVAS_BG
 
-# name used for the coincidence entry in the lamella review panel / task history
+# name used for the coincidence entry in the lamella History panel / task history
 COINCIDENCE_REVIEW_TASK_NAME = "Coincidence Milling"
 
 

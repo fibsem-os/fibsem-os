@@ -1,6 +1,6 @@
 """Standalone viewer for LamellaTaskImageWidget.
 
-Opens the review panel for one lamella of a real experiment, without launching the
+Opens the History panel for one lamella of a real experiment, without launching the
 whole application. Defaults to the most recent experiment on this machine that has
 any completed tasks.
 
@@ -32,7 +32,9 @@ from fibsem.ui.stylesheets import NAPARI_STYLE
 
 LOG_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "applications", "autolamella", "log",
+    "applications",
+    "autolamella",
+    "log",
 )
 
 
@@ -100,8 +102,12 @@ def _report(lamella: Lamella) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("experiment", nargs="?", help="experiment.yaml, or its directory")
-    parser.add_argument("--lamella", help="lamella name (default: first with task history)")
+    parser.add_argument(
+        "experiment", nargs="?", help="experiment.yaml, or its directory"
+    )
+    parser.add_argument(
+        "--lamella", help="lamella name (default: first with task history)"
+    )
     args = parser.parse_args()
 
     path = _resolve(args.experiment)

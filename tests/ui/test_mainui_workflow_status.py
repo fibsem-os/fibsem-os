@@ -284,3 +284,18 @@ def test_go_to_lamella_selects_it_where_it_is_edited(main_ui, tmp_path):
     main_ui.review_tab.open_item_requested.emit(lamella)
     assert main_ui.tab_widget.currentWidget() is main_ui._lamella_tab_container
     assert main_ui.lamella_card_container._selected_id == lamella.id
+
+
+def test_the_lamella_sub_tab_is_called_history_not_review(main_ui):
+    """One thing in the window is called Review: the main tab where decisions
+    are made. The lamella's per-task record is History, beside Protocol."""
+    container = main_ui._lamella_tab_container
+    from PyQt5.QtWidgets import QTabWidget
+
+    tabs = container.findChild(QTabWidget)
+    labels = [tabs.tabText(i) for i in range(tabs.count())]
+    assert labels == ["Protocol", "History"]
+    main_labels = [
+        main_ui.tab_widget.tabText(i) for i in range(main_ui.tab_widget.count())
+    ]
+    assert main_labels.count("Review") == 1
