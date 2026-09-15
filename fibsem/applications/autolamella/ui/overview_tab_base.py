@@ -288,8 +288,20 @@ class AutoLamellaOverviewTabBase(QWidget):
         lamellae = list(experiment.positions)
         self.lamella_list.set_lamella(lamellae)
 
-        positions, unplaceable = [], []
+        # This canvas is the stage. A lamella whose grid is in the magazine is
+        # not on it, and its marker would land on whatever grid *is* loaded --
+        # so only lamellae on a loaded grid, or on no known grid, are drawn.
+        # The list above still names them all; the Grids tab's Positions view
+        # is where a grid off the stage is worked on.
+        loaded = self._loaded_grid_names()
+        # An experiment that cannot say (a stand-in in tests) has no grids.
+        grid_of = getattr(experiment, "get_grid_for_lamella", lambda _lamella: None)
+        positions, unplaceable, elsewhere = [], [], []
         for lamella in lamellae:
+            grid = grid_of(lamella)
+            if grid is not None and loaded is not None and grid.name not in loaded:
+                elsewhere.append(lamella.name)
+                continue
             place = self._pose_of(lamella)
             if place is None:
                 unplaceable.append(lamella.name)
@@ -307,6 +319,24 @@ class AutoLamellaOverviewTabBase(QWidget):
                 f"{len(unplaceable)} lamella(e) have no {self.POSE_NOUN} and are not "
                 f"shown on the {self.OVERVIEW_NOUN}: {', '.join(unplaceable)}"
             )
+        if elsewhere:
+            logger.info(
+                f"{len(elsewhere)} lamella(e) are on a grid that is not on the stage "
+                f"and are not shown on the {self.OVERVIEW_NOUN}: {', '.join(elsewhere)}"
+            )
+
+    def _loaded_grid_names(self):
+        """The names of the grids on the stage, from what the stage already
+        knows (no hardware call), or None when there is no stage to ask -- in
+        which case nothing is withheld."""
+        stage = getattr(self.microscope, "_stage", None)
+        if stage is None:
+            return None
+        try:
+            return {g.name for g in stage.loaded_grids}
+        except Exception as e:  # noqa: BLE001 - unknown: withhold nothing
+            logger.debug(f"Could not read the loaded grids: {e}")
+            return None
 
     def set_selected(self, lamella) -> None:
         """Highlight the selected lamella.

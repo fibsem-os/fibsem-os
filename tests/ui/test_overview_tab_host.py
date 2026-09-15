@@ -629,3 +629,37 @@ class TestALamellaMarkedOnAGridOverviewBelongsToThatGrid:
         tab._on_add_requested(position, "no-such-record")
         host = tab.autolamella_ui
         assert [k.get("grid_id") for k in host.kwargs] == [birch.id, None, None]
+
+
+class TestItMarksOnlyWhatIsOnTheStage:
+    """This canvas is the stage. A lamella whose grid is in the magazine is not
+    on it, so its marker is withheld until the grid is loaded (FIB-71). An
+    unlinked lamella is drawn as ever; the list still names them all."""
+
+    def test_a_lamella_on_a_grid_in_the_magazine_is_not_marked(self, tab, microscope):
+        stage = microscope._stage
+        experiment = tab.experiment
+        experiment.sync_grids_from_inventory(stage)
+        two = experiment.get_grid_by_name("Grid-02")
+        assert stage.loaded_grids == []
+
+        on_two = _lamella(tab, microscope, dx=50e-6)
+        on_two.grid_id = two.id
+        free = _lamella(tab, microscope, dx=-50e-6)
+        try:
+            tab.refresh_positions()
+            assert [p.name for p in tab.overview._positions] == [free.name]
+            assert tab.lamella_list._list.count() == 2
+
+            stage.ensure_loaded("Grid-02")
+            tab.refresh_positions()
+            assert sorted(p.name for p in tab.overview._positions) == sorted(
+                [on_two.name, free.name]
+            )
+
+            stage.unload()
+            tab.refresh_positions()
+            assert [p.name for p in tab.overview._positions] == [free.name]
+        finally:
+            if stage.loaded_grids:
+                stage.unload()

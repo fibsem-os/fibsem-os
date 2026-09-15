@@ -2676,6 +2676,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ):
             if widget is not None:
                 widget.set_grid_context(context)
+        # The Overview canvases mark only the lamellae on the stage, so what
+        # they draw changes with every load and unload too.
+        self._refresh_overview_positions()
 
     def _refresh_sample_view(self) -> None:
         """Redraw Microscope → Sample from the stage. Looked up each time: the
