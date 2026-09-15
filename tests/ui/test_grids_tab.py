@@ -351,3 +351,42 @@ def test_a_grid_task_added_on_the_protocol_tab_reaches_the_run_view(main_ui, tmp
 
     assert list(run_view._task_rows) == ["SEM Overview"]
     assert run_view.get_selected_task_names() == ["SEM Overview"]
+
+
+def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
+    """Seen on the bench: unloading from the Grids tab left the Sample view
+    showing the grid still on the stage. The Sample view draws from the stage
+    and never polls it, so the Grids tab's exchanges have to tell it."""
+    from fibsem.microscopes._stage import DemoSampleLoader
+    from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
+
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    microscope = ui.microscope
+    microscope.stage_is_compustage = True
+    microscope._stage = _create_sample_stage(microscope)
+    microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1, 2))
+    # The Sample view is built at connect, against the stage of that moment;
+    # rebuild it for the swapped stage the way a connect would.
+    ui.sample_widget = FibsemSampleWidget(microscope=microscope)
+    main_ui._refresh_grids_tab_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    ui.experiment = exp
+    main_ui.grids_tab.set_experiment(exp)
+    main_ui.tab_widget.setTabEnabled(
+        main_ui.tab_widget.indexOf(main_ui.grids_tab), True
+    )
+    main_ui.grids_tab._synchronous = True
+    main_ui.grids_tab.btn_inventory.click()
+
+    def sample_states():
+        return [r.state for r in ui.sample_widget.loader_widget._rows[:2]]
+
+    assert sample_states() == ["occupied", "occupied"]
+    card = main_ui.grids_tab.cards.cards[1]
+    card._action_load.trigger()
+    assert sample_states() == ["occupied", "loaded"]
+    card._action_unload.trigger()
+    assert sample_states() == ["occupied", "occupied"]
