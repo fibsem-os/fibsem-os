@@ -133,6 +133,52 @@ NEUTRAL_900 = "#1a1b1e"
 # Role name for the workflow border's "queued, but nothing is executing" state.
 # Points at the neutral the workflow timeline already uses for StepStatus.PENDING
 # (its ``_DOT_PENDING``), so a parked run reads the same on both surfaces instead
+# ---------------------------------------------------------------------------
+# Text roles
+#
+# A widget that styles each label inline picks a size and a colour every time,
+# and across the correlation widgets that produced 33 labels at 11 px, 17 at
+# 12 px, and five different "muted" greys for the same job (FIB-978). These are
+# the roles a label can have; a widget names the role, not the numbers.
+#
+# Stylesheet fragments, so they compose: ``f"{CAPTION_STYLE} margin-left: 8px;"``.
+PANEL_TITLE_STYLE = f"color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 600;"
+BODY_STYLE = f"color: {TEXT_COLOR}; font-size: 12px;"  # labels, status, instructions
+BODY_MUTED_STYLE = (
+    f"color: {TEXT_MUTED_COLOR}; font-size: 12px;"  # secondary at body size
+)
+CAPTION_STYLE = (
+    f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"  # table headers, counts, notes
+)
+CAPTION_VALUE_STYLE = (
+    f"color: {TEXT_COLOR}; font-size: 11px;"  # the value beside a caption
+)
+NUMBER_FONT = "Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+NUMBER_STYLE = f"font-family: {NUMBER_FONT}; font-size: 11px; color: {TEXT_COLOR};"
+CONTROL_STYLE = "font-size: 12px;"  # combos, buttons, checkboxes sitting among captions
+TABLE_STYLE = (
+    "QTableWidget { font-size: 11px; } "
+    "QHeaderView::section { font-size: 11px; padding: 2px 4px; }"
+)
+
+_STATE_COLORS = {
+    "ok": OK_COLOR,
+    "warn": WARN_COLOR,
+    "error": ERROR_COLOR,
+    "info": ACCENT_COLOR,
+    "muted": TEXT_MUTED_COLOR,
+}
+
+
+def state_style(tone: str, size: int = 12) -> str:
+    """Text in a semantic colour: ``tone`` is ok / warn / error / info / muted."""
+    return f"color: {_STATE_COLORS[tone]}; font-size: {size}px;"
+
+
+def state_color(tone: str) -> str:
+    return _STATE_COLORS[tone]
+
+
 # of inventing a seventh colour for an idea the app already has one for.
 PENDING_COLOR = NEUTRAL_700
 

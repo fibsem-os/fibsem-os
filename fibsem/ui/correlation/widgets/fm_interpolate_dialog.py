@@ -4,6 +4,7 @@ Collects a target z pixel size and interpolation method for
 :func:`fibsem.correlation.util.interpolate_fm_volume`. Interpolation only
 resamples z, so the natural default is the XY pixel size — an isotropic volume.
 """
+
 from __future__ import annotations
 
 from typing import Optional, Tuple
@@ -26,13 +27,16 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
+    BODY_MUTED_STYLE,
+    BODY_STYLE,
+    BORDER_COLOR,
     CANVAS_BG,
-    NEUTRAL_300,
-    NEUTRAL_400,
+    PANEL_COLOR,
+    TEXT_COLOR,
+    WARN_COLOR,
+    state_style,
 )
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
-
-_WARN_COLOR = "#d6b57a"
 
 
 def _estimate_slices(nz: int, z_step_m: float, target_m: float) -> int:
@@ -46,7 +50,9 @@ class InterpolateZDialog(QDialog):
     """Ask for a target z pixel size + method; expose them after ``exec_()``."""
 
     def __init__(
-        self, fm_image: FluorescenceImage, parent: Optional[QWidget] = None,
+        self,
+        fm_image: FluorescenceImage,
+        parent: Optional[QWidget] = None,
         fm_point_count: int = 0,
     ) -> None:
         super().__init__(parent)
@@ -55,7 +61,7 @@ class InterpolateZDialog(QDialog):
         # The label/chip colours below are picked for a dark surface, so don't
         # rely on the app-level napari stylesheet being installed — state it
         # here, as FitConfirmationDialog does.
-        self.setStyleSheet(f"background: {CANVAS_BG}; color: {NEUTRAL_300};")
+        self.setStyleSheet(f"background: {CANVAS_BG}; color: {TEXT_COLOR};")
 
         meta = fm_image.metadata
         self._nc, self._nz, self._ny, self._nx = fm_image.data.shape
@@ -74,12 +80,12 @@ class InterpolateZDialog(QDialog):
             f"Z step: {self._z_step * 1e9:.0f} nm "
             f"({self._z_step / self._xy:.2f}× anisotropic)"
         )
-        info.setStyleSheet(f"color: {NEUTRAL_400}; font-size: 12px;")
+        info.setStyleSheet(BODY_MUTED_STYLE)
         root.addWidget(info)
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("color: #3a3d42;")
+        line.setStyleSheet(f"color: {BORDER_COLOR};")
         root.addWidget(line)
 
         form = QFormLayout()
@@ -91,7 +97,11 @@ class InterpolateZDialog(QDialog):
         form.addRow(self._chk_iso)
 
         self._spin_target = ValueSpinBox(
-            suffix="nm", minimum=1.0, maximum=100000.0, step=10.0, decimals=1,
+            suffix="nm",
+            minimum=1.0,
+            maximum=100000.0,
+            step=10.0,
+            decimals=1,
         )
         self._spin_target.setValue(self._xy * 1e9)
         self._spin_target.setEnabled(False)  # isotropic on by default
@@ -104,8 +114,8 @@ class InterpolateZDialog(QDialog):
 
         self._preview = QLabel()
         self._preview.setStyleSheet(
-            "color: #cfe0f2; background: #21303f; border: 0.5px solid #2f4a63;"
-            " border-radius: 6px; padding: 8px 10px; font-size: 12px;"
+            f"{BODY_STYLE} background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR};"
+            " border-radius: 6px; padding: 8px 10px;"
         )
         root.addWidget(self._preview)
 
@@ -117,7 +127,7 @@ class InterpolateZDialog(QDialog):
 
             warn_icon = QLabel()
             warn_icon.setPixmap(
-                fibsem_icon("mdi:alert-circle-outline", color=_WARN_COLOR).pixmap(14, 14)
+                fibsem_icon("mdi:alert-circle-outline", color=WARN_COLOR).pixmap(14, 14)
             )
             warn_layout.addWidget(warn_icon, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -127,7 +137,7 @@ class InterpolateZDialog(QDialog):
                 "they'll be rescaled to the new slice count."
             )
             warn.setWordWrap(True)
-            warn.setStyleSheet(f"color: {_WARN_COLOR}; font-size: 12px;")
+            warn.setStyleSheet(state_style("warn"))
             warn_layout.addWidget(warn, 1)
             root.addWidget(warn_row)
 
@@ -172,9 +182,7 @@ class InterpolateZDialog(QDialog):
         new_nz = _estimate_slices(self._nz, self._z_step, target_m)
         gb = self._nc * new_nz * self._ny * self._nx * self._itemsize / 1e9
         iso = " · isotropic" if abs(target_m - self._xy) < 1e-12 else ""
-        self._preview.setText(
-            f"{self._nz} → {new_nz} slices{iso} · ~{gb:.1f} GB"
-        )
+        self._preview.setText(f"{self._nz} → {new_nz} slices{iso} · ~{gb:.1f} GB")
 
     # ------------------------------------------------------------------
     # Results (valid after exec_)

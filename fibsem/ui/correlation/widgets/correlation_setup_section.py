@@ -39,6 +39,7 @@ from fibsem import constants
 from fibsem.correlation.config import CorrelationConfig
 from fibsem.correlation.history import CorrelationRun, LamellaCorrelation
 from fibsem.structures import Point
+from fibsem.ui.tokens import CAPTION_STYLE, CONTROL_STYLE
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
 
 # Starting-coordinates sources (mutually exclusive; see the design doc).
@@ -46,10 +47,9 @@ SEED_NONE = "none"
 SEED_SPOT_BURNS = "spot_burns"
 SEED_PREVIOUS = "previous"
 
-_MUTED = "#9aa0a6"
 # The panels around this section run at 11-12px; controls left at the default app
 # font render noticeably larger than the labels and values they sit among.
-_CONTROL_STYLE = "font-size: 12px;"
+_CONTROL_STYLE = CONTROL_STYLE
 
 
 def format_run_timestamp(name: str) -> str:
@@ -82,7 +82,7 @@ def format_run_label(run: CorrelationRun) -> str:
 
 def _caption(text: str, indent: int = 0) -> QLabel:
     lbl = QLabel(text)
-    style = f"color:{_MUTED};font-size:11px;"
+    style = CAPTION_STYLE
     if indent:
         style += f"margin-left:{indent}px;"
     lbl.setStyleSheet(style)

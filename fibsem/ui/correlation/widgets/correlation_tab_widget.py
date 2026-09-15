@@ -123,10 +123,17 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
+    BODY_MUTED_STYLE,
+    BODY_STYLE,
     CANVAS_BG,
-    NEUTRAL_200,
+    CAPTION_STYLE,
+    CAPTION_VALUE_STYLE,
+    CONTROL_STYLE,
     SURFACE_COLOR,
+    TABLE_STYLE,
     TEXT_MUTED_COLOR,
+    state_color,
+    state_style,
 )
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import (
@@ -168,12 +175,9 @@ _RMS_OUTLIER_RATIO = 2.0
 # residual is small by construction rather than by agreement.
 _RMS_MIN_FIDUCIALS = 4
 
-_RMS_NEUTRAL = "#9aa0a6"
-_RMS_WARN = "#ffb300"
-_RMS_BAD = "#e53935"
-
-# Form-row labels: muted and one step below the value they describe.
-_FORM_LABEL_COLOR = "#9aa0a6"
+_RMS_NEUTRAL = state_color("muted")
+_RMS_WARN = state_color("warn")
+_RMS_BAD = state_color("error")
 
 
 def _rms_concern(
@@ -284,7 +288,7 @@ def _form_label(text: str) -> QLabel:
     and the colon was the one piece of punctuation on the tab.
     """
     lbl = QLabel(text.rstrip(":"))
-    lbl.setStyleSheet(f"color: {_FORM_LABEL_COLOR}; font-size: 11px;")
+    lbl.setStyleSheet(CAPTION_STYLE)
     return lbl
 
 
@@ -379,7 +383,7 @@ class _ImagePicker(QWidget):
         layout.setSpacing(4)
         self.combo = QComboBox()
         # Match the 11-12px panels around it; the default app font reads oversized.
-        self.combo.setStyleSheet("font-size: 12px;")
+        self.combo.setStyleSheet(CONTROL_STYLE)
         install_wheel_blocker(self.combo)
         # Changing the image discards the coordinates, so a wheel scroll passing
         # over this combo must never be able to trigger it.
@@ -542,9 +546,9 @@ class _ImagesTab(QWidget):
         fib_form.setContentsMargins(0, 0, 0, 0)
         fib_form.setSpacing(2)
         self._lbl_fib_shape = QLabel("—")
-        self._lbl_fib_shape.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
+        self._lbl_fib_shape.setStyleSheet(CAPTION_VALUE_STYLE)
         self._lbl_fib_px = QLabel("—")
-        self._lbl_fib_px.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
+        self._lbl_fib_px.setStyleSheet(CAPTION_VALUE_STYLE)
         fib_form.addRow(_form_label("Shape"), self._lbl_fib_shape)
         fib_form.addRow(_form_label("Pixel size"), self._lbl_fib_px)
         fib_layout.addLayout(fib_form)
@@ -567,14 +571,14 @@ class _ImagesTab(QWidget):
         fm_form.setContentsMargins(0, 0, 0, 0)
         fm_form.setSpacing(2)
         self._lbl_fm_shape = QLabel("—")
-        self._lbl_fm_shape.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
+        self._lbl_fm_shape.setStyleSheet(CAPTION_VALUE_STYLE)
         self._lbl_fm_ch = QLabel("—")
-        self._lbl_fm_ch.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
+        self._lbl_fm_ch.setStyleSheet(CAPTION_VALUE_STYLE)
         self._lbl_fm_ch.setWordWrap(True)
         self._lbl_fm_z = QLabel("—")
-        self._lbl_fm_z.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
+        self._lbl_fm_z.setStyleSheet(CAPTION_VALUE_STYLE)
         self._lbl_fm_px = QLabel("—")
-        self._lbl_fm_px.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
+        self._lbl_fm_px.setStyleSheet(CAPTION_VALUE_STYLE)
         self._lbl_fm_px.setWordWrap(True)
         fm_form.addRow(_form_label("Shape (C×Z×Y×X)"), self._lbl_fm_shape)
         fm_form.addRow(_form_label("Channels"), self._lbl_fm_ch)
@@ -592,7 +596,7 @@ class _ImagesTab(QWidget):
         self._btn_interpolate = QPushButton(" Interpolate…")
         self._btn_interpolate.setIcon(fibsem_icon("mdi:arrow-expand-vertical"))
         # Sized to the 11-12px rows it rides on, not the default app font.
-        self._btn_interpolate.setStyleSheet("font-size: 12px; padding: 2px 8px;")
+        self._btn_interpolate.setStyleSheet(f"{CONTROL_STYLE} padding: 2px 8px;")
         self._btn_interpolate.setToolTip(
             "Interpolate the z-stack toward an isotropic voxel size"
         )
@@ -815,7 +819,7 @@ class _CoordinatesTab(QWidget):
         self._fib_panel = TitledPanel("FIB Fiducials", collapsible=True)
         self._fib_panel.set_content(self.fib_list)
         self._fib_count_label = QLabel("(0)")
-        self._fib_count_label.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._fib_count_label.setStyleSheet(CAPTION_STYLE)
         self._fib_panel.add_header_widget(self._fib_count_label)
         layout.addWidget(self._fib_panel)
 
@@ -824,7 +828,7 @@ class _CoordinatesTab(QWidget):
         self._fm_panel = TitledPanel("FM Fiducials", collapsible=True)
         self._fm_panel.set_content(self.fm_list)
         self._fm_count_label = QLabel("(0)")
-        self._fm_count_label.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._fm_count_label.setStyleSheet(CAPTION_STYLE)
         self._fm_panel.add_header_widget(self._fm_count_label)
         layout.addWidget(self._fm_panel)
 
@@ -863,12 +867,12 @@ class _CoordinatesTab(QWidget):
         self._predict_hint = QLabel("")
         self._predict_hint.setWordWrap(True)
         self._predict_hint.setTextFormat(Qt.TextFormat.RichText)
-        self._predict_hint.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 11px;")
+        self._predict_hint.setStyleSheet(CAPTION_STYLE)
         predict_layout.addWidget(self._predict_hint)
         self._predict_panel = TitledPanel("Predicted Fiducials", collapsible=True)
         self._predict_panel.set_content(predict_body)
         self._predict_count_label = QLabel("")
-        self._predict_count_label.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._predict_count_label.setStyleSheet(CAPTION_STYLE)
         self._predict_panel.add_header_widget(self._predict_count_label)
         layout.addWidget(self._predict_panel)
 
@@ -877,7 +881,7 @@ class _CoordinatesTab(QWidget):
         self._poi_panel = TitledPanel("POI", collapsible=True)
         self._poi_panel.set_content(self.poi_list)
         self._poi_count_label = QLabel("(0)")
-        self._poi_count_label.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._poi_count_label.setStyleSheet(CAPTION_STYLE)
         self._poi_panel.add_header_widget(self._poi_count_label)
         layout.addWidget(self._poi_panel)
 
@@ -886,7 +890,7 @@ class _CoordinatesTab(QWidget):
         self._surface_panel = TitledPanel("Surface (FIB)", collapsible=True)
         self._surface_panel.set_content(self.surface_list)
         self._surface_count_label = QLabel("(0)")
-        self._surface_count_label.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._surface_count_label.setStyleSheet(CAPTION_STYLE)
         self._surface_panel.add_header_widget(self._surface_count_label)
         layout.addWidget(self._surface_panel)
 
@@ -895,7 +899,7 @@ class _CoordinatesTab(QWidget):
         self._fm_surface_panel = TitledPanel("Surface (FM)", collapsible=True)
         self._fm_surface_panel.set_content(self.fm_surface_list)
         self._fm_surface_count_label = QLabel("(0)")
-        self._fm_surface_count_label.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._fm_surface_count_label.setStyleSheet(CAPTION_STYLE)
         self._fm_surface_panel.add_header_widget(self._fm_surface_count_label)
         layout.addWidget(self._fm_surface_panel)
 
@@ -917,7 +921,7 @@ class _CoordinatesTab(QWidget):
         self._lbl_projection.setWordWrap(True)
         self._lbl_projection.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self._lbl_projection.setTextFormat(Qt.RichText)
-        self._lbl_projection.setStyleSheet("font-size: 12px;")
+        self._lbl_projection.setStyleSheet(BODY_STYLE)
         self._lbl_projection.linkActivated.connect(self.projection_link_activated)
         fit_form.addRow(_form_label("Projection"), self._lbl_projection)
 
@@ -958,7 +962,7 @@ class _CoordinatesTab(QWidget):
             self._show_diag_check,
             self._auto_accept_check,
         ):
-            _ctl.setStyleSheet("font-size: 12px;")
+            _ctl.setStyleSheet(CONTROL_STYLE)
         for _combo in (
             self._fib_method_combo,
             self._fm_fid_method_combo,
@@ -980,9 +984,7 @@ class _CoordinatesTab(QWidget):
             "(failed or far-off fits still ask)."
         )
         fit_help.setWordWrap(True)
-        fit_help.setStyleSheet(
-            f"color: {TEXT_MUTED_COLOR}; font-size: 11px; padding-top: 4px;"
-        )
+        fit_help.setStyleSheet(f"{CAPTION_STYLE} padding-top: 4px;")
         fit_form.addRow(fit_help)
 
         self._fit_panel = TitledPanel("Method", collapsible=True)
@@ -1095,10 +1097,7 @@ class _ResultsTab(QWidget):
 
         # Per-marker error table
         self._table = QTableWidget(0, 3)
-        self._table.setStyleSheet(
-            "QTableWidget { font-size: 11px; }"
-            "QHeaderView::section { font-size: 11px; padding: 2px 4px; }"
-        )
+        self._table.setStyleSheet(TABLE_STYLE)
         self._table.setHorizontalHeaderLabels(["Marker", "dx (px)", "dy (px)"])
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
@@ -1113,7 +1112,7 @@ class _ResultsTab(QWidget):
     @staticmethod
     def _val(text: str = "—") -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 12px;")
+        lbl.setStyleSheet(BODY_STYLE)
         return lbl
 
     def set_result(self, result: CorrelationResult) -> None:
@@ -1186,9 +1185,9 @@ class _RITab(QWidget):
     _PRE_HEADERS = ["POI", "X (px)", "Z orig (px)", "Z corr (px)"]
 
     _WARNING_STYLES = {
-        "error": "color: #e07b39; font-size: 11px;",
-        "success": "color: #6dbf6d; font-size: 11px;",
-        "armed": "color: #e0c060; font-size: 11px;",
+        "error": state_style("error", 11),
+        "success": state_style("ok", 11),
+        "armed": state_style("warn", 11),
     }
 
     # Half the factor spinbox's last decimal: a stored 1.5950000000000002 shows
@@ -1223,7 +1222,7 @@ class _RITab(QWidget):
         layout.setSpacing(8)
 
         self._lbl_mode = QLabel("")
-        self._lbl_mode.setStyleSheet("color: #a0c8ff; font-size: 11px;")
+        self._lbl_mode.setStyleSheet(state_style("info", 11))
         self._lbl_mode.setWordWrap(True)
         self._lbl_mode.setVisible(False)
         layout.addWidget(self._lbl_mode)
@@ -1238,12 +1237,12 @@ class _RITab(QWidget):
 
         self._btn_apply = QPushButton("Apply")
         self._btn_apply.setFixedWidth(80)
-        self._btn_apply.setStyleSheet("font-size: 12px; padding: 2px 8px;")
+        self._btn_apply.setStyleSheet(f"{CONTROL_STYLE} padding: 2px 8px;")
         self._btn_apply.clicked.connect(self._apply)
         apply_layout.addWidget(self._btn_apply)
 
         self._chk_rerun = QCheckBox("Re-run on apply")
-        self._chk_rerun.setStyleSheet("font-size: 12px;")
+        self._chk_rerun.setStyleSheet(CONTROL_STYLE)
         self._chk_rerun.setChecked(True)
         self._chk_rerun.setToolTip(
             "Re-run the correlation immediately when applying the correction. "
@@ -1262,12 +1261,12 @@ class _RITab(QWidget):
         # the text got an ~85px column and came out four ragged lines deep. Full
         # width, two lines, and the row keeps its height.
         self._lbl_warning = QLabel("")
-        self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
+        self._lbl_warning.setStyleSheet(state_style("error", 11))
         self._lbl_warning.setWordWrap(True)
         layout.addWidget(self._lbl_warning)
 
         self._lbl_distance = QLabel("")
-        self._lbl_distance.setStyleSheet("color: #a0c8ff; font-size: 11px;")
+        self._lbl_distance.setStyleSheet(state_style("info", 11))
         self._lbl_distance.setWordWrap(True)
         self._lbl_distance.setVisible(False)
         layout.addWidget(self._lbl_distance)
@@ -1276,10 +1275,7 @@ class _RITab(QWidget):
         self._table.setHorizontalHeaderLabels(self._POST_HEADERS)
         # Default-font headers truncate at this panel width ("Y original (px)"
         # became "original (p"); size them to the rest of the panel instead.
-        self._table.setStyleSheet(
-            "QTableWidget { font-size: 11px; }"
-            "QHeaderView::section { font-size: 11px; padding: 2px 4px; }"
-        )
+        self._table.setStyleSheet(TABLE_STYLE)
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
@@ -1293,7 +1289,7 @@ class _RITab(QWidget):
             "Note: correction is applied to POI 1 only. "
             "Additional POIs are shown for reference."
         )
-        self._lbl_multi_poi.setStyleSheet("color: #e0c060; font-size: 11px;")
+        self._lbl_multi_poi.setStyleSheet(state_style("warn", 11))
         self._lbl_multi_poi.setWordWrap(True)
         self._lbl_multi_poi.setVisible(False)
         layout.addWidget(self._lbl_multi_poi)
@@ -1976,7 +1972,7 @@ class CorrelationTabWidget(QWidget):
         run_layout.setSpacing(4)
 
         self._lbl_status = QLabel("Load images and add ≥ 4 FIB / FM pairs and ≥ 1 POI.")
-        self._lbl_status.setStyleSheet("color: #aaa; font-size: 12px;")
+        self._lbl_status.setStyleSheet(BODY_STYLE)
         self._lbl_status.setWordWrap(True)
         run_layout.addWidget(self._lbl_status)
 
@@ -1998,7 +1994,7 @@ class CorrelationTabWidget(QWidget):
         # shown after a run — keeps the status line free for state only.
         self._lbl_result = QLabel("")
         self._lbl_result.setTextFormat(Qt.TextFormat.RichText)
-        self._lbl_result.setStyleSheet("color: #9aa0a6; font-size: 12px;")
+        self._lbl_result.setStyleSheet(BODY_MUTED_STYLE)
         self._lbl_result.setVisible(False)
         btn_layout.addWidget(self._lbl_result)
         btn_layout.addStretch(1)
