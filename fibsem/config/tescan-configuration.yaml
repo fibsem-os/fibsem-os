@@ -1,5 +1,6 @@
 # Please don't edit or delete this file, it is the default configuration for the microscope
 # configuration 
+version: 1                                                  # configuration schema version
 info:
     name: tescan-microscope-configuration               # a descriptive name for your configuration                     [SPECIFIED]
     ip_address: localhost                                 # the ip address of the microscope PC                           [SPECIFIED]
