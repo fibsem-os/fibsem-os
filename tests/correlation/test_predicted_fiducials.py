@@ -364,6 +364,34 @@ def test_a_moved_point_is_placed_whatever_it_was(loaded):
     assert row.state_label.text() == ""
 
 
+def test_a_prediction_off_the_image_shows_its_true_place_read_only(loaded):
+    """The row's fields are held to the image for typing. A projection can
+    put a prediction outside it; the row then says so and shows the real
+    number instead of a clamped 0.0, and the fields cannot be edited until
+    the ring is dragged in."""
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    fm = _fm(loaded)
+    lw = loaded._coords_tab.fm_list
+    row = lw._list.itemWidget(lw._list.item(0))
+    assert row.x_spin.isEnabled() and row.y_spin.isEnabled()
+
+    fm[0].point.y = -115.6
+    lw.refresh_coordinate(fm[0])
+    assert row.y_spin.cleanText() == "-115.6"
+    assert not row.x_spin.isEnabled() and not row.y_spin.isEnabled()
+    assert row.state_label.text() == "predicted \u00b7 off image"
+    assert "Outside the image" in row.y_spin.toolTip()
+
+    fm[0].point.y = 40.0  # dragged in from the canvas
+    lw.refresh_coordinate(fm[0])
+    assert row.y_spin.cleanText() == "40.0"
+    assert row.x_spin.isEnabled() and row.y_spin.isEnabled()
+    assert row.state_label.text().startswith("predicted")
+    assert "off image" not in row.state_label.text()
+    assert row.y_spin.minimum() == 0.0  # typing is held to the image again
+
+
 def test_rows_show_z_as_a_slice_unless_fitted(loaded):
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
