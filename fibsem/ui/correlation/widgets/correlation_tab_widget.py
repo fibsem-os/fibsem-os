@@ -1997,8 +1997,11 @@ class CorrelationTabWidget(QWidget):
 
         # Right: tab widget stacked above run button
         self._build_side_widgets()
+        # Open: on the Setup tab the Method panel carries the Projection row
+        # (where the first placement comes from, and Ignore), which the user
+        # should see without a click. It was collapsed at the bottom of the
+        # Coordinates tab, where it was an advanced panel.
         self._images_tab.add_method_panel(self._coords_tab._fit_panel)
-        self._coords_tab._fit_panel.collapse()
         self._tabs = QTabWidget()
         self._tabs.addTab(self._images_tab, "Images")
         self._tabs.addTab(self._coords_tab, "Coordinates")
