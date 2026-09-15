@@ -326,23 +326,31 @@ class _CorrelationWorker(QThread):
         input_data: CorrelationInputData,
         parent: Optional[QWidget] = None,
         nominal=None,
+        rows: Optional[List[int]] = None,
     ) -> None:
         super().__init__(parent)
         self._data = input_data
         # A NominalTransform built from the images' geometry, or None to fit
         # unseeded (FIB-881). Built on the GUI thread, before the run.
         self._nominal = nominal
+        # Each fitted pair's row in the user's lists (the fit skips rejected
+        # pairs), so the verdict names the row the user sees.
+        self._rows = rows
 
     def run(self) -> None:
         try:
             result = run_correlation_from_data(self._data, nominal=self._nominal)
-            result.diagnostics = _diagnostics_for(self._data, self._nominal)
+            result.diagnostics = _diagnostics_for(
+                self._data, self._nominal, rows=self._rows
+            )
             self.result_ready.emit(result)
         except Exception as exc:
             self.errored.emit(str(exc))
 
 
-def _diagnostics_for(data: CorrelationInputData, nominal) -> Optional[dict]:
+def _diagnostics_for(
+    data: CorrelationInputData, nominal, rows: Optional[List[int]] = None
+) -> Optional[dict]:
     """The fit verdict's evidence for a seeded fit, or None when it cannot be
     computed (no seed, too few pairs, no pixel sizes). Never raises: the
     verdict is an aid, the result is the product."""
@@ -367,6 +375,7 @@ def _diagnostics_for(data: CorrelationInputData, nominal) -> Optional[dict]:
             fm_pixel_size_z=fm_pz,
             poi=[poi.x, poi.y, poi.z] if poi is not None else None,
             accepted=[c.status == PointStatus.ACCEPTED for c in data.fm_coordinates],
+            indices=rows,
         ).to_dict()
     except Exception as exc:
         logging.warning(f"Fit diagnostics not computed: {exc}")
@@ -1243,7 +1252,7 @@ class _ResultsTab(QWidget):
                     else ""
                 )
                 self._lbl_worst.setText(
-                    f"FM {d.worst + 1}, {w.loo_error_um:.2f} µm off{z}"
+                    f"FM {w.index + 1}, {w.loo_error_um:.2f} µm off{z}"
                 )
             else:
                 self._lbl_worst.setText("—")
@@ -3170,6 +3179,12 @@ class CorrelationTabWidget(QWidget):
             and len(d.fib_coordinates) == len(d.fm_coordinates)
         )
 
+    def _fit_rows(self) -> List[int]:
+        """The row of each pair the fit will see, in fit order (see ``_for_fit``)."""
+        data = self.data
+        excluded = excluded_indices(data.fib_coordinates, data.fm_coordinates)
+        return [i for i in range(len(data.fib_coordinates)) if i not in excluded]
+
     @staticmethod
     def _for_fit(data: CorrelationInputData) -> CorrelationInputData:
         """``data`` reduced to what the fit may see (see ``fit_data``).
@@ -3252,7 +3267,9 @@ class CorrelationTabWidget(QWidget):
         self._set_result_live(False)
         nominal, self._seed_note = self._nominal_transform()
         self._run_nominal = nominal
-        self._worker = _CorrelationWorker(copy.deepcopy(self.fit_data), nominal=nominal)
+        self._worker = _CorrelationWorker(
+            copy.deepcopy(self.fit_data), nominal=nominal, rows=self._fit_rows()
+        )
         self._worker.result_ready.connect(self._on_run_finished)
         self._worker.errored.connect(self._on_run_error)
         self._worker.start()
@@ -3563,14 +3580,16 @@ class CorrelationTabWidget(QWidget):
         image minus where the stage metadata put it, in microns (FIB-979).
 
         Measured with the prior's rotation and scale, the way the next lamella
-        will apply it. None when the run was not seeded or has no pairs.
+        will apply it, from the pairs the user placed: an accepted prediction
+        sits exactly where the previous offset put it and would only echo that
+        offset back. None when the run was not seeded or no pair was placed.
         """
         nominal = getattr(self, "_run_nominal", None)
         metadata_t = getattr(self, "_metadata_translation", None)
         data = result.input_data
         if nominal is None or metadata_t is None or data is None:
             return None
-        pairs = usable_pairs(data.fib_coordinates, data.fm_coordinates)
+        pairs = independent_pairs(data.fib_coordinates, data.fm_coordinates)
         fib_px = data.fib_image_pixel_size
         if not pairs or not fib_px:
             return None
@@ -3687,29 +3706,32 @@ class CorrelationTabWidget(QWidget):
             self._btn_continue.setToolTip(
                 "The fit is poor; fix the fiducials and run again."
             )
-        flagged = {d.worst} if v.tier != "good" and d.worst is not None else set()
+        flagged = (
+            {d.pairs[d.worst].index}
+            if v.tier != "good" and d.worst is not None and d.pairs
+            else set()
+        )
         fm = self._coords_tab.fm_list.coordinates
-        usable = [c for c in fm if c.usable]
         notes = {}
-        for p in d.pairs:
-            if p.index < len(usable):
+        for p in d.pairs:  # p.index is the pair's row, rejected rows included
+            if p.index < len(fm):
                 tone = (
                     "error"
                     if p.loo_error_um > 2.0
                     else ("warn" if p.index in flagged else "muted")
                 )
-                notes[id(usable[p.index])] = (f"{p.loo_error_um:.1f} µm", tone)
+                notes[id(fm[p.index])] = (f"{p.loo_error_um:.1f} µm", tone)
         self._coords_tab.fm_list.set_notes(notes)
 
     def _on_status_link(self, href: str) -> None:
         """A fiducial named in the verdict selects that pair on both canvases."""
         if not href.startswith("pair:"):
             return
-        index = int(href.split(":", 1)[1])
+        index = int(href.split(":", 1)[1])  # the pair's row
         spec = self._point_specs[PointType.FM]
-        usable = [c for c in spec.list_widget.coordinates if c.usable]
-        if index < len(usable):
-            coord = usable[index]
+        coords = spec.list_widget.coordinates
+        if index < len(coords):
+            coord = coords[index]
             spec.list_widget.select_coordinate_silent(coord)
             self._select_only(spec, coord)
 
