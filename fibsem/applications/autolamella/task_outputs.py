@@ -5,7 +5,7 @@ This module is the read side of that: it answers "which files does this run's im
 consist of", so consumers don't each re-encode the filename convention.
 
 Deliberately free of UI imports — the policy is about paths, not widgets, and keeping
-it here lets it be tested without Qt and reused outside the review panel.
+it here lets it be tested without Qt and reused outside the History panel.
 """
 
 from __future__ import annotations

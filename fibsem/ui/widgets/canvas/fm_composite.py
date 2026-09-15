@@ -2,7 +2,7 @@
 
 Re-exports :mod:`fibsem.fm.composite`, which is the implementation. This module was
 a second, byte-identical copy of it: the compositor was written here for the
-quad-view canvas on PR #111 and lifted into `fibsem.fm` so the review panel could
+quad-view canvas on PR #111 and lifted into `fibsem.fm` so the History panel could
 use it without importing the UI package. #111 has landed, so this becomes the
 re-export its counterpart's docstring always said it should.
 

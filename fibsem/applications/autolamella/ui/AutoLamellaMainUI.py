@@ -2536,7 +2536,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # ── Right: sub-tab widget ──────────────────────────────────────────
         right_tabs = QTabWidget()
 
-        # Review tab
+        # History tab: what was done to this lamella, task by task, with each
+        # task's images. Not "Review": that is the main tab where decisions
+        # are made, and one thing in the window is called that.
         self.lamella_task_image_widget = LamellaTaskImageWidget()
 
         # Protocol tab: matplotlib canvas (left) + editor (right). The editor owns its
@@ -2560,7 +2562,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         protocol_splitter.setSizes([700, 550])
 
         right_tabs.addTab(protocol_splitter, "Protocol")
-        right_tabs.addTab(self.lamella_task_image_widget, "Review")
+        right_tabs.addTab(self.lamella_task_image_widget, "History")
 
         outer_splitter.addWidget(right_tabs)
         outer_splitter.setStretchFactor(1, 1)

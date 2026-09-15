@@ -128,7 +128,7 @@ Two contracts to respect:
   request/responder seam is what keeps the GUI, the operator, and remote
   agents all able to answer the same question.
 - **Record what you produce** on the task's history entry
-  (`task_state.outputs`, role → files): that is what the review panel,
+  (`task_state.outputs`, role → files): that is what the History panel,
   `task_outputs`, and the dashboard read. Unrecorded files are invisible.
 
 Third parties can ship tasks as plugins via the `fibsem.tasks` entry-point
