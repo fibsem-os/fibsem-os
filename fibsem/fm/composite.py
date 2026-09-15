@@ -8,7 +8,7 @@ Qt-free by design, so it can be imported and tested without the UI extras (CI ha
 no napari or PyQt5, and anything reaching through `fibsem.ui` is skipped there).
 
 Originally written for the quad-view FM canvas on PR #111 and lifted here so the
-review panel could use it too; `fibsem/ui/widgets/canvas/fm_composite.py` is now a
+History panel could use it too; `fibsem/ui/widgets/canvas/fm_composite.py` is now a
 re-export of this module rather than the second copy it used to be.
 """
 from __future__ import annotations

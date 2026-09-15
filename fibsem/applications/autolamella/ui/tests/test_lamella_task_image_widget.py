@@ -1,6 +1,6 @@
 """Standalone viewer for LamellaTaskImageWidget.
 
-Opens the review panel for one lamella of a real experiment, without launching the
+Opens the History panel for one lamella of a real experiment, without launching the
 whole application. Defaults to the most recent experiment on this machine that has
 any completed tasks.
 
