@@ -785,51 +785,48 @@ class _UnknownKindRenderer(ReviewRenderer):
 
 
 class _InboxRow(QWidget):
-    """icon | name over task | right-aligned two-line detail."""
+    """dot | name over task | one muted word on the right.
+
+    The row's job is to let you pick one; the detail is the panel's line and
+    its tooltip, and the row's tooltip. The dot's colour is the state: the
+    Review colour waiting, grey to check, green confirmed, red rejected, dim
+    for a superseded one."""
 
     def __init__(
         self,
-        icon: str,
         colour: str,
         name: str,
         task: str,
-        top_right: str,
-        bottom_right: str,
+        right: str,
         dim: bool = False,
     ) -> None:
         super().__init__()
-        # The list paints the row's background and selection; the widget and
-        # its icon must not paint the app's default one over it.
+        # The list paints the row's background and selection; the widget must
+        # not paint the app's default one over it.
         self.setStyleSheet("background: transparent;")
         self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 5, 8, 5)
         layout.setSpacing(9)
-        ic = QLabel()
-        ic.setStyleSheet("background: transparent; border: none;")
-        ic.setPixmap(fibsem_icon(icon, color=colour).pixmap(16, 16))
-        ic.setFixedWidth(18)
-        layout.addWidget(ic, 0, Qt.AlignTop)
+        self.dot = QLabel()
+        self.dot.setFixedSize(8, 8)
+        self.dot.setStyleSheet(
+            f"background: {colour}; border-radius: 4px; border: none;"
+        )
+        layout.addWidget(self.dot, 0, Qt.AlignVCenter)
         text = QVBoxLayout()
         text.setSpacing(0)
-        nm = QLabel(name)
-        nm.setStyleSheet(_ROW_TASK_STYLE if dim else _ROW_NAME_STYLE)
-        tk = QLabel(task)
-        tk.setStyleSheet(_ROW_TASK_STYLE)
-        text.addWidget(nm)
-        text.addWidget(tk)
+        self.name = QLabel(name)
+        self.name.setStyleSheet(_ROW_TASK_STYLE if dim else _ROW_NAME_STYLE)
+        self.task = QLabel(task)
+        self.task.setStyleSheet(_ROW_TASK_STYLE)
+        text.addWidget(self.name)
+        text.addWidget(self.task)
         layout.addLayout(text, 1)
-        right = QVBoxLayout()
-        right.setSpacing(0)
-        tr = QLabel(top_right)
-        tr.setStyleSheet(_ROW_RIGHT_STYLE)
-        tr.setAlignment(Qt.AlignRight)
-        br = QLabel(bottom_right)
-        br.setStyleSheet(_ROW_RIGHT_STRONG)
-        br.setAlignment(Qt.AlignRight)
-        right.addWidget(tr)
-        right.addWidget(br)
-        layout.addLayout(right)
+        self.right = QLabel(right)
+        self.right.setStyleSheet(_ROW_RIGHT_STYLE)
+        self.right.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(self.right)
 
 
 def _group_header(text: str) -> QListWidgetItem:
@@ -1001,20 +998,15 @@ class ReviewTabWidget(QWidget):
             if waiting:
                 self._add_header(f"Waiting · {len(waiting)}")
             for item, task_name, proposal in waiting:
-                blocks = len(waiting_on(experiment, task_name))
+                held = waiting_on(experiment, task_name)
                 self._add_row(
                     summary=f"{item.name} · {task_name} · waiting",
                     widget=_InboxRow(
-                        "mdi:circle-medium",
-                        PRIMARY_COLOR,
-                        item.name,
-                        task_name,
-                        f"waiting {age(proposal.created_at)}",
-                        f"blocks {blocks} task{'s' if blocks != 1 else ''}"
-                        if blocks
-                        else "blocks nothing",
+                        REVIEW_COLOR, item.name, task_name, age(proposal.created_at)
                     ),
                     entry=(item, task_name, proposal, "waiting"),
+                    tooltip="Waiting for your decision"
+                    + (f" · held: {', '.join(held)}" if held else ""),
                 )
             pending = len(self._entries)
             to_check = experiment.proposals_to_check()
@@ -1026,15 +1018,14 @@ class ReviewTabWidget(QWidget):
                 )
             for item, task_name, proposal in to_check:
                 applied = proposal.applied or proposal.current
+                failed = bool(proposal.provenance.get("failure"))
                 self._add_row(
                     summary=f"{item.name} · {task_name} · to check",
                     widget=_InboxRow(
-                        "mdi:circle-outline",
-                        GRAY_SECONDARY_COLOR,
+                        DEFECT_RED_COLOR if failed else GRAY_SECONDARY_COLOR,
                         item.name,
                         task_name,
-                        f"applied {age(applied.timestamp)}",
-                        author_label(applied.author, experiment),
+                        age(applied.timestamp),
                     ),
                     entry=(item, task_name, proposal, "check"),
                     tooltip=describe_decision(proposal, experiment),
@@ -1046,30 +1037,21 @@ class ReviewTabWidget(QWidget):
                 for item, task_name, proposal, superseded in decided:
                     d = proposal.current
                     rejected = d.outcome is DecisionOutcome.Rejected
-                    who = author_label(d.author, experiment)
                     if superseded:
-                        icon, colour = "mdi:history", GRAY_SECONDARY_COLOR
+                        colour = GRAY_SECONDARY_COLOR
                     elif rejected:
-                        icon, colour = "mdi:close-circle-outline", DEFECT_RED_COLOR
+                        colour = DEFECT_RED_COLOR
                     else:
-                        icon, colour = "mdi:check-circle-outline", OK_COLOR
-                    if rejected:
-                        outcome = f"rejected · {d.reason}"
-                    elif not d.values:
-                        outcome = "checked"  # a look, nothing written
-                    else:
-                        outcome = delta_label(proposal, d)
+                        colour = OK_COLOR
                     self._add_row(
                         summary=f"{item.name} · {task_name} · "
                         + ("rejected" if rejected else "confirmed")
                         + (" · superseded" if superseded else ""),
                         widget=_InboxRow(
-                            icon,
                             colour,
                             item.name,
                             task_name + (" · superseded" if superseded else ""),
-                            f"{clock(d.timestamp)} · {who}",
-                            outcome,
+                            clock(d.timestamp),
                             dim=superseded,
                         ),
                         entry=(item, task_name, proposal, "decided"),
