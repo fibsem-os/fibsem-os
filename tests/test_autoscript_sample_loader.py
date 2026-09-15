@@ -228,6 +228,24 @@ class TestInventory:
         assert loader.slots["Slot-04"].loaded_grid is not None
         assert [g.name for g in microscope._stage.loaded_grids] == ["grid-birch"]
 
+    def test_the_raw_rows_are_logged_on_every_read(self, caplog):
+        """A bench session run from the GUI still gets the hardware's own words
+        from the log: slot id, state and description, and the stage."""
+        import logging
+
+        hw = FakeAutoloader(occupied={2: "grid-elm"})
+        hw.load(2)
+        _, loader = _microscope_with(hw)
+        # setup_session reconfigures the root logger with force=True, which
+        # detaches pytest's capture handler; put it back before the read.
+        logging.getLogger().addHandler(caplog.handler)
+        caplog.set_level(logging.INFO)
+        loader.get_inventory()
+        slots = [m for m in caplog.messages if m.startswith("Autoloader slots:")]
+        stage = [m for m in caplog.messages if m.startswith("Autoloader stage:")]
+        assert slots and "1=Empty" in slots[-1] and "2=Empty 'grid-elm'" in slots[-1]
+        assert stage[-1] == "Autoloader stage: Occupied 'grid-elm'"
+
     def test_inventory_rows_come_from_the_magazine(self):
         hw = FakeAutoloader(occupied={1: "a", 2: "b"})
         microscope, loader = _microscope_with(hw)

@@ -5,13 +5,13 @@ from typing import Dict, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QFormLayout,
     QLabel,
     QWidget,
 )
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings
+from fibsem.ui.widgets.custom_widgets import FormGrid, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
 
 
@@ -19,17 +19,18 @@ from fibsem.ui.widgets.form_builder import Control, build_control
 class _Row:
     """One built form row. `mfr` is this form's own twist: a field declared for
     one manufacturer is hidden on the others."""
+
     label: QLabel
     control: Control
     field: str
     advanced: bool
     mfr: Optional[str]
 
+
 _META = FibsemMillingSettings().field_metadata
 
 # Fields hidden from UI — derived from metadata (hidden=True), not hardcoded
 _HIDDEN_FIELDS = {name for name, m in _META.items() if m.get("hidden", False)}
-
 
 
 class FibsemMillingSettingsWidget(QWidget):
@@ -57,7 +58,7 @@ class FibsemMillingSettingsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _setup_ui(self) -> None:
-        layout = QFormLayout(self)
+        layout = FormGrid(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         for field_name, m in _META.items():
@@ -87,6 +88,8 @@ class FibsemMillingSettingsWidget(QWidget):
                     mfr=m.get("manufacturer"),
                 )
             )
+
+        align_form(layout)
 
     def _dynamic_items(self, parameter: str):
         """Resolve an `items: "dynamic"` field against the microscope."""

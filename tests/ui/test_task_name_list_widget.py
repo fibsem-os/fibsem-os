@@ -67,3 +67,15 @@ def test_the_chip_does_not_change_the_row_text_or_selection(qapp):
     assert widget._list.item(1).text() == "Polishing"
     row = widget._list.itemWidget(widget._list.item(1))
     assert row.testAttribute(Qt.WA_TransparentForMouseEvents)
+
+
+def test_tooltips_are_per_row_and_survive_a_repopulate(qapp):
+    widget = TaskNameListWidget()
+    widget.set_tasks(["Setup", "Polishing"])
+
+    widget.set_task_tooltips({"Setup": "Setup\nType: Select Milling Position"})
+    assert widget._list.item(0).toolTip().startswith("Setup\nType:")
+    assert widget._list.item(1).toolTip() == ""
+
+    widget.set_tasks(["Setup", "Polishing", "Extra"])
+    assert widget._list.item(0).toolTip().startswith("Setup\nType:")
