@@ -176,11 +176,15 @@ class AutoLamellaOverviewTabBase(QWidget):
 
     @property
     def microscope(self):
-        return self.autolamella_ui.microscope if self.autolamella_ui is not None else None
+        return (
+            self.autolamella_ui.microscope if self.autolamella_ui is not None else None
+        )
 
     @property
     def experiment(self):
-        return self.autolamella_ui.experiment if self.autolamella_ui is not None else None
+        return (
+            self.autolamella_ui.experiment if self.autolamella_ui is not None else None
+        )
 
     def refresh_microscope(self) -> None:
         """Build, rebuild or drop the overview widget to match the instrument.
@@ -284,8 +288,20 @@ class AutoLamellaOverviewTabBase(QWidget):
         lamellae = list(experiment.positions)
         self.lamella_list.set_lamella(lamellae)
 
-        positions, unplaceable = [], []
+        # This canvas is the stage. A lamella whose grid is in the magazine is
+        # not on it, and its marker would land on whatever grid *is* loaded --
+        # so only lamellae on a loaded grid, or on no known grid, are drawn.
+        # The list above still names them all; the Grids tab's Positions view
+        # is where a grid off the stage is worked on.
+        loaded = self._loaded_grid_names()
+        # An experiment that cannot say (a stand-in in tests) has no grids.
+        grid_of = getattr(experiment, "get_grid_for_lamella", lambda _lamella: None)
+        positions, unplaceable, elsewhere = [], [], []
         for lamella in lamellae:
+            grid = grid_of(lamella)
+            if grid is not None and loaded is not None and grid.name not in loaded:
+                elsewhere.append(lamella.name)
+                continue
             place = self._pose_of(lamella)
             if place is None:
                 unplaceable.append(lamella.name)
@@ -303,6 +319,24 @@ class AutoLamellaOverviewTabBase(QWidget):
                 f"{len(unplaceable)} lamella(e) have no {self.POSE_NOUN} and are not "
                 f"shown on the {self.OVERVIEW_NOUN}: {', '.join(unplaceable)}"
             )
+        if elsewhere:
+            logger.info(
+                f"{len(elsewhere)} lamella(e) are on a grid that is not on the stage "
+                f"and are not shown on the {self.OVERVIEW_NOUN}: {', '.join(elsewhere)}"
+            )
+
+    def _loaded_grid_names(self):
+        """The names of the grids on the stage, from what the stage already
+        knows (no hardware call), or None when there is no stage to ask -- in
+        which case nothing is withheld."""
+        stage = getattr(self.microscope, "_stage", None)
+        if stage is None:
+            return None
+        try:
+            return {g.name for g in stage.loaded_grids}
+        except Exception as e:  # noqa: BLE001 - unknown: withhold nothing
+            logger.debug(f"Could not read the loaded grids: {e}")
+            return None
 
     def set_selected(self, lamella) -> None:
         """Highlight the selected lamella.
@@ -418,16 +452,41 @@ class AutoLamellaOverviewTabBase(QWidget):
 
     # ── turning a request into a lamella ─────────────────────────────────
 
-    def _on_add_requested(self, position) -> None:
-        """A user asked for a new lamella at a point on the overview."""
+    def _grid_of_record(self, record_id):
+        """The grid record an overview on the canvas is of, or None.
+
+        Read off the image's own provenance (the grid task that took it stamps its
+        grid), through the widget. None for an overview that did not say, for a
+        widget that cannot answer, and for an item that is not a grid of this
+        experiment -- a lamella's own reference image names the lamella.
+        """
+        item_of = getattr(self.overview, "item_of", None)
+        experiment = self.experiment
+        if record_id is None or item_of is None or experiment is None:
+            return None
+        item_id, _ = item_of(record_id)
+        return experiment.get_grid_by_id(item_id) if item_id else None
+
+    def _on_add_requested(self, position, record_id=None) -> None:
+        """A user asked for a new lamella at a point on the overview.
+
+        *record_id* names the overview the click landed on, when the widget says.
+        A lamella marked on a grid's overview belongs to that grid, whether or not
+        it is the grid on the stage right now; without it the lamella's grid is
+        resolved from the stage as every other creation is.
+        """
         if self.autolamella_ui is None or self.experiment is None:
             notification_service.show_toast(
                 "Load an experiment before marking positions.", "warning"
             )
             return
+        kwargs = self._add_lamella_kwargs()
+        grid = self._grid_of_record(record_id)
+        if grid is not None:
+            kwargs["grid_id"] = grid.id
         try:
             lamella = self.autolamella_ui.add_new_lamella(
-                stage_position=position, **self._add_lamella_kwargs()
+                stage_position=position, **kwargs
             )
         except Exception as e:
             logger.error(f"Could not add a lamella from the {self.OVERVIEW_NOUN}: {e}")

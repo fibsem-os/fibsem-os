@@ -19,7 +19,7 @@ generic-to-application imports rather than removing any. That move is FIB-559.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -44,11 +44,13 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
 from fibsem.ui.tokens import CANVAS_BG, NEUTRAL_550
-from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 
 _LAMELLA_NAME_MIN_WIDTH = 160
 _LAMELLA_ROW_HEIGHT = 30
 _LAMELLA_BTN_SIZE = QSize(24, 24)
+_ROW_FONT_PX = 11
+_DETAIL_FONT_PX = 10
 
 
 def _lamella_status_text(lamella) -> tuple[str, str]:
@@ -88,7 +90,8 @@ def _lamella_defect_icon(lamella) -> tuple[str, str, str]:
 
 
 class _LamellaRow(QWidget):
-    """Single row: name + status labels + optional toolbuttons."""
+    """One row: name, the grid it is on (when there is more than one), a short
+    status, a defect icon only once there is a defect, and one actions menu."""
 
     move_to_clicked = pyqtSignal(object)
     edit_clicked = pyqtSignal(object)
@@ -99,6 +102,12 @@ class _LamellaRow(QWidget):
     def __init__(self, lamella, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.lamella = lamella
+        # (grid name, on the stage, named at all), from the host; see
+        # `lamella_list_widget.GridContext`. That module is the application's
+        # and this one is still in the shared layer (FIB-559), so the small
+        # helpers it needs are imported inside the methods that use them.
+        self._grid: Optional[Tuple[str, bool]] = None
+        self._grid_named = False
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
@@ -107,122 +116,90 @@ class _LamellaRow(QWidget):
 
         self.name_label = QLabel(lamella.name)
         self.name_label.setMinimumWidth(_LAMELLA_NAME_MIN_WIDTH)
-        self.name_label.setStyleSheet("background: transparent;")
+        self.name_label.setStyleSheet(
+            f"font-size: {_ROW_FONT_PX}px; background: transparent;"
+        )
         layout.addWidget(self.name_label)
 
-        self.status_label = QLabel()
+        self.grid_label = QLabel()
+        self.grid_label.setVisible(False)
+        layout.addWidget(self.grid_label)
+
+        self.status_label = ElidedLabel()
         layout.addWidget(self.status_label, stretch=1)
 
-        # Defect button
+        from fibsem.applications.autolamella.ui.lamella_list_widget import (
+            add_defect_menu,
+        )
+
+        # Only drawn once there is a defect. Clicking it opens the defect menu.
         self.btn_defect = QToolButton()
         self.btn_defect.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_defect.clicked.connect(self._on_defect_clicked)
+        self._defect_icon_menu = QMenu(self)
+        add_defect_menu(self._defect_icon_menu, lamella, self._on_defect_written)
+        self.btn_defect.clicked.connect(
+            lambda: self._defect_icon_menu.popup(
+                self.btn_defect.mapToGlobal(self.btn_defect.rect().bottomLeft())
+            )
+        )
         self.btn_defect.setVisible(False)
         layout.addWidget(self.btn_defect)
 
-        # Direct action buttons (replaces "…" dropdown)
-        self.btn_move_to = QToolButton()
-        self.btn_move_to.setIcon(
-            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR)
+        # One actions menu in place of four inline buttons.
+        self.btn_actions = QToolButton()
+        self.btn_actions.setFixedSize(_LAMELLA_BTN_SIZE)
+        self.btn_actions.setStyleSheet(
+            stylesheets.TOOLBUTTON_ICON_STYLESHEET
+            + " QToolButton::menu-indicator { image: none; }"
         )
-        self.btn_move_to.setToolTip("Move to Position")
-        self.btn_move_to.setFixedSize(_LAMELLA_BTN_SIZE)
-        self.btn_move_to.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_move_to.setVisible(False)
-        layout.addWidget(self.btn_move_to)
-
-        self.btn_update = QToolButton()
-        self.btn_update.setIcon(
-            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR)
+        self.btn_actions.setIcon(
+            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
         )
-        self.btn_update.setToolTip("Update Position")
-        self.btn_update.setFixedSize(_LAMELLA_BTN_SIZE)
-        self.btn_update.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_update.setVisible(False)
-        layout.addWidget(self.btn_update)
-
-        self.btn_edit = QToolButton()
-        self.btn_edit.setIcon(
-            fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR)
+        self.btn_actions.setToolTip("Actions")
+        self.btn_actions.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(self)
+        self.action_move_to = menu.addAction(
+            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+            "Move to Position",
         )
-        self.btn_edit.setToolTip("Edit Lamella")
-        self.btn_edit.setFixedSize(_LAMELLA_BTN_SIZE)
-        self.btn_edit.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_edit.setVisible(False)
-        layout.addWidget(self.btn_edit)
+        self.action_update = menu.addAction(
+            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+            "Update Position",
+        )
+        self.action_edit = menu.addAction(
+            fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR), "Edit"
+        )
+        self.action_remove = menu.addAction(
+            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
+            "Remove",
+        )
+        self.defect_menu = add_defect_menu(menu, lamella, self._on_defect_written)
+        self.btn_actions.setMenu(menu)
+        self.btn_actions.setVisible(False)
+        layout.addWidget(self.btn_actions)
 
-        self.btn_move_to.clicked.connect(
+        self.action_move_to.triggered.connect(
             lambda: self.move_to_clicked.emit(self.lamella)
         )
-        self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.lamella))
-        self.btn_update.clicked.connect(lambda: self.update_clicked.emit(self.lamella))
-
-        # Remove button
-        self.btn_remove = QToolButton()
-        self.btn_remove.setIcon(
-            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR)
+        self.action_update.triggered.connect(
+            lambda: self.update_clicked.emit(self.lamella)
         )
-        self.btn_remove.setToolTip("Remove")
-        self.btn_remove.setFixedSize(_LAMELLA_BTN_SIZE)
-        self.btn_remove.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_remove.clicked.connect(self._on_remove_clicked)
-        self.btn_remove.setVisible(False)
-        layout.addWidget(self.btn_remove)
+        self.action_edit.triggered.connect(lambda: self.edit_clicked.emit(self.lamella))
+        self.action_remove.triggered.connect(self._on_remove_clicked)
 
-        # Redraw when the model changes, whichever widget changed it. Only `description`
-        # was subscribed, so a defect set anywhere else left a stale icon here (FIB-564).
-        #
-        # `defect` and `description` only: both are written by GUI widgets, on the GUI
-        # thread, and nothing else refreshes this list when one changes.
-        #
-        # **Not** `task_state.name`/`.status`. FIB-565 added those so the row would
-        # follow a running workflow, and they crashed it:
-        #
-        #     RuntimeError: wrapped C/C++ object of type QLabel has been deleted
-        #       lamella_name_list_widget.py in refresh -> name_label.setText(...)
-        #
-        # They are written from the workflow's FunctionWorker thread, so `refresh` is
-        # marshalled and arrives *later* -- by which point `set_lamella` may have
-        # replaced this row and Qt may have destroyed its widgets. psygnal holds bound
-        # methods weakly, which was the argument for not disconnecting, but that only
-        # covers the *Python* object: Qt's teardown does not wait for the collector, so
-        # a live weakref over a destroyed QLabel is exactly the reachable state.
-        #
-        # `AutoLamellaMainUI._on_workflow_update` drives this list instead, over a Qt
-        # signal, and it names the lamella that changed -- so it costs one
-        # `refresh_lamella` rather than a subscription per row, and the row follows a
-        # running workflow either way.
-        # type: ignore because @evented adds .events dynamically.
+        # `defect` and `description` only: both are written by GUI widgets, on
+        # the GUI thread. Not `task_state.name`/`.status`: those are written
+        # from the workflow's worker thread, the marshalled refresh could land
+        # on a row Qt has already destroyed, and an exception escaping a slot
+        # aborts the process (FIB-565, FIB-329). `_on_workflow_update` drives
+        # this list by name instead.
         self.lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
         self.lamella.events.defect.connect(self.refresh)  # type: ignore[union-attr]
 
         self.refresh()
 
-    def _on_defect_clicked(self) -> None:
-        menu = QMenu(self)
-        action_none = menu.addAction(
-            fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
-        )
-        action_rework = menu.addAction(
-            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR),
-            "Rework required",
-        )
-        action_failure = menu.addAction(
-            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR),
-            "Failure",
-        )
-        chosen = menu.exec_(
-            self.btn_defect.mapToGlobal(self.btn_defect.rect().bottomLeft())
-        )
-        if chosen == action_none:
-            self.lamella.defect = DefectState(state=DefectType.NONE)
-        elif chosen == action_rework:
-            self.lamella.defect = DefectState(state=DefectType.REWORK)
-        elif chosen == action_failure:
-            self.lamella.defect = DefectState(state=DefectType.FAILURE)
-        else:
-            return
+    def _on_defect_written(self) -> None:
         self.refresh()
         self.defect_changed.emit(self.lamella)
 
@@ -237,18 +214,47 @@ class _LamellaRow(QWidget):
         if reply == QMessageBox.Yes:
             self.remove_clicked.emit(self.lamella)
 
+    def set_grid(self, grid: Optional[Tuple[str, bool]], named: bool) -> None:
+        """(grid name, on the stage), or None for a lamella on no known grid;
+        *named* says whether rows name their grid at all (more than one grid)."""
+        self._grid = grid
+        self._grid_named = named
+        self.refresh()
+
     @ensure_main_thread
     def refresh(self) -> None:
+        from fibsem.applications.autolamella.ui.lamella_list_widget import (
+            apply_grid_label,
+            not_on_stage_reason,
+        )
+
         self.name_label.setText(self.lamella.name)
         self.setToolTip(self.lamella.description or "")
         text, style = _lamella_status_text(self.lamella)
+        apply_grid_label(self.grid_label, self._grid, self._grid_named, bool(text))
         self.status_label.setText(text)
-        self.status_label.setStyleSheet(style)
-        # Update defect icon if visible
-        if self.btn_defect.isVisible():
-            icon_name, icon_color, tooltip = _lamella_defect_icon(self.lamella)
-            self.btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
-            self.btn_defect.setToolTip(tooltip)
+        self.status_label.setStyleSheet(
+            f"font-size: {_DETAIL_FONT_PX}px; "
+            + (style or f"color: {NEUTRAL_550}; background: transparent;")
+        )
+        icon_name, icon_color, tooltip = _lamella_defect_icon(self.lamella)
+        self.btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
+        self.btn_defect.setToolTip(tooltip)
+        defect = getattr(self.lamella, "defect", None)
+        self.btn_defect.setVisible(
+            self.defect_menu.menuAction().isVisible()
+            and defect is not None
+            and defect.state != DefectType.NONE
+        )
+        # Moving to or re-recording a lamella whose grid is in the magazine would
+        # act on whatever grid *is* on the stage: withheld, with the reason.
+        reason = not_on_stage_reason(self._grid)
+        for action, label in (
+            (self.action_move_to, "Move to Position"),
+            (self.action_update, "Update Position"),
+        ):
+            action.setEnabled(not reason)
+            action.setText(f"{label} ({reason})" if reason else label)
 
 
 class LamellaNameListWidget(QWidget):
@@ -293,11 +299,15 @@ class LamellaNameListWidget(QWidget):
         header_layout.setContentsMargins(8, 3, 4, 3)
         header_layout.setSpacing(8)
         lbl_name = QLabel("Lamella")
-        lbl_name.setStyleSheet("font-weight: bold; background: transparent;")
+        lbl_name.setStyleSheet(
+            f"font-weight: bold; font-size: {_ROW_FONT_PX}px; background: transparent;"
+        )
         lbl_name.setMinimumWidth(_LAMELLA_NAME_MIN_WIDTH)
         header_layout.addWidget(lbl_name)
         lbl_status = QLabel("Status")
-        lbl_status.setStyleSheet("font-weight: bold; background: transparent;")
+        lbl_status.setStyleSheet(
+            f"font-weight: bold; font-size: {_ROW_FONT_PX}px; background: transparent;"
+        )
         header_layout.addWidget(lbl_status, stretch=1)
         self.btn_add = IconToolButton(
             icon="mdi:plus", tooltip="Add", size=_LAMELLA_BTN_SIZE.width()
@@ -335,6 +345,25 @@ class LamellaNameListWidget(QWidget):
         """Return the current row index, or -1 if nothing is selected."""
         return self._list.currentRow()
 
+    def set_grid_context(self, context) -> None:
+        """`GridRecord.id -> (name, on the stage)`, or None; rows name the
+        grid ahead of their status when there is more than one, and withhold
+        stage actions for a grid off the stage. Kept for rows added later."""
+        self._grid_context = context
+        for row in self._rows():
+            row.set_grid(self._grid_of(row.lamella), self._grids_named())
+
+    def _grids_named(self) -> bool:
+        context = getattr(self, "_grid_context", None)
+        return bool(context) and len(context) > 1
+
+    def _grid_of(self, lamella) -> Optional[Tuple[str, bool]]:
+        context = getattr(self, "_grid_context", None)
+        grid_id = getattr(lamella, "grid_id", None)
+        if not context or not grid_id:
+            return None
+        return context.get(grid_id)
+
     def set_lamella(self, positions, preferred_name: str = "") -> None:
         """Populate the list from *positions*, restoring selection by name.
 
@@ -346,6 +375,7 @@ class LamellaNameListWidget(QWidget):
         self._list.clear()
         for pos in positions:
             row = _LamellaRow(pos)
+            row.set_grid(self._grid_of(pos), self._grids_named())
             row.move_to_clicked.connect(self.move_to_requested)
             row.edit_clicked.connect(self.edit_requested)
             row.update_clicked.connect(self.update_requested)
@@ -390,34 +420,28 @@ class LamellaNameListWidget(QWidget):
         self.btn_add.setVisible(visible)
 
     def enable_defect_button(self, visible: bool) -> None:
-        self._btn_visible["defect"] = visible
-        for row in self._rows():
-            row.btn_defect.setVisible(visible)
-            if visible:
-                row.refresh()  # ensure icon is up to date
+        self._set_visible("defect", visible)
 
     def enable_actions_button(self, visible: bool) -> None:
-        pass  # no-op: actions are now direct icon buttons; use enable_move_to_action / enable_edit_action / enable_update_action
+        """Kept for callers: every action lives on the one actions menu, which
+        shows whenever any of them does."""
 
     def enable_move_to_action(self, visible: bool) -> None:
-        self._btn_visible["move_to"] = visible
-        for row in self._rows():
-            row.btn_move_to.setVisible(visible)
+        self._set_visible("move_to", visible)
 
     def enable_edit_action(self, visible: bool) -> None:
-        self._btn_visible["edit"] = visible
-        for row in self._rows():
-            row.btn_edit.setVisible(visible)
+        self._set_visible("edit", visible)
 
     def enable_update_action(self, visible: bool) -> None:
-        self._btn_visible["update"] = visible
-        for row in self._rows():
-            row.btn_update.setVisible(visible)
+        self._set_visible("update", visible)
 
     def enable_remove_button(self, visible: bool) -> None:
-        self._btn_visible["remove"] = visible
+        self._set_visible("remove", visible)
+
+    def _set_visible(self, key: str, visible: bool) -> None:
+        self._btn_visible[key] = visible
         for row in self._rows():
-            row.btn_remove.setVisible(visible)
+            self._apply_btn_visibility(row)
 
     def _rows(self):
         """Yield all _LamellaRow widgets."""
@@ -427,17 +451,16 @@ class LamellaNameListWidget(QWidget):
                 yield row
 
     def _apply_btn_visibility(self, row: _LamellaRow) -> None:
-        row.btn_defect.setVisible(self._btn_visible["defect"])
-        row.btn_move_to.setVisible(self._btn_visible["move_to"])
-        row.btn_edit.setVisible(self._btn_visible["edit"])
-        row.btn_update.setVisible(self._btn_visible["update"])
-        row.btn_remove.setVisible(self._btn_visible["remove"])
-        if self._btn_visible["defect"]:
-            # Set icon directly — row.refresh() won't work here because
-            # isVisible() returns False before the row is parented via setItemWidget
-            icon_name, icon_color, tooltip = _lamella_defect_icon(row.lamella)
-            row.btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
-            row.btn_defect.setToolTip(tooltip)
+        v = self._btn_visible
+        row.defect_menu.menuAction().setVisible(v["defect"])
+        row.action_move_to.setVisible(v["move_to"])
+        row.action_edit.setVisible(v["edit"])
+        row.action_update.setVisible(v["update"])
+        row.action_remove.setVisible(v["remove"])
+        row.btn_actions.setVisible(
+            any(v[k] for k in ("defect", "move_to", "edit", "update", "remove"))
+        )
+        row.refresh()
 
     # ------------------------------------------------------------------
     # Selection

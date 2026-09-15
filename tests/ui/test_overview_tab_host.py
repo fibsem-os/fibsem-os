@@ -37,7 +37,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 from fibsem.applications.autolamella.ui.autolamella_overview_tab import (  # noqa: E402
     AutoLamellaOverviewTab,
 )
-from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -80,10 +80,12 @@ class _StubWindow:
         self.microscope = microscope
         self.experiment = experiment
         self.added = []
+        self.kwargs = []
 
     def add_new_lamella(self, stage_position=None, **kwargs):
         """A real `Lamella` with real poses, so the property setters behave as they do
         live -- `stage_position` is a property over the milling pose, not a field."""
+        self.kwargs.append(dict(kwargs))
         from fibsem.applications.autolamella.poses import (
             MILLING_ORIENTATION,
             build_lamella_poses,
@@ -596,3 +598,68 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         assert beam.overview._may_move() is False
         fluorescence._drop_overview()
         assert beam.overview._may_move() is True
+
+
+class TestALamellaMarkedOnAGridOverviewBelongsToThatGrid:
+    def _grid_overview(self, microscope, grid):
+        from fibsem.structures import ImageSettings
+
+        image = FibsemImage.generate_blank_image(resolution=(64, 64), hfw=100e-6)
+        state = microscope.get_microscope_state(beam_type=BeamType.ELECTRON)
+        state.stage_position = microscope.get_stage_position()
+        image.metadata.image_settings = ImageSettings(
+            hfw=100e-6, beam_type=BeamType.ELECTRON
+        )
+        image.metadata.microscope_state = state
+        image.metadata.system_info = microscope.system.info
+        image.metadata.hardware_geometry = microscope.hardware_geometry()
+        image.metadata.experiment.item_id = grid.id
+        image.metadata.experiment.item_name = grid.name
+        return image
+
+    def test_the_overview_grid_is_passed_and_bare_canvas_is_not(self, tab, microscope):
+        from fibsem.applications.autolamella.structures import GridRecord
+
+        experiment = tab.experiment
+        birch = experiment.add_grid(GridRecord(name="grid-birch"))
+        record_id = tab.overview.set_image(self._grid_overview(microscope, birch))
+        position = microscope.get_stage_position()
+        tab._on_add_requested(position, record_id)
+        tab._on_add_requested(position, None)
+        tab._on_add_requested(position, "no-such-record")
+        host = tab.autolamella_ui
+        assert [k.get("grid_id") for k in host.kwargs] == [birch.id, None, None]
+
+
+class TestItMarksOnlyWhatIsOnTheStage:
+    """This canvas is the stage. A lamella whose grid is in the magazine is not
+    on it, so its marker is withheld until the grid is loaded (FIB-71). An
+    unlinked lamella is drawn as ever; the list still names them all."""
+
+    def test_a_lamella_on_a_grid_in_the_magazine_is_not_marked(self, tab, microscope):
+        stage = microscope._stage
+        experiment = tab.experiment
+        experiment.sync_grids_from_inventory(stage)
+        two = experiment.get_grid_by_name("Grid-02")
+        assert stage.loaded_grids == []
+
+        on_two = _lamella(tab, microscope, dx=50e-6)
+        on_two.grid_id = two.id
+        free = _lamella(tab, microscope, dx=-50e-6)
+        try:
+            tab.refresh_positions()
+            assert [p.name for p in tab.overview._positions] == [free.name]
+            assert tab.lamella_list._list.count() == 2
+
+            stage.ensure_loaded("Grid-02")
+            tab.refresh_positions()
+            assert sorted(p.name for p in tab.overview._positions) == sorted(
+                [on_two.name, free.name]
+            )
+
+            stage.unload()
+            tab.refresh_positions()
+            assert [p.name for p in tab.overview._positions] == [free.name]
+        finally:
+            if stage.loaded_grids:
+                stage.unload()

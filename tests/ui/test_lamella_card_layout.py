@@ -21,6 +21,7 @@ Two properties are worth pinning, and neither is the pixel height:
   labels and would break the moment one is replaced with something that accepts clicks
   -- and the failure is "clicking the picture does nothing", which no other test covers.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -156,7 +157,12 @@ def test_the_menus_and_thumbnail_survive_a_toggle():
 
     card.set_mode(MODE_COZY)
 
-    assert len(card._btn_actions.menu().actions()) == 3
+    assert [a.text() for a in card._btn_actions.menu().actions()] == [
+        "Move to Position",
+        "Update Position",
+        "Remove",
+        "Defect",
+    ]
     assert card._btn_defect.toolTip() == "No defect"
     assert not card._thumb_label.pixmap().isNull()
     assert card._thumb_label.height() > 100, "redrawn at the cozy size"

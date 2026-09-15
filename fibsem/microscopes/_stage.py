@@ -669,25 +669,38 @@ class Stage:
     def milling_angle(self) -> float:
         return self.parent.get_current_milling_angle()
 
-    @property
-    def current_slot(self) -> Optional[GridSlot]:
-        """Get the slot the stage is currently positioned at, if any."""
-        if self.holder is None:
-            return None
-        # The cached position, never a hardware read: this is called from UI
-        # paint paths. It is None until the first read or move after connecting,
-        # and then the answer is "not known to be at any slot", not a crash.
-        stage_position = self.parent._stage_position
-        if stage_position is None:
+    def slot_at_position(
+        self, position: Optional[FibsemStagePosition]
+    ) -> Optional[GridSlot]:
+        """The holder slot whose calibrated position *position* falls within, if any.
+
+        Within ``GRID_RADIUS`` in x and y; a slot with no calibrated position is
+        never matched. None for no position, so a caller with nothing to ask
+        about gets "not known" rather than a guess.
+        """
+        if self.holder is None or position is None:
             return None
         for slot in self.holder.slots.values():
             if slot.position is None:
                 continue
-            if stage_position.is_close2(
-                slot.position, tol=GRID_RADIUS, axes=["x", "y"]
-            ):
+            if position.is_close2(slot.position, tol=GRID_RADIUS, axes=["x", "y"]):
                 return slot
         return None
+
+    def grid_at_position(
+        self, position: Optional[FibsemStagePosition]
+    ) -> Optional[SampleGrid]:
+        """The grid in the slot *position* falls within, if any."""
+        slot = self.slot_at_position(position)
+        return slot.loaded_grid if slot is not None else None
+
+    @property
+    def current_slot(self) -> Optional[GridSlot]:
+        """Get the slot the stage is currently positioned at, if any."""
+        # The cached position, never a hardware read: this is called from UI
+        # paint paths. It is None until the first read or move after connecting,
+        # and then the answer is "not known to be at any slot", not a crash.
+        return self.slot_at_position(self.parent._stage_position)
 
     @property
     def current_grid(self) -> Optional[SampleGrid]:

@@ -22,8 +22,18 @@ from superqt import ensure_main_thread
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
 from fibsem.applications.autolamella.ui.lamella_list_widget import (
+    DETAIL_FONT_PX,
+    NAME_FONT_PX,
+    GridContext,
     _defect_icon,
     _status_text,
+    add_defect_menu,
+    apply_grid_label,
+    grid_of,
+    grids_named,
+    has_defect,
+    not_on_stage_reason,
+    short_status,
 )
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.ui import stylesheets
@@ -174,6 +184,7 @@ class LamellaCardWidget(QWidget):
     ) -> None:
         super().__init__(parent)
         self.lamella = lamella
+        self._grid_context: Optional[GridContext] = None
         self._mode = mode if mode in CARD_MODES else MODE_COZY
         self.setFixedWidth(_CARD_WIDTH)
 
@@ -205,8 +216,13 @@ class LamellaCardWidget(QWidget):
 
         self._name_label = QLabel()
         self._name_label.setStyleSheet(
-            f"font-size: 13px; font-weight: bold; color: {NEUTRAL_200}; background: transparent;"
+            f"font-size: {NAME_FONT_PX}px; font-weight: bold; color: {NEUTRAL_200}; "
+            "background: transparent;"
         )
+        # The grid the lamella is on, ahead of the status, when the experiment
+        # has more than one grid.
+        self._grid_label = QLabel()
+        self._grid_label.setVisible(False)
 
         self._btn_actions = QToolButton()
         self._btn_actions.setFixedSize(_BTN_SIZE, _BTN_SIZE)
@@ -231,6 +247,10 @@ class LamellaCardWidget(QWidget):
             fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
             "Remove",
         )
+        # The defect is set from here; its icon only shows once there is one.
+        self._defect_menu = add_defect_menu(
+            _actions_menu, lamella, self._on_defect_written
+        )
         self._btn_actions.setMenu(_actions_menu)
         self._action_move.triggered.connect(
             lambda: self.move_to_requested.emit(self.lamella)
@@ -242,8 +262,16 @@ class LamellaCardWidget(QWidget):
 
         self._btn_defect = QToolButton()
         self._btn_defect.setFixedSize(_BTN_SIZE, _BTN_SIZE)
-        self._btn_defect.setStyleSheet(_BTN_STYLE)
-        self._btn_defect.clicked.connect(self._on_defect_clicked)
+        self._btn_defect.setStyleSheet(
+            _BTN_STYLE + " QToolButton::menu-indicator { image: none; }"
+        )
+        self._defect_icon_menu = QMenu(self)
+        add_defect_menu(self._defect_icon_menu, lamella, self._on_defect_written)
+        self._btn_defect.clicked.connect(
+            lambda: self._defect_icon_menu.popup(
+                self._btn_defect.mapToGlobal(self._btn_defect.rect().bottomLeft())
+            )
+        )
 
         # Elided, not wrapped: the status is a task name or a completion stamp, and
         # wrapping one in the standard row's narrow middle column would grow the row and
@@ -252,7 +280,7 @@ class LamellaCardWidget(QWidget):
         # Used in all three arrangements so the fixed height holds whichever is showing.
         self._status_label = ElidedLabel()
         self._status_label.setStyleSheet(
-            f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
+            f"font-size: {DETAIL_FONT_PX}px; color: {NEUTRAL_550}; background: transparent;"
         )
 
         outer.addWidget(self._card)
@@ -305,6 +333,7 @@ class LamellaCardWidget(QWidget):
             for widget in (
                 self._thumb_label,
                 self._name_label,
+                self._grid_label,
                 self._status_label,
                 self._btn_defect,
                 self._btn_actions,
@@ -330,7 +359,6 @@ class LamellaCardWidget(QWidget):
         for widget in (
             self._name_label,
             self._status_label,
-            self._btn_defect,
             self._btn_actions,
         ):
             widget.show()
@@ -368,7 +396,7 @@ class LamellaCardWidget(QWidget):
         info_layout.setSpacing(2)
         info_layout.addStretch(1)
         info_layout.addWidget(self._name_label)
-        info_layout.addWidget(self._status_label)
+        info_layout.addLayout(self._status_row())
         info_layout.addStretch(1)
 
         row.addWidget(info, 1)
@@ -389,7 +417,7 @@ class LamellaCardWidget(QWidget):
         row.setContentsMargins(10, 2, _THUMB_PADDING, 2)
         row.setSpacing(8)
         row.addWidget(self._name_label)
-        row.addWidget(self._status_label, 1)
+        row.addLayout(self._status_row(), 1)
         row.addWidget(self._btn_defect, 0, Qt.AlignVCenter)
         row.addWidget(self._btn_actions, 0, Qt.AlignVCenter)
         return content
@@ -421,10 +449,23 @@ class LamellaCardWidget(QWidget):
         name_row.addWidget(self._btn_actions)
         name_row.addWidget(self._btn_defect)
         info_layout.addLayout(name_row)
-        info_layout.addWidget(self._status_label)
+        info_layout.addLayout(self._status_row())
 
         column.addWidget(info)
         return content
+
+    def _status_row(self) -> QHBoxLayout:
+        """The secondary line: the grid's name, then the status."""
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(self._grid_label)
+        row.addWidget(self._status_label, 1)
+        return row
+
+    def set_grid_context(self, context: Optional[GridContext]) -> None:
+        self._grid_context = context
+        self.refresh()
 
     @ensure_main_thread
     def refresh(self) -> None:
@@ -436,11 +477,37 @@ class LamellaCardWidget(QWidget):
         self._btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
         self._btn_defect.setToolTip(tooltip)
 
+        # Only drawn once there is a defect; a tick on every healthy card says
+        # nothing. Not `setVisible`: the compact arrangement keeps the button
+        # in its row, so it is hidden by taking its icon and width away.
+        defective = has_defect(self.lamella)
+        self._btn_defect.setVisible(defective)
+
+        # The grid ahead of the status, on the line that already carries the
+        # secondary detail. Moving to or re-recording a lamella whose grid is in
+        # the magazine would act on whatever grid *is* on the stage, so both are
+        # withheld with the reason in the menu.
+        grid = grid_of(self.lamella, self._grid_context)
         status_text, status_style = _status_text(self.lamella)
-        self._status_label.setText(status_text or "—")
-        self._status_label.setStyleSheet(
-            f"font-size: 11px; background: transparent; {status_style}"
+        if self._mode == MODE_COMPACT:
+            status_text = short_status(status_text)  # no room for the time
+        apply_grid_label(
+            self._grid_label,
+            grid,
+            grids_named(self._grid_context),
+            bool(status_text),
         )
+        self._status_label.setText(status_text)
+        self._status_label.setStyleSheet(
+            f"font-size: {DETAIL_FONT_PX}px; background: transparent; {status_style}"
+        )
+        reason = not_on_stage_reason(grid)
+        for action, text in (
+            (self._action_move, "Move to Position"),
+            (self._action_update, "Update Position"),
+        ):
+            action.setEnabled(not reason)
+            action.setText(f"{text} ({reason})" if reason else text)
 
         # Size read off the label rather than branched on the mode, so this stays one
         # display path for every arrangement that has a thumbnail. The compact one has
@@ -475,33 +542,7 @@ class LamellaCardWidget(QWidget):
         if reply == QMessageBox.Yes:
             self.remove_requested.emit(self.lamella)
 
-    def _on_defect_clicked(self) -> None:
-        menu = QMenu(self)
-        action_none = menu.addAction(
-            fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
-        )
-        action_rework = menu.addAction(
-            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR),
-            "Rework required",
-        )
-        action_failure = menu.addAction(
-            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR),
-            "Failure",
-        )
-
-        chosen = menu.exec_(
-            self._btn_defect.mapToGlobal(self._btn_defect.rect().bottomLeft())
-        )
-
-        if chosen == action_none:
-            self.lamella.defect = DefectState(state=DefectType.NONE)
-        elif chosen == action_rework:
-            self.lamella.defect = DefectState(state=DefectType.REWORK)
-        elif chosen == action_failure:
-            self.lamella.defect = DefectState(state=DefectType.FAILURE)
-        else:
-            return
-
+    def _on_defect_written(self) -> None:
         self.refresh()
         self.defect_changed.emit(self.lamella)
 
@@ -550,8 +591,17 @@ class LamellaCardContainer(QWidget):
     def mode(self) -> str:
         return self._mode
 
+    def set_grid_context(self, context: Optional[GridContext]) -> None:
+        """Which grid each lamella is on and whether it is on the stage; the
+        cards name the grid and withhold stage actions from it. Kept for cards
+        added later."""
+        self._grid_context = context
+        for card in self._cards.values():
+            card.set_grid_context(context)
+
     def add_lamella(self, lamella: Lamella) -> LamellaCardWidget:
         card = LamellaCardWidget(lamella, mode=self._mode)
+        card.set_grid_context(getattr(self, "_grid_context", None))
         card.defect_changed.connect(self.defect_changed)
         card.clicked.connect(self._on_card_clicked)
         card.move_to_requested.connect(self.move_to_requested)

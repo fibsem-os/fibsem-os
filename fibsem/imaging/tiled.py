@@ -356,13 +356,23 @@ class TiledAcquisitionRunner:
         image_settings.resolution = (full_w, full_h)
 
         pixel_size = self._image_settings.hfw / self._image_settings.resolution[0]
-        return FibsemImageMetadata(
+        metadata = FibsemImageMetadata(
             image_settings=image_settings,
             pixel_size=Point(x=pixel_size, y=pixel_size),
             microscope_state=state,
             system_info=deepcopy(self.microscope.system.info),
             hardware_geometry=deepcopy(self.microscope.hardware_geometry()),
         )
+        # Who and which run, as `_set_additional_metadata` stamps on every single
+        # image. The mosaic is built here rather than acquired through that path,
+        # and without these a saved overview could not say which grid it is of.
+        user = getattr(self.microscope, "user", None)
+        if user is not None:
+            metadata.user = deepcopy(user)
+        experiment = getattr(self.microscope, "experiment", None)
+        if experiment is not None:
+            metadata.experiment = deepcopy(experiment)
+        return metadata
 
     def _correct_metadata_from(self, image: FibsemImage) -> None:
         """Take the pixel size the instrument actually delivered, once one exists.

@@ -1929,6 +1929,7 @@ class Experiment:
         task_config: EventedDict[str, AutoLamellaTaskConfig],
         name: Optional[str] = None,
         fluorescence_pose: Optional[MicroscopeState] = None,
+        grid_id: Optional[str] = None,
     ) -> None:
         """Create a new lamella and add it to the experiment.
 
@@ -1941,6 +1942,11 @@ class Experiment:
                 lamella has none. That is not hypothetical: it left each newly marked
                 lamella missing from the FM overview until something else forced a
                 refresh.
+            grid_id: the `GridRecord.id` of the grid this lamella is on, when the
+                caller knows it. On the constructor for the same reason as the
+                pose: anything grouping lamellae by grid reads it on `inserted`.
+                None is "no grid known", which every lamella made before grids
+                existed also carries.
         """
         template = self.task_protocol.lamella_defaults
         number = max((pos.number for pos in self.positions), default=0) + 1
@@ -1954,7 +1960,11 @@ class Experiment:
 
         # create the lamella
         lamella = Lamella(
-            petname=name, path=path, number=number, task_config=deepcopy(task_config)
+            petname=name,
+            path=path,
+            number=number,
+            task_config=deepcopy(task_config),
+            grid_id=grid_id,
         )
         if template.alignment_area is not None:
             lamella.alignment_area = deepcopy(template.alignment_area)

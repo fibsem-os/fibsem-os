@@ -2169,12 +2169,43 @@ class AutoLamellaUI(QMainWindow):
         for pos in stage_positions:
             self.add_new_lamella(pos)
 
+    def _grid_id_for_new_lamella(
+        self, position: Optional[FibsemStagePosition]
+    ) -> Optional[str]:
+        """The record id of the grid a lamella at *position* is on, or None.
+
+        Resolved the way the rest of the system finds a grid, by name: with a
+        loader the one grid on the stage, on a fixed holder the calibrated slot
+        the position falls in. Then the experiment's record of that name. None
+        whenever any step has no answer: nothing loaded, an uncalibrated slot, a
+        grid on the hardware with no record. Never a guess, and never a record
+        created as a side effect of marking a lamella.
+        """
+        experiment = self.experiment
+        stage = getattr(self.microscope, "_stage", None)
+        if experiment is None or stage is None:
+            return None
+        try:
+            if stage.loader is not None:
+                loaded = stage.loaded_grids
+                grid = loaded[0] if len(loaded) == 1 else None
+            else:
+                grid = stage.grid_at_position(position)
+        except Exception as e:  # noqa: BLE001 - a lamella is never refused for this
+            logging.debug(f"Could not resolve the grid for a new lamella: {e}")
+            return None
+        if grid is None:
+            return None
+        record = experiment.get_grid_by_name(grid.name)
+        return record.id if record is not None else None
+
     def add_new_lamella(
         self,
         stage_position: Optional[FibsemStagePosition] = None,
         name: Optional[str] = None,
         objective_position: Optional[float] = None,
         marked_at: Optional[str] = None,
+        grid_id: Optional[str] = None,
     ) -> Lamella:
         """Add a lamella to the experiment.
 
@@ -2188,6 +2219,9 @@ class AutoLamellaUI(QMainWindow):
             marked_at: The orientation *stage_position* is in, for a caller that knows.
                 Left alone it is read off the position, which is right on a compustage
                 and cannot be on an offset mount -- see `build_lamella_poses`.
+            grid_id: The grid this lamella is on, for a caller that knows -- one
+                marked on a grid's overview belongs to that grid whether or not it
+                is on the stage. Left alone it is resolved from the stage.
         Returns:
             lamella: The created lamella.
         """
@@ -2216,6 +2250,11 @@ class AutoLamellaUI(QMainWindow):
             task_config=self.experiment.task_protocol.task_config,
             name=name,
             fluorescence_pose=poses.fluorescence,
+            grid_id=(
+                grid_id
+                if grid_id is not None
+                else self._grid_id_for_new_lamella(poses.milling.stage_position)
+            ),
         )
         lamella = self.experiment.positions[-1]
 

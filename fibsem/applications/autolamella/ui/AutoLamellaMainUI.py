@@ -75,6 +75,7 @@ from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
+from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as GRID_LOAD_STEP,
 )
@@ -1570,6 +1571,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = [t.name for t in selected_tasks]
         lamella_names = [lam.name for lam in selected_lamella]
 
+        # Before the estimate and the confirmation: a linked lamella whose grid
+        # is in the magazine cannot be run at all, and there is no override.
+        refused = self._lamella_run_refusal(selected_lamella)
+        if refused:
+            QMessageBox.warning(self, "Cannot run", refused)
+            return
+
         if not confirm_run_workflow_dialog(
             ui.experiment, lamella_names, task_names, parent=self
         ):
@@ -1589,6 +1597,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Clear selections after starting workflow
         self.lamella_workflow_widget.lamella_list.set_all_selected(False)
         self.lamella_workflow_widget.workflow.set_all_selected(False)
+
+    def _lamella_run_refusal(self, lamellae) -> str:
+        """Why these lamellae cannot run now, or "": a lamella linked to a grid
+        that is not on the stage. Reads the inventory first; see `grid_gate`."""
+        ui = self.autolamella_ui
+        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        if ui is None or ui.experiment is None or stage is None:
+            return ""
+        return run_refusal(ui.experiment, stage, lamellae)
 
     def _grid_workflow_active(self) -> bool:
         """Whether the Workflow tab's Grids view is the one showing: Run acts on it."""
@@ -2587,6 +2604,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         until the screening flow has run on the Arctis and a fixed holder.
         """
         self.grids_tab = GridsTabWidget()
+        # The Positions view makes lamellae through the application widget, the
+        # one path every lamella is made by.
+        self.grids_tab.set_autolamella_ui(self.autolamella_ui)
         # Fires on disconnect too, with microscope None; the tab redraws its chips
         # from whatever stage there is.
         self.autolamella_ui.system_widget.connected_signal.connect(
@@ -2620,12 +2640,45 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if loader is not None:
             loader.loader_changed.connect(self.grids_tab.refresh)
             loader.loader_changed.connect(self.grid_workflow_widget.refresh)
+            loader.loader_changed.connect(self._refresh_grid_context)
+        self._refresh_grid_context()
         # Calibrating a slot from the Sample view changes what the Overview
         # tabs should draw by default; they re-resolve rather than wait for a
         # reconnect.
         holder_panel = getattr(sample, "holder_widget", None)
         if holder_panel is not None:
             holder_panel.holder_changed.connect(self._on_holder_changed)
+
+    def _grid_context(self):
+        """`GridRecord.id -> (name, on the stage)` for the lamella displays,
+        from the experiment's records and what the stage already knows. No
+        hardware call: the stage answers from its last read."""
+        experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
+        if experiment is None or not experiment.grids:
+            return None
+        loaded = set()
+        stage = getattr(self.autolamella_ui.microscope, "_stage", None)
+        if stage is not None:
+            try:
+                loaded = {e.name for e in stage.grid_inventory() if e.loaded}
+            except Exception as e:  # noqa: BLE001 - drawn as "not on the stage"
+                logging.debug(f"Could not read the grid inventory: {e}")
+        return {g.id: (g.name, g.name in loaded) for g in experiment.grids}
+
+    def _refresh_grid_context(self, *_args) -> None:
+        """Push the grid context to every lamella display. Called on every
+        load, unload and exchange, and on every list rebuild."""
+        context = self._grid_context()
+        for widget in (
+            getattr(self, "lamella_card_container", None),
+            getattr(self, "lamella_list_widget", None),
+            getattr(self.autolamella_ui, "lamella_list", None),
+        ):
+            if widget is not None:
+                widget.set_grid_context(context)
+        # The Overview canvases mark only the lamellae on the stage, so what
+        # they draw changes with every load and unload too.
+        self._refresh_overview_positions()
 
     def _refresh_sample_view(self) -> None:
         """Redraw Microscope → Sample from the stage. Looked up each time: the
@@ -2659,6 +2712,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # With the flag off the selector has one page; a tab bar with a lone
             # "Lamella" tab is chrome the lamella workflow never had.
             left.tabBar().setVisible(enabled)
+            # And with it showing, the list's own "Lamella" title says the same
+            # thing twice.
+            self.lamella_workflow_widget.set_section_title_visible(not enabled)
         editor = getattr(self, "task_widget", None)
         if editor is not None:
             editor.set_grid_protocol_visible(enabled)
@@ -2755,6 +2811,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # And the Sample view: a load or unload from a card changes what is on
         # the stage, and that view draws from the stage without polling it.
         self.grids_tab.experiment_changed.connect(self._refresh_sample_view)
+        # And the lamella lists: their grid chips say whether each lamella's
+        # grid is on the stage.
+        self.grids_tab.experiment_changed.connect(self._refresh_grid_context)
         self.workflow_left_tabs.currentChanged.connect(
             self._on_workflow_selection_changed
         )
@@ -2852,6 +2911,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._show_queue_message(
                 "Select at least one lamella and one task to add to the queue."
             )
+            return
+
+        refused = self._lamella_run_refusal(lamellae)
+        if refused:
+            QMessageBox.warning(self, "Cannot add to the queue", refused)
             return
 
         lamella_names = [lam.name for lam in lamellae]
@@ -3283,11 +3347,28 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_list_widget.refresh_lamella(lamella)
             self.lamella_card_container.refresh_lamella(lamella)
             self.autolamella_ui.lamella_list.refresh_lamella(lamella)
+            # The Overview pages' lists carry the same status column; without
+            # this they sat stale for the whole run (FIB-995).
+            for lamella_list in self._overview_lamella_lists():
+                lamella_list.refresh_lamella(lamella)
         else:
             self.lamella_list_widget.refresh_all()
             self.lamella_card_container.refresh_all()
             self.autolamella_ui.lamella_list.refresh_all()
+            for lamella_list in self._overview_lamella_lists():
+                lamella_list.refresh_all()
         self._on_lamella_card_selected(getattr(self, "_selected_card_lamella", None))
+
+    def _overview_lamella_lists(self):
+        """The lamella list beside each Overview page, whichever pages exist."""
+        return [
+            tab.lamella_list
+            for tab in (
+                getattr(self, "beam_overview_tab", None),
+                getattr(self, "fm_overview_tab", None),
+            )
+            if tab is not None and getattr(tab, "lamella_list", None) is not None
+        ]
 
     def _on_agent_server_dialog(self) -> None:
         """Open the session dialog: status, token, and scope arming."""
@@ -3443,6 +3524,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_list_widget.clear()
             self._on_lamella_card_selected(None)
             return
+        self._refresh_grid_context()
         self.lamella_list_widget.set_lamellae(list(experiment.positions))
         for lamella in experiment.positions:
             self.lamella_card_container.add_lamella(lamella)

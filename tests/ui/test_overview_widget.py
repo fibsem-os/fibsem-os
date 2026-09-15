@@ -4293,3 +4293,54 @@ def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
         assert fresh.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS)
     finally:
         fresh.deleteLater()
+
+
+class TestWhichOverviewAClickIsOn:
+    """A record remembers which item of the experiment its image was taken for,
+    and the widget can say which record a canvas point lands on -- so a lamella
+    marked on a grid's overview can be given that grid (FIB-71)."""
+
+    def _grid_image(self, microscope, position, item_id, item_name, hfw=100e-6):
+        image = _tile(microscope, position, hfw=hfw)
+        image.metadata.experiment.item_id = item_id
+        image.metadata.experiment.item_name = item_name
+        return image
+
+    def test_a_loaded_overview_records_its_item(self, widget, microscope):
+        base = microscope.get_stage_position()
+        record_id = widget.set_image(self._grid_image(microscope, base, "g-1", "aspen"))
+        assert widget.item_of(record_id) == ("g-1", "aspen")
+        assert widget.item_of("no-such-record") == (None, None)
+        plain = widget.set_image(_tile(microscope, _at(base, dx=500e-6)))
+        assert widget.item_of(plain) == (None, None)
+
+    def test_the_record_under_a_point_is_the_one_whose_ground_covers_it(
+        self, widget, microscope
+    ):
+        base = microscope.get_stage_position()
+        left = widget.set_image(self._grid_image(microscope, base, "g-1", "aspen"))
+        right = widget.set_image(
+            self._grid_image(microscope, _at(base, dx=300e-6), "g-2", "birch")
+        )
+        _settle(widget)
+        (lx, ly), _ = widget._extents[widget._records[left].keys[0]]
+        (rx, ry), _ = widget._extents[widget._records[right].keys[0]]
+        at = widget.canvas.metres_to_canvas
+        assert widget.record_at(*at(lx, ly)).id == left
+        assert widget.record_at(*at(rx, ry)).id == right
+        assert widget.record_at(*at(lx + 5e-3, ly + 5e-3)) is None
+
+    def test_the_add_request_names_the_overview_it_was_made_on(
+        self, widget, microscope
+    ):
+        base = microscope.get_stage_position()
+        record_id = widget.set_image(self._grid_image(microscope, base, "g-1", "aspen"))
+        _settle(widget)
+        seen = []
+        widget.position_add_requested.connect(lambda pos, rid: seen.append((pos, rid)))
+        (cx, cy), _ = widget._extents[widget._records[record_id].keys[0]]
+        x, y = widget.canvas.metres_to_canvas(cx, cy)
+        target = FibsemStagePosition(x=base.x, y=base.y, z=base.z, r=base.r, t=base.t)
+        widget._request_add_at(x, y, target)
+        widget._request_add_at(*widget.canvas.metres_to_canvas(cx + 5e-3, cy), target)
+        assert [rid for _, rid in seen] == [record_id, None]
