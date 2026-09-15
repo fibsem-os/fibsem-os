@@ -33,6 +33,7 @@ from fibsem.ui.tokens import (
     CANVAS_BG,
     PANEL_COLOR,
     TEXT_COLOR,
+    WARN_COLOR,
     state_style,
 )
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
@@ -126,9 +127,7 @@ class InterpolateZDialog(QDialog):
 
             warn_icon = QLabel()
             warn_icon.setPixmap(
-                fibsem_icon("mdi:alert-circle-outline", color=_WARN_COLOR).pixmap(
-                    14, 14
-                )
+                fibsem_icon("mdi:alert-circle-outline", color=WARN_COLOR).pixmap(14, 14)
             )
             warn_layout.addWidget(warn_icon, 0, Qt.AlignmentFlag.AlignTop)
 
