@@ -181,6 +181,11 @@ def test_a_round_trip_is_a_fixed_point(filename: str):
     # second *object* silently carries the default instead of the file's value.
     assert reloaded.system == loaded.system
     assert reloaded.image == loaded.image
+    # Said explicitly as well, because this is the value the round trip most needs
+    # to keep and the one a dataclass `__eq__` was blind to for a while.
+    assert (
+        reloaded.system.stage.shuttle_pre_tilt == loaded.system.stage.shuttle_pre_tilt
+    )
 
 
 # ---------------------------------------------------------------------------
