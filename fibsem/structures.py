@@ -375,6 +375,21 @@ class TileOrderStrategy(Enum):
     SPIRAL = "spiral"  # outward clockwise spiral from centre tile
 
 
+class AutoContrastMode(Enum):
+    """When to set the contrast during a tiled acquisition.
+
+    ONCE is one detector setting for the whole mosaic, taken at the grid centre
+    before the first tile, so the tiles stitch without seams and a brightness
+    difference between tiles is real. EACH_TILE is what `ImageSettings.autocontrast`
+    means for any single image, before every tile: it flattens a gradient across
+    the grid at the cost of seams where neighbours were scaled differently.
+    """
+
+    NONE = "none"
+    ONCE = "once"
+    EACH_TILE = "each_tile"
+
+
 @dataclass
 class FibsemStagePosition:
     """Data class for storing stage position data.
@@ -1053,6 +1068,9 @@ class OverviewAcquisitionSettings:
             coordinates they would have in a dense overview.
         autofocus_mode: *When* to focus during the traversal (NONE, ONCE, EACH_ROW,
             EACH_TILE).
+        autocontrast_mode: *When* to set the contrast (NONE, ONCE at the grid centre,
+            EACH_TILE). The runner drives `image_settings.autocontrast` from it, so
+            the per-image flag is not the switch here.
         autofocus_settings: *How* to focus -- sweep passes, method and probe frame.
             Two separate questions, and they used to be conflated: this field held a
             `fibsem.structures.AutoFocusSettings` whose only member was the mode, a
@@ -1072,6 +1090,7 @@ class OverviewAcquisitionSettings:
     autofocus_settings: "AutoFocusSettings" = field(
         default_factory=_default_autofocus_settings
     )
+    autocontrast_mode: AutoContrastMode = AutoContrastMode.NONE
     tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
     tile_mask: Optional[List[List[bool]]] = None
 
@@ -1165,14 +1184,25 @@ class OverviewAcquisitionSettings:
             else:
                 sweep = _default_autofocus_settings()
 
+        image_settings = ImageSettings.from_dict(d.get("image_settings", {}))
+        # A file from before the mode existed said "auto contrast" with the
+        # per-image flag alone. It meant the mosaic, not each tile: ONCE.
+        if "autocontrast_mode" in d:
+            autocontrast_mode = AutoContrastMode(d["autocontrast_mode"])
+        elif image_settings.autocontrast:
+            autocontrast_mode = AutoContrastMode.ONCE
+        else:
+            autocontrast_mode = AutoContrastMode.NONE
+
         return OverviewAcquisitionSettings(
-            image_settings=ImageSettings.from_dict(d.get("image_settings", {})),
+            image_settings=image_settings,
             nrows=d.get("nrows", 3),
             ncols=d.get("ncols", 3),
             overlap=d.get("overlap", 0.1),
             focus_stack_settings=fss,
             autofocus_mode=mode,
             autofocus_settings=sweep,
+            autocontrast_mode=autocontrast_mode,
             tile_order=TileOrderStrategy(
                 d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
             ),
@@ -1190,6 +1220,7 @@ class OverviewAcquisitionSettings:
             "focus_stack_settings": self.focus_stack_settings.to_dict(),
             "autofocus_mode": self.autofocus_mode.value,
             "autofocus_settings": self.autofocus_settings.to_dict(),
+            "autocontrast_mode": self.autocontrast_mode.value,
             "tile_order": self.tile_order.value,
             # plain bools: np.bool_ does not survive yaml.safe_dump, and a mask arriving
             # from a numpy grid is exactly how one gets here.

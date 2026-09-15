@@ -18,6 +18,7 @@ from fibsem.config import (
 )
 from fibsem.imaging.tiled import stamped_overview_name as _stamped_overview_name
 from fibsem.structures import (
+    AutoContrastMode,
     AutoFocusMode,
     BeamType,
     FocusStackSettings,
@@ -89,6 +90,9 @@ def default_overview_acquisition_settings() -> OverviewAcquisitionSettings:
             path=None,  # whoever owns the experiment fills this in
             filename=DEFAULT_OVERVIEW_FILENAME,
         ),
+        # One contrast for the whole mosaic; the per-image flag above is what the
+        # napari tab's widget still reads, and reads as the same choice.
+        autocontrast_mode=AutoContrastMode.ONCE,
     )
 
 

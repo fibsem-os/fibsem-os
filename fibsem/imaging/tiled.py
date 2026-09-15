@@ -50,6 +50,7 @@ from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
+    AutoContrastMode,
     AutoFocusMode,
     FibsemImage,
     FibsemImageMetadata,
@@ -160,6 +161,7 @@ class TiledAcquisitionRunner:
         self._compute_grid()
         status, error = TiledStatus.FINISHED, None
         try:
+            self._autocontrast_at_centre()
             self._autofocus_if_mode(AutoFocusMode.ONCE)
             self._run_tile_loop()
         except OperationCancelledError:
@@ -235,7 +237,15 @@ class TiledAcquisitionRunner:
                 f"disabled, so there is nothing to focus with."
             )
 
-        image_settings.autocontrast = False
+        # The mode drives the per-image flag. ONCE is one detector setting for
+        # the whole mosaic, set at the grid centre before the first tile;
+        # EACH_TILE is what the flag means for any single image, and
+        # `acquire_image` honours it per tile. The flag was forced off here for
+        # years, so the box on the overview settings read one thing and the run
+        # did another.
+        mode = self.settings.autocontrast_mode
+        self._autocontrast_once = mode is AutoContrastMode.ONCE
+        image_settings.autocontrast = mode is AutoContrastMode.EACH_TILE
         image_settings.save = True
         image_settings.reduced_area = None
 
@@ -575,6 +585,28 @@ class TiledAcquisitionRunner:
         return image
 
     # ── helpers ──────────────────────────────────────────────────────────
+
+    def _autocontrast_at_centre(self) -> None:
+        """ONCE: one contrast for the whole mosaic, set at its centre before the tiles.
+
+        The centre rather than the first tile: a typewriter order starts in a
+        corner, which on a grid is as likely to be a bar or the edge of the hole as
+        the picture. Scored on the centred half-frame, as the Image tab's Auto
+        Contrast button is.
+        """
+        # getattr, as `_emit_terminal` reads its count: a runner built around
+        # `_setup` (the signal tests) has no flag, and no request.
+        if not getattr(self, "_autocontrast_once", False):
+            return
+        _check_cancelled(self.stop_event)
+        logging.info(
+            f"Auto contrast at the grid centre: {self._centre_position.pretty}"
+        )
+        self.microscope.safe_absolute_stage_movement(self._centre_position)
+        _check_cancelled(self.stop_event)
+        self.microscope.autocontrast(
+            self._image_settings.beam_type, reduced_area=centred_half_frame()
+        )
 
     def _autofocus_if_mode(self, mode: AutoFocusMode) -> None:
         """Run the configured focus sweep, if the current af_mode matches.
