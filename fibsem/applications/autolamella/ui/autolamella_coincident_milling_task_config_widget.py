@@ -30,13 +30,14 @@ import copy
 import logging
 from typing import TYPE_CHECKING, Callable, List, Optional
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
     QSpinBox,
     QToolButton,
@@ -73,15 +74,15 @@ class _StageTable(QWidget):
 
     Edits write straight onto the live stage objects the full editor holds, so
     the two views never disagree; the widget re-syncs the list after each edit.
-    Direction lives on rectangle-like patterns only; a trench derives its own
-    order from its two halves, so its cell is blank.
+    Direction is the pattern's scan direction and lives on rectangle-like
+    patterns only; a trench mills in a fixed order, so its cell is blank.
     """
 
     stage_edited = pyqtSignal()
     add_requested = pyqtSignal()
     remove_requested = pyqtSignal(object)  # FibsemMillingStage
 
-    _HEADERS = ("Stage", "Direction", "Current", "Width", "Height", "Depth", "")
+    _HEADERS = ("#", "Direction", "Current", "Width", "Height", "Depth", "")
 
     def __init__(self, microscope, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -108,12 +109,14 @@ class _StageTable(QWidget):
         except Exception:
             logging.debug("Stage table: no available values from the microscope")
         self._build_header()
-        # the name gets the slack; the numeric cells stay compact
-        self._layout.setColumnStretch(0, 3)
+        # the index is a glyph; the numeric cells stay compact; slack goes right
+        self._layout.setColumnStretch(0, 0)
         for col in range(1, 6):
             self._layout.setColumnStretch(col, 0)
+        self._layout.setColumnStretch(7, 1)
         self.btn_add = QToolButton()
-        self.btn_add.setText("+ Add stage")
+        self.btn_add.setText("+")
+        self.btn_add.setToolTip("Add a stage (a copy of the last one)")
         self.btn_add.clicked.connect(self.add_requested.emit)
 
     def _build_header(self) -> None:
@@ -139,25 +142,22 @@ class _StageTable(QWidget):
                     w.setParent(None)
                     w.deleteLater()
             self._rows = []
-            self._layout.removeWidget(self.btn_add)
             self._stages = list(stages)
             for i, stage in enumerate(self._stages):
                 self._add_row(i + 1, stage)
-            self._layout.addWidget(self.btn_add, len(self._stages) + 1, 0, 1, 2)
         finally:
             self._loading = False
 
     def _add_row(self, row: int, stage) -> None:
-        from PyQt5.QtWidgets import QComboBox, QLineEdit
+        from PyQt5.QtWidgets import QComboBox
 
         pattern = stage.pattern
         widgets = []
 
-        name = QLineEdit(stage.name)
-        name.editingFinished.connect(
-            lambda s=stage, e=name: self._set(s, "name", e.text())
-        )
-        widgets.append(name)
+        index = QLabel(str(row))
+        index.setToolTip(stage.name)
+        index.setStyleSheet("color: #d6d6d6; padding-left: 4px;")
+        widgets.append(index)
 
         direction = QComboBox()
         has_direction = hasattr(pattern, "scan_direction")
@@ -171,12 +171,12 @@ class _StageTable(QWidget):
                 lambda text, p=pattern: self._set(p, "scan_direction", text)
             )
         else:
-            # a trench mills its two halves in a fixed order: say what it is
-            # rather than leave a blank the operator will try to fill
-            direction.addItem(type(pattern).__name__.replace("Pattern", ""))
+            direction.addItem("—")
             direction.setEnabled(False)
             direction.setToolTip(
-                f"{type(pattern).__name__} has no scan direction of its own."
+                f"{type(pattern).__name__} mills in a fixed order and has no scan "
+                "direction. For one top-to-bottom pass and one bottom-to-top pass, "
+                "give each stage a Rectangle pattern (All stage settings)."
             )
         direction.setMinimumWidth(100)
         widgets.append(direction)
@@ -433,14 +433,33 @@ class AutoLamellaCoincidentMillingTaskConfigWidget(QWidget):
         outer.addWidget(self.milling_panel)
 
         # ── Setup (read-only) ─────────────────────────────────────────────
+        setup_box = QWidget()
+        setup_grid = QGridLayout(setup_box)
+        setup_grid.setContentsMargins(4, 4, 4, 4)
+        setup_grid.setHorizontalSpacing(8)
+        setup_grid.setVerticalSpacing(4)
+        self._setup_fields = {}
+        for srow, (key, label) in enumerate(
+            (
+                ("objective", "Objective"),
+                ("fm_roi", "FM region"),
+                ("pattern_offset", "Milling box"),
+                ("drop", "Stop at"),
+            )
+        ):
+            field = QLineEdit()
+            field.setReadOnly(True)
+            field.setFocusPolicy(Qt.NoFocus)
+            field.setStyleSheet("color: #868e93;")
+            setup_grid.addWidget(QLabel(label), srow, 0)
+            setup_grid.addWidget(field, srow, 1)
+            self._setup_fields[key] = field
         self.label_setup = QLabel("")
-        self.label_setup.setStyleSheet(
-            "color: #d1d2d4; font-family: monospace; font-size: 11px; padding: 4px;"
-        )
+        self.label_setup.setStyleSheet(_HINT_STYLE)
         self.label_setup.setWordWrap(True)
-        self.setup_panel = TitledPanel(
-            "Setup", content=self.label_setup, collapsible=True
-        )
+        setup_grid.addWidget(self.label_setup, 4, 0, 1, 2)
+        setup_grid.setColumnStretch(1, 1)
+        self.setup_panel = TitledPanel("Setup", content=setup_box, collapsible=True)
         outer.addWidget(self.setup_panel)
         self.set_setup_record(None)
 
@@ -568,31 +587,39 @@ class AutoLamellaCoincidentMillingTaskConfigWidget(QWidget):
 
         None means the host has no site (the protocol-level editor).
         """
+        fields = self._setup_fields
         if record is None:
+            for field in fields.values():
+                field.setText("per site")
             self.label_setup.setText(
-                "Set up per site by Setup Coincidence Milling: objective height, "
-                "FM region and milling box position."
+                "Recorded for each lamella by the Setup Coincidence Milling task; "
+                "run it to set or change these."
             )
             return
-        who = f" · {site_name}" if site_name else ""
+        who = f" for {site_name}" if site_name else ""
         if not record.is_set_up:
+            for field in fields.values():
+                field.setText("—")
             self.label_setup.setText(
-                f"Not set up{who}. Run Setup Coincidence Milling for this site; "
+                f"Not set up{who}. Run Setup Coincidence Milling for this lamella; "
                 "the mill holds it back until then."
             )
             return
         roi = record.fm_roi
-        roi_str = (
-            f"x {roi.left:.2f} y {roi.top:.2f} · {roi.width:.2f} × {roi.height:.2f}"
+        fields["objective"].setText(f"{record.objective_position * 1e3:.3f} mm")
+        fields["fm_roi"].setText(
+            f"x {roi.left:.2f}  y {roi.top:.2f}  ·  {roi.width:.2f} × {roi.height:.2f} of the frame"
             if roi is not None
             else "whole frame"
         )
         offset = record.pattern_offset
+        fields["pattern_offset"].setText(
+            f"{offset.x * 1e6:+.1f} µm, {offset.y * 1e6:+.1f} µm from the image centre"
+        )
+        fields["drop"].setText(f"{record.intensity_drop_fraction * 100:.0f} % drop")
         self.label_setup.setText(
-            f"Objective  : {record.objective_position * 1e3:.3f} mm{who}\n"
-            f"FM region  : {roi_str}\n"
-            f"Milling box: {offset.x * 1e6:+.1f} µm, {offset.y * 1e6:+.1f} µm\n"
-            f"Stop at    : {record.intensity_drop_fraction * 100:.0f} % drop (site)"
+            f"Recorded{who} by Setup Coincidence Milling. To change them, run that "
+            "task again for this lamella."
         )
 
     def set_microscope(self, microscope: "FibsemMicroscope") -> None:

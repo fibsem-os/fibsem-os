@@ -155,7 +155,10 @@ def test_the_stage_table_writes_onto_the_live_stages(widget, qapp):
     assert widget.channel_panel is not None and widget.stop_panel is not None
 
     # edit the second row's width and depth through the table
-    name, direction, current, width, height, depth, _ = table._rows[1]
+    index, direction, current, width, height, depth, _ = table._rows[1]
+    assert index.text() == "2"
+    assert direction.isEnabled()  # a Rectangle has a scan direction
+    assert direction.currentText() == "BottomToTop"
     width.setValue(12.0)
     depth.setValue(0.6)
     qapp.processEvents()
@@ -202,20 +205,25 @@ def test_copy_from_takes_the_filters_not_the_exposure(widget, qapp):
 
 def test_setup_record_is_shown_read_only(widget, qapp):
     widget.set_setup_record(None)
-    assert "per site" in widget.label_setup.text()
+    assert widget._setup_fields["objective"].text() == "per site"
+    assert "run it to set" in widget.label_setup.text()
 
     record = SetupCoincidenceMillingTaskConfig(task_name="Setup Coincidence Milling")
     widget.set_setup_record(record, "lamella-03")
-    assert "Not set up" in widget.label_setup.text()
+    assert widget._setup_fields["objective"].text() == "—"
+    assert "Not set up for lamella-03" in widget.label_setup.text()
 
     record.objective_position = 2.418e-3
     record.fm_roi = FibsemRectangle(0.44, 0.38, 0.16, 0.24)
     record.pattern_offset = Point(1.2e-6, -0.4e-6)
     widget.set_setup_record(record, "lamella-03")
-    text = widget.label_setup.text()
-    assert "2.418 mm" in text
-    assert "x 0.44 y 0.38" in text
-    assert "+1.2 µm, -0.4 µm" in text
+    fields = widget._setup_fields
+    assert fields["objective"].text() == "2.418 mm"
+    assert "x 0.44  y 0.38" in fields["fm_roi"].text()
+    assert "+1.2 µm, -0.4 µm" in fields["pattern_offset"].text()
+    assert fields["drop"].text() == "40 % drop"
+    assert all(f.isReadOnly() for f in fields.values())
+    assert "run that task again" in widget.label_setup.text()
 
 
 def test_advanced_writes_field_of_view_and_the_zstack_flag(widget, qapp):
