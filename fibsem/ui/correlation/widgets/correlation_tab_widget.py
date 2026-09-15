@@ -2365,6 +2365,7 @@ class CorrelationTabWidget(QWidget):
         """
         self._btn_continue.setEnabled(live)
         self._btn_continue.setVisible(live)
+        self._btn_continue.setToolTip("")  # a poor verdict sets its own, below
         self._btn_continue.setStyleSheet(
             stylesheets.PRIMARY_BUTTON_STYLESHEET
             if live
@@ -3463,10 +3464,14 @@ class CorrelationTabWidget(QWidget):
         return placement_offset_from_runs(runs) if runs else None
 
     def _on_projection_link(self, link: str) -> None:
-        """Ignore or restore the previous run's placement offset for this lamella."""
+        """Ignore or restore the previous run's placement offset for this lamella.
+
+        Only the next projection changes; no point moved, so a live result
+        stays live. ``data_changed`` would mark it stale and hide Continue.
+        """
         self._ignore_placement_offset = link == "ignore"
         if self._fib_image is not None and self._fm_image is not None:
-            self.data_changed.emit(self.data)
+            self._refresh_prediction_panel()
 
     @staticmethod
     def _run_label(source: str) -> str:
@@ -3843,6 +3848,12 @@ class CorrelationTabWidget(QWidget):
             coord = coords[index]
             spec.list_widget.select_coordinate_silent(coord)
             self._select_only(spec, coord)
+            # the pair: its FIB partner too, so both canvases show it
+            fib_spec = self._point_specs[PointType.FIB]
+            partners = fib_spec.list_widget.coordinates
+            if index < len(partners):
+                fib_spec.list_widget.select_coordinate_silent(partners[index])
+                fib_spec.adapter.set_selected(partners[index])
 
     def _fib_pixel_size_m(self) -> Optional[float]:
         """FIB pixel size in metres, or None. A result loaded from JSON has no
@@ -4031,12 +4042,7 @@ class CorrelationTabWidget(QWidget):
         self._select_only(spec, coord)
 
     def _on_canvas_moved(self, coord: Coordinate) -> None:
-        coord.fitted = False  # a manual drag supersedes any accepted fit
-        if coord.status in PointStatus.TENTATIVE:
-            # a drop on a prediction is the user's answer: from here on the
-            # point is evidence, and the projection never moves it again. Its
-            # provenance stays "projected" -- that is where it came from.
-            coord.status = PointStatus.PLACED
+        if self._place_by_hand(coord):
             self._refresh_canvas(self._point_specs[coord.point_type].adapter)
         spec = self._point_specs[coord.point_type]
         spec.list_widget.refresh_coordinate(coord)
@@ -4095,10 +4101,30 @@ class CorrelationTabWidget(QWidget):
     def _on_list_selected(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
         self._select_only(spec, coord)
 
+    @staticmethod
+    def _place_by_hand(coord: Coordinate) -> bool:
+        """A drag or a typed value makes the point the user's: ``placed``.
+
+        A drop on a prediction is the user's answer, and the projection never
+        moves it again. A fitted or accepted point that is moved is no longer
+        what the fitter or the projection said, so it stops reading as such
+        and, if it was accepted, becomes evidence. Provenance stays: that is
+        where the point came from. Returns True when the status changed.
+        """
+        coord.fitted = False
+        if coord.status in PointStatus.TENTATIVE or coord.status in (
+            PointStatus.FITTED,
+            PointStatus.ACCEPTED,
+        ):
+            coord.status = PointStatus.PLACED
+            return True
+        return False
+
     def _on_list_changed(
         self, spec: _PointTypeSpec, coord: Coordinate, _f: str, _v: float
     ) -> None:
-        coord.fitted = False  # a manual edit supersedes any accepted fit
+        if self._place_by_hand(coord):
+            self._refresh_canvas(spec.adapter)
         spec.adapter.refresh_coordinate(coord)
         spec.list_widget.refresh_coordinate(coord)  # drop the fitted indicator
         self.data_changed.emit(self.data)
