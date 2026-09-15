@@ -379,7 +379,7 @@ class PointOverlay(QObject):
     point_selected = pyqtSignal(int, float, float)  # index, x, y
     point_dragging = pyqtSignal(int, float, float)  # index, x, y  (each motion step)
     point_moved = pyqtSignal(int, float, float)  # index, x, y  (on release)
-    point_removed = pyqtSignal(int)  # index (before removal)
+    point_removed = pyqtSignal(int)  # index the point held (emitted after removal)
 
     def __init__(
         self,
@@ -508,7 +508,6 @@ class PointOverlay(QObject):
         """Remove the point at *index*."""
         if index < 0 or index >= len(self._points):
             return
-        self.point_removed.emit(index)
         for lst in (self._artists, self._anns):
             a = lst.pop(index)
             if a is not None:
@@ -525,6 +524,10 @@ class PointOverlay(QObject):
             self._refresh_ann_text()
         if self._canvas is not None:
             self._canvas.draw_idle()
+        # Emit LAST. A direct-connected listener may rebuild this overlay from its
+        # own model (set_points) while handling the signal; emitting before the pop
+        # made the pop below run on the rebuilt lists and remove a second point.
+        self.point_removed.emit(index)
 
     def clear_points(self) -> None:
         self._selected = None
@@ -879,8 +882,11 @@ class PointOverlay(QObject):
             if old_sel is not None and old_sel != hit:
                 self._update_artist_appearance(old_sel)
             self._update_artist_appearance(hit)
-            self.point_selected.emit(hit, self._points[hit][0], self._points[hit][1])
+            # Drag state first, emit last: a listener may rebuild this overlay
+            # (set_points) while handling the signal, and the drag has to have
+            # captured its artist and blit background before that can happen.
             self._start_drag(hit, event)
+            self.point_selected.emit(hit, self._points[hit][0], self._points[hit][1])
         elif self._selected is not None:
             # left-click empty → deselect
             old_sel = self._selected
@@ -898,8 +904,8 @@ class PointOverlay(QObject):
         )
         self._points[self._drag_idx] = [x, y]
         self._update_artist_position(self._drag_idx)
-        self.point_dragging.emit(self._drag_idx, x, y)
         self._blit()
+        self.point_dragging.emit(self._drag_idx, x, y)
 
     def _on_release(self, event):
         if self._canvas is None:
