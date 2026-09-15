@@ -99,7 +99,7 @@ def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
 def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, review=True)
     task = _task(microscope, exp, flag=True)
-    assert task.review is True and task.records
+    assert task.review is True
     lamella = exp.positions[0]
     rough_point = (
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
@@ -190,12 +190,21 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_review"
 
 
-def test_without_the_flag_nothing_is_recorded(microscope, tmp_path):
+def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
+    microscope, tmp_path
+):
+    """The flag hides the Review surface, not the record. A protocol that says
+    review runs ungated with it off: the producer confirms its own proposal
+    and nothing defers."""
     exp = _experiment(tmp_path, microscope, review=True)
     task = _task(microscope, exp, flag=False)
-    assert task.review is False and not task.records
+    assert task.review is False, "gate needs the flag"
     task.run()
-    assert exp.positions[0].proposals == {}
+    lamella = exp.positions[0]
+    proposal = lamella.proposals[SETUP]
+    assert proposal.kind == MILLING_SETUP and not proposal.pending
+    assert proposal.current.author == "auto:centre-of-image"
+    assert task.task_manager._defer_reason(lamella, ROUGH) is None
 
 
 def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
@@ -205,7 +214,7 @@ def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
     the run never waits."""
     exp = _experiment(tmp_path, microscope, review=False)
     task = _task(microscope, exp, flag=True)
-    assert task.review is False and task.records
+    assert task.review is False
     lamella = exp.positions[0]
     heard = []
     exp.decided.connect(lambda item_id, task_name: heard.append(task_name))
