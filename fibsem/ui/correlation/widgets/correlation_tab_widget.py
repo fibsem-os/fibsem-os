@@ -2206,7 +2206,7 @@ class CorrelationTabWidget(QWidget):
         run_layout.setContentsMargins(8, 6, 8, 6)
         run_layout.setSpacing(4)
 
-        self._lbl_status = QLabel("Load images and add ≥ 4 FIB / FM pairs and ≥ 1 POI.")
+        self._lbl_status = QLabel("Load the FIB and FM images on the Setup tab.")
         self._lbl_status.setTextFormat(Qt.TextFormat.RichText)
         self._lbl_status.setOpenExternalLinks(False)
         self._lbl_status.linkActivated.connect(self._on_status_link)
@@ -2219,6 +2219,18 @@ class CorrelationTabWidget(QWidget):
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(8)
 
+        # Compact result summary (RMS quality-coloured + RI/POI) for a run the
+        # verdict cannot judge, on the left; the buttons sit on the right.
+        self._lbl_result = QLabel("")
+        self._lbl_result.setTextFormat(Qt.TextFormat.RichText)
+        self._lbl_result.setStyleSheet(BODY_MUTED_STYLE)
+        self._lbl_result.setVisible(False)
+        btn_layout.addWidget(self._lbl_result)
+        btn_layout.addStretch(1)
+
+        # One primary button for the step the user is on: Run until there is
+        # a live result, then Continue with "Run again" beside it. A greyed
+        # Continue before any run said nothing, so it is not shown.
         self._btn_run = QPushButton("Run Correlation")
         self._btn_run.setEnabled(False)
         self._btn_run.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
@@ -2226,16 +2238,8 @@ class CorrelationTabWidget(QWidget):
 
         self._btn_continue = QPushButton("Continue")
         self._btn_continue.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self._btn_continue.setVisible(False)
         btn_layout.addWidget(self._btn_continue)
-
-        # Compact result summary beside Continue (RMS quality-coloured + RI/POI),
-        # shown after a run — keeps the status line free for state only.
-        self._lbl_result = QLabel("")
-        self._lbl_result.setTextFormat(Qt.TextFormat.RichText)
-        self._lbl_result.setStyleSheet(BODY_MUTED_STYLE)
-        self._lbl_result.setVisible(False)
-        btn_layout.addWidget(self._lbl_result)
-        btn_layout.addStretch(1)
 
         run_layout.addWidget(btn_row)
         self._run_button_row = btn_layout
@@ -2367,12 +2371,14 @@ class CorrelationTabWidget(QWidget):
         here rather than drifting apart across handlers.
         """
         self._btn_continue.setEnabled(live)
+        self._btn_continue.setVisible(live)
         self._btn_continue.setToolTip("")  # a poor verdict sets its own, below
         self._btn_continue.setStyleSheet(
             stylesheets.PRIMARY_BUTTON_STYLESHEET
             if live
             else stylesheets.SECONDARY_BUTTON_STYLESHEET
         )
+        self._btn_run.setText("Run again" if live else "Run Correlation")
         self._btn_run.setStyleSheet(
             stylesheets.SECONDARY_BUTTON_STYLESHEET
             if live
@@ -3313,23 +3319,68 @@ class CorrelationTabWidget(QWidget):
             )
         elif running:
             self._lbl_status.setText("Running…")
-        elif self._fib_image is None or self._fm_image is None:
-            self._lbl_status.setText("Load FIB and FM images to continue.")
-        elif ok:
-            self._lbl_status.setText("Ready." + self._evidence_clause(d))
         else:
-            n_fib = len(d.fib_coordinates)
-            n_fm = len(d.fm_coordinates)
-            n_poi = len(d.poi_coordinates)
-            n_pred = sum(
-                1
-                for c in self._coords_tab.fm_list.coordinates
-                if c.status in PointStatus.TENTATIVE
+            self._lbl_status.setText(self._next_step(d, ok))
+
+    def _next_step(self, d: CorrelationInputData, ok: bool) -> str:
+        """One sentence on what to do next, for the status line (FIB-978 §1.4).
+
+        The bar's idle text used to be "Ready." or a count of what was missing;
+        this names the step, in the order the flow goes: images, FIB fiducials,
+        FM fiducials, the target, run.
+        """
+        if self._fib_image is None or self._fm_image is None:
+            return "Load the FIB and FM images on the Setup tab."
+        # ``d`` is the fit's view, which drops a rejected pair and a predicted
+        # FM point's FIB partner too; the sentence counts what the user sees:
+        # points on either side, less the rows rejected from the fit, and on
+        # the FM side only those placed (a prediction is not a pair yet).
+        cl = self._coords_tab
+        fib_all, fm_all = cl.fib_list.coordinates, cl.fm_list.coordinates
+        rejected = {
+            i
+            for coords in (fib_all, fm_all)
+            for i, c in enumerate(coords)
+            if c.status == PointStatus.REJECTED
+        }
+        n_fib = sum(1 for i, _ in enumerate(fib_all) if i not in rejected)
+        n_fm = sum(
+            1
+            for i, c in enumerate(fm_all)
+            if i not in rejected and c.status not in PointStatus.TENTATIVE
+        )
+        n_poi = len(d.poi_coordinates)
+        if ok:
+            stale = self._result is not None and not self._result.matches_inputs(d)
+            lead = (
+                "The points changed since the last run; run again"
+                if stale
+                else "Ready to run"
             )
-            fm = f"FM={n_fm}" + (f" confirmed, {n_pred} predicted" if n_pred else "")
-            self._lbl_status.setText(
-                f"Need ≥4 matched pairs (FIB={n_fib}, {fm}) and ≥1 POI ({n_poi})."
+            return f"{lead} with {n_fm} pairs." + self._evidence_clause(d)
+        if n_fib == 0:
+            return (
+                "Seed the spot burns on the Setup tab, or click the burns on the "
+                "FIB image."
             )
+        n_pred = sum(
+            1
+            for c in self._coords_tab.fm_list.coordinates
+            if c.status in PointStatus.TENTATIVE
+        )
+        if n_fm < 4 and n_pred:
+            return (
+                f"Drag the predicted rings onto their burns: {n_fm} of 4 pairs placed."
+            )
+        if n_fm == 0:
+            return "Project FM from FIB, or click the burns on the FM image."
+        if n_fm < 4 or n_fib < 4:
+            return f"{min(n_fib, n_fm)} of 4 pairs placed."
+        if n_fib != n_fm:
+            return f"FIB and FM fiducial counts differ ({n_fib} and {n_fm})."
+        if n_poi == 0:
+            return "Place the target on the FM image."
+        return "Ready."  # unreachable: every gate above mirrors _can_run
 
     @staticmethod
     def _evidence_clause(d: CorrelationInputData) -> str:
