@@ -83,7 +83,7 @@ class GridTaskManager(BaseTaskManager):
         hook_manager: Optional[HookManager] = None,
     ):
         super().__init__(microscope, experiment, parent_ui, hook_manager)
-        # Grids this run could not bring into the beam, and why. One attempt per
+        # Grids this run could not bring onto the stage, and why. One attempt per
         # grid per run: an exchange that failed once is not retried on the next
         # task, which would only re-run the same failure in front of a queue of
         # grids that might load fine.
@@ -262,7 +262,7 @@ class GridTaskManager(BaseTaskManager):
         )
 
     def _ensure_loaded(self, grid: GridRecord) -> bool:
-        """Bring the grid into the beam, recording the attempt when it costs one.
+        """Bring the grid onto the stage, recording the attempt when it costs one.
 
         A grid already in a holder slot is confirmed, not exchanged, and leaves no
         entry: the second task on a grid is not a second load. An exchange, or a

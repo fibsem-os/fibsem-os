@@ -1986,6 +1986,10 @@ class CorrelationTabWidget(QWidget):
         self._interp_worker = None
         self._interp_relay: Optional[_ProgressRelay] = None
         self._project_dir: Optional[str] = None
+        # Auto-save is armed by a load or an edit, never by an image load: an
+        # open must not write until there is something of the user's to keep
+        # (FIB-977, see _auto_save_state).
+        self._save_armed = False
         # Positions as last seeded by the setup section, to detect manual edits
         # before replacing them (None = nothing seeded yet). FIB-302.
         self._seeded_positions: Optional[list] = None
@@ -2527,6 +2531,7 @@ class CorrelationTabWidget(QWidget):
         """
         self._project_dir = path
         self._images_tab._proj_path.setText(path)
+        self._save_armed = False
 
     @staticmethod
     def _ensure_dir_for(path: str) -> str:
@@ -2545,6 +2550,7 @@ class CorrelationTabWidget(QWidget):
 
     def set_data(self, data: CorrelationInputData) -> None:
         """Populate all coordinate lists and refresh canvases."""
+        self._save_armed = True
         fib_coords = list(data.fib_coordinates)
         fm_coords = list(data.fm_coordinates)
         poi_coords = list(data.poi_coordinates)
@@ -3217,8 +3223,17 @@ class CorrelationTabWidget(QWidget):
         rather than correlations, and a session the user cancelled came back as
         the next open's starting coordinates (FIB-320). Once the folder exists it
         keeps its contents current, result or not.
+
+        And nothing is written until a load or an edit has *armed* the save.
+        Loading an image emits ``data_changed`` before any coordinates exist; on
+        a folder that already holds a ``correlation.json`` the first such emit
+        used to overwrite it with an empty state, and the loader then read the
+        file it had just emptied -- opening a saved run destroyed its picks
+        (FIB-977). ``set_data`` (every load and seed goes through it), the
+        coordinate handlers and a delivered result arm it; ``set_project_dir``
+        disarms it.
         """
-        if not self._project_dir:
+        if not self._project_dir or not self._save_armed:
             return
         if self._result is None and not os.path.isdir(self._project_dir):
             return
@@ -3741,6 +3756,7 @@ class CorrelationTabWidget(QWidget):
     def _on_result_ready(self, result: CorrelationResult, live: bool = True) -> None:
         """Adopt a result. ``live`` is False for a result that no longer describes
         the current points (FIB-295)."""
+        self._save_armed = True
         self._result = result
         self._results_tab.set_result(result, self._fib_pixel_size_m())
         self._ri_tab.set_result(
@@ -3955,6 +3971,7 @@ class CorrelationTabWidget(QWidget):
         )
 
     def _on_correction_applied(self, result: CorrelationResult) -> None:
+        self._save_armed = True
         self._result = result
         self._overlay_result_on_fib(result)
         factor = result.refractive_index_correction_factor
@@ -3967,6 +3984,7 @@ class CorrelationTabWidget(QWidget):
 
     def _on_pre_correction_requested(self, factor: float, rerun: bool) -> None:
         """Store the pre-correlation RI factor and optionally re-run."""
+        self._save_armed = True
         self._ri_pre_correction_factor = factor
         self.data_changed.emit(self.data)  # auto-save + RI tab refresh
         # Apply is reachable before the points can support a correlation now the
@@ -4062,6 +4080,7 @@ class CorrelationTabWidget(QWidget):
         self._select_only(spec, coord)
 
     def _on_canvas_moved(self, coord: Coordinate) -> None:
+        self._save_armed = True
         if self._place_by_hand(coord):
             self._refresh_canvas(self._point_specs[coord.point_type].adapter)
         spec = self._point_specs[coord.point_type]
@@ -4069,17 +4088,20 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.emit(self.data)
 
     def _on_canvas_removed(self, coord: Coordinate) -> None:
+        self._save_armed = True
         spec = self._point_specs[coord.point_type]
-        spec.list_widget.coordinates = [
-            c for c in spec.list_widget.coordinates if c is not coord
-        ]
+        # Through the list's own removal, so the neighbour ends up selected, the
+        # same as the row's trash button. Assigning `coordinates` selects row 1.
+        spec.list_widget.remove_coordinate(coord)
         if spec.on_cleared is not None and not spec.list_widget.coordinates:
             spec.on_cleared()
         self._refresh_canvas(spec.adapter)
+        self._select_only(spec, spec.list_widget.selected_coordinate)
         self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
 
     def _on_canvas_add_requested(self, x: float, y: float, pt: PointType) -> None:
+        self._save_armed = True
         spec = self._point_specs[pt]
         coord = Coordinate(PointXYZ(x, y, spec.adapter.current_z()), pt)
         if spec.max_one:
@@ -4143,6 +4165,7 @@ class CorrelationTabWidget(QWidget):
     def _on_list_changed(
         self, spec: _PointTypeSpec, coord: Coordinate, _f: str, _v: float
     ) -> None:
+        self._save_armed = True
         if self._place_by_hand(coord):
             self._refresh_canvas(spec.adapter)
         spec.adapter.refresh_coordinate(coord)
@@ -4150,11 +4173,13 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.emit(self.data)
 
     def _on_list_removed(self, spec: _PointTypeSpec, _coord: Coordinate) -> None:
+        self._save_armed = True
         # on_cleared = "the spec's LAST point is gone" (the list widget removes
         # the row before emitting, so the check sees the post-removal state)
         if spec.on_cleared is not None and not spec.list_widget.coordinates:
             spec.on_cleared()
         self._refresh_canvas(spec.adapter)
+        self._select_only(spec, spec.list_widget.selected_coordinate)
         self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
 
@@ -4186,6 +4211,7 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.emit(self.data)
 
     def _on_list_reordered(self, spec: _PointTypeSpec, _coords: list) -> None:
+        self._save_armed = True
         self._refresh_canvas(spec.adapter)
         self.data_changed.emit(self.data)
 
@@ -4651,6 +4677,7 @@ class CorrelationTabWidget(QWidget):
         coord.point.z = result.fitted.z
         coord.fitted = True
         coord.status = PointStatus.FITTED
+        self._save_armed = True
         spec = self._point_specs[coord.point_type]
         spec.list_widget.refresh_coordinate(coord)
         spec.adapter.refresh_coordinate(coord)
