@@ -2261,6 +2261,16 @@ class StageSystemSettings:
     devices: Dict[str, StageDeviceSettings] = field(
         default_factory=lambda: deepcopy(DEFAULT_STAGE_DEVICES)
     )
+    # The holders this system has, and which one is on the stage. A keyed map with a
+    # selection rather than a single holder, because a site that swaps a flat shuttle
+    # for a pre-tilted one should select the other entry rather than re-enter its
+    # geometry -- and, once pre-tilt moves onto the holder, re-calibrate for it.
+    #
+    # Empty by default. `_create_sample_stage` fills it, importing a `sample-holder.yaml`
+    # if the site has one; nothing here reads that file, so a `SystemSettings` built
+    # from a dict stays a pure function of that dict.
+    holders: Dict[str, "SampleHolder"] = field(default_factory=dict)
+    active_holder: str = ""
 
     @property
     def rotation_180(self) -> float:
@@ -2293,6 +2303,14 @@ class StageSystemSettings:
             "devices": {
                 name: device.to_dict() for name, device in self.devices.items()
             },
+            # `include_grids=False`: which grid is in which slot is session state and
+            # has its own file. Writing it here would make the configuration go stale
+            # every time someone swapped a grid.
+            "holders": {
+                name: holder.to_dict(include_grids=False)
+                for name, holder in self.holders.items()
+            },
+            "active_holder": self.active_holder,
         }
 
     @staticmethod
@@ -2323,6 +2341,11 @@ class StageSystemSettings:
                 if devices
                 else deepcopy(DEFAULT_STAGE_DEVICES)
             ),
+            holders={
+                name: SampleHolder.from_dict(holder)
+                for name, holder in (settings.get("holders") or {}).items()
+            },
+            active_holder=settings.get("active_holder", ""),
         )
 
 
