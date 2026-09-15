@@ -1204,8 +1204,9 @@ def test_advanced_panels_start_collapsed(qapp):
     # Advanced / set-once panels collapse by default...
     assert cl._surface_panel._btn_collapse.isChecked() is False
     assert cl._fm_surface_panel._btn_collapse.isChecked() is False
-    assert cl._fit_panel._btn_collapse.isChecked() is False
-    # ...while the everyday fiducial/POI panels stay expanded.
+    # ...while the everyday fiducial/POI panels stay expanded, and so does
+    # Method, which on the Setup tab carries the Projection row.
+    assert cl._fit_panel._btn_collapse.isChecked() is True
     assert cl._fib_panel._btn_collapse.isChecked() is True
     assert cl._fm_panel._btn_collapse.isChecked() is True
     assert cl._poi_panel._btn_collapse.isChecked() is True
