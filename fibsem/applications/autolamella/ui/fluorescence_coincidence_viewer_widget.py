@@ -94,7 +94,6 @@ from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import (
     MillingPatternOverlay,
     RectOverlay,
-    ScanDirectionArrowOverlay,
 )
 from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
     CoincidenceMillingConfirmationDialog,
@@ -148,8 +147,9 @@ class _FibImageCanvas(QWidget):
         self.canvas = FibsemImageCanvas()
         # The real pattern shapes for every enabled stage, as the main canvas
         # draws them (a trench is two rectangles, a second stage its own colour).
-        # Display only; the rect overlay on top is the drag handle.
-        self.pattern_overlay = MillingPatternOverlay()
+        # Display only; the rect overlay on top is the drag handle. Each
+        # rectangle carries an arrow along its scan direction in the stage colour.
+        self.pattern_overlay = MillingPatternOverlay(show_scan_direction=True)
         self.canvas.add_overlay(self.pattern_overlay)
         # The drag handle: the selected stage's bounding box. Outline with a faint
         # fill so the pattern shapes underneath stay readable.
@@ -163,8 +163,6 @@ class _FibImageCanvas(QWidget):
         )
         self.canvas.add_overlay(self.rect_overlay)
 
-        self.arrow_overlay = ScanDirectionArrowOverlay(color="yellow")
-        self.canvas.add_overlay(self.arrow_overlay)
         self.canvas.set_crosshair_visible(True)
 
         layout.addWidget(self.canvas)
@@ -173,12 +171,6 @@ class _FibImageCanvas(QWidget):
         # Contrast/gamma is the canvas' own (btn_contrast + ContrastGammaControl); it
         # normalises and clims internally, so hand it the raw frame.
         self.canvas.set_image(image)
-
-    def set_scan_direction(
-        self, cx: float, cy: float, h_px: float, scan_direction: str
-    ) -> None:
-        """Update the scan direction arrow. Pass scan_direction="" to hide."""
-        self.arrow_overlay.set_arrow(cx, cy, h_px, scan_direction)
 
     def set_patterns(
         self, stages, image: Optional[FibsemImage], selected_index: Optional[int]
@@ -2490,9 +2482,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         h_px = rect_pattern.height / pixel_size
         self.fib_canvas.rect_overlay.set_rect(
             cx_px - w_px / 2, cy_px - h_px / 2, w_px, h_px
-        )
-        self.fib_canvas.set_scan_direction(
-            cx_px, cy_px, h_px, getattr(rect_pattern, "scan_direction", "")
         )
 
     def _draw_pattern_shapes(self) -> None:
