@@ -200,3 +200,18 @@ def test_too_few_pairs_is_refused():
     r = RUNS["meteor-01-1"]
     with pytest.raises(ValueError):
         diagnose(r["fib"][:2], r["fm"][:2], _prior(r), **_sizes(r))
+
+
+def test_pairs_are_named_by_their_rows_when_the_fit_skipped_some():
+    """A rejected pair leaves the fit but keeps its row; the verdict names
+    the rows the user sees, and a flagged pair's reason carries its row."""
+    r = RUNS["meteor-13-8"]
+    rows = [i for i in range(len(r["fib"]) + 1) if i != 2]
+    d = _diagnose(r, indices=rows)
+    assert [p.index for p in d.pairs] == rows
+    v = verdict(d)
+    flagged = [x for x in v.reasons if x.pair is not None]
+    assert flagged and flagged[0].pair == d.pairs[d.worst].index
+    assert f"FM {flagged[0].pair + 1}" in flagged[0].text
+    with pytest.raises(ValueError):
+        _diagnose(r, indices=rows[:-1])

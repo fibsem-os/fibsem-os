@@ -69,7 +69,7 @@ Z_SCAN_SLICES = 8  # how far the suggested-z search looks each way
 
 @dataclass(frozen=True)
 class PairDiagnostic:
-    index: int
+    index: int  # the pair's row in the user's lists; the fit may skip rows
     residual_um: float  # in the full fit
     loo_error_um: float  # refit without this pair
 
@@ -85,7 +85,7 @@ class FitDiagnostics:
     n_accepted: int = 0
     poi_jackknife_um: Optional[float] = None
     poi_hull_distance_um: Optional[float] = None  # 0 inside the fiducials
-    worst: Optional[int] = None  # index of the pair with the largest LOO error
+    worst: Optional[int] = None  # position in ``pairs`` of the largest LOO error
     suggested_z: Optional[float] = None  # slice at which the worst pair fits best
     rotation: Optional[np.ndarray] = field(default=None, compare=False)
 
@@ -153,7 +153,7 @@ class FitDiagnostics:
 @dataclass(frozen=True)
 class Reason:
     text: str
-    pair: Optional[int] = None  # index into the pairs, so the UI can select it
+    pair: Optional[int] = None  # the pair's row (``PairDiagnostic.index``)
 
 
 @dataclass(frozen=True)
@@ -197,18 +197,26 @@ def diagnose(
     fm_pixel_size_z: float,
     poi: Optional[Sequence[float]] = None,
     accepted: Optional[Sequence[bool]] = None,
+    indices: Optional[Sequence[int]] = None,
 ) -> FitDiagnostics:
     """Everything the verdict needs, from the pairs and the prior.
 
     ``fib_xy`` in FIB pixels, ``fm_xyz`` in FM pixels with z in *slices*;
     ``poi`` likewise. ``accepted`` marks pairs whose FM position was accepted
-    from the projection unmoved (counted, not weighted). n + 2 seeded solves.
+    from the projection unmoved (counted, not weighted). ``indices`` gives
+    each pair's row in the user's lists when the fit skipped some (a rejected
+    pair takes its partner out too); the verdict names pairs by row, so the
+    UI can put a note on the right row and select the right point. Default:
+    the pairs are the rows. n + 2 seeded solves.
     """
     fib = np.asarray(fib_xy, dtype=float).reshape(-1, 2)
     fm_raw = np.asarray(fm_xyz, dtype=float).reshape(-1, 3)
     n = len(fib)
     if n != len(fm_raw) or n < 3:
         raise ValueError(f"need at least three pairs, got {n} FIB and {len(fm_raw)} FM")
+    rows = list(range(n)) if indices is None else [int(i) for i in indices]
+    if len(rows) != n:
+        raise ValueError(f"{len(rows)} row indices for {n} pairs")
     zan = fm_pixel_size_z / fm_pixel_size
     fm_iso = fm_raw * [1.0, 1.0, zan]
     um = fib_pixel_size * 1e6
@@ -245,7 +253,10 @@ def diagnose(
     expected_scale = fm_pixel_size / fib_pixel_size
     return FitDiagnostics(
         rms_um=float(rms_px * um),
-        pairs=[PairDiagnostic(i, float(residuals[i]), float(loo[i])) for i in range(n)],
+        pairs=[
+            PairDiagnostic(rows[i], float(residuals[i]), float(loo[i]))
+            for i in range(n)
+        ],
         mirror_ratio=mirror_ratio,
         depth_span_um=float(np.ptp(fm_raw[:, 2]) * fm_pixel_size_z * 1e6),
         scale_ratio=float(s / expected_scale) if expected_scale else float("nan"),
@@ -392,8 +403,8 @@ def verdict(d: FitDiagnostics, rejected: Sequence[int] = ()) -> Verdict:
             )
             bad.append(
                 Reason(
-                    f"{_fm(d.worst)} is {worst.loo_error_um:.0f} µm off{tail}",
-                    pair=d.worst,
+                    f"{_fm(worst.index)} is {worst.loo_error_um:.0f} µm off{tail}",
+                    pair=worst.index,
                 )
             )
         elif _flagged(np.array([p.loo_error_um for p in d.pairs]), d.worst):
@@ -402,9 +413,9 @@ def verdict(d: FitDiagnostics, rejected: Sequence[int] = ()) -> Verdict:
                 z_hint = f" The burn may be at slice {d.suggested_z:.0f}."
             check.append(
                 Reason(
-                    f"{_fm(d.worst)} does not agree with the other fiducials "
+                    f"{_fm(worst.index)} does not agree with the other fiducials "
                     f"({worst.loo_error_um:.1f} µm off).{z_hint} Have a look, or remove it.",
-                    pair=d.worst,
+                    pair=worst.index,
                 )
             )
     if d.poi_hull_distance_um is not None and d.poi_hull_distance_um > HULL_CHECK_UM:

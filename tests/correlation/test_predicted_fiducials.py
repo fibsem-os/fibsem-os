@@ -447,6 +447,48 @@ def _diag(loo, worst=None, mirror=2.0, hull=0.0, jackknife=0.1, suggested_z=None
     }
 
 
+def test_the_verdict_names_rows_the_fit_skipped_over(loaded):
+    """Rejecting FIB 2 takes row 2 out of the fit on both sides. The verdict
+    still speaks in rows: its notes land on the rows that were fitted, the
+    link selects the right FM point, and the Results tab names the same
+    fiducial as the run bar."""
+    from fibsem.ui.correlation.widgets.coordinate_list_widget import (
+        CoordinateRowWidget,
+    )
+
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    for c in _fm(loaded):
+        loaded._on_canvas_moved(c)
+    loaded._coords_tab.fib_list.coordinates[1].status = PointStatus.REJECTED
+    loaded.data_changed.emit(loaded.data)
+    n = len(_fm(loaded))
+    assert loaded._fit_rows() == [i for i in range(n) if i != 1]
+
+    # the worker's diagnostics carry the rows; fake one the way it would
+    diag = _diag([0.2, 0.3, 0.25, 0.2, 0.3, 1.4], worst=5, suggested_z=5.0)
+    for p, row in zip(diag["pairs"], loaded._fit_rows()):
+        p["index"] = row
+    loaded._on_run_finished(_fake_seeded_result(loaded, diag))
+
+    status = loaded._lbl_status.text()
+    worst_row = loaded._fit_rows()[5]
+    assert f"Check FM {worst_row + 1}." in status
+    assert f'href="pair:{worst_row}"' in status
+    lw = loaded._coords_tab.fm_list
+    rows = [
+        lw._list.itemWidget(lw._list.item(i))
+        for i in range(lw._list.count())
+        if isinstance(lw._list.itemWidget(lw._list.item(i)), CoordinateRowWidget)
+    ]
+    assert rows[1].state_label.text() != "0.3 µm"  # the skipped row has no note
+    assert rows[worst_row].state_label.text() == "1.4 µm"
+    loaded._on_status_link(f"pair:{worst_row}")
+    assert lw.selected_coordinate is _fm(loaded)[worst_row]
+    assert loaded._results_tab._lbl_worst.text().startswith(f"FM {worst_row + 1},")
+    assert loaded._results_tab._table.item(5, 0).text() == f"FM {worst_row + 1}"
+
+
 def test_a_seeded_run_shows_the_verdict_and_annotates_the_rows(loaded):
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
