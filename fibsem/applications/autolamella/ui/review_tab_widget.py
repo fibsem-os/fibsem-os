@@ -325,11 +325,13 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self._controller = MicroscopeViewController(view=LamellaEditorView())
         self._controller.widget.show_beams()
 
-        # header: name and task only
+        # No header: the selected inbox row already says the lamella and the
+        # task, and the canvas has its own beam label. These two are kept for
+        # callers that read them, but not shown.
         self.title = QLabel()
-        self.title.setStyleSheet(_TITLE_STYLE)
+        self.title.hide()
         self.task_chip = QLabel()
-        self.task_chip.setStyleSheet(_CHIP_STYLE)
+        self.task_chip.hide()
         self.btn_open = QPushButton("Go to lamella")
         self.btn_open.setFlat(True)
         self.btn_open.setCursor(Qt.PointingHandCursor)
@@ -341,12 +343,6 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self.btn_open.setToolTip(
             "Select this lamella in the Lamella tab, where its settings are edited"
         )
-        head = QHBoxLayout()
-        head.addWidget(self.title)
-        head.addWidget(self.task_chip)
-        head.addStretch(1)
-        head.addWidget(self.btn_open)
-
         # the one line, coloured by state; everything else is its tooltip
         self.line = QLabel()
         self.line.setWordWrap(True)
@@ -366,14 +362,14 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self.btn_reject.setToolTip("R — nothing further here; retires the lamella")
         actions = QHBoxLayout()
         actions.addWidget(self.position)
+        actions.addWidget(self.btn_open)
         actions.addStretch(1)
         actions.addWidget(self.btn_confirm)
         actions.addWidget(self.btn_reject)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(10, 4, 10, 8)
         layout.setSpacing(8)
-        layout.addLayout(head)
         layout.addWidget(self._controller.widget, 1)
         layout.addWidget(self.line)
         layout.addLayout(actions)
