@@ -85,7 +85,7 @@ _STATE_TEXT = {
 _STATE_TIP = {
     "unknown": "Not read yet: run an inventory to find out what is in this slot",
     "loaded": "This grid is in the holder's working slot right now",
-    "occupied": "A grid is in this magazine slot; Load brings it into the beam",
+    "occupied": "A grid is in this magazine slot; Load brings it onto the stage",
     "empty": "Nothing in this magazine slot (or not scanned since the magazine was opened)",
 }
 
@@ -193,7 +193,7 @@ class _MagazineRow(QWidget):
                 fibsem_icon(ICON_LOAD, color=stylesheets.GRAY_ICON_COLOR)
             )
             self.btn_action.setToolTip(
-                f"Bring {name} into the beam"
+                f"Bring {name} onto the stage"
                 if self.state == "occupied" and controls_enabled
                 else "Not while the loader is busy or a workflow is running"
                 if self.state == "occupied"

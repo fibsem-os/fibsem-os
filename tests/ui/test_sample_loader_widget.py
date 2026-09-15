@@ -38,7 +38,7 @@ def test_every_magazine_slot_has_a_row(widget):
     first, empty = widget._row_widget(0), widget._row_widget(3)
     assert first.slot_label.text() == "01" and first.name_edit.text() == "Grid-01"
     assert (
-        first.btn_action.isEnabled() and "into the beam" in first.btn_action.toolTip()
+        first.btn_action.isEnabled() and "onto the stage" in first.btn_action.toolTip()
     )
     assert not first.name_edit.isReadOnly()
     assert empty.name_edit.text() == "" and empty.name_edit.isReadOnly()
@@ -53,7 +53,7 @@ def test_load_brings_the_grid_into_the_beam(widget, arctis):
     assert states(widget)[:3] == ["occupied", "loaded", "occupied"]
     # the loaded row's action turns into Unload; the others still offer Load
     assert "Return Grid-02" in widget._row_widget(1).btn_action.toolTip()
-    assert "into the beam" in widget._row_widget(0).btn_action.toolTip()
+    assert "onto the stage" in widget._row_widget(0).btn_action.toolTip()
     assert widget.status_label.text() == "Grid-02 is loaded."
     assert changed == [True]
     assert not widget.busy
