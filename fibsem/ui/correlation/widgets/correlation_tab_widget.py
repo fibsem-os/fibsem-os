@@ -927,22 +927,21 @@ class _CoordinatesTab(QWidget):
         self._fib_panel.add_header_widget(self._fib_count_label)
         layout.addWidget(self._fib_panel)
 
-        # FM fiducials
+        # FM fiducials, with the projection's action row under the list
+        # (FIB-956): the FIB fiducials projected into the FM through the
+        # transform, as hollow markers the user drags onto the burns. One
+        # button does both the first projection and every re-projection after
+        # pairs are placed. The row belongs to this list -- it is what it
+        # changes -- so it lives in the list's panel, not one of its own.
         self.fm_list = CoordinateListWidget(point_type=PointType.FM)
-        self._fm_panel = TitledPanel("FM Fiducials", collapsible=True)
-        self._fm_panel.set_content(self.fm_list)
-        self._fm_count_label = QLabel("(0)")
-        self._fm_count_label.setStyleSheet(CAPTION_STYLE)
-        self._fm_panel.add_header_widget(self._fm_count_label)
-        layout.addWidget(self._fm_panel)
-
-        # Predicted fiducials (FIB-956): the FIB fiducials projected into the FM
-        # through the geometry's transform, as hollow markers the user drags
-        # onto the burns. One button does both the first projection and every
-        # re-projection after pairs are confirmed.
+        fm_body = QWidget()
+        fm_layout = QVBoxLayout(fm_body)
+        fm_layout.setContentsMargins(0, 0, 0, 0)
+        fm_layout.setSpacing(0)
+        fm_layout.addWidget(self.fm_list)
         predict_body = QWidget()
         predict_layout = QVBoxLayout(predict_body)
-        predict_layout.setContentsMargins(8, 4, 8, 6)
+        predict_layout.setContentsMargins(8, 6, 8, 6)
         predict_layout.setSpacing(4)
         predict_buttons = QHBoxLayout()
         predict_buttons.setContentsMargins(0, 0, 0, 0)
@@ -973,12 +972,17 @@ class _CoordinatesTab(QWidget):
         self._predict_hint.setTextFormat(Qt.TextFormat.RichText)
         self._predict_hint.setStyleSheet(CAPTION_STYLE)
         predict_layout.addWidget(self._predict_hint)
-        self._predict_panel = TitledPanel("Predicted Fiducials", collapsible=True)
-        self._predict_panel.set_content(predict_body)
-        self._predict_count_label = QLabel("")
-        self._predict_count_label.setStyleSheet(CAPTION_STYLE)
-        self._predict_panel.add_header_widget(self._predict_count_label)
-        layout.addWidget(self._predict_panel)
+        rule = QFrame()
+        rule.setFrameShape(QFrame.Shape.HLine)
+        rule.setStyleSheet(f"color: {BORDER_COLOR};")
+        fm_layout.addWidget(rule)
+        fm_layout.addWidget(predict_body)
+        self._fm_panel = TitledPanel("FM Fiducials", collapsible=True)
+        self._fm_panel.set_content(fm_body)
+        self._fm_count_label = QLabel("(0)")
+        self._fm_count_label.setStyleSheet(CAPTION_STYLE)
+        self._fm_panel.add_header_widget(self._fm_count_label)
+        layout.addWidget(self._fm_panel)
 
         # POI
         self.poi_list = CoordinateListWidget(point_type=PointType.POI)
@@ -1118,10 +1122,6 @@ class _CoordinatesTab(QWidget):
         self._fib_count_label.setText(_count_sentence(self.fib_list.coordinates))
         fm = self.fm_list.coordinates
         self._fm_count_label.setText(_count_sentence(fm))
-        n_tentative = sum(1 for c in fm if c.status in PointStatus.TENTATIVE)
-        self._predict_count_label.setText(
-            f"{n_tentative} predicted" if n_tentative else ""
-        )
         self._poi_count_label.setText(_count_sentence(self.poi_list.coordinates))
         self._surface_count_label.setText(
             _count_sentence(self.surface_list.coordinates)
