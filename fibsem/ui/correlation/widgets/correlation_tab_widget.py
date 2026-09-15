@@ -2292,6 +2292,7 @@ class CorrelationTabWidget(QWidget):
         here rather than drifting apart across handlers.
         """
         self._btn_continue.setEnabled(live)
+        self._btn_continue.setToolTip("")  # a poor verdict sets its own, below
         self._btn_continue.setStyleSheet(
             stylesheets.PRIMARY_BUTTON_STYLESHEET
             if live
@@ -3736,6 +3737,12 @@ class CorrelationTabWidget(QWidget):
             coord = coords[index]
             spec.list_widget.select_coordinate_silent(coord)
             self._select_only(spec, coord)
+            # the pair: its FIB partner too, so both canvases show it
+            fib_spec = self._point_specs[PointType.FIB]
+            partners = fib_spec.list_widget.coordinates
+            if index < len(partners):
+                fib_spec.list_widget.select_coordinate_silent(partners[index])
+                fib_spec.adapter.set_selected(partners[index])
 
     def _fib_pixel_size_m(self) -> Optional[float]:
         """FIB pixel size in metres, or None. A result loaded from JSON has no

@@ -528,6 +528,13 @@ def test_the_verdict_names_rows_the_fit_skipped_over(loaded):
     assert rows[worst_row].state_label.text() == "1.4 µm"
     loaded._on_status_link(f"pair:{worst_row}")
     assert lw.selected_coordinate is _fm(loaded)[worst_row]
+    fib_list = loaded._coords_tab.fib_list
+    assert fib_list.selected_coordinate is fib_list.coordinates[worst_row]
+    fib_surface = loaded._point_specs[PointType.FIB].adapter._surface
+    assert (
+        fib_surface.picking.points.selected_coordinate()
+        is fib_list.coordinates[worst_row]
+    )
     assert loaded._results_tab._lbl_worst.text().startswith(f"FM {worst_row + 1},")
     assert loaded._results_tab._table.item(5, 0).text() == f"FM {worst_row + 1}"
 
@@ -600,7 +607,14 @@ def test_a_poor_verdict_disables_continue(loaded):
     assert "cannot say which way is deeper" in status
     assert "Remove it and run again" in status
     assert not loaded._btn_continue.isEnabled()
+    assert "poor" in loaded._btn_continue.toolTip()
     assert "ambiguous" in loaded._results_tab._lbl_depth.text()
+    # a good run after it: Continue is back, without the old warning
+    loaded._on_run_finished(
+        _fake_seeded_result(loaded, _diag([0.2, 0.3, 0.25, 0.2, 0.3, 0.2, 0.3]))
+    )
+    assert loaded._btn_continue.isEnabled()
+    assert loaded._btn_continue.toolTip() == ""
 
 
 # ── the placement offset and the Method panel's projection row (FIB-979) ──
