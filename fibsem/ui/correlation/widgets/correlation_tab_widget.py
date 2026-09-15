@@ -3402,14 +3402,16 @@ class CorrelationTabWidget(QWidget):
         image minus where the stage metadata put it, in microns (FIB-979).
 
         Measured with the prior's rotation and scale, the way the next lamella
-        will apply it. None when the run was not seeded or has no pairs.
+        will apply it, from the pairs the user placed: an accepted prediction
+        sits exactly where the previous offset put it and would only echo that
+        offset back. None when the run was not seeded or no pair was placed.
         """
         nominal = getattr(self, "_run_nominal", None)
         metadata_t = getattr(self, "_metadata_translation", None)
         data = result.input_data
         if nominal is None or metadata_t is None or data is None:
             return None
-        pairs = usable_pairs(data.fib_coordinates, data.fm_coordinates)
+        pairs = independent_pairs(data.fib_coordinates, data.fm_coordinates)
         fib_px = data.fib_image_pixel_size
         if not pairs or not fib_px:
             return None
