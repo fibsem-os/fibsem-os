@@ -885,7 +885,6 @@ class FibsemMicroscope(ABC):
             detector=self.get_detector_settings(beam_type),
             eucentric_height=self.get("eucentric_height", beam_type),
             column_tilt=self.get("column_tilt", beam_type),
-            plasma=self.get("plasma", beam_type),
             plasma_gas=self.get("plasma_gas", beam_type),
         )
 
@@ -908,9 +907,10 @@ class FibsemMicroscope(ABC):
         self.set("eucentric_height", settings.eucentric_height, beam_type)
         self.set("column_tilt", settings.column_tilt, beam_type)
 
-        if beam_type is BeamType.ION:
+        # Only a plasma column has a gas to set; a None here means "no plasma source",
+        # not "clear the gas".
+        if beam_type is BeamType.ION and settings.plasma_gas is not None:
             self.set("plasma_gas", settings.plasma_gas, beam_type)
-            self.set("plasma", settings.plasma, beam_type)
 
         logging.debug(
             {
@@ -1096,7 +1096,10 @@ class FibsemMicroscope(ABC):
         elif system == "ion_beam":
             self.system.ion.enabled = value
         elif system == "ion_plasma":
-            self.system.ion.plasma = value
+            # Derived from the gas, so it can only be switched off here; switching
+            # it on needs a gas, which is `system.ion.plasma_gas`.
+            if not value:
+                self.system.ion.plasma_gas = None
         elif system == "stage":
             self.system.stage.enabled = value
         elif system == "manipulator":

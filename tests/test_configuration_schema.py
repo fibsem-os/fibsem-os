@@ -278,3 +278,56 @@ def test_reporting_is_logged_at_load(caplog):
 
     assert "stage.nonsense" in caplog.text
     assert "test.yaml" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# One key for the plasma source
+# ---------------------------------------------------------------------------
+
+
+def test_a_plasma_column_is_one_with_a_gas():
+    """`plasma: bool` and `plasma_gas: str` were two keys for one fact and could
+    disagree. Now there is the gas, and "is this a plasma column" is derived."""
+    ion = MicroscopeSettings.from_dict(
+        _load("tfs-arctis-configuration.yaml")
+    ).system.ion
+    assert ion.plasma_gas == "Xenon"
+    assert ion.plasma is True
+
+    ion = MicroscopeSettings.from_dict(_load("tfs-hydra-configuration.yaml")).system.ion
+    assert ion.plasma_gas is None
+    assert ion.plasma is False
+
+
+@pytest.mark.parametrize(
+    "block, expected",
+    [
+        ({"plasma": True, "plasma_gas": "Xenon"}, "Xenon"),
+        # The flag was what the drivers consulted, so it wins over a stray gas.
+        ({"plasma": False, "plasma_gas": "Xenon"}, None),
+        # Every shipped file wrote "no gas" as the YAML *string* "None".
+        ({"plasma": False, "plasma_gas": "None"}, None),
+        ({"plasma_gas": "None"}, None),
+        ({"plasma_gas": "none"}, None),
+        ({"plasma_gas": ""}, None),
+        ({"plasma_gas": None}, None),
+        ({}, None),
+    ],
+)
+def test_the_old_two_key_spelling_still_reads(block: dict, expected):
+    config = copy.deepcopy(_load("microscope-configuration.yaml"))
+    config["ion"].pop("plasma_gas", None)
+    config["ion"].update(block)
+    assert MicroscopeSettings.from_dict(config).system.ion.plasma_gas == expected
+
+
+def test_the_old_plasma_flag_is_read_for_migration_and_not_written():
+    """A file stating `ion.plasma` is neither warned about nor saved back with it."""
+    config = copy.deepcopy(_load("microscope-configuration.yaml"))
+    config["ion"]["plasma"] = False
+    assert "ion.plasma" not in utils.unrecognised_configuration_keys(config)
+
+    written = MicroscopeSettings.from_dict(config).to_dict()
+    assert "plasma" not in written["ion"]
+    assert "plasma" not in written["electron"]
+    assert "plasma_gas" not in written["electron"]

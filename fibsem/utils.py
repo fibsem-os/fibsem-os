@@ -514,10 +514,14 @@ def load_microscope_configuration(
 
 
 # Keys a configuration may carry that this version reads for migration and never
-# writes back. Empty today. When a key moves house -- `stage.shuttle_pre_tilt` onto
+# writes back. When a key moves house -- `stage.shuttle_pre_tilt` onto
 # the holder, the beam defaults into their own block -- the old spelling is still read
 # so existing files load, and is listed here so it is not reported as unrecognised.
-LEGACY_CONFIGURATION_KEYS: Set[str] = set()
+LEGACY_CONFIGURATION_KEYS: Set[str] = {
+    # `plasma: bool` was folded into `plasma_gas`: a column with a gas is a plasma
+    # column. Still read, so `plasma: false` in an old file wins over a stray gas.
+    "ion.plasma",
+}
 
 # Blocks accepted wholesale. `sim:` is a plain dict the simulator reads with `.get()`
 # rather than a dataclass, and `protocol:` is the application's; policing either would
