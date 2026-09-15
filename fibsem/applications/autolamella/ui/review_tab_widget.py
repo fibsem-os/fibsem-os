@@ -28,7 +28,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Type
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtGui import QFont, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -105,6 +105,9 @@ _CELL_VALUE_STYLE = (
     "background: transparent;"
 )
 _ROW_HEIGHT = 30
+# The name column: fixed, so the tasks line up down the list and the eye can
+# scan either column. Petnames are two words and a number; this fits them.
+_ROW_NAME_WIDTH = 132
 _ROW_NAME_STYLE = f"color: {GRAY_TEXT_COLOR}; font-size: 13px; font-weight: 600; background: transparent;"
 _ROW_TASK_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 11px; background: transparent;"
@@ -815,10 +818,20 @@ class _InboxRow(QWidget):
             f"background: {colour}; border-radius: 4px; border: none;"
         )
         layout.addWidget(self.dot, 0, Qt.AlignVCenter)
-        self.name = QLabel(name)
+        # elided to the column, never clipped mid-glyph; the full name is the
+        # tooltip. The font is set directly so the metrics match the style.
+        font = QFont(self.font())
+        font.setPixelSize(13 if not dim else 11)
+        font.setBold(not dim)
+        self.name = QLabel(
+            QFontMetrics(font).elidedText(name, Qt.ElideRight, _ROW_NAME_WIDTH - 6)
+        )
+        self.name.setFont(font)
         self.name.setStyleSheet(_ROW_TASK_STYLE if dim else _ROW_NAME_STYLE)
+        self.name.setFixedWidth(_ROW_NAME_WIDTH)
+        self.name.setToolTip(name)
         layout.addWidget(self.name, 0, Qt.AlignVCenter)
-        self.task = QLabel("· " + task)
+        self.task = QLabel(task)
         self.task.setStyleSheet(_ROW_TASK_STYLE)
         self.task.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.task.setMinimumWidth(40)
