@@ -310,6 +310,77 @@ def test_a_normal_shape_keeps_its_stage_colour(axes):
     assert patch.get_edgecolor()[:3] != pytest.approx((0.0, 0.0, 0.0))
 
 
+# ---------------------------------------------------------------------------
+# Outline mode -- several tasks' patterns at once
+# ---------------------------------------------------------------------------
+
+
+def _rect_stage(name: str = "rect") -> FibsemMillingStage:
+    pattern = RectanglePattern(width=10e-6, height=5e-6, depth=1e-6)
+    pattern.point = Point(0, 0)
+    return FibsemMillingStage(name=name, pattern=pattern)
+
+
+def test_outline_mode_keeps_the_edge_and_drops_the_face(axes):
+    """What the pattern preview turns off. Filled, several tasks at once stack into
+    translucent blocks over the image data; the edge alone stays legible."""
+    overlay = _overlay(axes)
+    overlay.set_stages([_rect_stage()], _image(), filled=False)
+
+    patch = next(a for a in overlay._artists if isinstance(a, Polygon))
+    assert patch.get_facecolor()[3] == pytest.approx(0.0), "face should be transparent"
+    assert patch.get_edgecolor()[3] == pytest.approx(1.0), "edge should be solid"
+
+
+def test_filled_is_the_default(axes):
+    """Nothing that was drawing patterns before this flag existed should change."""
+    overlay = _overlay(axes)
+    overlay.set_stages([_rect_stage()], _image())
+
+    patch = next(a for a in overlay._artists if isinstance(a, Polygon))
+    assert patch.get_facecolor()[3] > 0.0
+
+
+def test_a_bitmap_in_outline_mode_draws_only_its_frame(axes):
+    """The bitmap *is* the fill, so outline mode has nothing to draw inside it."""
+    overlay = _overlay(axes)
+    overlay.set_stages([_bitmap_stage()], _image(), filled=False)
+
+    kinds = [type(a).__name__ for a in overlay._artists]
+    assert kinds.count("Rectangle") == 1
+    assert kinds.count("AxesImage") == 0
+
+
+def test_crosshairs_can_be_turned_off(axes):
+    """One per stage is a useful mark; one per stage across several tasks is a mess."""
+    image = _image()
+    overlay = _overlay(axes)
+
+    overlay.set_stages([_rect_stage()], image)
+    with_marks = len(overlay._artists)
+    overlay.set_stages([_rect_stage()], image, crosshairs=False)
+    without_marks = len(overlay._artists)
+
+    # a crosshair is two Line2D arms
+    assert with_marks - without_marks == 2
+
+
+def test_the_flags_survive_a_content_change(axes):
+    """`on_content_changed` rebuilds the artists from cached state with no spec in
+    hand -- so the flags have to be held on the overlay, not passed through _draw."""
+    from fibsem.ui.widgets.canvas.canvas_base import ContentRect
+
+    overlay = _overlay(axes)
+    overlay.set_stages([_rect_stage()], _image(), filled=False, crosshairs=False)
+    overlay.on_content_changed(
+        ContentRect(x0=0, y0=0, width=RESOLUTION, height=RESOLUTION)
+    )
+
+    patch = next(a for a in overlay._artists if isinstance(a, Polygon))
+    assert patch.get_facecolor()[3] == pytest.approx(0.0)
+    assert not [a for a in overlay._artists if type(a).__name__ == "Line2D"]
+
+
 if __name__ == "__main__":
     import sys
 

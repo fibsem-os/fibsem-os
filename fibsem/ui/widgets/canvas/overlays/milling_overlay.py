@@ -80,6 +80,10 @@ class MillingPatternOverlay(CanvasOverlay):
         self._selected_index: Optional[int] = None
         self._image: Optional[FibsemImage] = None
         self._legend = None
+        # Display flags, held rather than passed: on_content_changed redraws from
+        # cached state with no spec in hand, so anything _draw reads has to live here.
+        self._filled = True
+        self._crosshairs = True
 
     # ── overlay protocol ──────────────────────────────────────────────────
 
@@ -111,16 +115,25 @@ class MillingPatternOverlay(CanvasOverlay):
         *,
         background_stages: Sequence = (),
         selected_index: Optional[int] = None,
+        filled: bool = True,
+        crosshairs: bool = True,
     ) -> None:
         """Display *stages* against *image*.
 
         ``background_stages`` are drawn in black behind the foreground stages;
         ``selected_index`` (into *stages*) is drawn with a thicker edge, on top.
+
+        ``filled=False`` draws each shape as its outline alone, and
+        ``crosshairs=False`` drops the per-stage point-of-interest marks. Both are
+        for showing several tasks' patterns at once, where the filled look stacks
+        into something unreadable.
         """
         self._stages = list(stages)
         self._background_stages = list(background_stages)
         self._selected_index = selected_index
         self._image = image
+        self._filled = filled
+        self._crosshairs = crosshairs
         self._remove_artists()
         self._draw()
         if self._canvas is not None:
@@ -198,7 +211,11 @@ class MillingPatternOverlay(CanvasOverlay):
         """Colour-keyed legend of stage names, top-right."""
         handles = [
             mpatches.Patch(
-                facecolor=to_rgba(COLOURS[i % len(COLOURS)], _FILL_ALPHA),
+                facecolor=(
+                    to_rgba(COLOURS[i % len(COLOURS)], _FILL_ALPHA)
+                    if self._filled
+                    else "none"
+                ),
                 edgecolor=COLOURS[i % len(COLOURS)],
                 label=getattr(stage, "name", f"Stage {i + 1}"),
             )
@@ -233,9 +250,10 @@ class MillingPatternOverlay(CanvasOverlay):
             ):
                 self._ax.add_artist(artist)
                 self._artists.append(artist)
-        self._draw_crosshair(
-            stage.pattern.point, shape, pixelsize, colour, zorder + 0.5
-        )
+        if self._crosshairs:
+            self._draw_crosshair(
+                stage.pattern.point, shape, pixelsize, colour, zorder + 0.5
+            )
 
     def _shape_to_artists(
         self, ps, shape, pixelsize: float, colour: str, linewidth: float, zorder: float
@@ -252,9 +270,10 @@ class MillingPatternOverlay(CanvasOverlay):
             colour = _EXCLUSION_COLOUR
         # Solid edge + same-colour fill at _FILL_ALPHA. Independent face/edge
         # alphas via RGBA (a patch-level ``alpha`` would dim the edge too).
+        # Outline mode keeps the edge and drops the face entirely.
         patch_kw = dict(
             edgecolor=colour,
-            facecolor=to_rgba(colour, _FILL_ALPHA),
+            facecolor=to_rgba(colour, _FILL_ALPHA) if self._filled else "none",
             linewidth=linewidth,
             zorder=zorder,
         )
@@ -340,11 +359,10 @@ class MillingPatternOverlay(CanvasOverlay):
         directly instead of via ``ax.imshow`` on purpose: ``imshow`` routes through
         ``add_image`` → ``update_datalim``, which would autoscale the axes to the
         image and throw away the user's pan/zoom.
-        """
-        # Imported here, not at module import: it pulls in pyplot + skimage, which
-        # the rest of this overlay does not need.
-        from fibsem.milling.patterning.plotting import bitmap_to_rgba
 
+        In outline mode the bitmap itself is the fill, so only the outline is drawn
+        and the pyplot/skimage import below is never reached.
+        """
         centre = microscope_image_to_image_coordinates(
             Point(x=ps.centre_x, y=ps.centre_y), shape, pixelsize
         )
@@ -363,6 +381,13 @@ class MillingPatternOverlay(CanvasOverlay):
             zorder=zorder,
         )
         outline.set_transform(self._ax.transData)
+
+        if not self._filled:
+            return [outline]
+
+        # Imported here, not at module import: it pulls in pyplot + skimage, which
+        # the rest of this overlay does not need.
+        from fibsem.milling.patterning.plotting import bitmap_to_rgba
 
         # origin="lower": the patch transform maps v=0 to the rectangle's xy corner,
         # which is its TOP edge on the y-inverted image axes, so row 0 of the bitmap

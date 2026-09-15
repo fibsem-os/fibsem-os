@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -10,15 +10,18 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.structures import MicroscopeState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
+from fibsem.ui.widgets.canvas.overlay_controls import CanvasOverlayControls
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
@@ -39,7 +42,16 @@ from fibsem.utils import (
 _NAME_WIDTH = 110
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
-_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 2 + 8  # 2 buttons + 1 gap
+_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 3 + 16  # 3 buttons + 2 gaps
+
+# The pose the milling patterns belong to. They are a property of the lamella rather
+# than of any pose, but the milling pose is where they would be cut, so that is the
+# row the control sits on -- and the only one, so a lamella with a fluorescence pose
+# does not grow a second button that does the same thing.
+MILLING_POSE_NAME = "MILLING"
+
+# (key, label, checked) per task, as CanvasOverlayControls takes them.
+PatternEntry = Tuple[str, str, bool]
 
 _POPUP_WIDTH = 400
 
@@ -85,17 +97,20 @@ class LamellaPoseRowWidget(QWidget):
 
     update_clicked = pyqtSignal(str)  # pose name
     move_to_clicked = pyqtSignal(str)  # pose name
+    pattern_overlays_changed = pyqtSignal(list)  # checked task names
 
     def __init__(
         self,
         pose_name: str,
         state: Optional[MicroscopeState],
         parent: Optional[QWidget] = None,
+        pattern_entries: Sequence[PatternEntry] = (),
     ) -> None:
         super().__init__(parent)
         self.pose_name = pose_name
         self._state = state
         self._popup: Optional[_PoseDetailPopup] = None
+        self._overlay_controls: Optional[CanvasOverlayControls] = None
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
@@ -128,6 +143,19 @@ class LamellaPoseRowWidget(QWidget):
         )
         layout.addWidget(self.btn_update)
 
+        self.btn_overlay: Optional[IconToolButton] = None
+        if pose_name == MILLING_POSE_NAME and pattern_entries:
+            self.btn_overlay = self._build_overlay_button(pattern_entries)
+            layout.addWidget(self.btn_overlay)
+        else:
+            # Hold the column open. A hidden widget takes no space in a box layout, so
+            # without this the rows without the button would sit their Move To and
+            # Update one button-width right of the milling row's.
+            spacer = QWidget()
+            spacer.setFixedWidth(_BTN_SIZE.width())
+            spacer.setStyleSheet("background: transparent;")
+            layout.addWidget(spacer)
+
         self.btn_update.clicked.connect(
             lambda: self.update_clicked.emit(self.pose_name)
         )
@@ -136,6 +164,56 @@ class LamellaPoseRowWidget(QWidget):
         )
 
         self.set_state(state)
+
+    def _build_overlay_button(
+        self, entries: Sequence[PatternEntry]
+    ) -> IconToolButton:
+        """The overlay button, and the popup of checkboxes behind it.
+
+        A ``CanvasOverlayControls`` in a ``QWidgetAction`` rather than a menu of
+        checkable ``QAction``s: it is the same control the Lamella tab opens from its
+        canvas, so the two read as one interface, and it stays open while several
+        steps are ticked -- a menu of checkable actions closes on the first click,
+        which makes turning on three patterns three trips.
+        """
+        controls = CanvasOverlayControls(entries)
+        controls.toggled.connect(self._on_overlay_toggled)
+
+        menu = QMenu(self)
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(controls)
+        menu.addAction(action)
+
+        button = IconToolButton(
+            icon="mdi:eye-outline",
+            tooltip="Overlay Pattern",
+            size=_BTN_SIZE.width(),
+        )
+        button.setMenu(menu)
+        button.setPopupMode(IconToolButton.InstantPopup)
+        # Appended to the button's own stylesheet, not set over it: replacing it drops
+        # the hover and pressed states along with the menu arrow this hides.
+        button.setStyleSheet(
+            stylesheets.ICON_TOOLBUTTON_STYLESHEET
+            + "QToolButton::menu-indicator { image: none; }"
+        )
+        self._overlay_controls = controls
+        return button
+
+    def _on_overlay_toggled(self, _key: str, _checked: bool) -> None:
+        """Report the whole selection, not the one box that changed.
+
+        The canvas draws a set of patterns, so the set is what a consumer needs; the
+        per-key signal would make every one of them reconstruct it.
+        """
+        self.pattern_overlays_changed.emit(self.checked_pattern_tasks())
+
+    def checked_pattern_tasks(self) -> List[str]:
+        """Task names currently ticked in the overlay popup."""
+        controls = self._overlay_controls
+        if controls is None:
+            return []
+        return [key for key in controls.keys() if controls.is_visible(key)]
 
     def set_state(self, state: Optional[MicroscopeState]) -> None:
         """Re-render the row from a pose."""
@@ -246,9 +324,16 @@ class LamellaPoseListWidget(QWidget):
 
     update_requested = pyqtSignal(str)  # pose name
     move_to_requested = pyqtSignal(str)  # pose name
+    pattern_overlays_changed = pyqtSignal(list)  # checked task names
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+
+        # The user's choice of patterns, kept whole across lamella changes rather than
+        # narrowed to whatever the current one happens to have: selecting a lamella
+        # without Trench Milling and coming back should not have silently unticked it.
+        # What is *emitted* is this narrowed to the current lamella -- see set_lamella.
+        self._checked_pattern_tasks: List[str] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -278,10 +363,16 @@ class LamellaPoseListWidget(QWidget):
     def set_lamella(self, lamella: Optional[Lamella]) -> None:
         """Rebuild the rows from the lamella's existing poses."""
         self._list.clear()
-        if lamella is None or not lamella.poses:
-            return
-        for pose_name in self._sorted_pose_names(lamella.poses):
-            self._add_row(pose_name, lamella.poses[pose_name])
+        entries = self._pattern_entries(lamella)
+        if lamella is not None and lamella.poses:
+            for pose_name in self._sorted_pose_names(lamella.poses):
+                self._add_row(pose_name, lamella.poses[pose_name], entries)
+        # The rows have just been replaced, so anything drawn from them describes the
+        # previous lamella. Say what this one has ticked -- emitted even when that is
+        # nothing, which is what clears the overlay on a lamella with no patterns.
+        self.pattern_overlays_changed.emit(
+            [key for key, _, checked in entries if checked]
+        )
 
     def refresh_pose(self, pose_name: str, state: Optional[MicroscopeState]) -> None:
         """Update an existing pose row in place, from the record itself.
@@ -306,6 +397,27 @@ class LamellaPoseListWidget(QWidget):
     # Internal
     # ------------------------------------------------------------------
 
+    def _pattern_entries(self, lamella: Optional[Lamella]) -> List[PatternEntry]:
+        """One entry per task of *lamella* that mills something, in protocol order.
+
+        Read off the lamella rather than the experiment's workflow: this widget is
+        handed a Lamella and nothing else, and its two hosts (the Experiment tab and
+        the coincidence viewer) do not hold the same things besides. ``task_config``
+        is seeded from the protocol when the lamella is added, so its order is the
+        protocol's declaration order.
+        """
+        if lamella is None:
+            return []
+        return [
+            (task_name, task_name, task_name in self._checked_pattern_tasks)
+            for task_name, config in lamella.task_config.items()
+            if getattr(config, "milling", None)
+        ]
+
+    def _on_row_overlays_changed(self, task_names: list) -> None:
+        self._checked_pattern_tasks = list(task_names)
+        self.pattern_overlays_changed.emit(list(task_names))
+
     @staticmethod
     def _sorted_pose_names(poses) -> list:
         """Order poses by _POSE_ORDER first; remaining keep insertion order after."""
@@ -319,13 +431,17 @@ class LamellaPoseListWidget(QWidget):
         return sorted(poses.keys(), key=key)
 
     def _add_row(
-        self, pose_name: str, state: Optional[MicroscopeState]
+        self,
+        pose_name: str,
+        state: Optional[MicroscopeState],
+        pattern_entries: Sequence[PatternEntry] = (),
     ) -> LamellaPoseRowWidget:
-        row = LamellaPoseRowWidget(pose_name, state)
+        row = LamellaPoseRowWidget(pose_name, state, pattern_entries=pattern_entries)
         item = QListWidgetItem()
         item.setSizeHint(QSize(0, _ROW_HEIGHT))
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
         row.update_clicked.connect(self.update_requested)
         row.move_to_clicked.connect(self.move_to_requested)
+        row.pattern_overlays_changed.connect(self._on_row_overlays_changed)
         return row

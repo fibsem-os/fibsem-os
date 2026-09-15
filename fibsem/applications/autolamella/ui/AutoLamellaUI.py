@@ -60,6 +60,7 @@ from fibsem.ui import utils as fui
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
 
 if (
     DETECTION_AVAILABLE
@@ -168,6 +169,11 @@ INSTRUCTIONS = {
     ),
     "AUTOLAMELLA_READY": "Ready to run. Choose lamella and tasks in the Workflow tab.",
 }
+
+# The pattern preview's overlay id on the FIB canvas. Distinct from the milling
+# editor's "milling", so the two coexist: specs are keyed by id, and sharing one would
+# mean whichever wrote last erased the other.
+PATTERN_OVERLAY_ID = "pattern_preview"
 
 
 class AutoLamellaUI(QMainWindow):
@@ -420,8 +426,57 @@ class AutoLamellaUI(QMainWindow):
         self.selected_lamella_widget.pose_move_to_requested.connect(
             self._move_to_lamella_pose
         )
+        self.selected_lamella_widget.pattern_overlays_changed.connect(
+            self._on_pattern_overlays_changed
+        )
 
     ##########
+
+    def _on_pattern_overlays_changed(self, task_names: List[str]) -> None:
+        """Draw the selected tasks' milling patterns over the FIB image.
+
+        Under its own overlay id, so it sits alongside the milling editor's own
+        overlay rather than replacing it, and outlined rather than filled: this is
+        several tasks at once over live image data, where the filled look stacks into
+        something you read around.
+
+        The patterns are positioned in metres about the image centre, so they land
+        correctly whatever the current field of view -- but only *mean* anything with
+        the stage at this lamella's milling pose. Nothing here checks that; an overlay
+        drawn somewhere else is wrong in a way that still looks plausible.
+        """
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is None:
+            return
+
+        lamella = self.get_selected_lamella()
+        stages = []
+        if lamella is not None:
+            for task_name in task_names:
+                config = lamella.task_config.get(task_name)
+                if config is None or not config.milling:
+                    continue
+                for milling_config in config.milling.values():
+                    for stage in milling_config.enabled_stages:
+                        # Copied before renaming: enabled_stages hands out the
+                        # protocol's own objects, and the legend label is this
+                        # overlay's business rather than an edit to the task.
+                        stage = deepcopy(stage)
+                        stage.name = f"{task_name} · {stage.name}"
+                        stages.append(stage)
+
+        if not stages:
+            controller.remove_overlay(BeamType.ION, PATTERN_OVERLAY_ID)
+            return
+        controller.set_overlay(
+            BeamType.ION,
+            MillingSpec(
+                id=PATTERN_OVERLAY_ID,
+                stages=stages,
+                filled=False,
+                crosshairs=False,
+            ),
+        )
 
     @ensure_main_thread
     def _on_experiment_updated(self, evt: EmissionInfo) -> None:

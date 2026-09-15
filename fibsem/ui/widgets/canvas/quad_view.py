@@ -870,6 +870,8 @@ class MicroscopeViewController(QObject):
                 image,
                 background_stages=spec.background_stages,
                 selected_index=spec.selected_index,
+                filled=spec.filled,
+                crosshairs=spec.crosshairs,
             )
         elif isinstance(spec, AlignmentSpec):
             if spec.rect is not None:

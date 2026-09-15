@@ -22,6 +22,13 @@ from fibsem.applications.autolamella.ui.lamella_pose_list_widget import (
     LamellaPoseListWidget,
     LamellaPoseRowWidget,
 )
+from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+    AcquireReferenceImageConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.trench import MillTrenchTaskConfig
+from fibsem.applications.autolamella.workflows.tasks.undercut import (
+    MillUndercutTaskConfig,
+)
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -225,3 +232,120 @@ def test_refreshing_an_unknown_pose_is_a_no_op(qapp):
 
     row = widget._list.itemWidget(widget._list.item(0))
     assert "99.00 µm" not in row.position_button.text()
+
+
+# ---------------------------------------------------------------------------
+# Overlay Pattern -- which steps' milling patterns to draw over the FIB image
+# ---------------------------------------------------------------------------
+
+
+def _milling_lamella() -> Lamella:
+    """A lamella carrying task configs, as a protocol seeds it with.
+
+    The real config classes rather than stand-ins: their ``__post_init__`` is what
+    fills in the default milling stages, and having milling at all is the thing the
+    entries are derived from. ``AcquireReferenceImageConfig`` is the control -- a
+    task that mills nothing and must not be offered.
+    """
+    lamella = _lamella()
+    lamella.task_config["Trench Milling"] = MillTrenchTaskConfig(
+        task_name="Trench Milling"
+    )
+    lamella.task_config["Undercut Milling"] = MillUndercutTaskConfig(
+        task_name="Undercut Milling"
+    )
+    lamella.task_config["Reference Image"] = AcquireReferenceImageConfig(
+        task_name="Reference Image"
+    )
+    return lamella
+
+
+def _rows(widget: LamellaPoseListWidget) -> dict:
+    return {
+        widget._list.itemWidget(widget._list.item(i)).pose_name: widget._list.itemWidget(
+            widget._list.item(i)
+        )
+        for i in range(widget._list.count())
+    }
+
+
+def test_only_the_milling_row_carries_the_overlay_button(qapp):
+    """The patterns belong to the lamella, not to a pose, but the milling pose is
+    where they would be cut. On every row instead, a lamella with a fluorescence pose
+    grows a second button that does exactly the same thing."""
+    widget = LamellaPoseListWidget()
+    widget.set_lamella(_milling_lamella())
+
+    rows = _rows(widget)
+    assert rows["MILLING"].btn_overlay is not None
+    assert rows["FLUORESCENCE"].btn_overlay is None
+
+
+def test_the_rows_stay_aligned_without_the_button(qapp):
+    """A hidden widget takes no space in a box layout, so the row without the button
+    needs a spacer or its Move To and Update sit a button-width right of the others."""
+    widget = LamellaPoseListWidget()
+    widget.set_lamella(_milling_lamella())
+
+    rows = _rows(widget)
+    assert rows["MILLING"].layout().count() == rows["FLUORESCENCE"].layout().count()
+
+
+def test_the_popup_offers_the_tasks_that_mill_something(qapp):
+    widget = LamellaPoseListWidget()
+    widget.set_lamella(_milling_lamella())
+
+    controls = _rows(widget)["MILLING"]._overlay_controls
+    assert list(controls.keys()) == ["Trench Milling", "Undercut Milling"]
+
+
+def test_a_lamella_with_nothing_to_mill_has_no_button(qapp):
+    widget = LamellaPoseListWidget()
+    widget.set_lamella(_lamella())
+
+    assert _rows(widget)["MILLING"].btn_overlay is None
+
+
+def test_ticking_a_task_reports_the_whole_selection(qapp):
+    """The canvas draws a set, so the set is what travels -- not the one box that
+    changed, which would make every consumer reconstruct it."""
+    widget = LamellaPoseListWidget()
+    widget.set_lamella(_milling_lamella())
+    seen = []
+    widget.pattern_overlays_changed.connect(seen.append)
+
+    controls = _rows(widget)["MILLING"]._overlay_controls
+    controls.set_visible("Trench Milling", True)
+    controls.set_visible("Undercut Milling", True)
+
+    assert seen == [["Trench Milling"], ["Trench Milling", "Undercut Milling"]]
+
+
+def test_selecting_another_lamella_reports_that_lamella(qapp):
+    """Rebuilding the rows leaves whatever was drawn describing the previous lamella,
+    so the rebuild has to say what this one has ticked -- including when that is
+    nothing, which is what clears the overlay."""
+    widget = LamellaPoseListWidget()
+    widget.set_lamella(_milling_lamella())
+    _rows(widget)["MILLING"]._overlay_controls.set_visible("Trench Milling", True)
+
+    seen = []
+    widget.pattern_overlays_changed.connect(seen.append)
+    widget.set_lamella(_lamella())  # no task configs at all
+
+    assert seen == [[]]
+
+
+def test_the_selection_survives_a_lamella_that_does_not_have_it(qapp):
+    """Remembered whole, emitted narrowed. Ticking Trench Milling, looking at a
+    lamella without it and coming back should not have silently unticked it."""
+    widget = LamellaPoseListWidget()
+    widget.set_lamella(_milling_lamella())
+    _rows(widget)["MILLING"]._overlay_controls.set_visible("Trench Milling", True)
+
+    widget.set_lamella(_lamella())
+    widget.set_lamella(_milling_lamella())
+
+    controls = _rows(widget)["MILLING"]._overlay_controls
+    assert controls.is_visible("Trench Milling") is True
+    assert controls.is_visible("Undercut Milling") is False

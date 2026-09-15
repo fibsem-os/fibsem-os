@@ -42,6 +42,10 @@ class SelectedLamellaWidget(QWidget):
     move_objective_requested = pyqtSignal()  # move objective to stored position
     pose_update_requested = pyqtSignal(str)  # pose name
     pose_move_to_requested = pyqtSignal(str)  # pose name
+    # Which tasks' milling patterns to draw over the FIB image; [] means none. Emitted
+    # on every set_lamella as well as on a tick, so a consumer that only follows this
+    # signal never shows one lamella's patterns while another is selected.
+    pattern_overlays_changed = pyqtSignal(list)  # task names
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -115,6 +119,7 @@ class SelectedLamellaWidget(QWidget):
         )
         self.pose_list.update_requested.connect(self.pose_update_requested)
         self.pose_list.move_to_requested.connect(self.pose_move_to_requested)
+        self.pose_list.pattern_overlays_changed.connect(self.pattern_overlays_changed)
 
     # ------------------------------------------------------------------
     # Public API
