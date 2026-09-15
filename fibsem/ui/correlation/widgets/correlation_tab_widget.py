@@ -180,6 +180,21 @@ _RMS_WARN = state_color("warn")
 _RMS_BAD = state_color("error")
 
 
+_TABLE_MAX_ROWS = 12
+
+
+def _fit_table_height(table: "QTableWidget", n_rows: int) -> None:
+    """Show every row up to ``_TABLE_MAX_ROWS``, then scroll (FIB-978).
+
+    Measured from the table's own row and header heights rather than a guessed
+    28 px, which under-sized an eight-row table by a row.
+    """
+    row = table.verticalHeader().defaultSectionSize()
+    header = table.horizontalHeader().height()
+    shown = min(max(n_rows, 1), _TABLE_MAX_ROWS)
+    table.setFixedHeight(header + shown * row + 2 * table.frameWidth())
+
+
 def _rms_concern(
     rms_nm: Optional[float],
     n_fiducials: Optional[int] = None,
@@ -1141,7 +1156,7 @@ class _ResultsTab(QWidget):
 
         markers = result.delta_2d
         self._table.setRowCount(len(markers))
-        self._table.setMinimumHeight(max(120, min(len(markers) * 28 + 28, 300)))
+        _fit_table_height(self._table, len(markers))
         for i, pt in enumerate(markers):
             self._table.setItem(i, 0, _ro_item(f"M{i + 1}"))
             self._table.setItem(i, 1, _ro_item(f"{pt.x:.2f}"))
@@ -1844,7 +1859,8 @@ class CorrelationTabWidget(QWidget):
         self._tabs.addTab(self._images_tab, "Images")
         self._tabs.addTab(self._coords_tab, "Coordinates")
         self._tabs.addTab(self._results_tab, "Results")
-        self._tabs.addTab(self._ri_tab, "Refractive Index")
+        self._tabs.addTab(self._ri_tab, "RI")
+        self._tabs.setTabToolTip(3, "Refractive-index depth correction")
         # Deliberately always enabled. Gating the whole tab on a finished run hid
         # the optical parameters, the surface→POI depth readout and the preview
         # table at exactly the moment an FM surface point has just been placed and
@@ -1859,7 +1875,9 @@ class CorrelationTabWidget(QWidget):
         right_layout.addWidget(self._build_run_bar())
 
         splitter.addWidget(right_pane)
-        splitter.setSizes([500, 500, 350])
+        # The side pane must hold its four tabs and a full coordinate row without
+        # clipping; at 350 px the last tab scrolled off (FIB-978).
+        splitter.setSizes([480, 480, 440])
 
         self._build_point_registry()
 
