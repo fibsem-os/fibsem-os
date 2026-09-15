@@ -840,32 +840,40 @@ def _group_header(text: str) -> QListWidgetItem:
 
 
 class _GroupHeaderRow(QWidget):
-    """A group header with an action on its right: the to-check group's
-    "Mark all as checked", so a log that piled up while the tab was hidden
-    clears in one click."""
+    """A group header, with room on its right for an action (the to-check
+    group's "Mark all as checked") and, on the first header in the list, the
+    Show decided toggle, so the list needs no row of its own above it."""
 
-    def __init__(self, text: str, action: str, slot) -> None:
+    def __init__(self, text: str, action: str = "", slot=None) -> None:
         super().__init__()
         self.setStyleSheet("background: transparent;")
         self.setAttribute(Qt.WA_TranslucentBackground)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(3, 0, 8, 0)
+        self.layout_ = QHBoxLayout(self)
+        self.layout_.setContentsMargins(3, 0, 8, 0)
+        self.layout_.setSpacing(12)
         # the same size and colour the plain group headers get from the list
         self.label = QLabel(text)
         self.label.setStyleSheet(f"color: {GRAY_TEXT_COLOR}; background: transparent;")
-        layout.addWidget(self.label)
-        layout.addStretch(1)
-        self.button = QPushButton(action)
-        self.button.setFlat(True)
-        self.button.setCursor(Qt.PointingHandCursor)
-        self.button.setFocusPolicy(Qt.NoFocus)
-        self.button.setStyleSheet(
-            f"QPushButton {{ color: {ACCENT_COLOR}; background: transparent; "
-            "border: none; font-size: 11px; padding: 0 2px; }"
-            f"QPushButton:hover {{ color: {GRAY_TEXT_COLOR}; }}"
-        )
-        self.button.clicked.connect(slot)
-        layout.addWidget(self.button)
+        self.layout_.addWidget(self.label)
+        self.layout_.addStretch(1)
+        self.button: Optional[QPushButton] = None
+        if action:
+            self.button = QPushButton(action)
+            self.button.setFlat(True)
+            self.button.setCursor(Qt.PointingHandCursor)
+            self.button.setFocusPolicy(Qt.NoFocus)
+            self.button.setStyleSheet(
+                f"QPushButton {{ color: {ACCENT_COLOR}; background: transparent; "
+                "border: none; font-size: 11px; padding: 0 2px; }"
+                f"QPushButton:hover {{ color: {GRAY_TEXT_COLOR}; }}"
+            )
+            self.button.clicked.connect(slot)
+            self.layout_.addWidget(self.button)
+
+    def adopt(self, widget: QWidget) -> None:
+        """Put a persistent widget (the Show decided toggle) at the right."""
+        self.layout_.addWidget(widget)
+        widget.show()
 
 
 # ---------------------------------------------------------------------------
@@ -904,7 +912,15 @@ class ReviewTabWidget(QWidget):
             "QListWidget::item:selected { border: none; }"
         )
         self.list.currentRowChanged.connect(self._on_row_changed)
+        # One persistent toggle, re-homed into the first group header on
+        # every refresh (and taken back before the list is cleared, or the
+        # clear would delete it with the header's widget).
         self.show_decided = QCheckBox("Show decided")
+        self.show_decided.setStyleSheet(
+            f"QCheckBox {{ color: {GRAY_SECONDARY_COLOR}; font-size: 11px; "
+            "background: transparent; spacing: 4px; }"
+        )
+        self.show_decided.setFocusPolicy(Qt.NoFocus)
         self.show_decided.setToolTip(
             "List proposals that have been confirmed or rejected, including "
             "ones a re-run superseded, read-only."
@@ -914,7 +930,6 @@ class ReviewTabWidget(QWidget):
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
-        left_layout.addWidget(self.show_decided)
         left_layout.addWidget(self.list, 1)
 
         self.empty = QLabel("Nothing is waiting for a decision.")
@@ -976,12 +991,15 @@ class ReviewTabWidget(QWidget):
         previous_index = self._current_index()
         self._entries = []
         self.list.blockSignals(True)
+        self.show_decided.setParent(self)  # before clear(): keep the toggle
+        self.show_decided.hide()
         self.list.clear()
+        self._headers: List[_GroupHeaderRow] = []
         if self._experiment is not None:
             experiment = self._experiment
             waiting = experiment.pending_proposals()
             if waiting:
-                self.list.addItem(_group_header(f"Waiting · {len(waiting)}"))
+                self._add_header(f"Waiting · {len(waiting)}")
             for item, task_name, proposal in waiting:
                 blocks = len(waiting_on(experiment, task_name))
                 self._add_row(
@@ -1001,17 +1019,11 @@ class ReviewTabWidget(QWidget):
             pending = len(self._entries)
             to_check = experiment.proposals_to_check()
             if to_check:
-                header = _group_header(f"To check · {len(to_check)}")
-                header.setText("")  # the widget draws it
-                self.list.addItem(header)
-                widget = _GroupHeaderRow(
+                self._add_header(
                     f"To check · {len(to_check)}",
                     "Mark all as checked",
                     self.acknowledge_all,
                 )
-                header.setData(Qt.UserRole + 1, f"To check · {len(to_check)}")
-                header.setSizeHint(QSize(0, max(widget.sizeHint().height(), 24)))
-                self.list.setItemWidget(header, widget)
             for item, task_name, proposal in to_check:
                 applied = proposal.applied or proposal.current
                 self._add_row(
@@ -1030,7 +1042,7 @@ class ReviewTabWidget(QWidget):
             if self.show_decided.isChecked():
                 decided = decided_proposals(experiment)
                 if decided:
-                    self.list.addItem(_group_header(f"Decided · {len(decided)}"))
+                    self._add_header(f"Decided · {len(decided)}")
                 for item, task_name, proposal, superseded in decided:
                     d = proposal.current
                     rejected = d.outcome is DecisionOutcome.Rejected
@@ -1066,6 +1078,9 @@ class ReviewTabWidget(QWidget):
         else:
             pending = 0
             to_check = []
+        if not self._headers:
+            self._add_header("Nothing waiting")
+        self._headers[0].adopt(self.show_decided)
         self.list.blockSignals(False)
         self._pending = pending
         self._to_check = len(to_check)
@@ -1085,6 +1100,17 @@ class ReviewTabWidget(QWidget):
             self._select_entry(select)
         else:
             self.stack.setCurrentWidget(self.empty)
+
+    def _add_header(self, text: str, action: str = "", slot=None) -> _GroupHeaderRow:
+        header = _group_header(text)
+        header.setText("")  # the widget draws it
+        header.setData(Qt.UserRole + 1, text)
+        self.list.addItem(header)
+        widget = _GroupHeaderRow(text, action, slot)
+        header.setSizeHint(QSize(0, max(widget.sizeHint().height(), 24)))
+        self.list.setItemWidget(header, widget)
+        self._headers.append(widget)
+        return widget
 
     def _add_row(
         self, summary: str, widget: QWidget, entry: tuple, tooltip: str = ""

@@ -203,7 +203,7 @@ def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
     renderer = tab.stack.currentWidget()
     renderer._controller.set_points(BeamType.ION, "poi", [(256 + 20, 256)])
     tab.confirm_current()
-    assert tab.pending_count == 0 and tab.list.count() == 0
+    assert tab.pending_count == 0 and tab.row_summaries() == ["Nothing waiting"]
 
     tab.show_decided.setChecked(True)
     assert tab.pending_count == 0, "decided rows are not pending"
@@ -226,7 +226,10 @@ def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
     assert lamella.proposals[SETUP].decisions == before, "read-only means read-only"
 
     tab.show_decided.setChecked(False)
-    assert tab.list.count() == 0
+    assert tab.row_summaries() == ["Nothing waiting"]
+    assert tab.show_decided.isVisible() or tab.show_decided.parent() is not None, (
+        "the toggle lives on the first header, even when nothing is listed"
+    )
 
 
 def _auto_confirm(proposal: Proposal, proposer: str = "centre-of-image") -> None:
@@ -344,7 +347,9 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
     )
     tab.refresh()
     assert tab.check_count == 2 and tab.pending_count == 1
-    assert tab.list.itemWidget(tab.list.item(0)) is None, "waiting has no action"
+    first = tab.list.itemWidget(tab.list.item(0))
+    assert isinstance(first, R._GroupHeaderRow) and first.button is None
+    assert tab.show_decided.parent() is first, "the toggle sits on the first header"
     check_header = tab.list.itemWidget(tab.list.item(2))
     assert isinstance(check_header, R._GroupHeaderRow)
     assert check_header.button.text() == "Mark all as checked"
