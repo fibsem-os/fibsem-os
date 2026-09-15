@@ -3744,12 +3744,7 @@ class CorrelationTabWidget(QWidget):
         self._select_only(spec, coord)
 
     def _on_canvas_moved(self, coord: Coordinate) -> None:
-        coord.fitted = False  # a manual drag supersedes any accepted fit
-        if coord.status in PointStatus.TENTATIVE:
-            # a drop on a prediction is the user's answer: from here on the
-            # point is evidence, and the projection never moves it again. Its
-            # provenance stays "projected" -- that is where it came from.
-            coord.status = PointStatus.PLACED
+        if self._place_by_hand(coord):
             self._refresh_canvas(self._point_specs[coord.point_type].adapter)
         spec = self._point_specs[coord.point_type]
         spec.list_widget.refresh_coordinate(coord)
@@ -3808,10 +3803,30 @@ class CorrelationTabWidget(QWidget):
     def _on_list_selected(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
         self._select_only(spec, coord)
 
+    @staticmethod
+    def _place_by_hand(coord: Coordinate) -> bool:
+        """A drag or a typed value makes the point the user's: ``placed``.
+
+        A drop on a prediction is the user's answer, and the projection never
+        moves it again. A fitted or accepted point that is moved is no longer
+        what the fitter or the projection said, so it stops reading as such
+        and, if it was accepted, becomes evidence. Provenance stays: that is
+        where the point came from. Returns True when the status changed.
+        """
+        coord.fitted = False
+        if coord.status in PointStatus.TENTATIVE or coord.status in (
+            PointStatus.FITTED,
+            PointStatus.ACCEPTED,
+        ):
+            coord.status = PointStatus.PLACED
+            return True
+        return False
+
     def _on_list_changed(
         self, spec: _PointTypeSpec, coord: Coordinate, _f: str, _v: float
     ) -> None:
-        coord.fitted = False  # a manual edit supersedes any accepted fit
+        if self._place_by_hand(coord):
+            self._refresh_canvas(spec.adapter)
         spec.adapter.refresh_coordinate(coord)
         spec.list_widget.refresh_coordinate(coord)  # drop the fitted indicator
         self.data_changed.emit(self.data)

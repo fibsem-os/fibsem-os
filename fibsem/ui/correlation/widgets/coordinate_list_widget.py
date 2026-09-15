@@ -358,7 +358,13 @@ class CoordinateRowWidget(QWidget):
             w.blockSignals(True)
         self.x_spin.setValue(self.coord.point.x)
         self.y_spin.setValue(self.coord.point.y)
-        self.z_spin.setValue(self.coord.point.z)
+        # z is a slice: an integer unless the fitter found a sub-slice depth
+        # (or the value is fractional anyway, as an older file's may be)
+        z = self.coord.point.z
+        self.z_spin.setDecimals(
+            0 if float(z).is_integer() and state_text(self.coord) != "fitted" else 1
+        )
+        self.z_spin.setValue(z)
         for w in (self.x_spin, self.y_spin, self.z_spin):
             w.blockSignals(False)
         self._update_state()

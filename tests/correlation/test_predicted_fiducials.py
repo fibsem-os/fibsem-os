@@ -324,6 +324,48 @@ def test_list_rows_show_the_prediction_state(loaded):
     assert sum(1 for w in words if "start here" in w) == 3
 
 
+def test_a_moved_point_is_placed_whatever_it_was(loaded):
+    """Dragging a fitted or accepted point makes it the user's: the row's
+    state word goes, and an accepted point becomes evidence for the map."""
+    from fibsem.correlation.prediction import independent_pairs
+
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    loaded.accept_all_predictions()
+    fib, fm = loaded._coords_tab.fib_list.coordinates, _fm(loaded)
+    assert independent_pairs(fib, fm) == []
+    fm[0].point.x += 1.0
+    loaded._on_canvas_moved(fm[0])
+    assert fm[0].status == PointStatus.PLACED
+    assert fm[0].provenance == PointProvenance.PROJECTED  # where it came from
+    assert len(independent_pairs(fib, fm)) == 1
+
+    fm[1].status = PointStatus.FITTED
+    fm[1].fitted = True
+    lw = loaded._coords_tab.fm_list
+    lw.refresh_coordinate(fm[1])
+    row = lw._list.itemWidget(lw._list.item(1))
+    assert row.state_label.text() == "fitted"
+    loaded._on_list_changed(loaded._point_specs[PointType.FM], fm[1], "z", 5.0)
+    assert fm[1].status == PointStatus.PLACED and not fm[1].fitted
+    assert row.state_label.text() == ""
+
+
+def test_rows_show_z_as_a_slice_unless_fitted(loaded):
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    fm = _fm(loaded)
+    lw = loaded._coords_tab.fm_list
+    row = lw._list.itemWidget(lw._list.item(0))
+    assert row.z_spin.decimals() == 0
+    assert "." not in row.z_spin.cleanText()
+    fm[0].point.z = 2.4  # within the stack: the row clamps to the axis
+    fm[0].status = PointStatus.FITTED
+    lw.refresh_coordinate(fm[0])
+    assert row.z_spin.decimals() == 1
+    assert row.z_spin.cleanText() == "2.4"
+
+
 def test_find_spot_burns_reads_the_experiment_above_the_run(tmp_path):
     experiment = tmp_path / "AutoLamella-x"
     lamella = experiment / "03-quick-tomcat"
