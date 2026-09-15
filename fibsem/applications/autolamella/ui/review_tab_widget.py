@@ -41,6 +41,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QShortcut,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QVBoxLayout,
@@ -103,7 +104,7 @@ _CELL_VALUE_STYLE = (
     f"color: {GRAY_TEXT_COLOR}; font-family: monospace; font-size: 12px; "
     "background: transparent;"
 )
-_ROW_HEIGHT = 46
+_ROW_HEIGHT = 30
 _ROW_NAME_STYLE = f"color: {GRAY_TEXT_COLOR}; font-size: 13px; font-weight: 600; background: transparent;"
 _ROW_TASK_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 11px; background: transparent;"
@@ -785,7 +786,7 @@ class _UnknownKindRenderer(ReviewRenderer):
 
 
 class _InboxRow(QWidget):
-    """dot | name over task | one muted word on the right.
+    """dot | name · task | one muted word on the right, on one line.
 
     The row's job is to let you pick one; the detail is the panel's line and
     its tooltip, and the row's tooltip. The dot's colour is the state: the
@@ -814,15 +815,14 @@ class _InboxRow(QWidget):
             f"background: {colour}; border-radius: 4px; border: none;"
         )
         layout.addWidget(self.dot, 0, Qt.AlignVCenter)
-        text = QVBoxLayout()
-        text.setSpacing(0)
         self.name = QLabel(name)
         self.name.setStyleSheet(_ROW_TASK_STYLE if dim else _ROW_NAME_STYLE)
-        self.task = QLabel(task)
+        layout.addWidget(self.name, 0, Qt.AlignVCenter)
+        self.task = QLabel("· " + task)
         self.task.setStyleSheet(_ROW_TASK_STYLE)
-        text.addWidget(self.name)
-        text.addWidget(self.task)
-        layout.addLayout(text, 1)
+        self.task.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.task.setMinimumWidth(40)
+        layout.addWidget(self.task, 1, Qt.AlignVCenter)
         self.right = QLabel(right)
         self.right.setStyleSheet(_ROW_RIGHT_STYLE)
         self.right.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
