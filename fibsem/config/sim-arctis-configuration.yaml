@@ -3,49 +3,55 @@ info:
     name: sim-tfs-arctis-configuration               
     ip_address: 192.168.0.1                                 
     manufacturer: Demo                                              
-stage:
-    enabled:                    true                        
-    rotation_reference:         0                           
+hardware:                                                   # what the instrument is; cannot be asked
+    stage:
+        enabled:                    true                        
+        rotation_reference:         0                           
+    electron:                                              
+        enabled:                    true                        
+        column_tilt:                0                           
+        eucentric_height:           7.0e-3                      
+    ion:
+        enabled:                    true                        
+        column_tilt:                52                         
+        eucentric_height:           16.5e-3                     
+        plasma_gas:                 null                        
+    manipulator:
+        enabled:                    false                        
+    gis:
+        enabled:                    true                        
+        multichem:                  false                       
+        sputter_coater:             false                                             
+    fm:
+      enabled: true
+    #   config: /home/patrick/github/fibsem/fibsem/config/fm/fm-configuration-default.yaml
+calibration:                                                # measured at this instrument
     shuttle_pre_tilt:           0                        
-electron:                                              
-    enabled:                    true                        
-    column_tilt:                0                           
-    eucentric_height:           7.0e-3                      
-    voltage:                    2000                        
-    current:                    50.0e-12                    
-    resolution:                 [1536, 1024]                
-    hfw:                        150.0e-6                    
-    dwell_time:                 1.0e-06                    
-    detector_mode:              SecondaryElectrons          
-    detector_type:              ETD                         
-ion:
-    enabled:                    true                        
-    column_tilt:                52                         
-    eucentric_height:           16.5e-3                     
-    plasma_gas:                 null                        
-    voltage:                    30000                       
-    current:                    2.0e-11                     
-    resolution:                 [1536, 1024]                
-    hfw:                        150.0e-6                   
-    dwell_time:                 1.0e-06                     
-    detector_mode:              SecondaryElectrons          
-    detector_type:              ETD                         
-fm:
-  enabled: true
-#   config: /home/patrick/github/fibsem/fibsem/config/fm/fm-configuration-default.yaml
-manipulator:
-    enabled:                    false                        
-gis:
-    enabled:                    true                        
-    multichem:                  false                       
-    sputter_coater:             false                                             
-imaging:
-    beam_type:                  ELECTRON                    
-    resolution:                 [1536, 1024]               
-    hfw:                        150.0e-6                    
-    dwell_time:                 1.0e-06                     
-    autocontrast:               false                        
-    save:                       false                       
+defaults:                                                   # what a session starts from
+    apply_on_connect:           false                       # push these to the instrument at connect (not yet acted on)
+    electron:
+        voltage:                    2000                        
+        current:                    50.0e-12                    
+        resolution:                 [1536, 1024]                
+        hfw:                        150.0e-6                    
+        dwell_time:                 1.0e-06                    
+        detector_mode:              SecondaryElectrons          
+        detector_type:              ETD                         
+    ion:
+        voltage:                    30000                       
+        current:                    2.0e-11                     
+        resolution:                 [1536, 1024]                
+        hfw:                        150.0e-6                   
+        dwell_time:                 1.0e-06                     
+        detector_mode:              SecondaryElectrons          
+        detector_type:              ETD                         
+    imaging:
+        beam_type:                  ELECTRON                    
+        resolution:                 [1536, 1024]               
+        hfw:                        150.0e-6                    
+        dwell_time:                 1.0e-06                     
+        autocontrast:               false                        
+        save:                       false                       
 sim:
     sem: null # "/path/to/sem/image/data"                   
     fib: null # "/path/to/fib/image/data"                   

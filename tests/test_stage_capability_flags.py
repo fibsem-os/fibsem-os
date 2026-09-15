@@ -50,7 +50,7 @@ CONFIGS = (
 
 
 def _stage_block(filename: str) -> dict:
-    return utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))["stage"]
+    return utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))["hardware"]["stage"]
 
 
 @pytest.mark.parametrize("filename", CONFIGS)
@@ -69,7 +69,7 @@ def test_no_shipped_file_states_a_manipulator_capability(filename: str, key: str
     instrument's to report, not a file's to restate.
     """
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
-    assert key not in config["manipulator"]
+    assert key not in config["hardware"]["manipulator"]
 
 
 @pytest.mark.parametrize("key", ["tilt", "rotation"])

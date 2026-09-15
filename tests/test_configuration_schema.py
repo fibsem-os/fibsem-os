@@ -84,12 +84,9 @@ def test_saving_writes_the_version():
     [
         "version",
         "info",
-        "stage",
-        "electron",
-        "ion",
-        "manipulator",
-        "gis",
-        "imaging",
+        "hardware",
+        "calibration",
+        "defaults",
         "sim",
     ],
 )
@@ -98,7 +95,7 @@ def test_any_block_may_be_absent(block: str):
     corrupt file. This is the change that unblocks removing keys from the shipped
     files without every existing one raising at load."""
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config.pop(block)
+    config.pop(block, None)
 
     settings = MicroscopeSettings.from_dict(config)
     assert isinstance(settings.system, SystemSettings)
@@ -119,8 +116,8 @@ def test_an_empty_configuration_loads():
 
 def test_a_missing_field_defaults_rather_than_raising():
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    del config["stage"]["rotation_reference"]
-    del config["ion"]["column_tilt"]
+    del config["hardware"]["stage"]["rotation_reference"]
+    del config["hardware"]["ion"]["column_tilt"]
 
     settings = MicroscopeSettings.from_dict(config)
     assert settings.system.stage.rotation_reference == 0.0
@@ -198,12 +195,12 @@ def test_unrecognised_keys_are_reported():
     could type, save, reload, and never see again -- `ImageSettings` has no such
     field, so it was dropped on load and nothing said so."""
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config["stage"]["nonsense"] = 1
+    config["hardware"]["stage"]["nonsense"] = 1
     config["a_block_from_the_future"] = {"x": 1}
 
     unknown = utils.unrecognised_configuration_keys(config)
 
-    assert "stage.nonsense" in unknown
+    assert "hardware.stage.nonsense" in unknown
     assert "a_block_from_the_future" in unknown
 
 
@@ -276,12 +273,12 @@ def test_reporting_is_logged_at_load(caplog):
     import logging
 
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config["stage"]["nonsense"] = 1
+    config["hardware"]["stage"]["nonsense"] = 1
 
     with caplog.at_level(logging.INFO):
         utils.report_unrecognised_configuration_keys(config, source="test.yaml")
 
-    assert "stage.nonsense" in caplog.text
+    assert "hardware.stage.nonsense" in caplog.text
     assert "test.yaml" in caplog.text
 
 
@@ -321,18 +318,19 @@ def test_a_plasma_column_is_one_with_a_gas():
 )
 def test_the_old_two_key_spelling_still_reads(block: dict, expected):
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config["ion"].pop("plasma_gas", None)
-    config["ion"].update(block)
+    config["hardware"]["ion"].pop("plasma_gas", None)
+    # In the old flat spelling, which is where a file carrying the flag would have it.
+    config["ion"] = block
     assert MicroscopeSettings.from_dict(config).system.ion.plasma_gas == expected
 
 
 def test_the_old_plasma_flag_is_read_for_migration_and_not_written():
     """A file stating `ion.plasma` is neither warned about nor saved back with it."""
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config["ion"]["plasma"] = False
+    config["ion"] = {"plasma": False}  # the old flat spelling
     assert "ion.plasma" not in utils.unrecognised_configuration_keys(config)
 
     written = MicroscopeSettings.from_dict(config).to_dict()
-    assert "plasma" not in written["ion"]
-    assert "plasma" not in written["electron"]
-    assert "plasma_gas" not in written["electron"]
+    assert "plasma" not in written["hardware"]["ion"]
+    assert "plasma" not in written["hardware"]["electron"]
+    assert "plasma_gas" not in written["hardware"]["electron"]

@@ -2407,6 +2407,17 @@ class StageSystemSettings:
         )
 
 
+def _split_defaults(beam: dict) -> dict:
+    """Move the session defaults out of a written beam block, in place.
+
+    Returns the keys that went. What stays is the hardware description.
+    """
+    moved = {
+        k: beam.pop(k) for k in list(beam) if k not in SystemSettings.HARDWARE_BEAM_KEYS
+    }
+    return moved
+
+
 def _configured_holder_from(name: str, data: dict) -> "SampleHolder":
     """A holder entry in `stage.holders`, which must state its pre-tilt.
 
@@ -2671,17 +2682,61 @@ class SystemSettings:
     info: SystemInfo
     sim: Dict[str, Union[str, bool]] = field(default_factory=dict)
     fm: FluorescenceSystemSettings = field(default_factory=FluorescenceSystemSettings)
+    # Whether `defaults:` is pushed to the instrument at connect. Read and written
+    # so the file can state it; nothing acts on it yet. Pushing a kV to a shared
+    # instrument at connect is a behaviour change that gets its own change and a
+    # look on a bench, and this field is here so that change is one `if`.
+    apply_defaults_on_connect: bool = False
+
+    #: What a column *is*: the keys that stay in `electron:` / `ion:`. Everything
+    #: else a `BeamSystemSettings` writes -- voltage, current, hfw, detector, the
+    #: lot -- is a default a session starts from and goes under `defaults:`.
+    HARDWARE_BEAM_KEYS = (
+        "beam_type",
+        "enabled",
+        "column_tilt",
+        "eucentric_height",
+        "plasma_gas",
+    )
 
     def to_dict(self):
+        """Three sections, by what kind of thing a value is.
+
+        `hardware:` is what the instrument is and cannot be asked. `calibration:` is
+        what was measured at this instrument -- the holders, and the pre-tilt while no
+        holder is named -- written by a calibration action, never by an autosave.
+        `defaults:` is what a session starts from. The records underneath are the
+        same ones as before; the sections exist so a person opening the file can tell
+        which numbers are safe to touch.
+        """
+        stage = self.stage.to_dict()
+        calibration = {
+            "holders": stage.pop("holders"),
+            "active_holder": stage.pop("active_holder"),
+        }
+        if "shuttle_pre_tilt" in stage:
+            calibration["shuttle_pre_tilt"] = stage.pop("shuttle_pre_tilt")
+
+        electron = self.electron.to_dict()
+        ion = self.ion.to_dict()
+        defaults = {
+            "apply_on_connect": self.apply_defaults_on_connect,
+            "electron": _split_defaults(electron),
+            "ion": _split_defaults(ion),
+        }
         return {
-            "stage": self.stage.to_dict(),
-            "electron": self.electron.to_dict(),
-            "ion": self.ion.to_dict(),
-            "manipulator": self.manipulator.to_dict(),
-            "gis": self.gis.to_dict(),
             "info": self.info.to_dict(),
+            "hardware": {
+                "stage": stage,
+                "electron": electron,
+                "ion": ion,
+                "manipulator": self.manipulator.to_dict(),
+                "gis": self.gis.to_dict(),
+                "fm": self.fm.to_dict(),
+            },
+            "calibration": calibration,
+            "defaults": defaults,
             "sim": self.sim,
-            "fm": self.fm.to_dict(),
         }
 
     @staticmethod
@@ -2692,25 +2747,43 @@ class SystemSettings:
         # configuration, not a corrupt file, and this is what lets a key be removed
         # from the shipped files without every existing one raising `KeyError` at
         # load.
-        electron = dict(settings.get("electron") or {})
-        ion = dict(settings.get("ion") or {})
+        #
+        # `defaults:` names what a session starts from; `electron:` / `ion:` describe
+        # what the column *is*. Merged back together here because nothing downstream
+        # cares about the split -- the records are unchanged, and the readers of
+        # `system.electron.beam` and `system.ion.detector` do not move. `defaults:`
+        # wins a collision: every file written before the split states the keys in
+        # the flat block only, which is why the merge is in this direction and why
+        # those files load unchanged.
+        # Every file written before the sections existed has its blocks at the top
+        # level, so each block is read from there first and from `hardware:` over
+        # it; `calibration:` folds into the stage record it belongs to.
+        hardware = settings.get("hardware") or {}
+        calibration = settings.get("calibration") or {}
+        defaults = settings.get("defaults") or {}
+
+        def block(name: str) -> dict:
+            return {**(settings.get(name) or {}), **(hardware.get(name) or {})}
+
+        stage = block("stage")
+        for key in ("holders", "active_holder", "shuttle_pre_tilt"):
+            if key in calibration:
+                stage[key] = calibration[key]
+        electron = {**block("electron"), **(defaults.get("electron") or {})}
+        ion = {**block("ion"), **(defaults.get("ion") or {})}
         electron["beam_type"] = BeamType.ELECTRON.name
         ion["beam_type"] = BeamType.ION.name
 
         return SystemSettings(
-            stage=StageSystemSettings.from_dict(settings.get("stage") or {}),
+            apply_defaults_on_connect=bool(defaults.get("apply_on_connect", False)),
+            stage=StageSystemSettings.from_dict(stage),
             electron=BeamSystemSettings.from_dict(electron),
             ion=BeamSystemSettings.from_dict(ion),
-            manipulator=ManipulatorSystemSettings.from_dict(
-                settings.get("manipulator") or {}
-            ),
-            gis=GISSystemSettings.from_dict(settings.get("gis") or {}),
+            manipulator=ManipulatorSystemSettings.from_dict(block("manipulator")),
+            gis=GISSystemSettings.from_dict(block("gis")),
             info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
-            # The same `fm:` block `MicroscopeSettings.from_dict` reads `config` from.
-            # Two readers, one key each: this is the hardware fact, that is a path to
-            # imaging parameters.
-            fm=FluorescenceSystemSettings.from_dict(settings.get("fm", {})),
+            fm=FluorescenceSystemSettings.from_dict(block("fm")),
         )
 
 
@@ -2908,12 +2981,12 @@ class MicroscopeSettings:
     fm: Optional["FluorescenceConfiguration"] = None
 
     def to_dict(self) -> dict:
-        settings_dict = {
-            "version": CONFIGURATION_VERSION,
-            "imaging": self.image.to_dict(),
-            "protocol": self.protocol,
-        }
+        settings_dict = {"version": CONFIGURATION_VERSION, "protocol": self.protocol}
         settings_dict.update(self.system.to_dict())
+        # Into the `defaults:` block `SystemSettings.to_dict` just created, beside the
+        # beams: the acquire tab's opening state is the same kind of thing as the
+        # voltage a session begins at.
+        settings_dict["defaults"]["imaging"] = self.image.to_dict()
 
         return settings_dict
 
@@ -2935,7 +3008,12 @@ class MicroscopeSettings:
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),
-            image=ImageSettings.from_dict(settings.get("imaging") or {}),
+            # `defaults.imaging` first, the old top-level `imaging:` after it.
+            image=ImageSettings.from_dict(
+                (settings.get("defaults") or {}).get("imaging")
+                or settings.get("imaging")
+                or {}
+            ),
             protocol=protocol,
             fm=fm_config,
         )
