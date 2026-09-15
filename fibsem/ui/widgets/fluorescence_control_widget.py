@@ -114,9 +114,18 @@ class FMControlWidget(QWidget):
         self.btn_refresh_objective = IconToolButton(
             icon="mdi:refresh", tooltip="Refresh objective position"
         )
+        # The focus and limit spin boxes move the objective for this session. This
+        # is what makes their values the instrument's calibration: written into the
+        # microscope configuration, and read from there at every connect.
+        self.btn_save_objective_calibration = IconToolButton(
+            icon="mdi:content-save-outline",
+            tooltip="Save focus position and insertion limit as this instrument's "
+            "calibration, so every session starts from them",
+        )
         self.objectivePanel = TitledPanel(
             "Objective Control", content=self.objectiveControlWidget, collapsible=True
         )
+        self.objectivePanel.add_header_widget(self.btn_save_objective_calibration)
         self.objectivePanel.add_header_widget(self.btn_refresh_objective)
         self.objectivePanel.expand()  # expand objective control by default
 
@@ -297,6 +306,9 @@ class FMControlWidget(QWidget):
         self.pushButton_cancel_acquisition.clicked.connect(self.cancel_acquisition)
         self.btn_refresh_objective.clicked.connect(
             lambda: self.objectiveControlWidget.update_objective_position_labels(None)
+        )
+        self.btn_save_objective_calibration.clicked.connect(
+            self.objectiveControlWidget.save_calibration
         )
         self.comboBox_default_orientation.currentTextChanged.connect(
             lambda orientation: setattr(self.fm, "default_orientation", orientation)
@@ -1127,10 +1139,27 @@ class FMControlWidget(QWidget):
             overview_parameters=OverviewParameters(),
             autofocus_settings=settings["autofocus_settings"],
             camera_settings=settings["camera_settings"],
-            focus_position=self.fm.objective.focus_position,
-            limit_position=self.fm.objective.limit_position,
+            # Written only while the microscope configuration does not state them.
+            # Once it does, that is the calibration's home and this file stops
+            # carrying a copy that could disagree with it.
+            focus_position=(
+                self.fm.objective.focus_position
+                if self._configured_objective("focus_position") is None
+                else None
+            ),
+            limit_position=(
+                self.fm.objective.limit_position
+                if self._configured_objective("limit_position") is None
+                else None
+            ),
             default_orientation=self.fm.default_orientation,
         )
+
+    def _configured_objective(self, name: str) -> Optional[float]:
+        """What the microscope configuration states for the objective, or None."""
+        system = getattr(self.microscope, "system", None)
+        fm = getattr(system, "fm", None)
+        return getattr(fm, name, None)
 
     def save_fm_configuration(self) -> None:
         """Persist the current FM configuration as the auto-loaded working state."""
@@ -1159,9 +1188,20 @@ class FMControlWidget(QWidget):
                 self.cameraWidget.camera_settings = config.camera_settings
             if config.autofocus_settings is not None:
                 self.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
-            if config.focus_position is not None:
+            # The working file's positions apply only while the microscope
+            # configuration is silent. When it states a value, the objective was
+            # already set from it at connect, and a working file rewritten every
+            # second by an autosave must not override an insertion limit somebody
+            # calibrated.
+            if (
+                config.focus_position is not None
+                and self._configured_objective("focus_position") is None
+            ):
                 self.objectiveControlWidget._set_focus_position(config.focus_position)
-            if config.limit_position:
+            if (
+                config.limit_position
+                and self._configured_objective("limit_position") is None
+            ):
                 self.objectiveControlWidget._set_limit_position(config.limit_position)
             self.comboBox_default_orientation.setCurrentText(config.default_orientation)
         finally:

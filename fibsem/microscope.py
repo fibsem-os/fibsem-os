@@ -82,6 +82,9 @@ class FibsemMicroscope(ABC):
     _patterns: List
     stage_is_compustage: bool = False
     milling_channel: BeamType = BeamType.ION
+    #: The file `system` was loaded from, when it was loaded from one. Set by
+    #: `utils.setup_session`; what a calibration action writes back to.
+    configuration_path: Optional[str] = None
 
     # The views a coincidence correction can be measured in -- the beam_type
     # values vertical_move accepts. The FIB view is universal; the SEM view
@@ -297,6 +300,31 @@ class FibsemMicroscope(ABC):
             if present is None:
                 present = self.DEFAULT_FITTED[key]
             self.set_available(key, bool(present))
+
+    def _apply_fluorescence_calibration(self) -> None:
+        """Push the configured objective calibration onto the objective.
+
+        `focus_position` and `limit_position` are calibration: somebody focused this
+        objective on this microscope, and somebody decided how far it may safely be
+        inserted. They lived only in `fm-configuration.yaml`, which a one-second
+        debounced autosave rewrites after any channel edit -- a safety limit carried
+        by a file that turns over while someone adjusts colours.
+
+        The configuration wins when it states one. It states nothing by default, and
+        then the working-state file answers exactly as before -- the FM widget applies
+        that file's positions only while the configuration is silent, and stops
+        writing them once it is not. Nothing is written back here.
+        """
+        if self.fm is None or self.fm.objective is None:
+            return
+        for name in ("focus_position", "limit_position"):
+            value = getattr(self.system.fm, name)
+            if value is None:
+                continue
+            try:
+                setattr(self.fm.objective, name, float(value))
+            except Exception as e:
+                logging.warning(f"Could not apply configured objective {name}: {e}")
 
     def capture_defaults(self) -> None:
         """Record what the instrument is doing now as the defaults a session starts from.

@@ -2666,8 +2666,23 @@ class FluorescenceSystemSettings:
 
     enabled: bool = False
 
+    # The objective's calibration, in metres: where it is in focus, and how far it
+    # may be inserted. Measured at this instrument, so it is written under
+    # `calibration.objective` by `SystemSettings.to_dict` rather than in this
+    # block. `None` means the configuration does not state one, and the working
+    # state file (`fm-configuration.yaml`) still answers, exactly as before -- so
+    # a site that has not pressed "Save as Calibration" sees no change.
+    focus_position: Optional[float] = None
+    limit_position: Optional[float] = None
+
     def to_dict(self) -> dict:
         return {"enabled": self.enabled}
+
+    def objective_to_dict(self) -> dict:
+        return {
+            "focus_position": self.focus_position,
+            "limit_position": self.limit_position,
+        }
 
     @staticmethod
     def from_dict(settings: dict) -> "FluorescenceSystemSettings":
@@ -2720,6 +2735,7 @@ class SystemSettings:
         }
         if "shuttle_pre_tilt" in stage:
             calibration["shuttle_pre_tilt"] = stage.pop("shuttle_pre_tilt")
+        calibration["objective"] = self.fm.objective_to_dict()
 
         electron = self.electron.to_dict()
         ion = self.ion.to_dict()
@@ -2780,6 +2796,11 @@ class SystemSettings:
         electron["beam_type"] = BeamType.ELECTRON.name
         ion["beam_type"] = BeamType.ION.name
 
+        fm = FluorescenceSystemSettings.from_dict(block("fm"))
+        objective = calibration.get("objective") or {}
+        fm.focus_position = objective.get("focus_position")
+        fm.limit_position = objective.get("limit_position")
+
         return SystemSettings(
             apply_defaults_on_connect=bool(defaults.get("apply_on_connect", False)),
             stage=StageSystemSettings.from_dict(stage),
@@ -2790,7 +2811,7 @@ class SystemSettings:
             gis=GISSystemSettings(),
             info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
-            fm=FluorescenceSystemSettings.from_dict(block("fm")),
+            fm=fm,
         )
 
 
