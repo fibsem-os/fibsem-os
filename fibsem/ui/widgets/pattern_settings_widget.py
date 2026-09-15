@@ -7,7 +7,6 @@ from typing import List, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QFormLayout,
     QLabel,
     QVBoxLayout,
     QWidget,
@@ -17,13 +16,14 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning import get_pattern, get_pattern_names
 from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import BeamType
-from fibsem.ui.widgets.custom_widgets import ValueComboBox
+from fibsem.ui.widgets.custom_widgets import FormGrid, ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
 
 
 @dataclass
 class _Row:
     """One built form row: the label, the control, and whether it is advanced."""
+
     label: QLabel
     control: Control
     field: str
@@ -64,14 +64,15 @@ class FibsemPatternSettingsWidget(QWidget):
         outer.setSpacing(4)
 
         # Pattern type selector — fixed row, not rebuilt
-        type_form = QFormLayout()
+        type_form = FormGrid()
         type_form.setContentsMargins(0, 0, 0, 0)
         self._type_combo = ValueComboBox(get_pattern_names(), value=self._pattern.name)
-        type_form.addRow("Pattern:", self._type_combo)
+        type_form.addRow("Pattern", self._type_combo)
+        align_form(type_form)
         outer.addLayout(type_form)
 
         # Field form — rebuilt on type change
-        self._fields_form = QFormLayout()
+        self._fields_form = FormGrid()
         self._fields_form.setContentsMargins(0, 0, 0, 0)
         outer.addLayout(self._fields_form)
 
@@ -121,6 +122,7 @@ class FibsemPatternSettingsWidget(QWidget):
                 )
             )
 
+        align_form(self._fields_form)
         self._update_visibility()
 
     def _dynamic_items(self, parameter: str):

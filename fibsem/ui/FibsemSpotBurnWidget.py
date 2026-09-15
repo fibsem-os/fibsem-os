@@ -28,7 +28,7 @@ from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpda
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 from fibsem.utils import format_value
 
-DEFAULT_BEAM_CURRENT = 60e-12  # 60 pA
+DEFAULT_BEAM_CURRENT = 100e-12  # 100 pA
 HIDE_PROGRESS_DELAY_MS = 2000  # how long the "Done" bar stays up before hiding
 
 
