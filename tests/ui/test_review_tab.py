@@ -112,7 +112,9 @@ def test_the_inbox_is_derived_from_the_experiment(tab, experiment):
     renderer = tab.stack.currentWidget()
     assert isinstance(renderer, R.MillingSetupReviewRenderer)
     assert renderer.task_chip.text() == SETUP
-    assert "Waiting on this: Mill Fiducial, Rough Milling" in renderer.waiting.text()
+    assert renderer.line.text() == "Waiting for your decision · 2 tasks held"
+    assert "Mill Fiducial, Rough Milling" in renderer.line.toolTip()
+    assert "centre-of-image" in renderer.line.toolTip(), "the record is a hover away"
     assert renderer._image is not None, "the reference image from provenance"
 
 
@@ -201,7 +203,7 @@ def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
     renderer = tab.stack.currentWidget()
     renderer._controller.set_points(BeamType.ION, "poi", [(256 + 20, 256)])
     tab.confirm_current()
-    assert tab.pending_count == 0 and tab.list.count() == 0
+    assert tab.pending_count == 0 and tab.row_summaries() == ["Nothing waiting"]
 
     tab.show_decided.setChecked(True)
     assert tab.pending_count == 0, "decided rows are not pending"
@@ -211,20 +213,23 @@ def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
     shown = tab.stack.currentWidget()
     assert isinstance(shown, R.MillingSetupReviewRenderer)
     assert not shown.btn_confirm.isEnabled() and not shown.btn_reject.isEnabled()
-    assert "Confirmed by you at" in shown.decision.text(), "the operator reads as you"
-    assert "+2.00" in shown.decision.text(), "the delta is shown (20 px at 100 nm)"
-    assert shown.position.text() == "decided 1 of 1"
-    assert shown.waiting.text().startswith("Unblocked:")
+    assert shown.line.text().startswith("✓  Confirmed by you at"), "reads as you"
+    assert "moved 2.0 µm" in shown.line.text(), "the delta is shown (20 px at 100 nm)"
+    assert "+2.00" in shown.line.toolTip(), "the exact delta is a hover away"
+    assert shown.position.text() == "decided 1 of 1 · read-only"
+    assert "Unblocked:" in shown.line.toolTip()
     assert shown._controller.overlay_points(BeamType.ION, "confirmed"), (
         "the confirmed marker is drawn beside the proposed one"
     )
-    assert "Read-only" in shown.status.text()
     before = lamella.proposals[SETUP].decisions[:]
     tab.confirm_current()
     assert lamella.proposals[SETUP].decisions == before, "read-only means read-only"
 
     tab.show_decided.setChecked(False)
-    assert tab.list.count() == 0
+    assert tab.row_summaries() == ["Nothing waiting"]
+    assert tab.show_decided.isVisible() or tab.show_decided.parent() is not None, (
+        "the toggle lives on the first header, even when nothing is listed"
+    )
 
 
 def _auto_confirm(proposal: Proposal, proposer: str = "centre-of-image") -> None:
@@ -253,8 +258,11 @@ def test_a_proposal_the_producer_applied_is_to_check_not_waiting(tab, experiment
     assert renderer.btn_confirm.text() == "Acknowledge"
     assert renderer.btn_confirm.isEnabled() and renderer.btn_reject.isEnabled()
     assert renderer.position.text() == "to check 1 of 1"
-    assert renderer.waiting.text().startswith("Applied, not waiting:")
-    assert "not checked yet" in renderer.decision.text()
+    assert renderer.line.text().startswith("Applied automatically at")
+    assert renderer.line.text().endswith("not checked yet")
+    assert "went ahead" in renderer.line.toolTip()
+    assert "auto ·" not in renderer.line.text()
+    assert "centre-of-image" not in renderer.line.text(), "the record is a hover away"
     assert renderer._controller.overlay_points(BeamType.ION, "confirmed"), (
         "what was applied is on screen"
     )
@@ -294,11 +302,9 @@ def test_acknowledging_records_a_look_and_writes_nothing(tab, experiment, qapp):
     assert "checked by you at" in line
     tab.show_decided.setChecked(True)
     assert "Decided · 1" in tab.row_summaries()[0], "now it is decided"
-    from PyQt5.QtWidgets import QLabel
-
-    row = tab.list.itemWidget(tab.list.item(1))
-    labels = [w.text() for w in row.findChildren(QLabel)]
-    assert "checked" in labels, "the row says a look happened, not a delta"
+    assert "checked by you" in tab.list.item(1).toolTip(), (
+        "the row says a look happened"
+    )
 
 
 def test_after_an_acknowledgement_the_next_row_is_selected(tab, experiment, qapp):
@@ -339,7 +345,9 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
     )
     tab.refresh()
     assert tab.check_count == 2 and tab.pending_count == 1
-    assert tab.list.itemWidget(tab.list.item(0)) is None, "waiting has no action"
+    first = tab.list.itemWidget(tab.list.item(0))
+    assert isinstance(first, R._GroupHeaderRow) and first.button is None
+    assert tab.show_decided.parent() is first, "the toggle sits on the first header"
     check_header = tab.list.itemWidget(tab.list.item(2))
     assert isinstance(check_header, R._GroupHeaderRow)
     assert check_header.button.text() == "Mark all as checked"
@@ -406,10 +414,9 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     assert isinstance(renderer, R.TaskResultReviewRenderer)
     assert renderer._image is not None and renderer._electron is not None
     assert renderer._controller.widget._sem_panel.isVisibleTo(renderer)
-    assert renderer._cell_values["outcome"].text() == "completed"
-    assert renderer._cell_values["duration"].text() == "2.2 min"
+    assert renderer.line.text() == "Waiting for your decision · nothing is held"
+    assert "Rough Milling completed in 2.2 min" in renderer.line.toolTip()
     assert renderer.btn_confirm.text() == "Confirm · looks right"
-    assert "Look at the result" in renderer.status.text()
     assert not renderer._controller.overlay_points(BeamType.ION, "poi")
 
     tab.confirm_current()
@@ -429,10 +436,10 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     tab.refresh()
     assert tab.check_count == 1
     renderer = tab.stack.currentWidget()
-    assert renderer._cell_values["outcome"].text() == "failed · drift"
     assert renderer.btn_confirm.text() == "Acknowledge"
-    assert "Recorded by auto · task" in renderer.decision.text()
-    assert "No reference images" in renderer.status.text()
+    assert renderer.line.text().startswith("Recorded automatically at")
+    assert "Mill Fiducial failed: drift" in renderer.line.toolTip()
+    assert "No reference images" in renderer.line.toolTip()
 
 
 def test_author_labels_and_row_details():
