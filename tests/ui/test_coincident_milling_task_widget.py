@@ -146,6 +146,30 @@ def test_a_stage_added_in_the_list_gets_the_strategy_and_the_values(widget, qapp
         assert stage.strategy.config.intensity_drop_fraction == pytest.approx(0.33)
 
 
+def test_the_stage_table_writes_onto_the_live_stages(widget, qapp):
+    widget.set_task_config(_two_stage_config())
+    qapp.processEvents()
+    table = widget.stage_table
+    assert len(table._rows) == 2
+    # the sections read as the rest of the app does
+    assert widget.channel_panel is not None and widget.stop_panel is not None
+
+    # edit the second row's width and depth through the table
+    name, direction, current, width, height, depth, _ = table._rows[1]
+    width.setValue(12.0)
+    depth.setValue(0.6)
+    qapp.processEvents()
+
+    stages = widget.get_task_config().milling[MILL_COINCIDENT_KEY].stages
+    assert stages[1].pattern.width == pytest.approx(12e-6)
+    assert stages[1].pattern.depth == pytest.approx(0.6e-6)
+    assert stages[0].pattern.width == pytest.approx(9e-6)  # untouched
+    # the full editor's list holds the same values
+    live = widget._stages_widget().get_stages()[1]
+    assert live.pattern.width == pytest.approx(12e-6)
+    assert live.pattern.depth == pytest.approx(0.6e-6)
+
+
 def test_roundtrip_keeps_the_yaml_shape(widget, qapp):
     original = _two_stage_config()
     before = yaml.safe_load(yaml.safe_dump(original.to_dict()))
