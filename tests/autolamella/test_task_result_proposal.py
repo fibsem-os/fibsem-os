@@ -162,49 +162,55 @@ def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_pa
     assert [t for _i, t, _p in exp.proposals_to_check()] == [ROUGH]
 
 
-def test_without_the_flag_nothing_is_recorded(microscope, tmp_path):
+def test_without_the_flag_the_result_is_recorded_but_never_gates(microscope, tmp_path):
+    """The flag hides the Review surface, not the record."""
     exp = _experiment(tmp_path, microscope, review=True)
     task = _task(microscope, exp)
     task.task_manager.review_enabled = False
     task.run()
-    assert exp.positions[0].proposals == {}
+    lamella = exp.positions[0]
+    proposal = lamella.proposals[ROUGH]
+    assert proposal.kind == TASK_RESULT and not proposal.pending
+    assert proposal.current.author == f"auto:{ROUGH}"
+    assert task.task_manager._defer_reason(lamella, POLISH) is None
 
 
-def test_a_task_type_that_does_not_record_leaves_nothing(microscope, tmp_path):
-    """Whether a task records is the task type's say, in code, not the
-    protocol's: the fiducial's product is reviewed with what uses it."""
+def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path):
+    """A run records outputs; a task proposes a kind. Which kind is the task
+    type's say, in code, not the protocol's: the fiducial's product is
+    reviewed with what uses it, so it proposes nothing."""
     from fibsem.applications.autolamella.workflows.tasks.fiducial import (
         MillFiducialTask,
     )
+    from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+        AcquireReferenceImageTask,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.select_position import (
+        SelectMillingPositionTask,
+    )
 
-    assert MillFiducialTask.records_result is False
-    assert MillRoughTask.records_result is True
+    assert MillFiducialTask.proposal_kind is None
+    assert AcquireReferenceImageTask.proposal_kind is None
+    assert MillRoughTask.proposal_kind == TASK_RESULT
+    assert SelectMillingPositionTask.proposal_kind == MILLING_SETUP
     exp = _experiment(tmp_path, microscope, review=True)
     task = _task(microscope, exp)
-    type(task).records_result = False
+    type(task).proposal_kind = None
     try:
         task.run()
     finally:
-        type(task).records_result = True
+        type(task).proposal_kind = TASK_RESULT
     assert exp.positions[0].proposals == {}
 
 
-def test_a_task_that_proposed_its_own_kind_is_left_alone(microscope, tmp_path):
-    """Setup proposes the milling position; the base class does not paper a
-    task_result over it. One proposal per task, the richer one wins."""
+def test_a_task_type_with_its_own_kind_is_left_alone(microscope, tmp_path):
+    """Setup proposes the milling position itself; the base class records a
+    task_result only for types that declare that kind, so it never papers over
+    a richer proposal, pending or already decided inline."""
     exp = _experiment(tmp_path, microscope, review=True)
     lamella = exp.positions[0]
 
     def own():
-        lamella.proposals[ROUGH] = Proposal(
-            kind=MILLING_SETUP, values={}, provenance={"proposer": "me"}
-        )
-
-    _task(microscope, exp, body=own).run()
-    assert lamella.proposals[ROUGH].kind == MILLING_SETUP
-
-    # decided inline during the run (supervised Setup): still its own, still left alone
-    def own_decided():
         p = Proposal(kind=MILLING_SETUP, values={}, provenance={"proposer": "me"})
         p.decisions.append(
             Decision(
@@ -213,7 +219,12 @@ def test_a_task_that_proposed_its_own_kind_is_left_alone(microscope, tmp_path):
         )
         lamella.proposals[ROUGH] = p
 
-    _task(microscope, exp, body=own_decided).run()
+    task = _task(microscope, exp, body=own)
+    type(task).proposal_kind = MILLING_SETUP
+    try:
+        task.run()
+    finally:
+        type(task).proposal_kind = TASK_RESULT
     assert lamella.proposals[ROUGH].kind == MILLING_SETUP
     assert lamella.proposals[ROUGH].current.via == "workflow"
 

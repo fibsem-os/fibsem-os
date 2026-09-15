@@ -56,7 +56,7 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
 
 
 class MillFiducialTask(AutoLamellaTask):
-    records_result = False  # its product is reviewed with what uses it, not alone
+    proposal_kind = None  # its product is reviewed with what uses it, not alone
     """Task to setup the lamella for milling."""
     config: MillFiducialTaskConfig
     config_cls: ClassVar[Type[MillFiducialTaskConfig]] = MillFiducialTaskConfig

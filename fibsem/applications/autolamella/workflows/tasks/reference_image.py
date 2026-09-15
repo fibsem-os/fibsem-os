@@ -32,7 +32,7 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
 
 
 class AcquireReferenceImageTask(AutoLamellaTask):
-    records_result = False  # its product is reviewed with what uses it, not alone
+    proposal_kind = None  # its product is reviewed with what uses it, not alone
     """Task to acquire reference image with specified settings."""
     config: AcquireReferenceImageConfig
     config_cls: ClassVar[Type[AcquireReferenceImageConfig]] = (

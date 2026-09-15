@@ -113,11 +113,14 @@ class AutoLamellaTask(ABC):
 
     config_cls: ClassVar[AutoLamellaTaskConfig]
     config: AutoLamellaTaskConfig
-    # Whether what this task did is worth a row in the Review tab: a
-    # property of the task type, declared here, never a protocol choice. Off
-    # for tasks whose product nobody reviews on its own (the fiducial, a
-    # reference-image acquisition).
-    records_result: ClassVar[bool] = True
+    # What this task type proposes, for the Review tab: a property of the type,
+    # declared here, never a protocol choice, and independent of the mode it
+    # runs in. TASK_RESULT ("here is what I did, look") for most tasks; a
+    # richer kind for a task whose output is a value someone might change
+    # (Setup proposes the milling position); None for a task whose product is
+    # reviewed with what uses it (the fiducial, a reference-image acquisition).
+    # A run records outputs (files, by role); a task proposes a kind.
+    proposal_kind: ClassVar[Optional[str]] = TASK_RESULT
 
     def __init__(
         self,
@@ -159,23 +162,18 @@ class AutoLamellaTask(ABC):
         return get_task_supervision(self.task_name, self.parent_ui)
 
     @property
-    def records(self) -> bool:
-        """Whether this task leaves a proposal on the record at all. The
-        feature flag, read once per run by the manager; read through the
-        manager rather than the UI so a headless run records too. What a task
-        proposes is its own business; that it does is not a protocol choice."""
-        manager = self.task_manager
-        return bool(manager is not None and getattr(manager, "review_enabled", False))
-
-    @property
     def review(self) -> bool:
         """Whether this task's proposal gates the tasks that require it: the
-        protocol's ``review`` on this task, and the flag. A gated proposal is
-        left pending for the Review tab; an ungated one is decided in the
-        workflow, by the operator's inline answer or by the producer itself."""
-        if not self.records:
+        protocol's ``review`` on this task, and the feature flag (read once
+        per run by the manager, through it rather than the UI so a headless
+        run behaves the same). A gated proposal is left pending for the
+        Review tab; an ungated one is decided in the workflow, by the
+        operator's inline answer or by the producer itself. The record is
+        made either way: the flag hides the Review surface, not the record."""
+        manager = self.task_manager
+        if manager is None or not getattr(manager, "review_enabled", False):
             return False
-        protocol = getattr(self.task_manager.experiment, "task_protocol", None)
+        protocol = getattr(manager.experiment, "task_protocol", None)
         if protocol is None:
             return False
         return bool(protocol.get_review(self.task_name))
@@ -264,26 +262,19 @@ class AutoLamellaTask(ABC):
     def _record_task_result(self, failure: str = "") -> None:
         """Leave what this task did as a proposal for someone to look at.
 
-        For any task type that records a result, in every mode: gated, it
-        waits for the Review tab; not gated, the producer confirms it after
-        the task and the row is there to check. No values: the result is not
-        a number anyone changes, it is the final reference images, named in
-        provenance from the outputs this run recorded. A task that proposed a
-        kind of its own during this run (Setup proposes the milling position)
-        is left alone: one proposal per task, and the richer one wins. A
-        re-run supersedes a decided result like any other proposal.
+        For any task type whose proposal_kind is TASK_RESULT, in every mode:
+        gated, it waits for the Review tab; not gated, the producer confirms
+        it after the task and the row is there to check. No values: the
+        result is not a number anyone changes, it is the final reference
+        images, named in provenance from the outputs this run recorded. A
+        task type that proposes a kind of its own (Setup, the milling
+        position) records that itself and is not touched here. A re-run
+        supersedes a decided result like any other proposal.
         """
-        if not (self.records and type(self).records_result):
+        if type(self).proposal_kind != TASK_RESULT:
             return
         state = self.lamella.task_state
         existing = self.lamella.proposals.get(self.task_name)
-        if existing is not None and existing.created_at >= (
-            state.start_timestamp or 0.0
-        ):
-            # this run's own proposal, of its own kind -- pending (gated) or
-            # already decided by the operator's inline answer, either way it
-            # is the richer record and this one must not paper over it
-            return
         outputs = getattr(state, "outputs", {}) or {}
         fib = (outputs.get("final_fib") or [""])[-1]
         sem = (outputs.get("final_sem") or [""])[-1]
