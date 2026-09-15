@@ -287,6 +287,42 @@ def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):
     assert main_ui.grid_workflow_widget.grid_empty.isHidden()
 
 
+def test_an_inventory_on_the_sample_view_reaches_the_grids_tab_and_run_view(
+    main_ui, tmp_path, monkeypatch
+):
+    """The Sample view's inventory updates the loader; the experiment records the
+    grids it lists, and the Grids tab and the Workflow view's rows follow, with
+    nothing pressed on the Grids tab. An autoloader, so the Sample view has a
+    loader panel to fire from."""
+    ui = main_ui.autolamella_ui
+    config = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    monkeypatch.setattr(
+        ui.system_widget, "load_configuration", lambda configuration_name=None: config
+    )
+    ui.system_widget.connect_to_microscope()
+    main_ui._refresh_grids_tab_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    ui.experiment = exp
+    main_ui.grids_tab.set_experiment(exp)
+    main_ui.grid_workflow_widget.set_experiment(exp)
+    assert exp.grids == []
+    assert main_ui.grid_workflow_widget._grid_rows == {}
+
+    loader = ui.sample_widget.loader_widget
+    assert loader is not None
+    ui.microscope._stage.get_inventory()
+    loader.loader_changed.emit()  # what the Sample view does after an inventory
+    names = [g.name for g in exp.grids]
+    assert names and names == [
+        e.name for e in ui.microscope._stage.grid_inventory() if e.present
+    ]
+    assert [c.grid.name for c in main_ui.grids_tab.cards.cards] == names
+    assert list(main_ui.grid_workflow_widget._grid_rows) == names
+    assert names[0] in (tmp_path / "exp" / "experiment.yaml").read_text()
+
+
 def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeypatch):
     """End to end: the Run button on the Grids view, the worker, the manager, the
     shared timeline and the record. A fixed holder, so no exchange."""
