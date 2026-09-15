@@ -1626,6 +1626,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             grid_names,
             self.grid_workflow_widget.exchanges_for(grids),
             str(ui.experiment.path),
+            beams_off=self._beams_off(),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -1649,11 +1650,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.grid_workflow_widget.exchanges_for(list(ui.experiment.grids)),
             str(ui.experiment.path),
             screen_all=True,
+            beams_off=self._beams_off(),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
         self._start_grid_run(task_names, None, inventory_first=True)
+
+    def _beams_off(self) -> list:
+        """The beams that are off now, which the run will turn on: the preflight
+        says so. A read at the click, about to commit to a run: the one time the
+        GUI asks the hardware."""
+        microscope = getattr(self.autolamella_ui, "microscope", None)
+        if microscope is None:
+            return []
+        off = []
+        for beam in (BeamType.ELECTRON, BeamType.ION):
+            try:
+                if not microscope.is_on(beam):
+                    off.append(beam)
+            except Exception as e:  # noqa: BLE001 - unknown is not "off"
+                logging.warning(
+                    f"Could not read whether the {beam.name} beam is on: {e}"
+                )
+        return off
 
     def _start_grid_run(
         self, task_names: list, grid_names, inventory_first: bool
