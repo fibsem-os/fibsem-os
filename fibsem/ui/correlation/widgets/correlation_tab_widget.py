@@ -3239,10 +3239,14 @@ class CorrelationTabWidget(QWidget):
         return placement_offset_from_runs(runs) if runs else None
 
     def _on_projection_link(self, link: str) -> None:
-        """Ignore or restore the previous run's placement offset for this lamella."""
+        """Ignore or restore the previous run's placement offset for this lamella.
+
+        Only the next projection changes; no point moved, so a live result
+        stays live. ``data_changed`` would mark it stale and hide Continue.
+        """
         self._ignore_placement_offset = link == "ignore"
         if self._fib_image is not None and self._fm_image is not None:
-            self.data_changed.emit(self.data)
+            self._refresh_prediction_panel()
 
     @staticmethod
     def _run_label(source: str) -> str:
