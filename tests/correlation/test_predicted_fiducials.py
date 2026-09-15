@@ -840,3 +840,47 @@ def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
     assert loaded._coords_tab._lbl_projection.text().startswith(
         "previous run (02-other) ·"
     )
+
+
+# ── the Setup tab's Images panel (FIB-978) ───────────────────────────────
+
+
+def test_a_preloaded_image_from_outside_the_lamella_shows_its_file(widget, tmp_path):
+    """The standalone launcher preloads images the picker was never offered;
+    the picker must still name what is on the canvas."""
+    fib, fm = _images(ARCTIS, fm_geometry=True)
+    fib_path = tmp_path / "ref_ib.tif"
+    fib_path.write_bytes(b"")  # exists on disk; never re-read here
+    fib.filepath = str(fib_path)
+    widget.set_fib_image(fib)
+    tab = widget._images_tab
+    assert tab._fib_picker.current_path() == str(fib_path)
+    assert tab._fib_loaded_path == str(fib_path)
+    assert "1024 × 1536 · 65.10 nm" in tab._lbl_fib_info.text()
+    # offering the lamella's (empty) list afterwards must not blank it
+    widget.add_lamella_setup(spot_burns=_burns(ARCTIS))
+    assert tab._fib_picker.current_path() == str(fib_path)
+    # a bare name cannot be loaded again, so it is not shown (FIB-321)
+    fm.filepath = "stack.ome.tiff"
+    widget.set_fm_image(fm)
+    assert tab._fm_picker.current_path() == ""
+    assert tab._lbl_fm_px.text().startswith("1 channel · 6 slices · ")
+    assert tab._lbl_fm_px.toolTip() == "reflection"
+
+
+def test_the_setup_tab_has_one_images_panel_with_interpolate_in_its_header(loaded):
+    from fibsem.ui.widgets.custom_widgets import TitledPanel
+
+    titles = [
+        p._title_label.text() for p in loaded._images_tab.findChildren(TitledPanel)
+    ]
+    assert titles.count("Images") == 1
+    assert "FIB Image" not in titles and "FM Image" not in titles
+    assert "Project" not in titles
+    btn = loaded._images_tab._btn_interpolate
+    assert btn.isEnabled()  # a 6-slice stack with a z step
+    assert next(
+        p
+        for p in loaded._images_tab.findChildren(TitledPanel)
+        if p._title_label.text() == "Images"
+    ).isAncestorOf(btn)

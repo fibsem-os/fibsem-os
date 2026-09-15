@@ -56,6 +56,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -148,6 +149,9 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
+# Choice combos (a word or two) share one width, so the column lines up; a
+# longer channel name still grows its own combo.
+_CHOICE_COMBO_WIDTH = 150
 
 # Consolidated project file (FIB-264). The two legacy names are still *read* for
 # back-compat with projects saved by earlier versions; nothing writes them now.
@@ -582,99 +586,64 @@ class _ImagesTab(QWidget):
         self._content_layout = layout  # setup section is inserted here
         scroll.setWidget(content)
 
-        # ---- Project directory section ----
-        proj_body = QWidget()
-        proj_layout = QHBoxLayout(proj_body)
-        proj_layout.setContentsMargins(8, 4, 8, 4)
-        proj_layout.setSpacing(4)
+        # ---- Images: the project folder and the two images, one panel ----
+        # Three title bars for "the images this correlation is on" was chrome;
+        # each row is a picker with its facts on one caption line beneath.
+        body = QWidget()
+        grid = QGridLayout(body)
+        grid.setContentsMargins(8, 4, 8, 4)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(2)
+        grid.setColumnStretch(1, 1)
+
         self._proj_path = QDirectoryLineEdit()
         self._proj_path.lineEdit.setPlaceholderText("No project directory set")
         self._proj_path.editingFinished.connect(self._on_project_dir_edited)
-        proj_layout.addWidget(self._proj_path, stretch=1)
-        layout.addWidget(TitledPanel("Project", content=proj_body, collapsible=False))
-
-        # ---- FIB section ----
-        fib_body = QWidget()
-        fib_layout = QVBoxLayout(fib_body)
-        fib_layout.setContentsMargins(8, 4, 8, 4)
-        fib_layout.setSpacing(4)
+        grid.addWidget(_form_label("Project"), 0, 0)
+        grid.addWidget(self._proj_path, 0, 1)
 
         self._fib_picker = _ImagePicker("TIFF (*.tif *.tiff);;All Files (*)")
         self._fib_picker.path_selected.connect(self._load_fib)
-        fib_layout.addWidget(self._fib_picker)
-
-        fib_form = QFormLayout()
-        fib_form.setContentsMargins(0, 0, 0, 0)
-        fib_form.setSpacing(2)
-        self._lbl_fib_shape = QLabel("—")
-        self._lbl_fib_shape.setStyleSheet(CAPTION_VALUE_STYLE)
-        self._lbl_fib_px = QLabel("—")
-        self._lbl_fib_px.setStyleSheet(CAPTION_VALUE_STYLE)
-        fib_form.addRow(_form_label("Shape"), self._lbl_fib_shape)
-        fib_form.addRow(_form_label("Pixel size"), self._lbl_fib_px)
-        fib_layout.addLayout(fib_form)
-
-        layout.addWidget(TitledPanel("FIB Image", content=fib_body, collapsible=False))
-
-        # ---- FM section ----
-        fm_body = QWidget()
-        fm_layout = QVBoxLayout(fm_body)
-        fm_layout.setContentsMargins(8, 4, 8, 4)
-        fm_layout.setSpacing(4)
+        self._lbl_fib_info = QLabel("—")
+        self._lbl_fib_info.setStyleSheet(CAPTION_VALUE_STYLE)
+        grid.addWidget(_form_label("FIB"), 1, 0)
+        grid.addWidget(self._fib_picker, 1, 1)
+        grid.addWidget(self._lbl_fib_info, 2, 1)
+        grid.setRowMinimumHeight(3, 4)
 
         self._fm_picker = _ImagePicker(
             "OME-TIFF (*.ome.tiff *.ome.tif);;TIFF (*.tif *.tiff);;All Files (*)"
         )
         self._fm_picker.path_selected.connect(self._load_fm)
-        fm_layout.addWidget(self._fm_picker)
-
-        fm_form = QFormLayout()
-        fm_form.setContentsMargins(0, 0, 0, 0)
-        fm_form.setSpacing(2)
-        self._lbl_fm_shape = QLabel("—")
-        self._lbl_fm_shape.setStyleSheet(CAPTION_VALUE_STYLE)
-        self._lbl_fm_ch = QLabel("—")
-        self._lbl_fm_ch.setStyleSheet(CAPTION_VALUE_STYLE)
-        self._lbl_fm_ch.setWordWrap(True)
-        self._lbl_fm_z = QLabel("—")
-        self._lbl_fm_z.setStyleSheet(CAPTION_VALUE_STYLE)
+        # One caption: channels, slices, shape, voxel size (the anisotropy ratio
+        # beside the Interpolate action answers "is this stack anisotropic?").
+        # The channel names live in its tooltip.
         self._lbl_fm_px = QLabel("—")
         self._lbl_fm_px.setStyleSheet(CAPTION_VALUE_STYLE)
         self._lbl_fm_px.setWordWrap(True)
-        fm_form.addRow(_form_label("Shape (C×Z×Y×X)"), self._lbl_fm_shape)
-        fm_form.addRow(_form_label("Channels"), self._lbl_fm_ch)
-        fm_form.addRow(_form_label("Pixel size"), self._lbl_fm_px)
+        grid.addWidget(_form_label("FM"), 4, 0)
+        grid.addWidget(self._fm_picker, 4, 1)
+        grid.addWidget(self._lbl_fm_px, 5, 1)
 
-        # The interpolate action rides the Z-slices row — it acts on the z axis,
-        # so it reads as the action on that number rather than a stray button.
-        # (Data transform, deliberately not on the canvas toolbar.)
-        z_row = QWidget()
-        z_row_layout = QHBoxLayout(z_row)
-        z_row_layout.setContentsMargins(0, 0, 0, 0)
-        z_row_layout.setSpacing(6)
-        z_row_layout.addWidget(self._lbl_fm_z)
-        z_row_layout.addStretch(1)
+        # Embedded, non-modal progress — shown only while interpolating.
+        self._interp_progress = QProgressBar()
+        self._interp_progress.setTextVisible(True)
+        self._interp_progress.setVisible(False)
+        grid.addWidget(self._interp_progress, 6, 0, 1, 2)
+
+        panel = TitledPanel("Images", content=body, collapsible=False)
+        # The interpolate action is the panel's one action, so it rides the
+        # header. (Data transform, deliberately not on the canvas toolbar.)
         self._btn_interpolate = QPushButton(" Interpolate…")
         self._btn_interpolate.setIcon(fibsem_icon("mdi:arrow-expand-vertical"))
-        # Sized to the 11-12px rows it rides on, not the default app font.
         self._btn_interpolate.setStyleSheet(f"{CONTROL_STYLE} padding: 2px 8px;")
         self._btn_interpolate.setToolTip(
             "Interpolate the z-stack toward an isotropic voxel size"
         )
         self._btn_interpolate.setEnabled(False)  # enabled once a z-stack is loaded
         self._btn_interpolate.clicked.connect(lambda: self.interpolate_requested.emit())
-        z_row_layout.addWidget(self._btn_interpolate)
-        fm_form.addRow(_form_label("Z-slices"), z_row)
-
-        fm_layout.addLayout(fm_form)
-
-        # Embedded, non-modal progress — shown only while interpolating.
-        self._interp_progress = QProgressBar()
-        self._interp_progress.setTextVisible(True)
-        self._interp_progress.setVisible(False)
-        fm_layout.addWidget(self._interp_progress)
-
-        layout.addWidget(TitledPanel("FM Image", content=fm_body, collapsible=False))
+        panel.add_header_widget(self._btn_interpolate)
+        layout.addWidget(panel)
         layout.addStretch(1)
 
     # ------------------------------------------------------------------
@@ -696,6 +665,11 @@ class _ImagesTab(QWidget):
                 self._fib_loaded_path = current
             else:
                 self._fm_loaded_path = current
+        # Offering a list must not blank a picker that already names the image
+        # on the canvas (a preloaded file the list does not include).
+        loaded = self._fib_loaded_path if kind == "fib" else self._fm_loaded_path
+        if not picker.current_path() and loaded:
+            picker.show_path(loaded)
 
     def add_method_panel(self, panel: QWidget) -> None:
         """The Method panel sits last: how the fit is done comes after what it
@@ -755,12 +729,7 @@ class _ImagesTab(QWidget):
         self._fib_image = image
         self._fib_loaded_path = path
         self._fib_picker.show_path(path)
-        h, w = image.data.shape[:2]
-        self._lbl_fib_shape.setText(f"{h} × {w}")
-        px = getattr(
-            getattr(getattr(image, "metadata", None), "pixel_size", None), "x", None
-        )
-        self._lbl_fib_px.setText(f"{px * 1e9:.2f} nm" if px else "—")
+        self._update_fib_label(image)
         self.fib_image_changed.emit(image)
 
     def _load_fm(self, path: str) -> None:
@@ -783,6 +752,33 @@ class _ImagesTab(QWidget):
     # Public setters (for pre-loading)
     # ------------------------------------------------------------------
 
+    def _update_fib_label(self, image: FibsemImage) -> None:
+        h, w = image.data.shape[:2]
+        px = getattr(
+            getattr(getattr(image, "metadata", None), "pixel_size", None), "x", None
+        )
+        self._lbl_fib_info.setText(
+            f"{h} × {w}" + (f" · {px * 1e9:.2f} nm" if px else "")
+        )
+
+    def _show_preloaded(self, picker: "_ImagePicker", image) -> str:
+        """Select the file a preloaded image came from; return the path shown.
+
+        Known files (the lamella's, offered by the editor) resolve by name
+        (FIB-509). A file outside that list -- the standalone launcher's, a
+        browsed one -- is shown by its own path, so the tab says what is on
+        the canvas instead of an empty picker (FIB-978). A bare name is never
+        shown: it could not be loaded again (FIB-321).
+        """
+        filepath = getattr(image, "filepath", None) or ""
+        resolved = picker.select_file(filepath)
+        if resolved:
+            return resolved
+        if filepath and os.path.isabs(filepath) and os.path.isfile(filepath):
+            picker.show_path(filepath)
+            return filepath
+        return ""
+
     def set_fib_image(self, image: FibsemImage) -> None:
         self._fib_image = image
         # Resolve against what the picker already offers rather than trusting the
@@ -793,21 +789,16 @@ class _ImagesTab(QWidget):
         # the acquirer asked for, a stem with no extension, so matching it against
         # a real path never succeeded and a pre-loaded image left the combo
         # showing nothing selected (FIB-509).
-        resolved = self._fib_picker.select_file(getattr(image, "filepath", None) or "")
+        resolved = self._show_preloaded(self._fib_picker, image)
         if resolved:
             self._fib_loaded_path = resolved
-        h, w = image.data.shape[:2]
-        self._lbl_fib_shape.setText(f"{h} × {w}")
-        px = getattr(
-            getattr(getattr(image, "metadata", None), "pixel_size", None), "x", None
-        )
-        self._lbl_fib_px.setText(f"{px * 1e9:.2f} nm" if px else "—")
+        self._update_fib_label(image)
 
     def set_fm_image(self, image: FluorescenceImage) -> None:
         self._fm_image = image
         # Same as the FIB side: the file it was loaded from, not the name it was
         # acquired under (FIB-509).
-        resolved = self._fm_picker.select_file(getattr(image, "filepath", None) or "")
+        resolved = self._show_preloaded(self._fm_picker, image)
         if resolved:
             self._fm_loaded_path = resolved
         self._update_fm_labels(image)
@@ -820,15 +811,17 @@ class _ImagesTab(QWidget):
         left it greyed out.
         """
         c, z, h, w = image.data.shape
-        self._lbl_fm_shape.setText(f"{c} × {z} × {h} × {w}")
         meta_channels = image.metadata.channels or []
         names = [ch.name or f"CH {i}" for i, ch in enumerate(meta_channels)]
+        n_ch = len(names) or c
         # the count on the line, the names in the tooltip: four channel names
         # wrapped to three lines and said less than "4" (FIB-978)
-        self._lbl_fm_ch.setText(f"{len(names) or c}")
-        self._lbl_fm_ch.setToolTip("\n".join(names))
-        self._lbl_fm_z.setText(str(z))
-        self._lbl_fm_px.setText(_format_fm_pixel_size(image.metadata))
+        self._lbl_fm_px.setText(
+            f"{n_ch} channel{'s' if n_ch != 1 else ''} · {z} slice"
+            f"{'s' if z != 1 else ''} · {h} × {w} · "
+            + _format_fm_pixel_size(image.metadata)
+        )
+        self._lbl_fm_px.setToolTip("\n".join(names))
         # interpolation needs a multi-slice stack with a known z step
         self._btn_interpolate.setEnabled(
             z > 1 and bool(getattr(image.metadata, "pixel_size_z", None))
@@ -1053,13 +1046,13 @@ class _CoordinatesTab(QWidget):
         self._fm_poi_ch_combo = ValueComboBox([])
         fit_form.addRow(_form_label("FM POI channel"), self._fm_poi_ch_combo)
 
-        self._show_diag_check = QCheckBox()
-        fit_form.addRow(_form_label("Show diagnostic"), self._show_diag_check)
+        # A checkbox carries its own label: the two share one row.
+        self._show_diag_check = QCheckBox("Show diagnostic")
 
         # Opt-in: apply fits without the confirm dialog. Off by default (the
         # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
         # fits still surface the dialog — see _on_refit_requested.
-        self._auto_accept_check = QCheckBox()
+        self._auto_accept_check = QCheckBox("Auto-accept fits")
 
         # Match the 11-12px labels these sit beside (see _form_label).
         for _ctl in (
@@ -1081,11 +1074,19 @@ class _CoordinatesTab(QWidget):
         ):
             _combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             _combo.setMinimumContentsLength(10)
+            _combo.setMinimumWidth(_CHOICE_COMBO_WIDTH)
         self._auto_accept_check.setToolTip(
             "Apply fits immediately without the confirm dialog.\n"
             "Failed or far-off fits still ask for confirmation."
         )
-        fit_form.addRow(_form_label("Auto-accept fits"), self._auto_accept_check)
+        checks = QWidget()
+        checks_layout = QHBoxLayout(checks)
+        checks_layout.setContentsMargins(0, 2, 0, 0)
+        checks_layout.setSpacing(16)
+        checks_layout.addWidget(self._show_diag_check)
+        checks_layout.addWidget(self._auto_accept_check)
+        checks_layout.addStretch(1)
+        fit_form.addRow(checks)
 
         fit_help = QLabel(
             "Each fit opens a confirmation to accept or reject \u2014 unless "
