@@ -236,9 +236,11 @@ class GridsTabWidget(QWidget):
         self.show_positions(grid, path)
 
     def _on_grid_selected_for_positions(self, grid: Optional[GridRecord]) -> None:
-        """The Positions view follows the card selection while it is showing; a
+        """The Positions chip is offered whenever a card is selected, and the
+        Positions view follows the card selection while it is showing; a
         deselection goes back to Results, which has something to say without a
         grid."""
+        self.view_chips[VIEW_POSITIONS].setEnabled(grid is not None)
         if self.view != VIEW_POSITIONS:
             return
         if grid is None:

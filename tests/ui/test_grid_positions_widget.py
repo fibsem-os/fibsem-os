@@ -265,6 +265,24 @@ class TestFromTheGridsTab:
         yield tab
         tab.close()
 
+    def test_the_positions_chip_follows_the_card_selection(self, tab, grid):
+        """Reloading an experiment rebuilds the cards with nothing selected; the
+        chip then has to come alive on the click, not on the next inventory
+        refresh."""
+        assert not tab.view_chips[VIEW_POSITIONS].isEnabled()
+        tab.cards._on_card_clicked(grid)
+        assert tab.view_chips[VIEW_POSITIONS].isEnabled()
+        tab.show_view(VIEW_POSITIONS)
+        assert tab.view == VIEW_POSITIONS
+        tab.cards._on_card_clicked(grid)  # deselect
+        assert not tab.view_chips[VIEW_POSITIONS].isEnabled()
+        assert tab.view == VIEW_RESULTS
+        # A reload: new cards, nothing selected, then a click.
+        tab.set_experiment(tab._experiment)
+        assert not tab.view_chips[VIEW_POSITIONS].isEnabled()
+        tab.cards._on_card_clicked(tab._experiment.grids[0])
+        assert tab.view_chips[VIEW_POSITIONS].isEnabled()
+
     def test_a_results_row_opens_the_positions_view_on_that_overview(self, tab, grid):
         assert tab.view == VIEW_RESULTS
         assert not tab.view_chips[VIEW_POSITIONS].isEnabled()
