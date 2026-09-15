@@ -848,9 +848,11 @@ class _GroupHeaderRow(QWidget):
         self.layout_ = QHBoxLayout(self)
         self.layout_.setContentsMargins(3, 0, 8, 0)
         self.layout_.setSpacing(12)
-        # the same size and colour the plain group headers get from the list
+        # smaller and quieter than the rows it labels
         self.label = QLabel(text)
-        self.label.setStyleSheet(f"color: {GRAY_TEXT_COLOR}; background: transparent;")
+        self.label.setStyleSheet(
+            f"color: {GRAY_SECONDARY_COLOR}; font-size: 12px; background: transparent;"
+        )
         self.layout_.addWidget(self.label)
         self.layout_.addStretch(1)
         self.button: Optional[QPushButton] = None
