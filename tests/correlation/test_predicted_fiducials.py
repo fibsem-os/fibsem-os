@@ -448,6 +448,48 @@ def _diag(loo, worst=None, mirror=2.0, hull=0.0, jackknife=0.1, suggested_z=None
     }
 
 
+def test_the_verdict_names_rows_the_fit_skipped_over(loaded):
+    """Rejecting FIB 2 takes row 2 out of the fit on both sides. The verdict
+    still speaks in rows: its notes land on the rows that were fitted, the
+    link selects the right FM point, and the Results tab names the same
+    fiducial as the run bar."""
+    from fibsem.ui.correlation.widgets.coordinate_list_widget import (
+        CoordinateRowWidget,
+    )
+
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    for c in _fm(loaded):
+        loaded._on_canvas_moved(c)
+    loaded._coords_tab.fib_list.coordinates[1].status = PointStatus.REJECTED
+    loaded.data_changed.emit(loaded.data)
+    n = len(_fm(loaded))
+    assert loaded._fit_rows() == [i for i in range(n) if i != 1]
+
+    # the worker's diagnostics carry the rows; fake one the way it would
+    diag = _diag([0.2, 0.3, 0.25, 0.2, 0.3, 1.4], worst=5, suggested_z=5.0)
+    for p, row in zip(diag["pairs"], loaded._fit_rows()):
+        p["index"] = row
+    loaded._on_run_finished(_fake_seeded_result(loaded, diag))
+
+    status = loaded._lbl_status.text()
+    worst_row = loaded._fit_rows()[5]
+    assert f"Check FM {worst_row + 1}." in status
+    assert f'href="pair:{worst_row}"' in status
+    lw = loaded._coords_tab.fm_list
+    rows = [
+        lw._list.itemWidget(lw._list.item(i))
+        for i in range(lw._list.count())
+        if isinstance(lw._list.itemWidget(lw._list.item(i)), CoordinateRowWidget)
+    ]
+    assert rows[1].state_label.text() != "0.3 µm"  # the skipped row has no note
+    assert rows[worst_row].state_label.text() == "1.4 µm"
+    loaded._on_status_link(f"pair:{worst_row}")
+    assert lw.selected_coordinate is _fm(loaded)[worst_row]
+    assert loaded._results_tab._lbl_worst.text().startswith(f"FM {worst_row + 1},")
+    assert loaded._results_tab._table.item(5, 0).text() == f"FM {worst_row + 1}"
+
+
 def test_a_seeded_run_shows_the_verdict_and_annotates_the_rows(loaded):
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
@@ -597,8 +639,10 @@ def test_a_poor_previous_run_does_not_supply_an_offset(loaded):
 
 
 def test_a_run_records_the_offset_its_fiducials_measured(loaded):
-    """Pairs accepted where the offset-corrected projection put them measure
-    that same offset back; pairs the user moves change it by the move."""
+    """Only pairs the user placed measure the offset. Predictions accepted
+    where the offset-corrected projection put them would echo the previous
+    offset back, so a run of accepted pairs records nothing, and accepted
+    pairs beside placed ones do not dilute what the placed ones say."""
     from fibsem.correlation.structures import CorrelationResult
 
     loaded.set_prior_runs(_offset_runs([3.0, -4.0]))
@@ -607,14 +651,16 @@ def test_a_run_records_the_offset_its_fiducials_measured(loaded):
     loaded.accept_all_predictions()
     loaded._run_nominal, _ = loaded._nominal_transform()
     result = CorrelationResult(input_data=loaded.fit_data)
-    assert np.allclose(loaded._measure_placement_offset(result), [3.0, -4.0], atol=1e-6)
+    assert loaded._measure_placement_offset(result) is None
 
-    # move every FM point 10 FM px in x: the FIB-side translation moves by
-    # minus the prior's in-plane map of that shift
+    # move two FM points 10 FM px in x, as a drop would: the FIB-side
+    # translation moves by minus the prior's in-plane map of that shift,
+    # measured from those two alone
     P = loaded._run_nominal.projection
     px_um = ARCTIS["fib"]["pixel_size"] * 1e6
-    for c in _fm(loaded):
+    for c in _fm(loaded)[:2]:
         c.point.x += 10.0
+        c.status = PointStatus.PLACED  # the user's, from here on
     result = CorrelationResult(input_data=loaded.fit_data)
     expected = np.array([3.0, -4.0]) - (P[:, :2] @ [10.0, 0.0]) * px_um
     assert np.allclose(loaded._measure_placement_offset(result), expected, atol=1e-6)
