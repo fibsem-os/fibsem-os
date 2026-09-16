@@ -976,12 +976,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         btn_refresh_objective.clicked.connect(
             lambda: self.fm_objective_widget.update_objective_position_labels(None)
         )
-        objective_panel = TitledPanel(
+        self.objective_panel = TitledPanel(
             "Objective", content=self.fm_objective_widget, collapsible=True
         )
-        objective_panel.add_header_widget(btn_refresh_objective)
-        objective_panel.collapse()
-        layout.addWidget(objective_panel)
+        self.objective_panel.add_header_widget(btn_refresh_objective)
+        self.objective_panel.collapse()
+        layout.addWidget(self.objective_panel)
 
         # where the objective started from, while a setup task holds the viewer
         self.label_objective_hint = QLabel("")
@@ -2751,6 +2751,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._info_widget.show_setup(True)
         self._set_border_state("waiting")
         self.tab_widget.setCurrentIndex(3)  # Fluorescence: objective + channel
+        # focusing is the point of the hand-off; the panel that moves the
+        # objective is collapsed for manual use and would be missed here
+        self.objective_panel.expand()
         self.show()
         self.raise_()
         self.activateWindow()
