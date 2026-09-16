@@ -46,9 +46,11 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     TileOrderStrategy,
 )
-from fibsem.ui.tokens import TEXT_MUTED_COLOR
+from fibsem.ui import stylesheets
+from fibsem.ui.tokens import NEUTRAL_400, TEXT_MUTED_COLOR
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
     QDirectoryLineEdit,
     TitledPanel,
     ValueComboBox,
@@ -175,6 +177,31 @@ class FibsemOverviewSettingsWidget(QWidget):
             "run takes longer than this."
         )
 
+        # The scan's integration controls, as the Image tab's advanced toggle
+        # shows them: line and frame integration, interlacing, drift correction.
+        # A value of 1 is "off" and reads as None on the settings, as it does
+        # there. Behind a toggle, since a tile at 1 us and no integration is the
+        # usual overview and four more rows would bury the grid below the fold.
+        self.btn_advanced = IconToolButton(
+            icon="mdi:tune",
+            color=NEUTRAL_400,
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+            checkable=True,
+        )
+        self.spin_line_integration = self._field(
+            ValueSpinBox(minimum=1, maximum=255, step=1, decimals=0)
+        )
+        self.spin_scan_interlacing = self._field(
+            ValueSpinBox(minimum=1, maximum=8, step=1, decimals=0)
+        )
+        self.spin_frame_integration = self._field(
+            ValueSpinBox(minimum=1, maximum=512, step=1, decimals=0)
+        )
+        self.check_drift_correction = QCheckBox()
+
         form = self._form()
         form.addRow("Beam", self.combo_beam)
         form.addRow("Resolution", self.combo_resolution)
@@ -182,8 +209,59 @@ class FibsemOverviewSettingsWidget(QWidget):
         form.addRow("Field of view", self.spin_hfw)
         form.addRow("Auto contrast", self.combo_autocontrast)
         form.addRow("Scan time", self.label_scan_time)
-        self.imaging_panel = self._panel("Imaging", form)
+        # The advanced rows go in and out of the form rather than hiding in
+        # place: a form layout keeps its row spacing for a hidden row, and four
+        # of them left a blank band above Scan time. Labels are kept here, so
+        # they survive being taken out.
+        self._advanced_rows = [
+            (QLabel("Line integration"), self.spin_line_integration),
+            (QLabel("Scan interlacing"), self.spin_scan_interlacing),
+            (QLabel("Frame integration"), self.spin_frame_integration),
+            (QLabel("Drift correction"), self.check_drift_correction),
+        ]
+        self._advanced_fields = [field for _, field in self._advanced_rows]
+        self._advanced_labels = [label for label, _ in self._advanced_rows]
+        self._imaging_form = form
+        self._advanced_shown = False
+        for label, field in self._advanced_rows:
+            label.hide()
+            field.hide()
+        self.imaging_panel = self._panel("Imaging", form, header=self.btn_advanced)
+        self._apply_advanced_visibility()
         return self.imaging_panel
+
+    def _apply_advanced_visibility(self, *_) -> None:
+        show = self.btn_advanced.isChecked()
+        if show != self._advanced_shown:
+            form = self._imaging_form
+            if show:
+                # After Auto contrast, ahead of Scan time.
+                row = form.getWidgetPosition(self.combo_autocontrast)[0] + 1
+                for offset, (label, field) in enumerate(self._advanced_rows):
+                    form.insertRow(row + offset, label, field)
+                    label.show()
+                    field.show()
+            else:
+                for label, field in self._advanced_rows:
+                    form.takeRow(field)
+                    label.hide()
+                    field.hide()
+            self._advanced_shown = show
+        self._apply_drift_correction_state()
+
+    def _apply_drift_correction_state(self, *_) -> None:
+        """Drift correction is a frame-integration option: greyed, and unticked,
+        without it, as on the Image tab."""
+        enabled = self.spin_frame_integration.value() > 1
+        tooltip = "" if enabled else "Requires frame integration above 1"
+        self.check_drift_correction.setEnabled(enabled)
+        self.check_drift_correction.setToolTip(tooltip)
+        label = self._advanced_labels[-1]
+        if label is not None:
+            label.setEnabled(enabled)
+            label.setToolTip(tooltip)
+        if not enabled and self.check_drift_correction.isChecked():
+            self.check_drift_correction.setChecked(False)
 
     def _focus_panel(self) -> TitledPanel:
         """*When* to focus while walking the grid. Not the same question as the focus
@@ -215,7 +293,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.label_focus_note.hide()
 
         form = self._form()
-        form.addRow("Auto-focus", self.combo_autofocus)
+        form.addRow("Auto focus", self.combo_autofocus)
         form.addRow("", self.label_focus_note)
         self.focus_panel = self._panel("Focus", form, collapsed=True)
         return self.focus_panel
@@ -232,7 +310,7 @@ class FibsemOverviewSettingsWidget(QWidget):
 
         form = self._form()
         form.addRow("Steps", self.spin_focus_steps)
-        form.addRow("Auto-focus each", self.check_focus_autofocus)
+        form.addRow("Auto focus each", self.check_focus_autofocus)
         # "Stack", not "Focus stack": it sits directly under "Focus", which already
         # supplies that half of the name, and it is the counterpart to the fluorescence
         # tab's "Z-Stack" -- one word each, differing only in what is varied.
@@ -263,6 +341,14 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.spin_dwell.valueChanged.connect(self._on_changed)
         self.spin_hfw.valueChanged.connect(self._on_changed)
         self.combo_autocontrast.currentIndexChanged.connect(self._on_changed)
+        self.btn_advanced.toggled.connect(self._apply_advanced_visibility)
+        self.spin_line_integration.valueChanged.connect(self._on_changed)
+        self.spin_scan_interlacing.valueChanged.connect(self._on_changed)
+        self.spin_frame_integration.valueChanged.connect(
+            self._apply_drift_correction_state
+        )
+        self.spin_frame_integration.valueChanged.connect(self._on_changed)
+        self.check_drift_correction.toggled.connect(self._on_changed)
         self.check_focus_stack.toggled.connect(self._on_focus_stack_toggled)
         self.spin_focus_steps.valueChanged.connect(self._on_changed)
         self.check_focus_autofocus.toggled.connect(self._on_changed)
@@ -346,7 +432,14 @@ class FibsemOverviewSettingsWidget(QWidget):
         is a coupling to this widget's internal shape rather than to what it does."""
         self.path_edit.setText(str(path) if path else "")
 
+    @staticmethod
+    def _integration(spin: ValueSpinBox) -> Optional[int]:
+        """1 is "off", and the settings spell that None."""
+        value = int(spin.value())
+        return value if value > 1 else None
+
     def get_settings(self) -> OverviewAcquisitionSettings:
+        frame_integration = self._integration(self.spin_frame_integration)
         autocontrast_mode = self.combo_autocontrast.value()
         return OverviewAcquisitionSettings(
             image_settings=ImageSettings(
@@ -360,6 +453,13 @@ class FibsemOverviewSettingsWidget(QWidget):
                 save=True,
                 path=self.path_edit.text() or None,
                 filename=self.filename_edit.text(),
+                line_integration=self._integration(self.spin_line_integration),
+                scan_interlacing=self._integration(self.spin_scan_interlacing),
+                frame_integration=frame_integration,
+                drift_correction=(
+                    frame_integration is not None
+                    and self.check_drift_correction.isChecked()
+                ),
             ),
             nrows=self.grid.rows,
             ncols=self.grid.cols,
@@ -384,6 +484,10 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.spin_dwell,
             self.spin_hfw,
             self.combo_autocontrast,
+            self.spin_line_integration,
+            self.spin_scan_interlacing,
+            self.spin_frame_integration,
+            self.check_drift_correction,
             self.check_focus_stack,
             self.spin_focus_steps,
             self.check_focus_autofocus,
@@ -399,6 +503,10 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.spin_dwell.setValue(image.dwell_time * constants.SI_TO_MICRO)
             self.spin_hfw.setValue(image.hfw * constants.SI_TO_MICRO)
             self.combo_autocontrast.set_value(settings.autocontrast_mode)
+            self.spin_line_integration.setValue(image.line_integration or 1)
+            self.spin_scan_interlacing.setValue(image.scan_interlacing or 1)
+            self.spin_frame_integration.setValue(image.frame_integration or 1)
+            self.check_drift_correction.setChecked(bool(image.drift_correction))
             self.check_focus_stack.setChecked(settings.focus_stack_settings.enabled)
             self.spin_focus_steps.setValue(settings.focus_stack_settings.n_steps)
             self.check_focus_autofocus.setChecked(
@@ -418,5 +526,6 @@ class FibsemOverviewSettingsWidget(QWidget):
             tile_order=settings.tile_order,
             mask=settings.tile_mask,
         )
+        self._apply_drift_correction_state()
         self._on_focus_stack_toggled()
         self._refresh_derived()
