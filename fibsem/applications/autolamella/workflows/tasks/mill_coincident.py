@@ -295,17 +295,29 @@ class MillCoincidentTask(AutoLamellaTask):
         return milling_task_config
 
     def _record_end_reason(self, milling_task_config: FibsemMillingTaskConfig) -> None:
-        """Say why each coincidence stage ended, so a batch reads without the folders."""
+        """Say why each coincidence stage ended, so a batch reads without the folders.
+
+        Logged now, and kept for the task history's status message: the record
+        of a monitored mill should say "drop" or "completed", not "Finished".
+        """
         reasons = []
         for stage in milling_task_config.enabled_stages:
             strategy = stage.strategy
             if isinstance(strategy, CoincidenceMillingStrategy):
                 reasons.append(f"{stage.name}: {strategy.end_reason or 'unknown'}")
+        self._end_reasons = reasons
         if reasons:
             self.log_status_message(
                 "MILL_COINCIDENT_END",
                 "Coincidence milling ended: " + "; ".join(reasons),
             )
+
+    @property
+    def finished_message(self) -> str:
+        reasons = getattr(self, "_end_reasons", None)
+        if not reasons:
+            return "Finished"
+        return "Finished · " + "; ".join(reasons)
 
     def _fluorescence_config(self) -> Optional[AcquireFluorescenceImageConfig]:
         for task_config in self.lamella.task_config.values():
