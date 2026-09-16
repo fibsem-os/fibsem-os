@@ -343,3 +343,24 @@ def test_a_held_exit_keeps_the_lock_until_the_next_site_or_the_end(viewer, qapp)
     assert viewer.lamella_list_widget.isEnabled()
     assert viewer.btn_milling.isVisible()
     assert viewer.milling_viewer_widget.get_config().name == manual_before
+
+
+def test_shift_scroll_on_the_fm_quadrant_steps_the_objective(viewer, qapp):
+    """As on the main FM canvas: Shift+scroll nudges the objective by the step
+    size, plain scroll is left to the canvas zoom."""
+    objective = viewer.fm_objective_widget
+    objective.update_objective_position_labels()
+    before = objective.doubleSpinBox_objective_position.value()
+    step = objective.doubleSpinBox_objective_step_size.value()
+
+    viewer.fm_canvas.canvas.canvas_scrolled.emit(10.0, 10.0, 1, ("Shift",))
+    qapp.processEvents()
+    assert objective.doubleSpinBox_objective_position.value() == pytest.approx(
+        before + step
+    )
+
+    viewer.fm_canvas.canvas.canvas_scrolled.emit(10.0, 10.0, 1, ())
+    qapp.processEvents()
+    assert objective.doubleSpinBox_objective_position.value() == pytest.approx(
+        before + step
+    )
