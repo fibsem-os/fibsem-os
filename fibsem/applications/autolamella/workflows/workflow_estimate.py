@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence
 
+from fibsem.applications.autolamella.structures import Attention
+
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
@@ -150,7 +152,9 @@ def estimate_workflow(
                 name=task_name,
                 lamella_count=count,
                 seconds=seconds,
-                supervised=workflow_config.get_supervision(task_name),
+                supervised=(
+                    workflow_config.get_attention(task_name) is Attention.supervised
+                ),
                 scheduled_at=scheduled_at,
                 hold_seconds=held,
             )

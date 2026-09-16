@@ -80,6 +80,11 @@ correctness work landed in correlation and in what the experiment record remembe
   the next task runs, is behind the "Review workflow (early access)" preference.
   A task waiting there is not finished: it shows as awaiting a decision, confirming
   completes it, and rejecting fails it (the lamella is not marked defective).
+- **One `attention` per task in the protocol.** A workflow task says `attention:
+  automated`, `supervised` or `review` in place of the `supervise` and `review`
+  flags; protocols saved with the flags still load and are written back in the new
+  form. A task that requires a reviewed task says so in its row: "after review of
+  Setup Lamella Position".
 - **The running queue can be edited while it runs.** Reorder, remove, re-run and
   "run next" from the Workflow Timeline's row menu, and add work from its header.
   Edits are anchored to the piece of work rather than to its position, so they do

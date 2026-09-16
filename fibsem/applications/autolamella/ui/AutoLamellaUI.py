@@ -82,6 +82,7 @@ from fibsem.applications.autolamella.poses import (
     sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
     AutoLamellaWorkflowOptions,
@@ -1258,7 +1259,9 @@ class AutoLamellaUI(QMainWindow):
         started = self.is_workflow_running
         if started and parent is not None:
             try:
-                supervised = protocol.get_supervision(task_names[0])
+                supervised = (
+                    protocol.get_attention(task_names[0]) is Attention.supervised
+                )
                 parent._set_border_state("supervised" if supervised else "automated")
                 # Show the Stop button immediately — a remotely started run
                 # must be just as cancellable as a clicked one.

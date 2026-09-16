@@ -89,6 +89,25 @@ class AutoLamellaTaskStatus(Enum):
     Removed = auto()  # pulled from the queue by the user before it ran
 
 
+class Attention(str, Enum):
+    """Who decides a task's record, and when. A property of the producing
+    task: it says whose decision the record carries. What waits on it follows
+    from the ``requires`` graph, not from a switch of its own.
+
+    automated  -- the producer confirms its own record after the task; the
+                  run continues.
+    supervised -- the operator, in the workflow's own question, at the
+                  microscope; the run waits there.
+    review     -- the operator, later, in the Review tab; the task ends
+                  AwaitingDecision and what requires it waits. Read as
+                  automated while the review preference is off.
+    """
+
+    automated = "automated"
+    supervised = "supervised"
+    review = "review"
+
+
 # AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
 # with a to_fibsem_user() bridge into image metadata. Nothing ever constructed one --
 # not the app, not a script, not a test -- so the bridge was never called and the
@@ -305,21 +324,20 @@ class AutoLamellaTaskConfig(ABC):
         self.reference_imaging.imaging = value
 
 
-def _review_flag(value: Any) -> bool:
-    """``review`` as a bool. For one interim version it was a mode string;
-    a protocol saved then still loads: "gate" is the gate, anything else is
-    not (the record it asked for is what every task does now)."""
-    if isinstance(value, str):
-        return value.strip().lower() in ("gate", "true", "yes", "on")
-    return bool(value)
+def _attention(supervised: bool) -> Attention:
+    """An old protocol's per-stage supervision flag as an attention."""
+    return Attention.supervised if supervised else Attention.automated
 
 
 @evented
 @dataclass
 class AutoLamellaTaskDescription:
     name: str  # unique_name
-    supervise: bool
-    required: bool
+    required: bool = True
+    # Whose decision this task's record carries, and when (see Attention).
+    # Whether a task records a proposal at all is a property of the task kind,
+    # in code; it records in every mode.
+    attention: Attention = Attention.automated
     requires: List[str] = field(default_factory=list)
     scheduled_at: Optional[datetime] = None
     # Who a supervised task's questions are addressed to: "human" (the
@@ -327,21 +345,13 @@ class AutoLamellaTaskDescription:
     # agent answers; the operator can still answer first). Display-and-watchdog
     # semantics only — prompts are raised identically either way.
     supervisor: str = "human"
-    # Review: the task's proposal gates the tasks that require it -- they are
-    # deferred until someone confirms or rejects it in the Review tab, off the
-    # microscope. This is the only thing the protocol decides about review.
-    # Whether a task records a proposal at all is a property of the task kind
-    # (in code), and it records in every mode: automated (the producer
-    # confirms its own proposal and the run goes on), supervised (the answer
-    # given in the workflow is the decision) or review (this flag). Ignored
-    # unless the feature flag is on.
-    review: bool = False
 
     def __post_init__(self) -> None:
-        self.review = _review_flag(self.review)
+        self.attention = Attention(self.attention)
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
+        d["attention"] = self.attention.value
         if d.get("scheduled_at") is not None:
             d["scheduled_at"] = self.scheduled_at.isoformat()
         return d
@@ -349,7 +359,17 @@ class AutoLamellaTaskDescription:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AutoLamellaTaskDescription":
         if data is None:
-            return cls(name="", supervise=False, required=False, requires=[])
+            return cls(name="", required=False)
+        data = dict(data)
+        if "attention" not in data:
+            # Written before attention existed, as two flags. Supervised wins
+            # when a file has both: if you are at the microscope for it, you
+            # answer there. FIB-998 drops this once nothing is on that form.
+            review = data.pop("review", False)
+            if data.pop("supervise", False):
+                data["attention"] = Attention.supervised
+            elif review is True or str(review).strip().lower() in ("gate", "true"):
+                data["attention"] = Attention.review
         # Known fields only: a protocol written by a newer version (with fields
         # this one does not know) must load, not crash on an unexpected kwarg.
         known = {f.name for f in fields(cls)}
@@ -433,20 +453,13 @@ class AutoLamellaWorkflowConfig:
                 return False
         return True
 
-    def get_supervision(self, task_name: str) -> bool:
-        """Check if a task requires supervision."""
+    def get_attention(self, task_name: str) -> Attention:
+        """Who decides the task's record, and when; automated for a task the
+        workflow does not list."""
         for task in self.tasks:
             if task.name == task_name:
-                return task.supervise
-        return False
-
-    def get_review(self, task_name: str) -> bool:
-        """Whether the task's proposal gates the tasks that require it (see
-        AutoLamellaTaskDescription.review)."""
-        for task in self.tasks:
-            if task.name == task_name:
-                return task.review
-        return False
+                return task.attention
+        return Attention.automated
 
     def get_supervisor(self, task_name: str) -> str:
         """Who a supervised task's questions are addressed to: human or agent."""
@@ -466,7 +479,7 @@ class AutoLamellaWorkflowConfig:
         """Add a task to the workflow configuration."""
         self.tasks.append(
             AutoLamellaTaskDescription(
-                name=task.task_name, supervise=True, required=True, requires=[]
+                name=task.task_name, required=True, attention=Attention.supervised
             )
         )
 
@@ -690,12 +703,8 @@ class AutoLamellaTaskProtocol:
                 sort_keys=False,
             )
 
-    def get_supervision(self, task_name: str) -> bool:
-        """Check if a task requires supervision."""
-        return self.workflow_config.get_supervision(task_name)
-
-    def get_review(self, task_name: str) -> bool:
-        return self.workflow_config.get_review(task_name)
+    def get_attention(self, task_name: str) -> Attention:
+        return self.workflow_config.get_attention(task_name)
 
     def get_supervisor(self, task_name: str) -> str:
         """Who a supervised task's questions are addressed to: human or agent."""
@@ -803,23 +812,31 @@ class AutoLamellaTaskProtocol:
             workflow_config.tasks = [
                 AutoLamellaTaskDescription(
                     name=SETUP_LAMELLA_POSITION_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.SetupLamella],
+                    attention=_attention(
+                        protocol.supervision[AutoLamellaStage.SetupLamella]
+                    ),
                     required=True,
                 ),
                 AutoLamellaTaskDescription(
                     name=MILL_FIDUCIAL_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.SetupLamella],
+                    attention=_attention(
+                        protocol.supervision[AutoLamellaStage.SetupLamella]
+                    ),
                     required=True,
                 ),
                 AutoLamellaTaskDescription(
                     name=ROUGH_MILLING_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.MillRough],
+                    attention=_attention(
+                        protocol.supervision[AutoLamellaStage.MillRough]
+                    ),
                     required=True,
                     requires=[MILL_FIDUCIAL_TASK_NAME],
                 ),
                 AutoLamellaTaskDescription(
                     name=POLISHING_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.MillPolishing],
+                    attention=_attention(
+                        protocol.supervision[AutoLamellaStage.MillPolishing]
+                    ),
                     required=True,
                     requires=[ROUGH_MILLING_TASK_NAME],
                 ),
@@ -840,7 +857,9 @@ class AutoLamellaTaskProtocol:
                 0,
                 AutoLamellaTaskDescription(
                     name=TRENCH_MILLING_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.MillTrench],
+                    attention=_attention(
+                        protocol.supervision[AutoLamellaStage.MillTrench]
+                    ),
                     required=True,
                 ),
             )
@@ -860,7 +879,9 @@ class AutoLamellaTaskProtocol:
                 1,
                 AutoLamellaTaskDescription(
                     name=UNDERCUT_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.MillUndercut],
+                    attention=_attention(
+                        protocol.supervision[AutoLamellaStage.MillUndercut]
+                    ),
                     required=True,
                     requires=[TRENCH_MILLING_TASK_NAME],
                 ),
@@ -2415,7 +2436,7 @@ class Experiment:
                 "order": i,
                 "task_name": t.name,
                 "required": t.required,
-                "supervised": t.supervise,
+                "attention": t.attention.value,
             }
             wlist.append(deepcopy(ddict))
 

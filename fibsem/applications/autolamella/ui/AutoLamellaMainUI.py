@@ -43,6 +43,7 @@ from superqt import ensure_main_thread
 import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskStatus,
     Experiment,
     Lamella,
@@ -1975,7 +1976,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         for task in protocol.workflow_config.tasks:
             if task.name == self._current_task_name:
-                task.supervise = not task.supervise
+                task.attention = (
+                    Attention.automated
+                    if task.attention is Attention.supervised
+                    else Attention.supervised
+                )
                 break
         self._update_supervised_status()
         if self.autolamella_ui.is_workflow_running:
@@ -2871,10 +2876,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_list_widget = self.lamella_workflow_widget.lamella_list
 
         # Workflow task signals — each change persists the updated config to disk
-        self.lamella_workflow_widget.task_supervised_changed.connect(
-            self._save_workflow_config
-        )
-        self.lamella_workflow_widget.task_review_changed.connect(
+        self.lamella_workflow_widget.task_attention_changed.connect(
             self._save_workflow_config
         )
         self.lamella_workflow_widget.task_edited.connect(self._save_workflow_config)

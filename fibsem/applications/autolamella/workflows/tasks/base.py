@@ -44,6 +44,7 @@ from fibsem.applications.autolamella.protocol.constants import (
     UNDERCUT_KEY,
 )
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskConfig,
     AutoLamellaTaskState,
     AutoLamellaTaskStatus,
@@ -178,7 +179,7 @@ class AutoLamellaTask(ABC):
         protocol = getattr(manager.experiment, "task_protocol", None)
         if protocol is None:
             return False
-        return bool(protocol.get_review(self.task_name))
+        return protocol.get_attention(self.task_name) is Attention.review
 
     def _settle_proposal(self) -> None:
         """What happens to a proposal nobody answered inline, once the run is
@@ -955,4 +956,5 @@ def get_task_supervision(
     if parent_ui.experiment is None or parent_ui.experiment.task_protocol is None:
         logging.warning("Parent UI experiment task protocol is None.")
         return False
-    return parent_ui.experiment.task_protocol.get_supervision(task_name)
+    protocol = parent_ui.experiment.task_protocol
+    return protocol.get_attention(task_name) is Attention.supervised

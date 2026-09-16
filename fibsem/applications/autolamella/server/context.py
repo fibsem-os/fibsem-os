@@ -31,7 +31,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fibsem.applications.autolamella import task_outputs as _task_outputs
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
 
 __all__ = ["AgentContext", "ITEM_PATCH_FIELDS", "config_version", "item_fields_version"]
 
@@ -366,7 +366,10 @@ class AgentContext:
             "tasks": [
                 {
                     "name": task.name,
-                    "supervise": task.supervise,
+                    "attention": task.attention.value,
+                    # the boolean the /supervision verb takes, for the agents
+                    # that read it back
+                    "supervise": task.attention is Attention.supervised,
                     "supervisor": getattr(task, "supervisor", "human"),
                     "required": task.required,
                     "requires": list(task.requires),
@@ -860,9 +863,11 @@ class AgentContext:
                     "item_id": item.id,
                     "item_name": item.name,
                     "task_name": task_name,
-                    "gated": bool(protocol.get_review(task_name))
-                    if protocol
-                    else False,
+                    "gated": (
+                        protocol.get_attention(task_name) is Attention.review
+                        if protocol
+                        else False
+                    ),
                     "waiting_on": waiting_on(experiment, task_name),
                 }
             )
@@ -1413,7 +1418,9 @@ class AgentContext:
             return {"available": False, "applied": False}
         for task in config.tasks:
             if task.name == task_name:
-                task.supervise = bool(supervise)
+                task.attention = (
+                    Attention.supervised if supervise else Attention.automated
+                )
                 if supervisor is not None:
                     task.supervisor = supervisor
                 return {

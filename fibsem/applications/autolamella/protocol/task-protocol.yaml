@@ -145,21 +145,21 @@ workflow:
   description: ""
   tasks:
     - name: Setup Lamella Position
-      supervise: true
+      attention: supervised
       required: true
       requires: []
     - name: Mill Fiducial
-      supervise: true
+      attention: supervised
       required: true
       requires:
         - Setup Lamella Position
     - name: Rough Milling
-      supervise: true
+      attention: supervised
       required: true
       requires:
         - Mill Fiducial
     - name: Polishing
-      supervise: true
+      attention: supervised
       required: true
       requires:
         - Rough Milling

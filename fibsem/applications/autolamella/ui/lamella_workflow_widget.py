@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
     AutoLamellaWorkflowOptions,
@@ -135,7 +136,7 @@ class _TaskEditorDialog(QDialog):
         layout.setSpacing(0)
 
         self.editor = WorkflowTaskEditorWidget(
-            task=AutoLamellaTaskDescription(name="", supervise=False, required=True),
+            task=AutoLamellaTaskDescription(name="", required=True),
         )
         # Use the editor's own styled Apply/Cancel buttons as the dialog actions.
         self.editor.apply_clicked.connect(self.accept)
@@ -189,8 +190,7 @@ class LamellaWorkflowWidget(QWidget):
     lamella_selection_changed = pyqtSignal(list)  # List[Lamella]
 
     # ── workflow signals ─────────────────────────────────────────────────
-    task_supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
-    task_review_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
+    task_attention_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     task_edited = pyqtSignal(object)  # AutoLamellaTaskDescription (after apply)
     task_remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
     task_added = pyqtSignal(object)  # AutoLamellaTaskDescription
@@ -275,8 +275,7 @@ class LamellaWorkflowWidget(QWidget):
         self.lamella_list.defect_changed.connect(self.lamella_defect_changed)
         self.lamella_list.selection_changed.connect(self.lamella_selection_changed)
 
-        self.workflow.supervised_changed.connect(self.task_supervised_changed)
-        self.workflow.review_changed.connect(self.task_review_changed)
+        self.workflow.attention_changed.connect(self.task_attention_changed)
         self.workflow.edit_requested.connect(self._on_task_edit_requested)
         self.workflow.remove_requested.connect(self.task_remove_requested)
         self.workflow.selection_changed.connect(self.task_selection_changed)
@@ -404,7 +403,7 @@ class LamellaWorkflowWidget(QWidget):
             if task_name is None:
                 return
             task = AutoLamellaTaskDescription(
-                name=task_name, supervise=True, required=True
+                name=task_name, required=True, attention=Attention.supervised
             )
             self.workflow.add_task(task)
             self.task_added.emit(task)
