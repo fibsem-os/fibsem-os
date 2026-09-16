@@ -158,7 +158,10 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # select point of interest -- under review it is proposed at the end of
         # the task instead, on the final reference image; otherwise the answer
         # given here (supervised) is the decision on that proposal
+        # The point as it stands before anyone is asked: what the proposal
+        # says, so the delta against the answer is what the operator moved.
         chosen: Optional[Point] = None
+        prior_poi = Point(self.lamella.poi.x, self.lamella.poi.y)
         if self.config.select_poi and not self.review:
             poi = select_poi_ui(
                 parent_ui=self.parent_ui,
@@ -207,9 +210,11 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # answer is its decision. Neither: the producer confirms it after the
         # task, and the row is there to check.
         if self.config.select_poi:
-            self._propose_poi(decided=chosen)
+            self._propose_poi(decided=chosen, proposed=prior_poi)
 
-    def _propose_poi(self, decided: Optional[Point] = None) -> None:
+    def _propose_poi(
+        self, decided: Optional[Point] = None, proposed: Optional[Point] = None
+    ) -> None:
         """Leave the point of interest as a proposal, in every mode.
 
         The task still completes -- everything after this step is independent
@@ -223,12 +228,15 @@ class SelectMillingPositionTask(AutoLamellaTask):
         the decision without a second write-through, and the delta between it
         and the proposer's point is what supervised runs used to throw away.
 
+        ``proposed`` is the point the proposal carries: the lamella's point as
+        it stood when the task started, before the operator was asked.
+
         Re-running the task is a deliberate act: a proposal that already has
         decisions is superseded, not kept and not overwritten. It moves, with
         its decisions and delta, onto the new proposal's record, and the new
-        one is pending on the new image. The old value is not carried over as
-        the default. (A stalled run resumes without re-running completed
-        tasks, so that case never reaches here.)
+        one is pending on the new image, proposing the point the last decision
+        left on the lamella. (A stalled run resumes without re-running
+        completed tasks, so that case never reaches here.)
         """
         existing = self.lamella.proposals.get(self.task_name)
         # The first of the final set is the tightest field of view; the
@@ -240,7 +248,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 getattr(self._last_fib_image, "metadata", None), "image_settings", None
             )
             image_name = f"{settings.filename}_ib.tif" if settings else ""
-        proposal = propose_milling_setup(self.lamella, image_name)
+        proposal = propose_milling_setup(self.lamella, image_name, poi=proposed)
         if proposal is None:
             logging.info(
                 f"{self.lamella.name}: nothing after {self.task_name} consumes a "
@@ -381,22 +389,29 @@ def consumed_values(lamella: "Lamella") -> List[str]:
 
 
 def propose_milling_setup(
-    lamella: "Lamella", reference_image: str = ""
+    lamella: "Lamella", reference_image: str = "", poi: Optional[Point] = None
 ) -> Optional[Proposal]:
-    """The v1 proposer: the centre of the image, which is today's default
-    position (a lamella's point of interest starts at the origin of the milling
-    frame). It exists to get the machinery running, not to be right -- no
+    """The v1 proposer: the point of interest the lamella already has. For a
+    lamella nobody has touched that is the origin of the milling frame, the
+    centre of the image; for one that correlation, a script or an earlier
+    decision positioned, it is that point, so proposing does not undo it. No
     confidence, no alternatives. A real proposer is a swap for this function
     with the same return type.
+
+    ``poi`` is the point to propose when the caller captured it before
+    something wrote to the lamella (the supervised question does); default is
+    the lamella's point now.
 
     None when nothing consumes a point, so no empty proposals are recorded.
     """
     values = consumed_values(lamella)
     if not values:
         return None
+    if poi is None:
+        poi = lamella.poi
     provenance: Dict[str, Any] = {
-        "proposer": "centre-of-image",
-        "version": 1,
+        "proposer": "current-poi",
+        "version": 2,
         "values": values,
     }
     if reference_image:
@@ -405,7 +420,7 @@ def propose_milling_setup(
         provenance["reference_image"] = reference_image
     return Proposal(
         kind=MILLING_SETUP,
-        values={"poi": Point(0.0, 0.0)},
+        values={"poi": Point(poi.x, poi.y)},
         confidence=None,
         provenance=provenance,
     )
