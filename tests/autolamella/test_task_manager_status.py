@@ -463,12 +463,14 @@ def test_a_run_that_drains_on_pending_reviews_is_stalled_not_completed(tmp_path)
     assert l1.proposals["Trench"].pending
 
 
-def test_a_decision_during_the_wait_wakes_the_run(tmp_path):
+def test_a_decision_during_the_wait_wakes_the_run(tmp_path, caplog):
+    import logging
     import threading
 
     from fibsem.applications.autolamella.proposals import Decision, DecisionOutcome
 
     m, l1 = _review_manager(tmp_path, review_wait=10.0)
+    caplog.set_level(logging.INFO)
 
     def decide_soon():
         time.sleep(0.3)
@@ -488,16 +490,30 @@ def test_a_decision_during_the_wait_wakes_the_run(tmp_path):
     assert run_queue_with(m) == [("L1", "Undercut")]
     assert time.monotonic() - started < 5.0, "woke on the decision, not the timeout"
     assert m.stalled is False
+    # the one place "why is nothing happening" is a fair question says so
+    messages = [r.message for r in caplog.records]
+    assert any(
+        m_.startswith("Parked: 1 task(s) wait on 1 decision(s) in the Review tab")
+        and "L1/Undercut" in m_
+        and "giving up after" in m_
+        for m_ in messages
+    ), messages
+    assert any(m_.startswith("A decision landed after") for m_ in messages)
 
 
-def test_the_wait_is_measured_as_inactivity_and_gives_up(tmp_path):
+def test_the_wait_is_measured_as_inactivity_and_gives_up(tmp_path, caplog):
+    import logging
+
     m, _l1 = _review_manager(tmp_path, review_wait=0.5)
+    caplog.set_level(logging.INFO)
     started = time.monotonic()
     assert run_queue_with(m) == []
     elapsed = time.monotonic() - started
     assert 0.4 < elapsed < 3.0
     assert m.stalled is True
     assert "pending" in m.stall_reason
+    warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("still pending after" in w for w in warnings), warnings
 
 
 def test_stop_ends_the_wait_as_cancelled(tmp_path):

@@ -71,6 +71,13 @@ correctness work landed in correlation and in what the experiment record remembe
 
 ### Workflow
 
+- **Every task records what it did.** A task that proposes something (Setup
+  proposes the milling position; milling tasks record their result with the final
+  images) leaves that proposal in the experiment record in every mode, with who
+  decided it and where: the producer itself when automated, your answer in the
+  workflow when supervised. Nothing about how a run behaves has changed; the record
+  is new. The Review tab, where a task's answer can wait for your decision before
+  the next task runs, is behind the "Review workflow (early access)" preference.
 - **The running queue can be edited while it runs.** Reorder, remove, re-run and
   "run next" from the Workflow Timeline's row menu, and add work from its header.
   Edits are anchored to the piece of work rather than to its position, so they do

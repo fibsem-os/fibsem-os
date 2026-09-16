@@ -319,8 +319,10 @@ class LamellaEditorView(QWidget):
 
         self._sem_panel = _titled("SEM", self.sem_canvas)
         self._sem_panel.setVisible(False)  # shown on demand via set_sem_visible()
+        # SEM on the left, FIB on the right: the same order as the Microscope
+        # tab's quad view, so a side-by-side pair reads the same everywhere.
         self._beams_page = _splitter(
-            Qt.Horizontal, _titled("FIB", self.fib_canvas), self._sem_panel
+            Qt.Horizontal, self._sem_panel, _titled("FIB", self.fib_canvas)
         )
 
         self._stack = QStackedWidget()

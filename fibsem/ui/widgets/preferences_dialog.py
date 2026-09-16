@@ -64,11 +64,12 @@ _TIP_GRID_WORKFLOW = (
     "the holder or autoloader, and acquire SEM, FIB and fluorescence overviews of "
     "each. In development; the Microscope tab's Sample view is available either way."
 )
-_LBL_PROPOSE_REVIEW = "Enable Propose and Review"
+_LBL_PROPOSE_REVIEW = "Review workflow (early access)"
 _TIP_PROPOSE_REVIEW = (
-    "Let a task finish and leave its answer -- the point of interest, to start "
-    "with -- as a proposal for you to confirm or reject later in the Review tab, "
-    "instead of waiting at the beam for you to answer. In development."
+    "Show the Review tab and let a task's answer wait there for you to confirm "
+    "or reject, instead of the next task running straight away. Every task "
+    "records what it did whether this is on or not; this shows the tab and "
+    "allows a task to be set to Review. Early access."
 )
 _LBL_AGENT_SERVER = "Enable Agent Server"
 _LBL_WATCHDOG = "Hand questions to me after"
