@@ -298,3 +298,51 @@ def test_loading_the_coincidence_tasks_does_not_warn_about_their_own_keys(caplog
         SetupCoincidenceMillingTaskConfig.from_dict(setup.to_dict())
         MillCoincidentTaskConfig.from_dict(mill.to_dict())
     assert "Unknown parameter" not in caplog.text
+
+
+def test_a_pattern_moved_in_the_lamella_editor_lands_on_the_setup_record(
+    qapp, microscope, tmp_path, monkeypatch
+):
+    """The mill puts every stage at the setup record's offset at run time, so a
+    move made in the lamella editor has to reach the record or it is silently
+    undone. The editor's write-through handler does that, and refreshes the
+    read-only Setup fields."""
+    from fibsem.applications.autolamella.structures import Experiment, Lamella
+    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
+        AutoLamellaProtocolEditorWidget,
+    )
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+
+    ui = AutoLamellaUI(parent_ui=None)
+    ui.microscope = microscope
+    experiment = Experiment(path=str(tmp_path), name="offset-writeback")
+    lamella = Lamella(path=tmp_path / "lam", number=1, petname="site")
+    lamella.path.mkdir(parents=True, exist_ok=True)
+    record = SetupCoincidenceMillingTaskConfig(task_name="Setup Coincidence Milling")
+    record.objective_position = 2.4e-3
+    record.pattern_offset = Point(0.0, 0.0)
+    mill = MillCoincidentTaskConfig(task_name="Coincidence Milling")
+    lamella.task_config[record.task_name] = record
+    lamella.task_config[mill.task_name] = mill
+    experiment.positions.append(lamella)
+    ui.experiment = experiment
+    monkeypatch.setattr(Experiment, "save", lambda self, **kw: None)
+
+    editor = AutoLamellaProtocolEditorWidget(parent=ui)
+    editor._selected_lamella = lamella
+    editor.listWidget_selected_task.set_tasks([record.task_name, mill.task_name])
+    editor.listWidget_selected_task.select(mill.task_name)
+    qapp.processEvents()
+
+    moved = deepcopy(mill)
+    for stage in moved.milling[MILL_COINCIDENT_KEY].enabled_stages:
+        stage.pattern.point = Point(3.0e-6, -1.0e-6)
+    editor._on_coincident_milling_settings_changed(moved)
+
+    assert record.pattern_offset.x == pytest.approx(3.0e-6)
+    assert record.pattern_offset.y == pytest.approx(-1.0e-6)
+    fields = editor.coincident_milling_task_config_widget._setup_fields
+    assert "+3.0 µm, -1.0 µm" in fields["pattern_offset"].text()
+    editor._save_timer.stop()
+    editor.close()
+    ui.close()

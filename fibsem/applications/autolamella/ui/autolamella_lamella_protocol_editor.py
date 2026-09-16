@@ -42,6 +42,7 @@ from fibsem.applications.autolamella.ui.edit_recording import PendingEdits
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     MillCoincidentTaskConfig,
+    SetupCoincidenceMillingTaskConfig,
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.fm.structures import FluorescenceImage
@@ -1093,6 +1094,23 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if selected_lamella is None or selected_task_name is None:
             return
         selected_lamella.task_config[selected_task_name] = config
+        # The mill runs the patterns where the setup record says, not where the
+        # config's stages sit; a pattern moved here has to land on the record or
+        # the move is silently undone at run time. Every stage shares the one
+        # offset, so the first enabled stage's point is it.
+        record = selected_lamella.task_config.get(config.setup_task)
+        if isinstance(record, SetupCoincidenceMillingTaskConfig):
+            stages = [
+                stage
+                for milling in config.milling.values()
+                for stage in milling.enabled_stages
+            ]
+            if stages:
+                point = stages[0].pattern.point
+                record.pattern_offset = Point(float(point.x), float(point.y))
+                self.coincident_milling_task_config_widget.set_setup_record(
+                    record, selected_lamella.name
+                )
         logging.info(
             f"Updated {selected_lamella.name}, {selected_task_name} Coincident Milling Settings"
         )

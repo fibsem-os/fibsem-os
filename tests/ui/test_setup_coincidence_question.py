@@ -163,6 +163,12 @@ def test_save_and_continue_records_what_the_operator_left(ui, qapp):
     mill = lamella.task_config["Coincidence Milling"]
     assert mill.monitoring_channel.name == "Monitoring"
     assert mill.monitoring_channel.exposure_time == pytest.approx(0.05)
+    # and so did the pattern offset: the lamella editor draws the stages where
+    # the mill will put them
+    for milling in mill.milling.values():
+        for stage in milling.enabled_stages:
+            assert stage.pattern.point.x == pytest.approx(2.0e-6)
+            assert stage.pattern.point.y == pytest.approx(1.0e-6)
     # the prompt is down; the viewer is held for the next site, and the end
     # of the workflow (not reached here: the task ran alone) releases it
     assert not viewer.in_setup_mode

@@ -701,17 +701,16 @@ class QtResponder(QObject):
     def _monitor_coincidence_mill(
         self, request: RunMillingTask, milling_widget
     ) -> None:
-        """A supervised coincidence mill opens the viewer attached to the run.
+        """A coincidence mill opens the viewer attached to the run.
 
-        Only when the question is supervised (``confirm``): an unsupervised batch
-        mills with the drop as its stop and never opens a window. The viewer
-        attaches to the strategies of the config the widget is actually running,
-        so the plot, the chip and the Supervised toggle act on the live run; its
-        Stop is the widget's Stop. Nothing here can fail the mill: a viewer that
-        will not open is logged and the run carries on without it.
+        Supervised or not: an automated batch mills with the drop as its stop,
+        and the viewer shows it doing so (its Run panel says which mode the
+        strategy is in). The viewer attaches to the strategies of the config
+        the widget is actually running, so the plot, the chip and the
+        Supervised toggle act on the live run; its Stop is the widget's Stop.
+        Nothing here can fail the mill: a viewer that will not open is logged
+        and the run carries on without it.
         """
-        if not request.confirm():
-            return
         running = milling_widget.running_config
         if running is None or not _has_coincidence_strategy(running):
             return
