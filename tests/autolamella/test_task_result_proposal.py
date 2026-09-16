@@ -117,8 +117,8 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
     assert p["reference_image"] == f"ref_{ROUGH}_final_res_01_ib.tif"
     assert p["reference_image_eb"] == f"ref_{ROUGH}_final_res_01_eb.tif"
     assert p["ended_at"] >= p["started_at"] > 0
-    assert lamella.has_completed_task(ROUGH)
-    assert task.task_manager._defer_reason(lamella, POLISH) == "awaiting_review"
+    assert lamella.is_awaiting_decision(ROUGH), "ran, not finished"
+    assert task.task_manager._defer_reason(lamella, POLISH) == "awaiting_decision"
 
     result = exp.decide(
         lamella.id,

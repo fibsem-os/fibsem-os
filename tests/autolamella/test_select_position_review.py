@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.proposals import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
+    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -96,7 +97,9 @@ def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
     )
 
 
-def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_path):
+def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
+    microscope, tmp_path
+):
     exp = _experiment(tmp_path, microscope, review=True)
     task = _task(microscope, exp, flag=True)
     assert task.review is True
@@ -129,8 +132,11 @@ def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
         == rough_point
     )
-    assert lamella.has_completed_task(SETUP), "the task did all of its work"
-    assert lamella.milling_pose is not None
+    assert lamella.milling_pose is not None, "the task did all of its work"
+    assert lamella.is_awaiting_decision(SETUP) and not lamella.has_completed_task(
+        SETUP
+    ), "but it is not finished until someone decides"
+    assert lamella.task_state.status is AutoLamellaTaskStatus.AwaitingDecision
 
     # The proposal is what the experiment file carries.
     exp.save()
@@ -144,7 +150,7 @@ def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_pat
     task.run()
     manager = task.task_manager
     lamella = exp.positions[0]
-    assert manager._defer_reason(lamella, ROUGH) == "awaiting_review"
+    assert manager._defer_reason(lamella, ROUGH) == "awaiting_decision"
 
     result = exp.decide(
         lamella.id,
@@ -209,7 +215,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     assert fresh.superseded == [decided]
     assert decided.current.values["poi"] == Point(1e-6, 1e-6)
     assert lamella.poi == Point(1e-6, 1e-6)
-    assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_review"
+    assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_decision"
 
 
 def test_without_the_flag_the_proposal_is_recorded_but_never_gates(

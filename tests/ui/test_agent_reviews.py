@@ -29,9 +29,10 @@ from fibsem.applications.autolamella.server.events import EventBuffer  # noqa: E
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
+    AutoLamellaTaskState,
+    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
-    Verdict,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
 from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E402
@@ -159,7 +160,6 @@ def test_reviews_lists_the_pending_proposal_with_its_image(ui):
     assert review["task_name"] == SETUP
     assert review["kind"] == MILLING_SETUP
     assert review["values"] == {"poi": {"x": 0.0, "y": 0.0}}
-    assert review["gating"] is True
     assert review["gated"] is True
     assert review["waiting_on"] == [ROUGH]
     assert review["reference_image"]["width"] > 0
@@ -234,8 +234,11 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
     assert "review_decided" in kinds
 
 
-def test_reject_needs_a_reason_and_retires_the_item(ui, qapp):
+def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
     lamella = ui.experiment.positions[0]
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
+    )
     with _client(ui) as client:
         resp = _post_on_worker(
             qapp,
@@ -258,9 +261,11 @@ def test_reject_needs_a_reason_and_retires_the_item(ui, qapp):
             },
         )
         assert resp.status_code == 200, resp.text
-    assert lamella.is_failure
-    assert lamella.quality.verdict is Verdict.FAILED
-    assert lamella.quality.author == "agent:remote"
+    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_history[-1].status_message == (
+        "Rejected by agent:remote: no usable site"
+    )
+    assert not lamella.is_failure
 
 
 def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):

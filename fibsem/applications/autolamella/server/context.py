@@ -860,7 +860,6 @@ class AgentContext:
                     "item_id": item.id,
                     "item_name": item.name,
                     "task_name": task_name,
-                    "gating": proposal.gating,
                     "gated": bool(protocol.get_review(task_name))
                     if protocol
                     else False,

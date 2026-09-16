@@ -331,39 +331,38 @@ class TaskManager(BaseTaskManager):
         self,
         task_names: List[str],
         required_lamella: Optional[List[str]] = None,
-        resume: bool = False,
     ) -> None:
         """Run the specified tasks for all lamellas in the experiment.
         Args:
             task_names: List of task names to run.
             required_lamella: List of lamella names to run tasks on. If None, all lamellas are processed.
-            resume: Leave out every (lamella, task) pair the lamella has already
-                completed. Re-running a completed pair is deliberately allowed
-                and is how a task is re-run -- but after a stalled run it would
-                re-run the producer that left the proposal the operator has just
-                reviewed, re-move the stage, and overwrite that proposal. Resume
-                is the launch that continues instead.
+
+        Every selected (lamella, task) pair runs, completed ones included:
+        that is how a task is re-run. The one exception is a task that is
+        AwaitingDecision -- its run is over and its record waits in the Review
+        tab -- which is left out: running it again would re-move the stage
+        and supersede the proposal someone is about to decide, or just did.
+        Re-running it is a deliberate act on that task, not a side effect of
+        pressing Run. With the Review surface off there is no way to decide,
+        so the exception is not made: Run re-runs it and the producer confirms
+        its own record, as it does for every task with the flag off.
         """
         if required_lamella is None:
             required_lamella = [p.name for p in self.experiment.positions]
-
-        if resume:
-            pairs = [
-                (name, task)
-                for task in task_names
-                for name in required_lamella
-                if not self._has_completed(name, task)
-            ]
-            self.queue.build_from_pairs(
-                pairs, task_names=task_names, item_names=required_lamella
-            )
-        else:
-            self.queue.build_from_matrix(task_names, required_lamella)
+        pairs = [
+            (name, task)
+            for task in task_names
+            for name in required_lamella
+            if not (self.review_enabled and self._awaiting_decision(name, task))
+        ]
+        self.queue.build_from_pairs(
+            pairs, task_names=task_names, item_names=required_lamella
+        )
         self._run_queue()
 
-    def _has_completed(self, lamella_name: str, task_name: str) -> bool:
+    def _awaiting_decision(self, lamella_name: str, task_name: str) -> bool:
         lamella = self.experiment.get_lamella_by_name(lamella_name)
-        return lamella is not None and lamella.has_completed_task(task_name)
+        return lamella is not None and lamella.is_awaiting_decision(task_name)
 
     def _on_decided(self, item_id: str, task_name: str) -> None:
         self._decision_event.set()
@@ -385,7 +384,7 @@ class TaskManager(BaseTaskManager):
         and is reported as one.
         """
         deferred = self.deferred_items()
-        awaiting = [i for i, reason in deferred if reason == "awaiting_review"]
+        awaiting = [i for i, reason in deferred if reason == "awaiting_decision"]
         if not awaiting:
             self.stalled = True
             self.stall_reason = (
@@ -586,10 +585,12 @@ class TaskManager(BaseTaskManager):
         elif self.stalled:
             # Drained but not done. Not completed -- work remains -- and not
             # cancelled -- nobody pressed Stop. The experiment is not finishable
-            # from here either. Items that never ran stay NotStarted; proposals
-            # stay pending; Resume picks the run up where it stopped.
+            # from here either. Items that never ran stay NotStarted; the tasks
+            # awaiting a decision stay so; the next Run picks up from there.
             pending = sum(
-                1 for _i, reason in self.deferred_items() if reason == "awaiting_review"
+                1
+                for _i, reason in self.deferred_items()
+                if reason == "awaiting_decision"
             )
             fire_event(
                 self.hook_manager,
@@ -602,7 +603,7 @@ class TaskManager(BaseTaskManager):
                 self.parent_ui,
                 "",
                 workflow_info=f"Workflow stalled: {self.stall_reason} "
-                "Decide in the Review tab, then Resume.",
+                "Decide in the Review tab, then Run again.",
                 check_abort=False,
             )
         else:
@@ -794,8 +795,8 @@ class TaskManager(BaseTaskManager):
         had already had its turn. Two things break the guarantee, and both are
         answered by looking at the queue and the item rather than at history:
 
-        - ``awaiting_review``: a required task completed and left a proposal
-          nobody has decided. The consumer waits; the reviewer makes it runnable.
+        - ``awaiting_decision``: a required task ran and is not finished: its
+          record waits in the Review tab. The decision makes this runnable.
         - ``prereq_pending``: a required task is still in the queue ahead or
           behind (a re-run, a mid-run insertion). It will get its turn.
 
@@ -806,9 +807,8 @@ class TaskManager(BaseTaskManager):
         for req in self.experiment.task_protocol.workflow_config.requirements(
             task_name
         ):
-            proposal = lamella.proposals.get(req)
-            if proposal is not None and proposal.pending:
-                return "awaiting_review"
+            if lamella.is_awaiting_decision(req):
+                return "awaiting_decision"
             if not lamella.has_completed_task(req) and self.queue.has_pending_pair(
                 lamella.name, req
             ):
@@ -817,8 +817,6 @@ class TaskManager(BaseTaskManager):
 
     def _is_deferred(self, item: WorkItem) -> bool:
         """The queue's skip predicate: pass over, do not retire."""
-        if not self.review_enabled:
-            return False
         lamella = self.experiment.get_lamella_by_name(item.item_name)
         if lamella is None or lamella.is_failure:
             return False  # let the loop retire it with a reason
@@ -826,8 +824,7 @@ class TaskManager(BaseTaskManager):
 
     def deferred_items(self) -> List[Tuple[WorkItem, str]]:
         """Every pending item that cannot run now, with why. What a stalled run
-        reports, and what the UI can label -- "awaiting review" is derived here,
-        never stored."""
+        reports, and what the UI can label; derived here, never stored."""
         deferred = []
         for item in self.queue.pending:
             lamella = self.experiment.get_lamella_by_name(item.item_name)

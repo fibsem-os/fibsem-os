@@ -47,7 +47,7 @@ __all__ = [
     "write_value",
 ]
 
-# The one kind v1 has. Its consumer mills, so a reject retires the item.
+# The milling position: the point of interest the milling tasks follow.
 MILLING_SETUP = "milling_setup"
 # What a task did, for someone to look at: no values, the final reference
 # images in provenance. Recorded by the base task class for any task whose
@@ -81,18 +81,13 @@ def auto_author(proposer: str) -> str:
 
 @dataclass(frozen=True)
 class ProposalKind:
-    """What a proposal of this kind means to the run.
-
-    ``gating``: a consumer is queued and waiting on the decision, so a reject
-    means *nothing further here* and retires the item. Not gating (generative):
-    the review creates the items later work operates on, so a reject creates
-    nothing and the run moves on. The same deadline policy is safe on one and
-    dangerous on the other, which is why this is a property of the kind and
-    not a setting.
-    """
+    """A kind names the set of values a proposal may carry. A value exists
+    because a later task consumes it; a kind with no values is a result for
+    someone to look at. What a decision does to the run is not a property of
+    the kind: a task that waits on a decision is AwaitingDecision, and the
+    decision finishes it (Completed or Failed) like any other task."""
 
     name: str
-    gating: bool
     values: Tuple[str, ...]  # the value names a proposal of this kind may carry
 
 
@@ -104,12 +99,8 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
     return kind
 
 
-register_proposal_kind(
-    ProposalKind(name=MILLING_SETUP, gating=True, values=("poi", "fiducial"))
-)
-# Gating: a gate on Rough Milling means polishing waits until someone has
-# looked at the trench, and a reject there retires the lamella.
-register_proposal_kind(ProposalKind(name=TASK_RESULT, gating=True, values=()))
+register_proposal_kind(ProposalKind(name=MILLING_SETUP, values=("poi", "fiducial")))
+register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
 
 
 # ---------------------------------------------------------------------------
@@ -301,11 +292,6 @@ class Proposal:
     def current(self) -> Optional[Decision]:
         """The latest decision; the log is the truth, this is the answer."""
         return self.decisions[-1] if self.decisions else None
-
-    @property
-    def gating(self) -> bool:
-        kind = PROPOSAL_KINDS.get(self.kind)
-        return kind.gating if kind is not None else True
 
     @property
     def to_check(self) -> bool:

@@ -6,6 +6,7 @@ covered in tests/ui/test_decide_main_thread.py.
 """
 
 import os
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,7 @@ from fibsem.applications.autolamella.proposals import (
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
+    AutoLamellaTaskState,
     AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
@@ -147,16 +149,10 @@ def test_delta_is_computed_from_proposed_and_confirmed_never_declared():
     assert compute_delta("a", "b") is None
 
 
-def test_kinds_declare_gating_in_code():
-    assert PROPOSAL_KINDS[MILLING_SETUP].gating is True
-    assert Proposal(kind=MILLING_SETUP).gating is True
-    register_proposal_kind(
-        ProposalKind(name="site_pick", gating=False, values=("sites",))
-    )
-    assert Proposal(kind="site_pick").gating is False
-    assert Proposal(kind="never-registered").gating is True, (
-        "unknown kinds are treated as gating"
-    )
+def test_kinds_declare_their_values_in_code():
+    assert PROPOSAL_KINDS[MILLING_SETUP].values == ("poi", "fiducial")
+    register_proposal_kind(ProposalKind(name="site_pick", values=("sites",)))
+    assert PROPOSAL_KINDS["site_pick"].values == ("sites",)
 
 
 def test_items_persist_their_proposals(tmp_path):
@@ -226,9 +222,35 @@ def test_confirm_writes_the_value_through_and_syncs_patterns(tmp_path):
     assert not lamella.is_failure
 
 
-def test_reject_on_a_gating_kind_retires_the_item_with_the_reviewer_as_author(tmp_path):
+def test_a_decision_finishes_a_task_that_was_awaiting_one(tmp_path):
+    """The task ran and stopped short of finished. Confirm completes it, on the
+    history entry and on the live task_state when that is the same run."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
+    lamella.task_state = AutoLamellaTaskState(
+        name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision
+    )
+    lamella.task_history.append(deepcopy(lamella.task_state))
+    lamella.proposals[SETUP] = _proposal()
+    assert lamella.is_awaiting_decision(SETUP) and not lamella.has_completed_task(SETUP)
+
+    exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+    )
+
+    assert lamella.has_completed_task(SETUP)
+    assert lamella.task_state.status is AutoLamellaTaskStatus.Completed
+    assert not lamella.is_awaiting_decision(SETUP)
+
+
+def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
+    exp = _experiment(tmp_path)
+    lamella = exp.positions[0]
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
+    )
     lamella.proposals[SETUP] = _proposal()
 
     result = exp.decide(
@@ -242,20 +264,37 @@ def test_reject_on_a_gating_kind_retires_the_item_with_the_reviewer_as_author(tm
     )
 
     assert result.applied is True
-    assert lamella.is_failure
-    assert lamella.quality.verdict is Verdict.FAILED
-    assert lamella.quality.author == "human:op"
-    assert lamella.quality.reason == "no usable site"
-    assert lamella.quality.at_task == SETUP
-    assert lamella.quality.decision_id == (lamella.id, SETUP)
+    entry = lamella.task_history[-1]
+    assert entry.status is AutoLamellaTaskStatus.Failed
+    assert entry.status_message == "Rejected by human:op: no usable site"
+    assert not lamella.is_failure, "a failed task is not a defective lamella"
+    assert lamella.quality.verdict is Verdict.UNASSESSED
     assert lamella.poi == Point(0.0, 0.0), "nothing was written through"
 
 
-def test_reject_on_a_generative_kind_creates_nothing_and_retires_nothing(tmp_path):
+def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):
+    """A result someone checks (or rejects) after the task completed on its own
+    stays Completed: the decision is about the record, the outcome stands."""
     exp = _experiment(tmp_path)
-    register_proposal_kind(
-        ProposalKind(name="site_pick", gating=False, values=("sites",))
+    lamella = exp.positions[0]
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.Completed)
     )
+    lamella.proposals[SETUP] = _proposal()
+
+    exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(outcome=DecisionOutcome.Rejected, author="human:op", reason="meh"),
+    )
+
+    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert not lamella.proposals[SETUP].pending
+
+
+def test_reject_on_a_grid_proposal_creates_nothing_and_retires_nothing(tmp_path):
+    exp = _experiment(tmp_path)
+    register_proposal_kind(ProposalKind(name="site_pick", values=("sites",)))
     grid = exp.add_grid(GridRecord(name="Grid-01"))
     grid.proposals["overview"] = Proposal(kind="site_pick", values={"sites": []})
 

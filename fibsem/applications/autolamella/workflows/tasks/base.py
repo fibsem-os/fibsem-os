@@ -164,13 +164,14 @@ class AutoLamellaTask(ABC):
 
     @property
     def review(self) -> bool:
-        """Whether this task's proposal gates the tasks that require it: the
+        """Whether this task ends waiting on a decision in the Review tab: the
         protocol's ``review`` on this task, and the feature flag (read once
         per run by the manager, through it rather than the UI so a headless
-        run behaves the same). A gated proposal is left pending for the
-        Review tab; an ungated one is decided in the workflow, by the
-        operator's inline answer or by the producer itself. The record is
-        made either way: the flag hides the Review surface, not the record."""
+        run behaves the same). Under review the task exits AwaitingDecision
+        and the decision finishes it; otherwise the record is decided in the
+        workflow, by the operator's inline answer or by the producer itself.
+        The record is made either way: the flag hides the Review surface, not
+        the record."""
         manager = self.task_manager
         if manager is None or not getattr(manager, "review_enabled", False):
             return False
@@ -179,17 +180,33 @@ class AutoLamellaTask(ABC):
             return False
         return bool(protocol.get_review(self.task_name))
 
-    def _auto_decide_proposal(self) -> None:
-        """An ungated proposal nobody answered inline is the producer's to
-        confirm, as proposed, so nothing downstream defers. Through
-        Experiment.decide like any other decision -- same lock, same thread,
-        same write-through -- which is why it runs after post_task, once this
-        task is no longer in progress. The author says nobody looked; a
-        person's look is a later decision on the same record."""
-        if self.review:
-            return
+    def _settle_proposal(self) -> None:
+        """What happens to a proposal nobody answered inline, once the run is
+        over and the outcome recorded.
+
+        Under review, a task that completed is not finished: it moves to
+        AwaitingDecision, and the decision in the Review tab finishes it
+        (Completed or Failed). A failed task stays Failed; its record waits
+        for someone to look, but no decision changes the outcome.
+
+        Otherwise the proposal is the producer's to confirm, as proposed, so
+        nothing downstream waits. Through Experiment.decide like any other
+        decision -- same lock, same thread, same write-through -- which is
+        why this runs after post_task, once the task is no longer in
+        progress. The author says nobody looked; a person's look is a later
+        decision on the same record."""
         proposal = self.lamella.proposals.get(self.task_name)
         if proposal is None or not proposal.pending:
+            return
+        if self.review:
+            if self.lamella.task_state.status is AutoLamellaTaskStatus.Completed:
+                self.lamella.set_task_status(
+                    self.task_name, AutoLamellaTaskStatus.AwaitingDecision
+                )
+                logging.info(
+                    f"{self.lamella.name}: {self.task_name} awaits a decision in "
+                    "the Review tab."
+                )
             return
         experiment = getattr(self.task_manager, "experiment", None)
         if experiment is None:
@@ -242,7 +259,7 @@ class AutoLamellaTask(ABC):
                 # not, whoever pressed it already knows.
                 if not cancelled:
                     self._record_task_result(failure=str(e))
-                    self._auto_decide_proposal()
+                    self._settle_proposal()
             except Exception:
                 logging.exception(f"Could not record the outcome of {self.task_name}")
             self._fire_hook(
@@ -257,15 +274,15 @@ class AutoLamellaTask(ABC):
             self.microscope.experiment.clear_workflow_metadata()
         self.post_task()
         self._record_task_result()
-        self._auto_decide_proposal()
+        self._settle_proposal()
         self._fire_hook("task_completed")
 
     def _record_task_result(self, failure: str = "") -> None:
         """Leave what this task did as a proposal for someone to look at.
 
         For any task type whose proposal_kind is TASK_RESULT, in every mode:
-        gated, it waits for the Review tab; not gated, the producer confirms
-        it after the task and the row is there to check. No values: the
+        under review the task waits for the Review tab; otherwise the producer
+        confirms it after the task and the row is there to check. No values: the
         result is not a number anyone changes, it is the final reference
         images, named in provenance from the outputs this run recorded. A
         task type that proposes a kind of its own (Setup, the milling

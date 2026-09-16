@@ -9,9 +9,10 @@ dispatches to a registered renderer rather than growing an ``if`` per kind.
 
 Two verbs. **Confirm** submits whatever the renderer currently shows; the
 delta against the proposal is computed by ``Experiment.decide``, never
-declared here. **Reject** means *nothing further here*, and on a gating kind
-that retires the item, which the button says out loud. There is no defer
-button on purpose: items commit independently, so walking away is deferral.
+declared here. **Reject** means *nothing further here*: the task that was
+waiting on the decision is failed, so nothing that requires it runs. There is
+no defer button on purpose: items commit independently, so walking away is
+deferral.
 
 Every action here is self-contained and never touches hardware. The one write
 path is ``Experiment.decide``; the agent server's decide endpoint is the same
@@ -363,9 +364,12 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self.btn_confirm = QPushButton(self.CONFIRM_LABEL)
         self.btn_confirm.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
         self.btn_confirm.setToolTip(self.PENDING_HINT)
-        self.btn_reject = QPushButton("Reject · mark lamella failed")
+        self.btn_reject = QPushButton("Reject · mark task failed")
         self.btn_reject.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_reject.setToolTip("R — nothing further here; retires the lamella")
+        self.btn_reject.setToolTip(
+            "R — nothing further here; the task is failed and what requires it "
+            "does not run"
+        )
         actions = QHBoxLayout()
         actions.addWidget(self.position)
         actions.addWidget(self.btn_open)
@@ -651,7 +655,7 @@ def _load_reference_image(
 class TaskResultReviewRenderer(MillingSetupReviewRenderer):
     """What a task did: its final ion and electron images, side by side, and
     the two verbs. Nothing to drag, nothing to write; confirm says it looks
-    right, reject retires the lamella."""
+    right, reject fails the task."""
 
     PENDING_HINT = "Enter — this looks right"
     CONFIRM_LABEL = "Confirm · looks right"
@@ -1263,11 +1267,11 @@ class ReviewTabWidget(QWidget):
         item, task_name, proposal, state = self._entries[index]
         if state == "decided":
             return
-        retires = "This retires the lamella." if proposal.gating else ""
         reason, ok = QInputDialog.getText(
             self,
             "Reject",
-            f"Why is there nothing further here for {item.name}? {retires}".strip(),
+            f"Why is there nothing further here for {item.name}? "
+            f"{task_name} is marked failed; nothing that requires it runs.",
         )
         reason = reason.strip()
         if not ok or not reason:

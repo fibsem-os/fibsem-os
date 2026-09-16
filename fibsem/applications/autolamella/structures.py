@@ -78,6 +78,10 @@ if TYPE_CHECKING:
 class AutoLamellaTaskStatus(Enum):
     NotStarted = auto()
     InProgress = auto()
+    # The microscope work is done and the task's record waits on a decision in
+    # the Review tab. Not finished: nothing that requires this task runs until
+    # a decision moves it to Completed (confirmed) or Failed (rejected).
+    AwaitingDecision = auto()
     Completed = auto()
     Failed = auto()
     Skipped = auto()
@@ -1214,6 +1218,31 @@ class Lamella:
         """Check if the lamella has completed a specific task."""
         return task_name in self.completed_tasks
 
+    def is_awaiting_decision(self, task_name: str) -> bool:
+        """Whether the latest run of ``task_name`` ended waiting on a decision."""
+        for task in reversed(self.task_history):
+            if task.name == task_name:
+                return task.status is AutoLamellaTaskStatus.AwaitingDecision
+        return False
+
+    def set_task_status(
+        self, task_name: str, status: AutoLamellaTaskStatus, message: str = ""
+    ) -> None:
+        """Move the latest run of ``task_name`` to ``status``, in the history and
+        on the live task_state when that is the same run. The two are separate
+        objects (task_history holds a copy frozen at the end of the run), so a
+        status that changes after the run -- a decision landing on a task that
+        was awaiting one -- has to be written to both."""
+        for task in reversed(self.task_history):
+            if task.name == task_name:
+                task.status = status
+                task.status_message = message
+                state = self.task_state
+                if state is not None and state.task_id == task.task_id:
+                    state.status = status
+                    state.status_message = message
+                return
+
     @property
     def completed_tasks(self) -> List[str]:
         """Return a list of completed task names.
@@ -1763,10 +1792,11 @@ class Experiment:
         Confirmed: the decision is appended and each decided value is written
         through to the item (``poi`` moves the point and syncs the patterns
         that follow it). The proposed values are left as they were, so the
-        delta survives. Rejected on a gating kind: the item is retired --
-        ``quality`` set to ``FAILED`` with the reviewer as author -- because a
-        consumer was waiting and *nothing further here* is the answer. Rejected
-        on a generative kind: nothing is created.
+        delta survives. A task that ended AwaitingDecision is finished by the
+        decision: Completed on confirm, Failed on reject, so what requires it
+        runs or does not by the ordinary prerequisite rule. A decision on a
+        task that already finished (a result someone checks) changes nothing
+        but the record.
 
         Refused, without a write, when there is no such proposal, or when the
         item has a task in progress: a decision then is a stop, not a decision.
@@ -1816,14 +1846,15 @@ class Experiment:
                     if synced:
                         result.synced_tasks.extend(synced)
                 result.delta = proposal.delta(decision)
-            elif proposal.gating:
-                item.quality.set_defect(
-                    description=decision.reason,
-                    state=Verdict.FAILED,
-                    author=decision.author,
-                )
-                item.quality.at_task = task_name
-                item.quality.decision_id = (item_id, task_name)
+            if isinstance(item, Lamella) and item.is_awaiting_decision(task_name):
+                if decision.outcome is DecisionOutcome.Confirmed:
+                    item.set_task_status(task_name, AutoLamellaTaskStatus.Completed)
+                else:
+                    item.set_task_status(
+                        task_name,
+                        AutoLamellaTaskStatus.Failed,
+                        f"Rejected by {decision.author}: {decision.reason}",
+                    )
             logging.info(
                 {
                     "msg": "proposal_decided",

@@ -78,6 +78,8 @@ correctness work landed in correlation and in what the experiment record remembe
   workflow when supervised. Nothing about how a run behaves has changed; the record
   is new. The Review tab, where a task's answer can wait for your decision before
   the next task runs, is behind the "Review workflow (early access)" preference.
+  A task waiting there is not finished: it shows as awaiting a decision, confirming
+  completes it, and rejecting fails it (the lamella is not marked defective).
 - **The running queue can be edited while it runs.** Reorder, remove, re-run and
   "run next" from the Workflow Timeline's row menu, and add work from its header.
   Edits are anchored to the piece of work rather than to its position, so they do
