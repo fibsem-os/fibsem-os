@@ -201,6 +201,20 @@ def test_copy_from_takes_the_filters_not_the_exposure(widget, qapp):
     assert channel.emission_wavelength == "Fluorescence"
     assert channel.exposure_time == before_exposure
     assert received
+    # the name is the visible trace of the copy when the filters already match
+    assert widget.edit_channel_name.text() == "Red"
+
+
+def test_the_channel_name_is_editable(widget, qapp):
+    widget.set_task_config(_two_stage_config())
+    received = _emitted(widget)
+    widget.edit_channel_name.setText("Lipid droplets")
+    widget.edit_channel_name.editingFinished.emit()
+    assert received[-1].monitoring_channel.name == "Lipid droplets"
+    # blank is not a name: the field snaps back
+    widget.edit_channel_name.setText("   ")
+    widget.edit_channel_name.editingFinished.emit()
+    assert widget.edit_channel_name.text() == "Lipid droplets"
 
 
 def test_setup_record_is_shown_read_only(widget, qapp):
