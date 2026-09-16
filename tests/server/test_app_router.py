@@ -213,6 +213,7 @@ def test_events_unavailable_without_a_buffer(microscope, host):
 
 def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buffer):
     from fibsem.applications.autolamella.structures import (
+        Attention,
         AutoLamellaTaskDescription,
     )
     from fibsem.applications.autolamella.workflows.tasks.rough import (
@@ -225,7 +226,9 @@ def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buff
         task_name="Rough Milling"
     )
     protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name="Rough Milling", supervise=True, required=True)
+        AutoLamellaTaskDescription(
+            name="Rough Milling", attention=Attention.supervised, required=True
+        )
     )
 
     armed = build_server(

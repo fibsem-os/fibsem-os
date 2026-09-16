@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.proposals import (  # noqa: E402
     Proposal,
 )
 from fibsem.applications.autolamella.structures import (  # noqa: E402
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
@@ -69,13 +70,13 @@ def experiment(tmp_path) -> Experiment:
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=SETUP, supervise=False, required=True, review=True
+                    name=SETUP, required=True, attention=Attention.review
                 ),
                 AutoLamellaTaskDescription(
-                    name=FIDUCIAL, supervise=False, required=True, requires=[SETUP]
+                    name=FIDUCIAL, required=True, requires=[SETUP]
                 ),
                 AutoLamellaTaskDescription(
-                    name=ROUGH, supervise=False, required=True, requires=[FIDUCIAL]
+                    name=ROUGH, required=True, requires=[FIDUCIAL]
                 ),
             ]
         )
@@ -480,20 +481,23 @@ def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
 
     monkeypatch.setattr(W, "_agent_supervision_available", lambda: False)
     monkeypatch.setattr(W, "_review_available", lambda: True)
-    task = AutoLamellaTaskDescription(name=SETUP, supervise=True, required=True)
+    task = AutoLamellaTaskDescription(
+        name=SETUP, attention=Attention.supervised, required=True
+    )
     row = WorkflowTaskRowWidget(task)
     assert row.btn_attention.text() == "Supervised"
     changed = []
-    row.review_changed.connect(changed.append)
+    row.attention_changed.connect(changed.append)
     row.btn_attention.click()
-    assert task.review is True and task.supervise is False and changed == [task]
+    assert task.attention is Attention.review and changed == [task]
     assert row.btn_attention.text() == "Review"
     row.btn_attention.click()
-    assert task.review is False and row.btn_attention.text() == "Automated"
+    assert task.attention is Attention.automated
+    assert row.btn_attention.text() == "Automated"
 
     monkeypatch.setattr(W, "_review_available", lambda: False)
-    task.review = True
+    task.attention = Attention.review
     off = WorkflowTaskRowWidget(task)
     assert off.btn_attention.text() == "Automated", "runs as what it will run as"
     off.btn_attention.click()
-    assert task.review is False and task.supervise is True, "Review is not offered"
+    assert task.attention is Attention.supervised, "Review is not offered"

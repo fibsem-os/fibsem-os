@@ -16,6 +16,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
@@ -25,41 +26,42 @@ from fibsem.applications.autolamella.ui import workflow_config_widget as module
 @pytest.fixture
 def row(qapp, monkeypatch):
     monkeypatch.setattr(module, "_review_available", lambda: False)
-    task = AutoLamellaTaskDescription(
-        name="Mill Fiducial", supervise=False, required=True
-    )
+    task = AutoLamellaTaskDescription(name="Mill Fiducial", required=True)
     widget = module.WorkflowTaskRowWidget(task)
     yield widget
     widget.deleteLater()
     qapp.processEvents()
 
 
+A = Attention
+
+
 def _fields(task):
-    return (task.supervise, task.supervisor, task.review)
+    return (task.attention, task.supervisor)
 
 
 def test_without_either_feature_the_chip_is_two_state(row, monkeypatch):
     monkeypatch.setattr(module, "_agent_supervision_available", lambda: False)
     assert row.btn_attention.text() == "Automated"
     row._on_attention_clicked()
-    assert _fields(row.task) == (True, "human", False)
+    assert _fields(row.task) == (A.supervised, "human")
     assert row.btn_attention.text() == "Supervised"
     row._on_attention_clicked()
-    assert _fields(row.task) == (False, "human", False)
+    assert _fields(row.task) == (A.automated, "human")
     assert row.btn_attention.text() == "Automated"
 
 
 def test_with_the_agent_feature_the_cycle_gains_the_agent_step(row, monkeypatch):
     monkeypatch.setattr(module, "_agent_supervision_available", lambda: True)
     row._on_attention_clicked()
-    assert _fields(row.task) == (True, "human", False)
+    assert _fields(row.task) == (A.supervised, "human")
     assert row.btn_attention.toolTip().startswith("Supervised")
     row._on_attention_clicked()
-    assert _fields(row.task) == (True, "agent", False)
+    assert _fields(row.task) == (A.supervised, "agent")
     assert row.btn_attention.text() == "Agent"
     row._on_attention_clicked()
     # Leaving the agent state resets the designation: nothing hidden survives.
-    assert _fields(row.task) == (False, "human", False)
+    assert _fields(row.task) == (A.automated, "human")
     assert row.btn_attention.text() == "Automated"
 
 
@@ -67,75 +69,61 @@ def test_with_interactive_review_the_cycle_ends_in_review(row, monkeypatch):
     monkeypatch.setattr(module, "_agent_supervision_available", lambda: False)
     monkeypatch.setattr(module, "_review_available", lambda: True)
     row._on_attention_clicked()
-    assert _fields(row.task) == (True, "human", False)
+    assert _fields(row.task) == (A.supervised, "human")
     row._on_attention_clicked()
-    assert _fields(row.task) == (False, "human", True), "review clears supervise"
+    assert _fields(row.task) == (A.review, "human"), "review clears supervise"
     assert row.btn_attention.text() == "Review"
     row._on_attention_clicked()
-    assert _fields(row.task) == (False, "human", False)
+    assert _fields(row.task) == (A.automated, "human")
 
 
 def test_a_designated_task_displays_as_supervised_when_the_feature_is_off(
     row, monkeypatch
 ):
     monkeypatch.setattr(module, "_agent_supervision_available", lambda: False)
-    row.task.supervise = True
+    row.task.attention = Attention.supervised
     row.task.supervisor = "agent"
     row.refresh()
     assert row.btn_attention.text() == "Supervised"
     # And the click matches what is displayed: Supervised → Automated.
     row._on_attention_clicked()
-    assert _fields(row.task) == (False, "human", False)
+    assert _fields(row.task) == (A.automated, "human")
 
 
 def test_a_gated_task_displays_as_automated_when_interactive_review_is_off(
     row, monkeypatch
 ):
-    row.task.review = True
+    row.task.attention = Attention.review
     row.refresh()
     assert row.btn_attention.text() == "Automated"
     assert "interactive review is off" in row.btn_attention.toolTip()
     # the click writes what is displayed, then moves on: nothing hidden survives
     row._on_attention_clicked()
-    assert _fields(row.task) == (True, "human", False)
-
-
-def test_both_fields_on_reads_as_supervised(row, monkeypatch):
-    """A combination the chip never writes; if you are at the microscope for
-    it, you answer there. The next click writes it back cleanly."""
-    monkeypatch.setattr(module, "_review_available", lambda: True)
-    row.task.supervise = True
-    row.task.review = True
-    row.refresh()
-    assert row.btn_attention.text() == "Supervised"
-    row._on_attention_clicked()
-    assert _fields(row.task) == (False, "human", True)
+    assert _fields(row.task) == (A.supervised, "human")
 
 
 def test_each_click_announces_only_what_changed(row, monkeypatch):
     monkeypatch.setattr(module, "_agent_supervision_available", lambda: True)
     monkeypatch.setattr(module, "_review_available", lambda: True)
     seen = []
-    row.supervised_changed.connect(lambda t: seen.append(("supervise", t.supervisor)))
-    row.review_changed.connect(lambda t: seen.append(("review", t.review)))
+    row.attention_changed.connect(lambda t: seen.append(_fields(t)))
     for _ in range(4):
         row._on_attention_clicked()
     assert seen == [
-        ("supervise", "human"),  # Automated -> Supervised
-        ("supervise", "agent"),  # Supervised -> Agent
-        ("supervise", "human"),  # Agent -> Review: supervise off ...
-        ("review", True),  # ... and review on
-        ("review", False),  # Review -> Automated
+        (A.supervised, "human"),  # Automated -> Supervised
+        (A.supervised, "agent"),  # Supervised -> Agent
+        (A.review, "human"),  # Agent -> Review: the designation resets
+        (A.automated, "human"),  # Review -> Automated
     ]
 
 
 def test_a_review_task_nothing_requires_says_so(qapp, monkeypatch):
     monkeypatch.setattr(module, "_review_available", lambda: True)
     setup = AutoLamellaTaskDescription(
-        name="Setup", supervise=False, required=True, review=True
+        name="Setup", required=True, attention=Attention.review
     )
     rough = AutoLamellaTaskDescription(
-        name="Rough", supervise=False, required=True, review=True
+        name="Rough", required=True, attention=Attention.review
     )
     widget = module.WorkflowConfigWidget()
     widget.set_config(AutoLamellaWorkflowConfig(tasks=[setup, rough]))
@@ -146,11 +134,30 @@ def test_a_review_task_nothing_requires_says_so(qapp, monkeypatch):
     widget.refresh_all()
     assert rows[0].requires_label.text() == ""
     assert "nothing waits" not in rows[0].btn_attention.toolTip()
-    assert rows[1].requires_label.text() == "after Setup", "its own dependency stays"
+    assert rows[1].requires_label.text() == "after review of Setup", (
+        "the wait is said where it is felt"
+    )
+    assert rows[1].toolTip().startswith("Requires: review of Setup")
     assert module.stylesheets.WARN_COLOR in rows[1].requires_label.styleSheet()
     assert "nothing waits" in rows[1].btn_attention.toolTip()
+    # Setup back to Automated: Rough's row stops saying it waits for a review
+    rows[0]._on_attention_clicked()
+    assert rows[1].requires_label.text() == "after Setup"
     widget.deleteLater()
     qapp.processEvents()
+
+
+def test_the_requires_phrase_leads_with_the_review():
+    """Task names are long and the column elides the tail, so the marker goes
+    first where every requirement is reviewed."""
+    assert module._requires_phrase(["Setup"], {"Setup"}) == "review of Setup"
+    assert module._requires_phrase(["Setup", "Rough"], {"Setup", "Rough"}) == (
+        "review of Setup, Rough"
+    )
+    assert module._requires_phrase(["Setup", "Fiducial"], {"Setup"}) == (
+        "Setup (reviewed), Fiducial"
+    )
+    assert module._requires_phrase(["Setup"], set()) == "Setup"
 
 
 def test_a_schedule_shares_the_dependency_column(qapp, monkeypatch):
@@ -161,7 +168,7 @@ def test_a_schedule_shares_the_dependency_column(qapp, monkeypatch):
 
     monkeypatch.setattr(module, "_review_available", lambda: False)
     task = AutoLamellaTaskDescription(
-        name="Rough", supervise=False, required=True, requires=["Fiducial"]
+        name="Rough", required=True, requires=["Fiducial"]
     )
     row = module.WorkflowTaskRowWidget(task)
     assert row.requires_label.text() == "after Fiducial"
@@ -190,8 +197,8 @@ def test_remove_lives_in_the_edit_dialog_not_on_the_row(qapp, monkeypatch):
     )
 
     monkeypatch.setattr(module, "_review_available", lambda: False)
-    setup = AutoLamellaTaskDescription(name="Setup", supervise=False, required=True)
-    rough = AutoLamellaTaskDescription(name="Rough", supervise=False, required=True)
+    setup = AutoLamellaTaskDescription(name="Setup", required=True)
+    rough = AutoLamellaTaskDescription(name="Rough", required=True)
     widget = LamellaWorkflowWidget()
     widget.workflow.set_config(AutoLamellaWorkflowConfig(tasks=[setup, rough]))
     row = widget.workflow._row(0)

@@ -98,7 +98,6 @@ def make_experiment(
             tasks=[
                 AutoLamellaTaskDescription(
                     name=name,
-                    supervise=False,
                     required=False,
                     requires=reqs.get(name, []),
                 )

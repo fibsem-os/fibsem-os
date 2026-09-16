@@ -53,11 +53,7 @@ def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name="Trench", supervise=False, required=False
-                )
-            ]
+            tasks=[AutoLamellaTaskDescription(name="Trench", required=False)]
         ),
         task_config={"Trench": AcquireReferenceImageConfig(task_name="Trench")},
     )

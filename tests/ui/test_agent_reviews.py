@@ -27,6 +27,7 @@ from fibsem.applications.autolamella.proposals import (  # noqa: E402
 from fibsem.applications.autolamella.server import AgentContext  # noqa: E402
 from fibsem.applications.autolamella.server.events import EventBuffer  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
@@ -85,11 +86,9 @@ def ui(qapp, monkeypatch, tmp_path):
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=SETUP, supervise=False, required=True, review=True
+                    name=SETUP, required=True, attention=Attention.review
                 ),
-                AutoLamellaTaskDescription(
-                    name=ROUGH, supervise=False, required=True, requires=[SETUP]
-                ),
+                AutoLamellaTaskDescription(name=ROUGH, required=True, requires=[SETUP]),
             ]
         )
     )

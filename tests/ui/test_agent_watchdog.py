@@ -18,6 +18,7 @@ pytest.importorskip("PyQt5")
 from psygnal.containers import EventedDict
 
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     Experiment,
@@ -61,7 +62,10 @@ def agent_question_standing(main_ui, tmp_path):
     experiment.task_protocol = AutoLamellaTaskProtocol()
     experiment.task_protocol.workflow_config.tasks.append(
         AutoLamellaTaskDescription(
-            name="Mill Fiducial", supervise=True, required=True, supervisor="agent"
+            name="Mill Fiducial",
+            attention=Attention.supervised,
+            required=True,
+            supervisor="agent",
         )
     )
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
