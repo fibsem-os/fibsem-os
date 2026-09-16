@@ -266,6 +266,12 @@ def test_abort_token_stops_the_mill(microscope, tmp_path):
     strategy = milling.enabled_stages[0].strategy
     assert isinstance(strategy, CoincidenceMillingStrategy)
     assert strategy.end_reason == "stopped"
+    # a second stage the stop cancelled before it began reads as not run
+    second = deepcopy(milling.enabled_stages[0])
+    second.strategy.end_reason = None
+    milling.stages.append(second)
+    task._record_end_reason(milling)
+    assert task.finished_message.endswith("not run")
 
 
 class _Responder:

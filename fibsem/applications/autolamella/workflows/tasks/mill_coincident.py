@@ -392,7 +392,9 @@ class MillCoincidentTask(AutoLamellaTask):
         for stage in milling_task_config.enabled_stages:
             strategy = stage.strategy
             if isinstance(strategy, CoincidenceMillingStrategy):
-                reasons.append(f"{stage.name}: {strategy.end_reason or 'unknown'}")
+                # no end reason: the strategy never ran -- a Stop on an earlier
+                # stage cancels the rest, and a Continue without milling runs none
+                reasons.append(f"{stage.name}: {strategy.end_reason or 'not run'}")
         self._end_reasons = reasons
         if reasons:
             self.log_status_message(
