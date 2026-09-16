@@ -1,5 +1,36 @@
 # Changes
 
+## v0.5.3 (unreleased)
+
+Seeded from four entries that were written into the v0.5.2 section after v0.5.2rc2 was
+cut, and so describe work that is not in v0.5.2. Everything else from the 386 commits
+since rc2 still needs writing up.
+
+### Grids (preview)
+
+- **A grid workflow, behind a preference.** Preferences → Enable Grid Workflow adds a
+  Grids tab (a card per grid the inventory found, with its overviews and history), a
+  Grid page beside Lamella on the Protocol tab, and a Workflow → Grids view that runs the
+  grid tasks over the selected grids, loading each from the magazine as it comes up, or
+  screens every grid in the magazine in one go. Off by default; it has run end to end on
+  the simulator and is waiting on bench time.
+- **The sample holder and magazine controls are a Sample tab** under Microscope, always
+  shown, in place of the block on the Movement tab and the preference that gated it.
+  Load and unload are icons on the grid's row; inventory is a refresh icon that asks
+  first.
+- The protocol's name, description and version panel on the Protocol tab is now one
+  line with a pencil that opens a dialog, and the settings columns are wider.
+
+### Changes to what v0.5.2 shipped
+
+- **Grid boundaries and holder slot markers are drawn when the holder has a calibrated
+  slot**, rather than never. v0.5.2 turned them off for everyone, which also took them
+  from an Arctis, whose working slot is always calibrated. Either way they toggle under
+  the overlays button on the canvas.
+- **The "Report an Issue" bug reporter and user scripts are on for everyone**, and their
+  flags are gone. In v0.5.2 both were opt-in. A user script still has the application's
+  access to the microscope and none of its checks, so read one before running it.
+
 ## v0.5.2 (16/09/2026)
 
 A running workflow became something you can edit, the image display moved onto a
@@ -62,21 +93,6 @@ correctness work landed in correlation and in what the experiment record remembe
 - A task's dependency gets its own column; the experiment completion predicate was
   corrected.
 
-### Grids (preview)
-
-- **A grid workflow, behind a preference.** Preferences → Enable Grid Workflow adds a
-  Grids tab (a card per grid the inventory found, with its overviews and history), a
-  Grid page beside Lamella on the Protocol tab, and a Workflow → Grids view that runs the
-  grid tasks over the selected grids, loading each from the magazine as it comes up, or
-  screens every grid in the magazine in one go. Off by default; it has run end to end on
-  the simulator and is waiting on bench time.
-- **The sample holder and magazine controls are a Sample tab** under Microscope, always
-  shown, in place of the block on the Movement tab and the preference that gated it.
-  Load and unload are icons on the grid's row; inventory is a refresh icon that asks
-  first.
-- The protocol's name, description and version panel on the Protocol tab is now one
-  line with a pencil that opens a dialog, and the settings columns are wider.
-
 ### Overview acquisition
 
 - **One Overview tab**, with the imaging modality chosen on the canvas chrome. The
@@ -96,12 +112,10 @@ correctness work landed in correlation and in what the experiment record remembe
 - Tiles the stage cannot reach are flagged while the grid is dragged, and an unreachable
   grid is refused in the pre-flight dialog.
 - A marked position is boxed with the field of view it stands for.
-- **Grid boundaries and holder slot markers are drawn only when the holder has a
-  calibrated slot.** Both describe a cryo sample holder, so on a system without one they
-  drew a holder that was not there; on an Arctis, whose working slot is always
-  calibrated, they stay on. Either way they toggle under the overlays button on the
-  canvas. Stage travel limits are unchanged and still shown — those are a property of
-  the stage itself.
+- **Grid boundaries and holder slot markers are no longer drawn by default.** Both
+  describe a cryo sample holder, so on a system without one they drew a holder that was
+  not there. Turn them back on under the overlays button on the canvas. Stage travel
+  limits are unchanged and still shown — those are a property of the stage itself.
 - Cancelled overviews no longer report "Done"; one overview can no longer drive the
   stage while the other acquires; stitching and saving now say so.
 - A tab-page key no longer shadows the imaging modality carried on the progress payload,
@@ -143,8 +157,8 @@ through that migration; napari is still a dependency.
   extension came from, what failed to load and why, what was shadowed, and which install
   this is. Group headers are the literal entry point strings, because a mistyped group
   is otherwise invisible.
-- User scripts can be run from the GUI, Tools → Scripts. A script has the application's
-  access to the microscope and none of its checks, so read one before running it.
+- User scripts can be run from the GUI (behind a flag — a script has the application's
+  access to the microscope and none of its checks).
 - A scripting guide for working with experiment data.
 - The plugin entry point contract is covered by tests against an installed fixture.
 
@@ -266,8 +280,8 @@ answer or quietly lost points.
 - The deprecated streamlit review app was removed.
 - Several development feature flags were removed and their features turned on for
   everyone: editing the running queue, the FM Overview tab, scheduled tasks, guided
-  setup, sparse FM selection, the "Report an Issue" bug reporter and user scripts. A
-  preferences file carrying a removed key still loads; unknown keys are skipped.
+  setup, and sparse FM selection. A preferences file carrying a removed key still loads;
+  unknown keys are skipped.
 - `overview_canvas_tab` was replaced by `napari_overview_tab`, which is **off** by
   default: the canvas Overview tab now ships to everyone and holds both modalities, and
   the old napari overview is opt-in until it is removed in the next release. A preferences
