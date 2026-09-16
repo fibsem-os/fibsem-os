@@ -27,7 +27,7 @@ import logging
 import os
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, Optional, Type
+from typing import TYPE_CHECKING, ClassVar, Optional, Type
 
 from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
@@ -40,6 +40,9 @@ from fibsem.applications.autolamella.workflows.ui import _abort_requested
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemRectangle, Point, field_meta
+
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.structures import Lamella
 
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
 
@@ -199,6 +202,28 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
         )
 
 
+def _mirror_pattern_offset(lamella: "Lamella", offset: Point) -> None:
+    """Put the site's pattern offset onto its Coincident Milling stages.
+
+    The setup record is what the mill runs from: it sets every enabled stage's
+    point to the offset at run time. The lamella's own milling config is what
+    the lamella editor draws, and without this it showed the patterns at the
+    centre for a site whose setup was done. Same value in both places, so the
+    mill's own application of it changes nothing.
+    """
+    # local: mill_coincident imports this module
+    from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
+        MillCoincidentTaskConfig,
+    )
+
+    for task_config in lamella.task_config.values():
+        if not isinstance(task_config, MillCoincidentTaskConfig):
+            continue
+        for milling in task_config.milling.values():
+            for stage in milling.enabled_stages:
+                stage.pattern.point = deepcopy(offset)
+
+
 class SetupCoincidenceMillingTask(AutoLamellaTask):
     """Put the microscope where the coincidence mill will run and record the setup."""
 
@@ -270,6 +295,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
                     return
                 self.config.apply_setup(setup)
                 self._apply_monitoring_channel(setup)
+                _mirror_pattern_offset(self.lamella, self.config.pattern_offset)
 
             # 5. the record. Whatever the operator left is now this site's setup.
             self.config.objective_position = self._current_objective_position(
@@ -488,6 +514,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             if other.is_set_up:
                 continue
             other.copy_boxes_from(self.config)
+            _mirror_pattern_offset(lamella, other.pattern_offset)
             count += 1
         self.log_status_message(
             "COPY_SETUP", f"Copied the coincidence boxes to {count} unset site(s)."

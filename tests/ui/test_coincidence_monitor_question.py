@@ -1,5 +1,5 @@
-"""A supervised coincidence mill over the Responder seam opens the viewer in
-monitor mode; an unsupervised one never does (FIB-912).
+"""A coincidence mill over the Responder seam opens the viewer in monitor
+mode, supervised or not; the prompt is only for the supervised one (FIB-912).
 
 A real AutoLamellaUI on the simulated Arctis, the milling question asked from
 a worker thread as the task asks it. The mill itself is stubbed at the milling
@@ -158,13 +158,22 @@ def test_supervised_mill_opens_the_viewer_attached_then_releases_it(ui, qapp):
     assert outcome["config"].name == request.config.name
 
 
-def test_unsupervised_mill_never_opens_the_viewer(ui, qapp):
+def test_an_automated_mill_is_watched_too_and_released(ui, qapp):
+    """Unsupervised: no prompt, the mill runs at once -- and the viewer still
+    opens on it, in automated mode, so the batch can be watched."""
     request = RunMillingTask(
         config=_coincidence_config(), enabled=True, confirm=lambda: False, message=MSG
     )
-    ui._mill_gate.set()  # nothing to observe mid-run: let the mill finish at once
     thread, outcome = _ask_on_worker_thread(ui, request)
+    _pump_until(
+        qapp,
+        lambda: _viewer(ui) is not None and _viewer(ui).in_monitor_mode,
+        what="the viewer in monitor mode",
+    )
+    viewer = _viewer(ui)
+    assert viewer.label_task_lock.text() == "Task owns this run"
+
+    ui._mill_gate.set()
+    _pump_until(qapp, lambda: not viewer.in_monitor_mode, what="monitor released")
     _pump_until(qapp, lambda: not thread.is_alive(), what="the waiter to return")
     assert "error" not in outcome, outcome.get("error")
-    viewer = _viewer(ui)
-    assert viewer is None or not viewer.in_monitor_mode
