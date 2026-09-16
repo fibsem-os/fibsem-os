@@ -1416,6 +1416,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self._on_fib_double_clicked
         )
         self.fm_canvas.canvas.canvas_double_clicked.connect(self._on_fm_double_clicked)
+        # Shift+scroll on the FM quadrant steps the objective by the step size, as
+        # on the main FM canvas; plain scroll stays the canvas zoom
+        self.fm_canvas.canvas.canvas_scrolled.connect(
+            self.fm_objective_widget._on_canvas_scroll
+        )
 
         # Canvas → info panel + strategy bbox
         self.fib_canvas.rect_overlay.rect_changed.connect(self._info_widget.update_fib)
