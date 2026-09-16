@@ -138,6 +138,8 @@ def test_enter_shows_the_stored_boxes_and_locks_the_site(viewer, qapp):
     assert "Locked to test by the task" == viewer.label_task_lock.text()
     assert viewer.label_objective_hint.isVisible()
     assert "No objective height known" in viewer.label_objective_hint.text()
+    # the objective controls are open, not collapsed as for manual use
+    assert viewer.objective_panel._btn_collapse.isChecked()
     assert viewer._info_widget._setup_container.isVisible()
     assert "30 % drop" in viewer._info_widget._setup_label.text()
     assert "as stored" in viewer._info_widget._setup_label.text()
