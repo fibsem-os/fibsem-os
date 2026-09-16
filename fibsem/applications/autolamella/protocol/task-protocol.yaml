@@ -151,7 +151,8 @@ workflow:
     - name: Mill Fiducial
       supervise: true
       required: true
-      requires: []
+      requires:
+        - Setup Lamella Position
     - name: Rough Milling
       supervise: true
       required: true

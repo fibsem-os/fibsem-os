@@ -287,6 +287,137 @@ def test_missing_prerequisites_are_skipped(tmp_path):
     assert m._should_skip(lamella, "Undercut") is None
 
 
+def test_a_prerequisite_still_in_the_queue_defers_rather_than_skips(tmp_path):
+    """The prerequisite check used to be terminal. With Trench re-queued behind
+    Undercut, Undercut is passed over until Trench has run, then runs."""
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
+    )
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    m.review_enabled = True
+    m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
+    lamella = experiment.get_lamella_by_name("L1")
+    assert m._defer_reason(lamella, "Undercut") == "prereq_pending"
+    assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
+
+    def record_completion(task_name, lam):
+        lam.task_history.append(
+            AutoLamellaTaskState(name=task_name, status=Status.Completed)
+        )
+
+    executed = run_queue_with(m, record_completion)
+    assert executed == [("L1", "Trench"), ("L1", "Undercut")]
+    assert all(i.status is Status.Completed for i in m.queue.items)
+
+
+def test_a_pending_proposal_on_a_required_task_defers_its_consumer(tmp_path):
+    """Trench completed and left a proposal nobody has decided: Undercut waits.
+    It stays pending -- not Skipped -- and runs once the proposal is decided."""
+    from fibsem.applications.autolamella.proposals import (
+        Decision,
+        DecisionOutcome,
+        Proposal,
+    )
+
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1", "L2"]
+    )
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    m.review_enabled = True
+    m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
+    for name in ("L1", "L2"):
+        lamella = experiment.get_lamella_by_name(name)
+        lamella.task_history.append(
+            AutoLamellaTaskState(name="Trench", status=Status.Completed)
+        )
+    l1 = experiment.get_lamella_by_name("L1")
+    l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
+    assert m._defer_reason(l1, "Undercut") == "awaiting_review"
+    assert m._should_skip(l1, "Undercut") is None, "prerequisite is complete"
+
+    executed = run_queue_with(m)
+    assert executed == [("L2", "Undercut")], "L1 waits, L2 does not"
+    assert m.queue.has_pending_pair("L1", "Undercut")
+    assert [(i.lamella_name, r) for i, r in m.deferred_items()] == [
+        ("L1", "awaiting_review")
+    ]
+
+    experiment.decide(
+        l1.id,
+        "Trench",
+        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+    )
+    assert m._defer_reason(l1, "Undercut") is None
+    assert run_queue_with(m) == [("L1", "Undercut")]
+
+
+def test_with_the_flag_off_nothing_is_deferred(tmp_path):
+    """The whole path is behind proposer_reviewer_workflow_enabled: off, the
+    prerequisite check is terminal exactly as it was."""
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
+    )
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    m.review_enabled = False
+    m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
+    executed = run_queue_with(m)
+    assert executed == [("L1", "Trench")]
+    assert [i.status for i in m.queue.items] == [Status.Skipped, Status.Completed]
+
+
+def test_the_flag_reads_fail_closed(monkeypatch):
+    from fibsem.applications.autolamella.workflows.tasks import manager as M
+
+    class _Prefs:
+        class features:
+            proposer_reviewer_workflow_enabled = True
+
+    monkeypatch.setattr(M.fibsem_cfg, "load_user_preferences", lambda: _Prefs())
+    assert M.review_enabled() is True
+
+    def boom():
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(M.fibsem_cfg, "load_user_preferences", boom)
+    assert M.review_enabled() is False
+
+
+def test_a_rejected_proposal_retires_the_consumer(tmp_path):
+    """Reject on a gating kind fails the lamella, so its consumer is Skipped with
+    the failure reason -- nothing further here."""
+    from fibsem.applications.autolamella.proposals import (
+        Decision,
+        DecisionOutcome,
+        Proposal,
+    )
+
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
+    )
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    m.queue.build_from_matrix(["Undercut"], ["L1"])
+    l1 = experiment.get_lamella_by_name("L1")
+    l1.task_history.append(AutoLamellaTaskState(name="Trench", status=Status.Completed))
+    l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
+    experiment.decide(
+        l1.id,
+        "Trench",
+        Decision(outcome=DecisionOutcome.Rejected, author="human:op", reason="no site"),
+    )
+    assert run_queue_with(m) == []
+    assert [i.status for i in m.queue.items] == [Status.Skipped]
+    reports = [e.report for e in m.parent_ui.workflow_status_signal.emitted if e.report]
+    assert reports[-1].skip_reason == "failure"
+
+
 def test_no_requirements_runs(manager):
     assert (
         manager._should_skip(manager.experiment.get_lamella_by_name("L1"), "Trench")
