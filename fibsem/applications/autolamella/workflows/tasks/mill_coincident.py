@@ -122,7 +122,9 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "MillCoincidentTaskConfig":
-        cfg = AutoLamellaTaskConfig.from_dict(ddict)
+        # the base loader reads milling + reference imaging; it warns about any
+        # parameter it does not know, and it knows none of ours, so hand it none
+        cfg = AutoLamellaTaskConfig.from_dict({**ddict, "parameters": {}})
         params = ddict.get("parameters", {}) or {}
         channel = ddict.get("monitoring_channel")
         kwargs = dict(
