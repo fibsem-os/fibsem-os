@@ -226,6 +226,49 @@ class SetupCoincidenceMilling(Request[Optional["CoincidenceSetup"]]):
 
 
 @dataclass(frozen=True)
+class RunCoincidenceMilling(Request[Optional["FibsemMillingTaskConfig"]]):
+    """Hand the operator the coincidence viewer to check, start and watch one
+    site's coincidence mill; answer with the config as run -- or None when they
+    continued without milling.
+
+    The task has aligned on the setup reference and put the setup onto the
+    config. The viewer opens in run mode locked to ``lamella``: the aligned
+    FIB frame with the patterns, the FM region, the drop fraction, Start
+    Milling (the viewer's own milling widget runs it), Stop, and Continue,
+    which answers. The main window's prompt carries the same Continue. Same
+    shape as :class:`SetupCoincidenceMilling`: a window shown, a click that
+    reads it. The milling tab is not involved.
+    """
+
+    lamella: "Lamella"
+    milling_config: "FibsemMillingTaskConfig"
+    fib_image: Optional["FibsemImage"] = None
+    monitoring_channel: Optional["ChannelSettings"] = None
+    message: str = "Check the boxes, Start Milling, then Continue"
+
+
+@dataclass(frozen=True)
+class WatchCoincidenceMilling(Request[None]):
+    """Attach the coincidence viewer to a mill the task is running itself.
+
+    An automated coincidence mill runs headless with the drop as its stop;
+    this shows it. ``milling_config`` is the very object being milled, so its
+    strategies' stats drive the viewer; ``stop`` is what the viewer's Stop
+    calls. An instruction, not a question: a viewer that will not open never
+    holds the batch.
+    """
+
+    milling_config: "FibsemMillingTaskConfig"
+    stop: Optional[Callable[[], None]] = None
+    title: str = ""
+
+
+@dataclass(frozen=True)
+class ReleaseCoincidenceMilling(Request[None]):
+    """The watched mill is over; the viewer lets go."""
+
+
+@dataclass(frozen=True)
 class SetImages(Request[None]):
     """Display these acquisition images."""
 

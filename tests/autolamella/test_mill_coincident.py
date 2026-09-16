@@ -6,13 +6,21 @@ is under test is the choreography, the record, and the ways the loop ends.
 import logging
 import os
 import threading
+from copy import deepcopy
 
 import pytest
 import yaml
 
 import fibsem.config as fconfig
 from fibsem import utils
-from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.structures import (
+    Attention,
+    AutoLamellaTaskDescription,
+    AutoLamellaTaskProtocol,
+    AutoLamellaWorkflowConfig,
+    Experiment,
+    Lamella,
+)
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
     AcquireFluorescenceImageConfig,
@@ -258,3 +266,104 @@ def test_abort_token_stops_the_mill(microscope, tmp_path):
     strategy = milling.enabled_stages[0].strategy
     assert isinstance(strategy, CoincidenceMillingStrategy)
     assert strategy.end_reason == "stopped"
+
+
+class _Responder:
+    """A stand-in for the GUI: answers every request at once, as told."""
+
+    def __init__(self, answer=None):
+        self.answer = answer
+        self.requests = []
+
+    def submit(self, request, future):
+        self.requests.append(request)
+        future.set_result(self.answer(request) if callable(self.answer) else None)
+
+
+class _Signal:
+    """The Qt signals the task path emits into, without Qt (this directory
+    runs on the thin CI build)."""
+
+    def emit(self, *args):
+        pass
+
+
+class _ParentUI:
+    """The attributes the task path reads off the main window.
+
+    The experiment and its protocol are the real objects: a stub protocol
+    answering get_supervision is what silently broke when the protocol moved
+    to one attention per task.
+    """
+
+    def __init__(self, responder, attention: Attention, tmp_path, task_name):
+        self.ui_responder = responder
+        self._workflow_stop_event = threading.Event()
+        self.workflow_status_signal = _Signal()
+        self.step_update_signal = _Signal()
+        self.update_experiment_signal = _Signal()
+        self.experiment = Experiment(path=str(tmp_path), name="mill-coincident-ui")
+        self.experiment.task_protocol = AutoLamellaTaskProtocol(
+            workflow_config=AutoLamellaWorkflowConfig(
+                tasks=[AutoLamellaTaskDescription(name=task_name, attention=attention)]
+            )
+        )
+
+
+def test_supervised_asks_the_viewer_to_run_and_records_its_answer(microscope, tmp_path):
+    from fibsem.applications.autolamella.workflows.interaction import (
+        RunCoincidenceMilling,
+    )
+
+    lamella = _lamella(microscope, tmp_path)
+    _run_setup(microscope, lamella, pattern_offset=Point(1.0e-6, -0.5e-6))
+
+    def answer(request):
+        if isinstance(request, RunCoincidenceMilling):
+            ran = deepcopy(request.milling_config)
+            for stage in ran.enabled_stages:
+                stage.strategy.end_reason = "drop"
+            return ran
+        return None
+
+    responder = _Responder(answer)
+    task = _mill_task(microscope, lamella, timeout=3)
+    task.parent_ui = _ParentUI(
+        responder, Attention.supervised, tmp_path, task.task_name
+    )
+    task.run()
+
+    asked = [r for r in responder.requests if isinstance(r, RunCoincidenceMilling)]
+    assert len(asked) == 1
+    assert asked[0].lamella is lamella
+    assert asked[0].fib_image is not None  # the aligned frame the boxes sit on
+    assert asked[0].monitoring_channel.name == task.config.monitoring_channel.name
+    milling = lamella.task_config["Coincidence Milling"].milling[MILL_COINCIDENT_KEY]
+    assert all(s.strategy.end_reason == "drop" for s in milling.enabled_stages)
+    assert "drop" in lamella.task_history[-1].status_message
+
+
+def test_automated_with_a_ui_tells_the_viewer_to_watch_and_release(
+    microscope, tmp_path
+):
+    from fibsem.applications.autolamella.workflows.interaction import (
+        ReleaseCoincidenceMilling,
+        WatchCoincidenceMilling,
+    )
+
+    lamella = _lamella(microscope, tmp_path)
+    _run_setup(microscope, lamella)
+    responder = _Responder()
+    task = _mill_task(microscope, lamella, timeout=3)
+    task.parent_ui = _ParentUI(responder, Attention.automated, tmp_path, task.task_name)
+    task.run()
+
+    kinds = [type(r) for r in responder.requests]
+    assert kinds.index(WatchCoincidenceMilling) < kinds.index(ReleaseCoincidenceMilling)
+    watch = next(
+        r for r in responder.requests if isinstance(r, WatchCoincidenceMilling)
+    )
+    # the viewer's Stop would have stopped this very run
+    assert callable(watch.stop)
+    milling = lamella.task_config["Coincidence Milling"].milling[MILL_COINCIDENT_KEY]
+    assert milling.enabled_stages[0].strategy.end_reason == "timeout"

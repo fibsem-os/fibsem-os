@@ -213,81 +213,126 @@ def test_a_manual_run_in_progress_refuses_to_be_hijacked(viewer, qapp):
     viewer._is_milling_active = False
 
 
-# ── confirm mode: the supervised question, in the viewer ───────────────
+# ── run mode: a supervised mill, checked, started and watched here ─────
 
 
-def test_confirm_mode_shows_the_mill_and_hands_back_the_edited_boxes(viewer, qapp):
-    """The supervised prompt in the viewer: patterns and FM region drawn from
-    the mill, both editable, Start Milling answers with what was left."""
-    config = _running_config(bbox=FibsemRectangle(0.3, 0.3, 0.2, 0.2), drop=0.35)
-    manual_name = viewer.milling_viewer_widget.get_config().name
-    answers = []
-
+def _fib():
     from fibsem.structures import FibsemImage
 
-    fib = FibsemImage.generate_blank_image(resolution=(768, 512), hfw=80e-6)
-    viewer.enter_confirm_mode(
-        config,
-        fib_image=fib,
-        on_start=lambda: answers.append("start"),
-        on_continue=lambda: answers.append("continue"),
-        title="Coincident Milling",
+    return FibsemImage.generate_blank_image(resolution=(768, 512), hfw=80e-6)
+
+
+def test_run_mode_locks_the_site_and_shows_the_mill(viewer, qapp):
+    config = _running_config(bbox=FibsemRectangle(0.3, 0.3, 0.2, 0.2), drop=0.35)
+    manual_name = viewer.milling_viewer_widget.get_config().name
+    lamella = viewer.experiment.positions[0]
+
+    viewer.enter_run_mode(
+        lamella=lamella, milling_config=config, fib_image=_fib(), title="Coincident"
     )
     qapp.processEvents()
 
-    assert viewer.in_confirm_mode and not viewer.in_monitor_mode
-    assert viewer.btn_setup_continue.text() == "Start Milling"
+    assert viewer.in_run_mode and not viewer.in_monitor_mode
+    assert viewer._selected_lamella is lamella
+    assert not viewer.lamella_list_widget.isEnabled()
+    # the viewer's own Start Milling, and Continue; no Save, no Skip Site
+    assert viewer.btn_milling.isVisible()
     assert viewer.btn_setup_skip.text() == "Continue"
-    assert viewer.btn_setup_continue.isVisible()
-    assert not viewer.btn_milling.isVisible()
-    assert viewer.label_task_lock.text() == "Waiting for Start Milling"
+    assert viewer.btn_setup_skip.isVisible()
+    assert not viewer.btn_setup_continue.isVisible()
+    assert viewer.label_task_lock.text() == "Locked to test by the task"
+    assert "not yet milled" in viewer.label_selected_lamella.text()
     assert viewer.spin_drop_threshold.value() == 35
     H, W = viewer.fm_canvas._img_shape
     assert viewer.fm_canvas.rect_overlay.get_rect()["x0"] == pytest.approx(
         0.3 * W, abs=1
     )
-    # the mill's own strategies are untouched: the viewer edits a copy
+    # the mill's own strategies are untouched: the viewer runs a copy
     assert viewer._active_strategies
     assert viewer._active_strategies[0] is not config.enabled_stages[0].strategy
+    # nothing ran: Continue answers None
+    assert viewer.read_run_result() is None
 
-    # the operator moves the FM region, the pattern, and the drop fraction
+    viewer.exit_run_mode()
+    qapp.processEvents()
+    assert not viewer.in_run_mode
+    assert viewer.btn_setup_skip.text() == "Skip Site"
+    assert not viewer.btn_setup_skip.isVisible()
+    assert viewer.lamella_list_widget.isEnabled()
+    assert viewer.milling_viewer_widget.get_config().name == manual_name
+
+
+def test_start_milling_runs_the_edited_boxes_and_continue_answers_them(
+    viewer, qapp, monkeypatch
+):
+    """Start Milling is the manual run, minus the pre-flight dialog; what it
+    ran -- the moved boxes, the drop fraction -- is what Continue answers."""
+    config = _running_config(bbox=FibsemRectangle(0.3, 0.3, 0.2, 0.2), drop=0.35)
+    lamella = viewer.experiment.positions[0]
+    answers = []
+    viewer.enter_run_mode(
+        lamella=lamella,
+        milling_config=config,
+        fib_image=_fib(),
+        on_continue=lambda: answers.append("continue"),
+    )
+    qapp.processEvents()
+
+    milling_widget = viewer.milling_viewer_widget.milling_widget
+    ran = []
+
+    def fake_run(config=None):
+        milling_widget._running_config = config
+        ran.append(config)
+
+    monkeypatch.setattr(milling_widget, "run_milling", fake_run)
+
+    H, W = viewer.fm_canvas._img_shape
     viewer.fm_canvas.rect_overlay.set_rect(0.1 * W, 0.2 * H, 0.3 * W, 0.4 * H)
     viewer.milling_viewer_widget._move_patterns(Point(3.0e-6, 1.5e-6), move_all=True)
     viewer.spin_drop_threshold.setValue(50)
     qapp.processEvents()
 
-    result = viewer.read_confirm_result()
-    for stage in result.enabled_stages:
+    viewer.btn_milling.click()  # Start Milling
+    qapp.processEvents()
+    assert len(ran) == 1
+    assert viewer._is_milling_active
+    for stage in ran[0].enabled_stages:
         assert stage.pattern.point.x == pytest.approx(3.0e-6)
-        assert stage.pattern.point.y == pytest.approx(1.5e-6)
         assert stage.strategy.config.bbox.left == pytest.approx(0.1, abs=0.01)
-        assert stage.strategy.config.bbox.height == pytest.approx(0.4, abs=0.01)
         assert stage.strategy.config.intensity_drop_fraction == pytest.approx(0.5)
 
-    viewer.btn_setup_continue.click()
-    assert answers == ["start"]
-    viewer.btn_setup_skip.click()
-    assert answers == ["start", "continue"]
-
-    viewer.exit_confirm_mode()
+    # the (stubbed) mill finishes: still run mode, another run on offer
+    ran[0].enabled_stages[0].strategy.end_reason = "drop"
+    viewer._finalize_milling_ui()
     qapp.processEvents()
-    assert not viewer.in_confirm_mode
-    assert viewer.btn_setup_continue.text() == "Save and Continue"
-    assert viewer.btn_milling.isVisible()
-    assert viewer.lamella_list_widget.isEnabled()
-    assert viewer.milling_viewer_widget.get_config().name == manual_name
+    assert viewer.in_run_mode and not viewer._is_milling_active
+    assert viewer.btn_milling.isVisible() and viewer.btn_setup_skip.isVisible()
+    assert "milled" in viewer.label_selected_lamella.text()
+    assert not viewer.lamella_list_widget.isEnabled()
+
+    result = viewer.read_run_result()
+    assert result is not None
+    assert result.enabled_stages[0].strategy.end_reason == "drop"
+    assert result.enabled_stages[0].pattern.point.x == pytest.approx(3.0e-6)
+
+    viewer.btn_setup_skip.click()  # Continue
+    assert answers == ["continue"]
 
 
-def test_monitor_after_confirm_restores_the_manual_state_at_the_end(viewer, qapp):
-    """Start Milling hands the same run to monitor mode; the manual config
-    that comes back afterwards is the operator's, not the confirmed mill."""
-    manual_name = viewer.milling_viewer_widget.get_config().name
+def test_exit_run_mode_stops_a_mill_still_running(viewer, qapp, monkeypatch):
     config = _running_config()
-    viewer.enter_confirm_mode(config)
-    assert viewer.milling_viewer_widget.get_config().name != manual_name
+    viewer.enter_run_mode(
+        lamella=viewer.experiment.positions[0], milling_config=config, fib_image=_fib()
+    )
+    milling_widget = viewer.milling_viewer_widget.milling_widget
+    stops = []
+    monkeypatch.setattr(milling_widget, "run_milling", lambda config=None: None)
+    monkeypatch.setattr(milling_widget, "stop_milling", lambda: stops.append(1))
+    viewer.btn_milling.click()
+    assert viewer._is_milling_active
 
-    viewer.enter_monitor_mode(config)
-    assert viewer.in_monitor_mode and not viewer.in_confirm_mode
-    viewer.exit_monitor_mode()
-    qapp.processEvents()
-    assert viewer.milling_viewer_widget.get_config().name == manual_name
+    viewer.exit_run_mode()
+    assert stops == [1]
+    assert not viewer.in_run_mode
+    viewer._reset_run_chrome()  # the stubbed mill never finishes on its own

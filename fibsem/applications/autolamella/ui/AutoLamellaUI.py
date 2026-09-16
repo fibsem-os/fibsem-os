@@ -2787,8 +2787,8 @@ class AutoLamellaUI(QMainWindow):
             viewer.exit_setup_mode()
         if viewer is not None and viewer.in_monitor_mode:
             viewer.exit_monitor_mode()
-        if viewer is not None and viewer.in_confirm_mode:
-            viewer.exit_confirm_mode()
+        if viewer is not None and viewer.in_run_mode:
+            viewer.exit_run_mode()
         if self.image_widget is None:
             return
         if self.microscope is None:
