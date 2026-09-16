@@ -1852,6 +1852,18 @@ class Experiment:
                     pending.append((item, task_name, proposal))
         return pending
 
+    def proposals_to_check(
+        self,
+    ) -> List[Tuple[Union["Lamella", GridRecord], str, Proposal]]:
+        """Every proposal a producer applied itself (advise mode) that nobody
+        has looked at: the inbox's second group. Derived like the first."""
+        to_check = []
+        for item in list(self.positions) + list(self.grids):
+            for task_name, proposal in item.proposals.items():
+                if proposal.to_check:
+                    to_check.append((item, task_name, proposal))
+        return to_check
+
     def get_lamella_by_name(self, name: str) -> Optional["Lamella"]:
         """Return the Lamella with the given name, or None if not found."""
         return next((p for p in self.positions if p.name == name), None)

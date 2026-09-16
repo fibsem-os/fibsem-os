@@ -352,6 +352,35 @@ def test_decisions_append_and_the_latest_is_current(tmp_path):
     assert proposal.delta()["poi"] == Point(3e-6, 0.0)
 
 
+def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
+    """Advise mode: every decision is the producer's own, so a look is owed.
+    An acknowledgement carries no values (writes nothing) and clears it; the
+    applied decision is still the one whose values were written."""
+    exp = _experiment(tmp_path)
+    lamella = exp.positions[0]
+    lamella.proposals[SETUP] = _proposal(Point(0.0, 0.0))
+    proposal = lamella.proposals[SETUP]
+    assert not proposal.to_check and proposal.applied is None, "pending, not applied"
+    auto = Decision(
+        outcome=DecisionOutcome.Confirmed,
+        author="auto:centre-of-image",
+        values={"poi": Point(2e-6, 0)},
+    )
+    assert exp.decide(lamella.id, SETUP, auto).applied
+    assert proposal.to_check and proposal.applied is auto
+    assert lamella.poi == Point(2e-6, 0)
+    assert exp.pending_proposals() == []
+    assert [t for _i, t, _p in exp.proposals_to_check()] == [SETUP]
+
+    ack = Decision(outcome=DecisionOutcome.Confirmed, author="human:a", values={})
+    result = exp.decide(lamella.id, SETUP, ack)
+    assert result.applied and result.synced_tasks == [] and result.delta == {}
+    assert not proposal.to_check and proposal.current is ack
+    assert proposal.applied is auto, "the acknowledgement did not apply anything"
+    assert lamella.poi == Point(2e-6, 0)
+    assert exp.proposals_to_check() == []
+
+
 def test_author_names_the_declared_operator(tmp_path):
     exp = Experiment(path=tmp_path, name="e", metadata={"user": "Operator Name"})
     assert exp.author() == "human:Operator Name"
