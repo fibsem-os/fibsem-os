@@ -114,13 +114,16 @@ _ROW_RIGHT_STRONG = _ROW_RIGHT_STYLE  # the outcome line reads like the line abo
 def author_label(author: str, experiment: Optional[Experiment]) -> str:
     """How a decision's author reads on screen: "you" for the operator this
     experiment names, the name for another person, "agent · model" for an
-    agent, and the raw string when it fits none of those."""
+    agent, "auto · proposer" for a producer that confirmed its own proposal,
+    and the raw string when it fits none of those."""
     if experiment is not None and author == experiment.author():
         return "you"
     if author.startswith("human:"):
         return author[len("human:") :] or "someone"
     if author.startswith("agent:"):
         return "agent · " + (author[len("agent:") :] or "unknown")
+    if author.startswith("auto:"):
+        return "auto · " + (author[len("auto:") :] or "unknown")
     return author or "unknown"
 
 
@@ -899,6 +902,7 @@ class ReviewTabWidget(QWidget):
         decision = Decision(
             outcome=DecisionOutcome.Confirmed,
             author=self._experiment.author(),
+            via="review",
             values=renderer.current_values(),
         )
         self._apply(item, task_name, decision)
@@ -922,6 +926,7 @@ class ReviewTabWidget(QWidget):
         decision = Decision(
             outcome=DecisionOutcome.Rejected,
             author=self._experiment.author(),
+            via="review",
             reason=reason,
         )
         self._apply(item, task_name, decision)

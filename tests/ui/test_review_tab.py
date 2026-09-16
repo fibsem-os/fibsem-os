@@ -231,6 +231,7 @@ def test_author_labels_and_row_details():
     assert R.author_label("human:Pat", exp) == "you"
     assert R.author_label("human:Sam", exp) == "Sam"
     assert R.author_label("agent:claude", exp) == "agent · claude"
+    assert R.author_label("auto:centre-of-image", exp) == "auto · centre-of-image"
     p = Proposal(kind=MILLING_SETUP, values={"poi": Point(0, 0)})
     p.decisions.append(
         Decision(

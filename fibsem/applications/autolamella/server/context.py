@@ -851,6 +851,7 @@ class AgentContext:
             waiting_on,
         )
 
+        protocol = getattr(experiment, "task_protocol", None)
         reviews = []
         for item, task_name, proposal in experiment.pending_proposals():
             doc = to_plain(proposal.to_dict())
@@ -860,6 +861,9 @@ class AgentContext:
                     "item_name": item.name,
                     "task_name": task_name,
                     "gating": proposal.gating,
+                    "gated": bool(protocol.get_review(task_name))
+                    if protocol
+                    else False,
                     "waiting_on": waiting_on(experiment, task_name),
                 }
             )
@@ -905,6 +909,7 @@ class AgentContext:
             author=agent_author(author or "remote"),
             values=_decode_values(values or {}),
             reason=reason,
+            via="server",
         )
         result = experiment.decide(item_id, task_name, decision)
         doc = result.to_dict()
