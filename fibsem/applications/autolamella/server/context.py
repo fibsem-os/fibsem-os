@@ -871,6 +871,10 @@ class AgentContext:
             doc["reference_image"] = (
                 _preview_payload(image) if image is not None else None
             )
+            electron = _load_reference_image(item, proposal, "reference_image_eb")
+            doc["reference_image_eb"] = (
+                _preview_payload(electron) if electron is not None else None
+            )
             return doc
 
         reviews = [describe(*entry) for entry in experiment.pending_proposals()]

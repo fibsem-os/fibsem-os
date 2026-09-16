@@ -17,6 +17,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from fibsem.applications.autolamella.proposals import (  # noqa: E402
     MILLING_SETUP,
+    TASK_RESULT,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -343,6 +344,64 @@ def test_go_to_lamella_hands_the_item_over(tab, experiment):
     tab.open_item_requested.connect(heard.append)
     tab.stack.currentWidget().btn_open.click()
     assert heard == [experiment.positions[0]]
+
+
+def test_a_task_result_renders_both_images_and_confirms_with_no_values(
+    tab, experiment, qapp
+):
+    """The generic kind: what a task did, for someone to look at. Nothing to
+    drag, nothing written; the verbs are the same two."""
+    lamella = experiment.positions[0]
+    del lamella.proposals[SETUP]
+    eb = os.path.join(str(lamella.path), "ref_rough_eb")
+    _fib_image().save(eb)
+    lamella.proposals[ROUGH] = Proposal(
+        kind=TASK_RESULT,
+        values={},
+        provenance={
+            "proposer": "task",
+            "task_name": ROUGH,
+            "status": "Completed",
+            "started_at": 1000.0,
+            "ended_at": 1130.0,
+            "reference_image": "ref_setup_ib.tif",
+            "reference_image_eb": "ref_rough_eb.tif",
+            "failure": "",
+        },
+    )
+    tab.refresh()
+    assert tab.pending_count == 1
+    renderer = tab.stack.currentWidget()
+    assert isinstance(renderer, R.TaskResultReviewRenderer)
+    assert renderer._image is not None and renderer._electron is not None
+    assert renderer._controller.widget._sem_panel.isVisibleTo(renderer)
+    assert renderer._cell_values["outcome"].text() == "completed"
+    assert renderer._cell_values["duration"].text() == "2.2 min"
+    assert renderer.btn_confirm.text() == "Confirm · looks right"
+    assert "Look at the result" in renderer.status.text()
+    assert not renderer._controller.overlay_points(BeamType.ION, "poi")
+
+    tab.confirm_current()
+    qapp.processEvents()
+    proposal = lamella.proposals[ROUGH]
+    assert proposal.current.outcome is DecisionOutcome.Confirmed
+    assert proposal.current.values == {}
+    assert R.describe_decision(proposal, experiment).startswith("Confirmed by you")
+
+    # a failed run reads as such, and an auto-recorded one is to check
+    lamella.proposals[FIDUCIAL] = Proposal(
+        kind=TASK_RESULT,
+        values={},
+        provenance={"task_name": FIDUCIAL, "status": "Failed", "failure": "drift"},
+    )
+    _auto_confirm(lamella.proposals[FIDUCIAL], proposer="task")
+    tab.refresh()
+    assert tab.check_count == 1
+    renderer = tab.stack.currentWidget()
+    assert renderer._cell_values["outcome"].text() == "failed · drift"
+    assert renderer.btn_confirm.text() == "Acknowledge"
+    assert "Recorded by auto · task" in renderer.decision.text()
+    assert "No reference images" in renderer.status.text()
 
 
 def test_author_labels_and_row_details():
