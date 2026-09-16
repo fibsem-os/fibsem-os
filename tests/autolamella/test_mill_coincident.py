@@ -222,6 +222,9 @@ def test_headless_mill_runs_from_the_setup_record_to_timeout(
         assert strategy.end_reason == "timeout"
     assert "Coincidence milling ended" in caplog.text
     assert "timeout" in caplog.text
+    # and the record says so, not just the log
+    assert lamella.task_history[-1].status_message.startswith("Finished · ")
+    assert "timeout" in lamella.task_history[-1].status_message
     # aligned to the setup reference, not the generic one
     assert "no coincidence setup reference" not in caplog.text
     # the FM is quiet on the way out

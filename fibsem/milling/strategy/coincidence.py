@@ -193,7 +193,8 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self.post_fib_acq: Optional["FibsemImage"] = None
         self._stop_event: Optional["threading.Event"] = None
         self.parent_ui: Optional["FibsemMillingWidget2"] = None
-        # why the last run's monitor loop ended: "stopped", "drop", "timeout"
+        # why the last run's monitor loop ended: "stopped", "drop", "timeout",
+        # or "completed" (the stage's own milling time ran out, no drop seen)
         self.end_reason: Optional[str] = None
         # when the run's timeout lands, for the stats a viewer shows
         self._timeout_end_time: Optional[float] = None
@@ -435,12 +436,16 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                     remaining_time=remaining_time,
                 )
             )
-            # timeout
+            # the end of the stage's own milling time, or the timeout -- whichever
+            # is sooner. They are different outcomes: the first is the mill
+            # finishing without a drop, the second is the strategy giving up on one.
             if time.time() >= max_end_time:
                 logging.info(
                     f"Max End Time reached: {max_end_time - start_time} seconds have passed. Stopping milling."
                 )
-                self.end_reason = "timeout"
+                self.end_reason = (
+                    "timeout" if timeout_end_time < estimated_end_time else "completed"
+                )
                 break
 
             continue
