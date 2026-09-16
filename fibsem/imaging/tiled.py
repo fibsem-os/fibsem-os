@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 from copy import deepcopy
+from dataclasses import replace
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -52,6 +53,7 @@ from fibsem.structures import (
     AutoFocusMode,
     FibsemImage,
     FibsemImageMetadata,
+    FibsemRectangle,
     FibsemStagePosition,
     OverviewAcquisitionSettings,
     Point,
@@ -60,6 +62,15 @@ from fibsem.structures import (
 from fibsem.utils import current_timestamp_v3
 
 ##### TILE GRID
+
+
+def centred_half_frame() -> FibsemRectangle:
+    """The middle half of the frame, each way: the area the Image tab's Auto Focus
+    and Auto Contrast buttons score. An overview tile's edges are the mosaic's seams,
+    grid bars and the neighbour's overlap, and scoring the whole frame lets them
+    drag the result; the centre is the tile's own picture. A new one each call:
+    a shared rectangle would be one edit away from moving every caller."""
+    return FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5)
 
 
 def _check_cancelled(stop_event: Optional[threading.Event]) -> None:
@@ -202,7 +213,14 @@ class TiledAcquisitionRunner:
         image_settings = self.settings.image_settings
         self._focus_stack_settings = self.settings.focus_stack_settings
         self._af_mode = self.settings.autofocus_mode
-        self._af_settings = self.settings.autofocus_settings
+        # The sweep scores the centred half-frame unless the settings name an area,
+        # as the Image tab's Auto Focus button does. Focusing on the full tile
+        # frame scored the seams as much as the picture, and read as soft tiles.
+        # A copy: the caller's settings are not rewritten with the default.
+        af_settings = self.settings.autofocus_settings
+        if af_settings.reduced_area is None:
+            af_settings = replace(af_settings, reduced_area=centred_half_frame())
+        self._af_settings = af_settings
         # Once a working distance turns out not to be settable, say so once rather than
         # per tile: on a 5 x 5 at EACH_TILE the per-tile version is 25 identical lines.
         self._af_unavailable_logged = False
@@ -572,10 +590,9 @@ class TiledAcquisitionRunner:
         probe images have to frame what the tile frames, or the sweep scores a different
         picture from the one being focused.
 
-        `reduced_area` comes from the sweep settings and defaults to None, which is what
-        the vendor call was passed anyway -- `_setup` clears `image_settings.reduced_area`
-        before every run, so nothing changes here yet. A centred half-frame is the thing
-        to try if tile edges turn out to drag the score around.
+        `reduced_area` comes from the sweep settings; `_setup` fills it with the centred
+        half-frame when the settings leave it None, so the sweep scores the middle of
+        the tile rather than its seams.
         """
         if self._af_mode is not mode:
             return
