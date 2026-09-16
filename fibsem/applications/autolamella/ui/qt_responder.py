@@ -1007,7 +1007,9 @@ class QtResponder(QObject):
         try:
             return viewer.read_setup_result() if clicked_yes else None
         finally:
-            viewer.exit_setup_mode()
+            # held, not released: the workflow may hand over the next site in a
+            # moment; _workflow_finished releases it for good
+            viewer.exit_setup_mode(hold=True)
 
     def _run_spot_burn(self, request: RunSpotBurn, future: "Future") -> None:
         """Place-points-and-burn, mirroring the milling question.
