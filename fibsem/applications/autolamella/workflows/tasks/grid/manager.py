@@ -17,6 +17,18 @@ A failed load records the failure, skips the grid's remaining tasks as "grid not
 loaded", and the run continues with the next grid: an overnight run must not stop
 on grid 3 of 12. A failed task fails only itself; the next task on the same grid
 still runs, since an SEM overview failing says nothing about the FM one.
+
+Where Stop lands
+----------------
+The hardware calls are atomic; Stop is honoured at the checkpoints between them.
+
+* Between queue items: the loop asks ``is_stopped`` before taking the next one.
+* Inside a task: at the task's own checkpoints -- after its stage move, between
+  tiles, inside a focus sweep. The task ends Cancelled and the loop ends the run.
+* Inside an exchange: before the unload, and between the unload and the load.
+  A Stop that lands during the unload leaves the working slot empty and the
+  next grid in the magazine; the load entry says so. A Stop that lands during
+  the load is honoured once the grid is in, the last checkpoint an exchange has.
 """
 
 from __future__ import annotations
@@ -180,7 +192,12 @@ class GridTaskManager(BaseTaskManager):
                 self._run_load_step(item, grid)
                 continue
 
-            if not self._ensure_loaded(grid):
+            try:
+                loaded = self._ensure_loaded(grid)
+            except OperationCancelledError as e:
+                self._cancel_load(item, grid, str(e))
+                continue
+            if not loaded:
                 reason = self._not_loaded[grid.name]
                 msg = f"Skipping {item.task_name} on {grid.name}: grid not loaded."
                 logging.info(f"{msg} {reason}")
@@ -244,7 +261,11 @@ class GridTaskManager(BaseTaskManager):
             status=AutoLamellaTaskStatus.InProgress,
             msg=f"Loading grid {grid.name}.",
         )
-        loaded = self._ensure_loaded(grid)
+        try:
+            loaded = self._ensure_loaded(grid)
+        except OperationCancelledError as e:
+            self._cancel_load(item, grid, str(e))
+            return
         status = (
             AutoLamellaTaskStatus.Completed if loaded else AutoLamellaTaskStatus.Failed
         )
@@ -261,6 +282,18 @@ class GridTaskManager(BaseTaskManager):
             ),
         )
 
+    def _cancel_load(self, item: WorkItem, grid: GridRecord, msg: str) -> None:
+        """A Stop landed inside the exchange: the queue item ends Cancelled, not
+        Failed, and the loop ends the run at its next check."""
+        logging.info(msg)
+        self.queue.mark_done(item, AutoLamellaTaskStatus.Cancelled)
+        self._emit_report(
+            item=item,
+            item_name=grid.name,
+            status=AutoLamellaTaskStatus.Cancelled,
+            msg=msg,
+        )
+
     def _ensure_loaded(self, grid: GridRecord) -> bool:
         """Bring the grid onto the stage, recording the attempt when it costs one.
 
@@ -269,6 +302,12 @@ class GridTaskManager(BaseTaskManager):
         refusal, is recorded on the grid's history as a ``load`` entry with how
         long it took or why it did not happen. A failure is remembered for the
         rest of the run so the grid's other tasks skip without retrying it.
+
+        An exchange is two hardware calls, the unload and the load, and Stop is
+        honoured before each: a Stop that arrives while the working slot is being
+        emptied ends the run with the slot empty, rather than loading a grid the
+        operator has just asked not to have loaded. Raises
+        ``OperationCancelledError`` at either checkpoint, with the entry recorded.
         """
         if grid.name in self._not_loaded:
             return False
@@ -279,10 +318,24 @@ class GridTaskManager(BaseTaskManager):
             task_type=LOAD_TASK_TYPE,
             status=AutoLamellaTaskStatus.InProgress,
         )
-        if not loaded:
-            logging.info(f"Loading grid {grid.name}.")
-            self._say(status_bar=f"Loading grid {grid.name}...")
         try:
+            if not loaded:
+                self._stop_exchange_if_asked(
+                    grid, entry, f"Stopped before loading {grid.name}."
+                )
+                occupant = self._working_slot_occupant(stage)
+                if occupant is not None:
+                    logging.info(f"Unloading grid {occupant} for {grid.name}.")
+                    self._say(status_bar=f"Unloading grid {occupant}...")
+                    stage.unload()
+                    self._stop_exchange_if_asked(
+                        grid,
+                        entry,
+                        f"Stopped after unloading {occupant}; "
+                        f"{grid.name} was not loaded.",
+                    )
+                logging.info(f"Loading grid {grid.name}.")
+                self._say(status_bar=f"Loading grid {grid.name}...")
             slot = stage.ensure_loaded(grid.name)
         except GridExchangeError as e:
             self._not_loaded[grid.name] = str(e)
@@ -306,6 +359,29 @@ class GridTaskManager(BaseTaskManager):
                 f"Grid {grid.name} loaded into {slot.name} in {entry.duration:.1f} s."
             )
         return True
+
+    @staticmethod
+    def _working_slot_occupant(stage) -> Optional[str]:
+        """The name of the grid an exchange would have to retract first, or None.
+        Only a loader retracts anything; a fixed holder has nowhere to put it."""
+        if stage.loader is None:
+            return None
+        occupant = stage.loader.working_slot.loaded_grid
+        return occupant.name if occupant is not None else None
+
+    def _stop_exchange_if_asked(
+        self, grid: GridRecord, entry: AutoLamellaTaskState, msg: str
+    ) -> None:
+        """A checkpoint inside the exchange: record the entry and raise if Stop
+        has been asked for since the loop last looked."""
+        if not self.is_stopped:
+            return
+        entry.status = AutoLamellaTaskStatus.Cancelled
+        entry.status_message = msg
+        entry.end_timestamp = datetime.timestamp(datetime.now())
+        grid.task_history.append(entry)
+        self.experiment.save()
+        raise OperationCancelledError(msg)
 
     def _run_single_task(self, task_name: str, grid: GridRecord) -> Optional[Exception]:
         """Execute one task on one grid. Returns the exception, or None."""
