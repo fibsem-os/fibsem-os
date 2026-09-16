@@ -116,15 +116,13 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
         ),
     )
     # --- written by the task -------------------------------------------------
+    # Per-site records, not protocol parameters: hidden from the task form (the
+    # Coincident Milling widget shows them read-only per lamella). The objective
+    # height is None until the task has recorded one, and the form has no
+    # control for an unset float.
     # metres; None until the task or the operator has set it
     objective_position: Optional[float] = field(
-        default=None,
-        metadata=field_meta(
-            label="Objective Position",
-            unit="m",
-            scale=1e6,
-            tooltip="Objective height that focuses the sample at the milling tilt",
-        ),
+        default=None, metadata=field_meta(hidden=True)
     )
     # fraction of the FM camera frame (left, top, width, height); None = whole frame
     fm_roi: Optional[FibsemRectangle] = field(
@@ -178,7 +176,9 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "SetupCoincidenceMillingTaskConfig":
-        cfg = AutoLamellaTaskConfig.from_dict(ddict)
+        # the base loader reads milling + reference imaging; it warns about any
+        # parameter it does not know, and it knows none of ours, so hand it none
+        cfg = AutoLamellaTaskConfig.from_dict({**ddict, "parameters": {}})
         params = ddict.get("parameters", {}) or {}
         objective_position = params.get("objective_position")
         fm_roi = ddict.get("fm_roi")

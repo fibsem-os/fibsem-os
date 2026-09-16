@@ -234,3 +234,53 @@ def test_advanced_writes_field_of_view_and_the_zstack_flag(widget, qapp):
     config = widget.get_task_config()
     assert config.milling[MILL_COINCIDENT_KEY].field_of_view == pytest.approx(120e-6)
     assert config.acquire_fluorescence_images is False
+
+
+def test_every_task_of_the_coincidence_protocol_builds_a_form(qapp):
+    """Selecting a task in the protocol editor builds the generic parameter form
+    for it. The Setup task's per-site fields (objective height None until the
+    task records one) crashed that form; they are hidden from it now."""
+    import os
+
+    from PyQt5.QtWidgets import QGridLayout, QWidget
+
+    from fibsem.applications.autolamella import config as autolamella_config
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+    from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
+        build_parameter_rows,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
+        SetupCoincidenceMillingTaskConfig,
+    )
+
+    path = os.path.join(
+        autolamella_config.BASE_PATH,
+        "protocol",
+        "development",
+        "task-protocol-coincidence.yaml",
+    )
+    protocol = AutoLamellaTaskProtocol.load(path)
+    host = QWidget()
+    for name, config in protocol.task_config.items():
+        grid = QGridLayout(QWidget(host))
+        rows = build_parameter_rows(config, grid)
+        fields = {row.field for row in rows}
+        if isinstance(config, SetupCoincidenceMillingTaskConfig):
+            assert "objective_position" not in fields, name
+            assert "field_of_view" in fields and "intensity_drop_fraction" in fields
+    host.close()
+
+
+def test_loading_the_coincidence_tasks_does_not_warn_about_their_own_keys(caplog):
+    import logging
+
+    from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
+        SetupCoincidenceMillingTaskConfig,
+    )
+
+    setup = SetupCoincidenceMillingTaskConfig(task_name="Setup Coincidence Milling")
+    mill = MillCoincidentTaskConfig(task_name="Coincidence Milling")
+    with caplog.at_level(logging.WARNING):
+        SetupCoincidenceMillingTaskConfig.from_dict(setup.to_dict())
+        MillCoincidentTaskConfig.from_dict(mill.to_dict())
+    assert "Unknown parameter" not in caplog.text
