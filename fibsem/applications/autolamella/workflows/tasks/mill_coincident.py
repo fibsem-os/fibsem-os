@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import ClassVar, Optional, Type
@@ -24,6 +25,12 @@ import fibsem.utils as utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
+)
+from fibsem.applications.autolamella.workflows.interaction import (
+    ReleaseCoincidenceMilling,
+    RunCoincidenceMilling,
+    WatchCoincidenceMilling,
+    ask,
 )
 from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
     AcquireFluorescenceImageConfig,
@@ -36,6 +43,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     COINCIDENCE_SETUP_REFERENCE_FILENAME,
     SetupCoincidenceMillingTaskConfig,
 )
+from fibsem.applications.autolamella.workflows.ui import _abort_requested
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import ChannelSettings
 from fibsem.milling.base import FibsemMillingSettings
@@ -44,11 +52,35 @@ from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategy,
     CoincidenceMillingStrategyConfig,
 )
-from fibsem.milling.tasks import FibsemMillingStage, FibsemMillingTaskConfig
+from fibsem.milling.tasks import (
+    FibsemMillingStage,
+    FibsemMillingTaskConfig,
+    run_milling_task,
+)
 from fibsem.structures import CrossSectionPattern, field_meta
 
 MILL_COINCIDENT_KEY = "mill_coincident"
 DEFAULT_SETUP_TASK_NAME = "Setup Coincidence Milling"
+# how long an instruction to the viewer may hold the mill; it never fails it
+WATCH_TIMEOUT_S = 30.0
+
+
+class _StopEither:
+    """A stop for the headless mill that either the workflow's abort or the
+    viewer's Stop can set. ``FibsemMillingTask`` and the strategy only ever ask
+    ``is_set``, so this stands in for the ``threading.Event`` they expect.
+    """
+
+    def __init__(self, abort: Optional[threading.Event]) -> None:
+        self._abort = abort
+        self._own = threading.Event()
+
+    def set(self) -> None:
+        self._own.set()
+
+    def is_set(self) -> bool:
+        return self._own.is_set() or (self._abort is not None and self._abort.is_set())
+
 
 DEFAULT_MILLING_CONFIG[MILL_COINCIDENT_KEY] = FibsemMillingTaskConfig(
     name="Coincident Milling",
@@ -201,16 +233,14 @@ class MillCoincidentTask(AutoLamellaTask):
             # 4. the per-site setup onto the milling config
             milling_task_config = self._apply_setup(setup)
 
-            # 5. the mill. Headless it runs right here with our abort token; with a
-            # UI the milling widget runs it (Run Milling gate when supervised).
+            # 5. the mill. Supervised, the coincidence viewer runs it: the operator
+            # checks the boxes, starts, watches, stops, continues. Otherwise it
+            # runs right here with the abort token, and the viewer only watches.
             self.log_status_message("MILL_COINCIDENT", "Milling Coincident Lamella...")
-            msg = (
-                f"Press Run Milling to coincidence mill {self.lamella.name}. "
-                "Press Continue when done."
-            )
-            milling_task_config = self.update_milling_config_ui(
-                milling_task_config, msg=msg
-            )
+            if self.parent_ui is not None and self.validate:
+                milling_task_config = self._mill_supervised(milling_task_config)
+            else:
+                milling_task_config = self._mill_automated(milling_task_config)
             self.config.milling[MILL_COINCIDENT_KEY] = deepcopy(milling_task_config)
             self._record_end_reason(milling_task_config)
 
@@ -223,6 +253,64 @@ class MillCoincidentTask(AutoLamellaTask):
             self._retract_objective()
 
     # ------------------------------------------------------------------
+
+    def _mill_supervised(
+        self, milling_task_config: FibsemMillingTaskConfig
+    ) -> FibsemMillingTaskConfig:
+        """The viewer's run: one question, answered with the config as run."""
+        result = ask(
+            self.parent_ui.ui_responder,
+            RunCoincidenceMilling(
+                lamella=self.lamella,
+                milling_config=deepcopy(milling_task_config),
+                fib_image=self._last_fib_image,
+                monitoring_channel=self.config.monitoring_channel,
+                message=(
+                    f"Check the boxes for {self.lamella.name}, Start Milling, "
+                    "then Continue."
+                ),
+            ),
+            abort=lambda: _abort_requested(self.parent_ui),
+        )
+        if result is None:
+            self.log_status_message(
+                "MILL_COINCIDENT_SKIPPED",
+                f"Continued without coincidence milling {self.lamella.name}.",
+            )
+            return milling_task_config
+        return result
+
+    def _mill_automated(
+        self, milling_task_config: FibsemMillingTaskConfig
+    ) -> FibsemMillingTaskConfig:
+        """Run the mill here; the viewer, if there is one, watches and can stop it."""
+        stop = _StopEither(self._stop_event)
+        self._tell(
+            WatchCoincidenceMilling(
+                milling_config=milling_task_config,
+                stop=stop.set,
+                title=f"{milling_task_config.name} · {self.lamella.name}",
+            )
+        )
+        try:
+            task = run_milling_task(
+                self.microscope, milling_task_config, None, stop_event=stop
+            )
+        finally:
+            self._tell(ReleaseCoincidenceMilling())
+        return task.config
+
+    def _tell(self, request) -> None:
+        """An instruction to the viewer that must never hold or fail the mill."""
+        if self.parent_ui is None:
+            return
+        try:
+            ask(self.parent_ui.ui_responder, request, timeout=WATCH_TIMEOUT_S)
+        except Exception as exc:  # noqa: BLE001 - the viewer is not the mill
+            logging.warning(
+                f"{self.task_name}: the coincidence viewer did not take "
+                f"{type(request).__name__}: {exc}"
+            )
 
     def _setup_config(self) -> SetupCoincidenceMillingTaskConfig:
         """The per-site record, by the setup task's name."""
