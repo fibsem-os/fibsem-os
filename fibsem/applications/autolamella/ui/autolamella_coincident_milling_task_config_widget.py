@@ -319,8 +319,21 @@ class AutoLamellaCoincidentMillingTaskConfigWidget(QWidget):
         self.btn_copy_channel.setVisible(self._channel_sources is not None)
 
         # the form's own titled header would repeat this panel's title (or the
-        # channel's name) directly beneath it; the panel is the header here
+        # channel's name) directly beneath it; the panel is the header here.
+        # The name that header carried gets its own row instead: it is what
+        # Copy from… changes when the filters already match, and the record of
+        # which channel the monitoring was seeded from.
         self.channel_widget._panel._header.setVisible(False)
+        name_row = QWidget()
+        name_layout = QHBoxLayout(name_row)
+        name_layout.setContentsMargins(0, 0, 0, 0)
+        name_layout.setSpacing(8)
+        name_layout.addWidget(QLabel("Name"))
+        self.edit_channel_name = QLineEdit()
+        self.edit_channel_name.setToolTip("The monitoring channel's name")
+        self.edit_channel_name.editingFinished.connect(self._on_channel_name_edited)
+        name_layout.addWidget(self.edit_channel_name, 1)
+        channel_layout.addWidget(name_row)
         channel_layout.addWidget(self.channel_widget)
 
         row = 0
@@ -550,6 +563,7 @@ class AutoLamellaCoincidentMillingTaskConfigWidget(QWidget):
             strategy_config = self._first_strategy_config(milling)
 
             self.channel_widget.set_channel(self.config.monitoring_channel)
+            self.edit_channel_name.setText(self.config.monitoring_channel.name)
             self.spin_drop.setValue(
                 int(round(strategy_config.intensity_drop_fraction * 100))
             )
@@ -700,6 +714,16 @@ class AutoLamellaCoincidentMillingTaskConfigWidget(QWidget):
         self.config.monitoring_channel = channel
         self._emit()
 
+    def _on_channel_name_edited(self) -> None:
+        if self._loading:
+            return
+        name = self.edit_channel_name.text().strip()
+        if not name or name == self.config.monitoring_channel.name:
+            self.edit_channel_name.setText(self.config.monitoring_channel.name)
+            return
+        self.config.monitoring_channel.name = name
+        self._emit()
+
     def _on_milling_changed(self, milling) -> None:
         if self._loading:
             return
@@ -773,4 +797,5 @@ class AutoLamellaCoincidentMillingTaskConfigWidget(QWidget):
         target.emission_wavelength = source.emission_wavelength
         target.color = source.color
         self.channel_widget.set_channel(target)
+        self.edit_channel_name.setText(target.name)
         self._emit()
