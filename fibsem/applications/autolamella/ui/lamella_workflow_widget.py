@@ -116,7 +116,11 @@ class AddTaskDialog(QDialog):
 
 
 class _TaskEditorDialog(QDialog):
-    """Modal dialog wrapping WorkflowTaskEditorWidget."""
+    """Modal dialog wrapping WorkflowTaskEditorWidget. Also where a task is
+    removed from the workflow: the editor's Remove asks here, this confirms,
+    closes, and tells the host which task to drop."""
+
+    remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -136,15 +140,36 @@ class _TaskEditorDialog(QDialog):
         # Use the editor's own styled Apply/Cancel buttons as the dialog actions.
         self.editor.apply_clicked.connect(self.accept)
         self.editor.cancel_clicked.connect(self.reject)
+        self.editor.remove_clicked.connect(self._on_remove_clicked)
         layout.addWidget(self.editor, 1)
+        self._task: Optional[AutoLamellaTaskDescription] = None
 
     def open_for(
         self,
         task: AutoLamellaTaskDescription,
         available_tasks: List[str],
+        allow_remove: bool = True,
     ) -> None:
+        self._task = task
         self.editor.load_task(task, available_tasks=available_tasks)
+        self.editor.set_remove_allowed(allow_remove)
         self.open()
+
+    def _on_remove_clicked(self) -> None:
+        task = self._task
+        if task is None:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Remove Task",
+            f"Remove <b>{task.name}</b> from workflow?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        self.reject()
+        self.remove_requested.emit(task)
 
 
 class LamellaWorkflowWidget(QWidget):
@@ -184,6 +209,7 @@ class LamellaWorkflowWidget(QWidget):
 
         self._editor_dialog = _TaskEditorDialog(self)
         self._editor_dialog.editor.apply_clicked.connect(self._on_task_applied)
+        self._editor_dialog.remove_requested.connect(self._on_task_remove_confirmed)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -348,7 +374,17 @@ class LamellaWorkflowWidget(QWidget):
 
     def _on_task_edit_requested(self, task: AutoLamellaTaskDescription) -> None:
         available = [t.name for t in self.workflow.get_tasks()]
-        self._editor_dialog.open_for(task, available_tasks=available)
+        self._editor_dialog.open_for(
+            task,
+            available_tasks=available,
+            allow_remove=self.workflow.remove_allowed,
+        )
+
+    def _on_task_remove_confirmed(self, task: AutoLamellaTaskDescription) -> None:
+        # the list drops the row and re-emits remove_requested, which is wired
+        # to task_remove_requested above
+        self.workflow.request_remove(task)
+        self._update_summary()
 
     def _on_task_applied(self, task: AutoLamellaTaskDescription) -> None:
         self.workflow.refresh_task(task)
