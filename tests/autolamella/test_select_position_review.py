@@ -17,6 +17,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.proposals import (
     MILLING_SETUP,
+    AuthorKind,
     Decision,
     DecisionOutcome,
 )
@@ -232,7 +233,7 @@ def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
     lamella = exp.positions[0]
     proposal = lamella.proposals[SETUP]
     assert proposal.kind == MILLING_SETUP and not proposal.pending
-    assert proposal.current.author == "auto:current-poi"
+    assert str(proposal.current.author) == "auto:current-poi"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
 
 
@@ -254,7 +255,7 @@ def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
     assert not proposal.pending
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "the proposal is untouched"
     assert proposal.current.outcome is DecisionOutcome.Confirmed
-    assert proposal.current.author == "auto:current-poi"
+    assert str(proposal.current.author) == "auto:current-poi"
     assert proposal.current.via == "workflow"
     assert proposal.current.values == proposal.values, "confirmed as proposed"
     assert proposal.delta() == {"poi": Point(0.0, 0.0)}
@@ -289,10 +290,10 @@ def test_supervised_the_inline_answer_is_the_decision(
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "what the proposer said"
     d = proposal.current
     assert d.outcome is DecisionOutcome.Confirmed and d.via == "workflow"
-    assert d.author.startswith("human:")
+    assert d.author.kind is AuthorKind.human
     assert d.values == {"poi": Point(2e-6, -1e-6)}
     assert proposal.delta()["poi"] == Point(2e-6, -1e-6)
-    assert not d.author.startswith("auto:"), "a person decided it"
+    assert d.author.kind is not AuthorKind.automated, "a person decided it"
     assert lamella.poi == Point(2e-6, -1e-6), "applied inline, once"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
 

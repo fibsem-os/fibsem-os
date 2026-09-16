@@ -17,10 +17,13 @@ from fibsem.applications.autolamella.proposals import (
     MILLING_SETUP,
     PROPOSAL_KINDS,
     Alternative,
+    Author,
+    AuthorKind,
     Decision,
     DecisionOutcome,
     Proposal,
     ProposalKind,
+    auto_author,
     compute_delta,
     register_proposal_kind,
 )
@@ -149,6 +152,36 @@ def test_delta_is_computed_from_proposed_and_confirmed_never_declared():
     assert compute_delta("a", "b") is None
 
 
+def test_an_author_is_a_kind_and_a_name_and_travels_as_kind_colon_name():
+    a = Author.parse("agent:claude")
+    assert a == Author(AuthorKind.agent, "claude") and str(a) == "agent:claude"
+    assert a.label == "agent · claude"
+    assert Author.parse("human:op").label == "op"
+    assert Author.parse("human:").label == "someone"
+    assert Author.parse("auto:").label == "auto · unknown"
+    assert Author.parse("Pat") == Author(AuthorKind.human, "Pat"), (
+        "no known prefix: a person whose name is the whole string"
+    )
+    assert Author.parse(a) is a
+    d = Decision(outcome=DecisionOutcome.Confirmed, author="auto:current-poi")
+    assert d.author == auto_author("current-poi"), "a string in is parsed"
+    assert Decision.from_dict(d.to_dict()).author == d.author
+    assert d.to_dict()["author"] == "auto:current-poi", "the file form is unchanged"
+
+
+def test_to_check_clears_only_when_a_person_looked():
+    p = Proposal(kind=MILLING_SETUP, values={"poi": Point(0.0, 0.0)})
+    assert not p.to_check, "nothing decided yet: it is pending, not to check"
+    p.decisions.append(
+        Decision(outcome=DecisionOutcome.Confirmed, author=auto_author("current-poi"))
+    )
+    assert p.to_check
+    p.decisions.append(Decision(outcome=DecisionOutcome.Confirmed, author="agent:x"))
+    assert p.to_check, "an agent looked; a person has not"
+    p.decisions.append(Decision(outcome=DecisionOutcome.Confirmed, author="human:op"))
+    assert not p.to_check
+
+
 def test_kinds_declare_their_values_in_code():
     assert PROPOSAL_KINDS[MILLING_SETUP].values == ("poi", "fiducial")
     register_proposal_kind(ProposalKind(name="site_pick", values=("sites",)))
@@ -266,7 +299,7 @@ def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
     assert result.applied is True
     entry = lamella.task_history[-1]
     assert entry.status is AutoLamellaTaskStatus.Failed
-    assert entry.status_message == "Rejected by human:op: no usable site"
+    assert entry.status_message == "Rejected by op: no usable site"
     assert not lamella.is_failure, "a failed task is not a defective lamella"
     assert lamella.quality.verdict is Verdict.UNASSESSED
     assert lamella.poi == Point(0.0, 0.0), "nothing was written through"
@@ -385,7 +418,7 @@ def test_decisions_append_and_the_latest_is_current(tmp_path):
     exp.decide(lamella.id, SETUP, first)
     exp.decide(lamella.id, SETUP, second)
     proposal = lamella.proposals[SETUP]
-    assert [d.author for d in proposal.decisions] == ["human:a", "human:b"]
+    assert [str(d.author) for d in proposal.decisions] == ["human:a", "human:b"]
     assert proposal.current is second
     assert lamella.poi == Point(3e-6, 0)
     assert proposal.delta()["poi"] == Point(3e-6, 0.0)
@@ -422,9 +455,9 @@ def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
 
 def test_author_names_the_declared_operator(tmp_path):
     exp = Experiment(path=tmp_path, name="e", metadata={"user": "Operator Name"})
-    assert exp.author() == "human:Operator Name"
+    assert str(exp.author()) == "human:Operator Name"
     anonymous = Experiment(path=tmp_path, name="f")
-    assert anonymous.author().startswith("human:")
+    assert anonymous.author().kind is AuthorKind.human
 
 
 def test_decide_and_save_share_the_write_lock(tmp_path):

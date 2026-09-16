@@ -31,6 +31,7 @@ from psygnal.containers import EventedDict, EventedList
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.proposals import (
+    Author,
     Decision,
     DecisionOutcome,
     DecisionResult,
@@ -1040,7 +1041,7 @@ class QualityRecord:
     ):
         self.verdict = state
         self.reason = description
-        self.author = author
+        self.author = str(author)  # an Author or its kind:name form
         self.updated_at = datetime.timestamp(datetime.now())
 
 
@@ -1792,7 +1793,7 @@ class Experiment:
         two things a proposal can sit on. By id -- names change."""
         return self.get_lamella_by_id(item_id) or self.get_grid_by_id(item_id)
 
-    def author(self) -> str:
+    def author(self) -> Author:
         """Who is deciding, as a proposal decision records it, from the operator
         named on the experiment (or the OS account when nobody was)."""
         user = self._declared_user() or FibsemUser.from_environment()
@@ -1874,7 +1875,7 @@ class Experiment:
                     item.set_task_status(
                         task_name,
                         AutoLamellaTaskStatus.Failed,
-                        f"Rejected by {decision.author}: {decision.reason}",
+                        f"Rejected by {decision.author.label}: {decision.reason}",
                     )
             logging.info(
                 {
@@ -1882,7 +1883,7 @@ class Experiment:
                     "item": item.name,
                     "task_name": task_name,
                     "outcome": decision.outcome.name,
-                    "author": decision.author,
+                    "author": str(decision.author),
                     "delta": {
                         k: getattr(v, "to_dict", lambda: v)()
                         for k, v in result.delta.items()

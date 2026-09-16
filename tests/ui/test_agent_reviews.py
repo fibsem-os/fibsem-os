@@ -165,7 +165,10 @@ def test_reviews_lists_the_pending_proposal_with_its_image(ui):
     assert review["reference_image"]["image_b64_jpeg"]
 
 
-def test_to_check_is_listed_and_an_agent_acknowledges_with_no_values(ui, qapp):
+def test_to_check_is_listed_and_an_agent_look_does_not_clear_it(ui, qapp):
+    """An agent's acknowledgement is recorded, writes nothing, and leaves the
+    row to check: it is not automatic (a decider acted) and not a person
+    (someone may still want to look). A person's look clears it."""
     lamella = ui.experiment.positions[0]
     proposal = lamella.proposals[SETUP]
     proposal.decisions.append(
@@ -195,11 +198,19 @@ def test_to_check_is_listed_and_an_agent_acknowledges_with_no_values(ui, qapp):
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["synced_tasks"] == [], "an acknowledgement writes nothing"
-        assert client.get("/app/reviews", headers=AUTH).json()["to_check"] == []
-    assert not proposal.to_check
+        (check,) = client.get("/app/reviews", headers=AUTH).json()["to_check"]
+        assert check["decisions"][-1]["author"] == "agent:test-model"
+    assert proposal.to_check, "an agent looked; a person has not"
     assert (
-        proposal.current.author == "agent:test-model" and proposal.current.values == {}
+        str(proposal.current.author) == "agent:test-model"
+        and proposal.current.values == {}
     )
+    ui.experiment._decide(
+        lamella.id,
+        SETUP,
+        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+    )
+    assert not proposal.to_check
 
 
 def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
@@ -227,7 +238,7 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
         assert lamella.poi == Point(2e-6, -1e-6)
         proposal = lamella.proposals[SETUP]
         assert proposal.current.outcome is DecisionOutcome.Confirmed
-        assert proposal.current.author == "agent:test-model"
+        assert str(proposal.current.author) == "agent:test-model"
         assert client.get("/app/reviews", headers=AUTH).json()["reviews"] == []
     kinds = [e["kind"] for e in buffer.events_since(0)["events"]]
     assert "review_decided" in kinds
@@ -262,7 +273,7 @@ def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
         assert resp.status_code == 200, resp.text
     assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
     assert lamella.task_history[-1].status_message == (
-        "Rejected by agent:remote: no usable site"
+        "Rejected by agent · remote: no usable site"
     )
     assert not lamella.is_failure
 

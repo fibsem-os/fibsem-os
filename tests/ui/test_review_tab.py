@@ -18,6 +18,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from fibsem.applications.autolamella.proposals import (  # noqa: E402
     MILLING_SETUP,
     TASK_RESULT,
+    AuthorKind,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -140,7 +141,7 @@ def test_confirm_submits_the_marker_and_the_delta_is_computed(tab, experiment, q
     proposal = lamella.proposals[SETUP]
     assert not proposal.pending
     assert proposal.current.outcome is DecisionOutcome.Confirmed
-    assert proposal.current.author.startswith("human:")
+    assert proposal.current.author.kind is AuthorKind.human
     assert lamella.poi.x == pytest.approx(20 * PIXELSIZE)
     assert lamella.poi.y == pytest.approx(10 * PIXELSIZE)
     assert proposal.delta()["poi"].x == pytest.approx(20 * PIXELSIZE)
@@ -292,8 +293,10 @@ def test_acknowledging_records_a_look_and_writes_nothing(tab, experiment, qapp):
     assert not proposal.to_check
     ack = proposal.current
     assert ack.outcome is DecisionOutcome.Confirmed
-    assert ack.author.startswith("human:") and ack.values == {}
-    assert proposal.applied.author == "auto:centre-of-image", "the applied one stays"
+    assert ack.author.kind is AuthorKind.human and ack.values == {}
+    assert str(proposal.applied.author) == "auto:centre-of-image", (
+        "the applied one stays"
+    )
     assert lamella.poi == poi_before
     assert (
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
@@ -362,7 +365,9 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
     assert tab.check_count == 0 and tab.pending_count == 1, "waiting is untouched"
     for name in (SETUP, FIDUCIAL):
         d = lamella.proposals[name].current
-        assert d.author.startswith("human:") and d.values == {} and d.via == "review"
+        assert (
+            d.author.kind is AuthorKind.human and d.values == {} and d.via == "review"
+        )
     assert lamella.proposals[ROUGH].pending
 
 

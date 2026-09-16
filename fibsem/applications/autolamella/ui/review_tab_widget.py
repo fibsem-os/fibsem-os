@@ -53,6 +53,8 @@ from fibsem import conversions
 from fibsem.applications.autolamella.proposals import (
     MILLING_SETUP,
     TASK_RESULT,
+    Author,
+    AuthorKind,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -121,20 +123,14 @@ _ROW_RIGHT_STYLE = (
 _ROW_RIGHT_STRONG = _ROW_RIGHT_STYLE  # the outcome line reads like the line above it
 
 
-def author_label(author: str, experiment: Optional[Experiment]) -> str:
+def author_label(author: Author, experiment: Optional[Experiment]) -> str:
     """How a decision's author reads on screen: "you" for the operator this
-    experiment names, the name for another person, "agent · model" for an
-    agent, "auto · proposer" for a producer that confirmed its own proposal,
-    and the raw string when it fits none of those."""
+    experiment names, otherwise the author's own label (the name for another
+    person, "agent · model", "auto · proposer")."""
+    author = Author.parse(author)
     if experiment is not None and author == experiment.author():
         return "you"
-    if author.startswith("human:"):
-        return author[len("human:") :] or "someone"
-    if author.startswith("agent:"):
-        return "agent · " + (author[len("agent:") :] or "unknown")
-    if author.startswith("auto:"):
-        return "auto · " + (author[len("auto:") :] or "unknown")
-    return author or "unknown"
+    return author.label
 
 
 def clock(timestamp: Optional[float]) -> str:
@@ -253,14 +249,15 @@ def describe_decision(
     # result); a person's later empty decision is the look that was owed.
     verb = "Applied" if proposal.values else "Recorded"
     auto = proposal.applied or next(
-        (x for x in proposal.decisions if x.author.startswith("auto:")), None
+        (x for x in proposal.decisions if x.author.kind is not AuthorKind.human),
+        None,
     )
     if not d.values and auto is not None and auto is not d:
         return (
             f"{verb} by {author_label(auto.author, experiment)} at "
             f"{clock(auto.timestamp)} · checked by {who} at {when}"
         )
-    if d.author.startswith("auto:"):
+    if d.author.kind is not AuthorKind.human:
         return f"{verb} by {who} at {when} · not checked yet"
     delta = proposal.delta(d).get("poi")
     moved = (

@@ -85,6 +85,8 @@ correctness work landed in correlation and in what the experiment record remembe
   flags; protocols saved with the flags still load and are written back in the new
   form. A task that requires a reviewed task says so in its row: "after review of
   Setup Lamella Position".
+- **A result an agent looked at is still yours to check.** The Review tab's "to
+  check" group clears when a person acknowledges, not when a connected agent does.
 - **The running queue can be edited while it runs.** Reorder, remove, re-run and
   "run next" from the Workflow Timeline's row menu, and add work from its header.
   Edits are anchored to the piece of work rather than to its position, so they do

@@ -419,7 +419,7 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
         Decision(outcome=DecisionOutcome.Rejected, author="human:op", reason="no site"),
     )
     assert l1.task_history[-1].status is Status.Failed
-    assert l1.task_history[-1].status_message == "Rejected by human:op: no site"
+    assert l1.task_history[-1].status_message == "Rejected by op: no site"
     assert not l1.is_failure
     assert run_queue_with(m) == []
     assert [i.status for i in m.queue.items] == [Status.Skipped]

@@ -487,7 +487,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="decide_review",
-        description="Confirm or reject a pending proposal, exactly as the Review tab would. Confirmed with values writes them through (e.g. {'poi': {'x','y'}} metres, milling frame) and the consumer becomes runnable; the delta against the proposal is computed, so pass the values you actually judge right. Rejected needs a reason and, on a gating proposal, retires the item (marks the lamella failed). Refused (409) when the item has a task running -- stop it instead -- or when nothing is pending for that item and task. The decision is recorded with the agent as author. Needs the control permission.",
+        description="Confirm or reject a pending proposal, exactly as the Review tab would. Confirmed with values writes them through (e.g. {'poi': {'x','y'}} metres, milling frame) and the consumer becomes runnable; the delta against the proposal is computed, so pass the values you actually judge right. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- or when nothing is pending for that item and task. The decision is recorded with the agent as author. Needs the control permission.",
         method="POST",
         path="/app/decide",
         scope="control",

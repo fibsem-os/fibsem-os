@@ -160,7 +160,7 @@ def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_pa
 
     proposal = lamella.proposals[ROUGH]
     assert proposal.kind == TASK_RESULT
-    assert proposal.to_check and proposal.current.author == f"auto:{ROUGH}"
+    assert proposal.to_check and str(proposal.current.author) == f"auto:{ROUGH}"
     assert task.task_manager._defer_reason(lamella, POLISH) is None
     assert [t for _i, t, _p in exp.proposals_to_check()] == [ROUGH]
 
@@ -174,7 +174,7 @@ def test_without_the_flag_the_result_is_recorded_but_never_gates(microscope, tmp
     lamella = exp.positions[0]
     proposal = lamella.proposals[ROUGH]
     assert proposal.kind == TASK_RESULT and not proposal.pending
-    assert proposal.current.author == f"auto:{ROUGH}"
+    assert str(proposal.current.author) == f"auto:{ROUGH}"
     assert task.task_manager._defer_reason(lamella, POLISH) is None
 
 

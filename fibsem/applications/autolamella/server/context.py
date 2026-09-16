@@ -941,7 +941,7 @@ class AgentContext:
                         "item_id": item_id,
                         "task_name": task_name,
                         "outcome": decided.name,
-                        "author": decision.author,
+                        "author": str(decision.author),
                     },
                 )
         return doc
