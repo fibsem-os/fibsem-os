@@ -211,6 +211,34 @@ def test_the_preflight_says_what_a_run_does(qapp):
     assert dialog.windowTitle() == "Screen all grids"
 
 
+def test_the_preflight_says_which_beams_are_off(qapp):
+    """Screening starts on an empty stage, so the beams are off more often than
+    not. The run turns them on; the dialog says so first, so it is no surprise
+    and an operator who does not want that can cancel."""
+    dialog = GridRunPreflightDialog(["overview_sem"], ["Grid-01"], 1, "/exp")
+    labels = [w.text() for w in dialog.findChildren(QLabel)]
+    assert not any("beam" in t for t in labels)
+
+    dialog = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", beams_off=[BeamType.ION]
+    )
+    labels = [w.text() for w in dialog.findChildren(QLabel)]
+    assert "The ion beam is off. The run turns it on when it starts." in labels
+
+    dialog = GridRunPreflightDialog(
+        ["overview_sem"],
+        ["Grid-01"],
+        1,
+        "/exp",
+        beams_off=[BeamType.ELECTRON, BeamType.ION],
+    )
+    labels = [w.text() for w in dialog.findChildren(QLabel)]
+    assert (
+        "The electron and ion beams are off. The run turns them on when it starts."
+        in labels
+    )
+
+
 @pytest.fixture
 def main_ui(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
@@ -373,6 +401,10 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     assert main_ui.run_workflow_btn.isEnabled()
     assert "1 grid, 1 task" in main_ui.run_workflow_btn.toolTip()
 
+    # A beam that is off is turned on before the first task; the preflight
+    # said it would be.
+    microscope.turn_off(BeamType.ION)
+    assert main_ui._beams_off() == [BeamType.ION]
     main_ui._start_grid_run(["overview_sem"], ["grid-aspen"], inventory_first=False)
     assert ui.is_workflow_running
     assert not main_ui.grids_tab.btn_inventory.isEnabled()  # locked during the run
@@ -386,6 +418,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     assert len(grid_outputs(exp, grid, "overview_sem")) == 1
     assert main_ui.grids_tab.btn_inventory.isEnabled()
     assert ui._last_run_summary is not None  # the grid summary, for the agent server
+    assert microscope.is_on(BeamType.ION) and main_ui._beams_off() == []
 
 
 def test_adding_grids_to_a_running_queue_appends_their_blocks(

@@ -14,7 +14,7 @@ grid, the ticked tasks.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -44,6 +44,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     plan_grid_run,
 )
 from fibsem.microscopes._stage import GridInventoryEntry, GridSlotState
+from fibsem.structures import BeamType
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
@@ -67,6 +68,7 @@ from fibsem.ui.widgets.preflight import (
     detail_block,
     meta_label,
     metric,
+    warning_label,
 )
 
 # The lamella list's metrics, so the two run views read alike.
@@ -641,10 +643,12 @@ class GridRunPreflightDialog(QDialog):
         output_root: str,
         screen_all: bool = False,
         adding: bool = False,
+        beams_off: Sequence[BeamType] = (),
         parent: Optional[QWidget] = None,
     ) -> None:
         """``adding``: the same plan, going onto the end of a running queue
-        rather than starting one."""
+        rather than starting one. ``beams_off``: beams that are off now; the
+        run turns them on when it starts, and the dialog says so first."""
         super().__init__(parent)
         self.setWindowTitle(
             "Add to the queue"
@@ -707,6 +711,19 @@ class GridRunPreflightDialog(QDialog):
             )
         )
 
+        # Screening starts on an empty stage, so the beams are off more often
+        # than not. The run turns them on; said here so it is no surprise, and
+        # so an operator who does not want that can cancel.
+        if beams_off:
+            names = " and ".join(beam_name(b) for b in beams_off)
+            plural = len(beams_off) > 1
+            layout.addWidget(
+                warning_label(
+                    f"The {names} beam{'s are' if plural else ' is'} off. The run "
+                    f"turns {'them' if plural else 'it'} on when it starts."
+                )
+            )
+
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         self.btn_cancel = QPushButton("Cancel")
@@ -719,3 +736,7 @@ class GridRunPreflightDialog(QDialog):
         buttons.addWidget(self.btn_cancel)
         buttons.addWidget(self.btn_run)
         layout.addLayout(buttons)
+
+
+def beam_name(beam: BeamType) -> str:
+    return "electron" if beam is BeamType.ELECTRON else "ion"
