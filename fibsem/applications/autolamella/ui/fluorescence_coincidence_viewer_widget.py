@@ -592,6 +592,9 @@ class _SetupSession:
     on_continue: Optional[Callable[[], None]]
     on_skip: Optional[Callable[[], None]]
     manual_channels: Optional[list] = None
+    # answered, but the workflow is still running: the viewer stays locked and
+    # keeps the manual state to restore until the next site or the end
+    held: bool = False
 
 
 @dataclass
@@ -1215,6 +1218,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             # this site. exit_setup_mode restores the manual controls first so
             # the persisted milling config below is the operator's, not the task's.
             self._on_setup_skip_clicked()
+        elif self.is_holding_setup:
+            # nothing to answer; only the manual state to put back before saving
+            self.exit_setup_mode()
         if self.in_monitor_mode:
             # the run is the main window's and carries on; only the watching stops
             self.exit_monitor_mode()
@@ -2640,7 +2646,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     @property
     def in_setup_mode(self) -> bool:
-        return self._setup is not None
+        return self._setup is not None and not self._setup.held
+
+    @property
+    def is_holding_setup(self) -> bool:
+        """Answered one site's setup; the workflow has not handed over the next."""
+        return self._setup is not None and self._setup.held
 
     def enter_setup_mode(
         self,
@@ -2670,18 +2681,31 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.in_setup_mode:
             self.exit_setup_mode()
 
-        # what the manual path had, to restore on exit
-        manual_milling_config = (
-            self.milling_viewer_widget.get_config()
-            if self.milling_viewer_widget is not None
-            else None
-        )
+        # what the manual path had, to restore on exit. Between sites the viewer
+        # still shows the previous site's task config: the manual state is the
+        # held session's, not what is on screen now.
+        held = self._setup if self.is_holding_setup else None
+        if held is not None:
+            manual_milling_config = held.manual_milling_config
+            manual_channels = held.manual_channels
+        else:
+            manual_milling_config = (
+                self.milling_viewer_widget.get_config()
+                if self.milling_viewer_widget is not None
+                else None
+            )
+            manual_channels = (
+                list(self.fm_channel_widget.channel_settings)
+                if getattr(self, "fm_channel_widget", None) is not None
+                else None
+            )
         self._setup = _SetupSession(
             lamella=lamella,
             config=config,
             manual_milling_config=manual_milling_config,
             on_continue=on_continue,
             on_skip=on_skip,
+            manual_channels=manual_channels,
         )
 
         # the site: selected and locked. The task owns the stage, so nothing here
@@ -2708,11 +2732,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         # the mill's monitoring channel, as the one channel to tune here; the
         # manual channel list comes back on exit
-        self._setup.manual_channels = (
-            list(self.fm_channel_widget.channel_settings)
-            if getattr(self, "fm_channel_widget", None) is not None
-            else None
-        )
         if monitoring_channel is not None and self._setup.manual_channels is not None:
             self.fm_channel_widget.channel_settings = [deepcopy(monitoring_channel)]
 
@@ -2780,10 +2799,32 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             copy_to_unset=self.chk_copy_setup.isChecked(),
         )
 
-    def exit_setup_mode(self) -> None:
-        """Put the manual controls back; the task no longer holds the viewer."""
+    def exit_setup_mode(self, hold: bool = False) -> None:
+        """Put the manual controls back; the task no longer holds the viewer.
+
+        ``hold`` is the answer's exit while the workflow goes on to the next
+        site: the setup controls go, the lock stays, and the manual state is
+        kept for the exit that ends the run. Without it the viewer flashed the
+        manual config between one site's Save and the next site's hand-off,
+        which read as the setup being lost.
+        """
         session = self._setup
         if session is None:
+            return
+        if hold:
+            session.held = True
+            self.spin_drop_threshold.setVisible(False)
+            self.chk_copy_setup.setVisible(False)
+            self.btn_setup_skip.setVisible(False)
+            self.btn_setup_continue.setVisible(False)
+            if getattr(self, "label_objective_hint", None) is not None:
+                self.label_objective_hint.setVisible(False)
+            self._info_widget.show_setup(False)
+            self.label_task_lock.setText("Waiting for the next site")
+            self.label_selected_lamella.setText(
+                f"Setup · {session.lamella.name} · saved"
+            )
+            self._set_border_state("waiting")
             return
         self._setup = None
         self.lamella_list_widget.setEnabled(True)

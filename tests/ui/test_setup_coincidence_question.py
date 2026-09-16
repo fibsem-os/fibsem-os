@@ -163,10 +163,15 @@ def test_save_and_continue_records_what_the_operator_left(ui, qapp):
     mill = lamella.task_config["Coincidence Milling"]
     assert mill.monitoring_channel.name == "Monitoring"
     assert mill.monitoring_channel.exposure_time == pytest.approx(0.05)
-    # the viewer is released and the prompt is down
+    # the prompt is down; the viewer is held for the next site, and the end
+    # of the workflow (not reached here: the task ran alone) releases it
     assert not viewer.in_setup_mode
-    assert viewer.btn_milling.isVisible()
+    assert viewer.is_holding_setup
+    assert not viewer.btn_milling.isVisible()
     assert ui.hold is None
+    ui._workflow_finished()
+    assert not viewer.is_holding_setup
+    assert viewer.btn_milling.isVisible()
 
 
 def test_skip_site_records_nothing(ui, qapp):
