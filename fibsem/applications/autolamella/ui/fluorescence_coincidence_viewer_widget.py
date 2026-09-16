@@ -599,6 +599,22 @@ class _SetupSession:
 
 
 @dataclass
+class _ConfirmSession:
+    """What enter_confirm_mode holds while a supervised mill waits to start.
+
+    ``config`` is the viewer's own copy of the mill: the FM box and the drop
+    fraction are written onto its coincidence strategies as the operator
+    edits, the pattern position onto the viewer's milling widget, and
+    :meth:`read_confirm_result` hands the whole thing back at Start.
+    """
+
+    config: "FibsemMillingTaskConfig"
+    on_start: Optional[Callable[[], None]]
+    on_continue: Optional[Callable[[], None]]
+    manual_milling_config: Optional["FibsemMillingTaskConfig"]
+
+
+@dataclass
 class _MonitorSession:
     """What enter_monitor_mode holds while a task's mill has the viewer."""
 
@@ -681,6 +697,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # the main window's milling widget and the viewer is attached to it (see
         # enter_monitor_mode). None otherwise.
         self._monitor: Optional["_MonitorSession"] = None
+        self._confirm: Optional["_ConfirmSession"] = None
 
         # Optional sub-widgets (created only when microscope/fm is available)
         self.fib_beam_widget = None
@@ -1232,6 +1249,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.in_monitor_mode:
             # the run is the main window's and carries on; only the watching stops
             self.exit_monitor_mode()
+        if self.in_confirm_mode:
+            # the question stays up in the main window; only this view of it goes
+            self.exit_confirm_mode()
         if self.microscope is not None and self.microscope.fm is not None:
             self._save_fm_configuration()
         self._save_milling_config()
@@ -2528,7 +2548,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # In setup mode every stage shares one position: a two-stage mill (top to
         # bottom, then bottom to top) must not have its boxes drift apart.
         self.milling_viewer_widget._move_patterns(
-            Point(cx_m, cy_m), move_all=self.in_setup_mode
+            Point(cx_m, cy_m), move_all=self.in_setup_mode or self.in_confirm_mode
         )
         self._update_fib_rect_from_pattern()
 
@@ -2864,6 +2884,15 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._set_border_state("idle")
 
     def _on_setup_continue_clicked(self) -> None:
+        confirm = self._confirm
+        if confirm is not None:
+            # Start Milling: the callback answers the question; its reader
+            # takes the result and exits the mode
+            if confirm.on_start is not None:
+                confirm.on_start()
+            else:
+                self.exit_confirm_mode()
+            return
         session = self._setup
         if session is None:
             return
@@ -2874,6 +2903,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self.exit_setup_mode()
 
     def _on_setup_skip_clicked(self) -> None:
+        confirm = self._confirm
+        if confirm is not None:
+            if confirm.on_continue is not None:
+                confirm.on_continue()
+            else:
+                self.exit_confirm_mode()
+            return
         session = self._setup
         if session is None:
             return
@@ -3007,12 +3043,18 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self.exit_setup_mode()
         if self.in_monitor_mode:
             self.exit_monitor_mode()
-
-        manual_milling_config = (
-            self.milling_viewer_widget.get_config()
-            if self.milling_viewer_widget is not None
-            else None
-        )
+        # straight from the Start Milling that answered the question: the
+        # manual state to restore is the confirm session's, not the mill on screen
+        confirm = self._confirm
+        if confirm is not None:
+            manual_milling_config = confirm.manual_milling_config
+            self.exit_confirm_mode(restore=False)
+        else:
+            manual_milling_config = (
+                self.milling_viewer_widget.get_config()
+                if self.milling_viewer_widget is not None
+                else None
+            )
         self._monitor = _MonitorSession(
             on_stop=on_stop, manual_milling_config=manual_milling_config
         )
@@ -3082,6 +3124,155 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         name = self._selected_lamella.name if self._selected_lamella else "None"
         self.label_selected_lamella.setText(f"Lamella: {name}")
         self._restack_after_run()
+
+    # ------------------------------------------------------------------
+    # Confirm mode: a supervised queued mill, checked here before it starts
+    # ------------------------------------------------------------------
+
+    @property
+    def in_confirm_mode(self) -> bool:
+        return self._confirm is not None
+
+    def enter_confirm_mode(
+        self,
+        milling_config: "FibsemMillingTaskConfig",
+        fib_image: Optional[FibsemImage] = None,
+        on_start: Optional[Callable[[], None]] = None,
+        on_continue: Optional[Callable[[], None]] = None,
+        title: str = "",
+    ) -> None:
+        """Show a supervised mill's boxes for a last check before Start Milling.
+
+        The task has aligned and is asking "Run Milling"; the main window's
+        prompt is up. This is the same question in the viewer: the FIB frame the
+        task aligned on with the patterns where they will mill, the FM region
+        the strategy will watch, the drop fraction. Drag either box, take an FM
+        frame to check the region, then Start Milling -- or Continue to move on
+        without milling. After a run the task asks again and this comes back
+        with the result on screen, so a batch is worked from here, not the
+        milling tab.
+        """
+        if self._is_milling_active and self._monitor is None:
+            raise RuntimeError("A manual mill is running in this viewer.")
+        if self.in_setup_mode:
+            self.exit_setup_mode()
+        if self.in_monitor_mode:
+            self.exit_monitor_mode()
+        if self.in_confirm_mode:
+            self.exit_confirm_mode()
+
+        manual_milling_config = (
+            self.milling_viewer_widget.get_config()
+            if self.milling_viewer_widget is not None
+            else None
+        )
+        config = deepcopy(milling_config)
+        self._confirm = _ConfirmSession(
+            config=config,
+            on_start=on_start,
+            on_continue=on_continue,
+            manual_milling_config=manual_milling_config,
+        )
+
+        if fib_image is not None:
+            self.set_fib_image(fib_image)
+        if self.milling_viewer_widget is not None:
+            self.milling_viewer_widget.set_config(config)
+            self._update_fib_rect_from_pattern()
+        strategies = [
+            stage.strategy
+            for stage in config.enabled_stages
+            if isinstance(stage.strategy, CoincidenceMillingStrategy)
+        ]
+        bbox = strategies[0].config.bbox if strategies else None
+        self._show_stored_fm_roi(bbox)
+        self._refresh_rect_info()
+        # the FM box writes onto this copy's strategies as it is dragged
+        self._active_strategies = strategies
+
+        drop = strategies[0].config.intensity_drop_fraction if strategies else 0.4
+        self.spin_drop_threshold.blockSignals(True)
+        self.spin_drop_threshold.setValue(int(round(drop * 100)))
+        self.spin_drop_threshold.blockSignals(False)
+        self.spin_drop_threshold.setVisible(True)
+
+        self.lamella_list_widget.setEnabled(False)
+        self.selected_lamella_widget.setEnabled(False)
+        self.btn_milling.setVisible(False)
+        self.chk_copy_setup.setVisible(False)
+        self.btn_setup_continue.setText("Start Milling")
+        self.btn_setup_skip.setText("Continue")
+        self.btn_setup_skip.setToolTip("Move on without milling (again)")
+        self.btn_setup_continue.setVisible(True)
+        self.btn_setup_skip.setVisible(True)
+        name = title or milling_config.name
+        self.label_selected_lamella.setText(f"Confirm · {name}")
+        self.label_task_lock.setText("Waiting for Start Milling")
+        self.label_task_lock.setVisible(True)
+        self._set_border_state("waiting")
+
+        # a fresh FM frame to check the region against, when a channel is up
+        if (
+            self.fm_canvas._img_shape is None
+            and getattr(self, "fm_channel_widget", None) is not None
+            and self.fm_channel_widget.selected_channel is not None
+            and self.microscope is not None
+            and self.microscope.fm is not None
+        ):
+            try:
+                self._acquire_fm_image()
+            except Exception:
+                logging.exception("Could not take the FM frame for the check")
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def read_confirm_result(self) -> "FibsemMillingTaskConfig":
+        """The mill as the operator left it: patterns, FM region, drop fraction."""
+        session = self._confirm
+        if session is None:
+            raise RuntimeError("Not in confirm mode.")
+        config = (
+            deepcopy(self.milling_viewer_widget.get_config())
+            if self.milling_viewer_widget is not None
+            else deepcopy(session.config)
+        )
+        roi = self._read_fm_roi()
+        drop = self.spin_drop_threshold.value() / 100.0
+        for stage in config.enabled_stages:
+            if isinstance(stage.strategy, CoincidenceMillingStrategy):
+                stage.strategy.config.bbox = deepcopy(roi)
+                stage.strategy.config.intensity_drop_fraction = drop
+        return config
+
+    def exit_confirm_mode(self, restore: bool = True) -> None:
+        """Put the manual controls back. ``restore=False`` when a monitor session
+        takes over the same run and will restore the manual state itself."""
+        session = self._confirm
+        if session is None:
+            return
+        self._confirm = None
+        self._active_strategies = []
+        self.btn_setup_continue.setText("Save and Continue")
+        self.btn_setup_skip.setText("Skip Site")
+        self.btn_setup_skip.setToolTip("")
+        self.btn_setup_continue.setVisible(False)
+        self.btn_setup_skip.setVisible(False)
+        self.spin_drop_threshold.setVisible(False)
+        self.btn_milling.setVisible(True)
+        self.label_task_lock.setVisible(False)
+        self.lamella_list_widget.setEnabled(True)
+        self.selected_lamella_widget.setEnabled(True)
+        if (
+            restore
+            and self.milling_viewer_widget is not None
+            and session.manual_milling_config is not None
+        ):
+            self.milling_viewer_widget.set_config(session.manual_milling_config)
+            self._update_fib_rect_from_pattern()
+        name = self._selected_lamella.name if self._selected_lamella else "None"
+        self.label_selected_lamella.setText(f"Lamella: {name}")
+        self._set_border_state("idle")
 
     # ------------------------------------------------------------------
     # Public API

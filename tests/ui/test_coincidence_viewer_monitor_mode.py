@@ -211,3 +211,83 @@ def test_a_manual_run_in_progress_refuses_to_be_hijacked(viewer, qapp):
     with pytest.raises(RuntimeError, match="manual mill"):
         viewer.enter_monitor_mode(_running_config())
     viewer._is_milling_active = False
+
+
+# ── confirm mode: the supervised question, in the viewer ───────────────
+
+
+def test_confirm_mode_shows_the_mill_and_hands_back_the_edited_boxes(viewer, qapp):
+    """The supervised prompt in the viewer: patterns and FM region drawn from
+    the mill, both editable, Start Milling answers with what was left."""
+    config = _running_config(bbox=FibsemRectangle(0.3, 0.3, 0.2, 0.2), drop=0.35)
+    manual_name = viewer.milling_viewer_widget.get_config().name
+    answers = []
+
+    from fibsem.structures import FibsemImage
+
+    fib = FibsemImage.generate_blank_image(resolution=(768, 512), hfw=80e-6)
+    viewer.enter_confirm_mode(
+        config,
+        fib_image=fib,
+        on_start=lambda: answers.append("start"),
+        on_continue=lambda: answers.append("continue"),
+        title="Coincident Milling",
+    )
+    qapp.processEvents()
+
+    assert viewer.in_confirm_mode and not viewer.in_monitor_mode
+    assert viewer.btn_setup_continue.text() == "Start Milling"
+    assert viewer.btn_setup_skip.text() == "Continue"
+    assert viewer.btn_setup_continue.isVisible()
+    assert not viewer.btn_milling.isVisible()
+    assert viewer.label_task_lock.text() == "Waiting for Start Milling"
+    assert viewer.spin_drop_threshold.value() == 35
+    H, W = viewer.fm_canvas._img_shape
+    assert viewer.fm_canvas.rect_overlay.get_rect()["x0"] == pytest.approx(
+        0.3 * W, abs=1
+    )
+    # the mill's own strategies are untouched: the viewer edits a copy
+    assert viewer._active_strategies
+    assert viewer._active_strategies[0] is not config.enabled_stages[0].strategy
+
+    # the operator moves the FM region, the pattern, and the drop fraction
+    viewer.fm_canvas.rect_overlay.set_rect(0.1 * W, 0.2 * H, 0.3 * W, 0.4 * H)
+    viewer.milling_viewer_widget._move_patterns(Point(3.0e-6, 1.5e-6), move_all=True)
+    viewer.spin_drop_threshold.setValue(50)
+    qapp.processEvents()
+
+    result = viewer.read_confirm_result()
+    for stage in result.enabled_stages:
+        assert stage.pattern.point.x == pytest.approx(3.0e-6)
+        assert stage.pattern.point.y == pytest.approx(1.5e-6)
+        assert stage.strategy.config.bbox.left == pytest.approx(0.1, abs=0.01)
+        assert stage.strategy.config.bbox.height == pytest.approx(0.4, abs=0.01)
+        assert stage.strategy.config.intensity_drop_fraction == pytest.approx(0.5)
+
+    viewer.btn_setup_continue.click()
+    assert answers == ["start"]
+    viewer.btn_setup_skip.click()
+    assert answers == ["start", "continue"]
+
+    viewer.exit_confirm_mode()
+    qapp.processEvents()
+    assert not viewer.in_confirm_mode
+    assert viewer.btn_setup_continue.text() == "Save and Continue"
+    assert viewer.btn_milling.isVisible()
+    assert viewer.lamella_list_widget.isEnabled()
+    assert viewer.milling_viewer_widget.get_config().name == manual_name
+
+
+def test_monitor_after_confirm_restores_the_manual_state_at_the_end(viewer, qapp):
+    """Start Milling hands the same run to monitor mode; the manual config
+    that comes back afterwards is the operator's, not the confirmed mill."""
+    manual_name = viewer.milling_viewer_widget.get_config().name
+    config = _running_config()
+    viewer.enter_confirm_mode(config)
+    assert viewer.milling_viewer_widget.get_config().name != manual_name
+
+    viewer.enter_monitor_mode(config)
+    assert viewer.in_monitor_mode and not viewer.in_confirm_mode
+    viewer.exit_monitor_mode()
+    qapp.processEvents()
+    assert viewer.milling_viewer_widget.get_config().name == manual_name

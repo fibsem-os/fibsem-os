@@ -676,6 +676,52 @@ class QtResponder(QObject):
             ("Run Milling", "Continue") if request.enabled else ("Continue", None)
         )
         self._park_question(request, future, request.message, pos, neg)
+        if request.enabled:
+            self._confirm_coincidence_mill(request)
+
+    def _confirm_coincidence_mill(self, request: RunMillingTask) -> None:
+        """A supervised coincidence mill's question, in the viewer as well.
+
+        The main window's prompt stays up; the viewer shows the same question
+        with the aligned FIB frame, the patterns and the FM region to check,
+        and its Start Milling / Continue are the prompt's Run Milling /
+        Continue. Nothing here can fail the question: a viewer that will not
+        open is logged and the main window's prompt still answers.
+        """
+        if not _has_coincidence_strategy(request.config):
+            return
+        try:
+            viewer = self._coincidence_viewer()
+            if viewer is None:
+                return
+            image_widget = getattr(self._ui, "image_widget", None)
+            fib_image = getattr(image_widget, "ib_image", None)
+            viewer.enter_confirm_mode(
+                milling_config=self._milling_widget().get_config(),
+                fib_image=fib_image,
+                on_start=lambda: self.answer_confirm(True),
+                on_continue=lambda: self.answer_confirm(False),
+                title=request.config.name,
+            )
+        except Exception:
+            logging.exception("Could not open the coincidence viewer for the check")
+
+    def _take_coincidence_confirm(self, apply: bool) -> None:
+        """Close the viewer's side of the question; on Start, its boxes are the mill's."""
+        viewer = getattr(self._ui, "_coincidence_viewer_window", None)
+        if viewer is None or not viewer.in_confirm_mode:
+            return
+        try:
+            if apply:
+                self._milling_widget().update_from_settings(
+                    viewer.read_confirm_result()
+                )
+        except Exception:
+            logging.exception("Could not take the boxes from the coincidence viewer")
+        finally:
+            if not apply:
+                viewer.exit_confirm_mode()
+            # on apply the monitor session takes over and restores at its end
 
     def _wire_milling_finished(self, widget) -> None:
         """Connect the (possibly rebuilt) milling widget's finished signal, once."""
@@ -757,6 +803,9 @@ class QtResponder(QObject):
             self._park_question(
                 request, future, request.message, "Run Milling", "Continue"
             )
+            # the viewer asks again too, with the result on screen: a stopped
+            # coincidence mill is continued (or rerun) from here
+            self._confirm_coincidence_mill(request)
             return
         try:
             self._deliver(future, self._finish_milling_question())
@@ -1134,6 +1183,10 @@ class QtResponder(QObject):
         if adjusted:
             answered_payload["adjusted"] = True
         self._emit_question_event("prompt_answered", answered_payload)
+        if isinstance(request, RunMillingTask):
+            # the viewer's side of the question, if it was up: on Run Milling
+            # its boxes go onto the editor before the run is built from it
+            self._take_coincidence_confirm(apply=clicked_yes and request.enabled)
         if isinstance(request, RunMillingTask) and clicked_yes and request.enabled:
             # Run Milling: the prompt comes down but the question stays open —
             # the finished signal re-asks or completes. (No {"msg": ""} clear;
