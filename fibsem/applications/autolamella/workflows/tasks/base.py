@@ -793,7 +793,7 @@ class AutoLamellaTask(ABC):
         off the filename. Pass it when a task names its own files but the set *is* the
         task's reference set rather than an extra one -- AcquireReferenceImageTask
         timestamps its filenames, so the default rule filed its only product under
-        "other" and the review panel, which asks for "final", never saw it (FIB-579).
+        "other" and the History panel, which asks for "final", never saw it (FIB-579).
         """
 
         if field_of_views is None:
