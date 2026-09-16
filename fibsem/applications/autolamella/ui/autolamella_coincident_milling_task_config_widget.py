@@ -326,7 +326,7 @@ class AutoLamellaCoincidentMillingTaskConfigWidget(QWidget):
         self.channel_widget._panel._header.setVisible(False)
         name_row = QWidget()
         name_layout = QHBoxLayout(name_row)
-        name_layout.setContentsMargins(0, 0, 0, 0)
+        name_layout.setContentsMargins(12, 4, 12, 0)  # the channel form's own inset
         name_layout.setSpacing(8)
         name_layout.addWidget(QLabel("Name"))
         self.edit_channel_name = QLineEdit()
