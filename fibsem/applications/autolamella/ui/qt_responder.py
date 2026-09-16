@@ -727,7 +727,10 @@ class QtResponder(QObject):
         try:
             return viewer.read_run_result()
         finally:
+            # Continue is the end of this site's turn in the viewer: the window
+            # goes away with it, and comes back for the next site's question
             viewer.exit_run_mode()
+            viewer.hide()
 
     def _watch_coincidence_milling(self, request: WatchCoincidenceMilling) -> None:
         """Attach the viewer to a mill the task runs itself. Never holds the mill:
@@ -1014,9 +1017,13 @@ class QtResponder(QObject):
     def _coincidence_viewer(self):
         """The main window's coincidence viewer, opened if it is not up."""
         viewer = getattr(self._ui, "_coincidence_viewer_window", None)
-        if viewer is None or not viewer.isVisible():
+        if viewer is None:
             self._ui._open_coincidence_milling_viewer()
             viewer = getattr(self._ui, "_coincidence_viewer_window", None)
+        elif not viewer.isVisible():
+            # hidden after a Continue, or closed by the operator: the same
+            # window, with its FM setup, comes back rather than a fresh one
+            viewer.show()
         return viewer
 
     def _finish_coincidence_setup(self, clicked_yes: bool):

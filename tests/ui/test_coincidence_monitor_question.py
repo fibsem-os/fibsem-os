@@ -172,6 +172,7 @@ def test_supervised_mill_is_run_from_the_viewer_and_continue_answers_it(ui, qapp
         0.1, abs=0.01
     )
     assert not viewer.in_run_mode
+    assert not viewer.isVisible()  # Continue puts the window away
     assert ui.hold is None
 
 
@@ -190,7 +191,16 @@ def test_continue_without_milling_answers_none(ui, qapp):
     _pump_until(qapp, lambda: not thread.is_alive(), what="the waiter to return")
     assert "error" not in outcome, outcome.get("error")
     assert outcome["config"] is None
-    assert not _viewer(ui).in_run_mode
+    viewer = _viewer(ui)
+    assert not viewer.in_run_mode
+    assert not viewer.isVisible()
+
+    # the next site's question brings the same window back, not a new one
+    thread, outcome = _ask_on_worker_thread(ui, request)
+    _pump_until(qapp, lambda: _viewer(ui).in_run_mode, what="the viewer again")
+    assert _viewer(ui) is viewer and viewer.isVisible()
+    ui.pushButton_yes.click()
+    _pump_until(qapp, lambda: not thread.is_alive(), what="the waiter to return")
 
 
 def test_an_automated_mill_is_watched_then_released(ui, qapp):
