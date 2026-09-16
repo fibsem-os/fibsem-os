@@ -40,6 +40,7 @@ from fibsem.ui.widgets.task_summary_formatting import (
     STATUS_BADGE_COLORS,
     STATUS_CHIP_ORDER,
     format_duration_short,
+    status_label,
 )
 
 # Short local names for the shared palette. These appear inside dozens of
@@ -196,7 +197,7 @@ class WorkflowSummaryDialog(QDialog):
         bg = QColor(dot_color)
         bg_rgba = f"rgba({bg.red()}, {bg.green()}, {bg.blue()}, 0.15)"
         chip = QLabel(
-            f'<span style="color:{dot_color};">&#9679;</span> {count} {status.lower()}'
+            f'<span style="color:{dot_color};">&#9679;</span> {count} {status_label(status)}'
         )
         chip.setStyleSheet(
             f"background-color: {bg_rgba}; color: {text_color};"
@@ -235,7 +236,7 @@ class WorkflowSummaryDialog(QDialog):
 
             task_item = QTableWidgetItem(str(row.get("task_name", "")))
 
-            status_item = QTableWidgetItem(f"● {status}")
+            status_item = QTableWidgetItem(f"● {status_label(status)}")
             status_item.setForeground(QColor(text_color))
 
             completed_item = QTableWidgetItem(str(row.get("completed_at", "") or ""))
@@ -261,7 +262,7 @@ class WorkflowSummaryDialog(QDialog):
         # so long task names stay readable without a horizontal scrollbar.
         header = table.horizontalHeader()
         header.setStretchLastSection(False)
-        fixed_widths = {0: 155, 2: 140, 3: 115, 4: 100}
+        fixed_widths = {0: 140, 2: 190, 3: 110, 4: 100}
         for col, width in fixed_widths.items():
             header.setSectionResizeMode(col, QHeaderView.Interactive)
             table.setColumnWidth(col, width)
