@@ -112,7 +112,7 @@ def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_
     assert proposal.pending
     assert proposal.values == {"poi": Point(0.0, 0.0)}
     assert proposal.confidence is None and proposal.alternatives == []
-    assert proposal.provenance["proposer"] == "centre-of-image"
+    assert proposal.provenance["proposer"] == "current-poi"
     assert proposal.provenance["values"] == ["poi"]
     assert proposal.provenance["reference_image"] == (
         f"ref_{SETUP}_final_res_01_ib.tif"
@@ -160,6 +160,26 @@ def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_pat
     assert lamella.poi == Point(3e-6, 0.0)
 
 
+def test_the_proposal_carries_the_point_something_else_already_set(
+    microscope, tmp_path
+):
+    """Correlation, a script or an agent may have positioned the point before
+    Setup runs. The proposer proposes that point rather than the image centre,
+    so recording the proposal and confirming it changes nothing: whatever set
+    the point is not undone by the step that is meant to check it."""
+    exp = _experiment(tmp_path, microscope, review=True)
+    lamella = exp.positions[0]
+    lamella.poi = Point(4e-6, -2e-6)
+    task = _task(microscope, exp, flag=True)
+
+    task.run()
+
+    proposal = lamella.proposals[SETUP]
+    assert proposal.values == {"poi": Point(4e-6, -2e-6)}
+    assert proposal.values["poi"] is not lamella.poi, "a copy, not the live point"
+    assert lamella.poi == Point(4e-6, -2e-6), "and nothing was written through"
+
+
 def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     """Re-running Setup is a deliberate act: the operator gets a new proposal
     on the new image, and the old one -- with its decision -- stays on the
@@ -183,7 +203,9 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
 
     fresh = lamella.proposals[SETUP]
     assert fresh is not decided and fresh.pending
-    assert fresh.values["poi"] == Point(0.0, 0.0), "not the old answer as default"
+    assert fresh.values["poi"] == Point(1e-6, 1e-6), (
+        "proposes the point the last decision left on the lamella"
+    )
     assert fresh.superseded == [decided]
     assert decided.current.values["poi"] == Point(1e-6, 1e-6)
     assert lamella.poi == Point(1e-6, 1e-6)
@@ -203,7 +225,7 @@ def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
     lamella = exp.positions[0]
     proposal = lamella.proposals[SETUP]
     assert proposal.kind == MILLING_SETUP and not proposal.pending
-    assert proposal.current.author == "auto:centre-of-image"
+    assert proposal.current.author == "auto:current-poi"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
 
 
@@ -225,7 +247,7 @@ def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
     assert not proposal.pending
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "the proposal is untouched"
     assert proposal.current.outcome is DecisionOutcome.Confirmed
-    assert proposal.current.author == "auto:centre-of-image"
+    assert proposal.current.author == "auto:current-poi"
     assert proposal.current.via == "workflow"
     assert proposal.current.values == proposal.values, "confirmed as proposed"
     assert proposal.delta() == {"poi": Point(0.0, 0.0)}
