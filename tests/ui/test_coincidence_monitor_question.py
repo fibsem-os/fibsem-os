@@ -130,23 +130,44 @@ def test_supervised_mill_opens_the_viewer_attached_then_releases_it(ui, qapp):
         what="the Run Milling prompt",
     )
 
-    ui.pushButton_yes.click()  # Run Milling
+    # the viewer asks the same question, with the boxes to check
+    _pump_until(
+        qapp,
+        lambda: _viewer(ui) is not None and _viewer(ui).in_confirm_mode,
+        what="the viewer in confirm mode",
+    )
+    viewer = _viewer(ui)
+    assert viewer.btn_setup_continue.text() == "Start Milling"
+    # a box moved here is the box the mill runs with
+    if viewer.fm_canvas._img_shape is None:
+        viewer.set_fm_image(ui.microscope.fm.acquire_image())
+        qapp.processEvents()
+    H, W = viewer.fm_canvas._img_shape
+    viewer.fm_canvas.rect_overlay.set_rect(0.1 * W, 0.2 * H, 0.3 * W, 0.4 * H)
+    qapp.processEvents()
+
+    viewer.btn_setup_continue.click()  # Start Milling, from the viewer
     _pump_until(
         qapp,
         lambda: _viewer(ui) is not None and _viewer(ui).in_monitor_mode,
         what="the viewer in monitor mode",
     )
-    viewer = _viewer(ui)
+    assert not viewer.in_confirm_mode
     running = ui.milling_task_config_widget.milling_widget.running_config
     assert running is not None
     # attached to the strategies of the config actually being run
     assert viewer._active_strategies == [
         stage.strategy for stage in running.enabled_stages
     ]
+    assert running.enabled_stages[0].strategy.config.bbox.left == pytest.approx(
+        0.1, abs=0.01
+    )
 
-    # the (stubbed) mill finishes: the viewer is released, the prompt is re-parked
+    # the (stubbed) mill finishes: the prompt is re-parked and the viewer asks
+    # again with the result on screen -- the batch is worked from here
     ui._mill_gate.set()
     _pump_until(qapp, lambda: not viewer.in_monitor_mode, what="monitor released")
+    _pump_until(qapp, lambda: viewer.in_confirm_mode, what="the viewer asking again")
     _pump_until(
         qapp,
         lambda: ui.label_instructions.text() == MSG and ui.pushButton_yes.isEnabled(),
