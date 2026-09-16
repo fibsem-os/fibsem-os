@@ -261,6 +261,10 @@ class AutoLamellaUI(QMainWindow):
         # gone: every workflow interaction is a typed request on its own future
         # (workflows/interaction.py).
         self.WAITING_FOR_USER_INTERACTION: bool = False
+        # How many proposals the run is parked on, waiting for a decision in
+        # the Review tab; 0 when it is not. Set by the task manager, read by the
+        # window chrome the same way WAITING_FOR_USER_INTERACTION is.
+        self.WAITING_FOR_REVIEW: int = 0
         # A run is active but nothing is executing -- today only during a
         # scheduled-start wait. Set from the worker thread, read by the border.
         self.WORKFLOW_PENDING: bool = False
@@ -2789,6 +2793,7 @@ class AutoLamellaUI(QMainWindow):
         self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
 
         self.WAITING_FOR_USER_INTERACTION = False
+        self.WAITING_FOR_REVIEW = 0
         self.WORKFLOW_PENDING = False
 
         # clear milling task config

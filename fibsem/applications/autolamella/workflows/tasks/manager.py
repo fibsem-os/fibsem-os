@@ -398,32 +398,49 @@ class TaskManager(BaseTaskManager):
 
         review_wait = self._review_wait()
         n = len({i.item_name for i in awaiting})
-        update_status_ui(
-            self.parent_ui,
-            "",
-            workflow_info=f"Waiting on {n} decision(s) before the next task can run.",
-            check_abort=False,
-        )
-        if review_wait is not None and review_wait <= 0:
-            self.stalled = True
-            self.stall_reason = f"{n} decision(s) pending; not waiting (review_wait=0)."
-            return False
+        self._set_waiting_for_review(n)
+        try:
+            if review_wait is not None and review_wait <= 0:
+                self.stalled = True
+                self.stall_reason = (
+                    f"{n} decision(s) pending; not waiting (review_wait=0)."
+                )
+                return False
 
-        deadline = None if review_wait is None else time.monotonic() + review_wait
-        while not self.is_stopped:
-            timeout = 1.0
-            if deadline is not None:
-                timeout = min(1.0, deadline - time.monotonic())
-                if timeout <= 0:
-                    self.stalled = True
-                    self.stall_reason = (
-                        f"{n} decision(s) still pending after "
-                        f"{format_duration(review_wait)} without one."
-                    )
-                    return False
-            if self._decision_event.wait(timeout):
-                return True
-        return False
+            deadline = None if review_wait is None else time.monotonic() + review_wait
+            while not self.is_stopped:
+                timeout = 1.0
+                if deadline is not None:
+                    timeout = min(1.0, deadline - time.monotonic())
+                    if timeout <= 0:
+                        self.stalled = True
+                        self.stall_reason = (
+                            f"{n} decision(s) still pending after "
+                            f"{format_duration(review_wait)} without one."
+                        )
+                        return False
+                if self._decision_event.wait(timeout):
+                    return True
+            return False
+        finally:
+            self._set_waiting_for_review(0)
+
+    def _set_waiting_for_review(self, n: int) -> None:
+        """Tell the window the run is parked on n decisions (0: not parked), and
+        poke the status channel so the chrome -- border, attention button,
+        status bar -- redraws from it, the way a pending question does."""
+        if self.parent_ui is not None:
+            self.parent_ui.WAITING_FOR_REVIEW = n
+        if n:
+            update_status_ui(
+                self.parent_ui,
+                "",
+                workflow_info=f"Waiting on {n} decision(s) before the next task can run.",
+                status_bar=f"Waiting on {n} decision(s) — open the Review tab.",
+                check_abort=False,
+            )
+        else:
+            update_status_ui(self.parent_ui, "", status_bar="", check_abort=False)
 
     def _run_queue(self) -> None:
         """Process queue items until empty or stopped."""
