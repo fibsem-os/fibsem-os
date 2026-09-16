@@ -21,7 +21,6 @@ from fibsem.applications.autolamella.structures import Lamella
 from fibsem.structures import MicroscopeState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
-from fibsem.ui.widgets.canvas.overlay_controls import CanvasOverlayControls
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
@@ -29,6 +28,7 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
     TEXT_COLOR,
 )
+from fibsem.ui.widgets.canvas.overlay_controls import CanvasOverlayControls
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.widgets.microscope_state_widget import MicroscopeStateWidget
 from fibsem.utils import (
@@ -165,9 +165,7 @@ class LamellaPoseRowWidget(QWidget):
 
         self.set_state(state)
 
-    def _build_overlay_button(
-        self, entries: Sequence[PatternEntry]
-    ) -> IconToolButton:
+    def _build_overlay_button(self, entries: Sequence[PatternEntry]) -> IconToolButton:
         """The overlay button, and the popup of checkboxes behind it.
 
         A ``CanvasOverlayControls`` in a ``QWidgetAction`` rather than a menu of

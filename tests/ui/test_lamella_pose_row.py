@@ -262,9 +262,9 @@ def _milling_lamella() -> Lamella:
 
 def _rows(widget: LamellaPoseListWidget) -> dict:
     return {
-        widget._list.itemWidget(widget._list.item(i)).pose_name: widget._list.itemWidget(
+        widget._list.itemWidget(
             widget._list.item(i)
-        )
+        ).pose_name: widget._list.itemWidget(widget._list.item(i))
         for i in range(widget._list.count())
     }
 
