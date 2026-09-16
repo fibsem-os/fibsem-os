@@ -1,6 +1,6 @@
 # Changes
 
-## v0.5.2 (unreleased)
+## v0.5.2 (16/09/2026)
 
 A running workflow became something you can edit, the image display moved onto a
 purpose-built canvas with overview acquisition rebuilt around it, and a large batch of
