@@ -2627,6 +2627,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if grid_protocol is not None:
             grid_protocol.refresh()
 
+    def _record_inventoried_grids(self) -> None:
+        """A record for every grid the inventory lists and the experiment does not.
+
+        The Sample view's inventory updated the loader and nothing else, so the
+        Grids tab and the Workflow grid list stayed empty until the Grids tab's
+        own refresh was pressed. Reads the stage's cached inventory: no hardware.
+        """
+        ui = self.autolamella_ui
+        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        if ui is None or ui.experiment is None or stage is None:
+            return
+        try:
+            added = ui.experiment.sync_grids_from_inventory(stage)
+        except Exception as e:  # noqa: BLE001 - the inventory still shows
+            logging.warning(f"Could not record the inventoried grids: {e}")
+            return
+        if not added:
+            return
+        logging.info(f"Recorded {len(added)} grid(s) from the inventory.")
+        try:
+            ui.experiment.save()
+        except Exception as e:  # noqa: BLE001 - recorded; saved next time
+            logging.warning(f"Could not save the experiment: {e}")
+
     def _refresh_grids_tab_microscope(self):
         if getattr(self, "grids_tab", None) is None or self.autolamella_ui is None:
             return
@@ -2638,6 +2662,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         sample = getattr(self.autolamella_ui, "sample_widget", None)
         loader = getattr(sample, "loader_widget", None)
         if loader is not None:
+            # Records first: an inventory read there lists grids the experiment
+            # has no record of, and the refreshes below draw from the records.
+            loader.loader_changed.connect(self._record_inventoried_grids)
             loader.loader_changed.connect(self.grids_tab.refresh)
             loader.loader_changed.connect(self.grid_workflow_widget.refresh)
             loader.loader_changed.connect(self._refresh_grid_context)
