@@ -38,6 +38,7 @@ from PyQt5.QtWidgets import (
 from fibsem import constants
 from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP
 from fibsem.structures import (
+    AutoContrastMode,
     AutoFocusMode,
     BeamType,
     FocusStackSettings,
@@ -150,7 +151,20 @@ class FibsemOverviewSettingsWidget(QWidget):
                 decimals=1,
             )
         )
-        self.check_autocontrast = QCheckBox()
+        # Once: one contrast for the whole mosaic, set at the grid centre before
+        # the first tile, so the tiles stitch without seams. Each tile: what the
+        # flag means for any image, before every tile, which flattens a gradient
+        # across the grid at the cost of seams.
+        self.combo_autocontrast = self._field(
+            ValueComboBox(
+                items=list(AutoContrastMode),
+                format_fn=lambda m: m.name.replace("_", " ").title(),
+            )
+        )
+        self.combo_autocontrast.setToolTip(
+            "Once: one contrast for the whole mosaic, set at the grid centre before "
+            "the first tile. Each tile: before every tile, as for any image."
+        )
 
         # The one number that says whether the dwell just typed means seconds or hours.
         # Scan time, not run time -- see `OverviewAcquisitionSettings.scan_time`.
@@ -166,7 +180,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         form.addRow("Resolution", self.combo_resolution)
         form.addRow("Dwell time", self.spin_dwell)
         form.addRow("Field of view", self.spin_hfw)
-        form.addRow("Auto contrast", self.check_autocontrast)
+        form.addRow("Auto contrast", self.combo_autocontrast)
         form.addRow("Scan time", self.label_scan_time)
         self.imaging_panel = self._panel("Imaging", form)
         return self.imaging_panel
@@ -248,7 +262,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.combo_resolution.currentIndexChanged.connect(self._on_changed)
         self.spin_dwell.valueChanged.connect(self._on_changed)
         self.spin_hfw.valueChanged.connect(self._on_changed)
-        self.check_autocontrast.toggled.connect(self._on_changed)
+        self.combo_autocontrast.currentIndexChanged.connect(self._on_changed)
         self.check_focus_stack.toggled.connect(self._on_focus_stack_toggled)
         self.spin_focus_steps.valueChanged.connect(self._on_changed)
         self.check_focus_autofocus.toggled.connect(self._on_changed)
@@ -333,12 +347,15 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.path_edit.setText(str(path) if path else "")
 
     def get_settings(self) -> OverviewAcquisitionSettings:
+        autocontrast_mode = self.combo_autocontrast.value()
         return OverviewAcquisitionSettings(
             image_settings=ImageSettings(
                 resolution=tuple(self.combo_resolution.value()),
                 dwell_time=self.spin_dwell.value() * constants.MICRO_TO_SI,
                 hfw=self.spin_hfw.value() * constants.MICRO_TO_SI,
-                autocontrast=self.check_autocontrast.isChecked(),
+                # The per-image flag follows the mode; the runner sets it the
+                # same way, so a file written here reads back as the same choice.
+                autocontrast=autocontrast_mode is AutoContrastMode.EACH_TILE,
                 beam_type=self.combo_beam.value(),
                 save=True,
                 path=self.path_edit.text() or None,
@@ -354,6 +371,7 @@ class FibsemOverviewSettingsWidget(QWidget):
                 auto_focus=self.check_focus_autofocus.isChecked(),
             ),
             autofocus_mode=self.combo_autofocus.value(),
+            autocontrast_mode=autocontrast_mode,
             tile_order=self.grid.tile_order,
         )
 
@@ -365,7 +383,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.combo_resolution,
             self.spin_dwell,
             self.spin_hfw,
-            self.check_autocontrast,
+            self.combo_autocontrast,
             self.check_focus_stack,
             self.spin_focus_steps,
             self.check_focus_autofocus,
@@ -380,7 +398,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.combo_resolution.set_value(list(image.resolution))
             self.spin_dwell.setValue(image.dwell_time * constants.SI_TO_MICRO)
             self.spin_hfw.setValue(image.hfw * constants.SI_TO_MICRO)
-            self.check_autocontrast.setChecked(image.autocontrast)
+            self.combo_autocontrast.set_value(settings.autocontrast_mode)
             self.check_focus_stack.setChecked(settings.focus_stack_settings.enabled)
             self.spin_focus_steps.setValue(settings.focus_stack_settings.n_steps)
             self.check_focus_autofocus.setChecked(

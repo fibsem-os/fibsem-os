@@ -38,6 +38,7 @@ from fibsem import utils  # noqa: E402
 from fibsem.imaging import tiled  # noqa: E402
 from fibsem.imaging.tiling.progress import TiledStatus
 from fibsem.structures import (  # noqa: E402
+    AutoContrastMode,
     BeamType,
     FibsemImage,
     FibsemStagePosition,
@@ -1006,7 +1007,8 @@ class TestTheRunOwnsItsSettings:
         settings = captured["settings"]
         assert settings.image_settings.hfw == pytest.approx(500e-6)
         assert settings.image_settings.dwell_time == pytest.approx(1e-6)
-        assert settings.image_settings.autocontrast is True
+        assert settings.autocontrast_mode is AutoContrastMode.ONCE
+        assert settings.image_settings.autocontrast is False  # the mode drives it
         assert tuple(settings.image_settings.resolution) == (1536, 1024)
         assert (settings.nrows, settings.ncols) == (3, 3)
 
