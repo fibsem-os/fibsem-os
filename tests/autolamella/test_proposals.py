@@ -447,6 +447,51 @@ def test_a_grid_status_change_leaves_the_live_state_of_a_later_run_alone(tmp_pat
     assert grid.task_state.status is AutoLamellaTaskStatus.InProgress
 
 
+def test_a_repeated_grid_task_is_decided_on_its_latest_run_only(tmp_path):
+    """The same task run twice leaves two history entries. Whether it awaits a
+    decision, and what a decision changes, is the latest run's; the earlier
+    run's recorded outcome stands."""
+    exp = _experiment(tmp_path)
+    grid = _grid_awaiting(exp)
+    first = grid.task_history[-1]
+    first.status = AutoLamellaTaskStatus.Failed
+    first.status_message = "first run failed"
+    grid.task_state.task_id = "run-2"
+    grid.task_state.status = AutoLamellaTaskStatus.AwaitingDecision
+    grid.task_history.append(deepcopy(grid.task_state))
+    assert grid.is_awaiting_decision("Overview")
+
+    exp.decide(
+        grid.id,
+        "Overview",
+        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+    )
+
+    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert grid.task_state.status is AutoLamellaTaskStatus.Completed
+    assert first.status is AutoLamellaTaskStatus.Failed
+    assert first.status_message == "first run failed"
+
+
+def test_an_earlier_run_awaiting_a_decision_does_not_make_a_later_one_wait(
+    tmp_path,
+):
+    exp = _experiment(tmp_path)
+    grid = _grid_awaiting(exp)
+    grid.task_state.task_id = "run-2"
+    grid.task_state.status = AutoLamellaTaskStatus.Completed
+    grid.task_history.append(deepcopy(grid.task_state))
+
+    assert not grid.is_awaiting_decision("Overview")
+    exp.decide(
+        grid.id,
+        "Overview",
+        Decision(outcome=DecisionOutcome.Rejected, author="human:op", reason="no"),
+    )
+    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert grid.task_history[0].status is AutoLamellaTaskStatus.AwaitingDecision
+
+
 def test_reject_needs_a_reason(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
