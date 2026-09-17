@@ -31,6 +31,7 @@ from typing import (
 import cv2
 import numpy as np
 import tifffile as tff
+import yaml
 from numpy.typing import NDArray
 
 import fibsem
@@ -2227,7 +2228,17 @@ DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
 @dataclass
 class StageSystemSettings:
     rotation_reference: float
-    shuttle_pre_tilt: float
+    # Accepted as a constructor keyword, held as `_shuttle_pre_tilt`, and read back
+    # through the property below. An `InitVar` rather than a field because the value
+    # a caller passes is a *fallback* -- the answer comes from the active holder when
+    # there is one.
+    shuttle_pre_tilt: InitVar[float] = 0.0
+    # The fallback the property reads while no holder answers. A real field rather
+    # than a bare attribute set in `__post_init__`, so that `__eq__` and `__repr__`
+    # see it: two stages at 0 and 35 degrees must not compare equal, and a
+    # round-trip test that compares records must be able to notice a pre-tilt
+    # that was dropped on the way through the file.
+    _shuttle_pre_tilt: float = field(init=False, default=0.0)
     enabled: bool = True
     # Whether the stage has a rotation axis. Load-bearing: it is what `rotation_180`
     # below is derived from, so it describes the geometry and not merely a permission.
@@ -2260,6 +2271,16 @@ class StageSystemSettings:
     devices: Dict[str, StageDeviceSettings] = field(
         default_factory=lambda: deepcopy(DEFAULT_STAGE_DEVICES)
     )
+    # The holders this system has, and which one is on the stage. A keyed map with a
+    # selection rather than a single holder, because a site that swaps a flat shuttle
+    # for a pre-tilted one should select the other entry rather than re-enter its
+    # geometry -- and, once pre-tilt moves onto the holder, re-calibrate for it.
+    #
+    # Empty by default. `_create_sample_stage` fills it, importing a `sample-holder.yaml`
+    # if the site has one; nothing here reads that file, so a `SystemSettings` built
+    # from a dict stays a pure function of that dict.
+    holders: Dict[str, "SampleHolder"] = field(default_factory=dict)
+    active_holder: str = ""
 
     @property
     def rotation_180(self) -> float:
@@ -2281,10 +2302,50 @@ class StageSystemSettings:
             return self.rotation_reference
         return (self.rotation_reference + 180) % 360
 
+    def __post_init__(self, shuttle_pre_tilt: float) -> None:
+        self._shuttle_pre_tilt = float(shuttle_pre_tilt)
+
+    @property
+    def shuttle_pre_tilt(self) -> float:
+        """The pre-tilt of the shuttle on the stage, in degrees.
+
+        The holder answers when there is one that says. Physically correct: the
+        pre-tilt is a property of the shuttle, not of the stage it sits on, so
+        swapping a 35 degree shuttle for a flat one should change it -- and today
+        that means editing the stage block by hand, where forgetting silently wrongs
+        every projection.
+
+        The fallback is not decoration. A `StageSystemSettings` built from a
+        configuration has no holder until `_create_sample_stage` resolves one, and
+        every holder file written before this carries no pre-tilt. Returning 0.0 in
+        either case would turn a 35 degree site flat, which is the one outcome this
+        change must not produce. So the configured value stands until a holder
+        states otherwise.
+        """
+        holder = self.holders.get(self.active_holder)
+        if holder is not None:
+            return holder.pre_tilt
+        return self._shuttle_pre_tilt
+
+    @shuttle_pre_tilt.setter
+    def shuttle_pre_tilt(self, value: float) -> None:
+        """Setting it sets the active holder's, which is what it means.
+
+        A setter rather than a read-only property because around twenty-five test
+        files use `microscope.system.stage.shuttle_pre_tilt = 35` as their setup
+        idiom, and because it reads correctly: the stage's pre-tilt *is* whatever
+        holder is on it, so changing one is changing the other. The fallback is
+        written too, so the two cannot drift apart through this path.
+        """
+        value = float(value)
+        self._shuttle_pre_tilt = value
+        holder = self.holders.get(self.active_holder)
+        if holder is not None:
+            holder.pre_tilt = value
+
     def to_dict(self):
-        return {
+        ddict = {
             "rotation_reference": self.rotation_reference,
-            "shuttle_pre_tilt": self.shuttle_pre_tilt,
             "enabled": self.enabled,
             "rotation": self.rotation,
             "milling_angle": self.milling_angle,
@@ -2292,7 +2353,23 @@ class StageSystemSettings:
             "devices": {
                 name: device.to_dict() for name, device in self.devices.items()
             },
+            # `include_grids=False`: which grid is in which slot is session state and
+            # has its own file. Writing it here would make the configuration go stale
+            # every time someone swapped a grid.
+            "holders": {
+                name: holder.to_dict(include_grids=False)
+                for name, holder in self.holders.items()
+            },
+            "active_holder": self.active_holder,
         }
+        # The pre-tilt has one home in the file. Once a holder is named it lives on
+        # the holder, and writing it here as well would be a second copy that a hand
+        # edit could put out of step -- silently, in the term every projection uses.
+        # Until then (a record loaded from an old file and not yet connected) the
+        # stage-level key is the only place the value has, so it is kept.
+        if not self.holders:
+            ddict["shuttle_pre_tilt"] = self.shuttle_pre_tilt
+        return ddict
 
     @staticmethod
     def from_dict(settings: dict):
@@ -2322,7 +2399,55 @@ class StageSystemSettings:
                 if devices
                 else deepcopy(DEFAULT_STAGE_DEVICES)
             ),
+            holders={
+                name: _configured_holder_from(name, holder)
+                for name, holder in (settings.get("holders") or {}).items()
+            },
+            active_holder=settings.get("active_holder", ""),
         )
+
+
+def _detector_block_from(settings: dict) -> dict:
+    """The detector keys of a beam block, in the names `FibsemDetectorSettings` reads.
+
+    The prefixed spelling wins when both are present, because it is the one the
+    writer produces and the one every shipped file uses.
+    """
+    block = {}
+    for name in ("type", "mode", "brightness", "contrast"):
+        if f"detector_{name}" in settings:
+            block[name] = settings[f"detector_{name}"]
+        elif name in settings:
+            block[name] = settings[name]
+    return block
+
+
+def _split_defaults(beam: dict) -> dict:
+    """Move the session defaults out of a written beam block, in place.
+
+    Returns the keys that went. What stays is the hardware description.
+    """
+    moved = {
+        k: beam.pop(k) for k in list(beam) if k not in SystemSettings.HARDWARE_BEAM_KEYS
+    }
+    return moved
+
+
+def _configured_holder_from(name: str, data: dict) -> "SampleHolder":
+    """A holder entry in `stage.holders`, which must state its pre-tilt.
+
+    `SampleHolder.from_dict` reads a silent file as 0.0, and that is safe for a
+    `sample-holder.yaml` because `_resolve_configured_holder` overwrites it with the
+    configured value before use. A holder *in the configuration* gets no such
+    overwrite -- it is the configured value -- so silence here would turn a 35
+    degree shuttle flat with nothing to report. It is an error instead.
+    """
+    if (data or {}).get("pre_tilt") is None:
+        raise ValueError(
+            f"stage.holders.{name} states no pre_tilt. Every holder in the "
+            "configuration must say its pre-tilt in degrees (0 for a flat shuttle)."
+        )
+    return SampleHolder.from_dict(data)
 
 
 @dataclass
@@ -2388,7 +2513,13 @@ class BeamSystemSettings:
             beam_type=beam_type,
             enabled=settings.get("enabled", True),
             beam=BeamSettings.from_dict(settings),
-            detector=FibsemDetectorSettings.from_dict(settings),
+            # The file spells the detector keys with a `detector_` prefix -- that is
+            # what `to_dict` writes -- and `FibsemDetectorSettings.from_dict` reads
+            # the bare names, so for as long as both existed every shipped
+            # `detector_type: ETD` loaded as "Unknown", and a saved file lost its
+            # detector on the next load. Mapped here, at the one seam where the
+            # prefixed spelling meets the record.
+            detector=FibsemDetectorSettings.from_dict(_detector_block_from(settings)),
             eucentric_height=settings.get("eucentric_height", 0.0),
             column_tilt=settings.get("column_tilt", default_column_tilt),
             plasma_gas=_plasma_gas_from(settings),
@@ -2434,9 +2565,13 @@ class ManipulatorSystemSettings:
 
 @dataclass
 class GISSystemSettings:
-    enabled: bool
-    multichem: bool
-    sputter_coater: bool
+    # What is fitted is not in the configuration file. It is asked of the instrument
+    # where the backend can (AutoScript), and is the backend's own answer where it
+    # cannot -- see `FibsemMicroscope._read_hardware_capabilities`. These are the
+    # runtime record of that answer, and `is_available("gis")` reads them.
+    enabled: bool = False
+    multichem: bool = False
+    sputter_coater: bool = False
     inserted: bool = False
 
     def to_dict(self):
@@ -2552,8 +2687,23 @@ class FluorescenceSystemSettings:
 
     enabled: bool = False
 
+    # The objective's calibration, in metres: where it is in focus, and how far it
+    # may be inserted. Measured at this instrument, so it is written under
+    # `calibration.objective` by `SystemSettings.to_dict` rather than in this
+    # block. `None` means the configuration does not state one, and the working
+    # state file (`fm-configuration.yaml`) still answers, exactly as before -- so
+    # a site that has not pressed "Save as Calibration" sees no change.
+    focus_position: Optional[float] = None
+    limit_position: Optional[float] = None
+
     def to_dict(self) -> dict:
         return {"enabled": self.enabled}
+
+    def objective_to_dict(self) -> dict:
+        return {
+            "focus_position": self.focus_position,
+            "limit_position": self.limit_position,
+        }
 
     @staticmethod
     def from_dict(settings: dict) -> "FluorescenceSystemSettings":
@@ -2572,17 +2722,64 @@ class SystemSettings:
     info: SystemInfo
     sim: Dict[str, Union[str, bool]] = field(default_factory=dict)
     fm: FluorescenceSystemSettings = field(default_factory=FluorescenceSystemSettings)
+    # Whether `defaults:` is pushed to the instrument at connect. Read and written
+    # so the file can state it; nothing acts on it yet. Pushing a kV to a shared
+    # instrument at connect is a behaviour change that gets its own change and a
+    # look on a bench, and this field is here so that change is one `if`.
+    apply_defaults_on_connect: bool = False
+
+    #: What a column *is*: the keys that stay in `electron:` / `ion:`. Everything
+    #: else a `BeamSystemSettings` writes -- voltage, current, hfw, detector, the
+    #: lot -- is a default a session starts from and goes under `defaults:`.
+    HARDWARE_BEAM_KEYS = (
+        "beam_type",
+        "enabled",
+        "column_tilt",
+        "eucentric_height",
+        "plasma_gas",
+    )
 
     def to_dict(self):
+        """Three sections, by what kind of thing a value is.
+
+        `hardware:` is what the instrument is and cannot be asked. `calibration:` is
+        what was measured at this instrument -- the holders, and the pre-tilt while no
+        holder is named -- written by a calibration action, never by an autosave.
+        `defaults:` is what a session starts from. The records underneath are the
+        same ones as before; the sections exist so a person opening the file can tell
+        which numbers are safe to touch.
+        """
+        stage = self.stage.to_dict()
+        calibration = {
+            "holders": stage.pop("holders"),
+            "active_holder": stage.pop("active_holder"),
+        }
+        if "shuttle_pre_tilt" in stage:
+            calibration["shuttle_pre_tilt"] = stage.pop("shuttle_pre_tilt")
+        calibration["objective"] = self.fm.objective_to_dict()
+
+        electron = self.electron.to_dict()
+        ion = self.ion.to_dict()
+        defaults = {
+            "apply_on_connect": self.apply_defaults_on_connect,
+            "electron": _split_defaults(electron),
+            "ion": _split_defaults(ion),
+        }
         return {
-            "stage": self.stage.to_dict(),
-            "electron": self.electron.to_dict(),
-            "ion": self.ion.to_dict(),
-            "manipulator": self.manipulator.to_dict(),
-            "gis": self.gis.to_dict(),
             "info": self.info.to_dict(),
+            # No `manipulator:` or `gis:`. What is fitted is the instrument's to
+            # report (or the backend's, where it cannot be asked), not a file's to
+            # state; a file that said so could describe hardware a site does not have,
+            # or omit hardware it does, and nothing would disagree.
+            "hardware": {
+                "stage": stage,
+                "electron": electron,
+                "ion": ion,
+                "fm": self.fm.to_dict(),
+            },
+            "calibration": calibration,
+            "defaults": defaults,
             "sim": self.sim,
-            "fm": self.fm.to_dict(),
         }
 
     @staticmethod
@@ -2593,25 +2790,49 @@ class SystemSettings:
         # configuration, not a corrupt file, and this is what lets a key be removed
         # from the shipped files without every existing one raising `KeyError` at
         # load.
-        electron = dict(settings.get("electron") or {})
-        ion = dict(settings.get("ion") or {})
+        #
+        # `defaults:` names what a session starts from; `electron:` / `ion:` describe
+        # what the column *is*. Merged back together here because nothing downstream
+        # cares about the split -- the records are unchanged, and the readers of
+        # `system.electron.beam` and `system.ion.detector` do not move. `defaults:`
+        # wins a collision: every file written before the split states the keys in
+        # the flat block only, which is why the merge is in this direction and why
+        # those files load unchanged.
+        # Every file written before the sections existed has its blocks at the top
+        # level, so each block is read from there first and from `hardware:` over
+        # it; `calibration:` folds into the stage record it belongs to.
+        hardware = settings.get("hardware") or {}
+        calibration = settings.get("calibration") or {}
+        defaults = settings.get("defaults") or {}
+
+        def block(name: str) -> dict:
+            return {**(settings.get(name) or {}), **(hardware.get(name) or {})}
+
+        stage = block("stage")
+        for key in ("holders", "active_holder", "shuttle_pre_tilt"):
+            if key in calibration:
+                stage[key] = calibration[key]
+        electron = {**block("electron"), **(defaults.get("electron") or {})}
+        ion = {**block("ion"), **(defaults.get("ion") or {})}
         electron["beam_type"] = BeamType.ELECTRON.name
         ion["beam_type"] = BeamType.ION.name
 
+        fm = FluorescenceSystemSettings.from_dict(block("fm"))
+        objective = calibration.get("objective") or {}
+        fm.focus_position = objective.get("focus_position")
+        fm.limit_position = objective.get("limit_position")
+
         return SystemSettings(
-            stage=StageSystemSettings.from_dict(settings.get("stage") or {}),
+            apply_defaults_on_connect=bool(defaults.get("apply_on_connect", False)),
+            stage=StageSystemSettings.from_dict(stage),
             electron=BeamSystemSettings.from_dict(electron),
             ion=BeamSystemSettings.from_dict(ion),
-            manipulator=ManipulatorSystemSettings.from_dict(
-                settings.get("manipulator") or {}
-            ),
-            gis=GISSystemSettings.from_dict(settings.get("gis") or {}),
+            # Not read from the file: filled in at connect by the backend.
+            manipulator=ManipulatorSystemSettings(),
+            gis=GISSystemSettings(),
             info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
-            # The same `fm:` block `MicroscopeSettings.from_dict` reads `config` from.
-            # Two readers, one key each: this is the hardware fact, that is a path to
-            # imaging parameters.
-            fm=FluorescenceSystemSettings.from_dict(settings.get("fm", {})),
+            fm=fm,
         )
 
 
@@ -2809,12 +3030,12 @@ class MicroscopeSettings:
     fm: Optional["FluorescenceConfiguration"] = None
 
     def to_dict(self) -> dict:
-        settings_dict = {
-            "version": CONFIGURATION_VERSION,
-            "imaging": self.image.to_dict(),
-            "protocol": self.protocol,
-        }
+        settings_dict = {"version": CONFIGURATION_VERSION, "protocol": self.protocol}
         settings_dict.update(self.system.to_dict())
+        # Into the `defaults:` block `SystemSettings.to_dict` just created, beside the
+        # beams: the acquire tab's opening state is the same kind of thing as the
+        # voltage a session begins at.
+        settings_dict["defaults"]["imaging"] = self.image.to_dict()
 
         return settings_dict
 
@@ -2836,7 +3057,12 @@ class MicroscopeSettings:
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),
-            image=ImageSettings.from_dict(settings.get("imaging") or {}),
+            # `defaults.imaging` first, the old top-level `imaging:` after it.
+            image=ImageSettings.from_dict(
+                (settings.get("defaults") or {}).get("imaging")
+                or settings.get("imaging")
+                or {}
+            ),
             protocol=protocol,
             fm=fm_config,
         )
@@ -4098,3 +4324,423 @@ class ReferenceImageParameters:
         n_fovs = sum([self.acquire_image1, self.acquire_image2])
         n_beams = sum([self.acquire_sem, self.acquire_fib])
         return self.imaging.estimated_time * n_fovs * n_beams
+
+
+# ---------------------------------------------------------------------------
+# The sample holder
+#
+# Moved here from `fibsem/microscopes/_stage.py`, unchanged, so that
+# `SystemSettings` can hold one. `_stage.py` imports from this module, so a
+# holder field on `SystemSettings` would have closed an import loop; a class this
+# far down the dependency order belongs below the loop rather than behind a
+# deferred import that hides it. `_stage.py` re-exports these four names, so
+# every existing importer is unaffected.
+# ---------------------------------------------------------------------------
+
+GRID_RADIUS = 1e-3  # 1mm
+
+
+@dataclass
+class SampleGrid:
+    """A physical TEM grid or sample that can be loaded into a GridSlot."""
+
+    name: str
+    description: str = ""
+    radius: float = field(
+        default=GRID_RADIUS,
+        metadata={"unit": "mm", "tooltip": "Radius of the sample grid", "scale": 1e3},
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "radius": self.radius,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SampleGrid":
+        return SampleGrid(
+            name=data.get("name", ""),
+            description=data.get("description", ""),
+            radius=data.get("radius", GRID_RADIUS),
+        )
+
+
+@dataclass
+class SlotCalibration:
+    """The proof that a slot position was captured properly, and what it was captured against.
+
+    Written only by the calibration wizard. A position without one, which is every
+    holder file in the field before this existed, is not trusted: it was captured at
+    an unknown orientation with a button that took whatever the stage said. A position
+    whose ``pre_tilt`` or ``rotation_reference`` no longer match the system
+    configuration is not trusted either, since the geometry it was captured against
+    has moved. Both cases read as "not calibrated" and the wizard is the way back.
+    """
+
+    orientation: str
+    pre_tilt: float
+    rotation_reference: float
+    captured_at: str = ""
+    fibsem_version: str = ""
+
+    @classmethod
+    def builtin(cls, pre_tilt: float, rotation_reference: float) -> "SlotCalibration":
+        """A position the hardware defines, not one an operator captured.
+
+        The compustage working slot is at the compustage origin by construction:
+        the autoloader puts every grid at the same place and the coordinate system
+        is referenced to it. There is nothing to capture, so the record says so.
+        """
+        return cls(
+            orientation="SEM",
+            pre_tilt=pre_tilt,
+            rotation_reference=rotation_reference,
+            captured_at="",
+            fibsem_version="built-in",
+        )
+
+    @property
+    def is_builtin(self) -> bool:
+        return self.fibsem_version == "built-in" and not self.captured_at
+
+    def matches(self, pre_tilt: float, rotation_reference: float) -> bool:
+        return (
+            abs(self.pre_tilt - pre_tilt) < 1e-3
+            and abs(self.rotation_reference - rotation_reference) < 1e-3
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "orientation": self.orientation,
+            "pre_tilt": self.pre_tilt,
+            "rotation_reference": self.rotation_reference,
+            "captured_at": self.captured_at,
+            "fibsem_version": self.fibsem_version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SlotCalibration":
+        return SlotCalibration(
+            orientation=str(data.get("orientation", "")),
+            pre_tilt=float(data.get("pre_tilt", 0.0)),
+            rotation_reference=float(data.get("rotation_reference", 0.0)),
+            captured_at=str(data.get("captured_at", "")),
+            fibsem_version=str(data.get("fibsem_version", "")),
+        )
+
+
+@dataclass
+class GridSlot:
+    """A slot that may hold one SampleGrid.
+
+    A holder *working* slot has a stage ``position`` once it has been calibrated, and
+    a ``calibration`` record saying so; until then ``position`` is None and nothing
+    will move to it. A loader *magazine* slot is storage and never has a position.
+    """
+
+    name: str
+    index: int
+    position: Optional[FibsemStagePosition] = None
+    loaded_grid: Optional[SampleGrid] = None
+    calibration: Optional[SlotCalibration] = None
+
+    @property
+    def is_calibrated(self) -> bool:
+        return self.position is not None and self.calibration is not None
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "index": self.index,
+            "position": self.position.to_dict() if self.position is not None else None,
+            "loaded_grid": self.loaded_grid.to_dict()
+            if self.loaded_grid is not None
+            else None,
+            "calibration": self.calibration.to_dict()
+            if self.calibration is not None
+            else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GridSlot":
+        loaded_grid_data = data.get("loaded_grid")
+        loaded_grid = (
+            SampleGrid.from_dict(loaded_grid_data)
+            if loaded_grid_data is not None
+            else None
+        )
+        position_data = data.get("position")
+        position = (
+            FibsemStagePosition(**position_data) if position_data is not None else None
+        )
+        calibration_data = data.get("calibration")
+        calibration = (
+            SlotCalibration.from_dict(calibration_data)
+            if calibration_data is not None
+            else None
+        )
+        slot = GridSlot(
+            name=data.get("name", ""),
+            index=data.get("index", 0),
+            position=position,
+            loaded_grid=loaded_grid,
+            calibration=calibration,
+        )
+        if slot.position is not None:
+            slot.position.name = slot.name
+        return slot
+
+
+@dataclass
+class SampleHolder:
+    # First, and with no default, so it cannot be left out. The pre-tilt is a property
+    # of *this holder* -- swap a 35 degree shuttle for a flat one and it changes with
+    # the shuttle, which is why it stopped being a field on the stage.
+    #
+    # Required because the alternatives both fail quietly. A default of 0.0 turns a
+    # construction site that forgot into a flat shuttle and wrongs every projection
+    # made from it, with nothing to report; a `None` sentinel spreads its own handling
+    # into every reader, and one reader that formats it instead becomes a hard abort
+    # (PyQt5 turns an exception in a slot into `qFatal`). Ordered first because a
+    # dataclass cannot put a non-default field after defaulted ones, and
+    # `@dataclass(kw_only=True)` is 3.10+ while this package supports 3.8.
+    #
+    # Absence in a *file* is a different question and is not this field's to answer:
+    # `from_dict` supplies the configured value, and `_resolve_configured_holder`
+    # seeds it at connect.
+    #
+    # This used to be a property reading *back* from
+    # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
+    # both cannot exist: the stage reads the holder, so a holder that read the stage
+    # would recurse until the interpreter gave up.
+    pre_tilt: float = field(
+        metadata={"unit": "°", "tooltip": "Pre-tilt of this holder, in degrees"}
+    )
+    name: str = field(
+        default="Sample Holder", metadata={"tooltip": "Name of the sample holder"}
+    )
+    description: str = field(
+        default="", metadata={"tooltip": "Description of the sample holder"}
+    )
+    capacity: int = field(
+        default=2,
+        metadata={
+            "minimum": 1,
+            "maximum": 12,
+            "tooltip": "Number of grid slots on this holder",
+        },
+    )
+    slots: dict[str, GridSlot] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self._parent: Optional["FibsemMicroscope"] = None
+
+    @property
+    def reference_rotation(self) -> float:
+        if self._parent is not None:
+            return self._parent.system.stage.rotation_reference
+        return 0.0
+
+    def find_slot_for_grid(self, grid: "SampleGrid") -> Optional["GridSlot"]:
+        """Return the slot that has this SampleGrid loaded, or None."""
+        for slot in self.slots.values():
+            if slot.loaded_grid is not None and slot.loaded_grid.name == grid.name:
+                return slot
+        return None
+
+    def find_slot_by_grid_name(self, grid_name: str) -> Optional["GridSlot"]:
+        """Return the slot whose loaded grid matches the given name, or None."""
+        for slot in self.slots.values():
+            if slot.loaded_grid is not None and slot.loaded_grid.name == grid_name:
+                return slot
+        return None
+
+    @property
+    def occupied_slots(self) -> List["GridSlot"]:
+        """The working slots that hold a grid: what is loaded right now."""
+        return [
+            s
+            for s in sorted(self.slots.values(), key=lambda s: s.index)
+            if s.loaded_grid is not None
+        ]
+
+    @property
+    def calibrated_slots(self) -> List["GridSlot"]:
+        """The slots with a trusted position: the ones the stage can be sent to."""
+        return [
+            s
+            for s in sorted(self.slots.values(), key=lambda s: s.index)
+            if s.is_calibrated
+        ]
+
+    def discard_untrusted_positions(
+        self, pre_tilt: float, rotation_reference: float
+    ) -> List[str]:
+        """Drop every slot position that was not calibrated against this geometry.
+
+        A position with no calibration record was captured by the old per-slot
+        button at an unknown orientation; one whose record disagrees with the current
+        pre-tilt or reference rotation was captured against a stage that has since
+        been reconfigured. Neither can be trusted, so both become "not calibrated"
+        in memory. The file is left alone: the wizard rewrites it when someone
+        recalibrates, and never before. Returns one line per discarded slot, for
+        the log and the UI.
+        """
+        notes: List[str] = []
+        for slot in sorted(self.slots.values(), key=lambda s: s.index):
+            if slot.position is None:
+                continue
+            if slot.calibration is None:
+                reason = "it has no calibration record"
+            elif not slot.calibration.matches(pre_tilt, rotation_reference):
+                reason = (
+                    f"it was calibrated at pre-tilt {slot.calibration.pre_tilt:g}°, "
+                    f"reference rotation {slot.calibration.rotation_reference:g}°, "
+                    f"but the system is configured for {pre_tilt:g}° / "
+                    f"{rotation_reference:g}°"
+                )
+            else:
+                continue
+            slot.position = None
+            slot.calibration = None
+            notes.append(f"{slot.name}: position discarded because {reason}")
+        return notes
+
+    def _ensure_slots(self) -> None:
+        """Ensure exactly `capacity` slots exist; add empty ones for missing indices."""
+        for i in range(self.capacity):
+            name = f"Slot-{i + 1:02d}"
+            if name not in self.slots:
+                # A new slot has no position until it is calibrated; inventing one
+                # at the origin was a number that looked like a measurement.
+                self.slots[name] = GridSlot(name=name, index=i, position=None)
+        for name in [
+            n for n, s in list(self.slots.items()) if s.index >= self.capacity
+        ]:
+            del self.slots[name]
+
+    def to_dict(self, include_grids: bool = True) -> dict:
+        slots = {}
+        for name, slot in self.slots.items():
+            data = slot.to_dict()
+            if not include_grids:
+                data["loaded_grid"] = None
+            slots[name] = data
+        return {
+            "name": self.name,
+            "capacity": self.capacity,
+            "slots": slots,
+            "description": self.description,
+            "pre_tilt": self.pre_tilt,
+        }
+
+    # -- occupancy: which grid is in which slot, kept apart from the calibration --
+
+    def occupancy_to_dict(self) -> dict:
+        """Slot name -> grid, for the slots that hold one."""
+        return {
+            name: slot.loaded_grid.to_dict()
+            for name, slot in self.slots.items()
+            if slot.loaded_grid is not None
+        }
+
+    def apply_occupancy(self, data: dict) -> None:
+        """Put the recorded grids back into their slots; unlisted slots are emptied."""
+        for name, slot in self.slots.items():
+            grid_data = (data or {}).get(name)
+            slot.loaded_grid = (
+                SampleGrid.from_dict(grid_data) if grid_data is not None else None
+            )
+
+    def save_occupancy(self, path: Union[str, Path]) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            yaml.dump(
+                self.occupancy_to_dict(), f, default_flow_style=False, sort_keys=False
+            )
+
+    def load_occupancy(self, path: Union[str, Path]) -> bool:
+        """Apply the occupancy file if there is one. Returns whether there was."""
+        path = Path(path)
+        if not path.exists():
+            return False
+        with open(path, "r") as f:
+            self.apply_occupancy(yaml.safe_load(f) or {})
+        return True
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SampleHolder":
+        slots = {
+            name: GridSlot.from_dict(slot_data)
+            for name, slot_data in data.get("slots", {}).items()
+        }
+        # A file that does not state one reads as 0.0 here, and that is safe only
+        # because of what happens next: `_resolve_configured_holder` overwrites it
+        # with the configured pre-tilt before the holder is used. The required field
+        # constrains *constructions in code*, which is where a forgotten pre-tilt has
+        # nothing else to catch it; a silent file is caught at connect instead.
+        holder = SampleHolder(
+            pre_tilt=float(data.get("pre_tilt") or 0.0),
+            name=data.get("name", "Sample Holder"),
+            capacity=data.get("capacity", max(len(slots), 1)),
+            slots=slots,
+            description=data.get("description", ""),
+        )
+        holder._ensure_slots()
+        return holder
+
+    @classmethod
+    def load(cls, path: Union[str, Path]) -> "SampleHolder":
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Sample holder config not found: {path}")
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+        return cls.from_dict(data)
+
+    def save(self, path: Union[str, Path]) -> None:
+        """Write the holder's geometry and calibration. Not the grids in it: those
+        are session state and live in the occupancy file (``save_occupancy``)."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            yaml.dump(
+                self.to_dict(include_grids=False),
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+            )
+
+
+# The holder a system starts with when nothing else describes one: no `stage.holders`
+# in the configuration, and no `sample-holder.yaml` beside it.
+#
+# This used to be `default-sample-holder.yaml`, a shipped file. Once the holder moved
+# into the microscope configuration the file was down to four fields and two empty
+# slot stubs -- everything else in it was null -- and its name, "Pre-Tilted 35deg
+# Shuttle", had become a claim the object could contradict: a flat system loaded a
+# holder called that carrying a pre-tilt of 0, and the widget printed both. A default
+# with no calibration in it is a code default, next to `DEFAULT_STAGE_DEVICES` and
+# `DEFAULT_DEVICE_RANGE`, which are already here.
+#
+# A function rather than a module constant because a holder is mutable and gets a
+# `_parent` bound to it; one shared instance would be handed to every microscope.
+def default_sample_holder(pre_tilt: float) -> "SampleHolder":
+    """A two-slot shuttle with nothing calibrated on it.
+
+    `pre_tilt` is required for the same reason it is required on the holder: this is
+    the one caller that has to decide, and the configured value is what it passes.
+    The name deliberately describes the slot count rather than a geometry, so it
+    cannot disagree with the number beside it.
+    """
+    holder = SampleHolder(
+        pre_tilt=pre_tilt,
+        name="Default Shuttle",
+        capacity=2,
+        description="Two grid slots, uncalibrated. Replace or calibrate before use.",
+    )
+    holder._ensure_slots()
+    return holder
