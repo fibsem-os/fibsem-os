@@ -446,8 +446,10 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self._item = item
         self._task_name = task_name
         self._proposal = proposal
-        self._image = _load_reference_image(item, proposal)
-        self._electron = _load_reference_image(item, proposal, "reference_image_eb")
+        self._image = _load_reference_image(experiment, item, proposal)
+        self._electron = _load_reference_image(
+            experiment, item, proposal, "reference_image_eb"
+        )
         self._gated = waiting_on(experiment, task_name)
         self._decided = None
         self._applied = None
@@ -691,14 +693,14 @@ class PointOfInterestReviewRenderer(TaskResultReviewRenderer):
 
 
 def _load_reference_image(
-    item: Any, proposal: Proposal, key: str = "reference_image"
+    experiment: Experiment, item: Any, proposal: Proposal, key: str = "reference_image"
 ) -> Optional[FibsemImage]:
     """The image the proposal's values sit on, from its provenance: a file
-    name relative to the item's folder."""
+    name relative to the item's folder (``Experiment.item_path``)."""
     path = proposal.provenance.get(key)
     if not path:
         return None
-    path = os.path.join(str(getattr(item, "path", "")), path)
+    path = os.path.join(str(experiment.item_path(item)), path)
     if not os.path.exists(path):
         logging.warning(f"Reference image for review not found: {path}")
         return None
