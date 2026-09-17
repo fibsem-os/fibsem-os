@@ -192,29 +192,30 @@ class GridTaskManager(BaseTaskManager):
         queued for this grid (``prereq_pending``). The run moves on to the next
         grid meanwhile, and comes back -- an exchange -- when it can run."""
         for req in self._requirements(task_name):
+            # a rerun still queued is the attempt that counts, whatever an
+            # earlier run of it did
+            if self.queue.has_pending_pair(grid.name, req):
+                return "prereq_pending"
             if grid.is_awaiting_decision(req):
                 return "awaiting_decision"
-            if not grid.has_completed_task(req) and self.queue.has_pending_pair(
-                grid.name, req
-            ):
-                return "prereq_pending"
         return None
 
     def _item_defer_reason(self, item: WorkItem) -> Optional[str]:
-        if item.task_name == LOAD_ENTRY_NAME:
-            return None  # loading waits on nobody
         grid = self.experiment.get_grid_by_name(item.item_name)
         if grid is None:
             return None  # let the loop retire it with a reason
+        if item.task_name == LOAD_ENTRY_NAME:
+            return None  # loading waits on nobody
         return self._defer_reason(grid, item.task_name)
 
     def _missing_requirements(self, grid: GridRecord, task_name: str) -> List[str]:
-        """Required tasks that did not complete on this grid: failed, rejected,
-        or never run. Terminal for this run, as on the lamella side."""
+        """Required tasks whose latest run on this grid did not complete: failed,
+        rejected, cancelled, or never run. An older success does not count.
+        Terminal for this run, as on the lamella side."""
         return [
             req
             for req in self._requirements(task_name)
-            if not grid.has_completed_task(req)
+            if not grid.latest_run_completed(req)
         ]
 
     def _run_queue(self) -> None:

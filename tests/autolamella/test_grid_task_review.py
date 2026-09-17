@@ -492,3 +492,63 @@ class TestTheGridRunWaitsOnADecision:
         grid = experiment.get_grid_by_name(GRID)
         assert grid.has_completed_task(OVERVIEW) and grid.has_completed_task(LATER)
         assert not manager.stalled
+
+
+# ---------------------------------------------------------------------------
+# The latest run of a requirement counts (FIB-1006)
+# ---------------------------------------------------------------------------
+
+
+class TestTheLatestRunOfARequirementCounts:
+    def _succeed_once(self, microscope, experiment):
+        _with_later_task(experiment, review_wait=30.0)
+        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.automated
+        _manager(microscope, experiment).run([OVERVIEW], [GRID])
+        grid = experiment.get_grid_by_name(GRID)
+        assert grid.has_completed_task(OVERVIEW)
+        return grid
+
+    def test_a_failed_rerun_skips_the_task_that_requires_it(
+        self, microscope, experiment
+    ):
+        grid = self._succeed_once(microscope, experiment)
+        experiment.grid_protocol.task_config[OVERVIEW].orientation = "NOWHERE"
+
+        _manager(microscope, experiment).run([OVERVIEW, LATER], [GRID])
+
+        assert _ran(grid, OVERVIEW)[-1].status is AutoLamellaTaskStatus.Failed
+        assert _ran(grid, LATER) == [], "the old success did not license it"
+
+    def test_a_rejected_rerun_skips_the_task_that_requires_it(
+        self, microscope, experiment
+    ):
+        grid = self._succeed_once(microscope, experiment)
+        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.review
+        manager = _manager(microscope, experiment)
+        thread = _decide_when(
+            experiment,
+            GRID,
+            lambda: grid.is_awaiting_decision(OVERVIEW) and manager.deferred_items(),
+            DecisionOutcome.Rejected,
+            reason="all ice",
+        )
+
+        manager.run([OVERVIEW, LATER], [GRID])
+        thread.join(5)
+
+        assert _ran(grid, OVERVIEW)[-1].status is AutoLamellaTaskStatus.Failed
+        assert _ran(grid, LATER) == []
+
+    def test_a_rerun_queued_after_its_consumer_is_waited_for(
+        self, microscope, experiment
+    ):
+        grid = self._succeed_once(microscope, experiment)
+        experiment.grid_protocol.task_config[OVERVIEW].orientation = "NOWHERE"
+        manager = _manager(microscope, experiment)
+
+        manager.run([LATER, OVERVIEW], [GRID])
+
+        assert _ran(grid, OVERVIEW)[-1].status is AutoLamellaTaskStatus.Failed
+        assert _ran(grid, LATER) == [], "waited for the rerun, then skipped"
+        (later,) = [i for i in manager.queue.items if i.task_name == LATER]
+        assert later.status is AutoLamellaTaskStatus.Skipped

@@ -867,12 +867,12 @@ class TaskManager(BaseTaskManager):
         for req in self.experiment.task_protocol.workflow_config.requirements(
             task_name
         ):
+            # a rerun still queued is the attempt that counts, whatever an
+            # earlier run of it did (FIB-1006)
+            if self.queue.has_pending_pair(lamella.name, req):
+                return "prereq_pending"
             if lamella.is_awaiting_decision(req):
                 return "awaiting_decision"
-            if not lamella.has_completed_task(req) and self.queue.has_pending_pair(
-                lamella.name, req
-            ):
-                return "prereq_pending"
         return None
 
     def _should_skip(self, lamella: "Lamella", task_name: str) -> Optional[str]:
@@ -894,8 +894,10 @@ class TaskManager(BaseTaskManager):
         task_requirements = self.experiment.task_protocol.workflow_config.requirements(
             task_name
         )
+        # the latest run of each requirement, not any past success: a rerun that
+        # failed or was rejected is the answer (FIB-1006)
         if task_requirements and not all(
-            lamella.has_completed_task(req) for req in task_requirements
+            lamella.latest_run_completed(req) for req in task_requirements
         ):
             logging.info(
                 f"Skipping lamella {lamella.name} for task {task_name}. Required tasks {task_requirements} not completed."
