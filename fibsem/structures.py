@@ -2407,6 +2407,21 @@ class StageSystemSettings:
         )
 
 
+def _detector_block_from(settings: dict) -> dict:
+    """The detector keys of a beam block, in the names `FibsemDetectorSettings` reads.
+
+    The prefixed spelling wins when both are present, because it is the one the
+    writer produces and the one every shipped file uses.
+    """
+    block = {}
+    for name in ("type", "mode", "brightness", "contrast"):
+        if f"detector_{name}" in settings:
+            block[name] = settings[f"detector_{name}"]
+        elif name in settings:
+            block[name] = settings[name]
+    return block
+
+
 def _split_defaults(beam: dict) -> dict:
     """Move the session defaults out of a written beam block, in place.
 
@@ -2498,7 +2513,13 @@ class BeamSystemSettings:
             beam_type=beam_type,
             enabled=settings.get("enabled", True),
             beam=BeamSettings.from_dict(settings),
-            detector=FibsemDetectorSettings.from_dict(settings),
+            # The file spells the detector keys with a `detector_` prefix -- that is
+            # what `to_dict` writes -- and `FibsemDetectorSettings.from_dict` reads
+            # the bare names, so for as long as both existed every shipped
+            # `detector_type: ETD` loaded as "Unknown", and a saved file lost its
+            # detector on the next load. Mapped here, at the one seam where the
+            # prefixed spelling meets the record.
+            detector=FibsemDetectorSettings.from_dict(_detector_block_from(settings)),
             eucentric_height=settings.get("eucentric_height", 0.0),
             column_tilt=settings.get("column_tilt", default_column_tilt),
             plasma_gas=_plasma_gas_from(settings),
