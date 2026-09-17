@@ -134,6 +134,28 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
     assert task.task_manager._defer_reason(lamella, POLISH) is None
 
 
+def test_the_result_images_mapping_decides_which_roles_the_proposal_points_at(
+    microscope, tmp_path
+):
+    """A task names its result images by provenance key and output role; the
+    proposal takes the last file under each mapped role, and carries only the
+    keys the mapping names. How a grid task points at its overview."""
+    exp = _experiment(tmp_path, microscope)
+    lamella = exp.positions[0]
+
+    def body():
+        lamella.task_state.outputs["overview_sem"] = ["wide.tif", "tight.tif"]
+
+    task = _task(microscope, exp, body=body)
+    task.result_images = {"reference_image": "overview_sem"}
+
+    task.run()
+
+    p = lamella.proposals[ROUGH].provenance
+    assert p["reference_image"] == "tight.tif", "the last file under the role"
+    assert "reference_image_eb" not in p, "only the keys the mapping names"
+
+
 def test_a_failed_task_records_its_result_with_the_failure(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, attention=Attention.review)
     lamella = exp.positions[0]
