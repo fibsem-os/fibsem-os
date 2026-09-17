@@ -68,6 +68,37 @@ class TestHeadline:
         ]
         assert grid_headline(grid)[0].startswith("overview_fib (")
 
+    def test_a_task_awaiting_a_decision_is_the_headline(self):
+        grid = GridRecord(name="g")
+        grid.task_history += [
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(AutoLamellaTaskStatus.AwaitingDecision),
+            entry(AutoLamellaTaskStatus.Failed, "overview_fib"),
+        ]
+        assert grid_headline(grid)[0] == "overview_sem awaits a decision"
+
+    def test_it_is_found_across_a_later_load(self):
+        """A run that moved on and came back loads the grid again; the task
+        waiting from before that load is still the news."""
+        grid = GridRecord(name="g")
+        grid.task_history += [
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(AutoLamellaTaskStatus.AwaitingDecision),
+            entry(AutoLamellaTaskStatus.AwaitingDecision, "overview_fib"),
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(AutoLamellaTaskStatus.Completed, "overview_fm"),
+        ]
+        assert grid_headline(grid)[0] == "2 tasks await a decision"
+
+    def test_a_decided_task_is_not_waiting(self):
+        grid = GridRecord(name="g")
+        grid.task_history += [
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(AutoLamellaTaskStatus.AwaitingDecision),
+            entry(AutoLamellaTaskStatus.Completed),  # re-run, finished
+        ]
+        assert grid_headline(grid)[0].startswith("overview_sem (")
+
     def test_failed_tasks_are_counted(self):
         grid = GridRecord(name="g")
         grid.task_history += [

@@ -584,3 +584,240 @@ def test_mark_all_as_checked_acknowledges_only_the_runs_it_listed(
 
     assert rerun.to_check, "the run nobody was shown is still to check"
     assert all(d.author.kind is not AuthorKind.human for d in rerun.decisions)
+
+
+# ---------------------------------------------------------------------------
+# Grids (FIB-1002)
+# ---------------------------------------------------------------------------
+
+
+def _sem_image() -> FibsemImage:
+    metadata = FibsemImageMetadata(
+        image_settings=ImageSettings(beam_type=BeamType.ELECTRON, hfw=512 * PIXELSIZE),
+        pixel_size=Point(PIXELSIZE, PIXELSIZE),
+        microscope_state=MicroscopeState(stage_position=FibsemStagePosition()),
+    )
+    return FibsemImage(data=np.zeros((512, 512), dtype=np.uint8), metadata=metadata)
+
+
+def _grid_waiting(experiment):
+    """Grid-01's SEM overview under review, its stitched image on disk, and a
+    FIB overview that requires it."""
+    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.applications.autolamella.workflows.tasks.grid import (
+        BeamOverviewGridTaskConfig,
+    )
+
+    protocol = experiment.grid_protocol
+    protocol.add(
+        BeamOverviewGridTaskConfig(task_name="SEM Overview", attention=Attention.review)
+    )
+    protocol.add(
+        BeamOverviewGridTaskConfig(
+            task_name="FIB Overview", orientation="FIB", requires=["SEM Overview"]
+        )
+    )
+    grid = experiment.add_grid(GridRecord(name="Grid-01"))
+    directory = experiment.grid_path(grid) / "SEM Overview"
+    directory.mkdir(parents=True)
+    _sem_image().save(str(directory / "overview"))
+    grid.task_history.append(
+        AutoLamellaTaskState(
+            name="SEM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
+        )
+    )
+    grid.proposals["SEM Overview"] = Proposal(
+        kind=TASK_RESULT,
+        provenance={"task_id": RUN, "reference_image": "SEM Overview/overview.tif"},
+    )
+    return grid
+
+
+def test_a_grid_overview_is_shown_on_the_sem_canvas_with_go_to_grid(
+    tab, experiment, qapp
+):
+    grid = _grid_waiting(experiment)
+    tab.refresh()
+    (index,) = [i for i, e in enumerate(tab._entries) if e[0] is grid]
+    tab._select_entry(index)
+    renderer = tab.stack.currentWidget()
+    view = renderer._controller.widget
+
+    assert renderer.btn_open.text() == "Go to grid"
+    assert not view._sem_panel.isHidden(), "the SEM image is on the SEM canvas"
+    assert view._fib_panel.isHidden(), "and not labelled FIB"
+    assert renderer.line.text() == "Waiting for your decision · 1 task held"
+    assert "FIB Overview" in renderer.line.toolTip()
+
+    heard = []
+    tab.open_item_requested.connect(heard.append)
+    renderer.btn_open.click()
+    assert heard == [grid]
+
+
+def test_a_lamella_row_still_shows_fib_and_go_to_lamella(tab, experiment):
+    renderer = tab.stack.currentWidget()
+    view = renderer._controller.widget
+    assert renderer.btn_open.text() == "Go to lamella"
+    assert not view._fib_panel.isHidden()
+
+
+def test_waiting_on_and_gated_read_the_grid_protocol_for_a_grid(experiment):
+    """A grid's held tasks and its review mode come from the grid protocol,
+    never from the lamella workflow, whose task names mean something else."""
+    grid = _grid_waiting(experiment)
+    assert R.waiting_on(experiment, "SEM Overview", grid) == ["FIB Overview"]
+    assert R.is_gated(experiment, "SEM Overview", grid) is True
+    assert R.is_gated(experiment, "FIB Overview", grid) is False
+    lamella = experiment.positions[0]
+    assert R.waiting_on(experiment, SETUP, lamella) == [FIDUCIAL, ROUGH]
+    assert R.waiting_on(experiment, SETUP, grid) == []
+    assert R.is_gated(experiment, SETUP, lamella) is True
+
+
+# ---------------------------------------------------------------------------
+# Fluorescence results and unreadable images (FIB-1004)
+# ---------------------------------------------------------------------------
+
+
+def _fluorescence_overview(path: Path):
+    """A genuine two-channel, three-plane fluorescence result, saved as the
+    grid task saves its mosaic: an OME-TIFF."""
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    channels = [
+        FluorescenceChannelMetadata(
+            name=name,
+            color=color,
+            excitation_wavelength=ex,
+            emission_wavelength=em,
+            power=1.0,
+            exposure_time=0.1,
+            gain=1.0,
+            offset=0.0,
+        )
+        for name, color, ex, em in (
+            ("GFP", "#00FF00", 488, 509),
+            ("RFP", "#FF0000", 561, 584),
+        )
+    ]
+    data = np.zeros((2, 3, 16, 16), dtype=np.uint16)
+    data[0, 1, 4:8, 4:8] = 4000  # a bright square in one plane of GFP
+    data[1, 2, 10:14, 10:14] = 3000
+    image = FluorescenceImage(
+        data=data,
+        metadata=FluorescenceImageMetadata(
+            acquisition_date="2026-09-17T00:00:00",
+            pixel_size_x=1e-6,
+            pixel_size_y=1e-6,
+            resolution=(16, 16),
+            channels=channels,
+        ),
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(str(path))
+    return path
+
+
+def _fm_grid_proposal(experiment, filename="overview.ome.tiff", write=True):
+    from fibsem.applications.autolamella.structures import GridRecord
+
+    grid = experiment.add_grid(GridRecord(name="Grid-FM"))
+    relative = f"FM Overview/{filename}"
+    target = experiment.grid_path(grid) / relative
+    if write:
+        _fluorescence_overview(target)
+    grid.task_history.append(
+        AutoLamellaTaskState(
+            name="FM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
+        )
+    )
+    grid.proposals["FM Overview"] = Proposal(
+        kind=TASK_RESULT,
+        provenance={"task_id": RUN, "reference_image": relative},
+    )
+    return grid, target
+
+
+def _select(tab, item):
+    tab.refresh()
+    (index,) = [i for i, e in enumerate(tab._entries) if e[0] is item]
+    tab._select_entry(index)
+    return tab.stack.currentWidget()
+
+
+def test_a_fluorescence_overview_loads_as_a_fluorescence_image(experiment):
+    from fibsem.fm.structures import FluorescenceImage
+
+    grid, _ = _fm_grid_proposal(experiment)
+    image = R._load_reference_image(experiment, grid, grid.proposals["FM Overview"])
+    assert isinstance(image, FluorescenceImage)
+    assert image.data.shape[-2:] == (16, 16)
+
+
+def test_a_fluorescence_overview_is_shown_on_the_fm_page(tab, experiment):
+    grid, _ = _fm_grid_proposal(experiment)
+    renderer = _select(tab, grid)
+    view = renderer._controller.widget
+    assert view._stack.currentIndex() == 1, "the fluorescence page"
+    assert not view.isHidden() and renderer.no_image.isHidden()
+    assert renderer._image is None, "never a beam image, nothing drawn on it"
+    assert "not found" not in renderer.line.toolTip()
+
+
+def test_the_agent_preview_of_a_fluorescence_overview_is_its_composite(experiment):
+    from fibsem.applications.autolamella.server.prompts import _preview_payload
+
+    grid, _ = _fm_grid_proposal(experiment)
+    image = R._load_reference_image(experiment, grid, grid.proposals["FM Overview"])
+    composite = R.review_preview(image)
+    assert composite.shape == (16, 16, 3)
+    assert composite.reshape(-1, 3).max() > 0, "both channels' signal, projected"
+    payload = _preview_payload(composite)
+    assert payload is not None and payload["image_b64_jpeg"]
+
+
+def test_an_unreadable_image_clears_the_last_one_and_says_so(tab, experiment, qapp):
+    """From one result with a readable image to another, of the same kind,
+    whose file is not an image: nothing of the first is left under the
+    second's verbs."""
+    first = _grid_waiting(experiment)  # an SEM overview on disk
+    renderer = _select(tab, first)
+    sem = renderer._controller.get_canvas(BeamType.ELECTRON)
+    assert renderer._image is not None
+    assert renderer._controller._states[sem].image is not None
+
+    grid, target = _fm_grid_proposal(experiment, "overview.tif", write=False)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"not a tiff")
+    again = _select(tab, grid)
+
+    assert again is renderer, "the same renderer, so the same canvases"
+    assert renderer._image is None and renderer._fluorescence is None
+    assert renderer._controller._states[sem].image is None, "the SEM image is gone"
+    assert renderer._controller.widget.isHidden()
+    assert not renderer.no_image.isHidden()
+    assert "could not be read: overview.tif" in renderer.no_image.text()
+
+    _select(tab, first)
+    assert renderer.no_image.isHidden() and not renderer._controller.widget.isHidden()
+
+
+def test_a_result_with_no_image_recorded_says_so(tab, experiment):
+    from fibsem.applications.autolamella.structures import GridRecord
+
+    grid = experiment.add_grid(GridRecord(name="Grid-None"))
+    grid.task_history.append(
+        AutoLamellaTaskState(
+            name="SEM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
+        )
+    )
+    grid.proposals["SEM Overview"] = Proposal(
+        kind=TASK_RESULT, provenance={"task_id": RUN, "reference_image": ""}
+    )
+    renderer = _select(tab, grid)
+    assert renderer.no_image.text() == "No image was recorded for this result."

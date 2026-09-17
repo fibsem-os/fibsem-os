@@ -40,10 +40,12 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.grid_card_widget import grid_headline
 from fibsem.applications.autolamella.ui.workflow_config_widget import (
+    _BTN_SIZE,
     _CHIP_ICONS,
     _CHIP_WIDTH,
     ATTENTION_LABELS,
     _chip_style,
+    _requires_phrase,
     _review_available,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid import (
@@ -71,7 +73,12 @@ from fibsem.ui.tokens import (
     OK_COLOR,
     TEXT_MUTED_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip, style_with_tooltip
+from fibsem.ui.widgets.custom_widgets import (
+    ElidedLabel,
+    IconToolButton,
+    chip,
+    style_with_tooltip,
+)
 from fibsem.ui.widgets.preflight import (
     BACKGROUND,
     ON_PANEL,
@@ -203,9 +210,75 @@ class _GridRow(QWidget):
         )
 
 
+class GridTaskEditDialog(QDialog):
+    """What a grid task requires, as the lamella workflow's Edit Task dialog
+    sets it: one box per other grid task. Only that: a grid task has no
+    schedule and is not optional, and it is removed on the Protocol tab, where
+    its settings are."""
+
+    def __init__(
+        self,
+        config: GridTaskConfig,
+        task_names: Sequence[str],
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.config = config
+        self.setWindowTitle("Edit Task")
+        self.setModal(True)
+        self.setMinimumWidth(420)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        title = QLabel(config.task_name)
+        title.setTextFormat(Qt.PlainText)
+        title.setStyleSheet(
+            f"font-size: 13px; font-weight: bold; color: {TEXT_STRONG};"
+        )
+        layout.addWidget(title)
+        heading = QLabel("Requires")
+        heading.setStyleSheet(_HEADER_STYLE)
+        layout.addWidget(heading)
+        hint = QLabel(
+            "Tasks whose result this one uses. It waits while one of them awaits "
+            "a decision in the Review tab, and is skipped on a grid where one "
+            "did not complete."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"font-size: 11px; color: {TEXT_MUTED_COLOR};")
+        layout.addWidget(hint)
+        self.checks: Dict[str, QCheckBox] = {}
+        others = [n for n in task_names if n != config.task_name]
+        for name in others:
+            box = QCheckBox(name)
+            box.setChecked(name in config.requires)
+            layout.addWidget(box)
+            self.checks[name] = box
+        if not others:
+            layout.addWidget(_empty_line("No other grid tasks to require."))
+        layout.addStretch(1)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.btn_cancel.clicked.connect(self.reject)
+        buttons.addWidget(self.btn_cancel)
+        self.btn_apply = QPushButton("Apply")
+        self.btn_apply.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.btn_apply.clicked.connect(self.accept)
+        buttons.addWidget(self.btn_apply)
+        layout.addLayout(buttons)
+
+    @property
+    def requires(self) -> List[str]:
+        """The ticked tasks, in the order the boxes list them (the run order)."""
+        return [name for name, box in self.checks.items() if box.isChecked()]
+
+
 class _TaskRow(QWidget):
     selection_changed = pyqtSignal(str, bool)  # task name, checked
     attention_changed = pyqtSignal(str)  # task name; the config is already changed
+    edit_clicked = pyqtSignal(str)  # task name
 
     def __init__(
         self, config: GridTaskConfig, parent: Optional[QWidget] = None
@@ -216,6 +289,8 @@ class _TaskRow(QWidget):
         # Whether another task in the protocol requires this one: what a Review
         # state needs to be honest about (nothing waits on a task nothing uses).
         self._has_dependents = False
+        # The tasks set to Review, so "after" can say it waits for a decision.
+        self._reviewed: set = set()
         self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 3, 6, 3)
@@ -231,18 +306,8 @@ class _TaskRow(QWidget):
         self.name_label.setTextFormat(Qt.PlainText)
         layout.addWidget(self.name_label)
         layout.addStretch(1)
-        # Who decides the record, as on the lamella task list, with the two
-        # states a grid task has: Automated or Review. A click toggles. Hidden
-        # while the review preference is off, when there is nothing to choose.
-        self.btn_attention = QToolButton()
-        self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.btn_attention.setIconSize(QSize(14, 14))
-        self.btn_attention.setFixedSize(_CHIP_WIDTH, 24)
-        self.btn_attention.setCursor(Qt.PointingHandCursor)
-        self.btn_attention.setFocusPolicy(Qt.NoFocus)
-        self.btn_attention.clicked.connect(self._toggle_attention)
-        layout.addWidget(self.btn_attention)
-        # The kind, or why this system cannot run it: the muted right column. A
+        # What it waits for, or its kind, or why this system cannot run it: the
+        # muted column left of the chip, where the lamella list says "after". A
         # reason can be longer than the column; elided from the right it keeps
         # its start, where a plain right-aligned label lost it off the left edge.
         self.detail_label = ElidedLabel()
@@ -254,6 +319,26 @@ class _TaskRow(QWidget):
         self.detail_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         self.detail_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(self.detail_label)
+        # Who decides the record, as on the lamella task list, with the two
+        # states a grid task has: Automated or Review. A click toggles. Hidden
+        # while the review preference is off, when there is nothing to choose.
+        self.btn_attention = QToolButton()
+        self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_attention.setIconSize(QSize(14, 14))
+        self.btn_attention.setFixedSize(_CHIP_WIDTH, 24)
+        self.btn_attention.setCursor(Qt.PointingHandCursor)
+        self.btn_attention.setFocusPolicy(Qt.NoFocus)
+        self.btn_attention.clicked.connect(self._toggle_attention)
+        layout.addWidget(self.btn_attention)
+        # What it requires is edited here, as on the lamella task list; its
+        # settings are on the Protocol tab.
+        self.btn_edit = IconToolButton(
+            icon="mdi:pencil",
+            tooltip="Edit what this task requires",
+            size=_BTN_SIZE.width(),
+        )
+        self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.task_name))
+        layout.addWidget(self.btn_edit)
         # Reordered by dragging the handle, as the lamella task list is.
         self.drag_handle = QLabel()
         self.drag_handle.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
@@ -271,9 +356,14 @@ class _TaskRow(QWidget):
         self._reason = reason
         self.refresh()
 
-    def set_has_dependents(self, has_dependents: bool) -> None:
-        if has_dependents != self._has_dependents:
+    def set_has_dependents(
+        self, has_dependents: bool, reviewed: set = frozenset()
+    ) -> None:
+        """Whether a task requires this one, and which tasks are set to Review."""
+        reviewed = set(reviewed)
+        if has_dependents != self._has_dependents or reviewed != self._reviewed:
             self._has_dependents = has_dependents
+            self._reviewed = reviewed
             self.refresh()
 
     def _toggle_attention(self) -> None:
@@ -298,14 +388,27 @@ class _TaskRow(QWidget):
         nothing_waits = (
             available and _review_available() and self._reviewed_without_dependents
         )
-        self.detail_label.setText(
-            self._reason
-            if not available
-            else "nothing waits on this"
-            if nothing_waits
-            else self.config.display_name
+        # the right column, most pressing first: why it cannot run, that a
+        # Review holds nothing, what it waits for (as the lamella list says
+        # it), and otherwise the task's kind
+        reviewed = self._reviewed if _review_available() else set()
+        after = (
+            "after " + _requires_phrase(self.config.requires, reviewed)
+            if self.config.requires
+            else ""
         )
-        self.detail_label.setToolTip(self._reason or "")
+        if not available:
+            detail = self._reason
+        elif nothing_waits:
+            detail = "nothing waits on this"
+        elif after:
+            detail = after
+        else:
+            detail = self.config.display_name
+        self.detail_label.setText(detail)
+        self.detail_label.setToolTip(
+            self._reason or "\n".join(t for t in (self.config.display_name, after) if t)
+        )
         style_with_tooltip(
             self.detail_label,
             f"background: transparent; "
@@ -561,17 +664,12 @@ class GridWorkflowWidget(QWidget):
                 row = _TaskRow(protocol.task_config[name])
                 row.selection_changed.connect(lambda *_: self._on_selection())
                 row.attention_changed.connect(self._on_attention_changed)
+                row.edit_clicked.connect(self._on_edit_requested)
                 _add_row(self.task_list, row, key=name)
                 self._task_rows[name] = row
-            required = {
-                req
-                for config in protocol.task_config.values()
-                for req in config.requires
-            }
-            for name, row in self._task_rows.items():
-                row.set_has_dependents(name in required)
                 # Every task ticked by default: the usual run is the whole protocol.
                 row.checkbox.setChecked(name in checked_tasks or not checked_tasks)
+            self._refresh_dependents()
         # The header box reads the rows, so its next click means the opposite.
         for header, rows in (
             (self.grid_header, self._grid_rows),
@@ -694,10 +792,56 @@ class GridWorkflowWidget(QWidget):
 
     # -- order -----------------------------------------------------------------
 
+    def _refresh_dependents(self) -> None:
+        """Tell each row whether a task requires it and which are set to Review:
+        what its chip warning and its "after review of" need."""
+        protocol = self._protocol()
+        if protocol is None:
+            return
+        required = {
+            req for config in protocol.task_config.values() for req in config.requires
+        }
+        reviewed = {
+            name
+            for name, config in protocol.task_config.items()
+            if config.attention is Attention.review
+        }
+        for name, row in self._task_rows.items():
+            row.set_has_dependents(name in required, reviewed)
+
     def _on_attention_changed(self, task_name: str) -> None:
         """A chip click changed a task's attention: saved with the protocol,
-        like its order."""
+        like its order. Another row may now read "after review of" it."""
+        self._refresh_dependents()
         self._save_protocol()
+        self.protocol_changed.emit()
+
+    def edit_dialog(self, task_name: str) -> Optional[GridTaskEditDialog]:
+        protocol = self._protocol()
+        if protocol is None or task_name not in protocol.task_config:
+            return None
+        return GridTaskEditDialog(
+            protocol.task_config[task_name], protocol.ordered_task_names, parent=self
+        )
+
+    def _on_edit_requested(self, task_name: str) -> None:
+        dialog = self.edit_dialog(task_name)
+        if dialog is not None and dialog.exec_() == QDialog.Accepted:
+            self.set_requires(task_name, dialog.requires)
+
+    def set_requires(self, task_name: str, names: List[str]) -> None:
+        """``task_name`` now requires ``names``, in run order: saved with the
+        protocol, and every row redrawn, since what waits on what changed."""
+        protocol = self._protocol()
+        if protocol is None or task_name not in protocol.task_config:
+            return
+        protocol.task_config[task_name].requires = [
+            n for n in protocol.ordered_task_names if n in names and n != task_name
+        ]
+        self._save_protocol()
+        self._refresh_dependents()
+        for row in self._task_rows.values():
+            row.refresh()
         self.protocol_changed.emit()
 
     def _save_protocol(self) -> None:
