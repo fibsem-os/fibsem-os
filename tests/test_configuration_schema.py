@@ -84,12 +84,9 @@ def test_saving_writes_the_version():
     [
         "version",
         "info",
-        "stage",
-        "electron",
-        "ion",
-        "manipulator",
-        "gis",
-        "imaging",
+        "hardware",
+        "calibration",
+        "defaults",
         "sim",
     ],
 )
@@ -98,7 +95,7 @@ def test_any_block_may_be_absent(block: str):
     corrupt file. This is the change that unblocks removing keys from the shipped
     files without every existing one raising at load."""
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config.pop(block)
+    config.pop(block, None)
 
     settings = MicroscopeSettings.from_dict(config)
     assert isinstance(settings.system, SystemSettings)
@@ -119,8 +116,8 @@ def test_an_empty_configuration_loads():
 
 def test_a_missing_field_defaults_rather_than_raising():
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    del config["stage"]["rotation_reference"]
-    del config["ion"]["column_tilt"]
+    del config["hardware"]["stage"]["rotation_reference"]
+    del config["hardware"]["ion"]["column_tilt"]
 
     settings = MicroscopeSettings.from_dict(config)
     assert settings.system.stage.rotation_reference == 0.0
@@ -181,6 +178,11 @@ def test_a_round_trip_is_a_fixed_point(filename: str):
     # second *object* silently carries the default instead of the file's value.
     assert reloaded.system == loaded.system
     assert reloaded.image == loaded.image
+    # Said explicitly as well, because this is the value the round trip most needs
+    # to keep and the one a dataclass `__eq__` was blind to for a while.
+    assert (
+        reloaded.system.stage.shuttle_pre_tilt == loaded.system.stage.shuttle_pre_tilt
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -193,12 +195,12 @@ def test_unrecognised_keys_are_reported():
     could type, save, reload, and never see again -- `ImageSettings` has no such
     field, so it was dropped on load and nothing said so."""
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config["stage"]["nonsense"] = 1
+    config["hardware"]["stage"]["nonsense"] = 1
     config["a_block_from_the_future"] = {"x": 1}
 
     unknown = utils.unrecognised_configuration_keys(config)
 
-    assert "stage.nonsense" in unknown
+    assert "hardware.stage.nonsense" in unknown
     assert "a_block_from_the_future" in unknown
 
 
@@ -271,10 +273,64 @@ def test_reporting_is_logged_at_load(caplog):
     import logging
 
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config["stage"]["nonsense"] = 1
+    config["hardware"]["stage"]["nonsense"] = 1
 
     with caplog.at_level(logging.INFO):
         utils.report_unrecognised_configuration_keys(config, source="test.yaml")
 
-    assert "stage.nonsense" in caplog.text
+    assert "hardware.stage.nonsense" in caplog.text
     assert "test.yaml" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# One key for the plasma source
+# ---------------------------------------------------------------------------
+
+
+def test_a_plasma_column_is_one_with_a_gas():
+    """`plasma: bool` and `plasma_gas: str` were two keys for one fact and could
+    disagree. Now there is the gas, and "is this a plasma column" is derived."""
+    ion = MicroscopeSettings.from_dict(
+        _load("tfs-arctis-configuration.yaml")
+    ).system.ion
+    assert ion.plasma_gas == "Xenon"
+    assert ion.plasma is True
+
+    ion = MicroscopeSettings.from_dict(_load("tfs-hydra-configuration.yaml")).system.ion
+    assert ion.plasma_gas is None
+    assert ion.plasma is False
+
+
+@pytest.mark.parametrize(
+    "block, expected",
+    [
+        ({"plasma": True, "plasma_gas": "Xenon"}, "Xenon"),
+        # The flag was what the drivers consulted, so it wins over a stray gas.
+        ({"plasma": False, "plasma_gas": "Xenon"}, None),
+        # Every shipped file wrote "no gas" as the YAML *string* "None".
+        ({"plasma": False, "plasma_gas": "None"}, None),
+        ({"plasma_gas": "None"}, None),
+        ({"plasma_gas": "none"}, None),
+        ({"plasma_gas": ""}, None),
+        ({"plasma_gas": None}, None),
+        ({}, None),
+    ],
+)
+def test_the_old_two_key_spelling_still_reads(block: dict, expected):
+    config = copy.deepcopy(_load("microscope-configuration.yaml"))
+    config["hardware"]["ion"].pop("plasma_gas", None)
+    # In the old flat spelling, which is where a file carrying the flag would have it.
+    config["ion"] = block
+    assert MicroscopeSettings.from_dict(config).system.ion.plasma_gas == expected
+
+
+def test_the_old_plasma_flag_is_read_for_migration_and_not_written():
+    """A file stating `ion.plasma` is neither warned about nor saved back with it."""
+    config = copy.deepcopy(_load("microscope-configuration.yaml"))
+    config["ion"] = {"plasma": False}  # the old flat spelling
+    assert "ion.plasma" not in utils.unrecognised_configuration_keys(config)
+
+    written = MicroscopeSettings.from_dict(config).to_dict()
+    assert "plasma" not in written["hardware"]["ion"]
+    assert "plasma" not in written["hardware"]["electron"]
+    assert "plasma_gas" not in written["hardware"]["electron"]

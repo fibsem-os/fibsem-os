@@ -20,7 +20,7 @@ def _make_position(name: str = "Slot-01") -> FibsemStagePosition:
 
 
 def _make_holder(capacity: int = 2, name: str = "Test Holder") -> SampleHolder:
-    h = SampleHolder(name=name, capacity=capacity)
+    h = SampleHolder(pre_tilt=0.0, name=name, capacity=capacity)
     h._ensure_slots()
     return h
 
@@ -75,25 +75,45 @@ class TestGridSlot:
 
 class TestSampleHolderConstruction:
     def test_defaults(self):
-        h = SampleHolder()
+        h = SampleHolder(pre_tilt=0.0)
         assert h.name == "Sample Holder"
         assert h.description == ""
         assert h.capacity == 2
         assert h.slots == {}
 
-    def test_pre_tilt_no_parent(self):
-        h = SampleHolder()
-        assert h.pre_tilt == 0.0
+    def test_a_holder_cannot_be_built_without_stating_a_pre_tilt(self):
+        """The field is required, and that is the whole guarantee.
+
+        The alternatives both fail quietly. A default of 0.0 turns a construction site
+        that forgot into a flat shuttle and wrongs every projection made from it; a
+        `None` sentinel spreads its handling into every reader, and the one reader that
+        formatted it instead took down CI -- PyQt5 turns an exception inside a slot
+        into `qFatal`, so it arrived as a bare `exit 134`.
+
+        The site that forgot was real: the compustage holder is built inline in
+        `_create_sample_stage` and never passes through `_resolve_configured_holder`.
+        This is what makes that omission a `TypeError` at the call rather than a wrong
+        number a long way downstream.
+        """
+        with pytest.raises(TypeError, match="pre_tilt"):
+            SampleHolder(name="no pre-tilt stated")
 
     def test_reference_rotation_no_parent(self):
-        h = SampleHolder()
+        h = SampleHolder(pre_tilt=0.0)
         assert h.reference_rotation == 0.0
 
-    def test_pre_tilt_with_parent(self):
-        h = SampleHolder()
+    def test_pre_tilt_is_the_holders_own_and_not_read_from_the_stage(self):
+        """The direction reversed.
+
+        It used to be a property reading back from
+        `_parent.system.stage.shuttle_pre_tilt`. The stage now reads the holder, so a
+        holder that read the stage would recurse until the interpreter gave up -- the
+        two cannot both exist, and this is the one that stores.
+        """
+        h = SampleHolder(pre_tilt=35.0)
 
         class _FakeStage:
-            shuttle_pre_tilt = 35.0
+            shuttle_pre_tilt = 12.0
             rotation_reference = 0.0
 
         class _FakeSystem:
@@ -106,7 +126,7 @@ class TestSampleHolderConstruction:
         assert h.pre_tilt == 35.0
 
     def test_reference_rotation_with_parent(self):
-        h = SampleHolder()
+        h = SampleHolder(pre_tilt=0.0)
 
         class _FakeStage:
             shuttle_pre_tilt = 0.0
@@ -121,11 +141,16 @@ class TestSampleHolderConstruction:
         h._parent = _FakeMicroscope()
         assert h.reference_rotation == 180.0
 
-    def test_pre_tilt_not_serialised(self):
-        h = SampleHolder(capacity=1)
+    def test_pre_tilt_is_serialised_and_reference_rotation_is_not(self):
+        """Only the pre-tilt moved onto the holder.
+
+        A reference rotation is the stage's: it describes where the stage's own zero
+        is, and that does not change because a different shuttle was fitted.
+        """
+        h = SampleHolder(capacity=1, pre_tilt=35.0)
         h._ensure_slots()
         d = h.to_dict()
-        assert "pre_tilt" not in d
+        assert d["pre_tilt"] == 35.0
         assert "reference_rotation" not in d
 
 
@@ -181,7 +206,7 @@ class TestSerialization:
         assert "description" in d
 
     def test_roundtrip_empty_slots(self):
-        h = SampleHolder(name="H1", description="desc", capacity=2)
+        h = SampleHolder(pre_tilt=0.0, name="H1", description="desc", capacity=2)
         h._ensure_slots()
         h2 = SampleHolder.from_dict(h.to_dict())
         assert h2.name == "H1"
@@ -196,18 +221,28 @@ class TestSerialization:
         assert h2.slots["Slot-01"].loaded_grid is not None
         assert h2.slots["Slot-01"].loaded_grid.name == "Grid-A"
 
-    def test_from_dict_ignores_old_pre_tilt_key(self):
-        d = {
-            "name": "Old Holder",
-            "capacity": 1,
-            "description": "",
-            "pre_tilt": 15.0,
-            "reference_rotation": 90.0,
-            "slots": {},
-        }
-        h = SampleHolder.from_dict(d)
+    def test_from_dict_reads_pre_tilt_and_still_ignores_reference_rotation(self):
+        """`pre_tilt` is the holder's again; `reference_rotation` never comes back.
+
+        Note what this means for a *file* carrying a stale `pre_tilt` -- holder files
+        did once, and it has been ignored since the value became derived.
+        `_resolve_configured_holder` overwrites it with the configured one on the way
+        in rather than resurrecting a number nobody has seen in months. See
+        `tests/test_holder_in_configuration.py`.
+        """
+        h = SampleHolder.from_dict(
+            {
+                "name": "Old Holder",
+                "capacity": 1,
+                "description": "",
+                "pre_tilt": 15.0,
+                "reference_rotation": 90.0,
+                "slots": {},
+            }
+        )
         assert h.name == "Old Holder"
-        assert h.pre_tilt == 0.0
+        assert h.pre_tilt == 15.0
+        assert not hasattr(h, "_reference_rotation")
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +396,7 @@ class TestCreateSampleStage:
         import fibsem.microscopes._stage as stage_module
 
         path = tmp_path / "holder.yaml"
-        h = SampleHolder(name="UserHolder", capacity=3)
+        h = SampleHolder(pre_tilt=0.0, name="UserHolder", capacity=3)
         h._ensure_slots()
         h.save(path)
         monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
