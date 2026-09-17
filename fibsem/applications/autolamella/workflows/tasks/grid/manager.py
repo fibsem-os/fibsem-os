@@ -79,6 +79,7 @@ LOAD_TASK_TYPE = "LOAD_GRID"
 SKIP_GRID_NOT_FOUND = "grid_not_found"
 SKIP_GRID_NOT_LOADED = "grid_not_loaded"
 SKIP_MISSING_PREREQS = "missing_prereqs"  # the lamella manager's word for it
+SKIP_NOTHING_TO_RUN = "nothing_to_run"  # a load with no runnable task behind it
 
 
 def plan_grid_run(
@@ -205,8 +206,33 @@ class GridTaskManager(BaseTaskManager):
         if grid is None:
             return None  # let the loop retire it with a reason
         if item.task_name == LOAD_ENTRY_NAME:
-            return None  # loading waits on nobody
+            return self._load_defer_reason(grid)
         return self._defer_reason(grid, item.task_name)
+
+    def _pending_tasks(self, grid: GridRecord) -> List[WorkItem]:
+        return [
+            i
+            for i in self.queue.pending
+            if i.item_name == grid.name and i.task_name != LOAD_ENTRY_NAME
+        ]
+
+    def _runnable_now(self, grid: GridRecord, task_name: str) -> bool:
+        return self._defer_reason(
+            grid, task_name
+        ) is None and not self._missing_requirements(grid, task_name)
+
+    def _load_defer_reason(self, grid: GridRecord) -> Optional[str]:
+        """An exchange is the expensive step, so a grid is loaded for work that
+        can run now, not for work still waiting (FIB-1005). The load waits while
+        every task queued for the grid waits on a decision or a queued
+        requirement, and goes ahead once one can run. A load with no tasks
+        queued behind it is a load someone asked for, and runs."""
+        pending = self._pending_tasks(grid)
+        if not pending or any(self._runnable_now(grid, i.task_name) for i in pending):
+            return None
+        if any(self._defer_reason(grid, i.task_name) for i in pending):
+            return "waiting_for_work"
+        return None  # every task will be skipped: the load step retires itself
 
     def _missing_requirements(self, grid: GridRecord, task_name: str) -> List[str]:
         """Required tasks whose latest run on this grid did not complete: failed,
@@ -364,7 +390,25 @@ class GridTaskManager(BaseTaskManager):
 
     def _run_load_step(self, item: WorkItem, grid: GridRecord) -> None:
         """The planned exchange. Its outcome is the queue item's status, so the
-        timeline shows a grid that would not load where it failed."""
+        timeline shows a grid that would not load where it failed. Skipped,
+        with no exchange, when every task queued for the grid is going to be
+        skipped for a requirement that did not complete (FIB-1005)."""
+        pending = self._pending_tasks(grid)
+        if pending and not any(self._runnable_now(grid, i.task_name) for i in pending):
+            msg = (
+                f"Not loading grid {grid.name}: none of its selected tasks can run "
+                "(a task they require did not complete)."
+            )
+            logging.info(msg)
+            self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+            self._emit_report(
+                item=item,
+                item_name=grid.name,
+                status=AutoLamellaTaskStatus.Skipped,
+                msg=msg,
+                skip_reason=SKIP_NOTHING_TO_RUN,
+            )
+            return
         self._emit_report(
             item=item,
             item_name=grid.name,

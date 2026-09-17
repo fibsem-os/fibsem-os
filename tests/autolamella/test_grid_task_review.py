@@ -552,3 +552,79 @@ class TestTheLatestRunOfARequirementCounts:
         assert _ran(grid, LATER) == [], "waited for the rerun, then skipped"
         (later,) = [i for i in manager.queue.items if i.task_name == LATER]
         assert later.status is AutoLamellaTaskStatus.Skipped
+
+
+# ---------------------------------------------------------------------------
+# A grid is loaded for work that can run (FIB-1005)
+# ---------------------------------------------------------------------------
+
+
+def _loaded(microscope, name):
+    return microscope._stage.holder.find_slot_by_grid_name(name) is not None
+
+
+class TestAGridIsLoadedForWorkThatCanRun:
+    def test_no_exchange_when_every_selected_task_will_be_skipped(
+        self, microscope, experiment
+    ):
+        """Grid-01 is in; on Grid-02 the FIB overview requires an SEM overview
+        that never ran. Nothing there can run, so Grid-01 stays in."""
+        _with_later_task(experiment, review_wait=0)
+        _manager(microscope, experiment).run([OVERVIEW], [GRID])
+        assert _loaded(microscope, GRID)
+        second = experiment.get_grid_by_name(OTHER_GRID)
+
+        manager = _manager(microscope, experiment)
+        manager.run([LATER], [OTHER_GRID])
+
+        assert _loaded(microscope, GRID) and not _loaded(microscope, OTHER_GRID)
+        assert _ran(second, LOAD_ENTRY_NAME) == [], "no exchange was attempted"
+        statuses = {i.task_name: i.status for i in manager.queue.items}
+        assert statuses == {
+            LOAD_ENTRY_NAME: AutoLamellaTaskStatus.Skipped,
+            LATER: AutoLamellaTaskStatus.Skipped,
+        }
+        assert not manager.stalled
+
+    def test_a_grid_is_loaded_once_its_waiting_work_can_run(
+        self, microscope, experiment
+    ):
+        """Grid-02's FIB overview waits on a decision about its SEM overview from
+        an earlier run: Grid-02 is not loaded for it until the decision lands."""
+        _with_later_task(experiment, review_wait=0)
+        _manager(microscope, experiment).run([OVERVIEW], [OTHER_GRID])
+        second = experiment.get_grid_by_name(OTHER_GRID)
+        assert second.is_awaiting_decision(OVERVIEW)
+        _manager(microscope, experiment).run([OVERVIEW], [GRID])  # Grid-01 back in
+        assert _loaded(microscope, GRID)
+        loads_before = len(_ran(second, LOAD_ENTRY_NAME))
+        experiment.task_protocol.options.review_wait = 30.0
+
+        manager = _manager(microscope, experiment)
+        seen = {}
+
+        def parked():
+            if manager.deferred_items():
+                seen.setdefault("grid_01_in", _loaded(microscope, GRID))
+                seen.setdefault("loads", len(_ran(second, LOAD_ENTRY_NAME)))
+                return True
+            return False
+
+        thread = _decide_when(experiment, OTHER_GRID, parked, DecisionOutcome.Confirmed)
+        manager.run([LATER], [OTHER_GRID])
+        thread.join(5)
+
+        assert seen == {"grid_01_in": True, "loads": loads_before}, (
+            "while it waited, nothing was exchanged"
+        )
+        assert _ran(second, LATER)[-1].status is AutoLamellaTaskStatus.Completed
+        assert len(_ran(second, LOAD_ENTRY_NAME)) == loads_before + 1
+        waiting = [r for i, r in manager.deferred_items()]
+        assert waiting == []
+
+    def test_a_load_with_nothing_behind_it_still_loads(self, microscope, experiment):
+        _with_later_task(experiment, review_wait=0)
+        manager = _manager(microscope, experiment)
+        manager.queue.build_from_pairs([(OTHER_GRID, LOAD_ENTRY_NAME)])
+        manager._run_queue()
+        assert _loaded(microscope, OTHER_GRID)
