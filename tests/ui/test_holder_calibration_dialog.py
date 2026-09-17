@@ -24,7 +24,7 @@ def microscope():
 
 
 def _holder(capacity: int = 2) -> SampleHolder:
-    holder = SampleHolder(name="Test shuttle", capacity=capacity)
+    holder = SampleHolder(pre_tilt=0.0, name="Test shuttle", capacity=capacity)
     holder._ensure_slots()
     return holder
 

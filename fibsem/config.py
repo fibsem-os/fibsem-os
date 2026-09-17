@@ -120,9 +120,6 @@ SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(CONFIG_PATH, "sample-holder.yaml
 # above because it changes every session while the calibration changes once per
 # holder; on an autoloader the hardware keeps this itself and the file is unused.
 SAMPLE_HOLDER_OCCUPANCY_PATH = os.path.join(CONFIG_PATH, "sample-holder-occupancy.yaml")
-DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
-    CONFIG_PATH, "default-sample-holder.yaml"
-)
 
 # Alignment reference image filename
 REFERENCE_FILENAME = "alignment_reference"

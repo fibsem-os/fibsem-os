@@ -113,7 +113,7 @@ def test_detected_but_not_configured_gets_nothing(tmp_path):
     """
     settings = utils.load_yaml(IFLM_CONFIG)
     assert settings["sim"]["has_fm"] is True  # the hardware is "there"
-    settings["fm"]["enabled"] = False  # the site has not said so
+    settings["hardware"]["fm"]["enabled"] = False  # the site has not said so
 
     assert _from(settings, tmp_path).fm is None
 
@@ -144,5 +144,5 @@ def test_the_config_path_is_still_read_from_the_same_block():
     other is a path to imaging parameters. Neither should have eaten the other."""
     settings = utils.load_yaml(ARCTIS_CONFIG)
 
-    assert "enabled" in settings["fm"]
+    assert "enabled" in settings["hardware"]["fm"]
     assert _microscope(ARCTIS_CONFIG).system.fm.enabled is True
