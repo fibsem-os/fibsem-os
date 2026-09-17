@@ -178,7 +178,8 @@ class TestAGridTaskProposes:
         overview = latest_grid_output(experiment, grid, OVERVIEW)
         assert reference.endswith(".tif") and "thumbnail" not in reference
         path = Path(experiment.item_path(grid)) / reference
-        assert path.exists() and str(path) == overview
+        # the record keeps a forward slash on every platform; compare the files
+        assert path.exists() and os.path.normpath(path) == os.path.normpath(overview)
 
     def test_under_review_the_task_waits_and_a_decision_finishes_it(
         self, microscope, experiment
