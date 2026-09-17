@@ -12,7 +12,6 @@ import yaml
 from psygnal import Signal
 
 from fibsem.config import (
-    DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH,
     SAMPLE_HOLDER_CONFIGURATION_PATH,
     SAMPLE_HOLDER_OCCUPANCY_PATH,
 )
@@ -25,6 +24,7 @@ from fibsem.structures import (
     SampleGrid,
     SampleHolder,
     SlotCalibration,
+    default_sample_holder,
 )
 
 # Re-exported: these four moved into `structures.py` so `SystemSettings` could hold a
@@ -561,6 +561,62 @@ def uncalibrated_message(slot_name: str) -> str:
     )
 
 
+def _resolve_configured_holder(stage_settings) -> SampleHolder:
+    """The holder on the stage: from the configuration, or imported into it.
+
+    Three cases, in order.
+
+    **The configuration names one.** `stage.holders` with an `active_holder` that
+    picks one out of it. This is where a system ends up once its configuration has
+    been saved, and the only case that involves no files.
+
+    **It does not, and the site has a `sample-holder.yaml`.** The holder moved into the
+    microscope configuration, but every calibrated site has its slot positions in the
+    old file and those are not reproducible -- someone stood at the microscope and
+    captured them. So the file is imported as an entry and selected, and the site keeps
+    its calibration without being shown a list it did not ask for.
+
+    Read-only: nothing is written back here. The imported holder is on
+    `stage.holders`, so the next save of the configuration carries it, but a session
+    that saves nothing leaves both files exactly as it found them. Re-importing every
+    session costs nothing and is safer than rewriting a user's configuration on their
+    behalf at connect time.
+
+    **Neither.** The shipped default, as before.
+    """
+    active = stage_settings.active_holder
+    configured = stage_settings.holders.get(active) if active else None
+    if configured is not None:
+        return configured
+
+    configured_pre_tilt = float(stage_settings.shuttle_pre_tilt)
+    path = Path(SAMPLE_HOLDER_CONFIGURATION_PATH)
+
+    if path.exists():
+        holder = SampleHolder.load(path)
+        logging.info(
+            f"Imported sample holder '{holder.name}' from {path} for this session. "
+            "The file is not written back; it is imported again at every connect."
+        )
+        # The pre-tilt is the configured one -- always, not just when the file is
+        # silent. A holder file may *carry* a `pre_tilt`: they did once, and it has
+        # been ignored ever since the value became derived from the stage. Honouring
+        # it now would resurrect a number that has not been in effect for however long
+        # the file has sat there, and do it silently, in the term every projection is
+        # built on. It becomes the holder's own from the moment the configuration is
+        # saved, which is the point at which someone has seen it.
+        holder.pre_tilt = configured_pre_tilt
+    else:
+        logging.info("No sample holder configuration found, using the default.")
+        holder = default_sample_holder(pre_tilt=configured_pre_tilt)
+
+    # Selected either way, so a session that saves its configuration records which
+    # holder it was actually using rather than an empty selection.
+    stage_settings.holders[holder.name] = holder
+    stage_settings.active_holder = holder.name
+    return holder
+
+
 def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
     if microscope.stage_is_compustage:
         # The working slot is the compustage origin by construction: the loader puts
@@ -579,18 +635,20 @@ def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
             ),
         )
         holder = SampleHolder(
-            name="CompuStage Holder", capacity=1, slots={"Slot-01": slot01}
+            name="CompuStage Holder",
+            capacity=1,
+            slots={"Slot-01": slot01},
+            # Built here rather than resolved from the configuration, so it has to be
+            # given its pre-tilt explicitly -- it does not pass through
+            # `_resolve_configured_holder`, which is where every other holder gets one.
+            pre_tilt=float(stage_settings.shuttle_pre_tilt),
         )
         # The compustage is the autoloader stage, so it is also what says "this system
         # has a loader". Which loader is the backend's call: the simulator builds one
         # from its config, a real system wraps its autoloader.
         loader: Optional[SampleGridLoader] = microscope._create_grid_loader()
     else:
-        path = Path(SAMPLE_HOLDER_CONFIGURATION_PATH)
-        if not path.exists():
-            logging.info(f"Sample holder config not found at {path}, using default.")
-            path = Path(DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH)
-        holder = SampleHolder.load(path)
+        holder = _resolve_configured_holder(microscope.system.stage)
         # Trust only positions the wizard captured against this stage geometry. The
         # old stamping of SEM r/t onto whatever x/y/z the file held is gone: a
         # calibrated position carries its own r/t, and an uncalibrated one has none.
