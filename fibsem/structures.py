@@ -2407,6 +2407,21 @@ class StageSystemSettings:
         )
 
 
+def _detector_block_from(settings: dict) -> dict:
+    """The detector keys of a beam block, in the names `FibsemDetectorSettings` reads.
+
+    The prefixed spelling wins when both are present, because it is the one the
+    writer produces and the one every shipped file uses.
+    """
+    block = {}
+    for name in ("type", "mode", "brightness", "contrast"):
+        if f"detector_{name}" in settings:
+            block[name] = settings[f"detector_{name}"]
+        elif name in settings:
+            block[name] = settings[name]
+    return block
+
+
 def _split_defaults(beam: dict) -> dict:
     """Move the session defaults out of a written beam block, in place.
 
@@ -2498,7 +2513,13 @@ class BeamSystemSettings:
             beam_type=beam_type,
             enabled=settings.get("enabled", True),
             beam=BeamSettings.from_dict(settings),
-            detector=FibsemDetectorSettings.from_dict(settings),
+            # The file spells the detector keys with a `detector_` prefix -- that is
+            # what `to_dict` writes -- and `FibsemDetectorSettings.from_dict` reads
+            # the bare names, so for as long as both existed every shipped
+            # `detector_type: ETD` loaded as "Unknown", and a saved file lost its
+            # detector on the next load. Mapped here, at the one seam where the
+            # prefixed spelling meets the record.
+            detector=FibsemDetectorSettings.from_dict(_detector_block_from(settings)),
             eucentric_height=settings.get("eucentric_height", 0.0),
             column_tilt=settings.get("column_tilt", default_column_tilt),
             plasma_gas=_plasma_gas_from(settings),
@@ -2666,8 +2687,23 @@ class FluorescenceSystemSettings:
 
     enabled: bool = False
 
+    # The objective's calibration, in metres: where it is in focus, and how far it
+    # may be inserted. Measured at this instrument, so it is written under
+    # `calibration.objective` by `SystemSettings.to_dict` rather than in this
+    # block. `None` means the configuration does not state one, and the working
+    # state file (`fm-configuration.yaml`) still answers, exactly as before -- so
+    # a site that has not pressed "Save as Calibration" sees no change.
+    focus_position: Optional[float] = None
+    limit_position: Optional[float] = None
+
     def to_dict(self) -> dict:
         return {"enabled": self.enabled}
+
+    def objective_to_dict(self) -> dict:
+        return {
+            "focus_position": self.focus_position,
+            "limit_position": self.limit_position,
+        }
 
     @staticmethod
     def from_dict(settings: dict) -> "FluorescenceSystemSettings":
@@ -2720,6 +2756,7 @@ class SystemSettings:
         }
         if "shuttle_pre_tilt" in stage:
             calibration["shuttle_pre_tilt"] = stage.pop("shuttle_pre_tilt")
+        calibration["objective"] = self.fm.objective_to_dict()
 
         electron = self.electron.to_dict()
         ion = self.ion.to_dict()
@@ -2780,6 +2817,11 @@ class SystemSettings:
         electron["beam_type"] = BeamType.ELECTRON.name
         ion["beam_type"] = BeamType.ION.name
 
+        fm = FluorescenceSystemSettings.from_dict(block("fm"))
+        objective = calibration.get("objective") or {}
+        fm.focus_position = objective.get("focus_position")
+        fm.limit_position = objective.get("limit_position")
+
         return SystemSettings(
             apply_defaults_on_connect=bool(defaults.get("apply_on_connect", False)),
             stage=StageSystemSettings.from_dict(stage),
@@ -2790,7 +2832,7 @@ class SystemSettings:
             gis=GISSystemSettings(),
             info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
-            fm=FluorescenceSystemSettings.from_dict(block("fm")),
+            fm=fm,
         )
 
 

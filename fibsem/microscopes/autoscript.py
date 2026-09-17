@@ -1048,6 +1048,7 @@ class ThermoMicroscope(FibsemMicroscope):
             self.fm = None
             self.set_channel(BeamType.ELECTRON)
 
+        self._apply_fluorescence_calibration()
         self._warn_on_fluorescence_geometry()
 
         try:
