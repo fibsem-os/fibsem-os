@@ -16,6 +16,7 @@ from psygnal.containers import EventedDict
 from fibsem.applications.autolamella.proposals import (
     POINT_OF_INTEREST,
     PROPOSAL_KINDS,
+    TASK_RESULT,
     Alternative,
     Author,
     AuthorKind,
@@ -366,8 +367,156 @@ def test_confirming_a_value_nothing_consumes_is_refused_before_anything_is_writt
         SETUP,
         Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={"n": 3}),
     )
-    assert result.applied is False and "No consumer" in result.reason
+    assert result.applied is False and "does not carry ['n']" in result.reason
     assert lamella.proposals[SETUP].pending, "no half-applied decision was left"
+
+
+# ── a refused decision changes nothing (FIB-1003) ────────────────────────────
+
+
+def _snapshot(lamella):
+    """Everything a confirmed poi can touch, and the record it lands on."""
+    return (
+        deepcopy(lamella.poi),
+        [
+            deepcopy(stage.pattern.point)
+            for config in lamella.task_config.values()
+            for milling in (config.milling or {}).values()
+            for stage in milling.stages
+        ],
+        [deepcopy(d) for p in lamella.proposals.values() for d in p.decisions],
+        [(t.name, t.status, t.status_message) for t in lamella.task_history],
+    )
+
+
+def _awaiting(exp, kind_proposal, task_name=SETUP):
+    lamella = exp.positions[0]
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name=task_name, status=AutoLamellaTaskStatus.AwaitingDecision
+        )
+    )
+    lamella.proposals[task_name] = kind_proposal
+    return lamella
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"x": 1},  # a dict that is not a point
+        "centre",
+        Point("a", 0.0),  # not numeric
+        Point(float("nan"), 0.0),
+        Point(True, 0.0),
+    ],
+    ids=["dict", "string", "text-axis", "nan", "bool-axis"],
+)
+def test_a_wrongly_typed_value_is_refused_and_nothing_moves(tmp_path, value):
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    before = _snapshot(lamella)
+    heard = []
+    exp.decided.connect(lambda *a: heard.append(a))
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": value},
+        ),
+    )
+
+    assert result.applied is False and "poi must" in result.reason
+    assert _snapshot(lamella) == before
+    assert lamella.proposals[SETUP].pending
+    assert lamella.is_awaiting_decision(SETUP)
+    assert heard == []
+
+
+def test_a_value_the_proposals_kind_does_not_carry_is_refused(tmp_path):
+    """A task_result proposal carries no values: a poi confirmed on it is
+    refused even though a writer for poi exists."""
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, Proposal(kind=TASK_RESULT), task_name=ROUGH)
+    before = _snapshot(lamella)
+
+    result = exp.decide(
+        lamella.id,
+        ROUGH,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="agent:model",
+            values={"poi": Point(5e-6, 5e-6)},
+        ),
+    )
+
+    assert result.applied is False
+    assert "task_result proposal does not carry ['poi']" in result.reason
+    assert _snapshot(lamella) == before
+    assert lamella.proposals[ROUGH].pending
+
+
+def test_an_item_that_cannot_take_the_value_is_refused(tmp_path):
+    exp = _experiment(tmp_path)
+    grid = exp.add_grid(GridRecord(name="Grid-01"))
+    grid.proposals["overview"] = _proposal()
+
+    result = exp.decide(
+        grid.id,
+        "overview",
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(1e-6, 0.0)},
+        ),
+    )
+
+    assert result.applied is False and "has no poi" in result.reason
+    assert grid.proposals["overview"].pending
+    assert not hasattr(grid, "poi")
+
+
+def test_a_planning_error_is_refused_before_the_decision_is_appended(
+    tmp_path, monkeypatch
+):
+    """Whatever goes wrong while working out the writes, nothing is written."""
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    before = _snapshot(lamella)
+
+    def broken_plan(point):
+        raise RuntimeError("pattern has no point")
+
+    monkeypatch.setattr(lamella, "poi_sync_plan", broken_plan)
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(1e-6, 0.0)},
+        ),
+    )
+
+    assert result.applied is False and "pattern has no point" in result.reason
+    assert _snapshot(lamella) == before
+    assert lamella.is_awaiting_decision(SETUP)
+
+
+def test_sync_tasks_to_poi_moves_the_patterns_its_plan_names(tmp_path):
+    """The GUI path and the decision path share one plan."""
+    exp = _experiment(tmp_path)
+    lamella = exp.positions[0]
+    target = Point(3e-6, 1e-6)
+    names, moves = lamella.poi_sync_plan(target)
+    assert names == [ROUGH] and moves
+    before = _snapshot(lamella)
+
+    assert lamella.sync_tasks_to_poi(target) == names
+    assert [pattern.point for pattern, _ in moves] == [moved for _, moved in moves]
+    assert _snapshot(lamella) != before
 
 
 def test_decide_refuses_a_missing_item_or_proposal(tmp_path):

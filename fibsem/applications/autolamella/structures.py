@@ -36,12 +36,11 @@ from fibsem.applications.autolamella.proposals import (
     DecisionOutcome,
     DecisionResult,
     Proposal,
-    has_value_writer,
+    ValueRefused,
     human_author,
-    known_value_names,
+    prepare_values,
     proposals_from_dict,
     proposals_to_dict,
-    write_value,
 )
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
@@ -1509,12 +1508,18 @@ class Lamella:
 
     def sync_tasks_to_poi(self, point: Optional[Point] = None) -> list[str]:
         """Sync the milling patterns to point of interest"""
+        synced_tasks, moves = self.poi_sync_plan(self.poi if point is None else point)
+        for pattern, moved in moves:
+            pattern.point = moved
+        return synced_tasks
 
-        if point is None:
-            point = self.poi
-
-        synced_tasks = []
-
+    def poi_sync_plan(self, point: Point) -> Tuple[List[str], List[Tuple[Any, Point]]]:
+        """What syncing the patterns to ``point`` would do, without doing it:
+        the task names that follow the point, and each pattern with the point
+        it would move to. Computed in full first, so a caller can refuse
+        before anything moves (a decision is all or nothing)."""
+        synced_tasks: List[str] = []
+        moves: List[Tuple[Any, Point]] = []
         for task_name, task_config in self.task_config.items():
             # check if task has sync_to_poi enabled
             if not getattr(task_config, "sync_to_poi", False):
@@ -1528,10 +1533,10 @@ class Lamella:
                 # calculate offset from the first stage's pattern point
                 diff = point - milling_config.stages[0].pattern.point
                 for stage in milling_config.stages:
-                    stage.pattern.point = stage.pattern.point + diff
+                    moves.append((stage.pattern, stage.pattern.point + diff))
 
             synced_tasks.append(task_name)
-        return synced_tasks
+        return synced_tasks, moves
 
 
 @evented
@@ -1849,24 +1854,27 @@ class Experiment:
                 )
             if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
                 return DecisionResult(applied=False, reason="A reject needs a reason.")
+            apply_values = None
             if decision.outcome is DecisionOutcome.Confirmed:
-                # Refuse before appending: a value nothing consumes is a
-                # producer bug, and must not leave a half-applied decision.
-                unknown = [n for n in decision.values if not has_value_writer(n)]
-                if unknown:
+                # All or nothing: every value is checked and every write planned
+                # before the decision is appended, so a refusal -- or a planning
+                # error -- leaves the record, the item and the task as they were.
+                try:
+                    apply_values = prepare_values(item, proposal.kind, decision.values)
+                except ValueRefused as e:
+                    return DecisionResult(applied=False, reason=str(e))
+                except Exception as e:
+                    logging.exception(
+                        f"{item.name}: could not plan the decision on {task_name}"
+                    )
                     return DecisionResult(
-                        applied=False,
-                        reason=f"No consumer writes {unknown}; known values: "
-                        f"{known_value_names()}.",
+                        applied=False, reason=f"Could not apply the values: {e}"
                     )
 
             proposal.decisions.append(decision)
             result = DecisionResult(applied=True)
-            if decision.outcome is DecisionOutcome.Confirmed:
-                for name, value in decision.values.items():
-                    synced = write_value(item, name, value)
-                    if synced:
-                        result.synced_tasks.extend(synced)
+            if apply_values is not None:
+                result.synced_tasks.extend(apply_values())
                 result.delta = proposal.delta(decision)
             if isinstance(item, Lamella) and item.is_awaiting_decision(task_name):
                 if decision.outcome is DecisionOutcome.Confirmed:

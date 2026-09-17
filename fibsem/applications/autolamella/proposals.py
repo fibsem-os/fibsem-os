@@ -21,6 +21,7 @@ The records here are plain data. The one write path is
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
@@ -47,8 +48,9 @@ __all__ = [
     "known_value_names",
     "agent_author",
     "register_proposal_kind",
+    "prepare_values",
     "supersede",
-    "write_value",
+    "ValueRefused",
 ]
 
 # A point on an image: the point of interest the tasks that follow it sync to.
@@ -189,19 +191,42 @@ def _decode_values(values: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _write_poi(item: Any, value: Point) -> List[str]:
-    """The GUI's move path: set the point, then sync the patterns that follow
-    it. Same domain call, same order -- a write that bypassed the sync left the
-    rough and polishing patterns detached from the new point."""
-    item.poi = value
-    synced = item.sync_tasks_to_poi()
-    if synced:
-        logging.info(f"Synced tasks to POI: {synced}")
-    return list(synced)
+class ValueRefused(ValueError):
+    """A confirmed value that cannot be written: refused before anything is."""
 
 
-_VALUE_WRITERS: Dict[str, Callable[[Any, Any], Any]] = {
-    "poi": _write_poi,
+def _prepare_poi(item: Any, value: Any) -> Callable[[], List[str]]:
+    """The GUI's move path, planned in full before any of it happens: the new
+    point, then every pattern that follows it. Same domain plan, same order --
+    a write that bypassed the sync left the rough and polishing patterns
+    detached from the new point."""
+    if not isinstance(value, Point):
+        raise ValueRefused(f"poi must be a Point, not {type(value).__name__}.")
+    for axis in (value.x, value.y):
+        if isinstance(axis, bool) or not isinstance(axis, (int, float)):
+            raise ValueRefused(f"poi must have numeric x and y, not {value!r}.")
+        if not math.isfinite(axis):
+            raise ValueRefused(f"poi must be finite, not {value!r}.")
+    plan = getattr(item, "poi_sync_plan", None)
+    if plan is None:
+        raise ValueRefused(f"{getattr(item, 'name', 'this item')} has no poi.")
+    synced, moves = plan(value)
+
+    def apply() -> List[str]:
+        item.poi = value
+        for pattern, moved in moves:
+            pattern.point = moved
+        if synced:
+            logging.info(f"Synced tasks to POI: {synced}")
+        return list(synced)
+
+    return apply
+
+
+# name -> prepare(item, value): checks the value and plans every effect without
+# touching the item, returning the apply step (assignments only).
+_VALUE_WRITERS: Dict[str, Callable[[Any, Any], Callable[[], Any]]] = {
+    "poi": _prepare_poi,
 }
 
 
@@ -213,17 +238,36 @@ def known_value_names() -> List[str]:
     return sorted(_VALUE_WRITERS)
 
 
-def write_value(item: Any, name: str, value: Any) -> Any:
-    """Write one confirmed value through to its item. Unknown names are an
-    error at the write, not silently dropped: a proposal carrying a value
-    nothing consumes is a producer bug."""
-    try:
-        writer = _VALUE_WRITERS[name]
-    except KeyError:
-        raise KeyError(
-            f"No writer for proposal value {name!r}; known: {sorted(_VALUE_WRITERS)}"
-        ) from None
-    return writer(item, value)
+def prepare_values(
+    item: Any, kind: str, values: Dict[str, Any]
+) -> Callable[[], List[str]]:
+    """Check every confirmed value and plan every write, touching nothing.
+
+    Refused (``ValueRefused``) when a name is not one the proposal's kind
+    carries, when nothing consumes it, when a value has the wrong type, or when
+    the item cannot take it. Otherwise returns one step that applies them all
+    and returns the tasks whose patterns moved. A decision is all or nothing:
+    the caller appends it only once this has returned."""
+    carried = PROPOSAL_KINDS[kind].values if kind in PROPOSAL_KINDS else ()
+    foreign = [n for n in values if n not in carried]
+    if foreign:
+        raise ValueRefused(
+            f"A {kind} proposal does not carry {foreign}; it carries {list(carried)}."
+        )
+    unknown = [n for n in values if not has_value_writer(n)]
+    if unknown:
+        raise ValueRefused(
+            f"No consumer writes {unknown}; known values: {known_value_names()}."
+        )
+    steps = [_VALUE_WRITERS[name](item, value) for name, value in values.items()]
+
+    def apply() -> List[str]:
+        synced: List[str] = []
+        for step in steps:
+            synced.extend(step() or [])
+        return synced
+
+    return apply
 
 
 def compute_delta(proposed: Any, confirmed: Any) -> Any:
