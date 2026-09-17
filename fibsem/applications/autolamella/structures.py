@@ -1122,6 +1122,40 @@ def _make_thumbnail_placeholder():
 _THUMBNAIL_PLACEHOLDER = None
 
 
+def _is_awaiting_decision(
+    task_history: List[AutoLamellaTaskState], task_name: str
+) -> bool:
+    """Whether the latest run of ``task_name`` ended waiting on a decision. The
+    same rule for a lamella and a grid record."""
+    for task in reversed(task_history):
+        if task.name == task_name:
+            return task.status is AutoLamellaTaskStatus.AwaitingDecision
+    return False
+
+
+def _set_task_status(
+    task_history: List[AutoLamellaTaskState],
+    task_state: Optional[AutoLamellaTaskState],
+    task_name: str,
+    status: AutoLamellaTaskStatus,
+    message: str = "",
+) -> None:
+    """Move the latest run of ``task_name`` to ``status``, in the history and
+    on the live task_state when that is the same run. The two are separate
+    objects (task_history holds a copy frozen at the end of the run), so a
+    status that changes after the run -- a decision landing on a task that
+    was awaiting one -- has to be written to both. The same rule for a lamella
+    and a grid record."""
+    for task in reversed(task_history):
+        if task.name == task_name:
+            task.status = status
+            task.status_message = message
+            if task_state is not None and task_state.task_id == task.task_id:
+                task_state.status = status
+                task_state.status_message = message
+            return
+
+
 @evented
 @dataclass
 class Lamella:
@@ -1242,28 +1276,14 @@ class Lamella:
 
     def is_awaiting_decision(self, task_name: str) -> bool:
         """Whether the latest run of ``task_name`` ended waiting on a decision."""
-        for task in reversed(self.task_history):
-            if task.name == task_name:
-                return task.status is AutoLamellaTaskStatus.AwaitingDecision
-        return False
+        return _is_awaiting_decision(self.task_history, task_name)
 
     def set_task_status(
         self, task_name: str, status: AutoLamellaTaskStatus, message: str = ""
     ) -> None:
-        """Move the latest run of ``task_name`` to ``status``, in the history and
-        on the live task_state when that is the same run. The two are separate
-        objects (task_history holds a copy frozen at the end of the run), so a
-        status that changes after the run -- a decision landing on a task that
-        was awaiting one -- has to be written to both."""
-        for task in reversed(self.task_history):
-            if task.name == task_name:
-                task.status = status
-                task.status_message = message
-                state = self.task_state
-                if state is not None and state.task_id == task.task_id:
-                    state.status = status
-                    state.status_message = message
-                return
+        """Move the latest run of ``task_name`` to ``status``; see
+        ``_set_task_status``."""
+        _set_task_status(self.task_history, self.task_state, task_name, status, message)
 
     @property
     def completed_tasks(self) -> List[str]:
@@ -1571,6 +1591,17 @@ class GridRecord:
             for t in self.task_history
         )
 
+    def is_awaiting_decision(self, task_name: str) -> bool:
+        """Whether the latest run of ``task_name`` ended waiting on a decision."""
+        return _is_awaiting_decision(self.task_history, task_name)
+
+    def set_task_status(
+        self, task_name: str, status: AutoLamellaTaskStatus, message: str = ""
+    ) -> None:
+        """Move the latest run of ``task_name`` to ``status``; see
+        ``_set_task_status``."""
+        _set_task_status(self.task_history, self.task_state, task_name, status, message)
+
     @property
     def is_failure(self) -> bool:
         """Whether the latest run on this grid ended in failure. Not a verdict on
@@ -1813,10 +1844,12 @@ class Experiment:
 
         Confirmed: the decision is appended and each decided value is written
         through to the item (``poi`` moves the point and syncs the patterns
-        that follow it). The proposed values are left as they were, so the
+        that follow it). No value is written through to a grid; a confirm
+        carrying values on one is refused. The proposed values are left as they were, so the
         delta survives. A task that ended AwaitingDecision is finished by the
         decision: Completed on confirm, Failed on reject, so what requires it
-        runs or does not by the ordinary prerequisite rule. A decision on a
+        runs or does not by the ordinary prerequisite rule. The same for a
+        lamella and a grid. A decision on a
         task that already finished (a result someone checks) changes nothing
         but the record.
 
@@ -1850,6 +1883,15 @@ class Experiment:
             if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
                 return DecisionResult(applied=False, reason="A reject needs a reason.")
             if decision.outcome is DecisionOutcome.Confirmed:
+                # No grid kind carries values yet, and every writer is a
+                # lamella's; refused here rather than half-applied below.
+                if isinstance(item, GridRecord) and decision.values:
+                    return DecisionResult(
+                        applied=False,
+                        reason=f"{item.name} is a grid; no value is written "
+                        f"through to a grid, so {sorted(decision.values)} "
+                        "cannot be confirmed on it.",
+                    )
                 # Refuse before appending: a value nothing consumes is a
                 # producer bug, and must not leave a half-applied decision.
                 unknown = [n for n in decision.values if not has_value_writer(n)]
@@ -1868,7 +1910,7 @@ class Experiment:
                     if synced:
                         result.synced_tasks.extend(synced)
                 result.delta = proposal.delta(decision)
-            if isinstance(item, Lamella) and item.is_awaiting_decision(task_name):
+            if item.is_awaiting_decision(task_name):
                 if decision.outcome is DecisionOutcome.Confirmed:
                     item.set_task_status(task_name, AutoLamellaTaskStatus.Completed)
                 else:
