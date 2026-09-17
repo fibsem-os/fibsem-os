@@ -32,10 +32,10 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
+    CurrentPoiProposer,
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
     consumed_values,
-    propose_milling_setup,
 )
 from fibsem.structures import Point
 
@@ -118,10 +118,9 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
     assert proposal.values == {"poi": Point(0.0, 0.0)}
     assert proposal.confidence is None and proposal.alternatives == []
     assert proposal.provenance["proposer"] == "current-poi"
-    assert proposal.provenance["values"] == ["poi"]
     assert proposal.provenance["reference_image"] == (
-        f"ref_{SETUP}_final_res_01_ib.tif"
-    ), "the final reference image, the last thing acquired at the stored pose"
+        f"ref_{SETUP}_final_res_02_ib.tif"
+    ), "the last final reference image: the tightest field of view, at the stored pose"
     assert not os.path.isabs(proposal.provenance["reference_image"]), (
         "relative to the lamella folder, so a moved experiment still resolves"
     )
@@ -304,7 +303,8 @@ def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
     assert consumed_values(lamella) == ["poi"]
     del lamella.task_config[ROUGH]
     assert consumed_values(lamella) == []
-    assert propose_milling_setup(lamella, None) is None, "no consumer, no proposal"
+    task = _task(microscope, exp, flag=True)
+    assert CurrentPoiProposer().propose(task) is None, "no consumer, no proposal"
 
 
 def test_attention_round_trips_through_the_protocol():
