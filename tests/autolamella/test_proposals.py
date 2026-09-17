@@ -391,6 +391,185 @@ def test_reject_on_a_grid_proposal_creates_nothing_and_retires_nothing(tmp_path)
     assert len(exp.positions) == 1
 
 
+def _grid_awaiting(exp: Experiment, task_name: str = "Overview") -> GridRecord:
+    """A grid whose overview task ran, stopped short of finished, and proposed
+    its result: the live task_state and its frozen history entry are the same
+    run, as a grid task leaves them."""
+    grid = exp.add_grid(GridRecord(name="Grid-01"))
+    state = grid.task_state
+    state.name = task_name
+    state.task_id = "run-1"
+    state.status = AutoLamellaTaskStatus.AwaitingDecision
+    grid.task_history.append(deepcopy(state))
+    grid.proposals[task_name] = Proposal(
+        kind=TASK_RESULT, provenance={"task_id": state.task_id}
+    )
+    return grid
+
+
+def test_a_decision_finishes_a_grid_task_that_was_awaiting_one(tmp_path):
+    exp = _experiment(tmp_path)
+    grid = _grid_awaiting(exp)
+    assert grid.is_awaiting_decision("Overview")
+    assert not grid.has_completed_task("Overview")
+
+    result = exp.decide(
+        grid.id,
+        "Overview",
+        Decision(
+            task_id=grid.proposals["Overview"].task_id,
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={},
+        ),
+    )
+
+    assert result.applied is True
+    assert grid.has_completed_task("Overview")
+    assert grid.task_state.status is AutoLamellaTaskStatus.Completed
+    assert not grid.is_awaiting_decision("Overview")
+    assert not grid.proposals["Overview"].pending
+
+
+def test_reject_fails_the_waiting_grid_task_and_leaves_its_quality_alone(tmp_path):
+    exp = _experiment(tmp_path)
+    grid = _grid_awaiting(exp)
+
+    result = exp.decide(
+        grid.id,
+        "Overview",
+        Decision(
+            task_id=grid.proposals["Overview"].task_id,
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="all ice",
+        ),
+    )
+
+    assert result.applied is True
+    entry = grid.task_history[-1]
+    assert entry.status is AutoLamellaTaskStatus.Failed
+    assert entry.status_message == "Rejected by op: all ice"
+    assert grid.task_state.status is AutoLamellaTaskStatus.Failed
+    assert grid.quality.verdict is Verdict.UNASSESSED, "a person sets the verdict"
+
+
+def test_confirming_values_on_a_grid_is_refused_before_anything_is_written(tmp_path):
+    """No value is written through to a grid; the refusal leaves the task
+    waiting and the proposal pending rather than half-applied."""
+    exp = _experiment(tmp_path)
+    grid = _grid_awaiting(exp)
+
+    result = exp.decide(
+        grid.id,
+        "Overview",
+        Decision(
+            task_id=grid.proposals["Overview"].task_id,
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(1e-6, 0)},
+        ),
+    )
+
+    assert result.applied is False
+    assert "does not carry ['poi']" in result.reason
+    assert grid.proposals["Overview"].pending
+    assert grid.is_awaiting_decision("Overview")
+
+
+def test_a_decision_on_a_finished_grid_task_changes_only_the_record(tmp_path):
+    exp = _experiment(tmp_path)
+    grid = _grid_awaiting(exp)
+    grid.set_task_status("Overview", AutoLamellaTaskStatus.Completed)
+
+    exp.decide(
+        grid.id,
+        "Overview",
+        Decision(
+            task_id=grid.proposals["Overview"].task_id,
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="meh",
+        ),
+    )
+
+    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert not grid.proposals["Overview"].pending
+
+
+def test_a_grid_status_change_leaves_the_live_state_of_a_later_run_alone(tmp_path):
+    """set_task_status moves the frozen entry always, and the live task_state
+    only when it is the same run: a later task has since reused the object."""
+    exp = _experiment(tmp_path)
+    grid = _grid_awaiting(exp)
+    grid.task_state.name = "Screening"
+    grid.task_state.task_id = "run-2"
+    grid.task_state.status = AutoLamellaTaskStatus.InProgress
+
+    grid.set_task_status("Overview", AutoLamellaTaskStatus.Completed)
+
+    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert grid.task_state.status is AutoLamellaTaskStatus.InProgress
+
+
+def test_a_repeated_grid_task_is_decided_on_its_latest_run_only(tmp_path):
+    """The same task run twice leaves two history entries. Whether it awaits a
+    decision, and what a decision changes, is the latest run's; the earlier
+    run's recorded outcome stands."""
+    exp = _experiment(tmp_path)
+    grid = _grid_awaiting(exp)
+    first = grid.task_history[-1]
+    first.status = AutoLamellaTaskStatus.Failed
+    first.status_message = "first run failed"
+    grid.task_state.task_id = "run-2"
+    grid.task_state.status = AutoLamellaTaskStatus.AwaitingDecision
+    grid.task_history.append(deepcopy(grid.task_state))
+    grid.proposals["Overview"] = Proposal(
+        kind=TASK_RESULT, provenance={"task_id": "run-2"}
+    )
+    assert grid.is_awaiting_decision("Overview")
+
+    exp.decide(
+        grid.id,
+        "Overview",
+        Decision(
+            task_id=grid.proposals["Overview"].task_id,
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={},
+        ),
+    )
+
+    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert grid.task_state.status is AutoLamellaTaskStatus.Completed
+    assert first.status is AutoLamellaTaskStatus.Failed
+    assert first.status_message == "first run failed"
+
+
+def test_an_earlier_run_awaiting_a_decision_does_not_make_a_later_one_wait(
+    tmp_path,
+):
+    exp = _experiment(tmp_path)
+    grid = _grid_awaiting(exp)
+    grid.task_state.task_id = "run-2"
+    grid.task_state.status = AutoLamellaTaskStatus.Completed
+    grid.task_history.append(deepcopy(grid.task_state))
+
+    assert not grid.is_awaiting_decision("Overview")
+    exp.decide(
+        grid.id,
+        "Overview",
+        Decision(
+            task_id=grid.proposals["Overview"].task_id,
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="no",
+        ),
+    )
+    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert grid.task_history[0].status is AutoLamellaTaskStatus.AwaitingDecision
+
+
 def test_reject_needs_a_reason(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
