@@ -24,6 +24,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.applications.autolamella.workflows.ui import select_poi_ui
 from fibsem.structures import BeamType, Point
 
@@ -103,7 +104,7 @@ def test_the_click_answers_with_the_marker_position(window, ui, qapp):
     # Mid-wait: the marker is on the FIB canvas and the waiting state is on.
     controller = window.view_controller
     assert controller.overlay_points(BeamType.ION, "poi")
-    assert ui.WAITING_FOR_USER_INTERACTION is True
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)
@@ -123,7 +124,7 @@ def test_the_overlay_comes_down_with_the_answer(window, ui, qapp):
     _finish(thread, qapp)
 
     assert not window.view_controller.overlay_points(BeamType.ION, "poi")
-    assert ui.WAITING_FOR_USER_INTERACTION is False
+    assert ui.hold is None
 
 
 def test_the_second_handshake_is_gone(ui, qapp):

@@ -34,6 +34,7 @@ from fibsem.ui.stylesheets import (
     TEXT_STRONG_COLOR,
 )
 from fibsem.ui.tokens import (
+    ORANGE_COLOR,
     TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets.task_summary_formatting import (
@@ -118,11 +119,19 @@ class _NumericItem(QTableWidgetItem):
 class WorkflowSummaryDialog(QDialog):
     """A modal dialog that displays a per-run task summary table with an OK button."""
 
-    def __init__(self, dataframe: pd.DataFrame, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        dataframe: pd.DataFrame,
+        note: str = "",
+        parent: Optional[QWidget] = None,
+    ):
         """
         Args:
             dataframe: raw run-summary dataframe with columns
                 lamella_name, task_name, task_status, completed_at, duration
+            note: why the run ended short of done, if it did ("Timed out ...
+                waiting for a review ..."); shown as a headline so the dialog
+                never reads as a finish when it was not one
             parent: the parent widget
         """
         super().__init__(parent)
@@ -147,6 +156,14 @@ class WorkflowSummaryDialog(QDialog):
         meta_label.setStyleSheet(f"font-size: 12px; color: {_TEXT_MUTED};")
         header_layout.addWidget(meta_label)
         layout.addLayout(header_layout)
+
+        if note:
+            self.note_label = QLabel(note)
+            self.note_label.setWordWrap(True)
+            self.note_label.setStyleSheet(
+                f"font-size: 13px; color: {ORANGE_COLOR}; padding: 2px 0;"
+            )
+            layout.addWidget(self.note_label)
 
         # count chips
         layout.addLayout(self._build_chip_row(dataframe))

@@ -335,7 +335,7 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
+    l1.proposals["Trench"] = Proposal(kind="point_of_interest", values={})
     experiment.get_lamella_by_name("L2").task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.Completed)
     )
@@ -412,7 +412,7 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
+    l1.proposals["Trench"] = Proposal(kind="point_of_interest", values={})
     experiment.decide(
         l1.id,
         "Trench",
@@ -450,7 +450,7 @@ def _review_manager(tmp_path, review_wait, hook_manager=None):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
+    l1.proposals["Trench"] = Proposal(kind="point_of_interest", values={})
     return m, l1
 
 
@@ -522,7 +522,9 @@ def test_the_wait_is_measured_as_inactivity_and_gives_up(tmp_path, caplog):
     assert m.stalled is True
     assert "pending" in m.stall_reason
     warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("still pending after" in w for w in warnings), warnings
+    assert any(
+        "Timed out after" in w and "waiting for a review" in w for w in warnings
+    ), warnings
 
 
 def test_stop_ends_the_wait_as_cancelled(tmp_path):
@@ -676,3 +678,51 @@ def test_status_bar_text_is_derivable_for_added_items(manager):
             continue
         assert status.queue_position is not None
         assert 1 <= status.queue_position <= status.queue_total
+
+
+def test_a_parked_run_holds_the_window_and_says_who_releases_it(tmp_path):
+    """Parked on decisions, the manager hands the window one Hold: kind review,
+    the lamella/task pairs waiting, and the sentence that releases it. Gone
+    again when the park ends; the give-up says it gave up, on the status bar
+    too, so it never reads as a finish."""
+    from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
+
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1", "L2"]
+    )
+    ui = RecordingUI()
+    m = TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=ui)
+    m.review_enabled = True
+    experiment.task_protocol.options.review_wait = 0.2
+    m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
+    for name in ("L1", "L2"):
+        experiment.get_lamella_by_name(name).task_history.append(
+            AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
+        )
+    holds = []
+    real = m._set_hold
+    m._set_hold = lambda hold: (holds.append(hold), real(hold))  # type: ignore
+
+    run_queue_with(m)
+
+    parked, released = holds
+    assert parked.kind is HoldKind.review
+    assert parked.items == ("L1/Undercut", "L2/Undercut")
+    assert parked.releases == "decide L1 and L2 in the Review tab"
+    assert released is None and ui.hold is None
+    bars = [e.status_bar for e in ui.workflow_status_signal.emitted if e.status_bar]
+    assert bars[0] == "Parked on 2 decision(s): decide L1 and L2 in the Review tab."
+    assert bars[-1].startswith("Workflow stalled: Timed out after")
+    assert "waiting for a review: 2 decision(s) still pending." in bars[-1]
+    assert bars[-1].endswith("Decide in the Review tab, then Run again.")
+    assert m.stalled and m.closing_note() == bars[-1][len("Workflow stalled: ") :]
+
+
+def test_the_names_a_hold_reads_out():
+    from fibsem.applications.autolamella.workflows.tasks.manager import _named
+
+    assert _named([]) == ""
+    assert _named(["L1"]) == "L1"
+    assert _named(["L1", "L2"]) == "L1 and L2"
+    assert _named(["L1", "L2", "L3"]) == "L1, L2 and L3"
+    assert _named(["L1", "L2", "L3", "L4"]) == "4 lamellae"

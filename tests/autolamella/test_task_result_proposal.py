@@ -16,11 +16,12 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.proposals import (
-    MILLING_SETUP,
+    POINT_OF_INTEREST,
     TASK_RESULT,
     Decision,
     DecisionOutcome,
     Proposal,
+    TaskResultProposer,
 )
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -38,6 +39,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
 )
+from fibsem.structures import Point
 
 ROUGH = "Rough Milling"
 POLISH = "Polishing"
@@ -193,44 +195,74 @@ def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path
         SelectMillingPositionTask,
     )
 
-    assert MillFiducialTask.proposal_kind == TASK_RESULT, "a bad fiducial is gateable"
-    assert AcquireReferenceImageTask.proposal_kind == TASK_RESULT
-    assert MillRoughTask.proposal_kind == TASK_RESULT
-    assert SelectMillingPositionTask.proposal_kind == MILLING_SETUP
+    for cls in (MillFiducialTask, AcquireReferenceImageTask, MillRoughTask):
+        assert cls.proposer.kind == TASK_RESULT, "a bad fiducial is gateable"
+    assert SelectMillingPositionTask.proposer.kind == POINT_OF_INTEREST
     exp = _experiment(tmp_path, microscope, attention=Attention.review)
     task = _task(microscope, exp)
-    type(task).proposal_kind = None
+    type(task).proposer = None
     try:
         task.run()
     finally:
-        type(task).proposal_kind = TASK_RESULT
+        type(task).proposer = TaskResultProposer()
     assert exp.positions[0].proposals == {}
 
 
-def test_a_task_type_with_its_own_kind_is_left_alone(microscope, tmp_path):
-    """Setup proposes the milling position itself; the base class records a
-    task_result only for types that declare that kind, so it never papers over
-    a richer proposal, pending or already decided inline."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
-    lamella = exp.positions[0]
+class _SitePicker:
+    """A proposer swapped onto a task type: its kind, its values, its name."""
 
-    def own():
-        p = Proposal(kind=MILLING_SETUP, values={}, provenance={"proposer": "me"})
-        p.decisions.append(
-            Decision(
-                outcome=DecisionOutcome.Confirmed, author="human:op", via="workflow"
-            )
+    kind = POINT_OF_INTEREST
+    name = "site-picker"
+    version = 7
+
+    def __init__(self, values):
+        self._values = values
+
+    def propose(self, task):
+        return Proposal(
+            kind=self.kind,
+            values=self._values,
+            confidence=0.5,
+            provenance={"model": "m"},
         )
-        lamella.proposals[ROUGH] = p
 
-    task = _task(microscope, exp, body=own)
-    type(task).proposal_kind = MILLING_SETUP
+
+def test_a_swapped_proposer_records_its_kind_and_the_base_fills_the_result(
+    microscope, tmp_path
+):
+    """Swapping the proposer changes what is proposed and nothing else: the
+    kind and values are the proposer's, the result part -- task, status,
+    times, images -- is the base's for every kind, and the producer's own
+    confirmation is signed with the proposer's name."""
+    exp = _experiment(tmp_path, microscope)
+    lamella = exp.positions[0]
+    task = _task(microscope, exp)
+    type(task).proposer = _SitePicker({"poi": Point(1e-6, 2e-6)})
     try:
         task.run()
     finally:
-        type(task).proposal_kind = TASK_RESULT
-    assert lamella.proposals[ROUGH].kind == MILLING_SETUP
-    assert lamella.proposals[ROUGH].current.via == "workflow"
+        type(task).proposer = TaskResultProposer()
+    proposal = lamella.proposals[ROUGH]
+    assert proposal.kind == POINT_OF_INTEREST
+    assert proposal.values == {"poi": Point(1e-6, 2e-6)} and proposal.confidence == 0.5
+    p = proposal.provenance
+    assert p["proposer"] == "site-picker" and p["version"] == 7 and p["model"] == "m"
+    assert p["task_name"] == ROUGH and p["status"] == "Completed"
+    assert p["reference_image"] == f"ref_{ROUGH}_final_res_01_ib.tif"
+    assert str(proposal.current.author) == "auto:site-picker"
+
+
+def test_a_proposer_may_not_carry_a_value_its_kind_does_not_register(
+    microscope, tmp_path
+):
+    exp = _experiment(tmp_path, microscope)
+    task = _task(microscope, exp)
+    type(task).proposer = _SitePicker({"sites": []})
+    try:
+        with pytest.raises(ValueError, match="does not carry"):
+            task.run()
+    finally:
+        type(task).proposer = TaskResultProposer()
 
 
 def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):

@@ -122,7 +122,7 @@ Several parts of the application require workarounds:
   completion summary is suppressed and then shown with `show()` for its own
   screenshot.
 - **Supervised prompts appear on the Experiment tab** under the Microscope
-  tab. Poll `ui.WAITING_FOR_USER_INTERACTION`, switch there, capture, then
+  tab. Poll `ui.hold` (a `Hold` while a question is up, None otherwise), switch there, capture, then
   answer with `pushButton_yes` or `pushButton_no`. A milling prompt is
   repeated after the run (Yes runs milling again, No continues), so the
   Workflows page answers Yes once per task name and Continue afterwards.

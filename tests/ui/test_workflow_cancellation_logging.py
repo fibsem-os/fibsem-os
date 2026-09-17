@@ -54,6 +54,9 @@ def _run_with_manager_raising(ui, monkeypatch, exc):
         def build_run_summary_dataframe(self):
             return None
 
+        def closing_note(self):
+            return ""
+
     monkeypatch.setattr(module, "TaskManager", _RaisingManager)
     ui._run_tasks_worker(["Rough Milling"], ["01-test"])
 

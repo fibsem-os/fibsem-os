@@ -51,7 +51,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import conversions
 from fibsem.applications.autolamella.proposals import (
-    MILLING_SETUP,
+    POINT_OF_INTEREST,
     TASK_RESULT,
     Author,
     AuthorKind,
@@ -78,14 +78,14 @@ from fibsem.ui.tokens import (
 
 __all__ = [
     "REVIEW_RENDERERS",
-    "MillingSetupReviewRenderer",
+    "PointOfInterestReviewRenderer",
     "ReviewRenderer",
     "ReviewTabWidget",
     "register_review_renderer",
     "waiting_on",
 ]
 
-_KIND_LABELS = {MILLING_SETUP: "Milling positions", TASK_RESULT: "Task results"}
+_KIND_LABELS = {POINT_OF_INTEREST: "Milling positions", TASK_RESULT: "Task results"}
 
 _HEADER_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 10px; font-weight: 600; "
@@ -293,20 +293,22 @@ def _held_text(n: int) -> str:
     return f"{n} task{'s' if n != 1 else ''} held" if n else "nothing is held"
 
 
-@register_review_renderer(MILLING_SETUP)
-class MillingSetupReviewRenderer(ReviewRenderer):
-    """One reference image, one draggable marker: the point of interest as the
-    task proposed it, pre-placed. Same overlay and same drag as the inline
-    question; what changes is when it happens.
+@register_review_renderer(TASK_RESULT)
+class TaskResultReviewRenderer(ReviewRenderer):
+    """What a task did: its final ion and electron images side by side, one
+    line a person can say out loud (the state) with the record -- what ran,
+    how it ended, what was held or went ahead, where it was decided -- in
+    that line's tooltip, and the two verbs. Nothing to drag, nothing to
+    write: confirm says it looks right, reject fails the task.
 
-    Below the image, one line a person can say out loud (the state), with
-    the record -- who proposed what, on which image, the exact delta, what
-    was held or went ahead, where it was decided -- in that line's tooltip.
-    Subclasses for other kinds override ``_fact`` and ``_state_words``.
+    Every proposal is a task result, so this is the base. A kind with values
+    to decide extends it and puts them on the image: ``_draw_values`` and
+    ``_draw_confirmed`` draw them, ``current_values`` reads them back,
+    ``_fact`` says what was proposed.
     """
 
-    PENDING_HINT = "Enter — this is the answer; drag the marker to correct it first"
-    CONFIRM_LABEL = "Confirm"
+    PENDING_HINT = "Enter — this looks right"
+    CONFIRM_LABEL = "Confirm · looks right"
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -320,6 +322,7 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self._task_name = ""
         self._proposal: Optional[Proposal] = None
         self._image: Optional[FibsemImage] = None
+        self._electron: Optional[FibsemImage] = None
         self._gated: List[str] = []
         self._decided: Optional[Decision] = None
         self._applied: Optional[Decision] = None
@@ -386,61 +389,53 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self.btn_open.clicked.connect(lambda: self.open_item_requested.emit(self._item))
         self._refresh_line()
 
-    # -- what this kind says about itself -------------------------------------
+    # -- what a kind adds: its values, on the image ---------------------------
 
-    def _fact(self) -> str:
-        """The record's first sentence: what was proposed, from what."""
-        proposal = self._proposal
-        if proposal is None:
-            return ""
-        poi = proposal.values.get("poi")
-        where = os.path.basename(str(proposal.provenance.get("reference_image", "")))
-        image = "the final image" if "_final_" in where else (where or "the image")
-        value = (
-            f", {poi.x * 1e6:+.2f}, {poi.y * 1e6:+.2f} µm"
-            if isinstance(poi, Point)
-            else ""
-        )
-        return (
-            f"Point of interest proposed by {proposal.provenance.get('proposer', '?')} "
-            f"at {clock(proposal.created_at)} on {image}{value}."
-        )
+    def _draw_values(self) -> None:
+        """Put the proposed values on the image. A plain result has none."""
+
+    def _draw_confirmed(self, decision: Decision) -> None:
+        """Put the decided values beside the proposed ones, so the delta shows."""
+
+    def current_values(self) -> Dict[str, Any]:
+        return {}
 
     def _state_words(self) -> tuple:
         """(applied verb, re-run task) for the to-check line and its tooltip."""
-        return "Applied", self._task_name
+        return "Recorded", self._task_name
 
-    def _draw_values(self) -> None:
-        """Put the proposed value on the image; subclasses with none skip it."""
-        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
-
-        poi = self._proposal.values.get("poi") if self._proposal else None
-        if isinstance(poi, Point):
-            px = conversions.microscope_image_to_image_coordinates(
-                poi, self._image.data.shape, self._image.metadata.pixel_size.x
+    def _fact(self) -> str:
+        """The record's first sentence: what ran, how it ended, on what."""
+        p = self._proposal.provenance if self._proposal else {}
+        task = self._task_name
+        took = self._took()
+        failure = str(p.get("failure") or "")
+        if failure:
+            head = (
+                f"{task} failed" + (f" after {took}" if took else "") + f": {failure}."
             )
-            col, row = px.x, px.y
         else:
-            row = self._image.data.shape[0] / 2
-            col = self._image.data.shape[1] / 2
-        self._controller.set_overlay(
-            BeamType.ION,
-            PointsSpec(
-                id="poi",
-                points=[(col, row)],
-                color="magenta",
-                selected_color="magenta",
-                marker="+",
-                size=14,
-                edge_width=1.2,
-                legend_label="Point of Interest",
-                add_on_right_click=False,
-                removable=False,
-            ),
+            head = f"{task} completed" + (f" in {took}" if took else "") + "."
+        names = [
+            os.path.basename(str(p.get(k) or ""))
+            for k in ("reference_image", "reference_image_eb")
+        ]
+        names = [n for n in names if n]
+        if not names:
+            return head + " No reference images were recorded."
+        when = clock(self._proposal.created_at) if self._proposal else ""
+        which = (
+            "Final images" if any("_final" in n for n in names) else " · ".join(names)
         )
-        self._controller.arm_overlay(
-            BeamType.ION, "poi", label="POI", icon="mdi:map-marker"
-        )
+        return f"{head} {which} at {when}."
+
+    def _took(self) -> str:
+        """How long the run took, or "" when the record does not say."""
+        p = self._proposal.provenance if self._proposal else {}
+        started, ended = p.get("started_at"), p.get("ended_at")
+        if isinstance(started, (int, float)) and isinstance(ended, (int, float)):
+            return _duration(ended - started)
+        return ""
 
     # -- ReviewRenderer ------------------------------------------------------
 
@@ -452,6 +447,7 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self._task_name = task_name
         self._proposal = proposal
         self._image = _load_reference_image(item, proposal)
+        self._electron = _load_reference_image(item, proposal, "reference_image_eb")
         self._gated = waiting_on(experiment, task_name)
         self._decided = None
         self._applied = None
@@ -459,28 +455,16 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self.task_chip.setText(task_name)
         self.btn_confirm.setText(self.CONFIRM_LABEL)
         self.btn_confirm.setToolTip(self.PENDING_HINT)
-        self._controller.remove_overlay(BeamType.ION, "poi")
-        self._controller.remove_overlay(BeamType.ION, "confirmed")
-        self._controller.widget.set_sem_visible(False)
+        for overlay in ("poi", "proposed", "confirmed"):
+            self._controller.remove_overlay(BeamType.ION, overlay)
+        self._controller.arm_overlay(BeamType.ION, None)
         if self._image is not None:
             self._controller.set_image(BeamType.ION, self._image)
             self._draw_values()
+        if self._electron is not None:
+            self._controller.set_image(BeamType.ELECTRON, self._electron)
+        self._controller.widget.set_sem_visible(self._electron is not None)
         self._refresh_line()
-
-    def current_values(self) -> Dict[str, Any]:
-        proposal = self._proposal
-        if proposal is None:
-            return {}
-        if self._image is None:
-            return dict(proposal.values)
-        pts = self._controller.overlay_points(BeamType.ION, "poi")
-        if not pts:
-            return dict(proposal.values)
-        col, row = pts[0]
-        point = conversions.image_to_microscope_image_coordinates(
-            Point(x=col, y=row), self._image.data, self._image.metadata.pixel_size.x
-        )
-        return {"poi": Point(x=point.x, y=point.y)}
 
     def set_running(self, running: bool) -> None:
         self._running = running
@@ -505,33 +489,6 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self.btn_confirm.setEnabled(True)
         self.btn_reject.setEnabled(True)
         self._refresh_line()
-
-    def _draw_confirmed(self, decision: Decision) -> None:
-        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
-
-        if self._image is None:
-            return
-        confirmed = decision.values.get("poi")
-        if not isinstance(confirmed, Point):
-            return
-        px = conversions.microscope_image_to_image_coordinates(
-            confirmed, self._image.data.shape, self._image.metadata.pixel_size.x
-        )
-        self._controller.set_overlay(
-            BeamType.ION,
-            PointsSpec(
-                id="confirmed",
-                points=[(px.x, px.y)],
-                color=ORANGE_COLOR,
-                selected_color=ORANGE_COLOR,
-                marker="+",
-                size=14,
-                edge_width=1.2,
-                legend_label=None,  # the line says it
-                add_on_right_click=False,
-                removable=False,
-            ),
-        )
 
     def set_read_only(self, decided: Optional[Decision]) -> None:
         self._decided = decided
@@ -578,16 +535,18 @@ class MillingSetupReviewRenderer(ReviewRenderer):
                     f" · {label}" if label else ""
                 )
                 colour = OK_COLOR
-                delta = proposal.delta(decided).get("poi")
-                if isinstance(delta, Point):
-                    tip.append(
-                        f"Confirmed {via} at ({delta.x * 1e6:+.2f}, "
-                        f"{delta.y * 1e6:+.2f}) µm from the proposal.".replace(
-                            "  ", " "
-                        )
-                    )
-                else:
-                    tip.append(f"Confirmed {via}.".replace("  ", " "))
+                moved = [
+                    f"({d.x * 1e6:+.2f}, {d.y * 1e6:+.2f}) µm"
+                    for d in proposal.delta(decided).values()
+                    if isinstance(d, Point)
+                ]
+                tip.append(
+                    (
+                        f"Confirmed {via} at {', '.join(moved)} from the proposal."
+                        if moved
+                        else f"Confirmed {via}."
+                    ).replace("  ", " ")
+                )
                 if gated:
                     tip.append("Unblocked: " + ", ".join(gated) + ".")
             position = f"{position} · read-only".strip(" ·")
@@ -603,7 +562,10 @@ class MillingSetupReviewRenderer(ReviewRenderer):
                 f"Acknowledge records that you looked; re-run {rerun} to change it."
             )
         elif failure:
-            text = failure
+            # the failure is the line, in the error colour; the tooltip has the rest
+            took = self._took()
+            text = f"{self._task_name} failed" + (f" after {took}" if took else "")
+            text += f" · {failure}"
             colour = DEFECT_RED_COLOR
         else:
             text = f"Waiting for your decision · {_held_text(len(gated))}"
@@ -621,116 +583,130 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self.readout.setText(text + "\n" + "\n".join(tip))
 
 
-def _load_reference_image(
-    item: Any, proposal: Proposal, key: str = "reference_image"
-) -> Optional[FibsemImage]:
-    """The image the proposal's values sit on, from its provenance. A delta only
-    means something against the same image, so nothing else is shown."""
-    path = proposal.provenance.get(key)
-    if not path:
-        return None
-    item_dir = str(getattr(item, "path", ""))
-    if not os.path.isabs(path):
-        path = os.path.join(item_dir, path)
-    if not os.path.exists(path):
-        # An early proposal recorded the experiment folder rather than the
-        # lamella's; the file is the lamella's by name.
-        fallback = os.path.join(item_dir, os.path.basename(path))
-        if os.path.exists(fallback):
-            path = fallback
-        else:
-            logging.warning(f"Reference image for review not found: {path}")
-            return None
-    try:
-        return FibsemImage.load(path)
-    except Exception:
-        logging.exception(f"Could not load the reference image for review: {path}")
-        return None
+@register_review_renderer(POINT_OF_INTEREST)
+class PointOfInterestReviewRenderer(TaskResultReviewRenderer):
+    """The task result with the point of interest on it: one draggable marker
+    on the ion image, pre-placed where the task proposed it. Same overlay and
+    same drag as the inline question; what changes is when it happens."""
 
-
-@register_review_renderer(TASK_RESULT)
-class TaskResultReviewRenderer(MillingSetupReviewRenderer):
-    """What a task did: its final ion and electron images, side by side, and
-    the two verbs. Nothing to drag, nothing to write; confirm says it looks
-    right, reject fails the task."""
-
-    PENDING_HINT = "Enter — this looks right"
-    CONFIRM_LABEL = "Confirm · looks right"
-
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self._electron: Optional[FibsemImage] = None
+    PENDING_HINT = "Enter — this is the answer; drag the marker to correct it first"
+    CONFIRM_LABEL = "Confirm"
 
     def _fact(self) -> str:
-        p = self._proposal.provenance if self._proposal else {}
-        task = self._task_name
-        started, ended = p.get("started_at"), p.get("ended_at")
-        took = (
-            _duration(ended - started)
-            if isinstance(started, (int, float)) and isinstance(ended, (int, float))
-            else None
+        proposal = self._proposal
+        if proposal is None:
+            return ""
+        poi = proposal.values.get("poi")
+        where = os.path.basename(str(proposal.provenance.get("reference_image", "")))
+        image = "the final image" if "_final_" in where else (where or "the image")
+        value = (
+            f", {poi.x * 1e6:+.2f}, {poi.y * 1e6:+.2f} µm"
+            if isinstance(poi, Point)
+            else ""
         )
-        failure = str(p.get("failure") or "")
-        if failure:
-            head = (
-                f"{task} failed" + (f" after {took}" if took else "") + f": {failure}."
-            )
-        else:
-            head = f"{task} completed" + (f" in {took}" if took else "") + "."
-        names = [
-            os.path.basename(str(p.get(k) or ""))
-            for k in ("reference_image", "reference_image_eb")
-        ]
-        names = [n for n in names if n]
-        if not names:
-            return head + " No reference images were recorded."
-        when = clock(self._proposal.created_at) if self._proposal else ""
-        which = (
-            "Final images" if any("_final" in n for n in names) else " · ".join(names)
+        return (
+            f"Point of interest proposed by {proposal.provenance.get('proposer', '?')} "
+            f"at {clock(proposal.created_at)} on {image}{value}."
         )
-        return f"{head} {which} at {when}."
 
     def _state_words(self) -> tuple:
-        return "Recorded", self._task_name
+        return "Applied", self._task_name
+
+    def _marker(self, id: str, col: float, row: float, color: str, legend) -> None:
+        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
+        self._controller.set_overlay(
+            BeamType.ION,
+            PointsSpec(
+                id=id,
+                points=[(col, row)],
+                color=color,
+                selected_color=color,
+                marker="+",
+                size=14,
+                edge_width=1.2,
+                legend_label=legend,
+                add_on_right_click=False,
+                removable=False,
+            ),
+        )
 
     def _draw_values(self) -> None:
-        return  # nothing to place; the images are the result
+        """The proposed point, magenta: the one that stands, and drags."""
+        poi = self._proposal.values.get("poi") if self._proposal else None
+        if isinstance(poi, Point):
+            px = conversions.microscope_image_to_image_coordinates(
+                poi, self._image.data.shape, self._image.metadata.pixel_size.x
+            )
+            col, row = px.x, px.y
+        else:
+            row = self._image.data.shape[0] / 2
+            col = self._image.data.shape[1] / 2
+        self._marker("poi", col, row, "magenta", "Point of Interest")
+        self._controller.arm_overlay(
+            BeamType.ION, "poi", label="POI", icon="mdi:map-marker"
+        )
 
     def _draw_confirmed(self, decision: Decision) -> None:
-        return
+        """The decided point takes over as the one that stands (magenta); the
+        proposal it replaced stays beside it in orange, so the delta shows."""
+        if self._image is None:
+            return
+        confirmed = decision.values.get("poi")
+        if not isinstance(confirmed, Point):
+            return
+        # an overlay keeps the colour it was made with, so the proposed marker
+        # is remade under another id to turn orange
+        proposed = self._controller.overlay_points(BeamType.ION, "poi")
+        if proposed:
+            self._controller.remove_overlay(BeamType.ION, "poi")
+            col, row = proposed[0]
+            self._marker("proposed", col, row, ORANGE_COLOR, "Proposed")
+        px = conversions.microscope_image_to_image_coordinates(
+            confirmed, self._image.data.shape, self._image.metadata.pixel_size.x
+        )
+        self._marker("confirmed", px.x, px.y, "magenta", "Point of Interest")
+
+    def current_values(self) -> Dict[str, Any]:
+        proposal = self._proposal
+        if proposal is None:
+            return {}
+        if self._image is None:
+            return dict(proposal.values)
+        pts = self._controller.overlay_points(BeamType.ION, "poi")
+        if not pts:
+            return dict(proposal.values)
+        col, row = pts[0]
+        point = conversions.image_to_microscope_image_coordinates(
+            Point(x=col, y=row), self._image.data, self._image.metadata.pixel_size.x
+        )
+        return {"poi": Point(x=point.x, y=point.y)}
 
     def set_proposal(
         self, experiment: Experiment, item: Any, task_name: str, proposal: Proposal
     ) -> None:
         super().set_proposal(experiment, item, task_name, proposal)
-        self._electron = _load_reference_image(item, proposal, "reference_image_eb")
-        if self._electron is not None:
-            self._controller.set_image(BeamType.ELECTRON, self._electron)
-        self._controller.widget.set_sem_visible(self._electron is not None)
-        self._controller.arm_overlay(BeamType.ION, None)
-        self._refresh_line()
+        # a delta only means something against the one image the values sit on
+        self._controller.widget.set_sem_visible(False)
 
-    def current_values(self) -> Dict[str, Any]:
-        return {}
 
-    def _refresh_line(self) -> None:
-        super()._refresh_line()
-        p = self._proposal
-        if p is None:
-            return
-        failure = str(p.provenance.get("failure") or "")
-        if failure and self._decided is None and self._applied is None:
-            # the failure is the line, in the error colour; the tooltip has the rest
-            started, ended = (
-                p.provenance.get("started_at"),
-                p.provenance.get("ended_at"),
-            )
-            took = (
-                f" after {_duration(ended - started)}"
-                if isinstance(started, (int, float)) and isinstance(ended, (int, float))
-                else ""
-            )
-            self.line.setText(f"{self._task_name} failed{took} · {failure}")
+def _load_reference_image(
+    item: Any, proposal: Proposal, key: str = "reference_image"
+) -> Optional[FibsemImage]:
+    """The image the proposal's values sit on, from its provenance: a file
+    name relative to the item's folder."""
+    path = proposal.provenance.get(key)
+    if not path:
+        return None
+    path = os.path.join(str(getattr(item, "path", "")), path)
+    if not os.path.exists(path):
+        logging.warning(f"Reference image for review not found: {path}")
+        return None
+    try:
+        return FibsemImage.load(path)
+    except Exception:
+        logging.exception(f"Could not load the reference image for review: {path}")
+        return None
 
 
 def _duration(seconds: float) -> str:

@@ -18,7 +18,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QThread  # noqa: E402
 
 from fibsem.applications.autolamella.proposals import (  # noqa: E402
-    MILLING_SETUP,
+    POINT_OF_INTEREST,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -44,7 +44,7 @@ def _experiment(tmp_path) -> Experiment:
         EventedDict({SETUP: SelectMillingPositionTaskConfig(task_name=SETUP)}),
     )
     exp.positions[0].proposals[SETUP] = Proposal(
-        kind=MILLING_SETUP, values={"poi": Point(0.0, 0.0)}
+        kind=POINT_OF_INTEREST, values={"poi": Point(0.0, 0.0)}
     )
     return exp
 

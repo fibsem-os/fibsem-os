@@ -13,7 +13,8 @@ declared shape around it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
@@ -146,3 +147,32 @@ class WorkflowStatusEvent:
     workflow_info: Optional[str] = None
     status_bar: Optional[str] = None
     report: Optional[WorkflowStatusUpdate] = None
+
+
+class HoldKind(str, Enum):
+    """Who is holding the run."""
+
+    question = "question"  # a supervised question is up, for the operator
+    agent = "agent"  # the same question, addressed to a connected agent
+    review = "review"  # parked on decisions in the Review tab
+
+
+@dataclass(frozen=True)
+class Hold:
+    """The run is active and nothing is executing because someone has to act.
+
+    One value in place of the flags it replaced (``WAITING_FOR_USER_INTERACTION``,
+    ``WAITING_FOR_REVIEW`` and the watchdog's expired bit): who holds the run
+    and what releases it. ``AutoLamellaUI.hold`` carries it; None means the
+    run is not held. Written by whoever takes the hold -- the responder for a
+    question, the task manager for a park, the main window when it hands an
+    agent's question to the operator -- and read by the window chrome: border
+    colour, attention button, status-bar sentence.
+    """
+
+    kind: HoldKind
+    # what releases it, as a sentence fragment: "answer the question on the
+    # Microscope tab", "decide 01-a and 02-b in the Review tab"
+    releases: str
+    # the lamella/task pairs waiting, when there are some
+    items: Tuple[str, ...] = ()

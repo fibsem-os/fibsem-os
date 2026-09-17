@@ -16,7 +16,7 @@ from psygnal.containers import EventedDict
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem.applications.autolamella.proposals import (  # noqa: E402
-    MILLING_SETUP,
+    POINT_OF_INTEREST,
     TASK_RESULT,
     AuthorKind,
     Decision,
@@ -95,7 +95,7 @@ def experiment(tmp_path) -> Experiment:
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
     lamella.proposals[SETUP] = Proposal(
-        kind=MILLING_SETUP,
+        kind=POINT_OF_INTEREST,
         values={"poi": Point(0.0, 0.0)},
         provenance={"proposer": "centre-of-image", "reference_image": ref + ".tif"},
     )
@@ -116,7 +116,7 @@ def test_the_inbox_is_derived_from_the_experiment(tab, experiment):
     assert experiment.positions[0].name in texts[1] and SETUP in texts[1]
     assert tab.list.itemWidget(tab.list.item(1)) is not None, "a real row widget"
     renderer = tab.stack.currentWidget()
-    assert isinstance(renderer, R.MillingSetupReviewRenderer)
+    assert isinstance(renderer, R.PointOfInterestReviewRenderer)
     assert renderer.task_chip.text() == SETUP
     assert renderer.line.text() == "Waiting for your decision · 2 tasks held"
     assert "Mill Fiducial, Rough Milling" in renderer.line.toolTip()
@@ -216,7 +216,7 @@ def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
     assert texts[0] == "Decided · 1" and "confirmed" in texts[1]
     tab._select_entry(0)
     shown = tab.stack.currentWidget()
-    assert isinstance(shown, R.MillingSetupReviewRenderer)
+    assert isinstance(shown, R.PointOfInterestReviewRenderer)
     assert not shown.btn_confirm.isEnabled() and not shown.btn_reject.isEnabled()
     assert shown.line.text().startswith("✓  Confirmed by you at"), "reads as you"
     assert "moved 2.0 µm" in shown.line.text(), "the delta is shown (20 px at 100 nm)"
@@ -259,7 +259,7 @@ def test_a_proposal_the_producer_applied_is_to_check_not_waiting(tab, experiment
     texts = tab.row_summaries()
     assert texts[0] == "To check · 1" and "to check" in texts[1]
     renderer = tab.stack.currentWidget()
-    assert isinstance(renderer, R.MillingSetupReviewRenderer)
+    assert isinstance(renderer, R.PointOfInterestReviewRenderer)
     assert renderer.btn_confirm.text() == "Acknowledge"
     assert renderer.btn_confirm.isEnabled() and renderer.btn_reject.isEnabled()
     assert renderer.position.text() == "to check 1 of 1"
@@ -319,7 +319,7 @@ def test_after_an_acknowledgement_the_next_row_is_selected(tab, experiment, qapp
     lamella = experiment.positions[0]
     _auto_confirm(lamella.proposals[SETUP])
     lamella.proposals[FIDUCIAL] = Proposal(
-        kind=MILLING_SETUP,
+        kind=POINT_OF_INTEREST,
         values={"poi": Point(0.0, 0.0)},
         provenance={"proposer": "centre-of-image"},
     )
@@ -344,11 +344,11 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
     lamella = experiment.positions[0]
     _auto_confirm(lamella.proposals[SETUP])
     lamella.proposals[FIDUCIAL] = Proposal(
-        kind=MILLING_SETUP, values={"poi": Point(0.0, 0.0)}, provenance={}
+        kind=POINT_OF_INTEREST, values={"poi": Point(0.0, 0.0)}, provenance={}
     )
     _auto_confirm(lamella.proposals[FIDUCIAL])
     lamella.proposals[ROUGH] = Proposal(
-        kind=MILLING_SETUP, values={"poi": Point(0.0, 0.0)}
+        kind=POINT_OF_INTEREST, values={"poi": Point(0.0, 0.0)}
     )
     tab.refresh()
     assert tab.check_count == 2 and tab.pending_count == 1
@@ -461,7 +461,7 @@ def test_author_labels_and_row_details():
     assert R.author_label("human:Sam", exp) == "Sam"
     assert R.author_label("agent:claude", exp) == "agent · claude"
     assert R.author_label("auto:centre-of-image", exp) == "auto · centre-of-image"
-    p = Proposal(kind=MILLING_SETUP, values={"poi": Point(0, 0)})
+    p = Proposal(kind=POINT_OF_INTEREST, values={"poi": Point(0, 0)})
     p.decisions.append(
         Decision(
             outcome=DecisionOutcome.Confirmed,

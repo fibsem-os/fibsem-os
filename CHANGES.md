@@ -87,6 +87,28 @@ correctness work landed in correlation and in what the experiment record remembe
   Setup Lamella Position".
 - **A result an agent looked at is still yours to check.** The Review tab's "to
   check" group clears when a person acknowledges, not when a connected agent does.
+- **For task authors: a task proposes through a `Proposer`.** A task type carries one
+  `proposer` (kind, name, version, `propose(task)`); the base records the result part
+  (task, status, times, final images) for every kind and the proposer adds the
+  values. Swapping the proposer, say a segmentation model for the current point,
+  changes nothing downstream. Every decision, the operator's inline answer included,
+  now lands through `Experiment.decide`.
+- **The point-of-interest kind is named for what it is.** The proposal kind Setup
+  records is `point_of_interest` (was `milling_setup`): a point on an image that later
+  tasks follow, which is not a milling matter. Its schema carries `poi` only; the
+  `fiducial` value nothing wrote is gone until something proposes it.
+- **For task authors: the task-result renderer is the base.** Every proposal is a task
+  result, and `TaskResultReviewRenderer` now draws that (the final images, the state
+  line, the record in its tooltip, the two verbs) for every kind. A kind with values
+  extends it and puts them on the image, as `PointOfInterestReviewRenderer` does with
+  the point of interest. Register one per kind with `register_review_renderer`.
+- **The window says who holds the run.** A run waiting on a question, on a
+  connected agent, or parked on decisions carries one value (`AutoLamellaUI.hold`)
+  in place of the three flags that meant the same thing; the border, the attention
+  button, the status bar and the timeline pause all read it. The status bar names
+  what a parked run waits on ("Parked on 2 decision(s): decide 01-a and 02-b in the
+  Review tab"), and a run that gave up waiting says so rather than reading as a
+  finish.
 - **The running queue can be edited while it runs.** Reorder, remove, re-run and
   "run next" from the Workflow Timeline's row menu, and add work from its header.
   Edits are anchored to the piece of work rather than to its position, so they do

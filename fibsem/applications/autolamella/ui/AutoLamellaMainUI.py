@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import time
+from dataclasses import replace
 from typing import List, Optional, Tuple
 
 try:
@@ -86,6 +87,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.status import (
+    Hold,
+    HoldKind,
     WorkflowStatusEvent,
     WorkflowStatusUpdate,
 )
@@ -419,6 +422,13 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
         f"Only {preflight.format_duration(estimate.delay_seconds)} of this lands after "
         "the workflow's scheduled wait; the rest fits inside it."
     )
+
+
+def _attention_label(hold: Hold) -> str:
+    """The attention button's text for a hold the operator can release."""
+    if hold.kind is HoldKind.review:
+        return f"Review Required ({len(hold.items)})"
+    return "Attention Required"
 
 
 class AutoLamellaSingleWindowUI(QMainWindow):
@@ -1494,7 +1504,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_watchdog = QTimer(self)
         self._agent_watchdog.setSingleShot(True)
         self._agent_watchdog.timeout.connect(self._on_agent_watchdog_expired)
-        self._agent_watchdog_expired = False
         # The companion check: while a question parks on the agent's clock,
         # confirm someone is actually on the other end (the agent's token is
         # heard from continuously while it watches). An agent that dies
@@ -1549,10 +1558,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to Microscope tab, or to
         the Review tab when what is waiting is a decision rather than a question."""
-        waiting = self.autolamella_ui.WAITING_FOR_USER_INTERACTION
-        reviewing = getattr(self.autolamella_ui, "WAITING_FOR_REVIEW", 0)
+        hold = self.autolamella_ui.hold
         review_tab = getattr(self, "review_tab", None)
-        if reviewing and not waiting and review_tab is not None:
+        if hold is not None and hold.kind is HoldKind.review and review_tab is not None:
             self.tab_widget.setCurrentWidget(review_tab)
             return
         self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
@@ -3543,15 +3551,25 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_question_event(self, kind: str, payload: dict) -> None:
         """GUI thread, from the responder: arm/disarm the agent watchdog."""
+        ui = self.autolamella_ui
         if kind == "prompt_raised":
-            self._agent_watchdog_expired = False
-            if self._agent_supervision_active(self._current_task_name):
+            hold = ui.hold
+            if hold is not None and self._agent_supervision_active(
+                self._current_task_name
+            ):
+                # The question is the agent's: re-address the hold, and start
+                # the clock that hands it to the operator if the agent goes
+                # quiet. Not for an agent that isn't there.
                 if self._agent_presumed_gone():
-                    # Don't park a question for an agent that isn't there.
                     self._hand_question_to_operator(
                         "The agent hasn't been in touch — this question is yours."
                     )
                     return
+                ui.hold = replace(
+                    hold,
+                    kind=HoldKind.agent,
+                    releases="the agent answers the question, or it comes to you",
+                )
                 self._agent_watchdog.start(self._watchdog_ms())
                 self._agent_liveness_check.start()
             else:
@@ -3560,7 +3578,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         elif kind in ("prompt_answered", "prompt_cancelled"):
             self._agent_watchdog.stop()
             self._agent_liveness_check.stop()
-            self._agent_watchdog_expired = False
         self._refresh_workflow_indicators()
 
     def _on_agent_watchdog_expired(self) -> None:
@@ -3585,12 +3602,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         and the first writer still wins."""
         self._agent_watchdog.stop()
         self._agent_liveness_check.stop()
-        if not self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
+        hold = self.autolamella_ui.hold
+        if hold is None:
             return  # the answer raced the escalation; nothing is standing
-        self._agent_watchdog_expired = True
+        self.autolamella_ui.hold = replace(
+            hold,
+            kind=HoldKind.question,
+            releases="answer the question on the Microscope tab",
+        )
         notification_service.show_toast(message, "warning")
         # The ordinary waiting chrome (orange border, attention button, sound)
-        # takes over below, now that agent_holding no longer suppresses it.
+        # takes over below, now that the hold is the operator's.
         self._refresh_workflow_indicators()
 
     def _refresh_workflow_indicators(self) -> None:
@@ -3598,41 +3620,24 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # refresh the supervised status chip
         self._update_supervised_status()
 
-        waiting = self.autolamella_ui.WAITING_FOR_USER_INTERACTION
+        hold = self.autolamella_ui.hold
+        # The timeline freezes its countdown on a hold: a wait for an answer or
+        # a decision is not machine time whoever is giving it, and left running
+        # it would spend the estimate while nothing is happening.
+        self.workflow_timeline.set_waiting_for_user(hold is not None)
         # A question addressed to a running agent is not (yet) a wait for the
         # operator: the chrome stays agent-purple and quiet while the watchdog
-        # counts down. Expiry — or a human-designated question — is what turns
-        # this into the ordinary waiting state.
-        agent_holding = (
-            waiting
-            and not self._agent_watchdog_expired
-            and self._agent_supervision_active(self._current_task_name)
-        )
-        # The timeline freezes its countdown on this: a wait for an answer is not
-        # machine time whoever is answering, and left running it would spend the
-        # estimate while nothing is happening.
-        self.workflow_timeline.set_waiting_for_user(waiting)
-        # A run parked on review decisions is a wait for the operator too, just
-        # not at the beam: same chrome, but the button leads to the Review tab.
-        reviewing = int(getattr(self.autolamella_ui, "WAITING_FOR_REVIEW", 0) or 0)
-        if waiting and not agent_holding:
-            # Show user attention button and change status bar color
-            self.user_attention_btn.setText("Attention Required")
+        # counts down. Expiry -- or a human-designated question -- is what
+        # turns it into the ordinary waiting state. A run parked on review
+        # decisions is a wait for the operator too, just not at the beam: same
+        # chrome, but the button leads to the Review tab.
+        if hold is not None and hold.kind is not HoldKind.agent:
+            self.user_attention_btn.setText(_attention_label(hold))
             self.user_attention_btn.setToolTip(
-                "User Input Required - Click to go to Microscope tab"
+                f"The run is waiting on you: {hold.releases}."
             )
             self.user_attention_btn.show()
             # Play notification sound once when entering waiting state
-            if not self._user_interaction_sound_played and self._sound_enabled:
-                play_notification_sound()
-                self._user_interaction_sound_played = True
-        elif reviewing:
-            self.user_attention_btn.setText(f"Review Required ({reviewing})")
-            self.user_attention_btn.setToolTip(
-                f"The run is waiting on {reviewing} decision(s) - "
-                "click to open the Review tab"
-            )
-            self.user_attention_btn.show()
             if not self._user_interaction_sound_played and self._sound_enabled:
                 play_notification_sound()
                 self._user_interaction_sound_played = True
@@ -3644,10 +3649,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Update border to reflect current workflow state
         if self._border_state == "stopping":
             pass  # Keep the red border until the workflow finishes unwinding
-        elif waiting and agent_holding:
-            self._set_border_state("agent")
-        elif waiting or reviewing:
-            self._set_border_state("waiting")
+        elif hold is not None:
+            self._set_border_state(
+                "agent" if hold.kind is HoldKind.agent else "waiting"
+            )
         elif self.autolamella_ui.WORKFLOW_PENDING:
             self._set_border_state("pending")
         elif self.autolamella_ui.is_workflow_running:

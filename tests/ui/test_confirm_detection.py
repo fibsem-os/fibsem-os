@@ -33,6 +33,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     ConfirmDetection,
     ask,
 )
+from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 
 PROMPT = "Confirm Feature Detection. Press Continue to proceed."
@@ -127,7 +128,7 @@ def test_the_click_answers_with_the_widgets_feature_set(ui, qapp):
     # waiting display state is on for the attention button and border.
     assert ui.det_widget.det is sent
     assert ui.tabWidget.currentWidget() is ui.det_widget
-    assert ui.WAITING_FOR_USER_INTERACTION is True
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     # The supervisor corrects the detection; the answer must be what the widget
     # holds at click time, not what the workflow sent.
@@ -138,7 +139,7 @@ def test_the_click_answers_with_the_widgets_feature_set(ui, qapp):
     _finish(thread, qapp)
 
     assert outcome.get("answer") is corrected
-    assert ui.WAITING_FOR_USER_INTERACTION is False
+    assert ui.hold is None
 
 
 def test_the_read_and_the_save_run_on_the_gui_thread(ui, qapp):
@@ -190,7 +191,7 @@ def test_a_failing_read_back_reraises_on_the_workflow_thread(ui, qapp):
     assert isinstance(outcome.get("error"), RuntimeError)
     assert "features fell over" in str(outcome["error"])
     # The prompt still came down: the waiter wakes to a consistent UI either way.
-    assert ui.WAITING_FOR_USER_INTERACTION is False
+    assert ui.hold is None
 
 
 def test_a_stop_interrupts_a_detection_nobody_confirms(ui, qapp):

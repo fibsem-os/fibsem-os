@@ -28,10 +28,13 @@ import numpy as np
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
 from fibsem.applications.autolamella.proposals import (
+    PROPOSAL_KINDS,
     TASK_RESULT,
     Decision,
     DecisionOutcome,
     Proposal,
+    Proposer,
+    TaskResultProposer,
     auto_author,
     supersede,
 )
@@ -116,13 +119,13 @@ class AutoLamellaTask(ABC):
     config: AutoLamellaTaskConfig
     # What this task type proposes, for the Review tab: a property of the type,
     # declared here, never a protocol choice, and independent of the mode it
-    # runs in. TASK_RESULT ("here is what I did, look") for every task that
-    # leaves images or values, which is every shipped task; a richer kind for
-    # one whose output is a value someone might change (Setup proposes the
-    # milling position); None only for a type with nothing to look at, so
+    # runs in. The default proposes the task's result ("here is what I did,
+    # look"), which every shipped task has; a task whose output is a value
+    # someone might change swaps in a proposer for that kind (Setup proposes
+    # the milling position); None only for a type with nothing to look at, so
     # that a Review chip on its row is never a silent no-op. A run records
-    # outputs (files, by role); a task proposes a kind.
-    proposal_kind: ClassVar[Optional[str]] = TASK_RESULT
+    # outputs (files, by role); a task proposes a kind, through its proposer.
+    proposer: ClassVar[Optional[Proposer]] = TaskResultProposer()
 
     def __init__(
         self,
@@ -142,6 +145,10 @@ class AutoLamellaTask(ABC):
         # the manager's to decide, and a task should not have to know.
         self._stop_event = task_manager.abort_token if task_manager else None
         self._last_fib_image: Optional[FibsemImage] = None
+        # A decision the task took in its own run -- the operator's inline
+        # answer to a supervised question -- recorded on the proposal once it
+        # is made, after the run, through Experiment.decide like every other.
+        self.inline_decision: Optional[Decision] = None
 
     @property
     def task_type(self) -> str:
@@ -181,55 +188,130 @@ class AutoLamellaTask(ABC):
             return False
         return protocol.get_attention(self.task_name) is Attention.review
 
-    def _settle_proposal(self) -> None:
-        """What happens to a proposal nobody answered inline, once the run is
-        over and the outcome recorded.
+    def propose(self, failure: str = "") -> Optional[Proposal]:
+        """Record what this task did as a proposal, for someone to look at.
 
-        Under review, a task that completed is not finished: it moves to
-        AwaitingDecision, and the decision in the Review tab finishes it
-        (Completed or Failed). A failed task stays Failed; its record waits
-        for someone to look, but no decision changes the outcome.
+        Every proposal is the task's result -- which task, when, how it
+        ended, the final images -- and the base fills that in for every kind
+        here. The proposer adds the values a decision can edit, if its kind
+        has any; a failed task proposes no values, its record is the failure.
+        A re-run supersedes a decided proposal like any other; a pending one
+        is replaced. None when the task type proposes nothing, or its
+        proposer declines (nothing consumes what it would propose).
+        """
+        proposer = type(self).proposer
+        if proposer is None:
+            return None
+        if failure:
+            proposer = TaskResultProposer()  # no values from a run that failed
+        proposal = proposer.propose(self)
+        if proposal is None:
+            logging.info(
+                f"{self.lamella.name}: {self.task_name} has nothing to propose."
+            )
+            return None
+        carried = PROPOSAL_KINDS[proposer.kind].values
+        unknown = [n for n in proposal.values if n not in carried]
+        if unknown:
+            # a producer bug, not a record to keep
+            raise ValueError(
+                f"{proposer.kind} does not carry {unknown}; it carries {carried}"
+            )
+        state = self.lamella.task_state
+        outputs = state.outputs
+        # The file names are relative to the lamella folder; readers join them
+        # onto lamella.path, which also survives a moved experiment. The last
+        # final image is the tightest field of view, the one the Review tab
+        # shows; the values are in the milling frame, so any image at the
+        # stored pose would do.
+        proposal.provenance = {
+            "proposer": proposer.name or self.task_name,
+            "version": proposer.version,
+            "task_name": self.task_name,
+            "status": state.status.name,
+            "started_at": state.start_timestamp,
+            "ended_at": state.end_timestamp,
+            "reference_image": (outputs.get("final_fib") or [""])[-1],
+            "reference_image_eb": (outputs.get("final_sem") or [""])[-1],
+            "failure": failure,
+            **proposal.provenance,
+        }
+        decided = self.lamella.proposals.get(self.task_name)
+        if decided is not None and decided.pending:
+            decided = None  # replaced, not superseded
+        if decided is not None:
+            logging.info(
+                f"{self.lamella.name}: {self.task_name} re-run; the decided "
+                "proposal is superseded and a new one is pending."
+            )
+        self.lamella.proposals[self.task_name] = supersede(decided, proposal)
+        logging.info(
+            {
+                "msg": "proposal_recorded",
+                "lamella": self.lamella.name,
+                "task_name": self.task_name,
+                "kind": proposal.kind,
+                "values": {
+                    k: getattr(v, "to_dict", lambda: v)()
+                    for k, v in proposal.values.items()
+                },
+                "provenance": proposal.provenance,
+            }
+        )
+        return proposal
 
-        Otherwise the proposal is the producer's to confirm, as proposed, so
-        nothing downstream waits. Through Experiment.decide like any other
-        decision -- same lock, same thread, same write-through -- which is
-        why this runs after post_task, once the task is no longer in
-        progress. The author says nobody looked; a person's look is a later
-        decision on the same record."""
-        proposal = self.lamella.proposals.get(self.task_name)
-        if proposal is None or not proposal.pending:
-            return
-        if self.review:
-            if self.lamella.task_state.status is AutoLamellaTaskStatus.Completed:
-                self.lamella.set_task_status(
-                    self.task_name, AutoLamellaTaskStatus.AwaitingDecision
-                )
-                logging.info(
-                    f"{self.lamella.name}: {self.task_name} awaits a decision in "
-                    "the Review tab."
-                )
+    def _settle(self, failure: str = "") -> None:
+        """Record the proposal and decide it, once the run is over and the
+        outcome recorded. After post_task on purpose: Experiment.decide
+        refuses a decision on a task in progress.
+
+        The decision, in every mode, goes through Experiment.decide -- same
+        lock, same thread, same write-through, one place that appends. Which
+        decision: the operator's inline answer when the task asked one
+        (supervised; recorded without a second write-through of a value that
+        is already applied), else under review none -- a task that completed
+        moves to AwaitingDecision and the decision in the Review tab finishes
+        it -- else the producer's own confirmation, as proposed, so nothing
+        downstream waits. A failed task stays Failed; its record waits for
+        someone to look, but no decision changes the outcome.
+        """
+        proposal = self.propose(failure=failure)
+        if proposal is None:
             return
         experiment = getattr(self.task_manager, "experiment", None)
+        decision = self.inline_decision
+        if decision is None:
+            if self.review:
+                if self.lamella.task_state.status is AutoLamellaTaskStatus.Completed:
+                    self.lamella.set_task_status(
+                        self.task_name, AutoLamellaTaskStatus.AwaitingDecision
+                    )
+                    logging.info(
+                        f"{self.lamella.name}: {self.task_name} awaits a decision "
+                        "in the Review tab."
+                    )
+                return
+            decision = Decision(
+                outcome=DecisionOutcome.Confirmed,
+                author=auto_author(proposal.provenance["proposer"]),
+                values=dict(proposal.values),
+                via="workflow",
+            )
         if experiment is None:
             return
-        decision = Decision(
-            outcome=DecisionOutcome.Confirmed,
-            author=auto_author(proposal.provenance.get("proposer", self.task_name)),
-            values=dict(proposal.values),
-            via="workflow",
-        )
         try:
             result = experiment.decide(self.lamella.id, self.task_name, decision)
         except Exception:
             logging.exception(
-                f"{self.lamella.name}: could not auto-confirm the {self.task_name} "
-                "proposal; it is left pending, so its consumer will wait."
+                f"{self.lamella.name}: could not record the decision on the "
+                f"{self.task_name} proposal; it is left pending, so its consumer "
+                "will wait."
             )
             return
         if not result.applied:
             logging.warning(
-                f"{self.lamella.name}: the {self.task_name} proposal was not "
-                f"auto-confirmed ({result.reason}); it is left pending."
+                f"{self.lamella.name}: the decision on the {self.task_name} "
+                f"proposal was not recorded ({result.reason}); it is left pending."
             )
 
     def run(self) -> None:
@@ -259,8 +341,7 @@ class AutoLamellaTask(ABC):
                 # A failure is exactly when someone wants to look; a Stop is
                 # not, whoever pressed it already knows.
                 if not cancelled:
-                    self._record_task_result(failure=str(e))
-                    self._settle_proposal()
+                    self._settle(failure=str(e))
             except Exception:
                 logging.exception(f"Could not record the outcome of {self.task_name}")
             self._fire_hook(
@@ -274,56 +355,8 @@ class AutoLamellaTask(ABC):
             # That is silently wrong, and wrong exactly when the record matters most.
             self.microscope.experiment.clear_workflow_metadata()
         self.post_task()
-        self._record_task_result()
-        self._settle_proposal()
+        self._settle()
         self._fire_hook("task_completed")
-
-    def _record_task_result(self, failure: str = "") -> None:
-        """Leave what this task did as a proposal for someone to look at.
-
-        For any task type whose proposal_kind is TASK_RESULT, in every mode:
-        under review the task waits for the Review tab; otherwise the producer
-        confirms it after the task and the row is there to check. No values: the
-        result is not a number anyone changes, it is the final reference
-        images, named in provenance from the outputs this run recorded. A
-        task type that proposes a kind of its own (Setup, the milling
-        position) records that itself and is not touched here. A re-run
-        supersedes a decided result like any other proposal.
-        """
-        if type(self).proposal_kind != TASK_RESULT:
-            return
-        state = self.lamella.task_state
-        existing = self.lamella.proposals.get(self.task_name)
-        outputs = getattr(state, "outputs", {}) or {}
-        fib = (outputs.get("final_fib") or [""])[-1]
-        sem = (outputs.get("final_sem") or [""])[-1]
-        proposal = Proposal(
-            kind=TASK_RESULT,
-            values={},
-            provenance={
-                "proposer": self.task_name,  # the auto decision's author
-                "task_name": self.task_name,
-                "status": state.status.name,
-                "started_at": state.start_timestamp,
-                "ended_at": state.end_timestamp,
-                "reference_image": fib,
-                "reference_image_eb": sem,
-                "failure": failure,
-            },
-        )
-        self.lamella.proposals[self.task_name] = supersede(
-            existing if existing is not None and not existing.pending else None,
-            proposal,
-        )
-        logging.info(
-            {
-                "msg": "proposal_recorded",
-                "lamella": self.lamella.name,
-                "task_name": self.task_name,
-                "kind": TASK_RESULT,
-                "provenance": proposal.provenance,
-            }
-        )
 
     def _record_outcome(self) -> None:
         """Freeze the finished task_state into task_history.

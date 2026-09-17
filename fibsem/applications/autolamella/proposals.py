@@ -24,7 +24,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
 from fibsem.structures import Point
 
@@ -33,10 +33,12 @@ __all__ = [
     "Author",
     "AuthorKind",
     "Decision",
+    "Proposer",
+    "TaskResultProposer",
     "DecisionOutcome",
     "DecisionResult",
     "PROPOSAL_KINDS",
-    "MILLING_SETUP",
+    "POINT_OF_INTEREST",
     "Proposal",
     "ProposalKind",
     "compute_delta",
@@ -49,8 +51,8 @@ __all__ = [
     "write_value",
 ]
 
-# The milling position: the point of interest the milling tasks follow.
-MILLING_SETUP = "milling_setup"
+# A point on an image: the point of interest the tasks that follow it sync to.
+POINT_OF_INTEREST = "point_of_interest"
 # What a task did, for someone to look at: no values, the final reference
 # images in provenance. Recorded by the base task class for any task whose
 # review is on and that did not propose a kind of its own.
@@ -147,7 +149,7 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
     return kind
 
 
-register_proposal_kind(ProposalKind(name=MILLING_SETUP, values=("poi", "fiducial")))
+register_proposal_kind(ProposalKind(name=POINT_OF_INTEREST, values=("poi",)))
 register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
 
 
@@ -156,9 +158,8 @@ register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
 # ---------------------------------------------------------------------------
 #
 # A value exists in a proposal because a later task consumes it. ``poi`` is
-# read by the milling tasks that sync their patterns to it; ``fiducial`` will
-# be read by the fiducial task. The name is the contract, so codecs and
-# writers are keyed by it rather than by kind.
+# read by the milling tasks that sync their patterns to it. The name is the
+# contract, so codecs and writers are keyed by it rather than by kind.
 
 
 def _point_to_dict(p: Any) -> Any:
@@ -171,7 +172,6 @@ def _point_from_dict(d: Any) -> Any:
 
 _VALUE_CODECS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
     "poi": (_point_to_dict, _point_from_dict),
-    "fiducial": (_point_to_dict, _point_from_dict),
 }
 
 
@@ -400,6 +400,47 @@ class Proposal:
             created_at=data.get("created_at", 0.0),
             superseded=[Proposal.from_dict(p) for p in data.get("superseded", [])],
         )
+
+
+# ---------------------------------------------------------------------------
+# Proposers: the part of proposing that differs per kind
+# ---------------------------------------------------------------------------
+#
+# Every proposal is a task result -- what ran, when, how it ended, the final
+# images -- plus, for kinds that have them, values a decision can edit and a
+# later task consumes. The task base records the result part for every kind
+# (AutoLamellaTask.propose); a proposer supplies only the values. TASK_RESULT
+# is the kind with none.
+
+
+class Proposer(Protocol):
+    """Names a kind and computes its values for a finished task, as a
+    Proposal of that kind: values, confidence, alternatives and whatever
+    provenance the proposer has to add (a model name, say). The task base
+    stamps the result part -- which task, when, how it ended, the final
+    images -- onto that provenance for every kind. ``name`` is what the
+    record says proposed the values and what the producer's own confirmation
+    is signed as; empty means the task itself. A task holds one
+    (``AutoLamellaTask.proposer``); swapping it -- a segmentation model for
+    the current point, say -- changes nothing downstream, which keys by kind.
+    None declines: nothing to propose, no record."""
+
+    kind: str
+    name: str
+    version: int
+
+    def propose(self, task: Any) -> Optional[Proposal]: ...
+
+
+class TaskResultProposer:
+    """The default: no values, the record is the result. Signed as the task."""
+
+    kind = TASK_RESULT
+    name = ""
+    version = 1
+
+    def propose(self, task: Any) -> Optional[Proposal]:
+        return Proposal(kind=self.kind)
 
 
 def supersede(old: Optional[Proposal], new: Proposal) -> Proposal:
