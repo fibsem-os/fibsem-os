@@ -160,6 +160,7 @@ def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_pat
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(3e-6, 0.0)},
+            task_id=lamella.proposals[SETUP].task_id,
         ),
     )
     assert result.applied and result.delta["poi"] == Point(3e-6, 0.0)
@@ -202,6 +203,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(1e-6, 1e-6)},
+            task_id=lamella.proposals[SETUP].task_id,
         ),
     )
     decided = lamella.proposals[SETUP]

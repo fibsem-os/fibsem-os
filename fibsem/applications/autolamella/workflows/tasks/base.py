@@ -228,6 +228,7 @@ class AutoLamellaTask(ABC):
             "proposer": proposer.name or self.task_name,
             "version": proposer.version,
             "task_name": self.task_name,
+            "task_id": state.task_id,
             "status": state.status.name,
             "started_at": state.start_timestamp,
             "ended_at": state.end_timestamp,
@@ -299,6 +300,8 @@ class AutoLamellaTask(ABC):
             )
         if experiment is None:
             return
+        # The producer decides the proposal it has just made: its own run.
+        decision.task_id = proposal.task_id
         try:
             result = experiment.decide(self.lamella.id, self.task_name, decision)
         except Exception:

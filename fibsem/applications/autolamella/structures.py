@@ -31,12 +31,14 @@ from psygnal.containers import EventedDict, EventedList
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.proposals import (
+    PROPOSAL_KINDS,
     Author,
     Decision,
     DecisionOutcome,
     DecisionResult,
     Proposal,
     ValueRefused,
+    _quietly,
     human_author,
     prepare_values,
     proposals_from_dict,
@@ -1854,6 +1856,40 @@ class Experiment:
                 )
             if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
                 return DecisionResult(applied=False, reason="A reject needs a reason.")
+            # The decision is on the result the decider saw: the run it names
+            # must be the run the proposal is from.
+            if not decision.task_id:
+                return DecisionResult(
+                    applied=False,
+                    error_type="missing_field",
+                    reason="A decision names the run it decides: pass the task_id "
+                    "of the proposal you looked at.",
+                )
+            if decision.task_id != proposal.task_id:
+                return DecisionResult(
+                    applied=False,
+                    error_type="stale_review",
+                    reason=(
+                        f"{task_name} on {item.name} has re-run since you looked; "
+                        "look at the current result and decide that."
+                        if proposal.task_id
+                        else f"{task_name} on {item.name} was proposed before runs "
+                        "were named; re-run it to decide it."
+                    ),
+                )
+            # An acknowledgement cannot become an edit: a proposal that already
+            # has a decision is looked at, not changed (changing a value is a
+            # re-run). A pending proposal is confirmed with its values, as
+            # proposed or adjusted, never with none.
+            if decision.outcome is DecisionOutcome.Confirmed:
+                if not proposal.pending and decision.values:
+                    return DecisionResult(
+                        applied=False,
+                        error_type="invalid_value",
+                        reason=f"{task_name} on {item.name} is already decided; "
+                        "confirming it again records a look and carries no values. "
+                        f"To change a value, re-run {task_name}.",
+                    )
             apply_values = None
             if decision.outcome is DecisionOutcome.Confirmed:
                 # All or nothing: every value is checked and every write planned
@@ -1862,7 +1898,9 @@ class Experiment:
                 try:
                     apply_values = prepare_values(item, proposal.kind, decision.values)
                 except ValueRefused as e:
-                    return DecisionResult(applied=False, reason=str(e))
+                    return DecisionResult(
+                        applied=False, error_type="invalid_value", reason=str(e)
+                    )
                 except Exception as e:
                     logging.exception(
                         f"{item.name}: could not plan the decision on {task_name}"
@@ -1870,21 +1908,70 @@ class Experiment:
                     return DecisionResult(
                         applied=False, reason=f"Could not apply the values: {e}"
                     )
-
-            proposal.decisions.append(decision)
-            result = DecisionResult(applied=True)
-            if apply_values is not None:
-                result.synced_tasks.extend(apply_values())
-                result.delta = proposal.delta(decision)
-            if isinstance(item, Lamella) and item.is_awaiting_decision(task_name):
-                if decision.outcome is DecisionOutcome.Confirmed:
-                    item.set_task_status(task_name, AutoLamellaTaskStatus.Completed)
-                else:
-                    item.set_task_status(
-                        task_name,
-                        AutoLamellaTaskStatus.Failed,
-                        f"Rejected by {decision.author.label}: {decision.reason}",
+                carried = (
+                    PROPOSAL_KINDS[proposal.kind].values
+                    if proposal.kind in PROPOSAL_KINDS
+                    else ()
+                )
+                missing = [n for n in carried if n not in decision.values]
+                if proposal.pending and missing:
+                    return DecisionResult(
+                        applied=False,
+                        error_type="invalid_value",
+                        reason=f"Confirming a pending {proposal.kind} proposal "
+                        f"needs its values {missing}, as proposed or adjusted.",
                     )
+
+            # Apply, then commit. The writes and the status move are assignments
+            # on evented records, whose subscribers can raise; if anything does,
+            # every one is undone and the decision is not appended, so a failed
+            # decision leaves the item, the task and the record as they were.
+            result = DecisionResult(applied=True)
+            statuses = [
+                (state, state.status, state.status_message)
+                for state in (
+                    next(
+                        (t for t in reversed(item.task_history) if t.name == task_name),
+                        None,
+                    ),
+                    item.task_state,
+                )
+                if state is not None
+            ]
+            try:
+                if apply_values is not None:
+                    result.synced_tasks.extend(apply_values.apply())
+                if isinstance(item, Lamella) and item.is_awaiting_decision(task_name):
+                    if decision.outcome is DecisionOutcome.Confirmed:
+                        item.set_task_status(task_name, AutoLamellaTaskStatus.Completed)
+                    else:
+                        item.set_task_status(
+                            task_name,
+                            AutoLamellaTaskStatus.Failed,
+                            f"Rejected by {decision.author.label}: {decision.reason}",
+                        )
+            except Exception as e:
+                logging.exception(
+                    f"{item.name}: applying the decision on {task_name} failed; "
+                    "undoing it."
+                )
+                try:
+                    if apply_values is not None:
+                        apply_values.undo()
+                    for state, status, message in statuses:
+                        with _quietly(state):
+                            state.status = status
+                            state.status_message = message
+                except Exception:
+                    logging.exception(
+                        f"{item.name}: could not undo the decision on {task_name}"
+                    )
+                return DecisionResult(
+                    applied=False, reason=f"Could not apply the decision: {e}"
+                )
+            proposal.decisions.append(decision)
+            if apply_values is not None:
+                result.delta = proposal.delta(decision)
             logging.info(
                 {
                     "msg": "proposal_decided",
@@ -1898,7 +1985,12 @@ class Experiment:
                     },
                 }
             )
-        self.decided.emit(item_id, task_name)
+        # Committed: a subscriber that raises is logged, and does not turn a
+        # decision that landed into an error for the decider.
+        try:
+            self.decided.emit(item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to decided raised for {task_name}")
         return result
 
     def pending_proposals(

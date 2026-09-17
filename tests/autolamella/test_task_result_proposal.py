@@ -128,7 +128,11 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
     result = exp.decide(
         lamella.id,
         ROUGH,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            task_id=lamella.proposals[ROUGH].task_id,
+        ),
     )
     assert result.applied and result.synced_tasks == []
     assert task.task_manager._defer_reason(lamella, POLISH) is None
@@ -272,7 +276,11 @@ def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
     exp.decide(
         lamella.id,
         ROUGH,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            task_id=lamella.proposals[ROUGH].task_id,
+        ),
     )
     decided = lamella.proposals[ROUGH]
 

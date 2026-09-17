@@ -20,6 +20,7 @@ The records here are plain data. The one write path is
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 from dataclasses import dataclass, field
@@ -48,6 +49,7 @@ __all__ = [
     "known_value_names",
     "agent_author",
     "register_proposal_kind",
+    "PreparedWrite",
     "prepare_values",
     "supersede",
     "ValueRefused",
@@ -195,7 +197,27 @@ class ValueRefused(ValueError):
     """A confirmed value that cannot be written: refused before anything is."""
 
 
-def _prepare_poi(item: Any, value: Any) -> Callable[[], List[str]]:
+def _quietly(obj: Any):
+    """Assignments on ``obj`` without its events: an undo restores what nobody
+    was told had changed, and a subscriber must not be able to stop it."""
+    events = getattr(obj, "events", None)
+    blocked = getattr(events, "blocked", None)
+    return blocked() if callable(blocked) else contextlib.nullcontext()
+
+
+@dataclass
+class PreparedWrite:
+    """A planned write: ``apply`` does it (assignments only, returning the
+    tasks whose patterns moved); ``undo`` puts back what was there when it was
+    planned. Assignments are not failure-free -- an evented item runs its
+    subscribers on each one -- so a caller applies, and undoes on any error,
+    before it commits the decision."""
+
+    apply: Callable[[], List[str]]
+    undo: Callable[[], None]
+
+
+def _prepare_poi(item: Any, value: Any) -> PreparedWrite:
     """The GUI's move path, planned in full before any of it happens: the new
     point, then every pattern that follows it. Same domain plan, same order --
     a write that bypassed the sync left the rough and polishing patterns
@@ -211,6 +233,8 @@ def _prepare_poi(item: Any, value: Any) -> Callable[[], List[str]]:
     if plan is None:
         raise ValueRefused(f"{getattr(item, 'name', 'this item')} has no poi.")
     synced, moves = plan(value)
+    old_poi = item.poi
+    old_points = [(pattern, pattern.point) for pattern, _ in moves]
 
     def apply() -> List[str]:
         item.poi = value
@@ -220,12 +244,19 @@ def _prepare_poi(item: Any, value: Any) -> Callable[[], List[str]]:
             logging.info(f"Synced tasks to POI: {synced}")
         return list(synced)
 
-    return apply
+    def undo() -> None:
+        with _quietly(item):
+            item.poi = old_poi
+        for pattern, point in reversed(old_points):
+            with _quietly(pattern):
+                pattern.point = point
+
+    return PreparedWrite(apply=apply, undo=undo)
 
 
 # name -> prepare(item, value): checks the value and plans every effect without
-# touching the item, returning the apply step (assignments only).
-_VALUE_WRITERS: Dict[str, Callable[[Any, Any], Callable[[], Any]]] = {
+# touching the item, returning how to apply it and how to undo it.
+_VALUE_WRITERS: Dict[str, Callable[[Any, Any], PreparedWrite]] = {
     "poi": _prepare_poi,
 }
 
@@ -238,16 +269,14 @@ def known_value_names() -> List[str]:
     return sorted(_VALUE_WRITERS)
 
 
-def prepare_values(
-    item: Any, kind: str, values: Dict[str, Any]
-) -> Callable[[], List[str]]:
+def prepare_values(item: Any, kind: str, values: Dict[str, Any]) -> PreparedWrite:
     """Check every confirmed value and plan every write, touching nothing.
 
     Refused (``ValueRefused``) when a name is not one the proposal's kind
     carries, when nothing consumes it, when a value has the wrong type, or when
-    the item cannot take it. Otherwise returns one step that applies them all
-    and returns the tasks whose patterns moved. A decision is all or nothing:
-    the caller appends it only once this has returned."""
+    the item cannot take it. Otherwise returns one write that applies them all
+    (returning the tasks whose patterns moved) and one undo that puts every
+    one of them back."""
     carried = PROPOSAL_KINDS[kind].values if kind in PROPOSAL_KINDS else ()
     foreign = [n for n in values if n not in carried]
     if foreign:
@@ -264,10 +293,14 @@ def prepare_values(
     def apply() -> List[str]:
         synced: List[str] = []
         for step in steps:
-            synced.extend(step() or [])
+            synced.extend(step.apply() or [])
         return synced
 
-    return apply
+    def undo() -> None:
+        for step in reversed(steps):
+            step.undo()
+
+    return PreparedWrite(apply=apply, undo=undo)
 
 
 def compute_delta(proposed: Any, confirmed: Any) -> Any:
@@ -326,6 +359,10 @@ class Decision:
     # "server" (an agent over the API). The author says who; this says where,
     # so an export can tell an inline answer from a tab decision.
     via: str = ""
+    # Which run of the producing task this decides: the task_id of the proposal
+    # the decider was shown. Experiment.decide refuses a decision that names no
+    # run, or a run the proposal is no longer from (the task re-ran since).
+    task_id: str = ""
 
     def __post_init__(self) -> None:
         # a string from the file, the wire or a test is accepted and parsed
@@ -339,6 +376,7 @@ class Decision:
             "reason": self.reason,
             "timestamp": self.timestamp,
             "via": self.via,
+            "task_id": self.task_id,
         }
 
     @classmethod
@@ -350,6 +388,7 @@ class Decision:
             reason=data.get("reason", ""),
             timestamp=data.get("timestamp", 0.0),
             via=data.get("via", ""),
+            task_id=data.get("task_id", ""),
         )
 
 
@@ -383,6 +422,13 @@ class Proposal:
     @property
     def pending(self) -> bool:
         return not self.decisions
+
+    @property
+    def task_id(self) -> str:
+        """The run that made this proposal: the producing task's task_id, stamped
+        on the provenance when it is proposed. What a decision names. Empty for
+        a proposal recorded before runs were named, which cannot be decided."""
+        return str(self.provenance.get("task_id") or "")
 
     @property
     def current(self) -> Optional[Decision]:
@@ -514,6 +560,11 @@ class DecisionResult:
     applied: bool
     reason: str = ""
     running: bool = False
+    # Why a refusal, for a client to act on: "missing_field" (the decision
+    # names no run), "stale_review" (the task re-ran since it was shown),
+    # "invalid_value" (the values cannot be confirmed as given). Empty when
+    # applied, and for the other refusals (running, nothing pending).
+    error_type: str = ""
     delta: Dict[str, Any] = field(default_factory=dict)
     synced_tasks: List[str] = field(default_factory=list)
 
@@ -522,6 +573,7 @@ class DecisionResult:
             "applied": self.applied,
             "reason": self.reason,
             "running": self.running,
+            "error_type": self.error_type,
             "delta": _encode_values(self.delta),
             "synced_tasks": list(self.synced_tasks),
         }

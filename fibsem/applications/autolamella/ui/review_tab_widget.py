@@ -1200,18 +1200,22 @@ class ReviewTabWidget(QWidget):
             author=self._experiment.author(),
             via="review",
             values=values,
+            task_id=proposal.task_id,  # the run shown, refused if it re-ran
         )
         self._apply(item, task_name, decision)
 
     def acknowledge_all(self) -> None:
-        """Record a look on every to-check proposal, one decision each with no
-        values (writes nothing), then one save. What was waiting is untouched."""
+        """Record a look on every to-check proposal listed, one decision each
+        with no values (writes nothing), then one save. What was waiting is
+        untouched. The list is the one shown, each by the run it showed: a task
+        that re-ran since is refused, and stays to check."""
         experiment = self._experiment
         if experiment is None:
             return
         author = experiment.author()
         done = 0
-        for item, task_name, _proposal in experiment.proposals_to_check():
+        listed = [e for e in self._entries if e[3] == "check"]
+        for item, task_name, proposal, _state in listed:
             result = experiment.decide(
                 item.id,
                 task_name,
@@ -1220,6 +1224,7 @@ class ReviewTabWidget(QWidget):
                     author=author,
                     values={},
                     via="review",
+                    task_id=proposal.task_id,
                 ),
             )
             if result.applied:
@@ -1254,6 +1259,7 @@ class ReviewTabWidget(QWidget):
             author=self._experiment.author(),
             via="review",
             reason=reason,
+            task_id=proposal.task_id,
         )
         self._apply(item, task_name, decision)
 

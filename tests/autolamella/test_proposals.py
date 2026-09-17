@@ -43,6 +43,8 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
 
 SETUP = "Setup Lamella Position"
+# the run a proposal is from, and that a decision names
+RUN = "run-1"
 ROUGH = "Rough Milling"
 
 
@@ -70,7 +72,11 @@ def _proposal(poi=Point(1e-6, 2e-6)) -> Proposal:
         alternatives=[
             Alternative(values={"poi": Point(5e-6, 0)}, score=0.3, reason="near bar")
         ],
-        provenance={"proposer": "centre", "reference_image": "ref_x.tif"},
+        provenance={
+            "proposer": "centre",
+            "reference_image": "ref_x.tif",
+            "task_id": RUN,
+        },
     )
 
 
@@ -81,6 +87,7 @@ def test_proposal_round_trips_through_yaml_with_points_intact():
     p = _proposal()
     p.decisions.append(
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(1.5e-6, 2e-6)},
@@ -98,7 +105,9 @@ def test_proposal_round_trips_through_yaml_with_points_intact():
 
 
 def test_a_decision_records_where_it_was_made():
-    d = Decision(outcome=DecisionOutcome.Confirmed, author="human:a", via="workflow")
+    d = Decision(
+        task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:a", via="workflow"
+    )
     assert Decision.from_dict(d.to_dict()).via == "workflow"
     assert Decision.from_dict({"outcome": "Confirmed", "author": "human:a"}).via == ""
 
@@ -109,6 +118,7 @@ def test_a_superseded_proposal_stays_on_the_record_flat_and_oldest_first():
     first = _proposal(Point(1e-6, 0))
     first.decisions.append(
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(2e-6, 0)},
@@ -133,6 +143,7 @@ def test_delta_is_computed_from_proposed_and_confirmed_never_declared():
     assert p.delta() == {}, "no decision, no delta"
     p.decisions.append(
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(1e-6, 2e-6)},
@@ -141,6 +152,7 @@ def test_delta_is_computed_from_proposed_and_confirmed_never_declared():
     assert p.delta()["poi"] == Point(0.0, 0.0), "confirmed unchanged: zero delta"
     p.decisions.append(
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(3e-6, 2e-6)},
@@ -164,22 +176,36 @@ def test_an_author_is_a_kind_and_a_name_and_travels_as_kind_colon_name():
         "no known prefix: a person whose name is the whole string"
     )
     assert Author.parse(a) is a
-    d = Decision(outcome=DecisionOutcome.Confirmed, author="auto:current-poi")
+    d = Decision(
+        task_id=RUN, outcome=DecisionOutcome.Confirmed, author="auto:current-poi"
+    )
     assert d.author == auto_author("current-poi"), "a string in is parsed"
     assert Decision.from_dict(d.to_dict()).author == d.author
     assert d.to_dict()["author"] == "auto:current-poi", "the file form is unchanged"
 
 
 def test_to_check_clears_only_when_a_person_looked():
-    p = Proposal(kind=POINT_OF_INTEREST, values={"poi": Point(0.0, 0.0)})
+    p = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(0.0, 0.0)},
+        provenance={"task_id": RUN},
+    )
     assert not p.to_check, "nothing decided yet: it is pending, not to check"
     p.decisions.append(
-        Decision(outcome=DecisionOutcome.Confirmed, author=auto_author("current-poi"))
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            author=auto_author("current-poi"),
+        )
     )
     assert p.to_check
-    p.decisions.append(Decision(outcome=DecisionOutcome.Confirmed, author="agent:x"))
+    p.decisions.append(
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="agent:x")
+    )
     assert p.to_check, "an agent looked; a person has not"
-    p.decisions.append(Decision(outcome=DecisionOutcome.Confirmed, author="human:op"))
+    p.decisions.append(
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op")
+    )
     assert not p.to_check
 
 
@@ -194,7 +220,9 @@ def test_items_persist_their_proposals(tmp_path):
     lamella = exp.positions[0]
     lamella.proposals[SETUP] = _proposal()
     grid = exp.add_grid(GridRecord(name="Grid-01"))
-    grid.proposals["overview"] = Proposal(kind="site_pick", values={"n": 3})
+    grid.proposals["overview"] = Proposal(
+        kind="site_pick", values={"n": 3}, provenance={"task_id": RUN}
+    )
     exp.save()
 
     again = Experiment.load(Path(exp.path) / "experiment.yaml")
@@ -233,6 +261,7 @@ def test_confirm_writes_the_value_through_and_syncs_patterns(tmp_path):
         lamella.id,
         SETUP,
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(2e-6, -1e-6)},
@@ -271,7 +300,12 @@ def test_a_decision_finishes_a_task_that_was_awaiting_one(tmp_path):
     exp.decide(
         lamella.id,
         SETUP,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": _proposal().values["poi"]},
+        ),
     )
 
     assert lamella.has_completed_task(SETUP)
@@ -291,6 +325,7 @@ def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
         lamella.id,
         SETUP,
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Rejected,
             author="human:op",
             reason="no usable site",
@@ -319,7 +354,12 @@ def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):
     exp.decide(
         lamella.id,
         SETUP,
-        Decision(outcome=DecisionOutcome.Rejected, author="human:op", reason="meh"),
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="meh",
+        ),
     )
 
     assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Completed
@@ -330,12 +370,19 @@ def test_reject_on_a_grid_proposal_creates_nothing_and_retires_nothing(tmp_path)
     exp = _experiment(tmp_path)
     register_proposal_kind(ProposalKind(name="site_pick", values=("sites",)))
     grid = exp.add_grid(GridRecord(name="Grid-01"))
-    grid.proposals["overview"] = Proposal(kind="site_pick", values={"sites": []})
+    grid.proposals["overview"] = Proposal(
+        kind="site_pick", values={"sites": []}, provenance={"task_id": RUN}
+    )
 
     result = exp.decide(
         grid.id,
         "overview",
-        Decision(outcome=DecisionOutcome.Rejected, author="human:op", reason="empty"),
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="empty",
+        ),
     )
 
     assert result.applied is True
@@ -349,7 +396,9 @@ def test_reject_needs_a_reason(tmp_path):
     lamella = exp.positions[0]
     lamella.proposals[SETUP] = _proposal()
     result = exp.decide(
-        lamella.id, SETUP, Decision(outcome=DecisionOutcome.Rejected, author="human:op")
+        lamella.id,
+        SETUP,
+        Decision(task_id=RUN, outcome=DecisionOutcome.Rejected, author="human:op"),
     )
     assert result.applied is False
     assert lamella.proposals[SETUP].pending
@@ -365,7 +414,12 @@ def test_confirming_a_value_nothing_consumes_is_refused_before_anything_is_writt
     result = exp.decide(
         lamella.id,
         SETUP,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={"n": 3}),
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"n": 3},
+        ),
     )
     assert result.applied is False and "does not carry ['n']" in result.reason
     assert lamella.proposals[SETUP].pending, "no half-applied decision was left"
@@ -422,6 +476,7 @@ def test_a_wrongly_typed_value_is_refused_and_nothing_moves(tmp_path, value):
         lamella.id,
         SETUP,
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": value},
@@ -439,13 +494,16 @@ def test_a_value_the_proposals_kind_does_not_carry_is_refused(tmp_path):
     """A task_result proposal carries no values: a poi confirmed on it is
     refused even though a writer for poi exists."""
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, Proposal(kind=TASK_RESULT), task_name=ROUGH)
+    lamella = _awaiting(
+        exp, Proposal(kind=TASK_RESULT, provenance={"task_id": RUN}), task_name=ROUGH
+    )
     before = _snapshot(lamella)
 
     result = exp.decide(
         lamella.id,
         ROUGH,
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
             author="agent:model",
             values={"poi": Point(5e-6, 5e-6)},
@@ -467,6 +525,7 @@ def test_an_item_that_cannot_take_the_value_is_refused(tmp_path):
         grid.id,
         "overview",
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(1e-6, 0.0)},
@@ -494,6 +553,7 @@ def test_a_planning_error_is_refused_before_the_decision_is_appended(
         lamella.id,
         SETUP,
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(1e-6, 0.0)},
@@ -503,6 +563,84 @@ def test_a_planning_error_is_refused_before_the_decision_is_appended(
     assert result.applied is False and "pattern has no point" in result.reason
     assert _snapshot(lamella) == before
     assert lamella.is_awaiting_decision(SETUP)
+
+
+def _raise(*_args):
+    raise RuntimeError("a subscriber failed")
+
+
+def test_a_subscriber_that_raises_on_the_poi_write_undoes_the_decision(tmp_path):
+    """Lamella is evented: assigning poi runs its subscribers. One that raises
+    fails the decision after planning; nothing may be left half-applied."""
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    before = _snapshot(lamella)
+    heard = []
+    exp.decided.connect(lambda *a: heard.append(a))
+    lamella.events.poi.connect(_raise)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(2e-6, -1e-6)},
+        ),
+    )
+
+    assert result.applied is False and "a subscriber failed" in result.reason
+    assert _snapshot(lamella) == before, "poi, patterns, record and task put back"
+    assert lamella.proposals[SETUP].pending
+    assert lamella.is_awaiting_decision(SETUP)
+    assert heard == []
+
+
+def test_a_failure_moving_the_task_status_undoes_the_values_too(tmp_path):
+    """The values land, then the status move raises: both are put back."""
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    before = _snapshot(lamella)
+    lamella.task_history[-1].events.status.connect(_raise)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(2e-6, -1e-6)},
+        ),
+    )
+
+    assert result.applied is False
+    assert _snapshot(lamella) == before
+    assert lamella.proposals[SETUP].pending
+
+
+def test_a_decided_subscriber_that_raises_does_not_unmake_the_decision(tmp_path):
+    """Once committed the decision stands; a failing listener is logged."""
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    exp.decided.connect(_raise)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(2e-6, -1e-6)},
+        ),
+    )
+
+    assert result.applied is True
+    assert lamella.poi == Point(2e-6, -1e-6)
+    assert not lamella.proposals[SETUP].pending
+    assert lamella.has_completed_task(SETUP)
 
 
 def test_sync_tasks_to_poi_moves_the_patterns_its_plan_names(tmp_path):
@@ -522,7 +660,9 @@ def test_sync_tasks_to_poi_moves_the_patterns_its_plan_names(tmp_path):
 def test_decide_refuses_a_missing_item_or_proposal(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    confirm = Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={})
+    confirm = Decision(
+        task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op", values={}
+    )
     assert exp.decide("no-such-id", SETUP, confirm).applied is False
     assert exp.decide(lamella.id, SETUP, confirm).applied is False
 
@@ -539,6 +679,7 @@ def test_decide_refuses_while_a_task_is_running_on_the_item(tmp_path):
         lamella.id,
         SETUP,
         Decision(
+            task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(1e-6, 0)},
@@ -551,26 +692,149 @@ def test_decide_refuses_while_a_task_is_running_on_the_item(tmp_path):
 
 
 def test_decisions_append_and_the_latest_is_current(tmp_path):
+    """A second decision is appended beside the first, never over it. On a
+    decided proposal a confirm is a look: it carries no values, so the applied
+    decision stays the first."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.proposals[SETUP] = _proposal(Point(0.0, 0.0))
     first = Decision(
+        task_id=RUN,
         outcome=DecisionOutcome.Confirmed,
         author="human:a",
         values={"poi": Point(1e-6, 0)},
     )
-    second = Decision(
-        outcome=DecisionOutcome.Confirmed,
-        author="human:b",
-        values={"poi": Point(3e-6, 0)},
-    )
-    exp.decide(lamella.id, SETUP, first)
-    exp.decide(lamella.id, SETUP, second)
+    second = Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:b")
+    assert exp.decide(lamella.id, SETUP, first).applied
+    assert exp.decide(lamella.id, SETUP, second).applied
     proposal = lamella.proposals[SETUP]
     assert [str(d.author) for d in proposal.decisions] == ["human:a", "human:b"]
     assert proposal.current is second
-    assert lamella.poi == Point(3e-6, 0)
-    assert proposal.delta()["poi"] == Point(3e-6, 0.0)
+    assert proposal.applied is first
+    assert lamella.poi == Point(1e-6, 0)
+
+
+# ── a decision names the run it saw; a look cannot edit (FIB-1003) ───────────
+
+
+def test_a_decision_that_names_no_run_is_refused(tmp_path):
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    before = _snapshot(lamella)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(1e-6, 0)},
+        ),
+    )
+
+    assert result.applied is False and result.error_type == "missing_field"
+    assert _snapshot(lamella) == before
+
+
+def test_a_decision_on_a_run_the_task_has_since_replaced_is_refused(tmp_path):
+    """The reviewer looked at run-1; the task re-ran and run-2 is pending now.
+    The decision on run-1 does not land on run-2."""
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    seen = lamella.proposals[SETUP]
+    lamella.proposals[SETUP] = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(7e-6, 0)},
+        provenance={"task_id": "run-2"},
+    )
+    before = _snapshot(lamella)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=seen.task_id,
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values=dict(seen.values),
+        ),
+    )
+
+    assert result.applied is False and result.error_type == "stale_review"
+    assert "re-run since you looked" in result.reason
+    assert _snapshot(lamella) == before
+    assert lamella.proposals[SETUP].pending
+
+
+def test_a_proposal_recorded_before_runs_were_named_cannot_be_decided(tmp_path):
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, Proposal(kind=TASK_RESULT), task_name=ROUGH)
+
+    result = exp.decide(
+        lamella.id,
+        ROUGH,
+        Decision(task_id=RUN, outcome=DecisionOutcome.Rejected, author="a", reason="x"),
+    )
+
+    assert result.applied is False and result.error_type == "stale_review"
+    assert "re-run it to decide it" in result.reason
+    assert lamella.proposals[ROUGH].pending
+
+
+def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
+    """A producer-applied proposal is to check. Confirming it records a look;
+    with values it would be an edit, and is refused."""
+    exp = _experiment(tmp_path)
+    lamella = exp.positions[0]
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.Completed)
+    )
+    lamella.proposals[SETUP] = _proposal(Point(1e-6, 0))
+    assert exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            author=auto_author("current-poi"),
+            values={"poi": Point(1e-6, 0)},
+        ),
+    ).applied
+    assert lamella.proposals[SETUP].to_check
+    before = _snapshot(lamella)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            author="agent:model",
+            values={"poi": Point(9e-6, 9e-6)},
+        ),
+    )
+
+    assert result.applied is False and result.error_type == "invalid_value"
+    assert "already decided" in result.reason
+    assert _snapshot(lamella) == before
+    assert lamella.proposals[SETUP].to_check, "the refused look is not a look"
+
+
+def test_an_empty_confirm_on_a_pending_proposal_with_values_is_refused(tmp_path):
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    before = _snapshot(lamella)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op"),
+    )
+
+    assert result.applied is False and result.error_type == "invalid_value"
+    assert "needs its values ['poi']" in result.reason
+    assert _snapshot(lamella) == before
+    assert lamella.is_awaiting_decision(SETUP)
 
 
 def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
@@ -583,6 +847,7 @@ def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
     proposal = lamella.proposals[SETUP]
     assert not proposal.to_check and proposal.applied is None, "pending, not applied"
     auto = Decision(
+        task_id=RUN,
         outcome=DecisionOutcome.Confirmed,
         author="auto:centre-of-image",
         values={"poi": Point(2e-6, 0)},
@@ -593,7 +858,9 @@ def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
     assert exp.pending_proposals() == []
     assert [t for _i, t, _p in exp.proposals_to_check()] == [SETUP]
 
-    ack = Decision(outcome=DecisionOutcome.Confirmed, author="human:a", values={})
+    ack = Decision(
+        task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:a", values={}
+    )
     result = exp.decide(lamella.id, SETUP, ack)
     assert result.applied and result.synced_tasks == [] and result.delta == {}
     assert not proposal.to_check and proposal.current is ack
@@ -644,6 +911,7 @@ def test_decide_and_save_share_the_write_lock(tmp_path):
                 lamella.id,
                 SETUP,
                 Decision(
+                    task_id=RUN,
                     outcome=DecisionOutcome.Confirmed,
                     author="human:op",
                     values={"poi": Point(1e-6, 0)},
