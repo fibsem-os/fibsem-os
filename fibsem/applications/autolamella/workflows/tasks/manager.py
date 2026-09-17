@@ -122,10 +122,165 @@ class BaseTaskManager:
 
     # --- Public API ---
 
+    def _on_decided(self, item_id: str, task_name: str) -> None:
+        self._decision_event.set()
+
+    def _review_wait(self) -> Optional[float]:
+        protocol = self.experiment.task_protocol
+        options = getattr(protocol, "options", None)
+        if options is None:
+            return 1800.0
+        return options.review_wait
+
+    def _wait_for_a_decision(self) -> bool:
+        """Nothing is runnable now. Wait for a decision that would change that,
+        or give up.
+
+        True: a decision landed, rescan. False: stop rescanning -- the run was
+        stopped, the wait ran out (``stalled``), or nothing left could ever be
+        unblocked by a decision, which is a bug in the plan rather than a stall
+        and is reported as one.
+        """
+        deferred = self.deferred_items()
+        awaiting = [i for i, reason in deferred if reason == "awaiting_decision"]
+        if not awaiting:
+            self.stalled = True
+            self.stall_reason = (
+                f"{len(deferred)} task(s) cannot run and no decision would change "
+                "that: "
+                + ", ".join(f"{i.item_name}/{i.task_name}" for i, _ in deferred)
+            )
+            logging.error(self.stall_reason)
+            return False
+
+        review_wait = self._review_wait()
+        n = len({i.item_name for i in awaiting})
+        self._set_hold(
+            Hold(
+                kind=HoldKind.review,
+                releases=f"decide {_named(sorted({i.item_name for i in awaiting}), self.ITEM_NOUN)} "
+                "in the Review tab",
+                items=tuple(f"{i.item_name}/{i.task_name}" for i in awaiting),
+            )
+        )
+        # The one place where "why is nothing happening" is a fair question:
+        # say so, once on the way in and once on the way out.
+        held = ", ".join(f"{i.item_name}/{i.task_name}" for i in awaiting)
+        started = time.monotonic()
+        try:
+            if review_wait is not None and review_wait <= 0:
+                self.stalled = True
+                self.stall_reason = (
+                    f"{n} decision(s) pending; not waiting (review_wait=0)."
+                )
+                logging.info(self.stall_reason)
+                return False
+
+            logging.info(
+                f"Parked: {len(awaiting)} task(s) wait on {n} decision(s) in the "
+                f"Review tab ({held}); "
+                + (
+                    "waiting until one is made."
+                    if review_wait is None
+                    else f"giving up after {format_duration(review_wait)} without one."
+                )
+            )
+            deadline = None if review_wait is None else time.monotonic() + review_wait
+            while not self.is_stopped:
+                timeout = 1.0
+                if deadline is not None:
+                    timeout = min(1.0, deadline - time.monotonic())
+                    if timeout <= 0:
+                        self.stalled = True
+                        self.stall_reason = (
+                            f"Timed out after {format_duration(review_wait)} "
+                            f"waiting for a review: {n} decision(s) still pending."
+                        )
+                        logging.warning(self.stall_reason)
+                        return False
+                if self._decision_event.wait(timeout):
+                    logging.info(
+                        "A decision landed after "
+                        f"{format_duration(time.monotonic() - started)} parked; "
+                        "rescanning the queue."
+                    )
+                    return True
+            logging.info("Stopped while parked on a decision.")
+            return False
+        finally:
+            self._set_hold(None)
+
     def closing_note(self) -> str:
-        """Why the run ended short of done, and what to do; empty when it
-        finished or was stopped. A grid run has no park to give up on."""
-        return ""
+        """Why the run ended short of done, and what to do: shown on the
+        workflow label, the status bar and the run summary's headline, so a
+        run that gave up waiting never reads as a finish. Empty otherwise."""
+        if not self.stalled:
+            return ""
+        return f"{self.stall_reason} Decide in the Review tab, then Run again."
+
+    def _set_hold(self, hold: Optional[Hold]) -> None:
+        """Tell the window who holds the run (None: nobody), and poke the status
+        channel so the chrome -- border, attention button, status bar --
+        redraws from it, the way a pending question does."""
+        if self.parent_ui is not None:
+            self.parent_ui.hold = hold
+        if hold is not None:
+            n = len(hold.items)
+            update_status_ui(
+                self.parent_ui,
+                "",
+                workflow_info=f"Waiting on {n} decision(s) before the next task can run.",
+                status_bar=f"Parked on {n} decision(s): {hold.releases}.",
+                check_abort=False,
+            )
+        else:
+            update_status_ui(self.parent_ui, "", status_bar="", check_abort=False)
+
+    # --- Deferral: what cannot run yet, and why ---
+
+    # How many of the items a hold names read, past three: "4 lamellae".
+    ITEM_NOUN = "lamellae"
+
+    def _item_defer_reason(self, item: WorkItem) -> Optional[str]:
+        """Why this pending item cannot run *yet*, or None. Each manager says
+        what defers its items; the base waits on it the same way for both."""
+        return None
+
+    def _is_deferred(self, item: WorkItem) -> bool:
+        """The queue's skip predicate: pass over, do not retire."""
+        return self._item_defer_reason(item) is not None
+
+    def deferred_items(self) -> List[Tuple[WorkItem, str]]:
+        """Every pending item that cannot run now, with why. What a stalled run
+        reports, and what the UI can label; derived here, never stored."""
+        deferred = []
+        for item in self.queue.pending:
+            reason = self._item_defer_reason(item)
+            if reason is not None:
+                deferred.append((item, reason))
+        return deferred
+
+    def _report_stall(self) -> None:
+        """The run drained with work waiting on decisions and gave up: the
+        WORKFLOW_STALLED hook, the log, and the closing note on the label and
+        the status bar."""
+        pending = sum(
+            1 for _i, reason in self.deferred_items() if reason == "awaiting_decision"
+        )
+        fire_event(
+            self.hook_manager,
+            HookEvent.WORKFLOW_STALLED,
+            decisions_pending=pending,
+            **self.hook_run_context(),
+        )
+        logging.warning(f"Workflow stalled: {self.stall_reason}")
+        update_status_ui(
+            self.parent_ui,
+            "",
+            workflow_info=f"Workflow stalled: {self.closing_note()}",
+            status_bar=f"Workflow stalled: {self.closing_note()}",
+            check_abort=False,
+        )
 
     def stop(self) -> None:
         """Signal the manager to stop after current task completes."""
@@ -317,10 +472,10 @@ class BaseTaskManager:
         )
 
 
-def _named(names: List[str]) -> str:
+def _named(names: List[str], noun: str = "lamellae") -> str:
     """'01-a', '01-a and 02-b', '01-a, 02-b and 03-c', '4 lamellae'."""
     if len(names) > 3:
-        return f"{len(names)} lamellae"
+        return f"{len(names)} {noun}"
     if len(names) <= 1:
         return "".join(names)
     return f"{', '.join(names[:-1])} and {names[-1]}"
@@ -379,119 +534,11 @@ class TaskManager(BaseTaskManager):
         lamella = self.experiment.get_lamella_by_name(lamella_name)
         return lamella is not None and lamella.is_awaiting_decision(task_name)
 
-    def _on_decided(self, item_id: str, task_name: str) -> None:
-        self._decision_event.set()
-
-    def _review_wait(self) -> Optional[float]:
-        protocol = self.experiment.task_protocol
-        options = getattr(protocol, "options", None)
-        if options is None:
-            return 1800.0
-        return options.review_wait
-
-    def _wait_for_a_decision(self) -> bool:
-        """Nothing is runnable now. Wait for a decision that would change that,
-        or give up.
-
-        True: a decision landed, rescan. False: stop rescanning -- the run was
-        stopped, the wait ran out (``stalled``), or nothing left could ever be
-        unblocked by a decision, which is a bug in the plan rather than a stall
-        and is reported as one.
-        """
-        deferred = self.deferred_items()
-        awaiting = [i for i, reason in deferred if reason == "awaiting_decision"]
-        if not awaiting:
-            self.stalled = True
-            self.stall_reason = (
-                f"{len(deferred)} task(s) cannot run and no decision would change "
-                "that: "
-                + ", ".join(f"{i.item_name}/{i.task_name}" for i, _ in deferred)
-            )
-            logging.error(self.stall_reason)
-            return False
-
-        review_wait = self._review_wait()
-        n = len({i.item_name for i in awaiting})
-        self._set_hold(
-            Hold(
-                kind=HoldKind.review,
-                releases=f"decide {_named(sorted({i.item_name for i in awaiting}))} "
-                "in the Review tab",
-                items=tuple(f"{i.item_name}/{i.task_name}" for i in awaiting),
-            )
-        )
-        # The one place where "why is nothing happening" is a fair question:
-        # say so, once on the way in and once on the way out.
-        held = ", ".join(f"{i.item_name}/{i.task_name}" for i in awaiting)
-        started = time.monotonic()
-        try:
-            if review_wait is not None and review_wait <= 0:
-                self.stalled = True
-                self.stall_reason = (
-                    f"{n} decision(s) pending; not waiting (review_wait=0)."
-                )
-                logging.info(self.stall_reason)
-                return False
-
-            logging.info(
-                f"Parked: {len(awaiting)} task(s) wait on {n} decision(s) in the "
-                f"Review tab ({held}); "
-                + (
-                    "waiting until one is made."
-                    if review_wait is None
-                    else f"giving up after {format_duration(review_wait)} without one."
-                )
-            )
-            deadline = None if review_wait is None else time.monotonic() + review_wait
-            while not self.is_stopped:
-                timeout = 1.0
-                if deadline is not None:
-                    timeout = min(1.0, deadline - time.monotonic())
-                    if timeout <= 0:
-                        self.stalled = True
-                        self.stall_reason = (
-                            f"Timed out after {format_duration(review_wait)} "
-                            f"waiting for a review: {n} decision(s) still pending."
-                        )
-                        logging.warning(self.stall_reason)
-                        return False
-                if self._decision_event.wait(timeout):
-                    logging.info(
-                        "A decision landed after "
-                        f"{format_duration(time.monotonic() - started)} parked; "
-                        "rescanning the queue."
-                    )
-                    return True
-            logging.info("Stopped while parked on a decision.")
-            return False
-        finally:
-            self._set_hold(None)
-
-    def closing_note(self) -> str:
-        """Why the run ended short of done, and what to do: shown on the
-        workflow label, the status bar and the run summary's headline, so a
-        run that gave up waiting never reads as a finish. Empty otherwise."""
-        if not self.stalled:
-            return ""
-        return f"{self.stall_reason} Decide in the Review tab, then Run again."
-
-    def _set_hold(self, hold: Optional[Hold]) -> None:
-        """Tell the window who holds the run (None: nobody), and poke the status
-        channel so the chrome -- border, attention button, status bar --
-        redraws from it, the way a pending question does."""
-        if self.parent_ui is not None:
-            self.parent_ui.hold = hold
-        if hold is not None:
-            n = len(hold.items)
-            update_status_ui(
-                self.parent_ui,
-                "",
-                workflow_info=f"Waiting on {n} decision(s) before the next task can run.",
-                status_bar=f"Parked on {n} decision(s): {hold.releases}.",
-                check_abort=False,
-            )
-        else:
-            update_status_ui(self.parent_ui, "", status_bar="", check_abort=False)
+    def _item_defer_reason(self, item: WorkItem) -> Optional[str]:
+        lamella = self.experiment.get_lamella_by_name(item.item_name)
+        if lamella is None or lamella.is_failure:
+            return None  # let the loop retire it with a reason
+        return self._defer_reason(lamella, item.task_name)
 
     def _run_queue(self) -> None:
         """Process queue items until empty or stopped."""
@@ -618,25 +665,7 @@ class TaskManager(BaseTaskManager):
             # cancelled -- nobody pressed Stop. The experiment is not finishable
             # from here either. Items that never ran stay NotStarted; the tasks
             # awaiting a decision stay so; the next Run picks up from there.
-            pending = sum(
-                1
-                for _i, reason in self.deferred_items()
-                if reason == "awaiting_decision"
-            )
-            fire_event(
-                self.hook_manager,
-                HookEvent.WORKFLOW_STALLED,
-                decisions_pending=pending,
-                **self.hook_run_context(),
-            )
-            logging.warning(f"Workflow stalled: {self.stall_reason}")
-            update_status_ui(
-                self.parent_ui,
-                "",
-                workflow_info=f"Workflow stalled: {self.closing_note()}",
-                status_bar=f"Workflow stalled: {self.closing_note()}",
-                check_abort=False,
-            )
+            self._report_stall()
         else:
             self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
             update_status_ui(
@@ -845,26 +874,6 @@ class TaskManager(BaseTaskManager):
             ):
                 return "prereq_pending"
         return None
-
-    def _is_deferred(self, item: WorkItem) -> bool:
-        """The queue's skip predicate: pass over, do not retire."""
-        lamella = self.experiment.get_lamella_by_name(item.item_name)
-        if lamella is None or lamella.is_failure:
-            return False  # let the loop retire it with a reason
-        return self._defer_reason(lamella, item.task_name) is not None
-
-    def deferred_items(self) -> List[Tuple[WorkItem, str]]:
-        """Every pending item that cannot run now, with why. What a stalled run
-        reports, and what the UI can label; derived here, never stored."""
-        deferred = []
-        for item in self.queue.pending:
-            lamella = self.experiment.get_lamella_by_name(item.item_name)
-            if lamella is None or lamella.is_failure:
-                continue
-            reason = self._defer_reason(lamella, item.task_name)
-            if reason is not None:
-                deferred.append((item, reason))
-        return deferred
 
     def _should_skip(self, lamella: "Lamella", task_name: str) -> Optional[str]:
         """Return skip reason string, or None if task should run. Terminal: a

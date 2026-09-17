@@ -592,6 +592,12 @@ class GridTaskProtocol:
         if task_name in self.order:
             self.order.remove(task_name)
 
+    def requirements(self, task_name: str) -> List[str]:
+        """The tasks ``task_name`` requires on the same grid; none for a task
+        the protocol does not have."""
+        config = self.task_config.get(task_name)
+        return list(config.requires) if config is not None else []
+
     @property
     def ordered_task_names(self) -> List[str]:
         """`order` first, then anything in `task_config` it forgot to mention."""

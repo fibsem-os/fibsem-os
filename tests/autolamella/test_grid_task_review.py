@@ -8,6 +8,8 @@ finishes it.
 """
 
 import os
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -34,12 +36,15 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    LOAD_ENTRY_NAME,
     GridTaskManager,
 )
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 
 GRID = "Grid-01"
+OTHER_GRID = "Grid-02"
 OVERVIEW = "overview_sem"
+LATER = "overview_fib"
 
 
 class _Signal:
@@ -121,6 +126,24 @@ class TestAttentionOnTheConfig:
         data["attention"] = "sometimes"
         again = GridTaskProtocol.from_dict({"tasks": {OVERVIEW: data}})
         assert again.task_config[OVERVIEW].attention is Attention.automated
+
+    def test_requires_round_trips_and_is_not_a_form_parameter(self):
+        protocol = GridTaskProtocol()
+        protocol.add(BeamOverviewGridTaskConfig(task_name=OVERVIEW))
+        protocol.add(BeamOverviewGridTaskConfig(task_name=LATER, requires=[OVERVIEW]))
+        assert "requires" not in protocol.task_config[LATER].parameters
+        again = GridTaskProtocol.from_dict(
+            yaml.safe_load(yaml.safe_dump(protocol.to_dict()))
+        )
+        assert again.requirements(LATER) == [OVERVIEW]
+        assert again.requirements(OVERVIEW) == []
+        assert again.requirements("not a task") == []
+
+    def test_a_malformed_requires_reads_as_none_and_keeps_the_task(self):
+        data = BeamOverviewGridTaskConfig(task_name=LATER).to_dict()
+        data["requires"] = OVERVIEW  # a string, not a list
+        again = GridTaskProtocol.from_dict({"tasks": {LATER: data}})
+        assert again.requirements(LATER) == []
 
     def test_a_protocol_written_before_attention_loads_as_automated(self):
         data = BeamOverviewGridTaskConfig(task_name=OVERVIEW).to_dict()
@@ -215,3 +238,257 @@ def test_item_path_is_a_lamellas_own_and_a_grids_derived(tmp_path, experiment):
     assert experiment.item_path(grid) == experiment.grid_path(grid)
     lamella = Lamella(path=tmp_path / "lam-01", number=1, petname="lam-01")
     assert experiment.item_path(lamella) == Path(lamella.path)
+
+
+# ---------------------------------------------------------------------------
+# The run waits on a decision (FIB-1002 PR 4)
+# ---------------------------------------------------------------------------
+
+
+def _with_later_task(experiment, review_wait, requires=(OVERVIEW,)):
+    """The SEM overview under review, then an automated FIB overview that
+    requires it (a stand-in for a task that uses the overview)."""
+    experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.review
+    experiment.grid_protocol.add(
+        BeamOverviewGridTaskConfig(
+            task_name=LATER,
+            requires=list(requires),
+            orientation="FIB",
+            settings=OverviewAcquisitionSettings(
+                image_settings=ImageSettings(
+                    resolution=(128, 128), hfw=200e-6, beam_type=BeamType.ION
+                ),
+                nrows=1,
+                ncols=1,
+            ),
+        )
+    )
+    experiment.task_protocol.options.review_wait = review_wait
+
+
+def _manager(microscope, experiment, hook_manager=None) -> GridTaskManager:
+    manager = GridTaskManager(microscope, experiment, hook_manager=hook_manager)
+    manager.review_enabled = True
+    return manager
+
+
+def _decide_when(experiment, grid_name, ready, outcome, reason=""):
+    """Decide the SEM overview on a thread once ``ready()`` holds. Through
+    _decide, the unmarshalled inner: the wake-up is the subject here, the main
+    thread hop is covered in tests/ui/test_decide_main_thread.py."""
+
+    def run():
+        deadline = time.monotonic() + 30
+        while not ready() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        grid = experiment.get_grid_by_name(grid_name)
+        experiment._decide(
+            grid.id,
+            OVERVIEW,
+            Decision(
+                outcome=outcome,
+                author="human:op",
+                reason=reason,
+                task_id=grid.proposals[OVERVIEW].task_id,
+            ),
+        )
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread
+
+
+def _ran(grid, task_name):
+    return [t for t in grid.task_history if t.name == task_name]
+
+
+class TestTheGridRunWaitsOnADecision:
+    def test_a_later_task_waits_and_the_run_stalls_when_nobody_decides(
+        self, microscope, experiment
+    ):
+        from fibsem.hooks import FunctionHook, HookEvent, HookManager
+
+        _with_later_task(experiment, review_wait=0)
+        fired = []
+        hooks = HookManager()
+        hooks.register(
+            FunctionHook(name="rec", events=list(HookEvent), callback=fired.append)
+        )
+        manager = _manager(microscope, experiment, hook_manager=hooks)
+
+        manager.run([OVERVIEW, LATER], [GRID])
+
+        grid = experiment.get_grid_by_name(GRID)
+        assert grid.is_awaiting_decision(OVERVIEW)
+        assert _ran(grid, LATER) == [], "the later task did not run"
+        assert manager.queue.has_pending_pair(GRID, LATER), "deferred, not retired"
+        assert manager.stalled is True
+        assert "Decide in the Review tab, then Run again." in manager.closing_note()
+        assert fired[-1].event == "workflow_stalled"
+        assert fired[-1].decisions_pending == 1
+
+    def test_a_confirm_wakes_the_run_and_the_later_task_runs(
+        self, microscope, experiment
+    ):
+        _with_later_task(experiment, review_wait=30.0)
+        manager = _manager(microscope, experiment)
+        grid = experiment.get_grid_by_name(GRID)
+        thread = _decide_when(
+            experiment,
+            GRID,
+            lambda: grid.is_awaiting_decision(OVERVIEW) and manager.deferred_items(),
+            DecisionOutcome.Confirmed,
+        )
+        started = time.monotonic()
+
+        manager.run([OVERVIEW, LATER], [GRID])
+        thread.join(5)
+
+        assert time.monotonic() - started < 25, "woke on the decision, not the timeout"
+        assert manager.stalled is False
+        assert grid.has_completed_task(OVERVIEW)
+        assert [t.status for t in _ran(grid, LATER)] == [
+            AutoLamellaTaskStatus.Completed
+        ]
+        assert manager.closing_note() == ""
+
+    def test_a_reject_fails_the_task_and_skips_what_requires_it(
+        self, microscope, experiment
+    ):
+        from fibsem.hooks import FunctionHook, HookEvent, HookManager
+
+        _with_later_task(experiment, review_wait=30.0)
+        fired = []
+        hooks = HookManager()
+        hooks.register(
+            FunctionHook(name="rec", events=list(HookEvent), callback=fired.append)
+        )
+        manager = _manager(microscope, experiment, hook_manager=hooks)
+        grid = experiment.get_grid_by_name(GRID)
+        thread = _decide_when(
+            experiment,
+            GRID,
+            lambda: grid.is_awaiting_decision(OVERVIEW) and manager.deferred_items(),
+            DecisionOutcome.Rejected,
+            reason="all ice",
+        )
+
+        manager.run([OVERVIEW, LATER], [GRID])
+        thread.join(5)
+
+        assert _ran(grid, OVERVIEW)[-1].status is AutoLamellaTaskStatus.Failed
+        assert "all ice" in _ran(grid, OVERVIEW)[-1].status_message
+        assert _ran(grid, LATER) == [], "skipped, never run"
+        (later,) = [i for i in manager.queue.items if i.task_name == LATER]
+        assert later.status is AutoLamellaTaskStatus.Skipped
+        skipped = [c for c in fired if c.event == "task_skipped"]
+        assert [(c.task_name, c.skip_reason) for c in skipped] == [
+            (LATER, "missing_prereqs")
+        ]
+        assert not manager.stalled
+
+    def test_the_run_moves_on_to_the_next_grid_while_one_waits(
+        self, microscope, experiment
+    ):
+        """Waiting on Grid-01 does not hold the beam: Grid-02 is loaded and its
+        overview taken. Each decision then releases its own grid's later task,
+        Grid-01's with an exchange back to it."""
+        _with_later_task(experiment, review_wait=60.0)
+        manager = _manager(microscope, experiment)
+        first = experiment.get_grid_by_name(GRID)
+        second = experiment.get_grid_by_name(OTHER_GRID)
+        both_waiting = lambda: (  # noqa: E731
+            first.is_awaiting_decision(OVERVIEW)
+            and second.is_awaiting_decision(OVERVIEW)
+        )
+        decide_first = _decide_when(
+            experiment, GRID, both_waiting, DecisionOutcome.Confirmed
+        )
+        decide_second = _decide_when(
+            experiment,
+            OTHER_GRID,
+            lambda: bool(_ran(first, LATER)),
+            DecisionOutcome.Confirmed,
+        )
+
+        manager.run([OVERVIEW, LATER], [GRID, OTHER_GRID])
+        decide_first.join(5)
+        decide_second.join(5)
+
+        assert not manager.stalled
+        assert first.has_completed_task(LATER) and second.has_completed_task(LATER)
+        assert _ran(second, OVERVIEW)[-1].start_timestamp < (
+            _ran(first, LATER)[-1].start_timestamp
+        ), "Grid-02 was run while Grid-01 waited"
+        assert len(_ran(first, LOAD_ENTRY_NAME)) == 2, "and Grid-01 was loaded again"
+
+    def test_run_leaves_out_a_task_already_awaiting_a_decision(
+        self, microscope, experiment
+    ):
+        _with_later_task(experiment, review_wait=0)
+        _manager(microscope, experiment).run([OVERVIEW], [GRID])
+        grid = experiment.get_grid_by_name(GRID)
+        assert grid.is_awaiting_decision(OVERVIEW)
+        runs = len(_ran(grid, OVERVIEW))
+
+        again = _manager(microscope, experiment)
+        again.run([OVERVIEW], [GRID])
+
+        assert len(_ran(grid, OVERVIEW)) == runs, "not re-run over the pending look"
+        assert not again.queue.has_pending_pair(GRID, OVERVIEW)
+        assert grid.proposals[OVERVIEW].pending
+
+    def test_review_on_a_task_nothing_requires_holds_nothing(
+        self, microscope, experiment
+    ):
+        """The overview waits in the Review tab to be looked at; the run goes on."""
+        _with_later_task(experiment, review_wait=0, requires=())
+        manager = _manager(microscope, experiment)
+
+        manager.run([OVERVIEW, LATER], [GRID])
+
+        grid = experiment.get_grid_by_name(GRID)
+        assert grid.is_awaiting_decision(OVERVIEW)
+        assert grid.has_completed_task(LATER)
+        assert not manager.stalled and manager.deferred_items() == []
+
+    def test_a_requirement_queued_later_runs_first(self, microscope, experiment):
+        """Selected in the other order, the task waits for its requirement's
+        turn (prereq_pending) instead of skipping over it."""
+        _with_later_task(experiment, review_wait=0)
+        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.automated
+        manager = _manager(microscope, experiment)
+
+        manager.run([LATER, OVERVIEW], [GRID])
+
+        grid = experiment.get_grid_by_name(GRID)
+        assert grid.has_completed_task(OVERVIEW) and grid.has_completed_task(LATER)
+        assert _ran(grid, OVERVIEW)[-1].end_timestamp <= (
+            _ran(grid, LATER)[-1].start_timestamp
+        )
+
+    def test_a_failed_requirement_skips_the_task_without_waiting(
+        self, microscope, experiment
+    ):
+        _with_later_task(experiment, review_wait=0)
+        # an orientation the stage does not have: the overview fails in the task
+        experiment.grid_protocol.task_config[OVERVIEW].orientation = "NOWHERE"
+        manager = _manager(microscope, experiment)
+
+        manager.run([OVERVIEW, LATER], [GRID])
+
+        grid = experiment.get_grid_by_name(GRID)
+        assert _ran(grid, OVERVIEW)[-1].status is AutoLamellaTaskStatus.Failed
+        assert _ran(grid, LATER) == []
+        assert not manager.stalled
+
+    def test_with_review_off_nothing_waits(self, microscope, experiment):
+        _with_later_task(experiment, review_wait=0)
+        manager = _manager(microscope, experiment)
+        manager.review_enabled = False
+
+        manager.run([OVERVIEW, LATER], [GRID])
+
+        grid = experiment.get_grid_by_name(GRID)
+        assert grid.has_completed_task(OVERVIEW) and grid.has_completed_task(LATER)
+        assert not manager.stalled

@@ -241,6 +241,30 @@ class TestAttentionChip:
         assert config.attention is Attention.automated
 
 
+def test_review_on_a_task_nothing_requires_says_nothing_waits(
+    qapp, arctis, experiment, monkeypatch
+):
+    """As on the lamella list: a Review chip on a task no other task requires
+    holds nothing, and the row says so until something requires it."""
+    import fibsem.applications.autolamella.ui.grid_workflow_widget as module
+
+    monkeypatch.setattr(module, "_review_available", lambda: True)
+    experiment.grid_protocol.task_config["overview_sem"].attention = Attention.review
+    widget = GridWorkflowWidget()
+    widget.set_microscope(arctis)
+    widget.set_experiment(experiment)
+    row = widget._task_rows["overview_sem"]
+    assert row.detail_label.text() == "nothing waits on this"
+    assert "nothing waits" in row.btn_attention.toolTip()
+
+    experiment.grid_protocol.task_config["overview_fm"].requires = ["overview_sem"]
+    widget._rebuild()
+    row = widget._task_rows["overview_sem"]
+    assert row.detail_label.text() != "nothing waits on this"
+    assert "the tasks that require it wait" in row.btn_attention.toolTip()
+    widget.close()
+
+
 def test_the_review_tab_loads_a_grid_proposals_image_from_the_grid_directory(
     experiment,
 ):
