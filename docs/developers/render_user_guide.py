@@ -1877,7 +1877,7 @@ def render_workflows(h: Harness) -> None:
         while (h.ui.is_workflow_running or waited < 2000) and waited < 1200000:
             h.pump(250)
             waited += 250
-            if not h.ui.WAITING_FOR_USER_INTERACTION:
+            if h.ui.hold is None:
                 continue
             h.pump(1200)
             if queue_shots:
@@ -2379,7 +2379,7 @@ def render_correlation(h: Harness) -> None:
     while (h.ui.is_workflow_running or waited < 2000) and waited < 1200000:
         h.pump(250)
         waited += 250
-        if not h.ui.WAITING_FOR_USER_INTERACTION:
+        if h.ui.hold is None:
             continue
         h.pump(1200)
         question = h.ui.ui_responder.pending_question

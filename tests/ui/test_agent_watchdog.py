@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.structures import MicroscopeState
 
 
@@ -73,21 +74,22 @@ def agent_question_standing(main_ui, tmp_path):
         ui.experiment,
         ui._agent_server_host,
         main_ui._current_task_name,
-        ui.WAITING_FOR_USER_INTERACTION,
+        ui.hold,
     )
     ui.experiment = experiment
     ui._agent_server_host = _RunningHost()
     main_ui._current_task_name = "Mill Fiducial"
-    ui.WAITING_FOR_USER_INTERACTION = True
+    ui.hold = Hold(
+        HoldKind.question, 0.0, "you", "answer the question on the Microscope tab"
+    )
     yield experiment
     main_ui._agent_watchdog.stop()
     main_ui._agent_liveness_check.stop()
-    main_ui._agent_watchdog_expired = False
     (
         ui.experiment,
         ui._agent_server_host,
         main_ui._current_task_name,
-        ui.WAITING_FOR_USER_INTERACTION,
+        ui.hold,
     ) = previous
     main_ui._refresh_workflow_indicators()
 
@@ -95,6 +97,7 @@ def agent_question_standing(main_ui, tmp_path):
 def test_an_agent_question_holds_purple_and_quiet(main_ui, agent_question_standing):
     main_ui._on_question_event("prompt_raised", {})
     assert main_ui._agent_watchdog.isActive()
+    assert main_ui.autolamella_ui.hold.kind is HoldKind.agent
     assert main_ui._border_state == "agent"  # not "waiting"
     assert main_ui.user_attention_btn.isHidden()
 
@@ -102,12 +105,11 @@ def test_an_agent_question_holds_purple_and_quiet(main_ui, agent_question_standi
 def test_an_answer_disarms_the_watchdog(main_ui, agent_question_standing):
     main_ui._on_question_event("prompt_raised", {})
     assert main_ui._agent_watchdog.isActive()
-    main_ui.autolamella_ui.WAITING_FOR_USER_INTERACTION = False
+    main_ui.autolamella_ui.hold = None
     main_ui._on_question_event(
         "prompt_answered", {"answered_by": "agent", "response": True}
     )
     assert not main_ui._agent_watchdog.isActive()
-    assert main_ui._agent_watchdog_expired is False
 
 
 def test_expiry_hands_the_question_to_the_operator(
@@ -119,11 +121,12 @@ def test_expiry_hands_the_question_to_the_operator(
     assert main_ui._border_state == "agent"
 
     deadline = time.monotonic() + 5
-    while not main_ui._agent_watchdog_expired and time.monotonic() < deadline:
+    ui = main_ui.autolamella_ui
+    while ui.hold.kind is HoldKind.agent and time.monotonic() < deadline:
         qapp.processEvents()
         time.sleep(0.01)
 
-    assert main_ui._agent_watchdog_expired is True
+    assert ui.hold.kind is HoldKind.question  # handed to the operator
     assert main_ui._border_state == "waiting"  # the ordinary chrome took over
     assert not main_ui.user_attention_btn.isHidden()
 
@@ -134,14 +137,15 @@ def test_a_human_question_escalates_immediately(main_ui, agent_question_standing
     task.supervisor = "human"
     main_ui._on_question_event("prompt_raised", {})
     assert not main_ui._agent_watchdog.isActive()
+    assert main_ui.autolamella_ui.hold.kind is HoldKind.question
     assert main_ui._border_state == "waiting"
     assert not main_ui.user_attention_btn.isHidden()
 
 
 def test_expiry_with_nothing_standing_is_a_noop(main_ui, agent_question_standing):
-    main_ui.autolamella_ui.WAITING_FOR_USER_INTERACTION = False
+    main_ui.autolamella_ui.hold = None
     main_ui._on_agent_watchdog_expired()
-    assert main_ui._agent_watchdog_expired is False
+    assert main_ui.autolamella_ui.hold is None
 
 
 def test_a_question_for_an_absent_agent_is_yours_immediately(
@@ -153,7 +157,7 @@ def test_a_question_for_an_absent_agent_is_yours_immediately(
     ui._agent_server_host.agent_seconds_since_seen = lambda: None
     main_ui._on_question_event("prompt_raised", {})
 
-    assert main_ui._agent_watchdog_expired is True
+    assert ui.hold.kind is HoldKind.question
     assert not main_ui._agent_watchdog.isActive()
     assert not main_ui._agent_liveness_check.isActive()
     assert main_ui._border_state == "waiting"
@@ -177,7 +181,7 @@ def test_an_agent_that_dies_mid_question_hands_over_early(
     ui._agent_server_host.seconds_since_seen = AGENT_PRESUMED_GONE_S + 1.0
     main_ui._on_agent_liveness_check()
 
-    assert main_ui._agent_watchdog_expired is True
+    assert ui.hold.kind is HoldKind.question
     assert not main_ui._agent_watchdog.isActive()
     assert not main_ui._agent_liveness_check.isActive()
     assert main_ui._border_state == "waiting"
@@ -191,5 +195,5 @@ def test_a_live_agent_still_gets_the_full_deadline(main_ui, agent_question_stand
     main_ui._on_agent_liveness_check()  # heard from 1 s ago: nothing changes
 
     assert main_ui._agent_watchdog.isActive()
-    assert main_ui._agent_watchdog_expired is False
+    assert main_ui.autolamella_ui.hold.kind is HoldKind.agent
     assert main_ui._border_state == "agent"

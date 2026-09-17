@@ -16,6 +16,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 
 
 @pytest.fixture
@@ -74,13 +75,15 @@ def test_a_status_event_leaves_a_pending_question_alone(ui):
     # The reason the channel exists: an answer belongs to one request, and merely
     # saying something must not complete it. The polled flag is gone entirely;
     # the display state a parked question sets must survive a status emit.
-    ui.WAITING_FOR_USER_INTERACTION = True
+    ui.hold = Hold(
+        HoldKind.question, 0.0, "you", "answer the question on the Microscope tab"
+    )
 
     ui.workflow_status_signal.emit(_status_event("Moving stage..."))
 
-    assert ui.WAITING_FOR_USER_INTERACTION is True
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
     assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
-    ui.WAITING_FOR_USER_INTERACTION = False
+    ui.hold = None
 
 
 def test_a_message_of_none_leaves_the_prompt_standing(ui):

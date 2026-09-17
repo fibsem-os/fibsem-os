@@ -24,6 +24,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.applications.autolamella.workflows.ui import ask_user
 
 
@@ -77,7 +78,7 @@ def test_the_yes_click_answers_true(ui, qapp):
     # waiting display state is on for the attention button and border.
     assert ui.pushButton_yes.text() == "Continue"
     assert ui.pushButton_no.text() == "Exit"
-    assert ui.WAITING_FOR_USER_INTERACTION is True
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)
@@ -115,7 +116,7 @@ def test_the_prompt_comes_down_with_the_answer(ui, qapp):
 
     assert not ui.label_instructions.isVisibleTo(ui)
     assert not ui.pushButton_yes.isVisibleTo(ui)
-    assert ui.WAITING_FOR_USER_INTERACTION is False
+    assert ui.hold is None
 
 
 def test_a_stop_interrupts_a_prompt_nobody_answers(ui, qapp):

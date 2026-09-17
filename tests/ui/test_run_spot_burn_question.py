@@ -25,6 +25,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.workflows.interaction import RunSpotBurn, ask
+from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import Point
 
@@ -132,7 +133,7 @@ def test_run_then_continue_burns_once_and_answers_the_settings(ui, qapp):
     assert ui.pushButton_yes.text() == "Run Spot Burn"
     assert ui.pushButton_no.text() == "Continue"
     assert ui.spot_burn_widget._workflow_mode is True
-    assert ui.WAITING_FOR_USER_INTERACTION is True
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()  # run
     # Prompt down while burning; back when the widget's finished signal fires.
@@ -149,7 +150,7 @@ def test_run_then_continue_burns_once_and_answers_the_settings(ui, qapp):
     assert len(settings.coordinates) == 1
     # The question cleared the widget on its way out.
     assert ui.spot_burn_widget._workflow_mode is False
-    assert ui.WAITING_FOR_USER_INTERACTION is False
+    assert ui.hold is None
     assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
 
 
