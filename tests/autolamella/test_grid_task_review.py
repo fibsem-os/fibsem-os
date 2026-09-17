@@ -168,11 +168,16 @@ class TestAGridTaskProposes:
         assert grid.task_state.status is AutoLamellaTaskStatus.AwaitingDecision
         assert grid.proposals[OVERVIEW].pending
         assert not grid.has_completed_task(OVERVIEW)
+        assert grid.proposals[OVERVIEW].task_id == grid.task_history[-1].task_id
 
         result = experiment.decide(
             grid.id,
             OVERVIEW,
-            Decision(outcome=DecisionOutcome.Confirmed, author="human:op"),
+            Decision(
+                outcome=DecisionOutcome.Confirmed,
+                author="human:op",
+                task_id=grid.proposals[OVERVIEW].task_id,
+            ),
         )
         assert result.applied is True
         assert grid.has_completed_task(OVERVIEW)

@@ -44,7 +44,9 @@ def _experiment(tmp_path) -> Experiment:
         EventedDict({SETUP: SelectMillingPositionTaskConfig(task_name=SETUP)}),
     )
     exp.positions[0].proposals[SETUP] = Proposal(
-        kind=POINT_OF_INTEREST, values={"poi": Point(0.0, 0.0)}
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(0.0, 0.0)},
+        provenance={"task_id": "run-1"},
     )
     return exp
 
@@ -73,6 +75,7 @@ def test_decide_from_a_worker_lands_on_the_main_thread_and_blocks(qapp, tmp_path
                 outcome=DecisionOutcome.Confirmed,
                 author="agent:test",
                 values={"poi": Point(1e-6, 0.0)},
+                task_id="run-1",
             ),
         )
         seen["after"] = lamella.poi  # the worker sees the applied write on return
@@ -98,6 +101,7 @@ def test_decide_on_the_main_thread_is_a_direct_call(qapp, tmp_path):
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(2e-6, 0.0)},
+            task_id="run-1",
         ),
     )
     assert result.applied is True

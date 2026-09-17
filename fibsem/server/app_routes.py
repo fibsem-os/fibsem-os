@@ -372,12 +372,15 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         item_id = body.get("item_id")
         task_name = body.get("task_name")
         outcome = body.get("outcome")
-        if not all(isinstance(v, str) and v for v in (item_id, task_name, outcome)):
+        task_id = body.get("task_id")
+        if not all(
+            isinstance(v, str) and v for v in (item_id, task_name, outcome, task_id)
+        ):
             raise HTTPException(
                 status_code=422,
                 detail={
                     "error_type": "missing_field",
-                    "message": "Pass item_id, task_name and outcome "
+                    "message": "Pass item_id, task_name, task_id and outcome "
                     "(Confirmed or Rejected) from GET /app/reviews.",
                 },
             )
@@ -406,6 +409,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
             values=values,
             reason=str(body.get("reason", "")),
             author=str(body.get("author", "")),
+            task_id=task_id,
         )
         if result.get("invalid_value"):
             raise HTTPException(
@@ -416,10 +420,17 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 },
             )
         if not result.get("applied", False) and result.get("available", True):
+            error_type = result.get("error_type") or (
+                "running" if result.get("running") else "not_pending"
+            )
             raise HTTPException(
-                status_code=409,
+                # a request that cannot be decided as given is 422; one that
+                # the state refuses (running, re-run since, nothing pending) 409
+                status_code=422
+                if error_type in ("missing_field", "invalid_value")
+                else 409,
                 detail={
-                    "error_type": "running" if result.get("running") else "not_pending",
+                    "error_type": error_type,
                     "message": result.get("reason", "Not applied."),
                 },
             )

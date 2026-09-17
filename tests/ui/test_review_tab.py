@@ -52,6 +52,7 @@ from fibsem.structures import (  # noqa: E402
 SETUP = "Setup Lamella Position"
 FIDUCIAL = "Mill Fiducial"
 ROUGH = "Rough Milling"
+RUN = "run-1"  # the run every proposal here is from
 PIXELSIZE = 1e-7  # 100 nm/px on a 512 x 512 frame
 
 
@@ -97,13 +98,30 @@ def experiment(tmp_path) -> Experiment:
     lamella.proposals[SETUP] = Proposal(
         kind=POINT_OF_INTEREST,
         values={"poi": Point(0.0, 0.0)},
-        provenance={"proposer": "centre-of-image", "reference_image": ref + ".tif"},
+        provenance={
+            "task_id": RUN,
+            "proposer": "centre-of-image",
+            "reference_image": ref + ".tif",
+        },
     )
     return exp
 
 
 @pytest.fixture
-def tab(qapp, experiment) -> R.ReviewTabWidget:
+def warnings(monkeypatch) -> list:
+    """A refused decision warns in a modal box, which would block offscreen:
+    recorded here instead."""
+    shown: list = []
+    monkeypatch.setattr(
+        R.QMessageBox,
+        "warning",
+        staticmethod(lambda _parent, _title, text: shown.append(text)),
+    )
+    return shown
+
+
+@pytest.fixture
+def tab(qapp, experiment, warnings) -> R.ReviewTabWidget:
     widget = R.ReviewTabWidget()
     widget.set_experiment(experiment)
     return widget
@@ -185,14 +203,21 @@ def test_a_decision_made_elsewhere_refreshes_the_inbox(tab, experiment):
     experiment.decide(
         lamella.id,
         SETUP,
-        Decision(outcome=DecisionOutcome.Confirmed, author="agent:test", values={}),
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="agent:test",
+            values={"poi": Point(0.0, 0.0)},
+            task_id=RUN,
+        ),
     )
     assert tab.pending_count == 0
 
 
 def test_an_unregistered_kind_still_gets_the_two_verbs(tab, experiment, qapp):
     lamella = experiment.positions[0]
-    lamella.proposals["other"] = Proposal(kind="site_pick_v9", values={})
+    lamella.proposals["other"] = Proposal(
+        kind="site_pick_v9", values={}, provenance={"task_id": RUN}
+    )
     tab.refresh()
     assert tab.pending_count == 2
     tab._select_entry(1)
@@ -243,6 +268,7 @@ def _auto_confirm(proposal: Proposal, proposer: str = "centre-of-image") -> None
             outcome=DecisionOutcome.Confirmed,
             author=f"auto:{proposer}",
             values=dict(proposal.values),
+            task_id=proposal.task_id,
         )
     )
 
@@ -321,7 +347,7 @@ def test_after_an_acknowledgement_the_next_row_is_selected(tab, experiment, qapp
     lamella.proposals[FIDUCIAL] = Proposal(
         kind=POINT_OF_INTEREST,
         values={"poi": Point(0.0, 0.0)},
-        provenance={"proposer": "centre-of-image"},
+        provenance={"task_id": RUN, "proposer": "centre-of-image"},
     )
     _auto_confirm(lamella.proposals[FIDUCIAL])
     tab.refresh()
@@ -344,11 +370,15 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
     lamella = experiment.positions[0]
     _auto_confirm(lamella.proposals[SETUP])
     lamella.proposals[FIDUCIAL] = Proposal(
-        kind=POINT_OF_INTEREST, values={"poi": Point(0.0, 0.0)}, provenance={}
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(0.0, 0.0)},
+        provenance={"task_id": RUN},
     )
     _auto_confirm(lamella.proposals[FIDUCIAL])
     lamella.proposals[ROUGH] = Proposal(
-        kind=POINT_OF_INTEREST, values={"poi": Point(0.0, 0.0)}
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(0.0, 0.0)},
+        provenance={"task_id": RUN},
     )
     tab.refresh()
     assert tab.check_count == 2 and tab.pending_count == 1
@@ -411,6 +441,7 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
         kind=TASK_RESULT,
         values={},
         provenance={
+            "task_id": RUN,
             "proposer": "task",
             "task_name": ROUGH,
             "status": "Completed",
@@ -443,7 +474,12 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     lamella.proposals[FIDUCIAL] = Proposal(
         kind=TASK_RESULT,
         values={},
-        provenance={"task_name": FIDUCIAL, "status": "Failed", "failure": "drift"},
+        provenance={
+            "task_id": RUN,
+            "task_name": FIDUCIAL,
+            "status": "Failed",
+            "failure": "drift",
+        },
     )
     _auto_confirm(lamella.proposals[FIDUCIAL], proposer="task")
     tab.refresh()
@@ -506,3 +542,45 @@ def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
     assert off.btn_attention.text() == "Automated", "runs as what it will run as"
     off.btn_attention.click()
     assert task.attention is Attention.supervised, "Review is not offered"
+
+
+def test_a_decision_on_a_run_replaced_while_shown_is_refused(
+    tab, experiment, warnings, qapp
+):
+    """The tab shows run-1; the task re-runs underneath it. Confirm names the
+    run it showed, so it is refused with a warning and nothing is written."""
+    lamella = experiment.positions[0]
+    lamella.proposals[SETUP] = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(7e-6, 0.0)},
+        provenance={"task_id": "run-2"},
+    )  # not refreshed: the tab still shows run-1
+
+    tab.confirm_current()
+    qapp.processEvents()
+
+    assert warnings and "re-run since you looked" in warnings[-1]
+    assert lamella.proposals[SETUP].pending
+    assert lamella.poi == Point(0.0, 0.0)
+
+
+def test_mark_all_as_checked_acknowledges_only_the_runs_it_listed(
+    tab, experiment, qapp
+):
+    lamella = experiment.positions[0]
+    _auto_confirm(lamella.proposals[SETUP])
+    tab.refresh()
+    assert tab.check_count == 1
+    rerun = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(7e-6, 0.0)},
+        provenance={"task_id": "run-2"},
+    )
+    _auto_confirm(rerun)
+    lamella.proposals[SETUP] = rerun  # re-ran after the list was drawn
+
+    tab.acknowledge_all()
+    qapp.processEvents()
+
+    assert rerun.to_check, "the run nobody was shown is still to check"
+    assert all(d.author.kind is not AuthorKind.human for d in rerun.decisions)

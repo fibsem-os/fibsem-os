@@ -335,7 +335,9 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(kind="point_of_interest", values={})
+    l1.proposals["Trench"] = Proposal(
+        kind="task_result", provenance={"task_id": "run-1"}
+    )
     experiment.get_lamella_by_name("L2").task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.Completed)
     )
@@ -351,7 +353,7 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     experiment.decide(
         l1.id,
         "Trench",
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id="run-1"),
     )
     assert l1.has_completed_task("Trench"), "the decision finished it"
     assert m._defer_reason(l1, "Undercut") is None
@@ -412,11 +414,18 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(kind="point_of_interest", values={})
+    l1.proposals["Trench"] = Proposal(
+        kind="task_result", provenance={"task_id": "run-1"}
+    )
     experiment.decide(
         l1.id,
         "Trench",
-        Decision(outcome=DecisionOutcome.Rejected, author="human:op", reason="no site"),
+        Decision(
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="no site",
+            task_id="run-1",
+        ),
     )
     assert l1.task_history[-1].status is Status.Failed
     assert l1.task_history[-1].status_message == "Rejected by op: no site"
@@ -450,7 +459,9 @@ def _review_manager(tmp_path, review_wait, hook_manager=None):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(kind="point_of_interest", values={})
+    l1.proposals["Trench"] = Proposal(
+        kind="task_result", provenance={"task_id": "run-1"}
+    )
     return m, l1
 
 
@@ -490,7 +501,9 @@ def test_a_decision_during_the_wait_wakes_the_run(tmp_path, caplog):
         m.experiment._decide(
             l1.id,
             "Trench",
-            Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+            Decision(
+                outcome=DecisionOutcome.Confirmed, author="human:op", task_id="run-1"
+            ),
         )
 
     t = threading.Thread(target=decide_soon, daemon=True)

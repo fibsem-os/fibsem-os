@@ -53,6 +53,7 @@ from fibsem.structures import (  # noqa: E402
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 SETUP = "Setup Lamella Position"
+RUN = "run-1"  # the run the fixture's proposal is from
 ROUGH = "Rough Milling"
 
 
@@ -103,7 +104,11 @@ def ui(qapp, monkeypatch, tmp_path):
     lamella.proposals[SETUP] = Proposal(
         kind=POINT_OF_INTEREST,
         values={"poi": Point(0.0, 0.0)},
-        provenance={"proposer": "centre-of-image", "reference_image": ref + ".tif"},
+        provenance={
+            "proposer": "centre-of-image",
+            "reference_image": ref + ".tif",
+            "task_id": RUN,
+        },
     )
     widget.experiment = exp
     yield widget
@@ -157,6 +162,7 @@ def test_reviews_lists_the_pending_proposal_with_its_image(ui):
     assert review["item_id"] == lamella.id
     assert review["item_name"] == lamella.name
     assert review["task_name"] == SETUP
+    assert review["task_id"] == RUN
     assert review["kind"] == POINT_OF_INTEREST
     assert review["values"] == {"poi": {"x": 0.0, "y": 0.0}}
     assert review["gated"] is True
@@ -192,6 +198,7 @@ def test_to_check_is_listed_and_an_agent_look_does_not_clear_it(ui, qapp):
             {
                 "item_id": lamella.id,
                 "task_name": SETUP,
+                "task_id": RUN,
                 "outcome": "Confirmed",
                 "author": "test-model",
             },
@@ -208,7 +215,7 @@ def test_to_check_is_listed_and_an_agent_look_does_not_clear_it(ui, qapp):
     ui.experiment._decide(
         lamella.id,
         SETUP,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
+        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id=RUN),
     )
     assert not proposal.to_check
 
@@ -224,6 +231,7 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
             {
                 "item_id": lamella.id,
                 "task_name": SETUP,
+                "task_id": RUN,
                 "outcome": "Confirmed",
                 "values": {"poi": {"x": 2e-6, "y": -1e-6}},
                 "author": "test-model",
@@ -254,7 +262,12 @@ def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
             qapp,
             client,
             "/app/decide",
-            {"item_id": lamella.id, "task_name": SETUP, "outcome": "Rejected"},
+            {
+                "item_id": lamella.id,
+                "task_name": SETUP,
+                "task_id": RUN,
+                "outcome": "Rejected",
+            },
         )
         assert resp.status_code == 422
         assert lamella.proposals[SETUP].pending
@@ -266,6 +279,7 @@ def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
             {
                 "item_id": lamella.id,
                 "task_name": SETUP,
+                "task_id": RUN,
                 "outcome": "Rejected",
                 "reason": "no usable site",
             },
@@ -287,7 +301,12 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
             qapp,
             client,
             "/app/decide",
-            {"item_id": lamella.id, "task_name": "Nope", "outcome": "Confirmed"},
+            {
+                "item_id": lamella.id,
+                "task_name": "Nope",
+                "task_id": RUN,
+                "outcome": "Confirmed",
+            },
         )
         assert resp.status_code == 409
         assert resp.json()["detail"]["error_type"] == "not_pending"
@@ -298,8 +317,58 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
             qapp,
             client,
             "/app/decide",
-            {"item_id": lamella.id, "task_name": SETUP, "outcome": "Confirmed"},
+            {
+                "item_id": lamella.id,
+                "task_name": SETUP,
+                "task_id": RUN,
+                "outcome": "Confirmed",
+            },
         )
         assert resp.status_code == 409
         assert resp.json()["detail"]["error_type"] == "running"
     assert lamella.proposals[SETUP].pending
+
+
+def test_decide_refuses_a_missing_or_stale_run_and_an_edit_disguised_as_a_look(
+    ui, qapp
+):
+    """FIB-1003 through the route: a missing task_id and an acknowledgement
+    carrying values are 422; a run that has been replaced is 409. None writes."""
+    lamella = ui.experiment.positions[0]
+    base = {"item_id": lamella.id, "task_name": SETUP, "outcome": "Confirmed"}
+    poi = {"poi": {"x": 4e-6, "y": 0.0}}
+    with _client(ui) as client:
+        resp = _post_on_worker(qapp, client, "/app/decide", {**base, "values": poi})
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["error_type"] == "missing_field"
+
+        resp = _post_on_worker(
+            qapp,
+            client,
+            "/app/decide",
+            {**base, "task_id": "run-0", "values": poi},
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["error_type"] == "stale_review"
+
+        resp = _post_on_worker(qapp, client, "/app/decide", {**base, "task_id": RUN})
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["error_type"] == "invalid_value"
+        assert "needs its values" in resp.json()["detail"]["message"]
+
+        assert lamella.poi == Point(0.0, 0.0)
+        assert lamella.proposals[SETUP].pending
+
+        resp = _post_on_worker(
+            qapp, client, "/app/decide", {**base, "task_id": RUN, "values": poi}
+        )
+        assert resp.status_code == 200, resp.text
+        resp = _post_on_worker(
+            qapp,
+            client,
+            "/app/decide",
+            {**base, "task_id": RUN, "values": {"poi": {"x": 9e-6, "y": 9e-6}}},
+        )
+        assert resp.status_code == 422, resp.text
+        assert "already decided" in resp.json()["detail"]["message"]
+    assert lamella.poi == Point(4e-6, 0.0)
