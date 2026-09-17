@@ -15,7 +15,6 @@ from fibsem.applications.autolamella.proposals import (
     DecisionOutcome,
     Proposal,
     human_author,
-    supersede,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
@@ -76,10 +75,49 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Select Milling Position"
 
 
+def consumed_values(lamella: "Lamella") -> List[str]:
+    """The value names a milling-setup proposal for this lamella may carry: a
+    value exists because a later task consumes it. ``poi`` is consumed by any
+    milling task whose patterns follow the point; a fiducial value would be
+    consumed by the fiducial task, but has no writer yet, so it is not
+    proposed."""
+    values = []
+    for task_config in lamella.task_config.values():
+        if getattr(task_config, "sync_to_poi", False) and task_config.milling:
+            values.append("poi")
+            break
+    return values
+
+
+class CurrentPoiProposer:
+    """The v1 point-of-interest proposer: the point the lamella already has,
+    as it stood when the task started. For a lamella nobody has touched that
+    is the origin of the milling frame, the centre of the image; for one that
+    correlation, a script or an earlier decision positioned, it is that point,
+    so proposing does not undo it. No confidence, no alternatives. A real
+    proposer -- a segmentation model, say -- is a swap for this class.
+
+    Declines when nothing after Setup consumes a point, so no empty proposal
+    is recorded. Proposes the point as it stood when the task started, before
+    the operator was asked, so a supervised answer leaves a delta.
+    """
+
+    kind = MILLING_SETUP
+    name = "current-poi"
+    version = 2
+
+    def propose(self, task: "SelectMillingPositionTask") -> Optional[Proposal]:
+        if not consumed_values(task.lamella):
+            return None
+        poi = task._prior_poi
+        return Proposal(kind=self.kind, values={"poi": Point(poi.x, poi.y)})
+
+
 class SelectMillingPositionTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
 
-    proposal_kind = MILLING_SETUP  # the milling position, a value someone may change
+    # the milling position: a value someone may change, so a kind of its own
+    proposer = CurrentPoiProposer()
 
     config: SelectMillingPositionTaskConfig
     config_cls: ClassVar[Type[SelectMillingPositionTaskConfig]] = (
@@ -160,8 +198,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # given here (supervised) is the decision on that proposal
         # The point as it stands before anyone is asked: what the proposal
         # says, so the delta against the answer is what the operator moved.
-        chosen: Optional[Point] = None
-        prior_poi = Point(self.lamella.poi.x, self.lamella.poi.y)
+        self._prior_poi = Point(self.lamella.poi.x, self.lamella.poi.y)
         if self.config.select_poi and not self.review:
             poi = select_poi_ui(
                 parent_ui=self.parent_ui,
@@ -173,11 +210,23 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 initial_poi=self.lamella.poi,
             )
             if poi is not None:
-                chosen = poi
                 self.lamella.poi = poi
                 synced = self.lamella.sync_tasks_to_poi()
                 if synced:
                     logging.info(f"Synced tasks to POI: {synced}")
+                # The answer is the decision on the proposal the base records
+                # after the run; already applied, so it is recorded without a
+                # second write-through, and the delta between it and the
+                # proposer's point is what supervised runs used to throw away.
+                experiment = getattr(self.task_manager, "experiment", None)
+                self.inline_decision = Decision(
+                    outcome=DecisionOutcome.Confirmed,
+                    author=experiment.author()
+                    if experiment is not None
+                    else human_author(""),
+                    values={"poi": poi},
+                    via="workflow",
+                )
 
         # validate alignment area
         self._validate_alignment_area()
@@ -203,90 +252,6 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # default leaves the pose alone, as the task always has.
         if self.config.sync_fluorescence_pose:
             sync_fluorescence_pose(self.microscope, self.lamella)
-
-        # record the point of interest as a proposal, on the final reference
-        # image -- the last thing acquired, at the stored pose, and the one the
-        # Review tab shows. Gated: it waits there. Answered inline above: that
-        # answer is its decision. Neither: the producer confirms it after the
-        # task, and the row is there to check.
-        if self.config.select_poi:
-            self._propose_poi(decided=chosen, proposed=prior_poi)
-
-    def _propose_poi(
-        self, decided: Optional[Point] = None, proposed: Optional[Point] = None
-    ) -> None:
-        """Leave the point of interest as a proposal, in every mode.
-
-        The task still completes -- everything after this step is independent
-        of the point (only the rough and polishing patterns follow it, and they
-        follow it when a decision writes it through). Gated, ``lamella.poi`` is
-        not written here and the patterns are not synced: both happen in
-        Experiment.decide on confirm, so the lamella is never in a state
-        nobody sanctioned and the proposed point survives beside the confirmed
-        one for the delta. ``decided`` is the operator's inline answer, when
-        the task asked for one: it is already applied, so it is recorded as
-        the decision without a second write-through, and the delta between it
-        and the proposer's point is what supervised runs used to throw away.
-
-        ``proposed`` is the point the proposal carries: the lamella's point as
-        it stood when the task started, before the operator was asked.
-
-        Re-running the task is a deliberate act: a proposal that already has
-        decisions is superseded, not kept and not overwritten. It moves, with
-        its decisions and delta, onto the new proposal's record, and the new
-        one is pending on the new image, proposing the point the last decision
-        left on the lamella. (A stalled run resumes without re-running
-        completed tasks, so that case never reaches here.)
-        """
-        existing = self.lamella.proposals.get(self.task_name)
-        # The first of the final set is the tightest field of view; the
-        # values are in the milling frame, so any image at the stored pose
-        # would do, but the renderer shows this one.
-        image_name = f"ref_{self.task_name}_final_res_01_ib.tif"
-        if not os.path.exists(os.path.join(str(self.lamella.path), image_name)):
-            settings = getattr(
-                getattr(self._last_fib_image, "metadata", None), "image_settings", None
-            )
-            image_name = f"{settings.filename}_ib.tif" if settings else ""
-        proposal = propose_milling_setup(self.lamella, image_name, poi=proposed)
-        if proposal is None:
-            logging.info(
-                f"{self.lamella.name}: nothing after {self.task_name} consumes a "
-                "point of interest; no proposal to make."
-            )
-            return
-        self.log_status_message("PROPOSE_POI", "Proposing Point of Interest...")
-        if existing is not None and not existing.pending:
-            logging.info(
-                f"{self.lamella.name}: {self.task_name} re-run; the decided "
-                "proposal is superseded and a new one is pending."
-            )
-        if decided is not None:
-            experiment = getattr(self.task_manager, "experiment", None)
-            author = experiment.author() if experiment is not None else human_author("")
-            proposal.decisions.append(
-                Decision(
-                    outcome=DecisionOutcome.Confirmed,
-                    author=author,
-                    values={"poi": decided},
-                    via="workflow",
-                )
-            )
-        self.lamella.proposals[self.task_name] = supersede(
-            existing if existing is not None and not existing.pending else None,
-            proposal,
-        )
-        logging.info(
-            {
-                "msg": "proposal_recorded",
-                "lamella": self.lamella.name,
-                "task_name": self.task_name,
-                "kind": proposal.kind,
-                "values": {k: v.to_dict() for k, v in proposal.values.items()},
-                "provenance": proposal.provenance,
-                "decided_inline": decided is not None,
-            }
-        )
 
     def _align_coincident_for_milling(
         self, milling_angle: float, is_close: bool
@@ -372,55 +337,3 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 "at the target tilt",
                 tilt.reason,
             )
-
-
-def consumed_values(lamella: "Lamella") -> List[str]:
-    """The value names a milling-setup proposal for this lamella may carry: a
-    value exists because a later task consumes it. ``poi`` is consumed by any
-    milling task whose patterns follow the point; a fiducial value would be
-    consumed by the fiducial task, but has no writer yet, so it is not
-    proposed."""
-    values = []
-    for task_config in lamella.task_config.values():
-        if getattr(task_config, "sync_to_poi", False) and task_config.milling:
-            values.append("poi")
-            break
-    return values
-
-
-def propose_milling_setup(
-    lamella: "Lamella", reference_image: str = "", poi: Optional[Point] = None
-) -> Optional[Proposal]:
-    """The v1 proposer: the point of interest the lamella already has. For a
-    lamella nobody has touched that is the origin of the milling frame, the
-    centre of the image; for one that correlation, a script or an earlier
-    decision positioned, it is that point, so proposing does not undo it. No
-    confidence, no alternatives. A real proposer is a swap for this function
-    with the same return type.
-
-    ``poi`` is the point to propose when the caller captured it before
-    something wrote to the lamella (the supervised question does); default is
-    the lamella's point now.
-
-    None when nothing consumes a point, so no empty proposals are recorded.
-    """
-    values = consumed_values(lamella)
-    if not values:
-        return None
-    if poi is None:
-        poi = lamella.poi
-    provenance: Dict[str, Any] = {
-        "proposer": "current-poi",
-        "version": 2,
-        "values": values,
-    }
-    if reference_image:
-        # A file name relative to the lamella's folder (<name>_ib.tif); readers
-        # join it onto lamella.path, which also survives a moved experiment.
-        provenance["reference_image"] = reference_image
-    return Proposal(
-        kind=MILLING_SETUP,
-        values={"poi": Point(poi.x, poi.y)},
-        confidence=None,
-        provenance=provenance,
-    )

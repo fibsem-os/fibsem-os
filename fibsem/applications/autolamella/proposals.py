@@ -24,7 +24,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
 from fibsem.structures import Point
 
@@ -33,6 +33,8 @@ __all__ = [
     "Author",
     "AuthorKind",
     "Decision",
+    "Proposer",
+    "TaskResultProposer",
     "DecisionOutcome",
     "DecisionResult",
     "PROPOSAL_KINDS",
@@ -400,6 +402,47 @@ class Proposal:
             created_at=data.get("created_at", 0.0),
             superseded=[Proposal.from_dict(p) for p in data.get("superseded", [])],
         )
+
+
+# ---------------------------------------------------------------------------
+# Proposers: the part of proposing that differs per kind
+# ---------------------------------------------------------------------------
+#
+# Every proposal is a task result -- what ran, when, how it ended, the final
+# images -- plus, for kinds that have them, values a decision can edit and a
+# later task consumes. The task base records the result part for every kind
+# (AutoLamellaTask.propose); a proposer supplies only the values. TASK_RESULT
+# is the kind with none.
+
+
+class Proposer(Protocol):
+    """Names a kind and computes its values for a finished task, as a
+    Proposal of that kind: values, confidence, alternatives and whatever
+    provenance the proposer has to add (a model name, say). The task base
+    stamps the result part -- which task, when, how it ended, the final
+    images -- onto that provenance for every kind. ``name`` is what the
+    record says proposed the values and what the producer's own confirmation
+    is signed as; empty means the task itself. A task holds one
+    (``AutoLamellaTask.proposer``); swapping it -- a segmentation model for
+    the current point, say -- changes nothing downstream, which keys by kind.
+    None declines: nothing to propose, no record."""
+
+    kind: str
+    name: str
+    version: int
+
+    def propose(self, task: Any) -> Optional[Proposal]: ...
+
+
+class TaskResultProposer:
+    """The default: no values, the record is the result. Signed as the task."""
+
+    kind = TASK_RESULT
+    name = ""
+    version = 1
+
+    def propose(self, task: Any) -> Optional[Proposal]:
+        return Proposal(kind=self.kind)
 
 
 def supersede(old: Optional[Proposal], new: Proposal) -> Proposal:
