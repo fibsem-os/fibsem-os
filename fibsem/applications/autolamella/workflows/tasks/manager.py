@@ -12,6 +12,8 @@ from fibsem import config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue, WorkItem
 from fibsem.applications.autolamella.workflows.tasks.status import (
+    Hold,
+    HoldKind,
     WorkflowStatusEvent,
     WorkflowStatusUpdate,
 )
@@ -119,6 +121,11 @@ class BaseTaskManager:
         self.experiment.register_metadata(self.microscope)
 
     # --- Public API ---
+
+    def closing_note(self) -> str:
+        """Why the run ended short of done, and what to do; empty when it
+        finished or was stopped. A grid run has no park to give up on."""
+        return ""
 
     def stop(self) -> None:
         """Signal the manager to stop after current task completes."""
@@ -243,8 +250,7 @@ class BaseTaskManager:
 
         Read by the workflow border, which would otherwise show the running
         colour throughout a scheduled wait that can last hours. Set on the worker
-        thread and read on the GUI thread, the same way WAITING_FOR_USER_INTERACTION
-        already is.
+        thread and read on the GUI thread, the same way ``hold`` is.
         """
         if self.parent_ui is not None:
             self.parent_ui.WORKFLOW_PENDING = pending
@@ -309,6 +315,15 @@ class BaseTaskManager:
         self.parent_ui.workflow_status_signal.emit(
             WorkflowStatusEvent(message=msg, report=update)
         )
+
+
+def _named(names: List[str]) -> str:
+    """'01-a', '01-a and 02-b', '01-a, 02-b and 03-c', '4 lamellae'."""
+    if len(names) > 3:
+        return f"{len(names)} lamellae"
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 class TaskManager(BaseTaskManager):
@@ -397,7 +412,16 @@ class TaskManager(BaseTaskManager):
 
         review_wait = self._review_wait()
         n = len({i.item_name for i in awaiting})
-        self._set_waiting_for_review(n)
+        self._set_hold(
+            Hold(
+                kind=HoldKind.review,
+                since=time.time(),
+                holder="you",
+                releases=f"decide {_named(sorted({i.item_name for i in awaiting}))} "
+                "in the Review tab",
+                items=tuple(f"{i.item_name}/{i.task_name}" for i in awaiting),
+            )
+        )
         # The one place where "why is nothing happening" is a fair question:
         # say so, once on the way in and once on the way out.
         held = ", ".join(f"{i.item_name}/{i.task_name}" for i in awaiting)
@@ -428,8 +452,8 @@ class TaskManager(BaseTaskManager):
                     if timeout <= 0:
                         self.stalled = True
                         self.stall_reason = (
-                            f"{n} decision(s) still pending after "
-                            f"{format_duration(review_wait)} without one."
+                            f"Timed out after {format_duration(review_wait)} "
+                            f"waiting for a review: {n} decision(s) still pending."
                         )
                         logging.warning(self.stall_reason)
                         return False
@@ -443,20 +467,29 @@ class TaskManager(BaseTaskManager):
             logging.info("Stopped while parked on a decision.")
             return False
         finally:
-            self._set_waiting_for_review(0)
+            self._set_hold(None)
 
-    def _set_waiting_for_review(self, n: int) -> None:
-        """Tell the window the run is parked on n decisions (0: not parked), and
-        poke the status channel so the chrome -- border, attention button,
-        status bar -- redraws from it, the way a pending question does."""
+    def closing_note(self) -> str:
+        """Why the run ended short of done, and what to do: shown on the
+        workflow label, the status bar and the run summary's headline, so a
+        run that gave up waiting never reads as a finish. Empty otherwise."""
+        if not self.stalled:
+            return ""
+        return f"{self.stall_reason} Decide in the Review tab, then Run again."
+
+    def _set_hold(self, hold: Optional[Hold]) -> None:
+        """Tell the window who holds the run (None: nobody), and poke the status
+        channel so the chrome -- border, attention button, status bar --
+        redraws from it, the way a pending question does."""
         if self.parent_ui is not None:
-            self.parent_ui.WAITING_FOR_REVIEW = n
-        if n:
+            self.parent_ui.hold = hold
+        if hold is not None:
+            n = len(hold.items)
             update_status_ui(
                 self.parent_ui,
                 "",
                 workflow_info=f"Waiting on {n} decision(s) before the next task can run.",
-                status_bar=f"Waiting on {n} decision(s) — open the Review tab.",
+                status_bar=f"Parked on {n} decision(s): {hold.releases}.",
                 check_abort=False,
             )
         else:
@@ -602,8 +635,8 @@ class TaskManager(BaseTaskManager):
             update_status_ui(
                 self.parent_ui,
                 "",
-                workflow_info=f"Workflow stalled: {self.stall_reason} "
-                "Decide in the Review tab, then Run again.",
+                workflow_info=f"Workflow stalled: {self.closing_note()}",
+                status_bar=f"Workflow stalled: {self.closing_note()}",
                 check_abort=False,
             )
         else:

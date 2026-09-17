@@ -113,6 +113,7 @@ if TYPE_CHECKING:
         AutoLamellaSingleWindowUI,
     )
     from fibsem.applications.autolamella.workflows.tasks.status import (
+        Hold,
         WorkflowStatusEvent,
     )
 
@@ -255,17 +256,15 @@ class AutoLamellaUI(QMainWindow):
         if not self._connection_chip_enabled:
             self.tabWidget.insertTab(0, self.system_widget, "Connection")
 
-        # Display state, not a handshake: a question is up and waiting for a
-        # click. QtResponder is the only setter; the attention button, border
-        # and timeline pause read it. The cross-thread flag-poll it used to be
-        # -- and USER_RESPONSE and WAITING_FOR_UI_UPDATE alongside it -- is
+        # Display state, not a handshake: the run is held -- a question is up
+        # for a click, or the run is parked on decisions -- and by whom. Set by
+        # whoever takes the hold (the responder, the task manager, the main
+        # window handing an agent's question over); the attention button,
+        # border, status bar and timeline pause read it. The cross-thread
+        # flag-poll it used to be -- USER_RESPONSE, WAITING_FOR_UI_UPDATE -- is
         # gone: every workflow interaction is a typed request on its own future
         # (workflows/interaction.py).
-        self.WAITING_FOR_USER_INTERACTION: bool = False
-        # How many proposals the run is parked on, waiting for a decision in
-        # the Review tab; 0 when it is not. Set by the task manager, read by the
-        # window chrome the same way WAITING_FOR_USER_INTERACTION is.
-        self.WAITING_FOR_REVIEW: int = 0
+        self.hold: Optional[Hold] = None
         # A run is active but nothing is executing -- today only during a
         # scheduled-start wait. Set from the worker thread, read by the border.
         self.WORKFLOW_PENDING: bool = False
@@ -276,6 +275,10 @@ class AutoLamellaUI(QMainWindow):
         # agent_server_enabled preference is on; None means the feature is off.
         self._agent_server_host = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
+        # Why the last run ended short of done, for the summary dialog's
+        # headline: a run that gave up waiting for a review must not read as
+        # a finish. Empty when it finished or was stopped.
+        self._last_run_note: str = ""
         # The summary the dialog has already shown (by identity): the dialog is
         # once-per-run, while _last_run_summary itself must survive as the
         # record remote readers see.
@@ -1182,6 +1185,7 @@ class AutoLamellaUI(QMainWindow):
                 except Exception as e:
                     logging.warning(f"Failed to build grid run summary: {e}")
                     self._last_run_summary = None
+                self._last_run_note = self._task_manager.closing_note()
             self._task_manager = None
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
@@ -1938,6 +1942,7 @@ class AutoLamellaUI(QMainWindow):
                 except Exception as e:
                     logging.warning(f"Failed to build workflow run summary: {e}")
                     self._last_run_summary = None
+                self._last_run_note = self._task_manager.closing_note()
             self._task_manager = None
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
@@ -2784,8 +2789,7 @@ class AutoLamellaUI(QMainWindow):
         self._workflow_stop_event.clear()
         self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
 
-        self.WAITING_FOR_USER_INTERACTION = False
-        self.WAITING_FOR_REVIEW = 0
+        self.hold = None
         self.WORKFLOW_PENDING = False
 
         # clear milling task config
@@ -2839,7 +2843,9 @@ class AutoLamellaUI(QMainWindow):
         if summary.empty:
             return
         try:
-            dialog = WorkflowSummaryDialog(summary, parent=self)
+            dialog = WorkflowSummaryDialog(
+                summary, note=self._last_run_note, parent=self
+            )
             dialog.exec_()
         except Exception as e:
             logging.warning(f"Failed to show workflow summary dialog: {e}")

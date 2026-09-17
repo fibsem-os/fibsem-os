@@ -25,6 +25,7 @@ arrives belonged to a waiter that aborted and unwound, and is cancelled.
 """
 
 import logging
+import time
 from concurrent.futures import InvalidStateError
 from copy import deepcopy
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
@@ -46,6 +47,8 @@ from fibsem.applications.autolamella.workflows.interaction import (
     StalePromptError,
 )
 from fibsem.applications.autolamella.workflows.tasks.status import (
+    Hold,
+    HoldKind,
     WorkflowStatusEvent,
 )
 from fibsem.structures import BeamType
@@ -453,10 +456,16 @@ class QtResponder(QObject):
                 "nonce": self._question_seq,
             },
         )
-        # Display state, not a handshake: the workflow no longer polls this flag
-        # for converted questions, but the attention button, border and timeline
-        # pause still read it.
-        self._ui.WAITING_FOR_USER_INTERACTION = True
+        # Display state, not a handshake: the workflow does not poll this, but
+        # the attention button, border, status bar and timeline pause read it.
+        # The main window re-addresses it to a connected agent when the task
+        # is designated so.
+        self._ui.hold = Hold(
+            kind=HoldKind.question,
+            since=time.time(),
+            holder="you",
+            releases="answer the question on the Microscope tab",
+        )
         # We are on the GUI thread that owns the widgets: show the prompt
         # directly, and ping the status channel (message=None: says nothing
         # about the prompt) so the main window's waiting chrome refreshes.
@@ -655,7 +664,7 @@ class QtResponder(QObject):
             if pair is not None:
                 pair[1].cancel()
         if pending is not None:
-            self._ui.WAITING_FOR_USER_INTERACTION = False
+            self._ui.hold = None
             self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
             self._emit_question_event(
                 "prompt_cancelled",
@@ -752,7 +761,7 @@ class QtResponder(QObject):
             return False
         request, future = pending[0], pending[1]
         self._pending_question = None
-        self._ui.WAITING_FOR_USER_INTERACTION = False
+        self._ui.hold = None
         if future.cancelled():
             # The asker aborted while the prompt stood. The click means nothing
             # beyond taking the stale prompt down — in particular it must not
