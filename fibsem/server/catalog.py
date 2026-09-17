@@ -479,7 +479,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_pending_reviews",
-        description="Every proposal waiting for a decision (the Review tab's inbox, `reviews`): which item and task, the proposed values (a point of interest in metres, milling frame), confidence and alternatives when the proposer gave any, provenance, its review mode, which tasks are waiting on the decision, and the reference image the values sit on as a JPEG preview. `to_check` lists proposals a producer applied itself (advise mode) that nobody has looked at yet: the run did not wait on them; acknowledge one with decide_review Confirmed and no values, which records the look and writes nothing. Empty lists when nothing is pending.",
+        description="Every proposal waiting for a decision (the Review tab's inbox, `reviews`): which item and task and the run it is from (task_id, which decide_review passes back), the proposed values (a point of interest in metres, milling frame), confidence and alternatives when the proposer gave any, provenance, its review mode, which tasks are waiting on the decision, and the reference image the values sit on as a JPEG preview. `to_check` lists proposals a producer applied itself (advise mode) that nobody has looked at yet: the run did not wait on them; acknowledge one with decide_review Confirmed and no values, which records the look and writes nothing. Empty lists when nothing is pending.",
         method="GET",
         path="/app/reviews",
         scope="read",
@@ -487,7 +487,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="decide_review",
-        description="Confirm or reject a pending proposal, exactly as the Review tab would. Confirmed with values writes them through (e.g. {'poi': {'x','y'}} metres, milling frame) and the consumer becomes runnable; the delta against the proposal is computed, so pass the values you actually judge right. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- or when nothing is pending for that item and task. The decision is recorded with the agent as author. Needs the control permission.",
+        description="Confirm or reject a proposal, exactly as the Review tab would. Pass the task_id get_pending_reviews gave for it: the decision is on that run, and is refused (409 stale_review) if the task has re-run since -- re-read and decide the current one. Confirming a pending proposal needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; they are written through, the consumer becomes runnable, and the delta against the proposal is computed, so pass the values you actually judge right. Confirming a to_check proposal (already applied) acknowledges it and must carry no values; to change an applied value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- or when there is no proposal for that item and task. The decision is recorded with the agent as author. Needs the control permission.",
         method="POST",
         path="/app/decide",
         scope="control",
@@ -495,8 +495,9 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_id": "the item id from get_pending_reviews (by id, never name)",
             "task_name": "the task name from get_pending_reviews",
+            "task_id": "the task_id from get_pending_reviews: the run you looked at",
             "outcome": "Confirmed or Rejected",
-            "values": "optional, on Confirmed: the confirmed values keyed by name; omitted means as proposed",
+            "values": "on Confirmed of a pending proposal: every value its kind carries, as proposed or adjusted; omitted (or empty) when acknowledging a to_check one",
             "reason": "required on Rejected",
             "author": "optional agent/model name, recorded as agent:<name>",
         },

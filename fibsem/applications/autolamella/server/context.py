@@ -863,6 +863,8 @@ class AgentContext:
                     "item_id": item.id,
                     "item_name": item.name,
                     "task_name": task_name,
+                    # the run this is; decide_review passes it back
+                    "task_id": proposal.task_id,
                     "gated": (
                         protocol.get_attention(task_name) is Attention.review
                         if protocol
@@ -897,10 +899,13 @@ class AgentContext:
         values: Optional[Dict[str, Any]] = None,
         reason: str = "",
         author: str = "",
+        task_id: str = "",
     ) -> Dict[str, Any]:
         """Decide a pending proposal, exactly as the Review tab would: the same
         Experiment.decide, on the main thread, blocking until applied. The
-        author is recorded as the agent, never as the operator."""
+        author is recorded as the agent, never as the operator. ``task_id`` is
+        the run the agent was shown (from get_pending_reviews); a missing or
+        stale one is refused."""
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "applied": False, "reason": "No experiment."}
@@ -925,6 +930,7 @@ class AgentContext:
             values=_decode_values(values or {}),
             reason=reason,
             via="server",
+            task_id=str(task_id or ""),
         )
         result = experiment.decide(item_id, task_name, decision)
         doc = result.to_dict()

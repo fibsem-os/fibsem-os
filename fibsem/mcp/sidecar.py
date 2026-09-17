@@ -421,6 +421,7 @@ def build_sidecar(client, capabilities):
     def decide_review(
         item_id: str,
         task_name: str,
+        task_id: str,
         outcome: str,
         values: Optional[dict] = None,
         reason: str = "",
@@ -429,6 +430,7 @@ def build_sidecar(client, capabilities):
         body = {
             "item_id": str(item_id),
             "task_name": str(task_name),
+            "task_id": str(task_id),
             "outcome": str(outcome),
             "reason": str(reason),
             "author": str(author),

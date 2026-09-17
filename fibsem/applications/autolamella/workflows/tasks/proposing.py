@@ -79,6 +79,7 @@ def propose(
         "proposer": proposer.name or task.task_name,
         "version": proposer.version,
         "task_name": task.task_name,
+        "task_id": state.task_id,
         "status": state.status.name,
         "started_at": state.start_timestamp,
         "ended_at": state.end_timestamp,
@@ -159,6 +160,8 @@ def settle(
         )
     if experiment is None:
         return
+    # The producer decides the proposal it has just made: its own run.
+    decision.task_id = proposal.task_id
     try:
         result = experiment.decide(item.id, task.task_name, decision)
     except Exception:
