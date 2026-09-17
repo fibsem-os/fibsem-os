@@ -69,7 +69,7 @@ def test_no_shipped_file_states_a_manipulator_capability(filename: str, key: str
     instrument's to report, not a file's to restate.
     """
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
-    assert key not in config["hardware"]["manipulator"]
+    assert "manipulator" not in config["hardware"]
 
 
 @pytest.mark.parametrize("key", ["tilt", "rotation"])

@@ -53,6 +53,8 @@ class FibsemClient:
         """Fetch and cache system settings from the server."""
         data = self._get("system")
         self.system: SystemSettings = SystemSettings.from_dict(data["system"])
+        for key, present in (data.get("fitted") or {}).items():
+            self.set_available(key, bool(present))
         self.stage_is_compustage: bool = data["stage_is_compustage"]
 
     def _get(self, endpoint: str, timeout: int = 10) -> dict:

@@ -477,6 +477,11 @@ def setup_session(
     # set default image_settings path
     settings.image.path = session_path
 
+    # Remembered so a calibration action can write back to the file it came from.
+    microscope.configuration_path = str(
+        config_path if config_path is not None else cfg.DEFAULT_CONFIGURATION_PATH
+    )
+
     logging.info(f"Finished setup for session: {session}")
 
     return microscope, settings
@@ -532,8 +537,6 @@ LEGACY_CONFIGURATION_BLOCKS: Dict[str, Tuple[str, ...]] = {
     "stage": ("hardware.stage", "calibration"),
     "electron": ("hardware.electron", "defaults.electron"),
     "ion": ("hardware.ion", "defaults.ion"),
-    "manipulator": ("hardware.manipulator",),
-    "gis": ("hardware.gis",),
     "fm": ("hardware.fm",),
     "imaging": ("defaults.imaging",),
 }
@@ -635,6 +638,114 @@ def report_unrecognised_configuration_keys(config: dict, source: str = "") -> Li
             f"not read and will not save back: {', '.join(unknown)}"
         )
     return unknown
+
+
+def _deep_update(target: dict, updates: dict) -> dict:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _deep_update(target[key], value)
+        else:
+            target[key] = value
+    return target
+
+
+def write_configuration(path: Union[str, Path], updates: dict) -> None:
+    """Write *updates* into the configuration file at *path*, and nothing else.
+
+    The file is read, the nested keys in *updates* are set (a dict merges into the
+    block it names; anything else replaces the value there), and it is written back.
+    The rest of the file -- including whatever a person wrote there by hand -- is
+    preserved at the parsed level. This is the one writer of the file from the
+    application: a calibration action writes `calibration.*`, the defaults panel
+    writes `defaults.*`, and neither can disturb the other's section.
+    """
+    config = load_yaml(os.path.join(path)) or {}
+    _deep_update(config, updates)
+    _retire_legacy_duplicates(config)
+    _write_configuration_file(path, config)
+
+
+def _retire_legacy_duplicates(config: dict) -> None:
+    """Drop a key from an old flat block once its new home states it.
+
+    A file written before the sections existed keeps its flat blocks, and the
+    reader accepts them. Writing `defaults.electron.voltage` into such a file
+    would otherwise leave `electron.voltage` beside it -- two homes for one value,
+    the reader silently preferring the new one, and the warning suppressed by the
+    legacy alias. Here the old copy goes, and an emptied block goes with it.
+    """
+    for block, aliases in LEGACY_CONFIGURATION_BLOCKS.items():
+        old = config.get(block)
+        if not isinstance(old, dict):
+            continue
+        for alias in aliases:
+            new_home = config
+            for part in alias.split("."):
+                new_home = new_home.get(part) if isinstance(new_home, dict) else None
+                if new_home is None:
+                    break
+            if not isinstance(new_home, dict):
+                continue
+            for key in list(old):
+                if key in new_home:
+                    del old[key]
+        if not old:
+            del config[block]
+
+
+def write_objective_calibration(
+    path: Union[str, Path],
+    focus_position: Optional[float],
+    limit_position: Optional[float],
+) -> None:
+    """Record the objective's calibration in the configuration file at *path*."""
+    write_configuration(
+        path,
+        {
+            "calibration": {
+                "objective": {
+                    "focus_position": focus_position,
+                    "limit_position": limit_position,
+                }
+            }
+        },
+    )
+
+
+def _plain(value):
+    """*value* with numpy scalars, tuples and numpy arrays as YAML-native types.
+
+    `yaml.safe_load` refuses a document that `yaml.dump` wrote a numpy scalar into
+    -- it comes out as a `!!python/object/apply:numpy...` tag -- so one instrument
+    value of the wrong type would leave a site with a configuration that no longer
+    loads. Everything written to the file goes through here first.
+    """
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if hasattr(value, "tolist"):  # numpy scalar or array
+        return _plain(value.tolist())
+    if isinstance(value, (bool, int, float, str)) or value is None:
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def _write_configuration_file(path: Union[str, Path], config: dict) -> None:
+    """Write a configuration dict to exactly *path*.
+
+    Not `save_yaml`: that forces a `.yaml` suffix, so a site whose file is
+    `site.yml` would get a sibling `site.yaml` written and its own file left
+    untouched; it sorts keys, which turns the sections into alphabetical order;
+    and it uses the unsafe dumper, which writes numpy scalars as tags that
+    `safe_load` cannot read back.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        yaml.safe_dump(_plain(config), f, sort_keys=False, indent=4)
 
 
 def load_protocol(protocol_path: Path = None) -> dict:
