@@ -408,15 +408,15 @@ class Proposal:
 #
 # Every proposal is a task result -- what ran, when, how it ended, the final
 # images -- plus, for kinds that have them, values a decision can edit and a
-# later task consumes. The task base records the result part for every kind
-# (AutoLamellaTask.propose); a proposer supplies only the values. TASK_RESULT
-# is the kind with none.
+# later task consumes. The result part is recorded for every kind, on a
+# lamella or a grid (workflows/tasks/proposing.py); a proposer supplies only
+# the values. TASK_RESULT is the kind with none.
 
 
 class Proposer(Protocol):
     """Names a kind and computes its values for a finished task, as a
     Proposal of that kind: values, confidence, alternatives and whatever
-    provenance the proposer has to add (a model name, say). The task base
+    provenance the proposer has to add (a model name, say). ``proposing.propose``
     stamps the result part -- which task, when, how it ended, the final
     images -- onto that provenance for every kind. ``name`` is what the
     record says proposed the values and what the producer's own confirmation
