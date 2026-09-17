@@ -14,7 +14,7 @@ import yaml
 from psygnal.containers import EventedDict
 
 from fibsem.applications.autolamella.proposals import (
-    MILLING_SETUP,
+    POINT_OF_INTEREST,
     PROPOSAL_KINDS,
     Alternative,
     Author,
@@ -63,7 +63,7 @@ def _experiment(tmp_path: Path) -> Experiment:
 
 def _proposal(poi=Point(1e-6, 2e-6)) -> Proposal:
     return Proposal(
-        kind=MILLING_SETUP,
+        kind=POINT_OF_INTEREST,
         values={"poi": poi},
         confidence=None,
         alternatives=[
@@ -86,7 +86,7 @@ def test_proposal_round_trips_through_yaml_with_points_intact():
         )
     )
     again = Proposal.from_dict(yaml.safe_load(yaml.safe_dump(p.to_dict())))
-    assert again.kind == MILLING_SETUP
+    assert again.kind == POINT_OF_INTEREST
     assert again.values["poi"] == Point(1e-6, 2e-6)
     assert again.alternatives[0].values["poi"] == Point(5e-6, 0)
     assert again.alternatives[0].reason == "near bar"
@@ -170,7 +170,7 @@ def test_an_author_is_a_kind_and_a_name_and_travels_as_kind_colon_name():
 
 
 def test_to_check_clears_only_when_a_person_looked():
-    p = Proposal(kind=MILLING_SETUP, values={"poi": Point(0.0, 0.0)})
+    p = Proposal(kind=POINT_OF_INTEREST, values={"poi": Point(0.0, 0.0)})
     assert not p.to_check, "nothing decided yet: it is pending, not to check"
     p.decisions.append(
         Decision(outcome=DecisionOutcome.Confirmed, author=auto_author("current-poi"))
@@ -183,7 +183,7 @@ def test_to_check_clears_only_when_a_person_looked():
 
 
 def test_kinds_declare_their_values_in_code():
-    assert PROPOSAL_KINDS[MILLING_SETUP].values == ("poi", "fiducial")
+    assert PROPOSAL_KINDS[POINT_OF_INTEREST].values == ("poi",)
     register_proposal_kind(ProposalKind(name="site_pick", values=("sites",)))
     assert PROPOSAL_KINDS["site_pick"].values == ("sites",)
 

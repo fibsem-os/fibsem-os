@@ -16,7 +16,7 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.proposals import (
-    MILLING_SETUP,
+    POINT_OF_INTEREST,
     TASK_RESULT,
     Decision,
     DecisionOutcome,
@@ -197,7 +197,7 @@ def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path
 
     for cls in (MillFiducialTask, AcquireReferenceImageTask, MillRoughTask):
         assert cls.proposer.kind == TASK_RESULT, "a bad fiducial is gateable"
-    assert SelectMillingPositionTask.proposer.kind == MILLING_SETUP
+    assert SelectMillingPositionTask.proposer.kind == POINT_OF_INTEREST
     exp = _experiment(tmp_path, microscope, attention=Attention.review)
     task = _task(microscope, exp)
     type(task).proposer = None
@@ -211,7 +211,7 @@ def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path
 class _SitePicker:
     """A proposer swapped onto a task type: its kind, its values, its name."""
 
-    kind = MILLING_SETUP
+    kind = POINT_OF_INTEREST
     name = "site-picker"
     version = 7
 
@@ -243,7 +243,7 @@ def test_a_swapped_proposer_records_its_kind_and_the_base_fills_the_result(
     finally:
         type(task).proposer = TaskResultProposer()
     proposal = lamella.proposals[ROUGH]
-    assert proposal.kind == MILLING_SETUP
+    assert proposal.kind == POINT_OF_INTEREST
     assert proposal.values == {"poi": Point(1e-6, 2e-6)} and proposal.confidence == 0.5
     p = proposal.provenance
     assert p["proposer"] == "site-picker" and p["version"] == 7 and p["model"] == "m"

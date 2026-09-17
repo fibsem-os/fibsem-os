@@ -51,7 +51,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import conversions
 from fibsem.applications.autolamella.proposals import (
-    MILLING_SETUP,
+    POINT_OF_INTEREST,
     TASK_RESULT,
     Author,
     AuthorKind,
@@ -78,14 +78,14 @@ from fibsem.ui.tokens import (
 
 __all__ = [
     "REVIEW_RENDERERS",
-    "MillingSetupReviewRenderer",
+    "PointOfInterestReviewRenderer",
     "ReviewRenderer",
     "ReviewTabWidget",
     "register_review_renderer",
     "waiting_on",
 ]
 
-_KIND_LABELS = {MILLING_SETUP: "Milling positions", TASK_RESULT: "Task results"}
+_KIND_LABELS = {POINT_OF_INTEREST: "Milling positions", TASK_RESULT: "Task results"}
 
 _HEADER_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 10px; font-weight: 600; "
@@ -583,8 +583,8 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self.readout.setText(text + "\n" + "\n".join(tip))
 
 
-@register_review_renderer(MILLING_SETUP)
-class MillingSetupReviewRenderer(TaskResultReviewRenderer):
+@register_review_renderer(POINT_OF_INTEREST)
+class PointOfInterestReviewRenderer(TaskResultReviewRenderer):
     """The task result with the point of interest on it: one draggable marker
     on the ion image, pre-placed where the task proposed it. Same overlay and
     same drag as the inline question; what changes is when it happens."""

@@ -93,6 +93,15 @@ correctness work landed in correlation and in what the experiment record remembe
   values. Swapping the proposer, say a segmentation model for the current point,
   changes nothing downstream. Every decision, the operator's inline answer included,
   now lands through `Experiment.decide`.
+- **The point-of-interest kind is named for what it is.** The proposal kind Setup
+  records is `point_of_interest` (was `milling_setup`): a point on an image that later
+  tasks follow, which is not a milling matter. Its schema carries `poi` only; the
+  `fiducial` value nothing wrote is gone until something proposes it.
+- **For task authors: the task-result renderer is the base.** Every proposal is a task
+  result, and `TaskResultReviewRenderer` now draws that (the final images, the state
+  line, the record in its tooltip, the two verbs) for every kind. A kind with values
+  extends it and puts them on the image, as `PointOfInterestReviewRenderer` does with
+  the point of interest. Register one per kind with `register_review_renderer`.
 - **The window says who holds the run.** A run waiting on a question, on a
   connected agent, or parked on decisions carries one value (`AutoLamellaUI.hold`)
   in place of the three flags that meant the same thing; the border, the attention

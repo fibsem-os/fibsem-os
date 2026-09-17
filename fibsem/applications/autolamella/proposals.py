@@ -38,7 +38,7 @@ __all__ = [
     "DecisionOutcome",
     "DecisionResult",
     "PROPOSAL_KINDS",
-    "MILLING_SETUP",
+    "POINT_OF_INTEREST",
     "Proposal",
     "ProposalKind",
     "compute_delta",
@@ -51,8 +51,8 @@ __all__ = [
     "write_value",
 ]
 
-# The milling position: the point of interest the milling tasks follow.
-MILLING_SETUP = "milling_setup"
+# A point on an image: the point of interest the tasks that follow it sync to.
+POINT_OF_INTEREST = "point_of_interest"
 # What a task did, for someone to look at: no values, the final reference
 # images in provenance. Recorded by the base task class for any task whose
 # review is on and that did not propose a kind of its own.
@@ -149,7 +149,7 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
     return kind
 
 
-register_proposal_kind(ProposalKind(name=MILLING_SETUP, values=("poi", "fiducial")))
+register_proposal_kind(ProposalKind(name=POINT_OF_INTEREST, values=("poi",)))
 register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
 
 
@@ -158,9 +158,8 @@ register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
 # ---------------------------------------------------------------------------
 #
 # A value exists in a proposal because a later task consumes it. ``poi`` is
-# read by the milling tasks that sync their patterns to it; ``fiducial`` will
-# be read by the fiducial task. The name is the contract, so codecs and
-# writers are keyed by it rather than by kind.
+# read by the milling tasks that sync their patterns to it. The name is the
+# contract, so codecs and writers are keyed by it rather than by kind.
 
 
 def _point_to_dict(p: Any) -> Any:
@@ -173,7 +172,6 @@ def _point_from_dict(d: Any) -> Any:
 
 _VALUE_CODECS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
     "poi": (_point_to_dict, _point_from_dict),
-    "fiducial": (_point_to_dict, _point_from_dict),
 }
 
 

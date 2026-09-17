@@ -19,7 +19,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem.applications.autolamella.proposals import (  # noqa: E402
-    MILLING_SETUP,
+    POINT_OF_INTEREST,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -101,7 +101,7 @@ def ui(qapp, monkeypatch, tmp_path):
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
     lamella.proposals[SETUP] = Proposal(
-        kind=MILLING_SETUP,
+        kind=POINT_OF_INTEREST,
         values={"poi": Point(0.0, 0.0)},
         provenance={"proposer": "centre-of-image", "reference_image": ref + ".tif"},
     )
@@ -157,7 +157,7 @@ def test_reviews_lists_the_pending_proposal_with_its_image(ui):
     assert review["item_id"] == lamella.id
     assert review["item_name"] == lamella.name
     assert review["task_name"] == SETUP
-    assert review["kind"] == MILLING_SETUP
+    assert review["kind"] == POINT_OF_INTEREST
     assert review["values"] == {"poi": {"x": 0.0, "y": 0.0}}
     assert review["gated"] is True
     assert review["waiting_on"] == [ROUGH]

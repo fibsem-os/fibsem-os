@@ -16,7 +16,7 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.proposals import (
-    MILLING_SETUP,
+    POINT_OF_INTEREST,
     AuthorKind,
     Decision,
     DecisionOutcome,
@@ -113,7 +113,7 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
     task.run()
 
     proposal = lamella.proposals[SETUP]
-    assert proposal.kind == MILLING_SETUP
+    assert proposal.kind == POINT_OF_INTEREST
     assert proposal.pending
     assert proposal.values == {"poi": Point(0.0, 0.0)}
     assert proposal.confidence is None and proposal.alternatives == []
@@ -231,7 +231,7 @@ def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
     task.run()
     lamella = exp.positions[0]
     proposal = lamella.proposals[SETUP]
-    assert proposal.kind == MILLING_SETUP and not proposal.pending
+    assert proposal.kind == POINT_OF_INTEREST and not proposal.pending
     assert str(proposal.current.author) == "auto:current-poi"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
 

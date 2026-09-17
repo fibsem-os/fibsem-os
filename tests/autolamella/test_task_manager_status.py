@@ -335,7 +335,7 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
+    l1.proposals["Trench"] = Proposal(kind="point_of_interest", values={})
     experiment.get_lamella_by_name("L2").task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.Completed)
     )
@@ -412,7 +412,7 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
+    l1.proposals["Trench"] = Proposal(kind="point_of_interest", values={})
     experiment.decide(
         l1.id,
         "Trench",
@@ -450,7 +450,7 @@ def _review_manager(tmp_path, review_wait, hook_manager=None):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
+    l1.proposals["Trench"] = Proposal(kind="point_of_interest", values={})
     return m, l1
 
 

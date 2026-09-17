@@ -10,7 +10,7 @@ import numpy as np
 from fibsem import constants
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
 from fibsem.applications.autolamella.proposals import (
-    MILLING_SETUP,
+    POINT_OF_INTEREST,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -76,11 +76,9 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
 
 
 def consumed_values(lamella: "Lamella") -> List[str]:
-    """The value names a milling-setup proposal for this lamella may carry: a
-    value exists because a later task consumes it. ``poi`` is consumed by any
-    milling task whose patterns follow the point; a fiducial value would be
-    consumed by the fiducial task, but has no writer yet, so it is not
-    proposed."""
+    """The value names a point-of-interest proposal for this lamella may
+    carry: a value exists because a later task consumes it. ``poi`` is
+    consumed by any milling task whose patterns follow the point."""
     values = []
     for task_config in lamella.task_config.values():
         if getattr(task_config, "sync_to_poi", False) and task_config.milling:
@@ -102,7 +100,7 @@ class CurrentPoiProposer:
     the operator was asked, so a supervised answer leaves a delta.
     """
 
-    kind = MILLING_SETUP
+    kind = POINT_OF_INTEREST
     name = "current-poi"
     version = 2
 
