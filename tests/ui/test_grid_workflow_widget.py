@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import QDialog, QLabel
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskStatus,
     Experiment,
@@ -198,6 +199,72 @@ class TestSelection:
         view.set_all_tasks_selected(True)
         view.set_controls_enabled(False)
         assert not view.btn_screen_all.isEnabled()
+
+
+class TestAttentionChip:
+    """Automated or Review per grid task, as on the lamella task list; shown
+    only while the review preference is on."""
+
+    def test_hidden_while_review_is_off(self, view, monkeypatch):
+        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
+
+        monkeypatch.setattr(module, "_review_available", lambda: False)
+        row = view._task_rows["overview_sem"]
+        row.refresh()
+        assert row.btn_attention.isHidden()
+
+    def test_a_click_toggles_review_and_saves_the_protocol(
+        self, view, experiment, monkeypatch
+    ):
+        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
+
+        monkeypatch.setattr(module, "_review_available", lambda: True)
+        row = view._task_rows["overview_sem"]
+        row.refresh()
+        assert not row.btn_attention.isHidden()
+        assert row.btn_attention.text() == "Automated"
+        changed = []
+        view.protocol_changed.connect(lambda: changed.append(True))
+
+        row.btn_attention.click()
+
+        config = experiment.grid_protocol.task_config["overview_sem"]
+        assert config.attention is Attention.review
+        assert row.btn_attention.text() == "Review"
+        assert changed == [True]
+        again = Experiment.load(Path(experiment.path) / "experiment.yaml")
+        assert again.grid_protocol.task_config["overview_sem"].attention is (
+            Attention.review
+        )
+
+        row.btn_attention.click()
+        assert config.attention is Attention.automated
+
+
+def test_the_review_tab_loads_a_grid_proposals_image_from_the_grid_directory(
+    experiment,
+):
+    """A grid's recorded outputs are relative to its grid_path, which the record
+    does not store; the loader resolves it through the experiment."""
+    from fibsem.applications.autolamella.proposals import TASK_RESULT, Proposal
+    from fibsem.applications.autolamella.ui.review_tab_widget import (
+        _load_reference_image,
+    )
+    from fibsem.structures import FibsemImage
+
+    grid = experiment.add_grid(GridRecord(name="grid-oak"))
+    directory = experiment.grid_path(grid) / "overview_sem"
+    directory.mkdir(parents=True)
+    FibsemImage.generate_blank_image(resolution=(64, 64)).save(
+        str(directory / "overview.tif")
+    )
+    proposal = Proposal(
+        kind=TASK_RESULT, provenance={"reference_image": "overview_sem/overview.tif"}
+    )
+
+    image = _load_reference_image(experiment, grid, proposal)
+
+    assert image is not None and image.data.shape == (64, 64)
 
 
 def test_the_preflight_says_what_a_run_does(qapp):

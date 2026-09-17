@@ -2120,6 +2120,14 @@ class Experiment:
         """
         return Path(self.path) / "grids" / grid.name
 
+    def item_path(self, item: Union["Lamella", GridRecord]) -> Path:
+        """The directory an item's recorded outputs are relative to: a lamella's
+        own ``path``, a grid's ``grid_path``. Derived for a grid rather than
+        stored on its record, which is renamed in place."""
+        if isinstance(item, GridRecord):
+            return self.grid_path(item)
+        return Path(item.path)
+
     def get_lamellae_for_grid(self, grid: GridRecord) -> List["Lamella"]:
         """Derived from `Lamella.grid_id`; nothing stores the reverse."""
         return [p for p in self.positions if p.grid_id == grid.id]

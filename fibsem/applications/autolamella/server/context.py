@@ -873,11 +873,13 @@ class AgentContext:
                     "waiting_on": waiting_on(experiment, task_name),
                 }
             )
-            image = _load_reference_image(item, proposal)
+            image = _load_reference_image(experiment, item, proposal)
             doc["reference_image"] = (
                 _preview_payload(image) if image is not None else None
             )
-            electron = _load_reference_image(item, proposal, "reference_image_eb")
+            electron = _load_reference_image(
+                experiment, item, proposal, "reference_image_eb"
+            )
             doc["reference_image_eb"] = (
                 _preview_payload(electron) if electron is not None else None
             )
