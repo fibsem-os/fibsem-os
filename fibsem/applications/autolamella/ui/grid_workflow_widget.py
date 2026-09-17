@@ -33,8 +33,19 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import Experiment, GridRecord
+from fibsem.applications.autolamella.structures import (
+    Attention,
+    Experiment,
+    GridRecord,
+)
 from fibsem.applications.autolamella.ui.grid_card_widget import grid_headline
+from fibsem.applications.autolamella.ui.workflow_config_widget import (
+    _CHIP_ICONS,
+    _CHIP_WIDTH,
+    ATTENTION_LABELS,
+    _chip_style,
+    _review_available,
+)
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     FluorescenceOverviewGridTaskConfig,
     GridTaskConfig,
@@ -194,6 +205,7 @@ class _GridRow(QWidget):
 
 class _TaskRow(QWidget):
     selection_changed = pyqtSignal(str, bool)  # task name, checked
+    attention_changed = pyqtSignal(str)  # task name; the config is already changed
 
     def __init__(
         self, config: GridTaskConfig, parent: Optional[QWidget] = None
@@ -216,6 +228,17 @@ class _TaskRow(QWidget):
         self.name_label.setTextFormat(Qt.PlainText)
         layout.addWidget(self.name_label)
         layout.addStretch(1)
+        # Who decides the record, as on the lamella task list, with the two
+        # states a grid task has: Automated or Review. A click toggles. Hidden
+        # while the review preference is off, when there is nothing to choose.
+        self.btn_attention = QToolButton()
+        self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_attention.setIconSize(QSize(14, 14))
+        self.btn_attention.setFixedSize(_CHIP_WIDTH, 24)
+        self.btn_attention.setCursor(Qt.PointingHandCursor)
+        self.btn_attention.setFocusPolicy(Qt.NoFocus)
+        self.btn_attention.clicked.connect(self._toggle_attention)
+        layout.addWidget(self.btn_attention)
         # The kind, or why this system cannot run it: the muted right column. A
         # reason can be longer than the column; elided from the right it keeps
         # its start, where a plain right-aligned label lost it off the left edge.
@@ -245,6 +268,15 @@ class _TaskRow(QWidget):
         self._reason = reason
         self.refresh()
 
+    def _toggle_attention(self) -> None:
+        self.config.attention = (
+            Attention.automated
+            if self.config.attention is Attention.review
+            else Attention.review
+        )
+        self.refresh()
+        self.attention_changed.emit(self.task_name)
+
     def refresh(self) -> None:
         available = self._reason is None
         self.name_label.setText(self.task_name)
@@ -262,10 +294,34 @@ class _TaskRow(QWidget):
             f"background: transparent; color: {NEUTRAL_700}; "
             f"font-size: {_SIDE_FONT_PX}px;",
         )
+        self._refresh_attention()
         if not available and self.checkbox.isChecked():
             self.checkbox.setChecked(False)
         self.checkbox.setEnabled(available)
         self.checkbox.setToolTip(self._reason or "")
+
+    def _refresh_attention(self) -> None:
+        review_available = _review_available()
+        self.btn_attention.setVisible(review_available)
+        if not review_available:
+            return
+        state = "review" if self.config.attention is Attention.review else "automated"
+        if state == "review":
+            colour = stylesheets.REVIEW_COLOR
+            tooltip = (
+                "Review — the task ends waiting for your decision in the Review "
+                "tab, with what it acquired to look at. Click for Automated."
+            )
+        else:
+            colour = stylesheets.AUTOMATED_COLOR
+            tooltip = (
+                "Automated — runs without anyone; what it acquired is listed in "
+                "the Review tab to check. Click for Review."
+            )
+        self.btn_attention.setText(ATTENTION_LABELS[state])
+        self.btn_attention.setIcon(fibsem_icon(_CHIP_ICONS[state], color=colour))
+        self.btn_attention.setToolTip(tooltip)
+        self.btn_attention.setStyleSheet(_chip_style(colour))
 
 
 class _ListHeader(QWidget):
@@ -477,6 +533,7 @@ class GridWorkflowWidget(QWidget):
             for name in protocol.ordered_task_names:
                 row = _TaskRow(protocol.task_config[name])
                 row.selection_changed.connect(lambda *_: self._on_selection())
+                row.attention_changed.connect(self._on_attention_changed)
                 _add_row(self.task_list, row, key=name)
                 self._task_rows[name] = row
                 # Every task ticked by default: the usual run is the whole protocol.
@@ -603,6 +660,20 @@ class GridWorkflowWidget(QWidget):
 
     # -- order -----------------------------------------------------------------
 
+    def _on_attention_changed(self, task_name: str) -> None:
+        """A chip click changed a task's attention: saved with the protocol,
+        like its order."""
+        self._save_protocol()
+        self.protocol_changed.emit()
+
+    def _save_protocol(self) -> None:
+        if self._experiment is None:
+            return
+        try:
+            self._experiment.save(save_protocol=True)
+        except Exception as e:  # noqa: BLE001 - the change is made; say so
+            logging.warning(f"Could not save the grid protocol: {e}")
+
     def _on_reordered(self, names: List[str]) -> None:
         """A drag put the tasks in a new order: into the protocol, and saved."""
         protocol = self._protocol()
@@ -610,11 +681,7 @@ class GridWorkflowWidget(QWidget):
             self._rebuild()
             return
         protocol.order = list(names)
-        if self._experiment is not None:
-            try:
-                self._experiment.save(save_protocol=True)
-            except Exception as e:  # noqa: BLE001 - the order is changed; say so
-                logging.warning(f"Could not save the grid protocol: {e}")
+        self._save_protocol()
         self._rebuild()
         self.protocol_changed.emit()
 

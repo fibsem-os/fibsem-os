@@ -228,7 +228,12 @@ class GridTaskManager(BaseTaskManager):
             err = self._run_single_task(item.task_name, grid)
             final_status = grid.task_state.status
             self.queue.mark_done(item, final_status)
-            if err is None:
+            if err is None and final_status is AutoLamellaTaskStatus.AwaitingDecision:
+                msg = (
+                    f"{item.task_name} on grid {grid.name} awaits a decision "
+                    "in the Review tab."
+                )
+            elif err is None:
                 msg = f"Completed {item.task_name} on grid {grid.name}."
             else:
                 msg = f"Error in {item.task_name} on grid {grid.name}."

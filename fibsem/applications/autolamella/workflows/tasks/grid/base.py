@@ -31,11 +31,14 @@ from typing import (
     get_type_hints,
 )
 
+from fibsem.applications.autolamella.proposals import Proposer, TaskResultProposer
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskStatus,
     GridRecord,
     get_fields_with_metadata,
 )
+from fibsem.applications.autolamella.workflows.tasks.proposing import settle
 from fibsem.cancellation import OperationCancelledError
 
 if TYPE_CHECKING:
@@ -61,11 +64,19 @@ class GridTaskConfig(ABC):
     task_type: ClassVar[str]
     display_name: ClassVar[str]
     task_name: str = ""  # unique within a protocol; the key the workflow uses
+    # Who decides the task's record: automated (the task confirms its own) or
+    # review (the task ends AwaitingDecision and the Review tab decides). One
+    # per task name, shared by every grid like the rest of the config; read as
+    # automated while the review preference is off. A grid task asks nothing
+    # while it runs, so supervised reads as automated too.
+    attention: Attention = Attention.automated
 
     @property
     def parameters(self) -> Tuple[str, ...]:
         """The task-specific fields, in declaration order: what a form shows."""
-        return tuple(f.name for f in fields(self) if f.name != "task_name")
+        return tuple(
+            f.name for f in fields(self) if f.name not in ("task_name", "attention")
+        )
 
     @property
     def field_metadata(self) -> Dict[str, Dict[str, Any]]:
@@ -75,6 +86,7 @@ class GridTaskConfig(ABC):
         data: Dict[str, Any] = {
             "task_type": self.task_type,
             "task_name": self.task_name,
+            "attention": self.attention.value,
         }
         for name in self.parameters:
             data[name] = _serialise(getattr(self, name))
@@ -87,11 +99,27 @@ class GridTaskConfig(ABC):
         for f in fields(cls):
             if f.name not in data:
                 continue
+            if f.name == "attention":
+                kwargs[f.name] = _attention(data[f.name], data.get("task_name", ""))
+                continue
             kwargs[f.name] = _deserialise(hints.get(f.name), data[f.name])
         unknown = set(data) - {f.name for f in fields(cls)} - {"task_type"}
         for key in sorted(unknown):
             logging.warning(f"Unknown field '{key}' in {cls.__name__}; ignored.")
         return cls(**kwargs)
+
+
+def _attention(value: Any, task_name: str) -> Attention:
+    """A stored attention, or automated with a warning: a value this build does
+    not know must not drop the whole task from the protocol."""
+    try:
+        return Attention(value)
+    except ValueError:
+        logging.warning(
+            f"Unknown attention {value!r} on grid task '{task_name}'; "
+            "read as automated."
+        )
+        return Attention.automated
 
 
 def _serialise(value: Any) -> Any:
@@ -132,6 +160,9 @@ class GridTask(ABC):
 
     config_cls: ClassVar[Type[GridTaskConfig]]
     config: GridTaskConfig
+    # What this task type proposes for the Review tab, as on AutoLamellaTask:
+    # its result, with the image it recorded under its role.
+    proposer: ClassVar[Optional[Proposer]] = TaskResultProposer()
 
     def __init__(
         self,
@@ -166,6 +197,24 @@ class GridTask(ABC):
     @property
     def display_name(self) -> str:
         return self.config.display_name
+
+    @property
+    def review(self) -> bool:
+        """Whether this task ends waiting on a decision in the Review tab: its
+        config's attention, and the feature flag as the manager read it for
+        this run. Otherwise the task confirms its own record."""
+        manager = self.task_manager
+        if manager is None or not getattr(manager, "review_enabled", False):
+            return False
+        return self.config.attention is Attention.review
+
+    @property
+    def result_images(self) -> Dict[str, str]:
+        """The image a proposal points at, by provenance key: the file recorded
+        under the config's role (the stitched overview, not its thumbnail; the
+        operator is judging the image). Empty for a task with no role."""
+        role = getattr(self.config, "role", None)
+        return {"reference_image": role} if role else {}
 
     # -- where the grid is, and where its files go -----------------------------
 
@@ -209,6 +258,10 @@ class GridTask(ABC):
                     "Cancelled by user." if cancelled else str(e)
                 )
                 self._record_outcome()
+                # A failure is exactly when someone wants to look; a Stop is
+                # not, whoever pressed it already knows.
+                if not cancelled:
+                    self._settle(failure=str(e))
             except Exception:
                 logging.exception(f"Could not record the outcome of {self.task_name}")
             self._fire_hook(
@@ -218,7 +271,23 @@ class GridTask(ABC):
         finally:
             self._clear_workflow_metadata()
         self.post_task()
+        self._settle()
         self._fire_hook("task_completed")
+
+    def _settle(self, failure: str = "") -> None:
+        """Propose this run's result on the grid and decide it; see
+        ``proposing.settle``. A grid task asks no question, so there is never
+        an inline decision."""
+        settle(
+            self,
+            self.grid,
+            proposer=type(self).proposer,
+            result_images=self.result_images,
+            review=self.review,
+            inline_decision=None,
+            experiment=self.experiment,
+            failure=failure,
+        )
 
     @abstractmethod
     def _run(self) -> None: ...
