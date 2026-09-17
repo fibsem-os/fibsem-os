@@ -42,10 +42,7 @@ def _lamellae(n: int):
 
 
 def _tasks(names):
-    return [
-        AutoLamellaTaskDescription(name=n, supervise=False, required=False)
-        for n in names
-    ]
+    return [AutoLamellaTaskDescription(name=n, required=False) for n in names]
 
 
 def _tick(widget, rows):

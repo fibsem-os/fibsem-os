@@ -98,7 +98,6 @@ def make_experiment(
             tasks=[
                 AutoLamellaTaskDescription(
                     name=name,
-                    supervise=False,
                     required=False,
                     requires=reqs.get(name, []),
                 )
@@ -313,9 +312,10 @@ def test_a_prerequisite_still_in_the_queue_defers_rather_than_skips(tmp_path):
     assert all(i.status is Status.Completed for i in m.queue.items)
 
 
-def test_a_pending_proposal_on_a_required_task_defers_its_consumer(tmp_path):
-    """Trench completed and left a proposal nobody has decided: Undercut waits.
-    It stays pending -- not Skipped -- and runs once the proposal is decided."""
+def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
+    """Trench ran and waits on a decision: it is not finished, so Undercut waits.
+    It stays pending -- not Skipped -- and runs once the decision lands, which
+    finishes Trench."""
     from fibsem.applications.autolamella.proposals import (
         Decision,
         DecisionOutcome,
@@ -331,21 +331,21 @@ def test_a_pending_proposal_on_a_required_task_defers_its_consumer(tmp_path):
     m.review_enabled = True
     experiment.task_protocol.options.review_wait = 0  # do not park on the review
     m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
-    for name in ("L1", "L2"):
-        lamella = experiment.get_lamella_by_name(name)
-        lamella.task_history.append(
-            AutoLamellaTaskState(name="Trench", status=Status.Completed)
-        )
     l1 = experiment.get_lamella_by_name("L1")
+    l1.task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
+    )
     l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
-    assert m._defer_reason(l1, "Undercut") == "awaiting_review"
-    assert m._should_skip(l1, "Undercut") is None, "prerequisite is complete"
+    experiment.get_lamella_by_name("L2").task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.Completed)
+    )
+    assert m._defer_reason(l1, "Undercut") == "awaiting_decision"
 
     executed = run_queue_with(m)
     assert executed == [("L2", "Undercut")], "L1 waits, L2 does not"
     assert m.queue.has_pending_pair("L1", "Undercut")
     assert [(i.lamella_name, r) for i, r in m.deferred_items()] == [
-        ("L1", "awaiting_review")
+        ("L1", "awaiting_decision")
     ]
 
     experiment.decide(
@@ -353,6 +353,7 @@ def test_a_pending_proposal_on_a_required_task_defers_its_consumer(tmp_path):
         "Trench",
         Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={}),
     )
+    assert l1.has_completed_task("Trench"), "the decision finished it"
     assert m._defer_reason(l1, "Undercut") is None
     assert run_queue_with(m) == [("L1", "Undercut")]
 
@@ -390,9 +391,10 @@ def test_the_flag_reads_fail_closed(monkeypatch):
     assert M.review_enabled() is False
 
 
-def test_a_rejected_proposal_retires_the_consumer(tmp_path):
-    """Reject on a gating kind fails the lamella, so its consumer is Skipped with
-    the failure reason -- nothing further here."""
+def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
+    """Reject finishes the waiting task as Failed. Its consumer is then Skipped
+    for a missing prerequisite, the ordinary rule; the lamella itself is not
+    marked defective -- that stays a person's call."""
     from fibsem.applications.autolamella.proposals import (
         Decision,
         DecisionOutcome,
@@ -407,24 +409,29 @@ def test_a_rejected_proposal_retires_the_consumer(tmp_path):
     )
     m.queue.build_from_matrix(["Undercut"], ["L1"])
     l1 = experiment.get_lamella_by_name("L1")
-    l1.task_history.append(AutoLamellaTaskState(name="Trench", status=Status.Completed))
+    l1.task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
+    )
     l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
     experiment.decide(
         l1.id,
         "Trench",
         Decision(outcome=DecisionOutcome.Rejected, author="human:op", reason="no site"),
     )
+    assert l1.task_history[-1].status is Status.Failed
+    assert l1.task_history[-1].status_message == "Rejected by op: no site"
+    assert not l1.is_failure
     assert run_queue_with(m) == []
     assert [i.status for i in m.queue.items] == [Status.Skipped]
     reports = [e.report for e in m.parent_ui.workflow_status_signal.emitted if e.report]
-    assert reports[-1].skip_reason == "failure"
+    assert reports[-1].skip_reason == "missing_prereqs"
 
 
 # ── stalled: drained with work waiting on a decision ─────────────────────────
 
 
 def _review_manager(tmp_path, review_wait, hook_manager=None):
-    """L1 has Trench completed with a pending proposal; Undercut requires it."""
+    """L1 has Trench awaiting a decision; Undercut requires it."""
     from fibsem.applications.autolamella.proposals import Proposal
 
     experiment = make_experiment(
@@ -440,7 +447,9 @@ def _review_manager(tmp_path, review_wait, hook_manager=None):
     m.review_enabled = True
     m.queue.build_from_matrix(["Undercut"], ["L1"])
     l1 = experiment.get_lamella_by_name("L1")
-    l1.task_history.append(AutoLamellaTaskState(name="Trench", status=Status.Completed))
+    l1.task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
+    )
     l1.proposals["Trench"] = Proposal(kind="milling_setup", values={})
     return m, l1
 
@@ -546,27 +555,33 @@ def test_unrunnable_work_with_nothing_to_unblock_it_exits_with_an_error(tmp_path
     assert m.stalled is True and "no decision would change that" in m.stall_reason
 
 
-def test_resume_leaves_out_completed_pairs(tmp_path):
+def test_run_leaves_out_a_task_awaiting_a_decision(tmp_path):
+    """Run re-runs completed pairs -- that is how a task is re-run -- but a task
+    whose record waits in the Review tab is left out: running it again would
+    supersede the proposal someone is about to decide."""
     experiment = make_experiment(tmp_path, lamella_names=["L1", "L2"])
     m = TaskManager(
         microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
     )
     experiment.get_lamella_by_name("L1").task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
+    )
+    experiment.get_lamella_by_name("L2").task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.Completed)
     )
     m._run_queue = lambda: None
-    m.run(["Trench", "Undercut"], ["L1", "L2"], resume=True)
+    m.review_enabled = True
+    m.run(["Trench", "Undercut"], ["L1", "L2"])
     assert [(i.lamella_name, i.task_name) for i in m.queue.items] == [
         ("L2", "Trench"),
         ("L1", "Undercut"),
         ("L2", "Undercut"),
     ]
-    m2 = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
-    m2._run_queue = lambda: None
-    m2.run(["Trench", "Undercut"], ["L1", "L2"])
-    assert len(m2.queue.items) == 4, "a plain run still re-runs completed pairs"
+    # With the Review surface off nobody can decide, so the exception is not
+    # made and Run re-runs it, as it re-runs any other completed pair.
+    m.review_enabled = False
+    m.run(["Trench", "Undercut"], ["L1", "L2"])
+    assert len(m.queue.items) == 4
 
 
 def test_no_requirements_runs(manager):

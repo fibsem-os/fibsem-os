@@ -17,12 +17,15 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.proposals import (
     MILLING_SETUP,
+    AuthorKind,
     Decision,
     DecisionOutcome,
 )
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
+    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -48,17 +51,17 @@ def microscope():
     microscope.disconnect()
 
 
-def _experiment(tmp_path: Path, microscope, review) -> Experiment:
+def _experiment(
+    tmp_path: Path, microscope, attention: Attention = Attention.automated
+) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
     exp.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=SETUP, supervise=False, required=True, review=review
+                    name=SETUP, required=True, attention=attention
                 ),
-                AutoLamellaTaskDescription(
-                    name=ROUGH, supervise=False, required=True, requires=[SETUP]
-                ),
+                AutoLamellaTaskDescription(name=ROUGH, required=True, requires=[SETUP]),
             ]
         )
     )
@@ -96,8 +99,10 @@ def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
     )
 
 
-def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, review=True)
+def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
+    microscope, tmp_path
+):
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     task = _task(microscope, exp, flag=True)
     assert task.review is True
     lamella = exp.positions[0]
@@ -129,8 +134,11 @@ def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
         == rough_point
     )
-    assert lamella.has_completed_task(SETUP), "the task did all of its work"
-    assert lamella.milling_pose is not None
+    assert lamella.milling_pose is not None, "the task did all of its work"
+    assert lamella.is_awaiting_decision(SETUP) and not lamella.has_completed_task(
+        SETUP
+    ), "but it is not finished until someone decides"
+    assert lamella.task_state.status is AutoLamellaTaskStatus.AwaitingDecision
 
     # The proposal is what the experiment file carries.
     exp.save()
@@ -139,12 +147,12 @@ def test_under_review_the_task_records_a_proposal_and_completes(microscope, tmp_
 
 
 def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     task = _task(microscope, exp, flag=True)
     task.run()
     manager = task.task_manager
     lamella = exp.positions[0]
-    assert manager._defer_reason(lamella, ROUGH) == "awaiting_review"
+    assert manager._defer_reason(lamella, ROUGH) == "awaiting_decision"
 
     result = exp.decide(
         lamella.id,
@@ -167,7 +175,7 @@ def test_the_proposal_carries_the_point_something_else_already_set(
     Setup runs. The proposer proposes that point rather than the image centre,
     so recording the proposal and confirming it changes nothing: whatever set
     the point is not undone by the step that is meant to check it."""
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     lamella = exp.positions[0]
     lamella.poi = Point(4e-6, -2e-6)
     task = _task(microscope, exp, flag=True)
@@ -184,7 +192,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     """Re-running Setup is a deliberate act: the operator gets a new proposal
     on the new image, and the old one -- with its decision -- stays on the
     record. The confirmed point stays on the lamella until the new decision."""
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     task = _task(microscope, exp, flag=True)
     task.run()
     lamella = exp.positions[0]
@@ -209,7 +217,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     assert fresh.superseded == [decided]
     assert decided.current.values["poi"] == Point(1e-6, 1e-6)
     assert lamella.poi == Point(1e-6, 1e-6)
-    assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_review"
+    assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_decision"
 
 
 def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
@@ -218,14 +226,14 @@ def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
     """The flag hides the Review surface, not the record. A protocol that says
     review runs ungated with it off: the producer confirms its own proposal
     and nothing defers."""
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     task = _task(microscope, exp, flag=False)
     assert task.review is False, "gate needs the flag"
     task.run()
     lamella = exp.positions[0]
     proposal = lamella.proposals[SETUP]
     assert proposal.kind == MILLING_SETUP and not proposal.pending
-    assert proposal.current.author == "auto:current-poi"
+    assert str(proposal.current.author) == "auto:current-poi"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
 
 
@@ -234,7 +242,7 @@ def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
     under a gate, then confirmed as proposed by the producer, through the
     same decide path a person's confirm takes. The author says nobody looked;
     the run never waits."""
-    exp = _experiment(tmp_path, microscope, review=False)
+    exp = _experiment(tmp_path, microscope)
     task = _task(microscope, exp, flag=True)
     assert task.review is False
     lamella = exp.positions[0]
@@ -247,7 +255,7 @@ def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
     assert not proposal.pending
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "the proposal is untouched"
     assert proposal.current.outcome is DecisionOutcome.Confirmed
-    assert proposal.current.author == "auto:current-poi"
+    assert str(proposal.current.author) == "auto:current-poi"
     assert proposal.current.via == "workflow"
     assert proposal.current.values == proposal.values, "confirmed as proposed"
     assert proposal.delta() == {"poi": Point(0.0, 0.0)}
@@ -272,7 +280,7 @@ def test_supervised_the_inline_answer_is_the_decision(
     from fibsem.applications.autolamella.workflows.tasks import select_position as S
 
     monkeypatch.setattr(S, "select_poi_ui", lambda **kwargs: Point(2e-6, -1e-6))
-    exp = _experiment(tmp_path, microscope, review=False)
+    exp = _experiment(tmp_path, microscope)
     task = _task(microscope, exp, flag=True)
     lamella = exp.positions[0]
 
@@ -282,16 +290,16 @@ def test_supervised_the_inline_answer_is_the_decision(
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "what the proposer said"
     d = proposal.current
     assert d.outcome is DecisionOutcome.Confirmed and d.via == "workflow"
-    assert d.author.startswith("human:")
+    assert d.author.kind is AuthorKind.human
     assert d.values == {"poi": Point(2e-6, -1e-6)}
     assert proposal.delta()["poi"] == Point(2e-6, -1e-6)
-    assert not d.author.startswith("auto:"), "a person decided it"
+    assert d.author.kind is not AuthorKind.automated, "a person decided it"
     assert lamella.poi == Point(2e-6, -1e-6), "applied inline, once"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
 
 
 def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     lamella = exp.positions[0]
     assert consumed_values(lamella) == ["poi"]
     del lamella.task_config[ROUGH]
@@ -299,22 +307,35 @@ def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
     assert propose_milling_setup(lamella, None) is None, "no consumer, no proposal"
 
 
-def test_review_round_trips_through_the_protocol():
+def test_attention_round_trips_through_the_protocol():
     d = AutoLamellaTaskDescription(
-        name=SETUP, supervise=True, required=True, review=True
+        name=SETUP, required=True, attention=Attention.review
     )
-    assert d.to_dict()["review"] is True
+    assert d.to_dict()["attention"] == "review"
     again = AutoLamellaTaskDescription.from_dict(d.to_dict())
-    assert again.review is True
-    old = AutoLamellaTaskDescription.from_dict(
-        {"name": SETUP, "supervise": True, "required": True, "requires": []}
-    )
-    assert old.review is False
-    # one interim version wrote a mode string; it still loads
-    for legacy, flag in (("gate", True), ("advise", False), ("off", False)):
-        interim = AutoLamellaTaskDescription.from_dict(
-            {"name": SETUP, "supervise": True, "required": True, "review": legacy}
-        )
-        assert interim.review is flag, legacy
+    assert again.attention is Attention.review
+    assert AutoLamellaTaskDescription(name=SETUP, attention="supervised").attention is (
+        Attention.supervised
+    ), "a string from a hand-edited file is the enum"
     cfg_ = AutoLamellaWorkflowConfig(tasks=[d])
-    assert cfg_.get_review(SETUP) is True and cfg_.get_review("nope") is False
+    assert cfg_.get_attention(SETUP) is Attention.review
+    assert cfg_.get_attention("nope") is Attention.automated
+
+
+def test_a_protocol_written_with_the_two_flags_still_loads():
+    """Before ``attention`` a task carried ``supervise`` and ``review``; the
+    interim mode string for review loads too. Supervised wins when a file has
+    both. FIB-998 removes this mapping once nothing is on that form."""
+    load = AutoLamellaTaskDescription.from_dict
+    base = {"name": SETUP, "required": True, "requires": []}
+    assert load({**base, "supervise": True}).attention is Attention.supervised
+    assert load({**base, "supervise": False}).attention is Attention.automated
+    assert load({**base, "supervise": False, "review": True}).attention is (
+        Attention.review
+    )
+    assert load({**base, "supervise": True, "review": True}).attention is (
+        Attention.supervised
+    )
+    for legacy, want in (("gate", Attention.review), ("advise", Attention.automated)):
+        assert load({**base, "supervise": False, "review": legacy}).attention is want
+    assert "supervise" not in load({**base, "supervise": True}).to_dict()

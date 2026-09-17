@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.proposals import (
     Proposal,
 )
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskStatus,
@@ -50,16 +51,18 @@ def microscope():
     microscope.disconnect()
 
 
-def _experiment(tmp_path: Path, microscope, review) -> Experiment:
+def _experiment(
+    tmp_path: Path, microscope, attention: Attention = Attention.automated
+) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
     exp.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=ROUGH, supervise=False, required=True, review=review
+                    name=ROUGH, required=True, attention=attention
                 ),
                 AutoLamellaTaskDescription(
-                    name=POLISH, supervise=False, required=True, requires=[ROUGH]
+                    name=POLISH, required=True, requires=[ROUGH]
                 ),
             ]
         )
@@ -102,7 +105,7 @@ def _task(microscope, exp: Experiment, body=None) -> MillRoughTask:
 
 
 def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     task = _task(microscope, exp)
     lamella = exp.positions[0]
 
@@ -117,8 +120,8 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
     assert p["reference_image"] == f"ref_{ROUGH}_final_res_01_ib.tif"
     assert p["reference_image_eb"] == f"ref_{ROUGH}_final_res_01_eb.tif"
     assert p["ended_at"] >= p["started_at"] > 0
-    assert lamella.has_completed_task(ROUGH)
-    assert task.task_manager._defer_reason(lamella, POLISH) == "awaiting_review"
+    assert lamella.is_awaiting_decision(ROUGH), "ran, not finished"
+    assert task.task_manager._defer_reason(lamella, POLISH) == "awaiting_decision"
 
     result = exp.decide(
         lamella.id,
@@ -130,7 +133,7 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
 
 
 def test_a_failed_task_records_its_result_with_the_failure(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     lamella = exp.positions[0]
 
     def boom():
@@ -149,7 +152,7 @@ def test_a_failed_task_records_its_result_with_the_failure(microscope, tmp_path)
 
 
 def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, review=False)
+    exp = _experiment(tmp_path, microscope)
     task = _task(microscope, exp)
     lamella = exp.positions[0]
 
@@ -157,21 +160,21 @@ def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_pa
 
     proposal = lamella.proposals[ROUGH]
     assert proposal.kind == TASK_RESULT
-    assert proposal.to_check and proposal.current.author == f"auto:{ROUGH}"
+    assert proposal.to_check and str(proposal.current.author) == f"auto:{ROUGH}"
     assert task.task_manager._defer_reason(lamella, POLISH) is None
     assert [t for _i, t, _p in exp.proposals_to_check()] == [ROUGH]
 
 
 def test_without_the_flag_the_result_is_recorded_but_never_gates(microscope, tmp_path):
     """The flag hides the Review surface, not the record."""
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     task = _task(microscope, exp)
     task.task_manager.review_enabled = False
     task.run()
     lamella = exp.positions[0]
     proposal = lamella.proposals[ROUGH]
     assert proposal.kind == TASK_RESULT and not proposal.pending
-    assert proposal.current.author == f"auto:{ROUGH}"
+    assert str(proposal.current.author) == f"auto:{ROUGH}"
     assert task.task_manager._defer_reason(lamella, POLISH) is None
 
 
@@ -194,7 +197,7 @@ def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path
     assert AcquireReferenceImageTask.proposal_kind == TASK_RESULT
     assert MillRoughTask.proposal_kind == TASK_RESULT
     assert SelectMillingPositionTask.proposal_kind == MILLING_SETUP
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     task = _task(microscope, exp)
     type(task).proposal_kind = None
     try:
@@ -208,7 +211,7 @@ def test_a_task_type_with_its_own_kind_is_left_alone(microscope, tmp_path):
     """Setup proposes the milling position itself; the base class records a
     task_result only for types that declare that kind, so it never papers over
     a richer proposal, pending or already decided inline."""
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     lamella = exp.positions[0]
 
     def own():
@@ -231,7 +234,7 @@ def test_a_task_type_with_its_own_kind_is_left_alone(microscope, tmp_path):
 
 
 def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, review=True)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review)
     lamella = exp.positions[0]
     _task(microscope, exp).run()
     exp.decide(

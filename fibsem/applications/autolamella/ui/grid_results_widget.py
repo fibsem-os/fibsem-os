@@ -54,6 +54,7 @@ _TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-frien
 
 _STATUS_COLOUR = {
     AutoLamellaTaskStatus.Completed: OK_COLOR,
+    AutoLamellaTaskStatus.AwaitingDecision: stylesheets.DEFECT_ORANGE_COLOR,
     AutoLamellaTaskStatus.Failed: ERROR_COLOR,
     AutoLamellaTaskStatus.Cancelled: stylesheets.DEFECT_ORANGE_COLOR,
     AutoLamellaTaskStatus.Skipped: NEUTRAL_550,

@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from fibsem.applications.autolamella.structures import Attention
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
@@ -536,9 +537,8 @@ def _make_supervised_spot_burn_task(monkeypatch, tmp_path, ask_answer=None):
         SpotBurnFiducialTask,
     )
 
-    parent_ui = (
-        MagicMock()
-    )  # truthy experiment.task_protocol.get_supervision -> supervised
+    parent_ui = MagicMock()
+    parent_ui.experiment.task_protocol.get_attention.return_value = Attention.supervised
 
     asks = []
 

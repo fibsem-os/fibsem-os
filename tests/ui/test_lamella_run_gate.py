@@ -60,11 +60,7 @@ def test_run_is_refused_by_name_until_the_grid_is_loaded(
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name="Trench", supervise=False, required=False
-                )
-            ]
+            tasks=[AutoLamellaTaskDescription(name="Trench", required=False)]
         ),
         task_config={"Trench": AcquireReferenceImageConfig(task_name="Trench")},
     )

@@ -5,7 +5,10 @@ not know ('supervisor') made the whole protocol refuse to load — the
 experiment quickloaded without it. Task descriptions now keep known fields
 only, the same rule AutoLamellaTaskState already follows."""
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
+from fibsem.applications.autolamella.structures import (
+    Attention,
+    AutoLamellaTaskDescription,
+)
 
 
 def test_unknown_fields_from_the_future_are_ignored():
@@ -20,7 +23,7 @@ def test_unknown_fields_from_the_future_are_ignored():
         }
     )
     assert task.name == "Mill Fiducial"
-    assert task.supervise is True
+    assert task.attention is Attention.supervised
 
 
 def test_none_still_produces_a_blank_description():

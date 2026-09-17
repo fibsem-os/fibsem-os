@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -49,7 +50,9 @@ def _experiment(
         tasks=[
             AutoLamellaTaskDescription(
                 name=name,
-                supervise=name in supervised,
+                attention=(
+                    Attention.supervised if name in supervised else Attention.automated
+                ),
                 required=True,
                 scheduled_at=(scheduled or {}).get(name),
             )

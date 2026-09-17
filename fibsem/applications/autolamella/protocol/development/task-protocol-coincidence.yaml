@@ -261,28 +261,28 @@ workflow:
     description: ''
     tasks:
     -   name: Select Milling Position
-        supervise: true
+        attention: supervised
         required: false
         requires: []
     -   name: Acquire Fluorescence Image
-        supervise: false
+        attention: automated
         required: false
         requires: []
     -   name: Mill Fiducial
-        supervise: true
+        attention: supervised
         required: true
         requires: []
     -   name: Acquire Fluorescence Image
-        supervise: false
+        attention: automated
         required: false
         requires: []
     -   name: Rough Milling
-        supervise: true
+        attention: supervised
         required: true
         requires:
         - Mill Fiducial
     -   name: Coincidence Milling
-        supervise: true
+        attention: supervised
         required: true
         requires:
         - Rough Milling

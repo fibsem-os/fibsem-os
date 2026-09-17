@@ -209,7 +209,7 @@ def _task_tooltips(protocol: AutoLamellaTaskProtocol) -> Dict[str, str]:
         if task is None:
             run = "not included"
         else:
-            parts = ["supervised" if task.supervise else "unsupervised"]
+            parts = [task.attention.value]
             parts.append("required" if task.required else "optional")
             if task.requires:
                 parts.append("after " + ", ".join(task.requires))

@@ -104,6 +104,9 @@ def _queue_status_to_step_status(s) -> "StepStatus":
         AutoLamellaTaskStatus.NotStarted: StepStatus.PENDING,
         AutoLamellaTaskStatus.InProgress: StepStatus.ACTIVE,
         AutoLamellaTaskStatus.Completed: StepStatus.COMPLETED,
+        # Ran, not finished: the record waits in the Review tab. Drawn as done
+        # in the timeline, which shows the run; the History list says awaiting.
+        AutoLamellaTaskStatus.AwaitingDecision: StepStatus.COMPLETED,
         AutoLamellaTaskStatus.Failed: StepStatus.FAILED,
         AutoLamellaTaskStatus.Skipped: StepStatus.SKIPPED,
         AutoLamellaTaskStatus.Cancelled: StepStatus.CANCELLED,
@@ -920,6 +923,7 @@ class WorkflowProgressWidget(QWidget):
         # Completion/failure/cancel — set subtitle, hide inner, resolve last inner step
         if task_status in (
             AutoLamellaTaskStatus.Completed,
+            AutoLamellaTaskStatus.AwaitingDecision,
             AutoLamellaTaskStatus.Failed,
             AutoLamellaTaskStatus.Cancelled,
         ):
@@ -1232,6 +1236,7 @@ class WorkflowProgressWidget(QWidget):
             if i.status
             in (
                 AutoLamellaTaskStatus.Completed,
+                AutoLamellaTaskStatus.AwaitingDecision,
                 AutoLamellaTaskStatus.Skipped,
                 AutoLamellaTaskStatus.Cancelled,
             )

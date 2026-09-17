@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
@@ -121,24 +122,22 @@ def attention_state(
     review_available: Optional[bool] = None,
 ) -> str:
     """Which of the chip's states the task is in: the one question the user
-    has about a task, *when am I involved?*, read from the two protocol fields.
+    has about a task, *when am I involved?*, read from the task's attention.
 
-    ``supervise`` wins over ``review`` when a saved protocol has both (a
-    combination the chip never writes): if you are at the microscope for it
-    you answer there. A stored ``supervisor: agent`` shows as plain Supervised
-    while the agent-server preference is off, and a stored ``review: true``
-    shows as Automated while interactive review is off -- the state it will
-    actually run in, not the one in the file.
+    A stored ``supervisor: agent`` shows as plain Supervised while the
+    agent-server preference is off, and a stored ``review`` shows as Automated
+    while interactive review is off -- the state it will actually run in, not
+    the one in the file.
     """
     if agent_available is None:
         agent_available = _agent_supervision_available()
     if review_available is None:
         review_available = _review_available()
-    if task.supervise:
+    if task.attention is Attention.supervised:
         if getattr(task, "supervisor", "human") == "agent" and agent_available:
             return "agent"
         return "supervised"
-    if task.review and review_available:
+    if task.attention is Attention.review and review_available:
         return "review"
     return "automated"
 
@@ -180,7 +179,7 @@ def _attention_chip(
         "Automated — runs without anyone; what it did is listed in the Review "
         "tab to check. Click to change."
     )
-    if task.review and not task.supervise:
+    if task.attention is Attention.review:
         tip = (
             "Runs as Automated: the protocol says Review, but interactive "
             "review is off in Preferences. Click to change."
@@ -201,7 +200,10 @@ def _chip_style(colour: str, muted: bool = False) -> str:
 
 
 def _requires_text(
-    task: AutoLamellaTaskDescription, font: QFont, schedule: bool = True
+    task: AutoLamellaTaskDescription,
+    font: QFont,
+    schedule: bool = True,
+    reviewed: Optional[set] = None,
 ) -> str:
     """What the task waits for, and when it is scheduled, sized to the
     column that holds them.
@@ -211,13 +213,18 @@ def _requires_text(
     dialog; the row only says when, in the same column, so a scheduled row
     is not a wider row.
 
+    ``reviewed`` names the tasks set to Review: a requirement on one of them
+    is a wait for a decision, and the row says so where the wait is felt --
+    "after review of Setup Lamella Position" -- so the reader of this row does
+    not need the rule.
+
     Elided rather than left to run. A task waiting on four others produced a
     label wider than the row, and Qt cut it off mid-word; the row's tooltip
     carries the full list.
     """
     parts = []
     if task.requires:
-        parts.append("after " + ", ".join(task.requires))
+        parts.append("after " + _requires_phrase(task.requires, reviewed or set()))
     if schedule and task.scheduled_at is not None:
         parts.append("at " + task.scheduled_at.strftime("%d %b %H:%M"))
     if not parts:
@@ -227,17 +234,25 @@ def _requires_text(
     )
 
 
+def _requires_phrase(requires: List[str], reviewed: set) -> str:
+    """The wait, said where it is felt: "review of Setup Lamella Position"
+    when what it waits for is reviewed. The marker leads, because task names
+    are long and the column elides the tail. A mixed list marks the reviewed
+    names: "Setup (reviewed), Fiducial"."""
+    if requires and all(r in reviewed for r in requires):
+        return "review of " + ", ".join(requires)
+    return ", ".join(f"{r} (reviewed)" if r in reviewed else r for r in requires)
+
+
 class WorkflowTaskRowWidget(QWidget):
     """One task: its name, what it waits for, and one chip for when a person
     is involved (Automated / Supervised / Review), plus schedule, edit, remove.
 
-    The chip writes two protocol fields, ``supervise`` and ``review``, and
-    emits ``supervised_changed`` or ``review_changed`` for whichever changed,
-    so the hosts that listened to two buttons need no change.
+    The chip writes the task's ``attention`` (and ``supervisor`` for the Agent
+    step) and emits ``attention_changed``.
     """
 
-    supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
-    review_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
+    attention_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     edit_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
     selection_changed = pyqtSignal(object, bool)  # AutoLamellaTaskDescription, checked
 
@@ -297,6 +312,7 @@ class WorkflowTaskRowWidget(QWidget):
         self.btn_attention.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self.btn_attention)
         self._has_dependents = True
+        self._reviewed: set = set()
         self._schedule_visible = True
         # kept for callers that showed or hid the old buttons
         self.btn_supervise = self.btn_attention
@@ -337,14 +353,20 @@ class WorkflowTaskRowWidget(QWidget):
             self._has_dependents = has_dependents
             self.refresh()
 
+    def set_reviewed(self, reviewed: set) -> None:
+        """The tasks set to Review, so a requirement on one reads as the wait
+        for a decision it is."""
+        if reviewed != self._reviewed:
+            self._reviewed = set(reviewed)
+            self.refresh()
+
     def _on_attention_clicked(self) -> None:
         """Cycle Automated → Supervised → Agent → Review → Automated.
 
         The Agent step exists only while the agent-server preference is on,
         the Review step only while interactive review is on; with neither this
-        is the old two-state toggle. Each state writes both fields, so no
-        hidden combination survives a click: leaving Agent resets
-        ``supervisor`` to human, leaving Review clears ``review``.
+        is the old two-state toggle. Leaving Agent resets ``supervisor`` to
+        human, so nothing hidden survives a click.
         """
         task = self.task
         order = ["automated", "supervised"]
@@ -354,31 +376,31 @@ class WorkflowTaskRowWidget(QWidget):
             order.append("review")
         current = attention_state(task)
         following = order[(order.index(current) + 1) % len(order)]
-        before = (task.supervise, getattr(task, "supervisor", "human"), task.review)
-        task.supervise = following in ("supervised", "agent")
+        before = (task.attention, getattr(task, "supervisor", "human"))
+        task.attention = (
+            Attention.supervised if following == "agent" else Attention(following)
+        )
         task.supervisor = "agent" if following == "agent" else "human"
-        task.review = following == "review"
         self.refresh()
-        if before[:2] != (task.supervise, task.supervisor):
-            self.supervised_changed.emit(task)
-        if before[2] != task.review:
-            self.review_changed.emit(task)
-
-    # the old names, for callers that drove the two buttons directly
-    _on_supervise_clicked = _on_attention_clicked
-    _on_review_clicked = _on_attention_clicked
+        if before != (task.attention, task.supervisor):
+            self.attention_changed.emit(task)
 
     def refresh(self) -> None:
         """Re-read all display fields from the stored task."""
         self.name_label.setText(self.task.name)
         self.requires_label.setText(
             _requires_text(
-                self.task, self.requires_label.font(), self._schedule_visible
+                self.task,
+                self.requires_label.font(),
+                self._schedule_visible,
+                self._reviewed,
             )
         )
         tips = []
         if self.task.requires:
-            tips.append("Requires: " + ", ".join(self.task.requires))
+            tips.append(
+                "Requires: " + _requires_phrase(self.task.requires, self._reviewed)
+            )
         if self.task.scheduled_at is not None and self._schedule_visible:
             tips.append(
                 "Scheduled: "
@@ -388,9 +410,7 @@ class WorkflowTaskRowWidget(QWidget):
         self.setToolTip("\n".join(tips))
         label, colour, tooltip = _attention_chip(self.task, self._has_dependents)
         # the file says Review but the preference is off: shown as it will run
-        downgraded = (
-            self.task.review and not self.task.supervise and not _review_available()
-        )
+        downgraded = self.task.attention is Attention.review and not _review_available()
         self.btn_attention.setText(label)
         self.btn_attention.setIcon(
             fibsem_icon(
@@ -456,8 +476,7 @@ class _WorkflowTaskListHeader(QWidget):
 class WorkflowConfigWidget(QWidget):
     """List widget displaying AutoLamellaWorkflowConfig tasks with name, supervised, edit and remove actions."""
 
-    supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
-    review_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
+    attention_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     edit_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
     remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
     selection_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
@@ -540,13 +559,20 @@ class WorkflowConfigWidget(QWidget):
         Review state needs to be honest about."""
         tasks = self.get_tasks()
         required = {req for task in tasks for req in task.requires}
+        reviewed = (
+            {t.name for t in tasks if t.attention is Attention.review}
+            if _review_available()
+            else set()
+        )
         for i in range(self._list.count()):
             row = self._row(i)
             row.set_has_dependents(row.task.name in required)
+            row.set_reviewed(reviewed)
 
     def _connect_row(self, row: WorkflowTaskRowWidget) -> None:
-        row.supervised_changed.connect(self.supervised_changed)
-        row.review_changed.connect(self.review_changed)
+        row.attention_changed.connect(self.attention_changed)
+        # a task moving to or from Review changes what its consumers' rows say
+        row.attention_changed.connect(lambda _t: self._refresh_dependents())
         row.edit_clicked.connect(self.edit_requested)
         row.selection_changed.connect(self._on_row_selection_changed)
 

@@ -42,10 +42,7 @@ def manager(tmp_path: Path) -> TaskManager:
     experiment = Experiment(path=tmp_path, name="test-exp")
     experiment.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(name=n, supervise=False, required=False)
-                for n in TASKS
-            ]
+            tasks=[AutoLamellaTaskDescription(name=n, required=False) for n in TASKS]
         )
     )
     experiment.positions.append(
@@ -204,9 +201,7 @@ def test_a_schedule_round_trips_through_the_protocol():
     """It is stored in the task protocol yaml, so it has to serialise. `asdict` would
     otherwise hand yaml a datetime, which is why `to_dict` writes an isoformat."""
     when = datetime(2026, 8, 13, 9, 30)
-    task = AutoLamellaTaskDescription(
-        name="Trench", supervise=False, required=True, scheduled_at=when
-    )
+    task = AutoLamellaTaskDescription(name="Trench", required=True, scheduled_at=when)
 
     restored = AutoLamellaTaskDescription.from_dict(task.to_dict())
 
@@ -217,7 +212,7 @@ def test_a_schedule_round_trips_through_the_protocol():
 def test_no_schedule_round_trips_as_none():
     """The default has to survive too — `from_dict` only parses strings, so a None
     must not become the string "None" on the way out."""
-    task = AutoLamellaTaskDescription(name="Trench", supervise=False, required=True)
+    task = AutoLamellaTaskDescription(name="Trench", required=True)
 
     assert task.to_dict()["scheduled_at"] is None
     assert AutoLamellaTaskDescription.from_dict(task.to_dict()).scheduled_at is None
@@ -228,10 +223,8 @@ def test_the_workflow_config_finds_a_task_schedule():
     when = datetime(2026, 8, 13, 9, 30)
     config = AutoLamellaWorkflowConfig(
         tasks=[
-            AutoLamellaTaskDescription(
-                name="Trench", supervise=False, required=True, scheduled_at=when
-            ),
-            AutoLamellaTaskDescription(name="Undercut", supervise=False, required=True),
+            AutoLamellaTaskDescription(name="Trench", required=True, scheduled_at=when),
+            AutoLamellaTaskDescription(name="Undercut", required=True),
         ]
     )
 

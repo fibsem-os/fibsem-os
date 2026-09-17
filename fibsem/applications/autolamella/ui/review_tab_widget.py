@@ -9,9 +9,10 @@ dispatches to a registered renderer rather than growing an ``if`` per kind.
 
 Two verbs. **Confirm** submits whatever the renderer currently shows; the
 delta against the proposal is computed by ``Experiment.decide``, never
-declared here. **Reject** means *nothing further here*, and on a gating kind
-that retires the item, which the button says out loud. There is no defer
-button on purpose: items commit independently, so walking away is deferral.
+declared here. **Reject** means *nothing further here*: the task that was
+waiting on the decision is failed, so nothing that requires it runs. There is
+no defer button on purpose: items commit independently, so walking away is
+deferral.
 
 Every action here is self-contained and never touches hardware. The one write
 path is ``Experiment.decide``; the agent server's decide endpoint is the same
@@ -52,6 +53,8 @@ from fibsem import conversions
 from fibsem.applications.autolamella.proposals import (
     MILLING_SETUP,
     TASK_RESULT,
+    Author,
+    AuthorKind,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -120,20 +123,14 @@ _ROW_RIGHT_STYLE = (
 _ROW_RIGHT_STRONG = _ROW_RIGHT_STYLE  # the outcome line reads like the line above it
 
 
-def author_label(author: str, experiment: Optional[Experiment]) -> str:
+def author_label(author: Author, experiment: Optional[Experiment]) -> str:
     """How a decision's author reads on screen: "you" for the operator this
-    experiment names, the name for another person, "agent · model" for an
-    agent, "auto · proposer" for a producer that confirmed its own proposal,
-    and the raw string when it fits none of those."""
+    experiment names, otherwise the author's own label (the name for another
+    person, "agent · model", "auto · proposer")."""
+    author = Author.parse(author)
     if experiment is not None and author == experiment.author():
         return "you"
-    if author.startswith("human:"):
-        return author[len("human:") :] or "someone"
-    if author.startswith("agent:"):
-        return "agent · " + (author[len("agent:") :] or "unknown")
-    if author.startswith("auto:"):
-        return "auto · " + (author[len("auto:") :] or "unknown")
-    return author or "unknown"
+    return author.label
 
 
 def clock(timestamp: Optional[float]) -> str:
@@ -252,14 +249,15 @@ def describe_decision(
     # result); a person's later empty decision is the look that was owed.
     verb = "Applied" if proposal.values else "Recorded"
     auto = proposal.applied or next(
-        (x for x in proposal.decisions if x.author.startswith("auto:")), None
+        (x for x in proposal.decisions if x.author.kind is not AuthorKind.human),
+        None,
     )
     if not d.values and auto is not None and auto is not d:
         return (
             f"{verb} by {author_label(auto.author, experiment)} at "
             f"{clock(auto.timestamp)} · checked by {who} at {when}"
         )
-    if d.author.startswith("auto:"):
+    if d.author.kind is not AuthorKind.human:
         return f"{verb} by {who} at {when} · not checked yet"
     delta = proposal.delta(d).get("poi")
     moved = (
@@ -363,9 +361,12 @@ class MillingSetupReviewRenderer(ReviewRenderer):
         self.btn_confirm = QPushButton(self.CONFIRM_LABEL)
         self.btn_confirm.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
         self.btn_confirm.setToolTip(self.PENDING_HINT)
-        self.btn_reject = QPushButton("Reject · mark lamella failed")
+        self.btn_reject = QPushButton("Reject · mark task failed")
         self.btn_reject.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_reject.setToolTip("R — nothing further here; retires the lamella")
+        self.btn_reject.setToolTip(
+            "R — nothing further here; the task is failed and what requires it "
+            "does not run"
+        )
         actions = QHBoxLayout()
         actions.addWidget(self.position)
         actions.addWidget(self.btn_open)
@@ -651,7 +652,7 @@ def _load_reference_image(
 class TaskResultReviewRenderer(MillingSetupReviewRenderer):
     """What a task did: its final ion and electron images, side by side, and
     the two verbs. Nothing to drag, nothing to write; confirm says it looks
-    right, reject retires the lamella."""
+    right, reject fails the task."""
 
     PENDING_HINT = "Enter — this looks right"
     CONFIRM_LABEL = "Confirm · looks right"
@@ -1263,11 +1264,11 @@ class ReviewTabWidget(QWidget):
         item, task_name, proposal, state = self._entries[index]
         if state == "decided":
             return
-        retires = "This retires the lamella." if proposal.gating else ""
         reason, ok = QInputDialog.getText(
             self,
             "Reject",
-            f"Why is there nothing further here for {item.name}? {retires}".strip(),
+            f"Why is there nothing further here for {item.name}? "
+            f"{task_name} is marked failed; nothing that requires it runs.",
         )
         reason = reason.strip()
         if not ok or not reason:

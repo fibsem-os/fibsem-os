@@ -18,16 +18,19 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from fibsem.applications.autolamella.proposals import (  # noqa: E402
     MILLING_SETUP,
     TASK_RESULT,
+    AuthorKind,
     Decision,
     DecisionOutcome,
     Proposal,
 )
 from fibsem.applications.autolamella.structures import (  # noqa: E402
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
+    AutoLamellaTaskState,
+    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
-    Verdict,
 )
 from fibsem.applications.autolamella.ui import review_tab_widget as R  # noqa: E402
 from fibsem.applications.autolamella.ui.workflow_config_widget import (  # noqa: E402
@@ -68,13 +71,13 @@ def experiment(tmp_path) -> Experiment:
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=SETUP, supervise=False, required=True, review=True
+                    name=SETUP, required=True, attention=Attention.review
                 ),
                 AutoLamellaTaskDescription(
-                    name=FIDUCIAL, supervise=False, required=True, requires=[SETUP]
+                    name=FIDUCIAL, required=True, requires=[SETUP]
                 ),
                 AutoLamellaTaskDescription(
-                    name=ROUGH, supervise=False, required=True, requires=[FIDUCIAL]
+                    name=ROUGH, required=True, requires=[FIDUCIAL]
                 ),
             ]
         )
@@ -86,6 +89,9 @@ def experiment(tmp_path) -> Experiment:
     )
     lamella = exp.positions[0]
     lamella.path.mkdir(parents=True, exist_ok=True)
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
+    )
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
     lamella.proposals[SETUP] = Proposal(
@@ -135,7 +141,7 @@ def test_confirm_submits_the_marker_and_the_delta_is_computed(tab, experiment, q
     proposal = lamella.proposals[SETUP]
     assert not proposal.pending
     assert proposal.current.outcome is DecisionOutcome.Confirmed
-    assert proposal.current.author.startswith("human:")
+    assert proposal.current.author.kind is AuthorKind.human
     assert lamella.poi.x == pytest.approx(20 * PIXELSIZE)
     assert lamella.poi.y == pytest.approx(10 * PIXELSIZE)
     assert proposal.delta()["poi"].x == pytest.approx(20 * PIXELSIZE)
@@ -150,7 +156,7 @@ def test_confirm_submits_the_marker_and_the_delta_is_computed(tab, experiment, q
     assert (Path(experiment.path) / "experiment.yaml").exists(), "saved"
 
 
-def test_reject_needs_a_reason_and_retires_the_lamella(tab, experiment, monkeypatch):
+def test_reject_needs_a_reason_and_fails_the_task(tab, experiment, monkeypatch):
     lamella = experiment.positions[0]
     from PyQt5.QtWidgets import QInputDialog
 
@@ -166,10 +172,9 @@ def test_reject_needs_a_reason_and_retires_the_lamella(tab, experiment, monkeypa
     )
     tab.reject_current()
     assert not lamella.proposals[SETUP].pending
-    assert lamella.is_failure
-    assert lamella.quality.verdict is Verdict.FAILED
-    assert lamella.quality.reason == "no usable site"
-    assert lamella.quality.author.startswith("human:")
+    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
+    assert "no usable site" in lamella.task_history[-1].status_message
+    assert not lamella.is_failure, "a failed task is not a defective lamella"
     assert tab.pending_count == 0
 
 
@@ -288,8 +293,10 @@ def test_acknowledging_records_a_look_and_writes_nothing(tab, experiment, qapp):
     assert not proposal.to_check
     ack = proposal.current
     assert ack.outcome is DecisionOutcome.Confirmed
-    assert ack.author.startswith("human:") and ack.values == {}
-    assert proposal.applied.author == "auto:centre-of-image", "the applied one stays"
+    assert ack.author.kind is AuthorKind.human and ack.values == {}
+    assert str(proposal.applied.author) == "auto:centre-of-image", (
+        "the applied one stays"
+    )
     assert lamella.poi == poi_before
     assert (
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
@@ -358,14 +365,19 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
     assert tab.check_count == 0 and tab.pending_count == 1, "waiting is untouched"
     for name in (SETUP, FIDUCIAL):
         d = lamella.proposals[name].current
-        assert d.author.startswith("human:") and d.values == {} and d.via == "review"
+        assert (
+            d.author.kind is AuthorKind.human and d.values == {} and d.via == "review"
+        )
     assert lamella.proposals[ROUGH].pending
 
 
-def test_rejecting_a_checked_proposal_still_retires_the_lamella(
+def test_rejecting_a_checked_proposal_leaves_the_finished_task_alone(
     tab, experiment, monkeypatch
 ):
+    """The producer confirmed its own result and the task completed; a later
+    reject is a note on the record, not a change to the outcome."""
     lamella = experiment.positions[0]
+    lamella.set_task_status(SETUP, AutoLamellaTaskStatus.Completed)
     _auto_confirm(lamella.proposals[SETUP])
     tab.refresh()
     from PyQt5.QtWidgets import QInputDialog
@@ -374,7 +386,8 @@ def test_rejecting_a_checked_proposal_still_retires_the_lamella(
         QInputDialog, "getText", staticmethod(lambda *a, **k: ("milled wrong", True))
     )
     tab.reject_current()
-    assert lamella.is_failure and lamella.quality.reason == "milled wrong"
+    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert not lamella.is_failure
     assert not lamella.proposals[SETUP].to_check
 
 
@@ -473,20 +486,23 @@ def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
 
     monkeypatch.setattr(W, "_agent_supervision_available", lambda: False)
     monkeypatch.setattr(W, "_review_available", lambda: True)
-    task = AutoLamellaTaskDescription(name=SETUP, supervise=True, required=True)
+    task = AutoLamellaTaskDescription(
+        name=SETUP, attention=Attention.supervised, required=True
+    )
     row = WorkflowTaskRowWidget(task)
     assert row.btn_attention.text() == "Supervised"
     changed = []
-    row.review_changed.connect(changed.append)
+    row.attention_changed.connect(changed.append)
     row.btn_attention.click()
-    assert task.review is True and task.supervise is False and changed == [task]
+    assert task.attention is Attention.review and changed == [task]
     assert row.btn_attention.text() == "Review"
     row.btn_attention.click()
-    assert task.review is False and row.btn_attention.text() == "Automated"
+    assert task.attention is Attention.automated
+    assert row.btn_attention.text() == "Automated"
 
     monkeypatch.setattr(W, "_review_available", lambda: False)
-    task.review = True
+    task.attention = Attention.review
     off = WorkflowTaskRowWidget(task)
     assert off.btn_attention.text() == "Automated", "runs as what it will run as"
     off.btn_attention.click()
-    assert task.review is False and task.supervise is True, "Review is not offered"
+    assert task.attention is Attention.supervised, "Review is not offered"

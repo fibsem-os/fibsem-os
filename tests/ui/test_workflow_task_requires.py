@@ -34,9 +34,7 @@ from fibsem.applications.autolamella.ui.workflow_config_widget import (  # noqa:
 
 def _row(name: str, requires: list[str]) -> WorkflowTaskRowWidget:
     return WorkflowTaskRowWidget(
-        AutoLamellaTaskDescription(
-            name=name, supervise=False, required=True, requires=requires
-        )
+        AutoLamellaTaskDescription(name=name, required=True, requires=requires)
     )
 
 

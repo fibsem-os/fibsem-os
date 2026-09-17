@@ -24,12 +24,14 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from fibsem.structures import Point
 
 __all__ = [
     "Alternative",
+    "Author",
+    "AuthorKind",
     "Decision",
     "DecisionOutcome",
     "DecisionResult",
@@ -47,7 +49,7 @@ __all__ = [
     "write_value",
 ]
 
-# The one kind v1 has. Its consumer mills, so a reject retires the item.
+# The milling position: the point of interest the milling tasks follow.
 MILLING_SETUP = "milling_setup"
 # What a task did, for someone to look at: no values, the final reference
 # images in provenance. Recorded by the base task class for any task whose
@@ -60,18 +62,64 @@ class DecisionOutcome(Enum):
     Rejected = auto()
 
 
-def human_author(name: str) -> str:
-    return f"human:{name}" if name else "human:"
+class AuthorKind(str, Enum):
+    """What kind of thing decided. ``automated`` is the producer confirming
+    its own record so the run continues; a person's look at it is a later
+    decision. ``agent`` is a connected agent deciding over the server: not
+    automatic (a decider acted) and not a person (someone may still want to
+    check), which is why it has a kind of its own."""
+
+    automated = "auto"
+    human = "human"
+    agent = "agent"
 
 
-def agent_author(model: str) -> str:
-    return f"agent:{model}" if model else "agent:"
+@dataclass(frozen=True)
+class Author:
+    """Who made a decision: the kind of thing, and its name -- the operator,
+    the agent's model, the producer that confirmed its own record. Stored and
+    sent as ``kind:name`` (``human:op``, ``auto:current-poi``), which is also
+    what ``str()`` gives, so the wire and the file are unchanged."""
+
+    kind: AuthorKind
+    name: str = ""
+
+    def __str__(self) -> str:
+        return f"{self.kind.value}:{self.name}"
+
+    @classmethod
+    def parse(cls, text: Union[str, "Author"]) -> "Author":
+        """The ``kind:name`` form back into an Author. Text with no known
+        prefix is a human whose name is the whole string: every record ever
+        written carried a prefix, so this is for hand-typed input."""
+        if isinstance(text, Author):
+            return text
+        kind, sep, name = str(text or "").partition(":")
+        if sep and kind in {k.value for k in AuthorKind}:
+            return cls(AuthorKind(kind), name)
+        return cls(AuthorKind.human, str(text or ""))
+
+    @property
+    def label(self) -> str:
+        """How it reads: the name for a person, "agent · model", "auto ·
+        proposer"; "someone" / "unknown" when the name is blank."""
+        if self.kind is AuthorKind.human:
+            return self.name or "someone"
+        return f"{self.kind.value} · {self.name or 'unknown'}"
 
 
-def auto_author(proposer: str) -> str:
-    """The author of a decision nobody made: in advise mode the producer
-    confirms its own proposal so the run continues, and the record says so."""
-    return f"auto:{proposer}" if proposer else "auto:"
+def human_author(name: str) -> Author:
+    return Author(AuthorKind.human, name)
+
+
+def agent_author(model: str) -> Author:
+    return Author(AuthorKind.agent, model)
+
+
+def auto_author(proposer: str) -> Author:
+    """The author of a decision nobody made: the producer confirms its own
+    proposal so the run continues, and the record says so."""
+    return Author(AuthorKind.automated, proposer)
 
 
 # ---------------------------------------------------------------------------
@@ -81,18 +129,13 @@ def auto_author(proposer: str) -> str:
 
 @dataclass(frozen=True)
 class ProposalKind:
-    """What a proposal of this kind means to the run.
-
-    ``gating``: a consumer is queued and waiting on the decision, so a reject
-    means *nothing further here* and retires the item. Not gating (generative):
-    the review creates the items later work operates on, so a reject creates
-    nothing and the run moves on. The same deadline policy is safe on one and
-    dangerous on the other, which is why this is a property of the kind and
-    not a setting.
-    """
+    """A kind names the set of values a proposal may carry. A value exists
+    because a later task consumes it; a kind with no values is a result for
+    someone to look at. What a decision does to the run is not a property of
+    the kind: a task that waits on a decision is AwaitingDecision, and the
+    decision finishes it (Completed or Failed) like any other task."""
 
     name: str
-    gating: bool
     values: Tuple[str, ...]  # the value names a proposal of this kind may carry
 
 
@@ -104,12 +147,8 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
     return kind
 
 
-register_proposal_kind(
-    ProposalKind(name=MILLING_SETUP, gating=True, values=("poi", "fiducial"))
-)
-# Gating: a gate on Rough Milling means polishing waits until someone has
-# looked at the trench, and a reject there retires the lamella.
-register_proposal_kind(ProposalKind(name=TASK_RESULT, gating=True, values=()))
+register_proposal_kind(ProposalKind(name=MILLING_SETUP, values=("poi", "fiducial")))
+register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +273,7 @@ class Decision:
     decision beside the first, with its own author and time."""
 
     outcome: DecisionOutcome
-    author: str  # "human:<name>" | "agent:<model>" | "auto:<producer>"
+    author: Author
     values: Dict[str, Any] = field(default_factory=dict)  # confirmed values
     reason: str = ""  # required on Rejected
     timestamp: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
@@ -244,10 +283,14 @@ class Decision:
     # so an export can tell an inline answer from a tab decision.
     via: str = ""
 
+    def __post_init__(self) -> None:
+        # a string from the file, the wire or a test is accepted and parsed
+        self.author = Author.parse(self.author)
+
     def to_dict(self) -> dict:
         return {
             "outcome": self.outcome.name,
-            "author": self.author,
+            "author": str(self.author),
             "values": _encode_values(self.values),
             "reason": self.reason,
             "timestamp": self.timestamp,
@@ -258,7 +301,7 @@ class Decision:
     def from_dict(cls, data: dict) -> "Decision":
         return cls(
             outcome=DecisionOutcome[data["outcome"]],
-            author=data.get("author", ""),
+            author=Author.parse(data.get("author", "")),
             values=_decode_values(data.get("values", {})),
             reason=data.get("reason", ""),
             timestamp=data.get("timestamp", 0.0),
@@ -303,17 +346,12 @@ class Proposal:
         return self.decisions[-1] if self.decisions else None
 
     @property
-    def gating(self) -> bool:
-        kind = PROPOSAL_KINDS.get(self.kind)
-        return kind.gating if kind is not None else True
-
-    @property
     def to_check(self) -> bool:
-        """Applied by its own producer (advise mode) and not looked at since:
-        every decision so far is an ``auto:`` one. A person's acknowledgement
-        -- or their reject -- is a later decision, which clears it."""
+        """Applied by its own producer, or decided by an agent, and not looked
+        at by a person since. A person's acknowledgement -- or their reject --
+        is a later decision, which clears it."""
         return bool(self.decisions) and all(
-            d.author.startswith("auto:") for d in self.decisions
+            d.author.kind is not AuthorKind.human for d in self.decisions
         )
 
     @property

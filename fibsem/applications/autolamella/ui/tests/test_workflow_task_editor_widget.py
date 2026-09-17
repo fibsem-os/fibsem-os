@@ -7,6 +7,7 @@ edited AutoLamellaTaskDescription whenever Apply is clicked.
 Run directly:
     python fibsem/applications/autolamella/ui/tests/test_workflow_task_editor_widget.py
 """
+
 import sys
 from datetime import datetime, timedelta
 
@@ -19,7 +20,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
+from fibsem.applications.autolamella.structures import (
+    Attention,
+    AutoLamellaTaskDescription,
+)
 from fibsem.applications.autolamella.ui.workflow_task_editor_widget import (
     WorkflowTaskEditorWidget,
 )
@@ -32,10 +36,12 @@ def _scheduled_task() -> AutoLamellaTaskDescription:
     """A required task scheduled ~2 minutes out, depending on Setup."""
     return AutoLamellaTaskDescription(
         name="MillRough",
-        supervise=True,
+        attention=Attention.supervised,
         required=True,
         requires=["Setup"],
-        scheduled_at=(datetime.now() + timedelta(minutes=2)).replace(second=0, microsecond=0),
+        scheduled_at=(datetime.now() + timedelta(minutes=2)).replace(
+            second=0, microsecond=0
+        ),
     )
 
 
@@ -43,7 +49,6 @@ def _unscheduled_task() -> AutoLamellaTaskDescription:
     """An optional, unscheduled task with no requirements."""
     return AutoLamellaTaskDescription(
         name="Sharpen",
-        supervise=False,
         required=False,
         requires=[],
         scheduled_at=None,
@@ -51,11 +56,13 @@ def _unscheduled_task() -> AutoLamellaTaskDescription:
 
 
 def _describe(task: AutoLamellaTaskDescription) -> str:
-    sched = task.scheduled_at.strftime("%Y-%m-%d %H:%M") if task.scheduled_at else "None"
+    sched = (
+        task.scheduled_at.strftime("%Y-%m-%d %H:%M") if task.scheduled_at else "None"
+    )
     requires = ", ".join(task.requires) if task.requires else "—"
     return (
         f"name={task.name}  required={task.required}  "
-        f"supervise={task.supervise}\nrequires=[{requires}]  scheduled_at={sched}"
+        f"attention={task.attention.value}\nrequires=[{requires}]  scheduled_at={sched}"
     )
 
 
