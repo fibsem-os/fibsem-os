@@ -79,9 +79,7 @@ def agent_question_standing(main_ui, tmp_path):
     ui.experiment = experiment
     ui._agent_server_host = _RunningHost()
     main_ui._current_task_name = "Mill Fiducial"
-    ui.hold = Hold(
-        HoldKind.question, 0.0, "you", "answer the question on the Microscope tab"
-    )
+    ui.hold = Hold(HoldKind.question, "answer the question on the Microscope tab")
     yield experiment
     main_ui._agent_watchdog.stop()
     main_ui._agent_liveness_check.stop()

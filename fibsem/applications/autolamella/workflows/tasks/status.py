@@ -162,18 +162,15 @@ class Hold:
     """The run is active and nothing is executing because someone has to act.
 
     One value in place of the flags it replaced (``WAITING_FOR_USER_INTERACTION``,
-    ``WAITING_FOR_REVIEW`` and the watchdog's expired bit): who holds the run,
-    since when, and what releases it. ``AutoLamellaUI.hold`` carries it; None
-    means the run is not held. Written by whoever takes the hold -- the
-    responder for a question, the task manager for a park, the main window
-    when it hands an agent's question to the operator -- and read by the
-    window chrome: border colour, attention button, status-bar sentence.
+    ``WAITING_FOR_REVIEW`` and the watchdog's expired bit): who holds the run
+    and what releases it. ``AutoLamellaUI.hold`` carries it; None means the
+    run is not held. Written by whoever takes the hold -- the responder for a
+    question, the task manager for a park, the main window when it hands an
+    agent's question to the operator -- and read by the window chrome: border
+    colour, attention button, status-bar sentence.
     """
 
     kind: HoldKind
-    since: float
-    # "you", or the agent
-    holder: str
     # what releases it, as a sentence fragment: "answer the question on the
     # Microscope tab", "decide 01-a and 02-b in the Review tab"
     releases: str

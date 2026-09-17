@@ -3568,7 +3568,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 ui.hold = replace(
                     hold,
                     kind=HoldKind.agent,
-                    holder="the agent",
                     releases="the agent answers the question, or it comes to you",
                 )
                 self._agent_watchdog.start(self._watchdog_ms())
@@ -3609,7 +3608,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.hold = replace(
             hold,
             kind=HoldKind.question,
-            holder="you",
             releases="answer the question on the Microscope tab",
         )
         notification_service.show_toast(message, "warning")

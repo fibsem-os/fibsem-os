@@ -25,7 +25,6 @@ arrives belonged to a waiter that aborted and unwound, and is cancelled.
 """
 
 import logging
-import time
 from concurrent.futures import InvalidStateError
 from copy import deepcopy
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
@@ -462,8 +461,6 @@ class QtResponder(QObject):
         # is designated so.
         self._ui.hold = Hold(
             kind=HoldKind.question,
-            since=time.time(),
-            holder="you",
             releases="answer the question on the Microscope tab",
         )
         # We are on the GUI thread that owns the widgets: show the prompt

@@ -154,7 +154,7 @@ def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
     )
 
     main_ui.autolamella_ui.hold = Hold(
-        HoldKind.question, 0.0, "you", "answer the question on the Microscope tab"
+        HoldKind.question, "answer the question on the Microscope tab"
     )
     main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
     assert main_ui.user_attention_btn.isVisibleTo(main_ui)
@@ -174,8 +174,6 @@ def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
     ui = main_ui.autolamella_ui
     ui.hold = Hold(
         HoldKind.review,
-        0.0,
-        "you",
         "decide 01-a and 02-b in the Review tab",
         ("01-a/Setup", "02-b/Setup"),
     )
@@ -192,9 +190,7 @@ def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
     assert not main_ui.user_attention_btn.isVisibleTo(main_ui)
 
     # a question at the beam has its own destination
-    ui.hold = Hold(
-        HoldKind.question, 0.0, "you", "answer the question on the Microscope tab"
-    )
+    ui.hold = Hold(HoldKind.question, "answer the question on the Microscope tab")
     ui.workflow_status_signal.emit(WorkflowStatusEvent())
     assert main_ui.user_attention_btn.text() == "Attention Required"
     main_ui.user_attention_btn.click()
