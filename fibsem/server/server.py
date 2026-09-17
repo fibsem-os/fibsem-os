@@ -210,6 +210,12 @@ def build_server(
         return {
             "system": microscope.system.to_dict(),
             "stage_is_compustage": microscope.stage_is_compustage,
+            # What is fitted is not in the configuration dict -- the instrument
+            # answered it at connect -- so it travels beside it, like the compustage.
+            "fitted": {
+                key: microscope.is_available(key)
+                for key in ("manipulator", "gis", "gis_multichem", "gis_sputter_coater")
+            },
         }
 
     # --- Image acquisition ---
