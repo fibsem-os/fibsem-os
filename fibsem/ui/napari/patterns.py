@@ -24,6 +24,7 @@ from fibsem.milling.patterning.shapes import (  # noqa: F401
     COLOURS,
     IMAGE_PATTERN_TYPES,
     NAPARI_DRAWING_DICT,
+    SHAPES_LAYER_PROPERTIES,
     convert_bitmap_pattern_to_napari_image,
     convert_pattern_to_napari_circle,
     convert_pattern_to_napari_line,
@@ -58,12 +59,6 @@ COLOURMAPS = {
     c: NapariColormap([to_rgba(c, alpha=0), to_rgba(c, alpha=1)]) for c in COLOURS
 }
 
-SHAPES_LAYER_PROPERTIES = {
-    "edge_width": 0.5,
-    "opacity": 0.5,
-    "blending": "translucent",
-    "image_edge_width": 1,
-}
 IMAGE_LAYER_PROPERTIES = {
     "blending": "additive",
     "opacity": 0.6,
