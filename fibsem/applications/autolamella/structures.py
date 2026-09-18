@@ -1721,6 +1721,27 @@ def _call_on_main_thread(func, *args, **kwargs):
     return ensure_main_thread(await_return=True)(func)(*args, **kwargs)
 
 
+def _emit_on_main_thread(signal, *args) -> None:
+    """Deliver ``signal`` on the Qt main thread without waiting for it.
+
+    The waiting is the difference from ``_call_on_main_thread``. A caller that
+    needs the result has to block; one that is only telling the GUI something
+    happened must not, because it may be the workflow thread about to park on
+    an answer -- and the main thread is not always free to run the call back.
+    """
+    try:
+        from PyQt5.QtCore import QCoreApplication, QThread
+        from superqt import ensure_main_thread
+    except ImportError:
+        signal.emit(*args)
+        return
+    app = QCoreApplication.instance()
+    if app is None or QThread.currentThread() is app.thread():
+        signal.emit(*args)
+        return
+    ensure_main_thread(await_return=False)(signal.emit)(*args)
+
+
 @evented
 @dataclass
 class Experiment:
@@ -2134,16 +2155,19 @@ class Experiment:
     def ask_proposal(self, item_id: str, task_name: str, proposal: Proposal) -> bool:
         """Record a question the task is about to park on, and say so.
 
-        On the main thread like ``decide``, because it writes to the record and
-        wakes a Qt widget, and the caller is the workflow thread. Marks the
-        proposal as the one being waited on, so a decision may land on it while
-        its task runs (FIB-1025), and fires ``asked`` so the inbox re-derives
-        -- nothing else would, since the tab refreshes when a task *finishes*
-        and this one is only halfway through.
-        """
-        return _call_on_main_thread(self._ask_proposal, item_id, task_name, proposal)
+        Marks the proposal as the one being waited on, so a decision may land
+        on it while its task runs (FIB-1025), and fires ``asked`` so the inbox
+        re-derives -- nothing else would, since the tab refreshes when a task
+        *finishes* and this one is only halfway through.
 
-    def _ask_proposal(self, item_id: str, task_name: str, proposal: Proposal) -> bool:
+        Unlike ``decide`` this does **not** run on the main thread. It is
+        called from the workflow thread by a responder whose contract is not to
+        block, with the task about to park on a future; waiting for the main
+        thread there is a deadlock whenever that thread is not free to run the
+        call back. It does not need to: ``proposals`` is a plain dict with no
+        listeners, so the write is safe under the lock that guards every other
+        write, and only the notification is handed to the GUI thread.
+        """
         with EXPERIMENT_WRITE_LOCK:
             item = self.get_item_by_id(item_id)
             if item is None:
@@ -2157,7 +2181,7 @@ class Experiment:
             item.proposals[task_name] = supersede(previous, proposal)
             proposal.asking = True
         try:
-            self.asked.emit(item_id, task_name)
+            _emit_on_main_thread(self.asked, item_id, task_name)
         except Exception:
             logging.exception(f"a subscriber to asked raised for {task_name}")
         return True

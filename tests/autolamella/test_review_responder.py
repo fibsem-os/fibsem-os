@@ -120,6 +120,30 @@ def _ask_on_worker_thread(experiment, detection, abort=None, previous=None):
     raise AssertionError("the question was never recorded")
 
 
+def _pump(predicate, timeout_s=5.0) -> bool:
+    """Wait for something the GUI thread has to deliver.
+
+    ``asked`` is *posted* to the main thread rather than delivered inline, so
+    with a Qt application around -- as there is when the whole suite runs --
+    nothing arrives until somebody spins the loop. Without one it is already
+    synchronous and the first look succeeds.
+    """
+    try:
+        from PyQt5.QtCore import QCoreApplication
+
+        app = QCoreApplication.instance()
+    except ImportError:
+        app = None
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        if app is not None:
+            app.processEvents()
+        time.sleep(0.005)
+    return predicate()
+
+
 def _finish(thread, timeout_s=5.0):
     thread.join(timeout=timeout_s)
     assert not thread.is_alive(), "the asking task never resumed"
@@ -433,7 +457,7 @@ def test_recording_a_question_says_so(experiment):
 
     thread, _, _ = _ask_on_worker_thread(experiment, _detection())
 
-    assert heard == [(lamella.id, TASK)]
+    assert _pump(lambda: heard == [(lamella.id, TASK)]), heard
 
     experiment.withdraw_proposal(lamella.id, TASK, "test over")
     _finish(thread)
