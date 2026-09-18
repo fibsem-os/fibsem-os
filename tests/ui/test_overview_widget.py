@@ -2043,6 +2043,302 @@ class TestThePlannedTileset:
         assert widget.target is None
 
 
+@pytest.fixture(scope="module")
+def pretilted():
+    """The default configuration: a 35 degree shuttle pre-tilt, and not a compustage.
+
+    The `microscope` fixture above is a simulated Arctis, whose `shuttle_pre_tilt` is 0 --
+    and every term that makes a dragged grid's height interesting is proportional to
+    `sin(shuttle_pre_tilt + column_tilt)`. Measured: the z a drag implies is *identically
+    zero* on that fixture at SEM, FIB and MILLING alike, despite stage tilts of 0, -128
+    and -23 degrees. So the Arctis cannot see any of it, and two defects hid there
+    (FIB-1007).
+    """
+    scope, _ = utils.setup_session(manufacturer="Demo")
+    assert not scope.stage_is_compustage, "the default config became a compustage"
+    assert scope.hardware_geometry().shuttle_pre_tilt, "the pre-tilt went away"
+    return scope
+
+
+@pytest.fixture
+def pretilted_widget(pretilted):
+    before = pretilted.get_stage_position()
+    w = FibsemOverviewWidget(pretilted)
+    w.resize(900, 700)
+    yield w
+    w.close()
+    pretilted.safe_absolute_stage_movement(before)
+
+
+@pytest.fixture
+def at_a_known_height(microscope):
+    """Put the stage back where it was, because `microscope` is module-scoped.
+
+    The tests below move it in z on purpose -- that is the whole subject -- and a
+    module-scoped stage left half a millimetre high is inherited by everything after.
+    """
+    before = microscope.get_stage_position()
+    yield microscope
+    microscope.safe_absolute_stage_movement(before)
+
+
+class TestADragIsTheGestureNotThePosition:
+    """A dragged grid keeps the gesture, and resolves it against the live stage.
+
+    A canvas is a plane. It can say "500 um that way along the sample" and it cannot
+    say anything about height, so `frame.to_stage` answers with the height of the thing
+    the plane is pinned to -- the view's origin -- and a resolved position then carries
+    that height for as long as the drag stands. Set coincidence after the tab was
+    opened and the origin is at the old height, so the run drives the stage back down
+    to it. Reported from an instrument: coincidence set at 32.37 mm, overview and
+    lamellae at 31.88 (FIB-1007, GH #943).
+
+    Fixed by asking each source what it knows. x and y come from the plane, which is
+    what was dragged and what the grid is drawn at; the height and the pose come from a
+    live stage read, taken when the run starts.
+    """
+
+    @staticmethod
+    def _fake_worker(captured):
+        def factory(fn, *args):
+            captured["args"] = args
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        return factory
+
+    def _acquire(self, widget, monkeypatch, tmp_path):
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        widget.acquire()
+        return captured["args"][1]
+
+    def test_a_drag_takes_its_height_from_the_stage_not_the_view_anchor(
+        self, widget, microscope
+    ):
+        """The report, at its smallest. The view is anchored at the height the tab was
+        opened at; the stage has since been raised; a drag made now must plan at the
+        new height.
+
+        The z the projection adds for the in-plane offset is real and is not the thing
+        under test, so this asserts the drag is within a tile of the *stage* and nowhere
+        near the anchor, rather than equal to either.
+        """
+        anchor = widget._origins[widget.current_view]
+        raised = FibsemStagePosition(
+            x=anchor.x, y=anchor.y, z=anchor.z + 490e-6, r=anchor.r, t=anchor.t
+        )
+        widget._stage_position = raised
+
+        widget._on_grid_moved(150.0, 60.0)
+
+        target = widget.target
+        assert target is not None, "the drag did not set a target"
+        assert abs(target.z - raised.z) < 100e-6, (
+            f"the drag planned at {target.z * 1e3:.3f} mm with the stage at "
+            f"{raised.z * 1e3:.3f} -- it took the anchor's height"
+        )
+
+    def test_the_plan_follows_the_stage_in_z_after_the_drag(
+        self, widget, at_a_known_height
+    ):
+        """An offset outlives a move the position it resolved to would not. A drag made
+        before coincidence is set has to plan at the height coincidence left behind."""
+        widget._on_grid_moved(150.0, 60.0)
+        before = widget.target
+        assert before is not None
+
+        at_a_known_height.move_stage_relative(FibsemStagePosition(z=490e-6))
+
+        after = widget.target
+        assert after is not None, "the drag was lost by a z move"
+        assert after.z - before.z == pytest.approx(490e-6, abs=1e-6), (
+            "the plan kept the height it was dragged at"
+        )
+        assert after.x == pytest.approx(before.x, abs=1e-9), (
+            "an out-of-plane move moved the grid in x"
+        )
+        assert after.y == pytest.approx(before.y, abs=1e-9)
+
+    def test_the_run_is_centred_on_the_stage_the_press_found(
+        self, widget, at_a_known_height, monkeypatch, tmp_path
+    ):
+        """The run-side half of FIB-669. `stage_position_changed` is emitted by
+        `get_stage_position`, so a move nobody polled after never reached the cache --
+        and the runner drives to each tile absolutely, z included. `acquire` reads the
+        stage rather than trusting what it was last told.
+        """
+        widget._on_grid_moved(150.0, 60.0)
+        stale = widget._stage_position
+
+        # Moved without anyone polling afterwards: exactly the case the subscription
+        # cannot see, and what a move made in the vendor software looks like from here.
+        at_a_known_height.stage_system.position += FibsemStagePosition(z=490e-6)
+        assert widget._stage_position.z == pytest.approx(stale.z), (
+            "the cache updated by itself, so this proves nothing"
+        )
+
+        centre = self._acquire(widget, monkeypatch, tmp_path)
+
+        assert centre is not None
+        assert centre.z - stale.z == pytest.approx(490e-6, abs=1e-6), (
+            f"the run was planned at the cached height {stale.z * 1e3:.3f} mm"
+        )
+
+    def test_an_undragged_run_is_centred_on_the_live_stage_too(
+        self, widget, at_a_known_height, monkeypatch, tmp_path
+    ):
+        """The other half of the same report: nothing was dragged, the stage moved in z
+        in the vendor software, and the run still went to the old height."""
+        stale = widget._stage_position
+        at_a_known_height.stage_system.position += FibsemStagePosition(z=490e-6)
+
+        centre = self._acquire(widget, monkeypatch, tmp_path)
+
+        assert centre is not None
+        assert centre.z - stale.z == pytest.approx(490e-6, abs=1e-6)
+
+    def test_the_grid_still_lands_under_the_pointer(self, widget):
+        """Taking the height from the stage must not take x and y with it.
+
+        The overlay is anchored by projecting the run centre back through the view's
+        origin, so a centre whose x and y were resolved about anything else draws
+        somewhere other than where the pointer put it -- and a grid that lags the drag
+        is the gesture not working.
+
+        Against an origin at a different tilt from the stage's, because with the two
+        equal the two ways of resolving x and y agree and this proves nothing. A
+        provisional anchor is exactly this case: seeded from wherever the stage was when
+        the tab opened, and never replaced until an image lands in the view.
+        """
+        view = widget.current_view
+        anchor = widget._origins[view]
+        widget._origins[view] = FibsemStagePosition(
+            x=anchor.x,
+            y=anchor.y,
+            z=anchor.z,
+            r=anchor.r,
+            t=anchor.t + np.deg2rad(6.0),
+        )
+
+        widget._on_grid_moved(150.0, 260.0)
+
+        assert widget.tile_grid_overlay._anchor() == pytest.approx(
+            (150.0, 260.0), abs=0.5
+        ), "the grid did not land where it was dragged"
+
+    def test_the_planned_height_tracks_a_z_move_on_a_pre_tilted_stage(
+        self, pretilted_widget, pretilted
+    ):
+        """All of the stage's z move, and none of it twice.
+
+        The height has to be measured over the *ground* between the stage and the grid,
+        which means levelling the stage into the plane before measuring. `to_plane`
+        reads a height difference as an apparent y one, so measuring from the stage
+        where it really is folds its height into that distance, and the climb then
+        partly cancels the height it is being added to: a 490 um move raised the planned
+        height by 329 um. Invisible on a compustage, where the climb is zero either way.
+        """
+        pretilted_widget._on_grid_moved(150.0, 260.0)
+        before = pretilted_widget.target
+        assert before is not None
+
+        pretilted.move_stage_relative(FibsemStagePosition(x=0.0, y=0.0, z=490e-6))
+
+        after = pretilted_widget.target
+        assert after is not None, "the drag was lost by a z move"
+        assert after.z - before.z == pytest.approx(490e-6, abs=1e-7), (
+            "the planned height did not follow the stage one-for-one"
+        )
+
+    def test_a_z_move_does_not_slide_the_drawn_grid(self, pretilted_widget, pretilted):
+        """The grid stays where it was dragged, whatever the stage does out of plane.
+
+        The overlay used to be anchored by projecting the run centre back through the
+        view's origin, and `to_plane` reads a height as an apparent y offset -- so once
+        the planned height began following the stage, the drawn grid slid down the
+        canvas with it: 579 pixels for a 490 um move at a 35 degree pre-tilt. A drag is
+        a canvas point and is drawn as one.
+        """
+        pretilted_widget._on_grid_moved(150.0, 260.0)
+        drawn = pretilted_widget.tile_grid_overlay._anchor()
+        assert drawn == pytest.approx((150.0, 260.0), abs=0.5)
+
+        pretilted.move_stage_relative(FibsemStagePosition(x=0.0, y=0.0, z=490e-6))
+
+        assert pretilted_widget.tile_grid_overlay._anchor() == pytest.approx(
+            drawn, abs=0.5
+        ), "the grid slid off the point it was dragged to"
+
+    def test_the_stage_being_far_from_the_anchor_does_not_shift_the_drag(
+        self, pretilted_widget, pretilted
+    ):
+        """A real stage is not at the origin, and neither is the view it is looking at.
+
+        The flow is ordinary: open the tab, acquire an overview, drive a couple of
+        millimetres to another region, drag the grid there. The anchor stays pinned
+        where it was, so the offset between it and the stage is now large -- and the
+        drag has to land under the pointer and take its height from the stage anyway.
+
+        The simulator opens at exactly (0, 0, 0), which makes the anchor and the stage
+        identical and every offset here zero, so nothing in this file would notice an
+        offset subtracted in the wrong direction (FIB-1007).
+        """
+        origin = pretilted_widget._origins[pretilted_widget.current_view]
+        pretilted.move_stage_relative(FibsemStagePosition(x=2.0e-3, y=2.0e-3, z=0.0))
+        assert pretilted_widget._stage_position.x - origin.x == pytest.approx(
+            2.0e-3, abs=1e-6
+        ), "the stage did not actually move away from the anchor"
+
+        pretilted_widget._on_grid_moved(-420.0, -310.0)
+
+        assert pretilted_widget.tile_grid_overlay._anchor() == pytest.approx(
+            (-420.0, -310.0), abs=0.5
+        ), "the grid did not land where it was dragged"
+
+        planned = pretilted_widget.target
+        assert planned is not None
+        before = planned.z
+        pretilted.move_stage_relative(FibsemStagePosition(x=0.0, y=0.0, z=200e-6))
+        assert pretilted_widget.target.z - before == pytest.approx(200e-6, abs=1e-7)
+        assert pretilted_widget.tile_grid_overlay._anchor() == pytest.approx(
+            (-420.0, -310.0), abs=0.5
+        )
+
+    def test_re_posing_the_stage_drops_the_drag(self, widget, at_sem):
+        """A grid dragged at one orientation names nothing at another: the offset is
+        two numbers in a plane, and the plane has gone. Dropping it returns the plan to
+        the stage, which is the one place that is still true -- and stops the run
+        re-posing the stage backwards to reach a grid it was never told about.
+        """
+        widget._on_grid_moved(150.0, 60.0)
+        assert widget.target is not None
+        pose_at_the_drag = widget._stage_position
+
+        at_sem.move_to_orientation("MILLING")
+
+        assert widget.target is None, "the drag survived into another view"
+        assert not widget.tile_grid_panel.button_centre.isEnabled(), (
+            "the re-centre button still offers to undo a drag that is gone"
+        )
+        centre = widget._grid_centre()
+        assert centre.t != pytest.approx(pose_at_the_drag.t), (
+            "the plan is still posed the way it was dragged"
+        )
+        assert centre.t == pytest.approx(widget._stage_position.t)
+
+
 class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
     """A run visits every tile, and the plan it is running must not follow it there.
 
@@ -2897,25 +3193,53 @@ class TestARunIsConfirmedFirst:
         assert "from the stage position" in dragged._centre_text()
         assert dragged._centre_text() != "the stage position"
 
-    def test_opening_the_dialog_costs_no_hardware_read(
-        self, widget, monkeypatch, tmp_path, confirmations
+    def test_a_run_reads_the_stage_once_and_the_dialog_not_at_all(
+        self, widget, monkeypatch, tmp_path
     ):
-        """It reports the view and the offset, both of which have a cached answer. A
-        dialog that polled the stage would do it on the click that starts a run, which
-        is the worst moment to add a set-then-read on the shared channel."""
+        """One read per run, taken before the dialog is built.
+
+        `acquire` reads the stage on purpose: the run centre is driven to absolutely and
+        the cache is only refreshed by whoever polls (FIB-1007, FIB-669). What must not
+        happen is the *dialog* reading, because it reports several things derived from
+        the pose and doing that per row would be a set-then-read on the shared imaging
+        channel, on the click that starts a run (FIB-544, FIB-600).
+
+        Counted rather than forbidden, and counted at the moment the dialog is shown --
+        which is after it has been constructed, so anything it read on the way up would
+        be in the total by then.
+        """
+        reads = []
+        real = widget.microscope.get_stage_position
+
+        def counted(*args, **kwargs):
+            reads.append(1)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(widget.microscope, "get_stage_position", counted)
+
+        at_the_dialog = []
+        shown = []
+
+        def _exec(dialog):
+            at_the_dialog.append(len(reads))
+            shown.append(dialog)
+            return QDialog.Accepted
+
+        monkeypatch.setattr(
+            overview_confirmation_dialog.OverviewConfirmationDialog, "exec_", _exec
+        )
+
         captured = {}
         widget.set_save_directory(str(tmp_path))
         monkeypatch.setattr(
             "fibsem.ui.widgets.overview_widget.FunctionWorker",
             self._fake_worker(captured),
         )
-        monkeypatch.setattr(
-            widget.microscope,
-            "get_stage_position",
-            lambda *a, **k: pytest.fail("the confirmation dialog polled the stage"),
-        )
         widget.acquire()
-        assert confirmations[0].view_description
+
+        assert shown and shown[0].view_description
+        assert at_the_dialog == [1], "the dialog added reads of its own"
+        assert len(reads) == 1, "the stage was read more than once for one run"
 
 
 class TestAGridTheStageCannotReach:
