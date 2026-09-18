@@ -257,8 +257,8 @@ def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
 
     tab.show_decided.setChecked(False)
     assert tab.row_summaries() == ["Nothing waiting"]
-    assert tab.show_decided.isVisible() or tab.show_decided.parent() is not None, (
-        "the toggle lives on the first header, even when nothing is listed"
+    assert tab.show_decided.parent() is not None, (
+        "the chip lives on the filter row, so an empty list still offers it"
     )
 
 
@@ -384,7 +384,6 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
     assert tab.check_count == 2 and tab.pending_count == 1
     first = tab.list.itemWidget(tab.list.item(0))
     assert isinstance(first, R._GroupHeaderRow) and first.button is None
-    assert tab.show_decided.parent() is first, "the toggle sits on the first header"
     check_header = tab.list.itemWidget(tab.list.item(2))
     assert isinstance(check_header, R._GroupHeaderRow)
     assert check_header.button.text() == "Mark all as checked"
