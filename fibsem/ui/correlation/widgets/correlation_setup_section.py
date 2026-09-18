@@ -217,7 +217,7 @@ class CorrelationSetupSection(QWidget):
         col.addWidget(
             _caption(
                 f"Fit — FIB {fit.fib_method} · FM POI {fit.fm_poi_method} · "
-                f"POI channel {fit.fm_poi_channel or '—'}"
+                f"POI channel {fit.fm_poi_channel or 'not set'}"
             )
         )
         col.addWidget(
@@ -279,9 +279,13 @@ class CorrelationSetupSection(QWidget):
         label = f"Spot-burn fiducials · {len(self._spot_burns)} found"
         if self._spot_burns and not self._burns_available:
             label += "  (needs the FIB image)"
-        elif not self._prev_runs:
-            label += "  (first)"
         self.rb_burns.setText(label)
+        self.rb_burns.setToolTip(
+            "The milled spot pattern as FIB fiducials: the starting point for a "
+            "first correlation of this lamella."
+            if not self._prev_runs
+            else "The milled spot pattern as FIB fiducials."
+        )
 
     def set_spot_burns_available(self, available: bool) -> None:
         """Track whether a FIB image is loaded: opening without one and browsing

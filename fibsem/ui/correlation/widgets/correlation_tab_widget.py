@@ -822,10 +822,11 @@ class _ImagesTab(QWidget):
         c, z, h, w = image.data.shape
         self._lbl_fm_shape.setText(f"{c} × {z} × {h} × {w}")
         meta_channels = image.metadata.channels or []
-        self._lbl_fm_ch.setText(
-            ", ".join(ch.name or f"CH {i}" for i, ch in enumerate(meta_channels))
-            or str(c)
-        )
+        names = [ch.name or f"CH {i}" for i, ch in enumerate(meta_channels)]
+        # the count on the line, the names in the tooltip: four channel names
+        # wrapped to three lines and said less than "4" (FIB-978)
+        self._lbl_fm_ch.setText(f"{len(names) or c}")
+        self._lbl_fm_ch.setToolTip("\n".join(names))
         self._lbl_fm_z.setText(str(z))
         self._lbl_fm_px.setText(_format_fm_pixel_size(image.metadata))
         # interpolation needs a multi-slice stack with a known z step
@@ -1370,6 +1371,7 @@ class _RITab(QWidget):
         # Last factor mirrored into the spinbox; mirroring only on change keeps
         # in-progress manual edits from being reverted by unrelated refreshes.
         self._last_mirrored_factor: Optional[float] = None
+        self._fib_pixel_size_m: Optional[float] = None
         self._setup_ui()
 
     def _set_warning(self, text: str, level: str = "error") -> None:
@@ -1444,7 +1446,15 @@ class _RITab(QWidget):
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self._table.setMinimumHeight(120)
-        layout.addWidget(TitledPanel("Corrected POI Positions", content=self._table))
+        self._panel_corrected = TitledPanel(
+            "Corrected POI Positions", content=self._table
+        )
+        # An empty table box is a third of the tab saying nothing; it appears
+        # with its first row (FIB-978).
+        self._panel_corrected.setVisible(False)
+        self._table.model().rowsInserted.connect(self._sync_table_panel)
+        self._table.model().rowsRemoved.connect(self._sync_table_panel)
+        layout.addWidget(self._panel_corrected)
 
         self._lbl_multi_poi = QLabel(
             "Note: correction is applied to POI 1 only. "
@@ -1513,6 +1523,11 @@ class _RITab(QWidget):
         input_data: Optional[CorrelationInputData] = None,
         fm_pixel_size_z: Optional[float] = None,
     ) -> None:
+        self._fib_pixel_size_m = (
+            getattr(input_data, "fib_image_pixel_size", None)
+            if input_data is not None
+            else None
+        )
         self._result = result
         self._poi = result.poi if result else []
         self._input_data = input_data
@@ -1597,9 +1612,17 @@ class _RITab(QWidget):
             )
         return None
 
+    def _sync_table_panel(self, *_) -> None:
+        self._panel_corrected.setVisible(self._table.rowCount() > 0)
+
     def _refresh_apply_enabled(self) -> None:
         reason = self._apply_blocked_reason()
         self._btn_apply.setEnabled(reason is None)
+        self._btn_apply.setStyleSheet(
+            stylesheets.PRIMARY_BUTTON_STYLESHEET
+            if reason is None
+            else f"{CONTROL_STYLE} padding: 2px 8px;"
+        )
         self._btn_apply.setToolTip(
             reason or "Store the correction factor and apply it."
         )
@@ -1691,7 +1714,13 @@ class _RITab(QWidget):
             self._lbl_distance.setVisible(False)
             return
         dist_px = abs(self._poi[0].image_px.y - self._surface_y)
-        self._lbl_distance.setText(f"Surface → POI depth: {dist_px:.1f} px")
+        px_m = self._fib_pixel_size_m
+        text = (
+            f"Surface → target depth: {dist_px * px_m * 1e6:.2f} µm ({dist_px:.1f} px)"
+            if px_m
+            else f"Surface → target depth: {dist_px:.1f} px"
+        )
+        self._lbl_distance.setText(text)
         self._lbl_distance.setVisible(True)
 
     def _populate_pre_table(self, factor: float) -> None:
@@ -2765,6 +2794,11 @@ class CorrelationTabWidget(QWidget):
             *(self._projection_line(nominal) if loaded else ("none", ""))
         )
         cl.btn_project.setEnabled(can_project)
+        cl.btn_project.setStyleSheet(
+            stylesheets.PRIMARY_BUTTON_STYLESHEET
+            if can_project and not fm
+            else stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
         cl.btn_accept_predictions.setEnabled(n_tentative > 0)
         if not loaded:
             hint = "Load the FIB and FM images."
