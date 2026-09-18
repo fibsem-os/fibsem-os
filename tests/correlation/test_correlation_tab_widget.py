@@ -1241,6 +1241,73 @@ def test_z_slider_advertises_shift_scroll(qapp):
     assert "Shift" in tip and "scroll" in tip.lower()
 
 
+def test_the_results_tab_reports_the_transform_a_person_can_check(qapp):
+    """The fitted map is the answer the correlation produced, so it is on the
+    tab in quantities that can be checked against the instrument: tilt, the
+    in-plane turn, scale, the depth gain the RI correction rides on, and the
+    translation. The raw matrix is there too, folded away (FIB-1021)."""
+    import numpy as np
+
+    from fibsem.correlation.structures import CorrelationResult
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _ResultsTab
+
+    tilt = np.radians(75.0)
+    rot = [
+        [1.0, 0.0, 0.0],
+        [0.0, float(np.cos(tilt)), float(-np.sin(tilt))],
+        [0.0, float(np.sin(tilt)), float(np.cos(tilt))],
+    ]
+    result = CorrelationResult(
+        scale=2.0,
+        rotation_quaternion=rot,
+        rotation_eulers=[180.0, 75.0, -180.0],
+        translation=[-100.0, 50.0, 0.0],
+        fm_z_scale=10.0,
+        branch_check={"angle_to_nominal_deg": 1.5},
+    )
+
+    tab = _ResultsTab()
+    tab.set_result(result, fib_pixel_size_m=65e-9)
+
+    assert tab._lbl_tilt.text().startswith("75.0°")
+    assert "1.5° from the geometry's" in tab._lbl_tilt.text()
+    assert tab._lbl_inplane.text() == "+0.0°"
+    assert tab._lbl_fitted_scale.text() == "2.00×"
+    # depth gain = scale * |z column| * fm_z_scale = 2 * sin(75) * 10
+    expected = 2.0 * float(np.sin(tilt)) * 10.0
+    assert tab._lbl_depth_gain.text() == f"{expected:.1f} px per slice"
+    assert "(-100.0, +50.0) px" in tab._lbl_translation.text()
+
+    # the raw numbers are written but folded away until asked for
+    assert not tab._txt_raw.isVisible()
+    assert (
+        "eulers" in tab._txt_raw.text() and "fm z scale: 10.0000" in tab._txt_raw.text()
+    )
+    # a disclosure: the chevron carries the state, the label stays put
+    assert tab._btn_raw.text() == "Raw numbers"
+    collapsed = tab._btn_raw.icon().cacheKey()
+    tab._btn_raw.setChecked(True)
+    assert tab._btn_raw.text() == "Raw numbers"
+    assert tab._btn_raw.icon().cacheKey() != collapsed
+
+    tab.clear()
+    assert tab._lbl_tilt.text() == "—" and tab._txt_raw.text() == ""
+    tab.close()
+
+
+def test_the_transform_panel_survives_a_result_with_no_rotation(qapp):
+    """A result restored from JSON can be missing pieces; a readout must not
+    take the tab down."""
+    from fibsem.correlation.structures import CorrelationResult
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _ResultsTab
+
+    tab = _ResultsTab()
+    tab.set_result(CorrelationResult(), fib_pixel_size_m=None)
+    assert tab._lbl_tilt.text() == "—"
+    assert tab._lbl_depth_gain.text() == "—"
+    tab.close()
+
+
 def test_advanced_panels_start_collapsed(qapp):
     cl = _widget(qapp)._coords_tab
     # Advanced / set-once panels collapse by default...
