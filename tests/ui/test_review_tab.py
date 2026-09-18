@@ -654,6 +654,209 @@ def test_a_grid_overview_is_shown_on_the_sem_canvas_with_go_to_grid(
     assert heard == [grid]
 
 
+@pytest.fixture
+def microscope():
+    """A connected instrument, for the one review that needs its geometry to
+    turn a marked position into the poses a lamella is made from."""
+    import fibsem.config as cfg
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+    )
+    yield microscope
+    microscope.disconnect()
+
+
+def _positions_waiting(experiment, positions=(), name="Grid-02"):
+    """A grid's overview under review for where the lamellae go, with its
+    stitched image on disk."""
+    from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
+    from fibsem.applications.autolamella.structures import GridRecord
+
+    grid = experiment.add_grid(GridRecord(name=name))
+    directory = experiment.grid_path(grid) / "SEM Overview"
+    directory.mkdir(parents=True, exist_ok=True)
+    _sem_image().save(str(directory / "overview"))
+    grid.task_history.append(
+        AutoLamellaTaskState(
+            name="SEM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
+        )
+    )
+    grid.proposals["SEM Overview"] = Proposal(
+        kind=OVERVIEW_POSITIONS,
+        values={"positions": list(positions)},
+        provenance={
+            "task_id": f"{RUN}-{name}",
+            "reference_image": "SEM Overview/overview.tif",
+        },
+    )
+    return grid
+
+
+def _positions_renderer(tab, grid):
+    tab.refresh()
+    (index,) = [i for i, e in enumerate(tab._entries) if e[0] is grid]
+    tab._select_entry(index)
+    return tab.stack.currentWidget()
+
+
+class TestOverviewPositions:
+    """The review that creates the lamellae: what it draws, what it will not
+    let you edit, and what a confirm carries."""
+
+    def test_the_grid_lamellae_are_drawn_locked_and_the_placed_ones_are_not(
+        self, tab, experiment, qapp
+    ):
+        grid = _positions_waiting(experiment)
+        lamella = experiment.positions[0]
+        lamella.grid_id = grid.id
+        renderer = _positions_renderer(tab, grid)
+
+        canvas = renderer.canvas
+        assert [p.name for p in canvas._positions] == [lamella.name], (
+            "what the grid already has, drawn for context"
+        )
+        assert canvas._movable is False, "and not editable from a review"
+        assert canvas.draft_positions == [], "nothing placed yet"
+
+    def test_placing_needs_a_microscope_and_says_so(self, tab, experiment, qapp):
+        """Reading the review needs nothing; placing a position needs the
+        instrument's geometry, so without one nothing is placed and the line
+        says why."""
+        grid = _positions_waiting(experiment)
+        renderer = _positions_renderer(tab, grid)
+        assert renderer._microscope is None
+
+        renderer._on_add_requested(FibsemStagePosition(x=1e-4, y=0, z=0, r=0, t=0))
+
+        assert renderer.current_values() == {"positions": []}
+        assert "connect a microscope" in renderer.line.text().lower()
+
+    def test_a_placed_position_becomes_a_draft_and_the_confirm_counts_it(
+        self, tab, experiment, qapp, microscope
+    ):
+        grid = _positions_waiting(experiment)
+        renderer = _positions_renderer(tab, grid)
+        tab.set_microscope(microscope)
+
+        renderer._on_add_requested(FibsemStagePosition(x=1e-4, y=0, z=0, r=0, t=0))
+        renderer._on_add_requested(FibsemStagePosition(x=-1e-4, y=0, z=0, r=0, t=0))
+
+        assert len(renderer.canvas.draft_positions) == 2, "drawn as drafts"
+        assert renderer.btn_confirm.text() == "Confirm · add 2 lamellae"
+        values = renderer.current_values()["positions"]
+        assert len(values) == 2
+        assert all(v.milling is not None for v in values), (
+            "the poses a lamella is made from, read here where there is an instrument"
+        )
+
+    def test_a_draft_can_be_taken_back_off(self, tab, experiment, qapp, microscope):
+        grid = _positions_waiting(experiment)
+        renderer = _positions_renderer(tab, grid)
+        tab.set_microscope(microscope)
+        renderer._on_add_requested(FibsemStagePosition(x=1e-4, y=0, z=0, r=0, t=0))
+        renderer._on_add_requested(FibsemStagePosition(x=-1e-4, y=0, z=0, r=0, t=0))
+
+        renderer._on_remove_requested(0)
+
+        assert len(renderer.current_values()["positions"]) == 1
+        assert renderer.btn_confirm.text() == "Confirm · add 1 lamella"
+
+    def test_confirming_none_is_still_an_answer(self, tab, experiment, qapp):
+        grid = _positions_waiting(experiment)
+        renderer = _positions_renderer(tab, grid)
+        assert renderer.btn_confirm.text() == "Confirm · add none"
+        assert renderer.current_values() == {"positions": []}
+
+    def test_a_to_check_row_places_nothing_and_offers_nothing(
+        self, tab, experiment, qapp, microscope
+    ):
+        """Found in the app: on an automated overview the right-click still
+        offered "Add Position Here" and the click did nothing. A decided
+        proposal is looked at, not changed, so the canvas is told to offer
+        neither -- an action that silently does nothing reads as broken."""
+        from fibsem.applications.autolamella.proposals import Decision, DecisionOutcome
+
+        grid = _positions_waiting(experiment)
+        renderer = _positions_renderer(tab, grid)
+        tab.set_microscope(microscope)
+        renderer.set_to_check(
+            Decision(
+                outcome=DecisionOutcome.Confirmed,
+                author="auto:place-by-hand",
+                values={"positions": []},
+            )
+        )
+
+        assert renderer.canvas._placing is False, "the menu offers nothing"
+        renderer._on_add_requested(FibsemStagePosition(x=1e-4, y=0, z=0, r=0, t=0))
+        assert renderer.current_values() == {"positions": []}
+
+        # and rather than a dead end, it says where placing is done
+        assert renderer.line.text() == (
+            "Decided automatically · no lamellae were placed · "
+            "add them on the Grids tab"
+        )
+        assert "Grids tab" in renderer.line.toolTip()
+        assert renderer.btn_open.text() == "Go to grid", "the way there"
+
+    def test_marks_survive_a_look_at_another_grid(
+        self, tab, experiment, qapp, microscope
+    ):
+        """Found in the app: one renderer serves every row of this kind, so
+        selecting another grid used to throw away what had been placed. The
+        placements belong to the run, and come back with it."""
+        first = _positions_waiting(experiment)
+        second = _positions_waiting(experiment, name="Grid-03")
+        renderer = _positions_renderer(tab, first)
+        tab.set_microscope(microscope)
+        renderer._on_add_requested(FibsemStagePosition(x=1e-4, y=0, z=0, r=0, t=0))
+        renderer._on_add_requested(FibsemStagePosition(x=-1e-4, y=0, z=0, r=0, t=0))
+        assert len(renderer.current_values()["positions"]) == 2
+
+        _positions_renderer(tab, second)
+        assert renderer.current_values() == {"positions": []}, "the other grid's"
+
+        _positions_renderer(tab, first)
+        assert len(renderer.current_values()["positions"]) == 2, "still there"
+
+    def test_a_re_run_does_not_inherit_the_marks(
+        self, tab, experiment, qapp, microscope
+    ):
+        """Kept per run, so a new overview -- a different image, possibly a
+        different stage position -- opens clean rather than with marks made
+        on the one it replaced."""
+        grid = _positions_waiting(experiment)
+        renderer = _positions_renderer(tab, grid)
+        tab.set_microscope(microscope)
+        renderer._on_add_requested(FibsemStagePosition(x=1e-4, y=0, z=0, r=0, t=0))
+        assert len(renderer.current_values()["positions"]) == 1
+
+        # the task runs again: a new proposal, naming a new run
+        grid.proposals["SEM Overview"].provenance["task_id"] = "another-run"
+        _positions_renderer(tab, grid)
+
+        assert renderer.current_values() == {"positions": []}
+
+    def test_a_decided_review_places_nothing_more(
+        self, tab, experiment, qapp, microscope
+    ):
+        """Read-only once decided: the lamellae exist, and changing them is a
+        re-run of the overview rather than an edit here."""
+        grid = _positions_waiting(experiment)
+        renderer = _positions_renderer(tab, grid)
+        tab.set_microscope(microscope)
+        renderer.set_read_only(
+            Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={})
+        )
+
+        renderer._on_add_requested(FibsemStagePosition(x=1e-4, y=0, z=0, r=0, t=0))
+
+        assert renderer.current_values() == {"positions": []}
+
+
 def test_a_lamella_row_still_shows_fib_and_go_to_lamella(tab, experiment):
     renderer = tab.stack.currentWidget()
     view = renderer._controller.widget
