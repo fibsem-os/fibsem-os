@@ -311,8 +311,29 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
         assert resp.status_code == 409
         assert resp.json()["detail"]["error_type"] == "not_pending"
 
+        # a look at an earlier task's result, while a later one runs, lands:
+        # only the task being decided, or a value, is refused under a run
         lamella.task_state.name = ROUGH
         lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+        resp = _post_on_worker(
+            qapp,
+            client,
+            "/app/decide",
+            {
+                "item_id": lamella.id,
+                "task_name": SETUP,
+                "task_id": RUN,
+                "outcome": "Confirmed",
+                "values": {"poi": {"x": 1e-6, "y": 0.0}},
+            },
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["error_type"] == "running"
+
+        # now the run being decided is the run in progress: a stop, not a
+        # decision, even though it carries no values
+        lamella.task_state.name = SETUP
+        lamella.task_state.task_id = RUN
         resp = _post_on_worker(
             qapp,
             client,
