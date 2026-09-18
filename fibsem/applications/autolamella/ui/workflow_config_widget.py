@@ -314,9 +314,6 @@ class WorkflowTaskRowWidget(QWidget):
         self._has_dependents = True
         self._reviewed: set = set()
         self._schedule_visible = True
-        # kept for callers that showed or hid the old buttons
-        self.btn_supervise = self.btn_attention
-        self.btn_review = self.btn_attention
 
         # Edit opens the dialog, which is also where a task is removed: a
         # trash can on every row was the one thing there nobody pressed.

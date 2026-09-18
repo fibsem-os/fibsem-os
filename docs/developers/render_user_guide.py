@@ -1845,7 +1845,7 @@ def render_workflows(h: Harness) -> None:
         callouts=[
             row.checkbox,
             row.btn_schedule,
-            row.btn_supervise,
+            row.btn_attention,
             row.btn_edit,
             row.btn_remove,
         ],
@@ -2238,7 +2238,10 @@ def render_correlation(h: Harness) -> None:
     import numpy as np
     from scipy import ndimage as ndi
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
+    from fibsem.applications.autolamella.structures import (
+        Attention,
+        AutoLamellaTaskDescription,
+    )
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
     from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
         AcquireFluorescenceImageConfig,
@@ -2311,14 +2314,20 @@ def render_correlation(h: Harness) -> None:
         tasks.insert(
             1,
             AutoLamellaTaskDescription(
-                name=SPOT, supervise=True, required=False, requires=[setup]
+                name=SPOT,
+                attention=Attention.supervised,
+                required=False,
+                requires=[setup],
             ),
         )
         # the fluorescence stack after the fiducial, so both are in it
         tasks.insert(
             3,
             AutoLamellaTaskDescription(
-                name=FMTASK, supervise=False, required=False, requires=[fiducial]
+                name=FMTASK,
+                attention=Attention.automated,
+                required=False,
+                requires=[fiducial],
             ),
         )
         experiment.save()
