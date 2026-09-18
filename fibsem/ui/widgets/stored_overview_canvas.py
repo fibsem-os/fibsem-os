@@ -31,7 +31,11 @@ from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures import FibsemImage, FibsemStagePosition
-from fibsem.ui.tokens import SAVED_POSITION_COLOUR, SELECTED_POSITION_COLOUR
+from fibsem.ui.tokens import (
+    DRAFT_POSITION_COLOUR,
+    SAVED_POSITION_COLOUR,
+    SELECTED_POSITION_COLOUR,
+)
 from fibsem.ui.widgets.canvas.overlays.point_overlay import FieldOfViewOverlay
 from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 from fibsem.ui.widgets.canvas.stage_frame import StageFrame
@@ -106,11 +110,19 @@ class StoredOverviewCanvas(QWidget):
       or is None over bare canvas.
     * ``position_move_requested(name, position)`` -- "Move selected position here".
     * ``position_selected(name)`` -- a left click landed on a marked position.
+    * ``draft_remove_requested(index)`` -- "Remove position" over a draft mark.
+
+    Two layers of marks, because two different things are drawn at once. The
+    **positions** are what the experiment holds; the **drafts** are positions
+    somebody has placed and not committed, which is what a review carries
+    until it is confirmed. The canvas draws both and reports what was asked
+    for; what a mark means, and whether anything is written, is the owner's.
     """
 
     position_add_requested = pyqtSignal(object, object)
     position_move_requested = pyqtSignal(str, object)
     position_selected = pyqtSignal(str)
+    draft_remove_requested = pyqtSignal(int)
     view_changed = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -120,6 +132,9 @@ class StoredOverviewCanvas(QWidget):
         self._view: Optional[str] = None
         self._origins: Dict[str, FibsemStagePosition] = {}
         self._positions: List[FibsemStagePosition] = []
+        self._movable = True
+        self._placing = True
+        self._drafts: List[FibsemStagePosition] = []
         self._selected: Optional[str] = None
 
         layout = QVBoxLayout(self)
@@ -143,6 +158,15 @@ class StoredOverviewCanvas(QWidget):
             extent=(POSITION_FOV_WIDTH, POSITION_FOV_HEIGHT),
         )
         self.canvas.add_overlay(self.selected_position_overlay)
+        # On top: a draft sits over what is already there, because it is the
+        # thing being worked on.
+        self.draft_overlay = FieldOfViewOverlay(
+            color=DRAFT_POSITION_COLOUR,
+            marker="+",
+            size=13,
+            extent=(POSITION_FOV_WIDTH, POSITION_FOV_HEIGHT),
+        )
+        self.canvas.add_overlay(self.draft_overlay)
 
     # ── images ───────────────────────────────────────────────────────────
 
@@ -315,11 +339,40 @@ class StoredOverviewCanvas(QWidget):
 
     # ── positions ────────────────────────────────────────────────────────
 
-    def set_positions(self, positions: List[FibsemStagePosition]) -> None:
+    def set_positions(
+        self, positions: List[FibsemStagePosition], movable: bool = True
+    ) -> None:
         """The positions to mark; each is drawn where this view's frame puts it,
-        and one the frame cannot place is left off rather than guessed."""
+        and one the frame cannot place is left off rather than guessed.
+
+        ``movable`` False offers no "move it here": a caller that is showing
+        these for context rather than editing them, as a review does with the
+        lamellae a grid already has.
+        """
         self._positions = list(positions)
+        self._movable = movable
         self._refresh_positions()
+
+    def set_placing_enabled(self, enabled: bool) -> None:
+        """Whether a position can be placed or taken back here.
+
+        Off, the right-click offers neither: a caller showing a record that is
+        already decided must not offer an action that would do nothing, which
+        is worse than not offering it -- the click looks broken rather than
+        refused.
+        """
+        self._placing = enabled
+
+    def set_draft_positions(self, positions: List[FibsemStagePosition]) -> None:
+        """Positions placed but not committed, drawn in their own colour over
+        the rest. Nothing here writes them anywhere; the owner decides what a
+        draft becomes."""
+        self._drafts = list(positions)
+        self._refresh_positions()
+
+    @property
+    def draft_positions(self) -> List[FibsemStagePosition]:
+        return list(self._drafts)
 
     def set_selected_position(self, name: Optional[str]) -> None:
         self._selected = name
@@ -334,6 +387,7 @@ class StoredOverviewCanvas(QWidget):
         if frame is None:
             self.position_overlay.set_points([])
             self.selected_position_overlay.set_points([])
+            self.draft_overlay.set_points([])
             return
         points, labels, selected = [], [], []
         for position in self._positions:
@@ -351,6 +405,13 @@ class StoredOverviewCanvas(QWidget):
         self.selected_position_overlay.set_points(
             selected, labels=[self._selected] if selected else None
         )
+        drafts = []
+        for position in self._drafts:
+            try:
+                drafts.append(frame.to_canvas(position))
+            except Exception:
+                continue
+        self.draft_overlay.set_points(drafts)
 
     def stage_position_at(self, x: float, y: float) -> Optional[FibsemStagePosition]:
         """The stage position a canvas point names, in the shown view's frame."""
@@ -395,6 +456,29 @@ class StoredOverviewCanvas(QWidget):
                     best, best_distance = name, distance
         return best
 
+    def draft_at(self, x: float, y: float) -> Optional[int]:
+        """Which draft mark a canvas point is on, by index. Drafts have no
+        names -- nothing has been created to name them after -- so the index
+        is what a caller removes by."""
+        frame = self._frame()
+        if frame is None:
+            return None
+        radius = abs(
+            self.canvas.metres_to_canvas(POSITION_FOV_WIDTH / 2, 0.0)[0]
+            - self.canvas.metres_to_canvas(0.0, 0.0)[0]
+        )
+        best, best_distance = None, None
+        for index, position in enumerate(self._drafts):
+            try:
+                px, py = frame.to_canvas(position)
+            except Exception:
+                continue
+            distance = math.hypot(px - x, py - y)
+            if distance <= radius or self.draft_overlay.covers((px, py), x, y):
+                if best_distance is None or distance < best_distance:
+                    best, best_distance = index, distance
+        return best
+
     # ── clicks ───────────────────────────────────────────────────────────
 
     def _on_canvas_clicked(self, x: float, y: float, modifiers=None) -> None:
@@ -420,11 +504,24 @@ class StoredOverviewCanvas(QWidget):
         record = self.record_at(x, y)
         record_id = record.id if record is not None else None
         config = ContextMenuConfig()
-        config.add_action(
-            "Add Position Here",
-            callback=lambda: self.position_add_requested.emit(target, record_id),
-        )
-        if self._selected:
+        draft = self.draft_at(x, y)
+        if not self._placing:
+            if not (self._selected and self._movable):
+                return None
+        elif draft is not None:
+            # Over a draft: removing the one under the cursor is the offer, and
+            # adding another on top of it is not.
+            config.add_action(
+                "Remove Position",
+                callback=lambda i=draft: self.draft_remove_requested.emit(i),
+            )
+            return config
+        if self._placing:
+            config.add_action(
+                "Add Position Here",
+                callback=lambda: self.position_add_requested.emit(target, record_id),
+            )
+        if self._selected and self._movable:
             selected = self._selected
             config.add_action(
                 f"Move Selected Position Here ({selected})",
