@@ -209,6 +209,14 @@ class CorrelationInputData:
     # FM z-step, likewise restored from JSON: lets a seed's FM z be rescaled to a
     # re-acquired volume with a different z-sampling (FIB-299).
     stored_fm_pixel_size_z: Optional[float] = None
+    # The image names as the file recorded them. A run's fiducials are pixels in
+    # a specific image, so the names are part of the record -- and a lamella
+    # holds a reference per task and stage, so guessing picks the wrong one and
+    # silently shifts every coordinate. Kept here because the images are not in
+    # the file: reading a run and writing it back had no live image to name and
+    # wrote null over what was there (FIB-1019).
+    stored_fib_image_filename: Optional[str] = None
+    stored_fm_image_filename: Optional[str] = None
 
     def to_dict(self):
         return {
@@ -270,11 +278,19 @@ class CorrelationInputData:
 
     @property
     def fib_image_filename(self) -> Optional[str]:
-        return _loaded_filename(self.fib_image)
+        """The file this run's FIB fiducials were picked in, or None.
+
+        The loaded image first -- it is the image in hand -- then the name the
+        file recorded. Without the fallback, opening a run and saving it again
+        erased the name, because a re-save has no live image to ask when the
+        images were never part of the file (FIB-1019).
+        """
+        return _loaded_filename(self.fib_image) or self.stored_fib_image_filename
 
     @property
     def fm_image_filename(self) -> Optional[str]:
-        return _loaded_filename(self.fm_image)
+        """The FM stack this run's fiducials were picked in, or None."""
+        return _loaded_filename(self.fm_image) or self.stored_fm_image_filename
 
     @staticmethod
     def from_dict(data: dict) -> CorrelationInputData:
@@ -328,6 +344,8 @@ class CorrelationInputData:
             stored_fib_image_shape=tuple(stored_shape) if stored_shape else None,
             stored_fib_image_pixel_size=data.get("fib_image_pixel_size"),
             stored_fm_pixel_size_z=data.get("fm_pixel_size_z"),
+            stored_fib_image_filename=data.get("fib_image_filename"),
+            stored_fm_image_filename=data.get("fm_image_filename"),
         )
 
     def save(self, filename: str):
