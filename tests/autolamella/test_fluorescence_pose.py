@@ -4,6 +4,7 @@ Regression coverage for the bug where a lamella's configured objective focus
 position was lost (reset to None or overwritten with the live objective
 position), which made the Selected Lamella objective control disappear.
 """
+
 import os
 import types
 from pathlib import Path
@@ -29,7 +30,7 @@ SIM_ARCTIS_CONFIG_PATH = os.path.join(
 )
 
 CONFIGURED_OBJECTIVE = 0.006  # 6 mm — the user's configured focus position
-CLIP_LIMIT = 0.004            # 4 mm — forces the live objective to diverge on move
+CLIP_LIMIT = 0.004  # 4 mm — forces the live objective to diverge on move
 
 
 @pytest.fixture
@@ -44,10 +45,16 @@ def fm_microscope() -> FibsemMicroscope:
     return microscope
 
 
-def _make_lamella(tmp_path: Path, objective_position, with_fluorescence_pose: bool = True) -> Lamella:
+def _make_lamella(
+    tmp_path: Path, objective_position, with_fluorescence_pose: bool = True
+) -> Lamella:
     lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
-    stage = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0, coordinate_system="RAW")
-    lamella.milling_pose = MicroscopeState(stage_position=stage)  # provides lamella.stage_position
+    stage = FibsemStagePosition(
+        x=0.0, y=0.0, z=0.0, r=0.0, t=0.0, coordinate_system="RAW"
+    )
+    lamella.milling_pose = MicroscopeState(
+        stage_position=stage
+    )  # provides lamella.stage_position
     if with_fluorescence_pose:
         fp = MicroscopeState(stage_position=stage)
         fp.objective_position = objective_position
@@ -55,7 +62,9 @@ def _make_lamella(tmp_path: Path, objective_position, with_fluorescence_pose: bo
     return lamella
 
 
-def _acquire_task(microscope: FibsemMicroscope, lamella: Lamella) -> AcquireFluorescenceImageTask:
+def _acquire_task(
+    microscope: FibsemMicroscope, lamella: Lamella
+) -> AcquireFluorescenceImageTask:
     return AcquireFluorescenceImageTask(
         microscope=microscope, config=AcquireFluorescenceImageConfig(), lamella=lamella
     )
@@ -72,13 +81,17 @@ def test_update_fluorescence_pose_preserves_configured_objective(
     task = _acquire_task(fm_microscope, lamella)
 
     # move the live objective to a position that differs from the configured one
-    fm_microscope.fm.objective.move_absolute(CONFIGURED_OBJECTIVE)  # clips to CLIP_LIMIT
+    fm_microscope.fm.objective.move_absolute(
+        CONFIGURED_OBJECTIVE
+    )  # clips to CLIP_LIMIT
     assert fm_microscope.fm.objective.position != pytest.approx(CONFIGURED_OBJECTIVE)
 
     task._update_fluorescence_pose()
 
     assert lamella.fluorescence_pose is not None
-    assert lamella.fluorescence_pose.objective_position == pytest.approx(CONFIGURED_OBJECTIVE)
+    assert lamella.fluorescence_pose.objective_position == pytest.approx(
+        CONFIGURED_OBJECTIVE
+    )
 
 
 def test_update_fluorescence_pose_refreshes_stage_position(
@@ -91,7 +104,9 @@ def test_update_fluorescence_pose_refreshes_stage_position(
     task._update_fluorescence_pose()
 
     assert lamella.fluorescence_pose.stage_position is not None
-    assert lamella.fluorescence_pose.objective_position == pytest.approx(CONFIGURED_OBJECTIVE)
+    assert lamella.fluorescence_pose.objective_position == pytest.approx(
+        CONFIGURED_OBJECTIVE
+    )
 
 
 def test_update_fluorescence_pose_without_existing_pose_does_not_crash(
@@ -121,11 +136,15 @@ def test_acquire_fluorescence_persists_autofocus_result(
 
     lamella = _make_lamella(tmp_path, CONFIGURED_OBJECTIVE)
     task = _acquire_task(fm_microscope, lamella)
-    assert task.config.autofocus_settings.enabled  # default; drives the autofocus branch
+    assert (
+        task.config.autofocus_settings.enabled
+    )  # default; drives the autofocus branch
 
     # stub the heavy work: autofocus returns a known result, image acquisition is a no-op.
     # working_distance mirrors the real AutoFocusResult field the task reads.
-    monkeypatch.setattr(task, "_run_autofocus", lambda: types.SimpleNamespace(working_distance=refined))
+    monkeypatch.setattr(
+        task, "_run_autofocus", lambda: types.SimpleNamespace(working_distance=refined)
+    )
     monkeypatch.setattr(af, "acquire_image", lambda **kwargs: None)
 
     task._run()
@@ -137,8 +156,19 @@ def test_mill_coincident_requires_objective_position(
     fm_microscope: FibsemMicroscope, tmp_path: Path
 ) -> None:
     """MillCoincidentTask raises a clear ValueError (not AttributeError) when the
-    lamella has no configured objective position."""
+    lamella's coincidence setup has no recorded objective position.
+
+    Since FIB-910 the objective height lives on the Setup Coincidence Milling
+    record rather than the fluorescence pose; a lamella whose setup never ran is
+    refused before anything moves."""
+    from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
+        SetupCoincidenceMillingTaskConfig,
+    )
+
     lamella = _make_lamella(tmp_path, None, with_fluorescence_pose=False)
+    lamella.task_config["Setup Coincidence Milling"] = (
+        SetupCoincidenceMillingTaskConfig(task_name="Setup Coincidence Milling")
+    )
     task = MillCoincidentTask(
         microscope=fm_microscope, config=MillCoincidentTaskConfig(), lamella=lamella
     )
