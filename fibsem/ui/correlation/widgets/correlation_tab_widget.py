@@ -134,6 +134,7 @@ from fibsem.ui.tokens import (
     CAPTION_VALUE_STYLE,
     CONTROL_STYLE,
     ERROR_COLOR,
+    NUMBER_STYLE,
     OK_COLOR,
     SURFACE_COLOR,
     TABLE_STYLE,
@@ -1216,6 +1217,51 @@ class _ResultsTab(QWidget):
         summary_form.addRow(_form_label("Pairs"), self._lbl_pairs)
         layout.addWidget(TitledPanel("Summary", content=summary_body))
 
+        # The transform itself. The review took the Euler angles off this tab
+        # because they said nothing to anyone; the answer the correlation
+        # produced still has to be visible, so it is here in quantities a
+        # person can check against the instrument (FIB-1021).
+        tform_body = QWidget()
+        tform_layout = QVBoxLayout(tform_body)
+        tform_layout.setContentsMargins(8, 4, 8, 6)
+        tform_layout.setSpacing(4)
+        tform_form = QFormLayout()
+        tform_form.setContentsMargins(0, 0, 0, 0)
+        tform_form.setSpacing(4)
+        self._lbl_tilt = self._val("—")
+        self._lbl_inplane = self._val("—")
+        self._lbl_fitted_scale = self._val("—")
+        self._lbl_depth_gain = self._val("—")
+        self._lbl_translation = self._val("—")
+        tform_form.addRow(_form_label("Tilt out of plane"), self._lbl_tilt)
+        tform_form.addRow(_form_label("In-plane rotation"), self._lbl_inplane)
+        tform_form.addRow(_form_label("Scale"), self._lbl_fitted_scale)
+        tform_form.addRow(_form_label("Depth gain"), self._lbl_depth_gain)
+        tform_form.addRow(_form_label("Translation"), self._lbl_translation)
+        tform_layout.addLayout(tform_form)
+
+        # The raw numbers, for a message to a collaborator or a script. Folded
+        # away: nobody reads a matrix to judge a run, but the run is not
+        # reproducible without one.
+        self._btn_raw = QPushButton("Show the numbers")
+        self._btn_raw.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self._btn_raw.setCheckable(True)
+        self._btn_raw.toggled.connect(self._on_raw_toggled)
+        raw_row = QHBoxLayout()
+        raw_row.setContentsMargins(0, 0, 0, 0)
+        raw_row.addWidget(self._btn_raw)
+        raw_row.addStretch(1)
+        tform_layout.addLayout(raw_row)
+        self._txt_raw = QLabel("")
+        self._txt_raw.setStyleSheet(NUMBER_STYLE)
+        self._txt_raw.setWordWrap(True)
+        self._txt_raw.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._txt_raw.setVisible(False)
+        tform_layout.addWidget(self._txt_raw)
+        layout.addWidget(TitledPanel("Transform", content=tform_body))
+
         # Per-marker error table. Two error columns whose difference is the
         # whole point, so the panel says which one to judge by (FIB-1022).
         table_body = QWidget()
@@ -1242,6 +1288,74 @@ class _ResultsTab(QWidget):
         table_layout.addWidget(self._table)
         layout.addWidget(TitledPanel("Per-Fiducial Error", content=table_body))
         layout.addStretch(1)
+
+    def _on_raw_toggled(self, shown: bool) -> None:
+        self._txt_raw.setVisible(shown)
+        self._btn_raw.setText("Hide the numbers" if shown else "Show the numbers")
+
+    def _set_transform(
+        self, result: CorrelationResult, um: Optional[float] = None
+    ) -> None:
+        """The fitted map, in quantities that can be checked by eye.
+
+        The rotation is a property of the instrument, not the lamella, so a run
+        far from the geometry's is worth noticing; the depth gain is what the
+        refractive-index correction rides on. Never raises: this panel is a
+        readout, and a result restored from JSON may be missing pieces.
+        """
+        for lbl in (
+            self._lbl_tilt,
+            self._lbl_inplane,
+            self._lbl_fitted_scale,
+            self._lbl_depth_gain,
+            self._lbl_translation,
+        ):
+            lbl.setText("—")
+        self._txt_raw.setText("")
+        try:
+            r = np.asarray(result.rotation_quaternion, dtype=float)
+            if r.shape != (3, 3):
+                return
+            tilt = float(np.degrees(np.arccos(np.clip(r[2, 2], -1.0, 1.0))))
+            seed_gap = (result.branch_check or {}).get("angle_to_nominal_deg")
+            self._lbl_tilt.setText(
+                f"{tilt:.1f}°"
+                + (f", {seed_gap:.1f}° from the geometry's" if seed_gap else "")
+            )
+            # the in-plane turn the map applies, read off the x axis' image part
+            in_plane = float(np.degrees(np.arctan2(r[1, 0], r[0, 0])))
+            self._lbl_inplane.setText(f"{in_plane:+.1f}°")
+            self._lbl_fitted_scale.setText(f"{result.scale:.3f} FIB px per FM px")
+
+            gain = result.dimage_dz_px_per_slice
+            if gain is not None:
+                px = float(np.hypot(gain[0], gain[1]))
+                self._lbl_depth_gain.setText(
+                    f"{px:.2f} FIB px per slice"
+                    + (f" ({px * um:.2f} µm)" if um else "")
+                )
+
+            t = np.asarray(result.translation, dtype=float).ravel()
+            if t.size >= 2:
+                self._lbl_translation.setText(
+                    f"({t[0]:+.1f}, {t[1]:+.1f}) px"
+                    + (f"  ({t[0] * um:+.1f}, {t[1] * um:+.1f}) µm" if um else "")
+                )
+
+            eulers = ", ".join(f"{a:.3f}" for a in (result.rotation_eulers or []))
+            rows = "\n".join(
+                "  [" + ", ".join(f"{v:9.5f}" for v in (result.scale * r[i, :])) + "]"
+                for i in range(2)
+            )
+            self._txt_raw.setText(
+                "projection (FM x, y, z in FM px -> FIB px)\n"
+                f"{rows}\n"
+                f"eulers (deg, x-convention): {eulers}\n"
+                f"scale: {result.scale:.6f}   fm z scale: {result.fm_z_scale:.4f}\n"
+                f"translation (px): {', '.join(f'{v:.3f}' for v in t.tolist())}"
+            )
+        except Exception:  # a readout must never take the tab down
+            logging.debug("transform readout unavailable", exc_info=True)
 
     def _set_header_tooltips(self, *tips: str) -> None:
         for col, tip in enumerate(tips):
@@ -1363,6 +1477,7 @@ class _ResultsTab(QWidget):
                 self._table.setItem(i, 0, _ro_item(f"FM {i + 1}"))
                 self._table.setItem(i, 1, _ro_item(f"{pt.x:.2f}"))
                 self._table.setItem(i, 2, _ro_item(f"{pt.y:.2f}"))
+        self._set_transform(result, um)
         check = result.branch_check or {}
         if result.seed is not None:
             self._lbl_seed.setText(
@@ -1380,8 +1495,14 @@ class _ResultsTab(QWidget):
             self._lbl_scale,
             self._lbl_seed,
             self._lbl_pairs,
+            self._lbl_tilt,
+            self._lbl_inplane,
+            self._lbl_fitted_scale,
+            self._lbl_depth_gain,
+            self._lbl_translation,
         ):
             lbl.setText("—")
+        self._txt_raw.setText("")
         self._table.setRowCount(0)
 
 
