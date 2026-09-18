@@ -439,6 +439,9 @@ class CorrelationResult:
     fm_z_scale: float = 1.0
     seed: Optional[dict] = None
     branch_check: Optional[dict] = None
+    # The fit verdict's evidence (FIB-956): fibsem.correlation.verdict
+    # FitDiagnostics.to_dict(), computed after the fit when it was seeded.
+    diagnostics: Optional[dict] = None
     # Where the fiducials put FM pixel (0, 0) minus where the stage metadata
     # put it, in microns in the FIB image's frame (x, y). The next lamella's
     # first projection adds it to its own metadata translation (FIB-979).
@@ -484,6 +487,7 @@ class CorrelationResult:
             "updated_at": self.updated_at,
             "fm_z_scale": self.fm_z_scale,
             "seed": self.seed,
+            "diagnostics": self.diagnostics,
             "branch_check": self.branch_check,
             "placement_offset": self.placement_offset,
         }
@@ -531,6 +535,7 @@ class CorrelationResult:
             fm_z_scale=data.get("fm_z_scale", 1.0),
             seed=data.get("seed"),
             branch_check=data.get("branch_check"),
+            diagnostics=data.get("diagnostics"),
             placement_offset=data.get("placement_offset"),
         )
 
