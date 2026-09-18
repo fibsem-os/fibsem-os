@@ -31,20 +31,22 @@ from typing import Any, Callable, Dict, List, Optional, Type, Union
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import (
-    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
     QShortcut,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -76,6 +78,7 @@ from fibsem.ui.tokens import (
     PRIMARY_COLOR,
     SURFACE_COLOR,
 )
+from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE
 
 __all__ = [
     "REVIEW_RENDERERS",
@@ -111,10 +114,9 @@ _ROW_HEIGHT = 30
 # The name column: fixed, so the tasks line up down the list and the eye can
 # scan either column. Petnames are two words and a number; this fits them.
 _ROW_NAME_WIDTH = 132
-_ROW_NAME_STYLE = f"color: {GRAY_TEXT_COLOR}; font-size: 13px; font-weight: 600; background: transparent;"
-_ROW_NAME_QUIET_STYLE = (
-    f"color: {GRAY_TEXT_COLOR}; font-size: 13px; background: transparent;"
-)
+# Not bold, and a point off the old 13: bold at 13 read as a heading rather
+# than a name, which made every row shout. The dot carries the state.
+_ROW_NAME_STYLE = f"color: {GRAY_TEXT_COLOR}; font-size: 12px; background: transparent;"
 _ROW_TASK_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 11px; background: transparent;"
 )
@@ -895,9 +897,9 @@ class _InboxRow(QWidget):
         dim: bool = False,
         quiet: bool = False,
     ) -> None:
-        """``quiet``: a decided row. A filled dot and a bold name are the
-        "act on me" signal; a decided row keeps the colour but hollows the
-        dot and drops the bold, so it reads as done. ``dim``: superseded."""
+        """``quiet``: a decided row. The filled dot is the "act on me" signal;
+        a decided row keeps the colour but hollows the dot, so it reads as
+        done. ``dim``: superseded, smaller and in the muted colour."""
         super().__init__()
         # The list paints the row's background and selection; the widget must
         # not paint the app's default one over it.
@@ -917,17 +919,12 @@ class _InboxRow(QWidget):
         # elided to the column, never clipped mid-glyph; the full name is the
         # tooltip. The font is set directly so the metrics match the style.
         font = QFont(self.font())
-        font.setPixelSize(13 if not dim else 11)
-        font.setBold(not (dim or quiet))
+        font.setPixelSize(12 if not dim else 11)
         self.name = QLabel(
             QFontMetrics(font).elidedText(name, Qt.ElideRight, _ROW_NAME_WIDTH - 6)
         )
         self.name.setFont(font)
-        self.name.setStyleSheet(
-            _ROW_TASK_STYLE
-            if dim
-            else (_ROW_NAME_QUIET_STYLE if quiet else _ROW_NAME_STYLE)
-        )
+        self.name.setStyleSheet(_ROW_TASK_STYLE if dim else _ROW_NAME_STYLE)
         self.name.setFixedWidth(_ROW_NAME_WIDTH)
         self.name.setToolTip(name)
         layout.addWidget(self.name, 0, Qt.AlignVCenter)
@@ -942,6 +939,101 @@ class _InboxRow(QWidget):
         layout.addWidget(self.right)
 
 
+KIND_ALL = "all"
+KIND_GRIDS = "grids"
+KIND_LAMELLAE = "lamellae"
+
+
+class _InboxFilterButton(QToolButton):
+    """The filter menu: which kind of item to list, and whether to list only
+    the proposals something waits on.
+
+    The text field and the Decided chip sit on the filter row because they are
+    used constantly; these two are set once and left, so they live behind an
+    icon. The icon takes the accent while either is on, so a narrowed inbox is
+    never mistaken for the whole one -- the same rule as the lamella list's
+    grid filter.
+    """
+
+    changed = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(QSize(26, 26))
+        self.setStyleSheet(
+            stylesheets.TOOLBUTTON_ICON_STYLESHEET
+            + " QToolButton::menu-indicator { image: none; }"
+        )
+        self.setPopupMode(QToolButton.InstantPopup)
+        self.setFocusPolicy(Qt.NoFocus)
+        self._menu = QMenu(self)
+        self.setMenu(self._menu)
+        # One of three, so they read as radio buttons: a checkable action in a
+        # QMenu draws a tick whether or not its group is exclusive, and a
+        # ticked "Grids and lamellae" looks like something you could untick.
+        # The mark is the action's icon instead, which Qt draws for us.
+        self._kind = KIND_ALL
+        self._kinds: Dict[str, Any] = {}
+        for key, text in (
+            (KIND_ALL, "Grids and lamellae"),
+            (KIND_GRIDS, "Grids only"),
+            (KIND_LAMELLAE, "Lamellae only"),
+        ):
+            action = self._menu.addAction(text)
+            action.triggered.connect(lambda _c=False, k=key: self.set_kind(k))
+            self._kinds[key] = action
+        self._menu.addSeparator()
+        # "Holding a task", not "Waiting": the Waiting group is every pending
+        # proposal, and most of those hold nothing. This is the smaller set
+        # the run is actually stopped on, the one the renderer's line counts.
+        self.held_only = self._menu.addAction("Holding a task")
+        self.held_only.setCheckable(True)
+        self.held_only.setToolTip("A later task is waiting on this decision")
+        self.held_only.triggered.connect(self._on_changed)
+        self._paint()
+
+    @property
+    def kind(self) -> str:
+        return self._kind
+
+    def set_kind(self, key: str) -> None:
+        self._kind = key if key in self._kinds else KIND_ALL
+        self._on_changed()
+
+    @property
+    def narrowing(self) -> bool:
+        return self.kind != KIND_ALL or self.held_only.isChecked()
+
+    def _on_changed(self, _checked: bool = False) -> None:
+        self._paint()
+        self.changed.emit()
+
+    def _paint(self) -> None:
+        for key, action in self._kinds.items():
+            action.setIcon(
+                fibsem_icon(
+                    "mdi:radiobox-marked"
+                    if key == self._kind
+                    else "mdi:radiobox-blank",
+                    color=ACCENT_COLOR if key == self._kind else GRAY_ICON_COLOR,
+                )
+            )
+        on = self.narrowing
+        self.setIcon(
+            fibsem_icon(
+                "mdi:filter-variant", color=ACCENT_COLOR if on else GRAY_ICON_COLOR
+            )
+        )
+        words = []
+        if self.kind != KIND_ALL:
+            words.append(self._kinds[self.kind].text().lower())
+        if self.held_only.isChecked():
+            words.append("what holds a task")
+        self.setToolTip(
+            f"Showing {', '.join(words)}" if words else "Filter by item or hold"
+        )
+
+
 def _group_header(text: str) -> QListWidgetItem:
     header = QListWidgetItem(text)
     header.setFlags(Qt.NoItemFlags)
@@ -950,9 +1042,8 @@ def _group_header(text: str) -> QListWidgetItem:
 
 
 class _GroupHeaderRow(QWidget):
-    """A group header, with room on its right for an action (the to-check
-    group's "Mark all as checked") and, on the first header in the list, the
-    Show decided toggle, so the list needs no row of its own above it."""
+    """A group header, with room on its right for an action: the to-check
+    group's "Mark all as checked"."""
 
     def __init__(self, text: str, action: str = "", slot=None) -> None:
         super().__init__()
@@ -981,11 +1072,6 @@ class _GroupHeaderRow(QWidget):
             )
             self.button.clicked.connect(slot)
             self.layout_.addWidget(self.button)
-
-    def adopt(self, widget: QWidget) -> None:
-        """Put a persistent widget (the Show decided toggle) at the right."""
-        self.layout_.addWidget(widget)
-        widget.show()
 
 
 # ---------------------------------------------------------------------------
@@ -1024,24 +1110,45 @@ class ReviewTabWidget(QWidget):
             "QListWidget::item:selected { border: none; }"
         )
         self.list.currentRowChanged.connect(self._on_row_changed)
-        # One persistent toggle, re-homed into the first group header on
-        # every refresh (and taken back before the list is cleared, or the
-        # clear would delete it with the header's widget).
-        self.show_decided = QCheckBox("Show decided")
-        self.show_decided.setStyleSheet(
-            f"QCheckBox {{ color: {GRAY_SECONDARY_COLOR}; font-size: 11px; "
-            "background: transparent; spacing: 4px; }"
+        # The filter row: a field for the common case, a chip for the one
+        # group that grows without bound, and a menu for what is set once.
+        # It sits above the list rather than on the first group header, which
+        # is where the Decided toggle used to be re-homed every refresh.
+        self.filter_text = QLineEdit()
+        self.filter_text.setPlaceholderText("Filter by name or task")
+        self.filter_text.setClearButtonEnabled(True)
+        self.filter_text.setMinimumHeight(26)
+        # Qt has no placeholder-only selector, so this sizes the typed text
+        # with it -- which is right: the field is chrome, not content.
+        self.filter_text.setStyleSheet("QLineEdit { font-size: 11px; }")
+        self.filter_text.setToolTip(
+            "Every word you type must appear in the item's name or the task's."
         )
+        self.filter_text.textChanged.connect(lambda _t: self.refresh())
+        self.show_decided = QPushButton("Decided")
+        self.show_decided.setCheckable(True)
+        self.show_decided.setCursor(Qt.PointingHandCursor)
+        self.show_decided.setStyleSheet(MODALITY_CHIP_STYLE)
         self.show_decided.setFocusPolicy(Qt.NoFocus)
         self.show_decided.setToolTip(
             "List proposals that have been confirmed or rejected, including "
             "ones a re-run superseded, read-only."
         )
         self.show_decided.toggled.connect(lambda _on: self.refresh())
+        self.filters = _InboxFilterButton()
+        self.filters.changed.connect(self.refresh)
+        filter_row = QWidget()
+        row_layout = QHBoxLayout(filter_row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(6)
+        row_layout.addWidget(self.filter_text, 1)
+        row_layout.addWidget(self.show_decided)
+        row_layout.addWidget(self.filters)
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
+        left_layout.addWidget(filter_row)
         left_layout.addWidget(self.list, 1)
 
         self.empty = QLabel("Nothing is waiting for a decision.")
@@ -1060,12 +1167,16 @@ class ReviewTabWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
 
+        # Qt dispatches a shortcut before the focused widget sees the key, so
+        # these two would fire while someone types in the filter field: every
+        # term with an "r" in it would reject the current proposal, and Enter
+        # would confirm it. The field's keys are the field's.
         confirm = QShortcut(QKeySequence(Qt.Key_Return), self)
         confirm.setContext(Qt.WidgetWithChildrenShortcut)
-        confirm.activated.connect(self.confirm_current)
+        confirm.activated.connect(self._on_confirm_shortcut)
         reject = QShortcut(QKeySequence("R"), self)
         reject.setContext(Qt.WidgetWithChildrenShortcut)
-        reject.activated.connect(self.reject_current)
+        reject.activated.connect(self._on_reject_shortcut)
 
     # -- wiring --------------------------------------------------------------
 
@@ -1094,6 +1205,48 @@ class ReviewTabWidget(QWidget):
     def check_count(self) -> int:
         return getattr(self, "_to_check", 0)
 
+    # -- filtering -----------------------------------------------------------
+
+    def _passes(self, item: Any, task_name: str, proposal: Proposal) -> bool:
+        """Whether one proposal's row is listed under the current filter.
+
+        The text is matched against the item's name and the task's together,
+        as one string: every word you type has to appear somewhere in it, so
+        "rough" finds every rough result, "whale rough" finds one lamella's.
+        Plain case-insensitive substrings -- no globs, no fuzzy matching, so a
+        near miss is always explainable by reading the row.
+
+        Held asks what the run is waiting on you for, so it wants both halves:
+        a later task requires this one, *and* this proposal is still pending. A
+        result the producer already applied holds nothing -- the tasks after it
+        have run -- so listing it under "held only" would be a lie the row
+        itself cannot correct.
+        """
+        kind = self.filters.kind
+        if kind != KIND_ALL:
+            grid = isinstance(item, GridRecord)
+            if grid != (kind == KIND_GRIDS):
+                return False
+        if self.filters.held_only.isChecked():
+            if not proposal.pending:
+                return False
+            if not waiting_on(self._experiment, task_name, item):
+                return False
+        terms = self.filter_text.text().lower().split()
+        if terms:
+            haystack = f"{item.name} {task_name}".lower()
+            if not all(term in haystack for term in terms):
+                return False
+        return True
+
+    def _shown(self, proposals: List[tuple]) -> List[tuple]:
+        return [p for p in proposals if self._passes(p[0], p[1], p[2])]
+
+    def _count(self, shown: int, total: int) -> str:
+        """ "2 of 7" while filtering, so a short list is never read as a short
+        queue."""
+        return f"{shown} of {total}" if shown != total else str(total)
+
     def refresh(self) -> None:
         """Re-derive the inbox from the experiment. Keeps the selection on the
         same (item, task) while it is listed; when it has left the list (just
@@ -1103,15 +1256,18 @@ class ReviewTabWidget(QWidget):
         previous_index = self._current_index()
         self._entries = []
         self.list.blockSignals(True)
-        self.show_decided.setParent(self)  # before clear(): keep the toggle
-        self.show_decided.hide()
         self.list.clear()
         self._headers: List[_GroupHeaderRow] = []
+        hidden = 0
         if self._experiment is not None:
             experiment = self._experiment
-            waiting = experiment.pending_proposals()
+            all_waiting = experiment.pending_proposals()
+            waiting = self._shown(all_waiting)
+            hidden += len(all_waiting) - len(waiting)
             if waiting:
-                self._add_header(f"Waiting · {len(waiting)}")
+                self._add_header(
+                    f"Waiting · {self._count(len(waiting), len(all_waiting))}"
+                )
             for item, task_name, proposal in waiting:
                 held = waiting_on(experiment, task_name, item)
                 self._add_row(
@@ -1123,11 +1279,16 @@ class ReviewTabWidget(QWidget):
                     tooltip="Waiting for your decision"
                     + (f" · held: {', '.join(held)}" if held else ""),
                 )
-            pending = len(self._entries)
-            to_check = experiment.proposals_to_check()
+            # What is pending is a fact about the experiment, not about what
+            # the filter is showing: the tab badge and the stall check read
+            # these, so a narrowed list must not shrink them.
+            pending = len(all_waiting)
+            all_to_check = experiment.proposals_to_check()
+            to_check = self._shown(all_to_check)
+            hidden += len(all_to_check) - len(to_check)
             if to_check:
                 self._add_header(
-                    f"To check · {len(to_check)}",
+                    f"To check · {self._count(len(to_check), len(all_to_check))}",
                     "Mark all as checked",
                     self.acknowledge_all,
                 )
@@ -1146,9 +1307,13 @@ class ReviewTabWidget(QWidget):
                     tooltip=describe_decision(proposal, experiment),
                 )
             if self.show_decided.isChecked():
-                decided = decided_proposals(experiment)
+                all_decided = decided_proposals(experiment)
+                decided = [p for p in all_decided if self._passes(p[0], p[1], p[2])]
+                hidden += len(all_decided) - len(decided)
                 if decided:
-                    self._add_header(f"Decided · {len(decided)}")
+                    self._add_header(
+                        f"Decided · {self._count(len(decided), len(all_decided))}"
+                    )
                 for item, task_name, proposal, superseded in decided:
                     d = proposal.current
                     rejected = d.outcome is DecisionOutcome.Rejected
@@ -1176,15 +1341,16 @@ class ReviewTabWidget(QWidget):
                     )
         else:
             pending = 0
-            to_check = []
+            all_to_check = []
         if not self._headers:
-            self._add_header("Nothing waiting")
-        self._headers[0].adopt(self.show_decided)
+            self._add_header(
+                f"Nothing matches · {hidden} hidden" if hidden else "Nothing waiting"
+            )
         self.list.blockSignals(False)
         self._pending = pending
-        self._to_check = len(to_check)
+        self._to_check = len(all_to_check) if self._experiment is not None else 0
         self.pending_changed.emit(pending)
-        self.counts_changed.emit(pending, len(to_check))
+        self.counts_changed.emit(pending, self._to_check)
 
         select = None
         if current is not None:
@@ -1198,6 +1364,11 @@ class ReviewTabWidget(QWidget):
         if self._entries:
             self._select_entry(select)
         else:
+            self.empty.setText(
+                "No proposals match the filter."
+                if hidden
+                else "Nothing is waiting for a decision."
+            )
             self.stack.setCurrentWidget(self.empty)
 
     def _add_header(self, text: str, action: str = "", slot=None) -> _GroupHeaderRow:
@@ -1290,6 +1461,18 @@ class ReviewTabWidget(QWidget):
         return renderer
 
     # -- the two verbs -------------------------------------------------------
+
+    def _typing(self) -> bool:
+        """Whether the filter field has the keyboard."""
+        return self.filter_text.hasFocus()
+
+    def _on_confirm_shortcut(self) -> None:
+        if not self._typing():
+            self.confirm_current()
+
+    def _on_reject_shortcut(self) -> None:
+        if not self._typing():
+            self.reject_current()
 
     def confirm_current(self) -> None:
         """Confirm a waiting proposal with the values as the reviewer left
