@@ -167,8 +167,7 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             return
 
         history = (
-            f"\n\n{name} has already completed "
-            f"{', '.join(lamella.completed_tasks)}."
+            f"\n\n{name} has already completed {', '.join(lamella.completed_tasks)}."
             if lamella.completed_tasks
             else ""
         )
@@ -195,6 +194,11 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             lamella.fluorescence_pose.stage_position = poses.fluorescence.stage_position
 
         experiment.save()
+        # Writing a pose emits nothing -- `poses` is a plain dict and the evented list
+        # only sees slot reassignment -- so the other canvas and the lamella cards
+        # would go on showing the old place. This is the one notification there is;
+        # the window re-marks both overview tabs from it.
+        experiment.positions.events.changed.emit()
         self.refresh_positions()
         self.autolamella_ui.update_ui()
         notification_service.show_toast(f"Moved {name}.", "info")

@@ -2613,9 +2613,31 @@ class FibsemMicroscope(ABC):
             if desired is not None:
                 # The bracketing order: every re-pose happens at the beams, where
                 # the rotation is about the sample rather than a 48.8 mm arm.
+                #
+                # Driven to the *converted* position, not to the orientation by
+                # name. `move_to_orientation` rewrites r and t where the stage
+                # stands; a half turn there is compucentric about a centre that is
+                # not the sample, so the point that was under the beam is swung
+                # away and the traverse carries the wrong piece of sample out. The
+                # transform is what every pose derivation and overview marker uses,
+                # so arriving where it says is what puts the stage on the marked
+                # point. Falls back to the bare re-pose only from a pose the
+                # classifier cannot name, where there is no point to keep.
+                try:
+                    at_the_beams = self.get_target_position(
+                        stage_position, desired, target_device="FIBSEM"
+                    )
+                except ValueError as e:
+                    logging.warning(
+                        f"Re-posing to {desired} without keeping the sample point: {e}"
+                    )
+                    at_the_beams = None
                 if source != "FIBSEM":
                     self.move_stage_relative(self._device_translation(source, "FIBSEM"))
-                self.move_to_orientation(desired)
+                if at_the_beams is not None:
+                    self.safe_absolute_stage_movement(at_the_beams)
+                else:
+                    self.move_to_orientation(desired)
                 if device != "FIBSEM":
                     self.move_stage_relative(self._device_translation("FIBSEM", device))
             else:
