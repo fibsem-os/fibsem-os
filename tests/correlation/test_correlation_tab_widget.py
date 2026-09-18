@@ -24,6 +24,7 @@ from fibsem.correlation.structures import (
     PointXYZ,
 )
 from fibsem.structures import Point
+from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 
 
 @pytest.fixture(autouse=True)
@@ -350,7 +351,7 @@ def test_apply_post_blocked_when_already_corrected(qapp):
     assert result.refractive_index_correction_factor == pytest.approx(1.4)
     assert "already applied" in w._ri_tab._lbl_warning.text()
     # guard message renders in the error style, not the leftover green
-    assert "#e07b39" in w._ri_tab._lbl_warning.styleSheet()
+    assert ERROR_COLOR in w._ri_tab._lbl_warning.styleSheet()
 
 
 def test_apply_post_without_input_data_shows_warning(qapp):
@@ -1017,7 +1018,9 @@ def test_rms_never_certifies_a_good_fit():
     from fibsem.ui.correlation.widgets.correlation_tab_widget import _rms_concern
 
     color, reason = _rms_concern(20.0, 8, 1.1)  # about as clean as it gets
-    assert color == "#9aa0a6" and reason is None  # neutral, no verdict either way
+    assert (
+        color == TEXT_MUTED_COLOR and reason is None
+    )  # neutral, no verdict either way
 
 
 def test_rms_flags_detectable_problems():
@@ -1025,15 +1028,15 @@ def test_rms_flags_detectable_problems():
 
     # A minimum-pair fit: residual is small by construction, not by agreement.
     color, reason = _rms_concern(20.0, 4, 1.1)
-    assert color == "#ffb300" and "no redundancy" in reason
+    assert color == WARN_COLOR and "no redundancy" in reason
 
     # One correspondence dominating the error — the case an average hides.
     color, reason = _rms_concern(20.0, 8, 3.4)
-    assert color == "#ffb300" and "3.4× the RMS" in reason
+    assert color == WARN_COLOR and "3.4× the RMS" in reason
 
     # Far enough out to be breakage rather than a judgement call.
     color, reason = _rms_concern(1500.0, 8, 1.1)
-    assert color == "#e53935" and "not converged" in reason
+    assert color == ERROR_COLOR and "not converged" in reason
 
 
 def test_rms_relative_checks_survive_a_missing_pixel_size():
@@ -1042,10 +1045,10 @@ def test_rms_relative_checks_survive_a_missing_pixel_size():
     from fibsem.ui.correlation.widgets.correlation_tab_widget import _rms_concern
 
     color, reason = _rms_concern(None, 4, 3.4)
-    assert color == "#ffb300"
+    assert color == WARN_COLOR
     assert "no redundancy" in reason and "3.4× the RMS" in reason
 
-    assert _rms_concern(None, 8, 1.1) == ("#9aa0a6", None)
+    assert _rms_concern(None, 8, 1.1) == (TEXT_MUTED_COLOR, None)
 
 
 def test_rms_badge_reports_physical_distance(qapp):
@@ -1057,7 +1060,9 @@ def test_rms_badge_reports_physical_distance(qapp):
 
     # 1.82 px x 52.1 nm/px = 95 nm
     assert "95 nm" in w._lbl_result.text()
-    assert "#9aa0a6" in w._lbl_result.text()  # nothing wrong detected → no verdict
+    assert (
+        TEXT_MUTED_COLOR in w._lbl_result.text()
+    )  # nothing wrong detected → no verdict
 
 
 def test_rms_badge_falls_back_to_px_without_pixel_size(qapp):
@@ -1067,7 +1072,7 @@ def test_rms_badge_falls_back_to_px_without_pixel_size(qapp):
     w._on_result_ready(_result_fit(rms=1.82))
 
     assert "1.82 px" in w._lbl_result.text()
-    assert "#9aa0a6" in w._lbl_result.text()
+    assert TEXT_MUTED_COLOR in w._lbl_result.text()
     assert "pixel size unknown" in w._lbl_result.toolTip().lower()
 
 
