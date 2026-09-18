@@ -136,7 +136,24 @@ include = ["fibsem*"]
 namespaces = true
 
 [tool.setuptools.package-data]
-"*" = ["*.yaml"]
+# No `"*"` glob here, deliberately. A glob is matched against whatever happens to
+# be on the build machine's disk, not against what is in git, so `"*" = ["*.yaml"]`
+# swept the developer's own runtime files into the wheel -- `user-preferences.yaml`,
+# `saved-positions.yaml`, and the rest of the paths declared at the top of
+# fibsem/config.py. Shipping them puts them in RECORD, which means pip replaces
+# every user's copy with the build machine's on upgrade and removes it on
+# uninstall (FIB-511). Measured on a built wheel: both of those files shipped.
+#
+# Nothing needs to replace it. setuptools_scm's file finder (see the note on
+# packages.find above) already offers every git-tracked file to the build and
+# include-package-data defaults to true, so the data files in the wheel are
+# exactly the tracked ones -- which is what the ignore rules in .gitignore are
+# already there to decide. tests/test_packaging.py holds that line.
+#
+# Two tracked files this does NOT protect: microscope-configuration.yaml and
+# tescan_manipulator.yaml are shipped *and* written at runtime, so they are still
+# replaced on every upgrade. Separating those needs the shipped/user split in
+# FIB-512; it cannot be done from here.
 "fibsem.server" = ["dashboard.html"]
 
 [tool.pytest.ini_options]
