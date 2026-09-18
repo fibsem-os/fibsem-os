@@ -39,7 +39,7 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
         self,
         settings: OverviewAcquisitionSettings,
         view_description: Optional[str] = None,
-        offset: Optional[Tuple[float, float]] = None,
+        offset: Optional[Tuple[float, float, float]] = None,
         unreachable: Optional[Sequence[Tuple[int, int]]] = None,
         parent: Optional[QWidget] = None,
     ):
@@ -50,9 +50,11 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
             view_description: the beam and the stage orientation, spelled out. Passed in
                 rather than derived: the tab knows the pose it has cached, and reading it
                 here would be a hardware call on a dialog opening.
-            offset: how far the grid's centre sits from the stage, in metres (dx, dy).
-                None means it is centred on the stage, which is also what the runner
-                falls back to.
+            offset: how far the grid's centre sits from the stage, in metres
+                (dx, dy, dz). None means it is centred on the stage, which is also what
+                the runner falls back to. z is in there because the run moves in it: on
+                a pre-tilted stage the sample surface climbs as the grid travels along
+                it, and nothing else in this dialog would say so.
             unreachable: (row, col) for each tile outside the stage's travel, which the
                 base class turns into a refusal. Worked out by the tab, which holds the
                 projection the check needs -- see `FibsemOverviewWidget._unreachable`.
@@ -66,35 +68,50 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
     # ── content ──────────────────────────────────────────────────────────
 
     def _tile_counts(self) -> Tuple[int, int]:
-        return (self.settings.n_enabled_tiles,
-                self.settings.nrows * self.settings.ncols)
+        return (
+            self.settings.n_enabled_tiles,
+            self.settings.nrows * self.settings.ncols,
+        )
 
     def _meta_line(self) -> str:
         s = self.settings
         sym = constants.MICRON_SYMBOL
-        return " · ".join([
-            f"{s.nrows} × {s.ncols} grid",
-            f"{s.overlap:.0%} overlap",
-            f"{s.total_fov_x * constants.SI_TO_MICRO:.0f} × "
-            f"{s.total_fov_y * constants.SI_TO_MICRO:.0f} {sym}",
-            f"{s.tile_order.value} order",
-        ])
+        return " · ".join(
+            [
+                f"{s.nrows} × {s.ncols} grid",
+                f"{s.overlap:.0%} overlap",
+                f"{s.total_fov_x * constants.SI_TO_MICRO:.0f} × "
+                f"{s.total_fov_y * constants.SI_TO_MICRO:.0f} {sym}",
+                f"{s.tile_order.value} order",
+            ]
+        )
 
     def _centre_text(self) -> str:
         """Where the grid sits, in the terms it was placed in.
 
         Components rather than a distance: the grid is dragged in x and y and checked
         against the canvas in x and y, and "520 µm away" does not say which way.
+
+        z comes after the two that were dragged, and in its own clause, because it is
+        not something anybody dragged: on a pre-tilted stage the sample surface climbs
+        as the grid travels along it, and the run drives the stage through that climb.
+        Measured at 0.7 µm of z per micron of y at a 35° pre-tilt, so a half-millimetre
+        drag carries most of that again in z -- a focus change nothing else here would
+        mention. Zero on a compustage, which has no pre-tilt (FIB-1007).
         """
         if self.offset is None:
             return "the stage position"
-        dx, dy = (v * constants.SI_TO_MICRO for v in self.offset)
+        dx, dy, dz = (v * constants.SI_TO_MICRO for v in self.offset)
         sym = constants.MICRON_SYMBOL
-        # Under a micron in both is the grid sitting on the stage as far as anything
-        # here is concerned, and floating-point dust should not read as a dragged grid.
-        if abs(dx) < 1.0 and abs(dy) < 1.0:
+        # Under a micron in all three is the grid sitting on the stage as far as
+        # anything here is concerned, and floating-point dust should not read as a
+        # dragged grid.
+        if abs(dx) < 1.0 and abs(dy) < 1.0 and abs(dz) < 1.0:
             return "the stage position"
-        return f"{dx:+.0f}, {dy:+.0f} {sym} from the stage position"
+        text = f"{dx:+.0f}, {dy:+.0f} {sym} from the stage position"
+        if abs(dz) >= 1.0:
+            text += f", and {dz:+.0f} {sym} in z"
+        return text
 
     def _rows(self) -> List[Tuple[str, str]]:
         """Label/value pairs for the detail block."""
@@ -107,30 +124,34 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
         if self.view_description:
             detail.append(("Acquired in", self.view_description))
         detail.append(("Centred on", self._centre_text()))
-        detail.append((
-            "Tile",
-            f"{width} × {height} px · {image.hfw * constants.SI_TO_MICRO:.0f} {sym} wide",
-        ))
-        detail.append((
-            "Dwell time",
-            f"{image.dwell_time * constants.SI_TO_MICRO:.2f} "
-            f"{constants.MICROSECOND_SYMBOL}",
-        ))
+        detail.append(
+            (
+                "Tile",
+                f"{width} × {height} px · {image.hfw * constants.SI_TO_MICRO:.0f} {sym} wide",
+            )
+        )
+        detail.append(
+            (
+                "Dwell time",
+                f"{image.dwell_time * constants.SI_TO_MICRO:.2f} "
+                f"{constants.MICROSECOND_SYMBOL}",
+            )
+        )
         detail.append(("Auto contrast", "on" if image.autocontrast else "off"))
 
         # What it will cost on disk. Tiles are written one file each and the stitch is
         # written beside them, all uncompressed -- measured at 1.00x the array plus a
         # 2 kB header -- so the array sizes are the estimate rather than a floor for it.
-        mosaic_w, mosaic_h = mosaic_pixels(
-            s.nrows, s.ncols, s.overlap, width, height
-        )
+        mosaic_w, mosaic_h = mosaic_pixels(s.nrows, s.ncols, s.overlap, width, height)
         tile_bytes = width * height * BEAM_BYTES_PER_PIXEL
-        detail.append((
-            "Disk",
-            f"~{format_bytes(s.n_enabled_tiles * tile_bytes + mosaic_w * mosaic_h * BEAM_BYTES_PER_PIXEL)}"
-            f"   ({format_bytes(tile_bytes)} per tile"
-            f" · {mosaic_w} × {mosaic_h} px stitched)",
-        ))
+        detail.append(
+            (
+                "Disk",
+                f"~{format_bytes(s.n_enabled_tiles * tile_bytes + mosaic_w * mosaic_h * BEAM_BYTES_PER_PIXEL)}"
+                f"   ({format_bytes(tile_bytes)} per tile"
+                f" · {mosaic_w} × {mosaic_h} px stitched)",
+            )
+        )
 
         # Where it lands, which is the other thing that survives a tab switch unnoticed:
         # the filename names the tile sub-folder, so two runs under one name interleave.
@@ -141,9 +162,11 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
         # the stage entirely. A real run is several times longer -- see
         # `OverviewAcquisitionSettings.scan_time`, which says why that term is not
         # guessed at here.
-        detail.append((
-            "Scan time",
-            f"{format_duration(s.scan_time)}"
-            f"   ({format_duration(image.scan_time)} per tile, before stage movement)",
-        ))
+        detail.append(
+            (
+                "Scan time",
+                f"{format_duration(s.scan_time)}"
+                f"   ({format_duration(image.scan_time)} per tile, before stage movement)",
+            )
+        )
         return detail
