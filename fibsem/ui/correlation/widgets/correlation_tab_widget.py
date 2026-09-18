@@ -4439,6 +4439,36 @@ def _experiment_and_lamella_dirs(
     return None, None
 
 
+def _images_beside_a_run(lamella_dir: str) -> Dict[str, Optional[str]]:
+    """The FIB and FM images for a run folder, from the lamella folder above it.
+
+    A lamella holds a reference image per task and stage, so the plain
+    discovery order would take whichever sorts first. Correlation fiducials are
+    picked on a post-burn reference, so prefer the spot-burn task's final one.
+
+    This is a guess: a saved run does not record the images it was picked on
+    (FIB-1019), and picking the wrong reference shifts every FIB coordinate.
+    The caller logs what it chose.
+    """
+    import glob
+
+    ib = sorted(glob.glob(os.path.join(lamella_dir, "*_ib.tif")))
+    burn = [
+        p
+        for p in ib
+        if "spot burn" in os.path.basename(p).lower()
+        and "final" in os.path.basename(p).lower()
+    ]
+    fm = sorted(
+        glob.glob(os.path.join(lamella_dir, "*.ome.tif"))
+        + glob.glob(os.path.join(lamella_dir, "*.ome.tiff"))
+    )
+    return {
+        "fib": (burn or ib or [None])[-1],
+        "fm": (fm or [None])[0],
+    }
+
+
 def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     """Quickstart-load a correlation project directory into ``widget``.
 
@@ -4448,6 +4478,24 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     """
     found = _discover_correlation_files(directory)
     logging.info("Quickstart loading correlation project: %s", directory)
+
+    # A run folder holds correlation.json; the images live in the lamella
+    # folder above it. The launcher already walks up there for the spot-burn
+    # pattern and the transform priors, so do the same for the images rather
+    # than opening with points and empty canvases (FIB-1018).
+    if not (found["fib"] and found["fm"]):
+        _, lamella_dir = _experiment_and_lamella_dirs(directory)
+        if lamella_dir and os.path.abspath(lamella_dir) != os.path.abspath(directory):
+            above = _images_beside_a_run(lamella_dir)
+            for key in ("fib", "fm"):
+                if not found[key] and above[key]:
+                    found[key] = above[key]
+                    logging.info(
+                        "  %s image taken from the lamella folder: %s",
+                        key.upper(),
+                        os.path.basename(above[key]),
+                    )
+
     widget.set_project_dir(directory)
 
     if found["fib"]:
