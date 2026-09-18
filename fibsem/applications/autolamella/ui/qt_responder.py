@@ -475,6 +475,29 @@ class QtResponder(QObject):
             request, future, request.message, request.positive, request.negative
         )
 
+    def question_host(self) -> Optional[object]:
+        """The widget the question now up is asked on, when it has a tab of its
+        own rather than the shared prompt bar.
+
+        The attention button uses this to go back to a question the operator
+        navigated away from: a detection is corrected on its own tab, a mill is
+        run on the milling tab, and neither is on the Microscope tab the button
+        otherwise goes to. Derived from the pending request rather than
+        remembered, so it cannot drift out of step with what was actually
+        raised; ``None`` means the prompt is where the button already goes.
+        """
+        if self._pending_question is None:
+            return None
+        request = self._pending_question[0]
+        if isinstance(request, ConfirmDetection):
+            return self._ui.det_widget
+        if isinstance(request, RunMillingTask):
+            try:
+                return self._milling_widget()
+            except RuntimeError:
+                return None
+        return None
+
     def _confirm_detection(self, request: ConfirmDetection, future: "Future") -> None:
         """Show detected features for correction; the click answers with the set."""
         det_widget = self._ui.det_widget
