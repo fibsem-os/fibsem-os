@@ -20,13 +20,15 @@ that owns both is simpler than a controller reaching into another widget's layou
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from PyQt5.QtWidgets import QWidget
 
+import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.poses import (
-    FLUORESCENCE_ORIENTATION,
-    build_lamella_poses,
+    FLUORESCENCE_POSE,
+    follow_fluorescence_pose,
 )
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
@@ -79,18 +81,16 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
         return pose.stage_position
 
     def _add_lamella_kwargs(self) -> Dict[str, Any]:
-        """The orientation is *declared* rather than left to be derived.
+        """What this tab knows that the position does not: where the objective is.
 
-        On a compustage deriving it would give the same answer; on an offset mount it
-        would not, and the wrong answer there is a lamella with a milling pose 48 mm off
-        the beam axis that nothing rejects until something tries to mill it (FIB-93).
-        Declaring it turns that into a refusal at the point of marking, where there is a
-        user to tell.
+        Which side the position is on is *not* declared -- `build_lamella_poses` reads
+        it off the geometry, and a point this canvas can show is one the objective sees
+        the sample from, so it comes out as the fluorescence pose with the milling pose
+        derived. Except where both instruments share the pose (SEM on a compustage that
+        images from it), where it is the milling pose and the fluorescence pose is a
+        copy or a flip of it -- the same lamella either way.
         """
-        return {
-            "objective_position": self._objective_position(),
-            "marked_at": FLUORESCENCE_ORIENTATION,
-        }
+        return {"objective_position": self._objective_position()}
 
     def _objective_position(self) -> Optional[float]:
         """Where the objective is right now, for a pose marked on the overview.
@@ -126,14 +126,11 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
     def _on_move_requested(self, name: str, position) -> None:
         """A user asked to move a marked lamella to a point on the overview.
 
-        Confirmed first, because moving one pose moves both: the milling pose is derived
-        from this one, so a lamella dragged across the fluorescence view also stops being
-        where the beam was going to mill it. That is usually the point -- the two describe
-        one piece of sample -- but it is not visible from this canvas, which shows only
-        the fluorescence side, so it gets said rather than assumed.
-
-        Not shared with the beam tab, which writes the milling pose directly and syncs
-        this one after it. See `overview_tab_base`.
+        Moves the fluorescence pose. What happens to the milling pose is the Link
+        preference's call: derived from the new fluorescence pose, or left where it was
+        and marked as possibly stale. Confirmed first either way, because a lamella
+        dragged across the fluorescence view may also stop being where the beam was
+        going to mill it, and that is not visible from this canvas.
         """
         experiment = self.experiment
         if experiment is None:
@@ -148,50 +145,44 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             )
             return
 
-        try:
-            poses = build_lamella_poses(
-                microscope=self.microscope,
-                position=position,
-                objective_position=self._objective_position(),
-                # Only reaches the result in one case, and it is worth it for that one:
-                # a lamella with no fluorescence pose yet gets a whole new one below, and
-                # it should be built on what this lamella recorded rather than on
-                # whatever the microscope happens to be set to now. Everywhere else only
-                # the stage positions are read, and those come from `position`.
-                state=lamella.milling_pose,
-                marked_at=FLUORESCENCE_ORIENTATION,
-            )
-        except Exception as e:
-            logger.error(f"Could not move {name} from the FM overview: {e}")
-            notification_service.show_toast(str(e), "error")
-            return
-
+        link = fibsem_cfg.load_user_preferences().poses.link_milling_position
         history = (
             f"\n\n{name} has already completed {', '.join(lamella.completed_tasks)}."
             if lamella.completed_tasks
             else ""
         )
+        consequence = (
+            "\n\nThe milling pose is derived from it and moves with it."
+            if link
+            else "\n\nThe milling pose is left where it is (Link milling position is off)."
+        )
         if not message_box_ui(
             title=f"Move {name}?",
-            text=(
-                f"Move {name} to {poses.fluorescence.stage_position.pretty_string}?"
-                f"\n\nThis moves the milling pose with it, to "
-                f"{poses.milling.stage_position.pretty_string}."
-                f"{history}"
-            ),
+            text=f"Move {name} to {position.pretty_string}?{consequence}{history}",
             parent=self,
         ):
             return
 
-        # Only the stage positions are replaced, so anything else the poses carry --
+        # Only the stage position is replaced, so anything else the pose carries --
         # notably the objective position on a lamella that was focused by hand -- is
-        # kept. `stage_position` is the milling pose's, via the property.
-        lamella.stage_position = poses.milling.stage_position
-        lamella.update_milling_angle(self.microscope)
+        # kept. A lamella with no fluorescence pose yet gets one built on what it
+        # recorded rather than on whatever the microscope happens to be set to now.
         if lamella.fluorescence_pose is None:
-            lamella.fluorescence_pose = poses.fluorescence
+            pose = deepcopy(lamella.milling_pose)
+            pose.stage_position = deepcopy(position)
+            pose.objective_position = self._objective_position()
+            lamella.set_pose(FLUORESCENCE_POSE, pose)
         else:
-            lamella.fluorescence_pose.stage_position = poses.fluorescence.stage_position
+            lamella.set_pose_position(FLUORESCENCE_POSE, deepcopy(position))
+
+        if follow_fluorescence_pose(self.microscope, lamella, link=link):
+            lamella.update_milling_angle(self.microscope)
+        elif link:
+            notification_service.show_toast(
+                f"Moved {name}, but its milling pose could not be derived from here; "
+                f"it is left where it was.",
+                "warning",
+            )
 
         experiment.save()
         # Writing a pose emits nothing -- `poses` is a plain dict and the evented list

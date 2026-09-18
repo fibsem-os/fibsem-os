@@ -182,7 +182,8 @@ def test_the_fm_object_reads_the_device_declaration():
     compustage = _microscope(ARCTIS_CONFIG)
 
     assert offset.fm.acquisition_orientations == ["FIB"]
-    assert compustage.fm.acquisition_orientations == ["FM"]
+    # The Arctis images flipped, and at the SEM pose too (FIB-831).
+    assert compustage.fm.acquisition_orientations == ["FM", "SEM"]
 
 
 def test_neither_axis_answers_on_both_mountings():
@@ -234,17 +235,17 @@ def test_the_term_that_fails_names_the_remedy():
 
     Today they collapse into one `False`, so a refusal cannot say which. Both rows
     below are live states an operator reaches by doing something ordinary: the
-    compustage one by looking at the sample with a beam, the offset one by not having
-    travelled yet.
+    compustage one by milling (the Arctis images flipped or at SEM, not at the milling
+    pose), the offset one by not having travelled yet.
     """
     compustage = _microscope(ARCTIS_CONFIG)
-    compustage.move_to_orientation("SEM")
+    compustage.move_to_orientation("MILLING")
 
     offset = _at_fib(_microscope())
 
     # Right place, wrong pose: flip it over.
     assert compustage.is_at_device("FM") is True
-    assert compustage.get_stage_orientation() == "SEM"
+    assert compustage.get_stage_orientation() == "MILLING"
 
     # Right pose, wrong place: drive it out.
     assert offset.is_at_device("FM") is False
@@ -267,14 +268,19 @@ def test_the_acquisition_orientations_survive_a_round_trip():
 def test_a_configuration_that_says_nothing_can_still_see_the_sample():
     """The default has to be a working compustage, not an empty list.
 
-    Neither shipped compustage configuration declares a `devices:` block, so if the
-    default said nothing about the pose the conjunction would be false at the one
-    place an Arctis takes fluorescence images.
+    A compustage configuration that declares no `devices:` block -- every one shipped
+    before the Arctis started declaring SEM (FIB-831) -- must still get the FM pose
+    from the default, or the conjunction would be false at the one place it takes
+    fluorescence images.
     """
-    microscope = _microscope(ARCTIS_CONFIG)
+    from fibsem.structures import StageSystemSettings
 
-    assert "devices" not in utils.load_yaml(ARCTIS_CONFIG)["stage"]
-    assert microscope.system.stage.devices["FM"].acquisition_orientations == ["FM"]
+    stage = utils.load_yaml(ARCTIS_CONFIG)["stage"]
+    stage.pop("devices", None)
+
+    settings = StageSystemSettings.from_dict(stage)
+
+    assert settings.devices["FM"].acquisition_orientations == ["FM"]
 
 
 # ── the question nothing could ask ───────────────────────────────────

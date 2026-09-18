@@ -78,8 +78,11 @@ import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
+    FLUORESCENCE_POSE,
+    MILLING_POSE,
     build_lamella_poses,
-    sync_fluorescence_pose,
+    follow_fluorescence_pose,
+    follow_milling_pose,
 )
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -88,6 +91,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowOptions,
     Experiment,
     Lamella,
+    PoseProvenance,
 )
 from fibsem.applications.autolamella.ui.autolamella_create_experiment_widget import (
     create_experiment_dialog,
@@ -2217,21 +2221,18 @@ class AutoLamellaUI(QMainWindow):
         stage_position: Optional[FibsemStagePosition] = None,
         name: Optional[str] = None,
         objective_position: Optional[float] = None,
-        marked_at: Optional[str] = None,
         grid_id: Optional[str] = None,
     ) -> Lamella:
         """Add a lamella to the experiment.
 
         Args:
-            stage_position: Where the lamella is, in any orientation -- which one is
-                read off the position itself, so a position picked on the fluorescence
-                side is taken as the fluorescence pose rather than as somewhere to mill.
-                If None, the current stage position is used.
+            stage_position: Where the lamella is, anywhere. If the beams can mill from
+                it, it is the milling pose and the fluorescence pose is derived;
+                otherwise it is the fluorescence pose and the milling pose is derived
+                -- see `build_lamella_poses`. If None, the current stage position is
+                used.
             name: The name of the lamella. If None, a default name will be generated.
             objective_position: The objective position of the lamella. If None, the 'focused' objective position is used.
-            marked_at: The orientation *stage_position* is in, for a caller that knows.
-                Left alone it is read off the position, which is right on a compustage
-                and cannot be on an offset mount -- see `build_lamella_poses`.
             grid_id: The grid this lamella is on, for a caller that knows -- one
                 marked on a grid's overview belongs to that grid whether or not it
                 is on the stage. Left alone it is resolved from the stage.
@@ -2251,7 +2252,6 @@ class AutoLamellaUI(QMainWindow):
             microscope=self.microscope,
             position=stage_position,
             objective_position=objective_position,
-            marked_at=marked_at,
         )
 
         # create the lamella, with both poses already on it -- see
@@ -2270,6 +2270,12 @@ class AutoLamellaUI(QMainWindow):
             ),
         )
         lamella = self.experiment.positions[-1]
+        # Which pose a person chose and which was worked out from it. The constructor
+        # took both as given; this is the one place that knows the difference.
+        derived = FLUORESCENCE_POSE if poses.observed == MILLING_POSE else MILLING_POSE
+        lamella.pose_provenance[poses.observed] = PoseProvenance.OBSERVED
+        if lamella.poses.get(derived) is not None:
+            lamella.pose_provenance[derived] = PoseProvenance.DERIVED
 
         # derive the milling angle from the milling-pose stage tilt
         lamella.update_milling_angle(self.microscope)
@@ -2373,10 +2379,13 @@ class AutoLamellaUI(QMainWindow):
 
         # keep the milling angle consistent with the updated milling pose
         lamella.update_milling_angle(self.microscope)
-        # ...and the fluorescence pose, which describes the same piece of sample from
-        # the other side. Left behind, it would go on naming where this lamella used to
-        # be -- and nothing about a stale pose looks wrong.
-        sync_fluorescence_pose(self.microscope, lamella)
+        # ...and let the Link preference decide about the fluorescence pose: derived
+        # from the new milling pose, or left and marked as possibly stale.
+        follow_milling_pose(
+            self.microscope,
+            lamella,
+            link=fibsem_cfg.load_user_preferences().poses.link_fluorescence_position,
+        )
 
         self.update_lamella_combobox()
         self.update_ui()
@@ -2425,17 +2434,27 @@ class AutoLamellaUI(QMainWindow):
         if existing_pose is not None and existing_pose.objective_position is not None:
             state.objective_position = existing_pose.objective_position
 
-        lamella.poses[pose_name] = state
+        lamella.set_pose(pose_name, state, PoseProvenance.OBSERVED)
 
-        # Replacing the milling pose moves the lamella, so what is derived from it has to
-        # follow: the milling angle, and the fluorescence pose, which describes the same
-        # piece of sample from the other side. Left behind, that pose would go on naming
-        # where this lamella used to be -- and nothing about a stale pose looks wrong.
-        if pose_name == "MILLING":
+        # Replacing a pose moves the lamella. The milling angle always follows the
+        # milling pose; whether the *other* pose follows is the Link preference's call
+        # -- derived from this one, or left and marked as possibly stale.
+        preferences = fibsem_cfg.load_user_preferences().poses
+        if pose_name == MILLING_POSE:
             lamella.update_milling_angle(self.microscope)
-            if sync_fluorescence_pose(self.microscope, lamella):
+            if follow_milling_pose(
+                self.microscope, lamella, link=preferences.link_fluorescence_position
+            ):
                 self.selected_lamella_widget.refresh_pose(
-                    "FLUORESCENCE", lamella.fluorescence_pose
+                    FLUORESCENCE_POSE, lamella.fluorescence_pose
+                )
+        elif pose_name == FLUORESCENCE_POSE:
+            if follow_fluorescence_pose(
+                self.microscope, lamella, link=preferences.link_milling_position
+            ):
+                lamella.update_milling_angle(self.microscope)
+                self.selected_lamella_widget.refresh_pose(
+                    MILLING_POSE, lamella.milling_pose
                 )
 
         self.experiment.save()

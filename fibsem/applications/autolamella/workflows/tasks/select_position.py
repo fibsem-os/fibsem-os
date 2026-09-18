@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type
 import numpy as np
 
 from fibsem import constants
-from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+from fibsem.applications.autolamella.poses import derive_fluorescence_pose
 from fibsem.applications.autolamella.proposals import (
     POINT_OF_INTEREST,
     Decision,
@@ -243,13 +243,14 @@ class SelectMillingPositionTask(AutoLamellaTask):
         self.lamella.milling_pose = self.microscope.get_microscope_state()
         self.lamella.update_milling_angle(self.microscope)
         # the task moved the lamella (the coincidence walk, the operator's own
-        # centring), so the fluorescence pose derived when it was marked now
-        # describes where it used to be. Every UI path that moves a lamella
-        # syncs it; a fluorescence stack taken from the stale pose lands tens
-        # of microns off the marks it is meant to show (FIB-954). Opt-in: the
-        # default leaves the pose alone, as the task always has.
+        # centring), so a fluorescence pose derived when it was marked now
+        # describes where it used to be; a fluorescence stack taken from it lands
+        # tens of microns off the marks it is meant to show (FIB-954). Opt-in, and
+        # an explicit overwrite: the fluorescence pose is re-derived from the pose
+        # recorded here and marked derived. The default leaves it alone, as the
+        # task always has -- a pose somebody centred under the objective is theirs.
         if self.config.sync_fluorescence_pose:
-            sync_fluorescence_pose(self.microscope, self.lamella)
+            derive_fluorescence_pose(self.microscope, self.lamella)
 
     def _align_coincident_for_milling(
         self, milling_angle: float, is_close: bool
