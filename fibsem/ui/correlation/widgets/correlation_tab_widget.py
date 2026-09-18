@@ -281,14 +281,20 @@ class _CorrelationWorker(QThread):
     errored = pyqtSignal(str)
 
     def __init__(
-        self, input_data: CorrelationInputData, parent: Optional[QWidget] = None
+        self,
+        input_data: CorrelationInputData,
+        parent: Optional[QWidget] = None,
+        nominal=None,
     ) -> None:
         super().__init__(parent)
         self._data = input_data
+        # A NominalTransform built from the images' geometry, or None to fit
+        # unseeded (FIB-881). Built on the GUI thread, before the run.
+        self._nominal = nominal
 
     def run(self) -> None:
         try:
-            result = run_correlation_from_data(self._data)
+            result = run_correlation_from_data(self._data, nominal=self._nominal)
             self.result_ready.emit(result)
         except Exception as exc:
             self.errored.emit(str(exc))
@@ -2761,10 +2767,64 @@ class CorrelationTabWidget(QWidget):
         self._lbl_status.setText("Running…")
         # a run in flight has no live result yet; a failed run leaves it that way
         self._set_result_live(False)
-        self._worker = _CorrelationWorker(copy.deepcopy(self.data))
+        nominal, self._seed_note = self._nominal_transform()
+        self._worker = _CorrelationWorker(copy.deepcopy(self.data), nominal=nominal)
         self._worker.result_ready.connect(self._on_run_finished)
         self._worker.errored.connect(self._on_run_error)
         self._worker.start()
+
+    def _nominal_transform(self):
+        """The geometry's FM->FIB transform for the loaded images, or why there is none.
+
+        Returns ``(nominal, note)``: ``note`` is empty when a seed was built and
+        otherwise says what the images did not record, for the status line. An
+        image that records no geometry gets the unseeded fit it always had rather
+        than a seed built on a guess (FIB-881).
+        """
+        from fibsem.correlation.geometry import NominalTransformError, nominal_transform
+
+        if self._fib_image is None or self._fm_image is None:
+            return None, ""
+        try:
+            return nominal_transform(self._fib_image, self._fm_image), ""
+        except NominalTransformError as exc:
+            logging.info(f"Correlation fit not seeded from geometry: {exc}")
+            return None, str(exc)
+        except Exception as exc:  # a seed is an aid; never block the run on it
+            logging.warning(f"Could not build the nominal correlation transform: {exc}")
+            return None, "the nominal transform could not be built"
+
+    @staticmethod
+    def _seed_status(result: CorrelationResult) -> str:
+        """One clause on how the fit relates to the geometry, for the status line.
+
+        Seeded: how far the fit sits from the geometry's rotation and how much
+        worse the mirror branch is. Unseeded: whether the mirror branch fits as
+        well, which is the coin flip a coplanar pick set produces (FIB-880).
+        """
+        check = result.branch_check
+        if not check:
+            return ""
+        rms_mirror = check.get("rms_mirror")
+        if check.get("selected") == "nominal":
+            parts = [
+                f"seeded from geometry ({check.get('angle_to_nominal_deg', 0.0):.1f}° off nominal"
+            ]
+            if rms_mirror is not None:
+                parts[-1] += f", mirror RMS {rms_mirror:.1f} px"
+            parts[-1] += ")"
+        else:
+            parts = ["unseeded fit"]
+            if rms_mirror is not None:
+                parts.append(f"mirror branch RMS {rms_mirror:.1f} px")
+        dz = result.dimage_dz_px_per_slice
+        if dz is not None:
+            parts.append(f"depth {dz[1]:+.1f} px/slice")
+        text = "; ".join(parts)
+        warning = check.get("warning")
+        if warning:
+            text += f". {warning}"
+        return text
 
     def _on_run_finished(self, result: CorrelationResult) -> None:
         """Adopt a just-computed result, judged against the points as they are now.
@@ -2838,6 +2898,12 @@ class CorrelationTabWidget(QWidget):
             )
         else:
             self._lbl_status.setText("Done.")
+        if live:
+            note = self._seed_status(result)
+            if not note and getattr(self, "_seed_note", ""):
+                note = f"unseeded fit: {self._seed_note}"
+            if note:
+                self._lbl_status.setText(f"{self._lbl_status.text()} — {note}")
         self.result_changed.emit(result)
 
     def _fib_pixel_size_m(self) -> Optional[float]:
