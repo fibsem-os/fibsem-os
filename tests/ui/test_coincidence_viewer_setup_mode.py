@@ -206,6 +206,11 @@ def test_fib_drag_moves_every_stage_in_setup_mode(viewer, qapp):
     for stage in stages:
         assert stage.pattern.point.x == pytest.approx(4e-6, rel=0.05)
         assert stage.pattern.point.y == pytest.approx(2e-6, rel=0.05)
+    # both stages' real shapes are drawn on the FIB canvas, not just one box
+    overlay = viewer.fib_canvas.pattern_overlay
+    assert len(overlay._stages) == 2
+    assert overlay._image is not None
+    assert len(overlay._artists) >= 2
 
 
 def test_continue_and_skip_fire_their_callbacks_and_exit_restores(viewer, qapp):
