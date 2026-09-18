@@ -81,7 +81,8 @@ _ACCENT_WASH = "rgba({}, {}, {}, 0.16)".format(
 # is applied to the floating layers panel, and these live on the z row.
 _Z_STEP_BTN_STYLE = (
     f"QToolButton {{ color: {TEXT_COLOR}; background: {SURFACE_COLOR}; "
-    f"border: 1px solid {BORDER_COLOR}; border-radius: 3px; font-size: 13px; }}"
+    f"border: 1px solid {BORDER_COLOR}; border-radius: 3px; font-size: 16px; "
+    "padding-bottom: 2px; }"
     f"QToolButton:hover {{ background: {BORDER_COLOR}; }}"
     f"QToolButton:disabled {{ color: {TEXT_MUTED_COLOR}; }}"
 )
@@ -602,7 +603,9 @@ class FMCanvasWidget(QWidget):
     def _z_step_button(self, glyph: str, tooltip: str, delta: int) -> QToolButton:
         button = QToolButton()
         button.setText(glyph)
-        button.setFixedSize(20, 20)
+        # The one mouse-only way to step a single slice; 20 px read as 16 on
+        # screen and was the smallest target on the canvas (FIB-978).
+        button.setFixedSize(26, 24)
         button.setToolTip(tooltip)
         button.setStyleSheet(_Z_STEP_BTN_STYLE)
         button.clicked.connect(lambda: self.step_z(delta))

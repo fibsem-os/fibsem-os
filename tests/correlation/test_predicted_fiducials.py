@@ -297,12 +297,12 @@ def test_the_run_gate_counts_confirmed_pairs_only(loaded):
     ]
     loaded.data_changed.emit(loaded.data)
     assert not loaded._can_run()
-    assert "FM=0 confirmed, 7 predicted" in loaded._lbl_status.text()
+    assert loaded._lbl_status.text().endswith("0 of 4 pairs placed.")
     for c in _fm(loaded)[:4]:
         c.point.x += 1.0
         loaded._on_canvas_moved(c)
     assert loaded._can_run()
-    assert loaded._lbl_status.text() == "Ready."
+    assert loaded._lbl_status.text().startswith("Ready to run with 4 pairs.")
 
 
 # ── the list row and the spot-burn lookup ────────────────────────────────
@@ -884,3 +884,81 @@ def test_the_setup_tab_has_one_images_panel_with_interpolate_in_its_header(loade
         for p in loaded._images_tab.findChildren(TitledPanel)
         if p._title_label.text() == "Images"
     ).isAncestorOf(btn)
+
+
+# ── the run bar (FIB-978 §1.4) ───────────────────────────────────────────
+
+
+def test_the_status_line_names_the_next_step_and_the_bar_shows_one_primary_button(
+    widget,
+    loaded,
+):
+    from fibsem.correlation.structures import (
+        CorrelationPointOfInterest,
+        CorrelationResult,
+    )
+
+    fresh = CorrelationTabWidget()
+    assert fresh._lbl_status.text() == "Load the FIB and FM images on the Setup tab."
+    fresh.close()
+
+    status = loaded._lbl_status
+    assert status.text().startswith("Seed the spot burns on the Setup tab")
+    assert not loaded._btn_continue.isVisibleTo(loaded)
+    assert loaded._btn_run.text() == "Run Correlation"
+
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    assert status.text().startswith("Project FM from FIB")
+    loaded.project_fm_from_fib()
+    assert status.text().startswith("7 FM predictions placed")  # the action's own line
+    loaded.data_changed.emit(loaded.data)  # the idle sentence comes back with an edit
+    assert (
+        status.text()
+        == "Drag the predicted rings onto their burns: 0 of 4 pairs placed."
+    )
+    fm = _fm(loaded)
+    for c in fm[:3]:
+        c.point.x += 1.0
+        loaded._on_canvas_moved(c)
+    assert (
+        status.text()
+        == "Drag the predicted rings onto their burns: 3 of 4 pairs placed."
+    )
+    for c in fm[3:]:
+        c.point.x += 1.0
+        loaded._on_canvas_moved(c)
+    assert status.text() == "Place the target on the FM image."
+    # a pair rejected from the fit is out on both sides: still the target
+    fm[1].status = PointStatus.REJECTED
+    loaded.data_changed.emit(loaded.data)
+    assert status.text() == "Place the target on the FM image."
+    fm[1].status = PointStatus.PLACED
+    loaded._coords_tab.poi_list.coordinates = [
+        Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
+    ]
+    loaded.data_changed.emit(loaded.data)
+    assert status.text() == "Ready to run with 7 pairs."
+
+    # a live result: Continue is the primary, Run becomes "Run again". A real
+    # run snapshots the inputs (FIB-315); so must the stand-in, or the edit
+    # below mutates the snapshot and the result never reads as stale.
+    loaded._on_run_finished(
+        CorrelationResult(
+            poi=[CorrelationPointOfInterest()],
+            rms_error=1.0,
+            input_data=copy.deepcopy(loaded.fit_data),
+        )
+    )
+    assert loaded._btn_continue.isVisibleTo(loaded) and loaded._btn_continue.isEnabled()
+    assert loaded._btn_run.text() == "Run again"
+    # an edit makes it stale: back to one primary Run (the lists were rebuilt
+    # when the result was adopted, so take the live one)
+    fm = _fm(loaded)
+    fm[0].point.x += 1.0
+    loaded._on_canvas_moved(fm[0])
+    assert not loaded._btn_continue.isVisibleTo(loaded)
+    assert loaded._btn_run.text() == "Run Correlation"
+    assert (
+        status.text()
+        == "The points changed since the last run; run again with 7 pairs."
+    )
