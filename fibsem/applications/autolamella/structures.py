@@ -5,6 +5,7 @@ import os
 import threading
 import uuid
 from abc import ABC
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
@@ -39,10 +40,12 @@ from fibsem.applications.autolamella.proposals import (
     Proposal,
     ValueRefused,
     _quietly,
+    auto_author,
     human_author,
     prepare_values,
     proposals_from_dict,
     proposals_to_dict,
+    supersede,
 )
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
@@ -1886,6 +1889,10 @@ class Experiment:
     # Fired after a decision is applied, with (item_id, task_name), on the thread
     # decide() ran on. The work queue listens so a stalled run wakes and rescans.
     decided = Signal(str, str)
+    # Fired after a question is recorded mid-task, with (item_id, task_name),
+    # on the main thread. The Review tab listens: the inbox otherwise only
+    # re-derives when a task *finishes*, which an in-run question never does.
+    asked = Signal(str, str)
 
     def get_lamella_by_id(self, lamella_id: str) -> Optional["Lamella"]:
         for lamella in self.positions:
@@ -1951,6 +1958,16 @@ class Experiment:
                     applied=False,
                     reason=f"{item.name} has no proposal from {task_name!r}.",
                 )
+            if proposal.withdrawn:
+                # The question was taken back because whatever asked it is
+                # gone. There is nothing left to answer, and an answer now
+                # would be written against a run that is over.
+                return DecisionResult(
+                    applied=False,
+                    error_type="stale_review",
+                    reason=f"{task_name} on {item.name} was withdrawn before it "
+                    f"was answered; re-run {task_name} to be asked again.",
+                )
             # A decision while something runs on the item is refused only where
             # it could reach that run: the proposal is from the run in progress
             # (the answer there is Stop, not a decision), or the decision writes
@@ -1960,20 +1977,36 @@ class Experiment:
             # run back to back, so anything stricter refuses the ordinary case
             # (FIB-1008).
             running = item.task_state.status is AutoLamellaTaskStatus.InProgress
-            if running and proposal.task_id == item.task_state.task_id:
-                return DecisionResult(
-                    applied=False,
-                    running=True,
-                    reason=f"{item.name} is running {task_name}; "
-                    "stop it rather than deciding under it.",
-                )
-            if running and decision.values:
-                return DecisionResult(
-                    applied=False,
-                    running=True,
-                    reason=f"{item.name} is running {item.task_state.name}; "
-                    f"stop it before writing {sorted(decision.values)} through.",
-                )
+            # The one case a decision may land on a running task: the task is
+            # parked on this very proposal, waiting to be told the answer
+            # (FIB-1025). The hazard both refusals below guard against is a
+            # decision arriving *unasked* while a task may be reading those
+            # values -- and a task stopped on a future is not reading, it is
+            # waiting. Phrased about the waiting rather than about the values,
+            # so a question that carries none is allowed on the same grounds.
+            # Per proposal, not per item: another proposal on this item is not
+            # what the task is waiting for, and the task will resume and may
+            # read it, so it stays refused.
+            answering_the_run = (
+                running
+                and proposal.asking
+                and proposal.task_id == item.task_state.task_id
+            )
+            if running and not answering_the_run:
+                if proposal.task_id == item.task_state.task_id:
+                    return DecisionResult(
+                        applied=False,
+                        running=True,
+                        reason=f"{item.name} is running {task_name}; "
+                        "stop it rather than deciding under it.",
+                    )
+                if decision.values:
+                    return DecisionResult(
+                        applied=False,
+                        running=True,
+                        reason=f"{item.name} is running {item.task_state.name}; "
+                        f"stop it before writing {sorted(decision.values)} through.",
+                    )
             if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
                 return DecisionResult(applied=False, reason="A reject needs a reason.")
             # The decision is on the result the decider saw: the run it names
@@ -2092,6 +2125,11 @@ class Experiment:
                     applied=False, reason=f"Could not apply the decision: {e}"
                 )
             proposal.decisions.append(decision)
+            # Answered: nothing is waiting on it any more, so it stops being
+            # the exception that lets a decision land on a running task. The
+            # asker clears this too on its way out; here it is closed the
+            # instant the answer lands, leaving no window in between.
+            proposal.asking = False
             if apply_values is not None:
                 result.delta = proposal.delta(decision)
             logging.info(
@@ -2114,6 +2152,129 @@ class Experiment:
         except Exception:
             logging.exception(f"a subscriber to decided raised for {task_name}")
         return result
+
+    def ask_proposal(self, item_id: str, task_name: str, proposal: Proposal) -> bool:
+        """Record a question the task is about to park on, and say so.
+
+        On the main thread like ``decide``, because it writes to the record and
+        wakes a Qt widget, and the caller is the workflow thread. Marks the
+        proposal as the one being waited on, so a decision may land on it while
+        its task runs (FIB-1025), and fires ``asked`` so the inbox re-derives
+        -- nothing else would, since the tab refreshes when a task *finishes*
+        and this one is only halfway through.
+        """
+        return _call_on_main_thread(self._ask_proposal, item_id, task_name, proposal)
+
+    def _ask_proposal(self, item_id: str, task_name: str, proposal: Proposal) -> bool:
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return False
+            # Same rule as a task's own proposal: a decided one is kept on the
+            # record under the new question, a pending one is replaced -- it
+            # was never answered, so there is nothing to keep.
+            previous = item.proposals.get(task_name)
+            if previous is not None and previous.pending:
+                previous = None
+            item.proposals[task_name] = supersede(previous, proposal)
+            proposal.asking = True
+        try:
+            self.asked.emit(item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to asked raised for {task_name}")
+        return True
+
+    @contextmanager
+    def asking(self, item_id: str, task_name: str):
+        """Mark a proposal as the question the run is parked on, for as long as
+        it is being asked.
+
+        Inside the block a decision on it is allowed even though its task is
+        running, because the task is not running *over* it -- it is stopped
+        until someone answers. Outside, the ordinary refusal is back.
+
+        A context manager rather than two calls because the clearing is the
+        part that matters: an ask that aborts, raises or is cancelled must
+        still close the question, or the exception it left behind would let a
+        later decision land on a task that really is reading.
+
+        Yields the proposal, or ``None`` when there is no such item or
+        proposal -- the caller is asking either way, and a missing record is
+        not a reason to refuse to ask.
+        """
+        item = self.get_item_by_id(item_id)
+        proposal = item.proposals.get(task_name) if item is not None else None
+        if proposal is not None:
+            proposal.asking = True
+        try:
+            yield proposal
+        finally:
+            if proposal is not None:
+                proposal.asking = False
+
+    def withdraw_proposal(
+        self, item_id: str, task_name: str, reason: str
+    ) -> DecisionResult:
+        """Close a proposal nobody answered, because whatever asked it is gone.
+
+        Not a decision, and deliberately not routed through ``decide``: a
+        question is withdrawn exactly when its task is failing or the run is
+        stopping, which is the state ``decide`` refuses a decision in. The
+        record shape is shared -- a ``Decision`` with outcome ``Withdrawn``,
+        authored automatically -- because the fact that a question was raised
+        and abandoned belongs in the same log as the answers.
+
+        It never touches a task's status. The task has its own ending, and the
+        withdrawal is a consequence of it rather than a cause: what requires
+        that task is gated on the task, not on this.
+        """
+        return _call_on_main_thread(self._withdraw_proposal, item_id, task_name, reason)
+
+    def _withdraw_proposal(
+        self, item_id: str, task_name: str, reason: str
+    ) -> DecisionResult:
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return DecisionResult(
+                    applied=False, reason=f"No item with id {item_id!r}."
+                )
+            proposal = item.proposals.get(task_name)
+            if proposal is None:
+                return DecisionResult(
+                    applied=False,
+                    reason=f"{item.name} has no proposal from {task_name!r}.",
+                )
+            if not proposal.pending:
+                # Answered, or already withdrawn. Either way there is nothing
+                # open to take back, and appending would bury the answer.
+                return DecisionResult(
+                    applied=False,
+                    reason=f"{task_name} on {item.name} is already decided.",
+                )
+            proposal.asking = False
+            proposal.decisions.append(
+                Decision(
+                    outcome=DecisionOutcome.Withdrawn,
+                    author=auto_author("workflow"),
+                    reason=reason,
+                    via="workflow",
+                    task_id=proposal.task_id,
+                )
+            )
+            logging.info(
+                {
+                    "msg": "proposal_withdrawn",
+                    "item": item.name,
+                    "task_name": task_name,
+                    "reason": reason,
+                }
+            )
+        try:
+            self.decided.emit(item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to decided raised for {task_name}")
+        return DecisionResult(applied=True)
 
     def pending_proposals(
         self,
