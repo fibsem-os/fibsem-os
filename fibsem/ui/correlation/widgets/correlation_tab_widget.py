@@ -44,7 +44,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 logging.basicConfig(level=logging.INFO)
 
 import numpy as np
-from PyQt5.QtCore import QObject, Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QObject, QSize, Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QKeySequence
 from PyQt5.QtWidgets import (
     QAbstractSpinBox,
@@ -1243,9 +1243,26 @@ class _ResultsTab(QWidget):
         # The raw numbers, for a message to a collaborator or a script. Folded
         # away: nobody reads a matrix to judge a run, but the run is not
         # reproducible without one.
-        self._btn_raw = QPushButton("Show the numbers")
-        self._btn_raw.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        # A disclosure, not an action: the chevron carries the state and the
+        # label stays put, as TitledPanel's own header does. A filled button
+        # here would advertise itself over the numbers above it, and Qt draws a
+        # checkable button's checked state as a pressed box, so the styling
+        # states both states flat.
+        self._btn_raw = QToolButton()
+        self._btn_raw.setText("Raw numbers")
         self._btn_raw.setCheckable(True)
+        self._btn_raw.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._btn_raw.setIconSize(QSize(14, 14))
+        self._btn_raw.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_raw.setToolTip(
+            "The projection matrix, Euler angles, scale and translation as "
+            "stored — to paste into a message or a script."
+        )
+        self._btn_raw.setStyleSheet(
+            "QToolButton { border: none; background: transparent; padding: 2px 0px; "
+            f"color: {TEXT_MUTED_COLOR}; }}"
+            "QToolButton:checked { border: none; background: transparent; }"
+        )
         self._btn_raw.toggled.connect(self._on_raw_toggled)
         raw_row = QHBoxLayout()
         raw_row.setContentsMargins(0, 0, 0, 0)
@@ -1260,6 +1277,7 @@ class _ResultsTab(QWidget):
         )
         self._txt_raw.setVisible(False)
         tform_layout.addWidget(self._txt_raw)
+        self._on_raw_toggled(False)  # toggled only fires on a change; draw the chevron
         layout.addWidget(TitledPanel("Transform", content=tform_body))
 
         # Per-marker error table. Two error columns whose difference is the
@@ -1291,7 +1309,12 @@ class _ResultsTab(QWidget):
 
     def _on_raw_toggled(self, shown: bool) -> None:
         self._txt_raw.setVisible(shown)
-        self._btn_raw.setText("Hide the numbers" if shown else "Show the numbers")
+        self._btn_raw.setIcon(
+            fibsem_icon(
+                "mdi:chevron-up" if shown else "mdi:chevron-down",
+                color=TEXT_MUTED_COLOR,
+            )
+        )
 
     def _set_transform(
         self, result: CorrelationResult, um: Optional[float] = None
@@ -1325,15 +1348,12 @@ class _ResultsTab(QWidget):
             # the in-plane turn the map applies, read off the x axis' image part
             in_plane = float(np.degrees(np.arctan2(r[1, 0], r[0, 0])))
             self._lbl_inplane.setText(f"{in_plane:+.1f}°")
-            self._lbl_fitted_scale.setText(f"{result.scale:.3f} FIB px per FM px")
+            self._lbl_fitted_scale.setText(f"{result.scale:.2f}×")
 
             gain = result.dimage_dz_px_per_slice
             if gain is not None:
                 px = float(np.hypot(gain[0], gain[1]))
-                self._lbl_depth_gain.setText(
-                    f"{px:.2f} FIB px per slice"
-                    + (f" ({px * um:.2f} µm)" if um else "")
-                )
+                self._lbl_depth_gain.setText(f"{px:.1f} px per slice")
 
             t = np.asarray(result.translation, dtype=float).ravel()
             if t.size >= 2:

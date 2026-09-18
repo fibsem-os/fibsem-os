@@ -1272,10 +1272,10 @@ def test_the_results_tab_reports_the_transform_a_person_can_check(qapp):
     assert tab._lbl_tilt.text().startswith("75.0°")
     assert "1.5° from the geometry's" in tab._lbl_tilt.text()
     assert tab._lbl_inplane.text() == "+0.0°"
-    assert tab._lbl_fitted_scale.text().startswith("2.000")
+    assert tab._lbl_fitted_scale.text() == "2.00×"
     # depth gain = scale * |z column| * fm_z_scale = 2 * sin(75) * 10
     expected = 2.0 * float(np.sin(tilt)) * 10.0
-    assert tab._lbl_depth_gain.text().startswith(f"{expected:.2f} FIB px per slice")
+    assert tab._lbl_depth_gain.text() == f"{expected:.1f} px per slice"
     assert "(-100.0, +50.0) px" in tab._lbl_translation.text()
 
     # the raw numbers are written but folded away until asked for
@@ -1283,8 +1283,12 @@ def test_the_results_tab_reports_the_transform_a_person_can_check(qapp):
     assert (
         "eulers" in tab._txt_raw.text() and "fm z scale: 10.0000" in tab._txt_raw.text()
     )
+    # a disclosure: the chevron carries the state, the label stays put
+    assert tab._btn_raw.text() == "Raw numbers"
+    collapsed = tab._btn_raw.icon().cacheKey()
     tab._btn_raw.setChecked(True)
-    assert tab._btn_raw.text() == "Hide the numbers"
+    assert tab._btn_raw.text() == "Raw numbers"
+    assert tab._btn_raw.icon().cacheKey() != collapsed
 
     tab.clear()
     assert tab._lbl_tilt.text() == "—" and tab._txt_raw.text() == ""
