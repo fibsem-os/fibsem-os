@@ -25,9 +25,9 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from PyQt5.QtWidgets import QWidget
 
-import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_POSE,
+    MILLING_POSE,
     follow_fluorescence_pose,
 )
 from fibsem.applications.autolamella.ui.overview_tab_base import (
@@ -48,6 +48,16 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
 
     POSE_NOUN = "fluorescence pose"
     OVERVIEW_NOUN = "FM overview"
+
+    LINK_PREFERENCE = "link_milling_position"
+    LINK_LABEL = "Link milling position"
+    LINK_TOOLTIP = (
+        "Moving a lamella here also derives its milling position from the new "
+        "fluorescence position. Off: the milling position is left where it is and "
+        "marked as possibly stale."
+    )
+    LINKED_POSE = MILLING_POSE
+    LINKED_POSE_NOUN = "milling position"
 
     # ── what makes this the fluorescence side ────────────────────────────
 
@@ -145,23 +155,32 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             )
             return
 
-        link = fibsem_cfg.load_user_preferences().poses.link_milling_position
+        link = self.link_enabled
         history = (
             f"\n\n{name} has already completed {', '.join(lamella.completed_tasks)}."
             if lamella.completed_tasks
             else ""
         )
-        consequence = (
-            "\n\nThe milling pose is derived from it and moves with it."
-            if link
-            else "\n\nThe milling pose is left where it is (Link milling position is off)."
-        )
+        # One dialog, not two: the move already confirms, so the observed-pose warning
+        # rides along with it rather than following as a second question.
+        warning = self._overwrite_warning(lamella)
+        if warning is not None:
+            consequence = f"\n\n{warning}"
+        elif link:
+            consequence = "\n\nThe milling pose is derived from it and moves with it."
+        else:
+            consequence = (
+                "\n\nThe milling pose is left where it is (Link milling position is "
+                "off)."
+            )
         if not message_box_ui(
             title=f"Move {name}?",
             text=f"Move {name} to {position.pretty_string}?{consequence}{history}",
             parent=self,
         ):
             return
+        if warning is not None:
+            self._remember_overwrite_confirmed()
 
         # Only the stage position is replaced, so anything else the pose carries --
         # notably the objective position on a lamella that was focused by hand -- is

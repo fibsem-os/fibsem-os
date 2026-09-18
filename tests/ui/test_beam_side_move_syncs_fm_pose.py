@@ -135,6 +135,13 @@ def test_dragging_a_lamella_on_the_overview_moves_its_fluorescence_pose(tmp_path
         def refresh_positions(self):
             pass
 
+        def _link_for(self, lamella):
+            # The tab's checkbox and observed-overwrite dialog are pinned by
+            # `test_overview_tab_host.py`; here only the preference matters.
+            import fibsem.config as fibsem_cfg
+
+            return fibsem_cfg.load_user_preferences().poses.link_fluorescence_position
+
     _Tab()._on_move_requested(
         lamella.name, _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
     )
@@ -367,6 +374,13 @@ def test_moving_the_milling_pose_with_link_off_leaves_the_fluorescence_pose(
 
         def refresh_positions(self):
             pass
+
+        def _link_for(self, lamella):
+            # The tab's checkbox and observed-overwrite dialog are pinned by
+            # `test_overview_tab_host.py`; here only the preference matters.
+            import fibsem.config as fibsem_cfg
+
+            return fibsem_cfg.load_user_preferences().poses.link_fluorescence_position
 
     _Tab()._on_move_requested(
         lamella.name, _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
