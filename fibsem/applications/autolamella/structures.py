@@ -592,6 +592,12 @@ class GridTaskProtocol:
         if task_name in self.order:
             self.order.remove(task_name)
 
+    def requirements(self, task_name: str) -> List[str]:
+        """The tasks ``task_name`` requires on the same grid; none for a task
+        the protocol does not have."""
+        config = self.task_config.get(task_name)
+        return list(config.requires) if config is not None else []
+
     @property
     def ordered_task_names(self) -> List[str]:
         """`order` first, then anything in `task_config` it forgot to mention."""
@@ -1123,15 +1129,25 @@ def _make_thumbnail_placeholder():
 _THUMBNAIL_PLACEHOLDER = None
 
 
+def _latest_status(
+    task_history: List[AutoLamellaTaskState], task_name: str
+) -> Optional[AutoLamellaTaskStatus]:
+    """How the latest run of ``task_name`` ended; None if it never ran."""
+    for task in reversed(task_history):
+        if task.name == task_name:
+            return task.status
+    return None
+
+
 def _is_awaiting_decision(
     task_history: List[AutoLamellaTaskState], task_name: str
 ) -> bool:
     """Whether the latest run of ``task_name`` ended waiting on a decision. The
     same rule for a lamella and a grid record."""
-    for task in reversed(task_history):
-        if task.name == task_name:
-            return task.status is AutoLamellaTaskStatus.AwaitingDecision
-    return False
+    return (
+        _latest_status(task_history, task_name)
+        is AutoLamellaTaskStatus.AwaitingDecision
+    )
 
 
 def _set_task_status(
@@ -1278,6 +1294,15 @@ class Lamella:
     def is_awaiting_decision(self, task_name: str) -> bool:
         """Whether the latest run of ``task_name`` ended waiting on a decision."""
         return _is_awaiting_decision(self.task_history, task_name)
+
+    def latest_run_completed(self, task_name: str) -> bool:
+        """Whether the latest run of ``task_name`` completed: what a task that
+        requires it needs. Not ``has_completed_task``, which an old success
+        satisfies after a rerun failed or was rejected."""
+        return (
+            _latest_status(self.task_history, task_name)
+            is AutoLamellaTaskStatus.Completed
+        )
 
     def set_task_status(
         self, task_name: str, status: AutoLamellaTaskStatus, message: str = ""
@@ -1601,6 +1626,13 @@ class GridRecord:
     def is_awaiting_decision(self, task_name: str) -> bool:
         """Whether the latest run of ``task_name`` ended waiting on a decision."""
         return _is_awaiting_decision(self.task_history, task_name)
+
+    def latest_run_completed(self, task_name: str) -> bool:
+        """Whether the latest run of ``task_name`` completed; see Lamella's."""
+        return (
+            _latest_status(self.task_history, task_name)
+            is AutoLamellaTaskStatus.Completed
+        )
 
     def set_task_status(
         self, task_name: str, status: AutoLamellaTaskStatus, message: str = ""

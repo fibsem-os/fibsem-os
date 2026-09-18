@@ -241,6 +241,90 @@ class TestAttentionChip:
         assert config.attention is Attention.automated
 
 
+def test_review_on_a_task_nothing_requires_says_nothing_waits(
+    qapp, arctis, experiment, monkeypatch
+):
+    """As on the lamella list: a Review chip on a task no other task requires
+    holds nothing, and the row says so until something requires it."""
+    import fibsem.applications.autolamella.ui.grid_workflow_widget as module
+
+    monkeypatch.setattr(module, "_review_available", lambda: True)
+    experiment.grid_protocol.task_config["overview_sem"].attention = Attention.review
+    widget = GridWorkflowWidget()
+    widget.set_microscope(arctis)
+    widget.set_experiment(experiment)
+    row = widget._task_rows["overview_sem"]
+    assert row.detail_label.text() == "nothing waits on this"
+    assert "nothing waits" in row.btn_attention.toolTip()
+
+    experiment.grid_protocol.task_config["overview_fm"].requires = ["overview_sem"]
+    widget._rebuild()
+    row = widget._task_rows["overview_sem"]
+    assert row.detail_label.text() != "nothing waits on this"
+    assert "the tasks that require it wait" in row.btn_attention.toolTip()
+    widget.close()
+
+
+class TestRequiresOnTheTaskList:
+    """What a grid task requires is edited on its Workflow row, as a lamella
+    task's is: a pencil, an Edit Task dialog, and "after ..." on the row."""
+
+    def test_the_dialog_lists_every_other_task(self, view, experiment):
+        dialog = view.edit_dialog("overview_fm")
+        assert list(dialog.checks) == ["overview_sem"]
+        assert dialog.requires == []
+
+    def test_apply_saves_and_the_row_says_after(self, view, experiment, monkeypatch):
+        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
+
+        def accept_with_fm(dialog):
+            dialog.checks["overview_fm"].setChecked(True)
+            return module.QDialog.Accepted
+
+        monkeypatch.setattr(module.GridTaskEditDialog, "exec_", accept_with_fm)
+        changed = []
+        view.protocol_changed.connect(lambda: changed.append(True))
+        row = view._task_rows["overview_sem"]
+        assert row.detail_label.text() == "Beam overview"
+
+        row.btn_edit.click()
+
+        assert experiment.grid_protocol.requirements("overview_sem") == ["overview_fm"]
+        again = Experiment.load(Path(experiment.path) / "experiment.yaml")
+        assert again.grid_protocol.requirements("overview_sem") == ["overview_fm"]
+        assert changed == [True]
+        assert row.detail_label.text() == "after overview_fm"
+        assert "Beam overview" in row.detail_label.toolTip(), "the kind is a hover away"
+
+    def test_cancel_changes_nothing(self, view, experiment, monkeypatch):
+        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
+
+        def tick_then_cancel(dialog):
+            dialog.checks["overview_fm"].setChecked(True)
+            return module.QDialog.Rejected
+
+        monkeypatch.setattr(module.GridTaskEditDialog, "exec_", tick_then_cancel)
+        view._task_rows["overview_sem"].btn_edit.click()
+        assert experiment.grid_protocol.requirements("overview_sem") == []
+        assert view._task_rows["overview_sem"].detail_label.text() == "Beam overview"
+
+    def test_the_row_says_after_review_of_a_reviewed_requirement(
+        self, view, experiment, monkeypatch
+    ):
+        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
+
+        monkeypatch.setattr(module, "_review_available", lambda: True)
+        view.set_requires("overview_sem", ["overview_fm"])
+        row = view._task_rows["overview_sem"]
+        assert row.detail_label.text() == "after overview_fm"
+
+        view._task_rows["overview_fm"].btn_attention.click()  # FM to Review
+
+        assert row.detail_label.text() == "after review of overview_fm"
+        fm = view._task_rows["overview_fm"]
+        assert fm.detail_label.text() != "nothing waits on this", "SEM requires it"
+
+
 def test_the_review_tab_loads_a_grid_proposals_image_from_the_grid_directory(
     experiment,
 ):

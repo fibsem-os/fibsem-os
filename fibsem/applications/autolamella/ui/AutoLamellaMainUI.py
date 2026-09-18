@@ -47,6 +47,7 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskStatus,
     Experiment,
+    GridRecord,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
@@ -2714,8 +2715,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
 
     def _on_review_open_item(self, item) -> None:
-        """Go to lamella: select it where it is edited. Editing is not a
-        review action, so the Review tab hands over rather than growing one."""
+        """Go to lamella, or grid: select it where it is looked after. Editing
+        is not a review action, so the Review tab hands over rather than
+        growing one."""
+        if isinstance(item, GridRecord):
+            grids = getattr(self, "grids_tab", None)
+            if grids is not None:
+                self.tab_widget.setCurrentWidget(grids)
+                grids.select_grid(item)
+            return
         container = getattr(self, "_lamella_tab_container", None)
         cards = getattr(self, "lamella_card_container", None)
         if container is None or cards is None or item is None:

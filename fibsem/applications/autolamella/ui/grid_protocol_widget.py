@@ -494,6 +494,11 @@ class GridProtocolWidget(QWidget):
         if protocol is None:
             return
         protocol.remove(name)
+        # nothing may go on requiring a task that is gone: it would be skipped
+        # on every grid, for a reason no one can see
+        for config in protocol.task_config.values():
+            if name in config.requires:
+                config.requires = [r for r in config.requires if r != name]
         self._save()
         self.refresh()
 
@@ -514,11 +519,17 @@ class GridProtocolWidget(QWidget):
         return config
 
     def reset_selected(self) -> Optional[GridTaskConfig]:
-        """Replace the selected task's settings with the type's defaults, and save."""
+        """Replace the selected task's settings with the type's defaults, and save.
+        How it takes part in the workflow -- attention, requires -- is kept: those
+        are set on the Workflow tab's grid list, not settings of the run."""
         protocol, config = self.protocol, self.selected_config()
         if protocol is None or config is None:
             return None
-        fresh = type(config)(task_name=config.task_name)
+        fresh = type(config)(
+            task_name=config.task_name,
+            attention=config.attention,
+            requires=list(config.requires),
+        )
         protocol.task_config[config.task_name] = fresh
         self._save()
         self._show_selected()

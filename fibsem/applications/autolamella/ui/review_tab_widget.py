@@ -26,7 +26,7 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics, QKeySequence
@@ -59,7 +59,8 @@ from fibsem.applications.autolamella.proposals import (
     DecisionOutcome,
     Proposal,
 )
-from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.structures import Attention, Experiment, GridRecord
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -164,20 +165,49 @@ def delta_label(proposal: Proposal, decision: Optional[Decision] = None) -> str:
     return f"moved {magnitude * 1e6:.1f} µm"
 
 
-def waiting_on(experiment: Experiment, task_name: str) -> List[str]:
-    """The tasks deferred until ``task_name``'s proposal is decided: every task
-    that requires it, transitively, in workflow order."""
-    protocol = getattr(experiment, "task_protocol", None)
-    config = getattr(protocol, "workflow_config", None)
+def _item_tasks(experiment: Experiment, item: Any) -> List[tuple]:
+    """(name, requires) for the tasks an item runs, in workflow order: the
+    grid protocol's for a grid, the lamella workflow's otherwise."""
+    if isinstance(item, GridRecord):
+        try:
+            protocol = experiment.grid_protocol
+        except ValueError:  # no task protocol on this experiment
+            return []
+        return [
+            (name, protocol.requirements(name)) for name in protocol.ordered_task_names
+        ]
+    config = getattr(
+        getattr(experiment, "task_protocol", None), "workflow_config", None
+    )
     if config is None:
         return []
+    return [(task.name, task.requires) for task in config.tasks]
+
+
+def waiting_on(experiment: Experiment, task_name: str, item: Any = None) -> List[str]:
+    """The tasks deferred until ``task_name``'s proposal is decided: every task
+    that requires it, transitively, in workflow order. A grid's by the grid
+    protocol, a lamella's by the workflow."""
     gated = {task_name}
     names: List[str] = []
-    for task in config.tasks:
-        if any(req in gated for req in task.requires):
-            gated.add(task.name)
-            names.append(task.name)
+    for name, requires in _item_tasks(experiment, item):
+        if any(req in gated for req in requires):
+            gated.add(name)
+            names.append(name)
     return names
+
+
+def is_gated(experiment: Experiment, task_name: str, item: Any = None) -> bool:
+    """Whether ``task_name`` is set to Review for this kind of item: the grid
+    task's attention for a grid, the workflow's for a lamella."""
+    if isinstance(item, GridRecord):
+        try:
+            config = experiment.grid_protocol.task_config.get(task_name)
+        except ValueError:
+            return False
+        return config is not None and config.attention is Attention.review
+    protocol = getattr(experiment, "task_protocol", None)
+    return bool(protocol) and protocol.get_attention(task_name) is Attention.review
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +353,9 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self._proposal: Optional[Proposal] = None
         self._image: Optional[FibsemImage] = None
         self._electron: Optional[FibsemImage] = None
+        # a fluorescence result's image: shown on the FM page, never on a beam
+        # canvas, and never the image a kind's values are drawn on
+        self._fluorescence: Optional[FluorescenceImage] = None
         self._gated: List[str] = []
         self._decided: Optional[Decision] = None
         self._applied: Optional[Decision] = None
@@ -381,6 +414,14 @@ class TaskResultReviewRenderer(ReviewRenderer):
         layout.setContentsMargins(10, 4, 10, 8)
         layout.setSpacing(8)
         layout.addWidget(self._controller.widget, 1)
+        # said in place of the image when there is none to show, so the last
+        # proposal's image is never left under this one's verbs
+        self.no_image = QLabel()
+        self.no_image.setAlignment(Qt.AlignCenter)
+        self.no_image.setWordWrap(True)
+        self.no_image.setStyleSheet(_MUTED_STYLE)
+        self.no_image.hide()
+        layout.addWidget(self.no_image, 1)
         layout.addWidget(self.line)
         layout.addLayout(actions)
 
@@ -446,26 +487,69 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self._item = item
         self._task_name = task_name
         self._proposal = proposal
-        self._image = _load_reference_image(experiment, item, proposal)
-        self._electron = _load_reference_image(
+        image = _load_reference_image(experiment, item, proposal)
+        self._fluorescence = image if isinstance(image, FluorescenceImage) else None
+        self._image = image if isinstance(image, FibsemImage) else None
+        electron = _load_reference_image(
             experiment, item, proposal, "reference_image_eb"
         )
-        self._gated = waiting_on(experiment, task_name)
+        self._electron = electron if isinstance(electron, FibsemImage) else None
+        self._gated = waiting_on(experiment, task_name, item)
         self._decided = None
         self._applied = None
         self.title.setText(getattr(item, "name", ""))
         self.task_chip.setText(task_name)
+        grid = isinstance(item, GridRecord)
+        self.btn_open.setText("Go to grid" if grid else "Go to lamella")
+        self.btn_open.setToolTip(
+            "Select this grid in the Grids tab, with its overviews"
+            if grid
+            else "Select this lamella in the Lamella tab, where its settings are edited"
+        )
         self.btn_confirm.setText(self.CONFIRM_LABEL)
         self.btn_confirm.setToolTip(self.PENDING_HINT)
-        for overlay in ("poi", "proposed", "confirmed"):
-            self._controller.remove_overlay(BeamType.ION, overlay)
+        # everything the last proposal put up goes first: images, overlays and
+        # the FM composite, so a result without a readable image shows none
+        self._controller.clear()
         self._controller.arm_overlay(BeamType.ION, None)
-        if self._image is not None:
-            self._controller.set_image(BeamType.ION, self._image)
-            self._draw_values()
-        if self._electron is not None:
-            self._controller.set_image(BeamType.ELECTRON, self._electron)
-        self._controller.widget.set_sem_visible(self._electron is not None)
+        view = self._controller.widget
+        if self._fluorescence is not None:
+            view.show_fluorescence()
+            self._controller.set_fm_image(self._fluorescence)
+        else:
+            view.show_beams()
+        shown = self._image is not None or self._fluorescence is not None
+        view.setVisible(shown)
+        self.no_image.setVisible(not shown)
+        recorded = str(proposal.provenance.get("reference_image") or "")
+        self.no_image.setText(
+            ""
+            if shown
+            else f"The recorded image could not be read: {os.path.basename(recorded)}"
+            if recorded
+            else "No image was recorded for this result."
+        )
+        # The result image goes on the canvas of the beam that took it: a grid's
+        # SEM overview is an electron image, and labelled FIB it misleads. A
+        # kind's values are drawn on the ion image, which is where every kind
+        # with values records them.
+        electron_only = (
+            self._image is not None
+            and self._electron is None
+            and _beam_of(self._image) is BeamType.ELECTRON
+        )
+        if electron_only:
+            self._controller.set_image(BeamType.ELECTRON, self._image)
+        else:
+            if self._image is not None:
+                self._controller.set_image(BeamType.ION, self._image)
+                self._draw_values()
+            if self._electron is not None:
+                self._controller.set_image(BeamType.ELECTRON, self._electron)
+        self._controller.widget.set_sem_visible(
+            electron_only or self._electron is not None
+        )
+        self._controller.widget.set_fib_visible(not electron_only)
         self._refresh_line()
 
     def set_running(self, running: bool) -> None:
@@ -574,7 +658,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
             colour = ORANGE_COLOR  # waiting on you now: the border's colour
             if gated:
                 tip.append("Held until you decide: " + ", ".join(gated) + ".")
-        if self._image is None:
+        if self._image is None and self._fluorescence is None:
             tip.append(
                 "The reference image was not found; confirm uses the proposed values."
             )
@@ -692,11 +776,18 @@ class PointOfInterestReviewRenderer(TaskResultReviewRenderer):
         self._controller.widget.set_sem_visible(False)
 
 
+def _beam_of(image: FibsemImage) -> Optional[BeamType]:
+    settings = getattr(getattr(image, "metadata", None), "image_settings", None)
+    return getattr(settings, "beam_type", None)
+
+
 def _load_reference_image(
     experiment: Experiment, item: Any, proposal: Proposal, key: str = "reference_image"
-) -> Optional[FibsemImage]:
+) -> Optional[Union[FibsemImage, FluorescenceImage]]:
     """The image the proposal's values sit on, from its provenance: a file
-    name relative to the item's folder (``Experiment.item_path``)."""
+    name relative to the item's folder (``Experiment.item_path``). A
+    fluorescence result (an OME-TIFF, channels and planes) loads as a
+    ``FluorescenceImage``; a beam image as a ``FibsemImage``."""
     path = proposal.provenance.get(key)
     if not path:
         return None
@@ -704,11 +795,29 @@ def _load_reference_image(
     if not os.path.exists(path):
         logging.warning(f"Reference image for review not found: {path}")
         return None
+    fluorescence = path.lower().endswith((".ome.tif", ".ome.tiff"))
     try:
+        if fluorescence:
+            return FluorescenceImage.load(path)
         return FibsemImage.load(path)
     except Exception:
         logging.exception(f"Could not load the reference image for review: {path}")
         return None
+
+
+def review_preview(image: Any) -> Optional[Any]:
+    """What an agent is shown of a proposal's image: the beam image itself,
+    or a fluorescence result's channel composite (max over z, tinted per
+    channel), the same one the FM canvas and the thumbnail show."""
+    if isinstance(image, FluorescenceImage):
+        from fibsem.fm.preview import composite_projection
+
+        try:
+            return composite_projection(image)
+        except Exception:
+            logging.exception("Could not project the fluorescence image for review")
+            return None
+    return image
 
 
 def _duration(seconds: float) -> str:
@@ -1004,7 +1113,7 @@ class ReviewTabWidget(QWidget):
             if waiting:
                 self._add_header(f"Waiting · {len(waiting)}")
             for item, task_name, proposal in waiting:
-                held = waiting_on(experiment, task_name)
+                held = waiting_on(experiment, task_name, item)
                 self._add_row(
                     summary=f"{item.name} · {task_name} · waiting",
                     widget=_InboxRow(
