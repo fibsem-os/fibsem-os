@@ -324,20 +324,18 @@ def test_attention_round_trips_through_the_protocol():
     assert cfg_.get_attention("nope") is Attention.automated
 
 
-def test_a_protocol_written_with_the_two_flags_still_loads():
-    """Before ``attention`` a task carried ``supervise`` and ``review``; the
-    interim mode string for review loads too. Supervised wins when a file has
-    both. FIB-998 removes this mapping once nothing is on that form."""
+def test_a_protocol_written_with_the_supervise_flag_still_loads():
+    """v0.5.2 wrote ``supervise`` in place of ``attention``, so every protocol
+    and experiment saved by it still loads. The ``review`` flag and the interim
+    mode strings that briefly sat beside it never shipped, and are now dropped
+    as any unknown key is, rather than mapped."""
     load = AutoLamellaTaskDescription.from_dict
     base = {"name": SETUP, "required": True, "requires": []}
     assert load({**base, "supervise": True}).attention is Attention.supervised
     assert load({**base, "supervise": False}).attention is Attention.automated
-    assert load({**base, "supervise": False, "review": True}).attention is (
-        Attention.review
-    )
-    assert load({**base, "supervise": True, "review": True}).attention is (
+    assert load(base).attention is Attention.automated, "neither key: automated"
+    assert load({**base, "review": True}).attention is Attention.automated
+    assert load({**base, "supervise": True, "review": "gate"}).attention is (
         Attention.supervised
-    )
-    for legacy, want in (("gate", Attention.review), ("advise", Attention.automated)):
-        assert load({**base, "supervise": False, "review": legacy}).attention is want
+    ), "review is dropped; supervise still decides"
     assert "supervise" not in load({**base, "supervise": True}).to_dict()

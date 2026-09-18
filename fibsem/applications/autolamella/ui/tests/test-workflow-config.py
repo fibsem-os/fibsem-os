@@ -199,7 +199,7 @@ class TestWindow(QWidget):
         )
         task = AutoLamellaTaskDescription(
             name=name,
-            supervise=random.random() < 0.5,
+            attention=random.choice([Attention.automated, Attention.supervised]),
             required=True,
             requires=requires,
         )

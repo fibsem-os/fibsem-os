@@ -364,14 +364,11 @@ class AutoLamellaTaskDescription:
             return cls(name="", required=False)
         data = dict(data)
         if "attention" not in data:
-            # Written before attention existed, as two flags. Supervised wins
-            # when a file has both: if you are at the microscope for it, you
-            # answer there. FIB-998 drops this once nothing is on that form.
-            review = data.pop("review", False)
-            if data.pop("supervise", False):
-                data["attention"] = Attention.supervised
-            elif review is True or str(review).strip().lower() in ("gate", "true"):
-                data["attention"] = Attention.review
+            # v0.5.2 and earlier wrote a supervise flag in place of attention,
+            # and every protocol and experiment saved by one of them still
+            # carries it. That form shipped, so this mapping stays; the review
+            # flag and the interim mode strings beside it never did.
+            data["attention"] = _attention(bool(data.pop("supervise", False)))
         # Known fields only: a protocol written by a newer version (with fields
         # this one does not know) must load, not crash on an unexpected kwarg.
         known = {f.name for f in fields(cls)}
