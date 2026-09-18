@@ -221,6 +221,12 @@ class GridsTabWidget(QWidget):
         for chip_name, chip in self.view_chips.items():
             chip.setChecked(chip_name == self.view)
 
+    def select_grid(self, grid: GridRecord) -> None:
+        """Select *grid* as a click would, so Results and the host follow."""
+        if self.cards.selected_grid is not grid:
+            self.cards.select_grid(grid)
+            self.cards.grid_selected.emit(grid)
+
     def show_positions(self, grid: GridRecord, path: Optional[str] = None) -> None:
         """Positions for *grid*, showing the view holding the overview at *path*."""
         if self.cards.selected_grid is not grid:

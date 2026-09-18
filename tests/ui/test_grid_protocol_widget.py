@@ -12,6 +12,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskProtocol,
     Experiment,
 )
@@ -142,6 +143,29 @@ def test_reset_puts_the_defaults_back(widget, experiment):
     assert fresh.orientation == "SEM"
     assert experiment.grid_protocol.task_config["overview_sem"] is fresh
     assert editor.orientation.currentText() == "SEM"
+
+
+def test_reset_keeps_attention_and_requires(widget, experiment):
+    widget.add_task(BEAM, "overview_sem")
+    widget.add_task(BEAM, "overview_fib")
+    config = experiment.grid_protocol.task_config["overview_fib"]
+    config.attention = Attention.review
+    config.requires = ["overview_sem"]
+    fresh = widget.reset_selected()
+    assert fresh.attention is Attention.review
+    assert fresh.requires == ["overview_sem"]
+
+
+def test_removing_a_task_drops_it_from_what_requires_it(widget, experiment):
+    widget.add_task(BEAM, "overview_sem")
+    widget.add_task(BEAM, "overview_fib")
+    experiment.grid_protocol.task_config["overview_fib"].requires = ["overview_sem"]
+    widget.remove_task("overview_sem")
+    assert experiment.grid_protocol.requirements("overview_fib") == []
+    assert (
+        saved_protocol(experiment)["grid_tasks"]["tasks"]["overview_fib"]["requires"]
+        == []
+    )
 
 
 def test_the_trash_icon_asks_first(widget, monkeypatch):

@@ -294,6 +294,29 @@ def test_go_to_lamella_selects_it_where_it_is_edited(main_ui, tmp_path):
     assert main_ui.lamella_card_container._selected_id == lamella.id
 
 
+def test_go_to_grid_selects_it_on_the_grids_tab(main_ui, tmp_path):
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskProtocol,
+        Experiment,
+        GridRecord,
+    )
+
+    ui = main_ui.autolamella_ui
+    exp = Experiment(path=tmp_path, name="goto-grid-exp")
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    grid = exp.add_grid(GridRecord(name="Grid-01"))
+    ui.experiment = exp
+    main_ui._on_experiment_update()
+    heard = []
+    main_ui.grids_tab.grid_selected.connect(heard.append)
+
+    main_ui.review_tab.open_item_requested.emit(grid)
+
+    assert main_ui.tab_widget.currentWidget() is main_ui.grids_tab
+    assert main_ui.grids_tab.selected_grid is grid
+    assert heard == [grid], "Results and the host follow, as on a click"
+
+
 def test_the_lamella_sub_tab_is_called_history_not_review(main_ui):
     """One thing in the window is called Review: the main tab where decisions
     are made. The lamella's per-task record is History, beside Protocol."""

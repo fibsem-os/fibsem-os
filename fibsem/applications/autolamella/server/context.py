@@ -851,6 +851,8 @@ class AgentContext:
         from fibsem.applications.autolamella.server.prompts import _preview_payload
         from fibsem.applications.autolamella.ui.review_tab_widget import (
             _load_reference_image,
+            is_gated,
+            review_preview,
             waiting_on,
         )
 
@@ -865,17 +867,15 @@ class AgentContext:
                     "task_name": task_name,
                     # the run this is; decide_review passes it back
                     "task_id": proposal.task_id,
-                    "gated": (
-                        protocol.get_attention(task_name) is Attention.review
-                        if protocol
-                        else False
-                    ),
-                    "waiting_on": waiting_on(experiment, task_name),
+                    "gated": is_gated(experiment, task_name, item),
+                    "waiting_on": waiting_on(experiment, task_name, item),
                 }
             )
             image = _load_reference_image(experiment, item, proposal)
+            # a fluorescence result is shown as its channel composite
+            preview = review_preview(image) if image is not None else None
             doc["reference_image"] = (
-                _preview_payload(image) if image is not None else None
+                _preview_payload(preview) if preview is not None else None
             )
             electron = _load_reference_image(
                 experiment, item, proposal, "reference_image_eb"

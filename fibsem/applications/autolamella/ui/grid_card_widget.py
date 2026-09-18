@@ -117,6 +117,21 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     history = grid.task_history
     if not history:
         return "Not run", NEUTRAL_550
+    # A task waiting on a decision is the grid's news whichever run it came
+    # from: a run that moved on and came back loads the grid again, and the
+    # waiting task sits before that load. Named, since there is one thing to do.
+    waiting = [
+        name
+        for name in dict.fromkeys(t.name for t in history)
+        if name != _LOAD_ENTRY_NAME and grid.is_awaiting_decision(name)
+    ]
+    if waiting:
+        return (
+            f"{waiting[0]} awaits a decision"
+            if len(waiting) == 1
+            else f"{len(waiting)} tasks await a decision",
+            stylesheets.DEFECT_ORANGE_COLOR,
+        )
     start = 0
     for i in range(len(history) - 1, -1, -1):
         if history[i].name == _LOAD_ENTRY_NAME:
