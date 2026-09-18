@@ -148,6 +148,8 @@ class CorrelationSetupSection(QWidget):
 
         self._apply_burn_availability()
         self.rb_prev.setEnabled(bool(self._prev_runs))
+        # no runs, no list: an empty dropdown draws as a live control
+        self.run_combo.setVisible(bool(self._prev_runs))
         # Default: previous run if one exists, else spot burns, else nothing —
         # the same precedence the editor applied implicitly before this section.
         # load_spot_burns gates the *default*, not the choice: before this section
@@ -195,6 +197,7 @@ class CorrelationSetupSection(QWidget):
         # not stretched like the image pickers that hold paths.
         self.run_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.run_combo.setMinimumContentsLength(10)
+        self.run_combo.setMinimumWidth(150)
         run_layout.addWidget(self.run_combo)
         run_layout.addStretch(1)
         col.addWidget(run_row)
@@ -203,30 +206,23 @@ class CorrelationSetupSection(QWidget):
             "Carries the FM POI + fiducials from that run forward.", indent=20
         )
         col.addWidget(self._prev_caption)
-        col.addWidget(
-            _caption("Seeded points are placed as-is — refine them on the canvas.")
-        )
         return body
 
     def _build_inherited_body(self) -> QWidget:
-        fit, ri = self._config.fit, self._config.ri
+        ri = self._config.ri
         body = QWidget()
         col = QVBoxLayout(body)
         col.setContentsMargins(8, 4, 8, 4)
         col.setSpacing(2)
-        col.addWidget(
-            _caption(
-                f"Fit — FIB {fit.fib_method} · FM POI {fit.fm_poi_method} · "
-                f"POI channel {fit.fm_poi_channel or 'not set'}"
-            )
-        )
+        # The fit settings are the Method panel's own combos, editable there;
+        # only the refractive-index values are not otherwise on the tab.
         col.addWidget(
             _caption(
                 f"RI — n₂ {ri.n2:.2f} · NA {ri.na:.2f} · "
-                f"λ {ri.wavelength_um * 1000:.0f} nm  (from FM metadata)"
+                f"λ {ri.wavelength_um * 1000:.0f} nm, from FM metadata · "
+                "edit on the RI tab"
             )
         )
-        col.addWidget(_caption("Experiment defaults; edit them on their own tabs."))
         return body
 
     # ---- state --------------------------------------------------------------
