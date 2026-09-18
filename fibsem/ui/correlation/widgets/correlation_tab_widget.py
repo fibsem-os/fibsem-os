@@ -45,7 +45,7 @@ logging.basicConfig(level=logging.INFO)
 
 import numpy as np
 from PyQt5.QtCore import QObject, Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtGui import QColor, QKeySequence
 from PyQt5.QtWidgets import (
     QAbstractSpinBox,
     QAction,
@@ -103,6 +103,7 @@ from fibsem.correlation.structures import (
     load_correlation_file,
     scale_about_surface,
 )
+from fibsem.correlation.verdict import LOO_BAD_UM, LOO_CHECK_UM
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import CameraImageTransform, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
@@ -1172,6 +1173,14 @@ class _CoordinatesTab(QWidget):
 # ---------------------------------------------------------------------------
 
 
+_PER_FIDUCIAL_NOTE = (
+    "Error is measured against the fit this fiducial helped produce, so it "
+    "flatters. Left-out error redoes the fit without the fiducial and measures "
+    "where it then lands — that is the one to judge by, and the one the verdict "
+    "acts on. A fiducial can look fine on the left and be wrong on the right."
+)
+
+
 class _ResultsTab(QWidget):
     """Correlation result summary and per-marker error table (no canvas)."""
 
@@ -1207,7 +1216,17 @@ class _ResultsTab(QWidget):
         summary_form.addRow(_form_label("Pairs"), self._lbl_pairs)
         layout.addWidget(TitledPanel("Summary", content=summary_body))
 
-        # Per-marker error table
+        # Per-marker error table. Two error columns whose difference is the
+        # whole point, so the panel says which one to judge by (FIB-1022).
+        table_body = QWidget()
+        table_layout = QVBoxLayout(table_body)
+        table_layout.setContentsMargins(8, 4, 8, 6)
+        table_layout.setSpacing(6)
+        self._lbl_table_note = QLabel(_PER_FIDUCIAL_NOTE)
+        self._lbl_table_note.setWordWrap(True)
+        self._lbl_table_note.setStyleSheet(CAPTION_STYLE)
+        table_layout.addWidget(self._lbl_table_note)
+
         self._table = QTableWidget(0, 3)
         self._table.setStyleSheet(TABLE_STYLE)
         self._table.setHorizontalHeaderLabels(
@@ -1220,8 +1239,15 @@ class _ResultsTab(QWidget):
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self._table.setMinimumHeight(120)
-        layout.addWidget(TitledPanel("Per-Fiducial Error", content=self._table))
+        table_layout.addWidget(self._table)
+        layout.addWidget(TitledPanel("Per-Fiducial Error", content=table_body))
         layout.addStretch(1)
+
+    def _set_header_tooltips(self, *tips: str) -> None:
+        for col, tip in enumerate(tips):
+            item = self._table.horizontalHeaderItem(col)
+            if item is not None:
+                item.setToolTip(tip)
 
     @staticmethod
     def _val(text: str = "—") -> QLabel:
@@ -1242,9 +1268,13 @@ class _ResultsTab(QWidget):
         diag = result.diagnostics
         markers = result.delta_2d
         if diag:
-            from fibsem.correlation.verdict import FitDiagnostics
+            from fibsem.correlation.verdict import FitDiagnostics, verdict
 
             d = FitDiagnostics.from_dict(diag)
+            # Mark a pair only when the verdict does. On a good fit the worst
+            # pair is still the worst, and colouring it contradicts a headline
+            # that says nothing stands out -- the same rule the rows follow.
+            tier = verdict(d).tier
             self._lbl_agree.setText(f"{d.agreement_um:.2f} µm")
             if d.worst is not None and d.pairs:
                 w = d.pairs[d.worst]
@@ -1280,12 +1310,39 @@ class _ResultsTab(QWidget):
             self._table.setHorizontalHeaderLabels(
                 ["Fiducial", "Error (µm)", "Left-out error (µm)"]
             )
+            self._set_header_tooltips(
+                "",
+                "How far this fiducial sits from the fit it helped produce.\n"
+                "Optimistic: the fiducial pulled that fit towards itself.",
+                "The fit redone without this fiducial, then measured against\n"
+                f"your pick. Its honest error. Over {LOO_CHECK_UM:.0f} µm is worth a\n"
+                f"look; over {LOO_BAD_UM:.0f} µm the fit is called poor.",
+            )
+            self._lbl_table_note.setText(_PER_FIDUCIAL_NOTE)
             self._table.setRowCount(len(d.pairs))
             _fit_table_height(self._table, len(d.pairs))
+            flagged = (
+                d.pairs[d.worst].index
+                if tier != "good" and d.worst is not None and d.pairs
+                else None
+            )
             for i, p in enumerate(d.pairs):
-                self._table.setItem(i, 0, _ro_item(f"FM {p.index + 1}"))
-                self._table.setItem(i, 1, _ro_item(f"{p.residual_um:.2f}"))
-                self._table.setItem(i, 2, _ro_item(f"{p.loo_error_um:.2f}"))
+                # the pair the verdict names, marked as the rows mark it, so it
+                # is findable here and not only in the sentence
+                tone = (
+                    "error"
+                    if p.loo_error_um > LOO_BAD_UM
+                    else ("warn" if p.index == flagged else None)
+                )
+                cells = [
+                    _ro_item(f"FM {p.index + 1}"),
+                    _ro_item(f"{p.residual_um:.2f}"),
+                    _ro_item(f"{p.loo_error_um:.2f}"),
+                ]
+                for col, item in enumerate(cells):
+                    if tone:
+                        item.setForeground(QColor(state_color(tone)))
+                    self._table.setItem(i, col, item)
         else:
             self._lbl_agree.setText(dist(result.rms_error) + " (RMS)")
             self._lbl_worst.setText("—")
@@ -1294,6 +1351,12 @@ class _ResultsTab(QWidget):
             self._lbl_scale.setText(f"{result.scale:.4f} (fitted)")
             self._lbl_pairs.setText(str(len(markers)))
             self._table.setHorizontalHeaderLabels(["Fiducial", "dx (px)", "dy (px)"])
+            self._set_header_tooltips("", "", "")
+            self._lbl_table_note.setText(
+                "How far each fiducial sits from this fit, in the FIB image. "
+                "Run again on a seeded fit to get the left-out error, which is "
+                "the honest one."
+            )
             self._table.setRowCount(len(markers))
             _fit_table_height(self._table, len(markers))
             for i, pt in enumerate(markers):

@@ -619,9 +619,18 @@ def test_a_seeded_run_shows_the_verdict_and_annotates_the_rows(loaded):
     # the Results tab speaks the same language
     assert loaded._results_tab._lbl_worst.text().startswith("FM 7, 1.40 µm off")
     assert "determined by the fiducials" in loaded._results_tab._lbl_depth.text()
-    assert loaded._results_tab._table.horizontalHeaderItem(2).text() == (
-        "Left-out error (µm)"
-    )
+    rt = loaded._results_tab
+    assert rt._table.horizontalHeaderItem(2).text() == "Left-out error (µm)"
+    # the panel says which column to judge by, and why the other flatters
+    assert "Left-out error" in rt._lbl_table_note.text()
+    assert "flatters" in rt._lbl_table_note.text()
+    assert "helped produce" in rt._table.horizontalHeaderItem(1).toolTip()
+    assert "without this fiducial" in rt._table.horizontalHeaderItem(2).toolTip()
+    # the flagged pair is marked in the table, as it is on the rows
+    from fibsem.ui.tokens import WARN_COLOR
+
+    assert rt._table.item(6, 2).foreground().color().name() == WARN_COLOR
+    assert rt._table.item(0, 2).foreground().color().name() != WARN_COLOR
     # an edit clears the notes: they describe a run that no longer matches
     _fm(loaded)[0].point.x += 1.0
     loaded._on_canvas_moved(_fm(loaded)[0])
