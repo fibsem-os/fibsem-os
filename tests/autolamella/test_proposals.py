@@ -846,8 +846,90 @@ def test_decide_refuses_a_missing_item_or_proposal(tmp_path):
     assert exp.decide(lamella.id, SETUP, confirm).applied is False
 
 
-def test_decide_refuses_while_a_task_is_running_on_the_item(tmp_path):
-    """A decision under a running consumer is a stop, not a decision."""
+def _running(lamella, task_name):
+    lamella.task_state.name = task_name
+    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+
+
+def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
+    """FIB-1008: a grid's tasks run back to back, so something is nearly always
+    running on the item whose earlier result is being looked at. An
+    acknowledgement writes nothing, so it lands."""
+    exp = _experiment(tmp_path)
+    lamella = exp.positions[0]
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.Completed)
+    )
+    lamella.proposals[SETUP] = _proposal()
+    lamella.proposals[SETUP].decisions.append(
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            author=auto_author("centre"),
+            values={"poi": Point(1e-6, 2e-6)},
+        )
+    )
+    _running(lamella, ROUGH)
+    before = _snapshot(lamella)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op"),
+    )
+
+    assert result.applied is True and result.running is False
+    assert not lamella.proposals[SETUP].to_check, "the look is recorded"
+    assert _snapshot(lamella)[:2] == before[:2], "poi and patterns untouched"
+
+
+def test_rejecting_a_task_that_is_not_the_one_running_lands(tmp_path):
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    _running(lamella, ROUGH)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="no site",
+        ),
+    )
+
+    assert result.applied is True
+    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_state.status is AutoLamellaTaskStatus.InProgress, (
+        "the running task is left alone"
+    )
+
+
+def test_deciding_the_task_that_is_running_is_still_refused(tmp_path):
+    """The original case: the answer is Stop, not a decision."""
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    _running(lamella, SETUP)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="stop",
+        ),
+    )
+
+    assert result.applied is False and result.running is True
+    assert f"is running {SETUP}" in result.reason
+    assert lamella.proposals[SETUP].pending
+
+
+def test_decide_refuses_a_value_written_under_any_running_task(tmp_path):
+    """Values reach the item a running task is reading: that is a stop."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.proposals[SETUP] = _proposal()

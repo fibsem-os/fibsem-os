@@ -1860,8 +1860,11 @@ class Experiment:
         task that already finished (a result someone checks) changes nothing
         but the record.
 
-        Refused, without a write, when there is no such proposal, or when the
-        item has a task in progress: a decision then is a stop, not a decision.
+        Refused, without a write, when there is no such proposal; when the task
+        being decided is the one running on the item (a decision then is a stop,
+        not a decision); or when a decision carrying values arrives while any
+        task runs on the item. Looking at what an earlier task did, while a
+        later one runs, is not refused: it writes nothing.
         """
         return _call_on_main_thread(self._decide, item_id, task_name, decision)
 
@@ -1880,12 +1883,26 @@ class Experiment:
                     applied=False,
                     reason=f"{item.name} has no proposal from {task_name!r}.",
                 )
-            if item.task_state.status is AutoLamellaTaskStatus.InProgress:
+            # A decision while something runs on the item is refused only where
+            # it could reach that run: the task being decided is the one running
+            # (the answer there is Stop, not a decision), or the decision writes
+            # values the running task may be reading. Looking at an earlier
+            # task's result writes nothing, and a grid's tasks run back to back,
+            # so anything stricter refuses the ordinary case (FIB-1008).
+            running = item.task_state.status is AutoLamellaTaskStatus.InProgress
+            if running and item.task_state.name == task_name:
+                return DecisionResult(
+                    applied=False,
+                    running=True,
+                    reason=f"{item.name} is running {task_name}; "
+                    "stop it rather than deciding under it.",
+                )
+            if running and decision.values:
                 return DecisionResult(
                     applied=False,
                     running=True,
                     reason=f"{item.name} is running {item.task_state.name}; "
-                    "stop it rather than deciding under it.",
+                    f"stop it before writing {sorted(decision.values)} through.",
                 )
             if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
                 return DecisionResult(applied=False, reason="A reject needs a reason.")
