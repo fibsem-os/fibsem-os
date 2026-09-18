@@ -326,9 +326,25 @@ class AutoLamellaTaskConfig(ABC):
         self.reference_imaging.imaging = value
 
 
-def _attention(supervised: bool) -> Attention:
-    """An old protocol's per-stage supervision flag as an attention."""
-    return Attention.supervised if supervised else Attention.automated
+def attention_from(value: Any, where: str = "") -> Attention:
+    """A stored value as an ``Attention``, for the loaders.
+
+    Takes what a record can hold: an attention's own value, or the boolean
+    supervise flag that stood in its place before it -- v0.5.2's task
+    descriptions, and the per-stage supervision of the protocol before them.
+    A value this build does not know reads as automated with a warning
+    naming ``where``, because one unreadable field must not drop the whole
+    task. For loaders: ``Attention(x)`` still raises on a bad literal in
+    code, which is where it should.
+    """
+    if isinstance(value, bool):
+        return Attention.supervised if value else Attention.automated
+    try:
+        return Attention(value)
+    except ValueError:
+        on = f" on {where}" if where else ""
+        logging.warning(f"Unknown attention {value!r}{on}; read as automated.")
+        return Attention.automated
 
 
 @evented
@@ -368,7 +384,7 @@ class AutoLamellaTaskDescription:
             # and every protocol and experiment saved by one of them still
             # carries it. That form shipped, so this mapping stays; the review
             # flag and the interim mode strings beside it never did.
-            data["attention"] = _attention(bool(data.pop("supervise", False)))
+            data["attention"] = attention_from(bool(data.pop("supervise", False)))
         # Known fields only: a protocol written by a newer version (with fields
         # this one does not know) must load, not crash on an unexpected kwarg.
         known = {f.name for f in fields(cls)}
@@ -817,21 +833,21 @@ class AutoLamellaTaskProtocol:
             workflow_config.tasks = [
                 AutoLamellaTaskDescription(
                     name=SETUP_LAMELLA_POSITION_TASK_NAME,
-                    attention=_attention(
+                    attention=attention_from(
                         protocol.supervision[AutoLamellaStage.SetupLamella]
                     ),
                     required=True,
                 ),
                 AutoLamellaTaskDescription(
                     name=MILL_FIDUCIAL_TASK_NAME,
-                    attention=_attention(
+                    attention=attention_from(
                         protocol.supervision[AutoLamellaStage.SetupLamella]
                     ),
                     required=True,
                 ),
                 AutoLamellaTaskDescription(
                     name=ROUGH_MILLING_TASK_NAME,
-                    attention=_attention(
+                    attention=attention_from(
                         protocol.supervision[AutoLamellaStage.MillRough]
                     ),
                     required=True,
@@ -839,7 +855,7 @@ class AutoLamellaTaskProtocol:
                 ),
                 AutoLamellaTaskDescription(
                     name=POLISHING_TASK_NAME,
-                    attention=_attention(
+                    attention=attention_from(
                         protocol.supervision[AutoLamellaStage.MillPolishing]
                     ),
                     required=True,
@@ -862,7 +878,7 @@ class AutoLamellaTaskProtocol:
                 0,
                 AutoLamellaTaskDescription(
                     name=TRENCH_MILLING_TASK_NAME,
-                    attention=_attention(
+                    attention=attention_from(
                         protocol.supervision[AutoLamellaStage.MillTrench]
                     ),
                     required=True,
@@ -884,7 +900,7 @@ class AutoLamellaTaskProtocol:
                 1,
                 AutoLamellaTaskDescription(
                     name=UNDERCUT_TASK_NAME,
-                    attention=_attention(
+                    attention=attention_from(
                         protocol.supervision[AutoLamellaStage.MillUndercut]
                     ),
                     required=True,

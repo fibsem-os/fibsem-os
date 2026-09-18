@@ -36,6 +36,7 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskStatus,
     GridRecord,
+    attention_from,
     get_fields_with_metadata,
 )
 from fibsem.applications.autolamella.workflows.tasks.proposing import settle
@@ -104,7 +105,9 @@ class GridTaskConfig(ABC):
             if f.name not in data:
                 continue
             if f.name == "attention":
-                kwargs[f.name] = _attention(data[f.name], data.get("task_name", ""))
+                kwargs[f.name] = attention_from(
+                    data[f.name], f"grid task '{data.get('task_name', '')}'"
+                )
                 continue
             if f.name == "requires":
                 kwargs[f.name] = _requires(data[f.name], data.get("task_name", ""))
@@ -131,19 +134,6 @@ def _requires(value: Any, task_name: str) -> List[str]:
         "names; read as none."
     )
     return []
-
-
-def _attention(value: Any, task_name: str) -> Attention:
-    """A stored attention, or automated with a warning: a value this build does
-    not know must not drop the whole task from the protocol."""
-    try:
-        return Attention(value)
-    except ValueError:
-        logging.warning(
-            f"Unknown attention {value!r} on grid task '{task_name}'; "
-            "read as automated."
-        )
-        return Attention.automated
 
 
 def _serialise(value: Any) -> Any:
