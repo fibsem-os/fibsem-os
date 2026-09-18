@@ -1,5 +1,7 @@
-"""A supervised coincidence mill over the Responder seam opens the viewer in
-monitor mode; an unsupervised one never does (FIB-912).
+"""Coincidence milling over the Responder seam. Supervised: one question,
+RunCoincidenceMilling, that the viewer's run mode answers -- the viewer runs
+the mill. Automated: the task runs it and tells the viewer to watch and let
+go (FIB-912).
 
 A real AutoLamellaUI on the simulated Arctis, the milling question asked from
 a worker thread as the task asks it. The mill itself is stubbed at the milling
@@ -20,7 +22,12 @@ import yaml
 pytest.importorskip("PyQt5")
 pytest.importorskip("napari")
 
-from fibsem.applications.autolamella.workflows.interaction import RunMillingTask, ask
+from fibsem.applications.autolamella.workflows.interaction import (
+    ReleaseCoincidenceMilling,
+    RunCoincidenceMilling,
+    WatchCoincidenceMilling,
+    ask,
+)
 
 MSG = "Coincidence mill: check the boxes, then run."
 
@@ -119,52 +126,121 @@ def _viewer(ui):
     return getattr(ui, "_coincidence_viewer_window", None)
 
 
-def test_supervised_mill_opens_the_viewer_attached_then_releases_it(ui, qapp):
-    request = RunMillingTask(
-        config=_coincidence_config(), enabled=True, confirm=lambda: True, message=MSG
+def test_supervised_mill_is_run_from_the_viewer_and_continue_answers_it(ui, qapp):
+    lamella = ui.experiment.positions[0]
+    request = RunCoincidenceMilling(
+        lamella=lamella, milling_config=_coincidence_config(), message=MSG
     )
     thread, outcome = _ask_on_worker_thread(ui, request)
     _pump_until(
         qapp,
-        lambda: ui.label_instructions.text() == MSG and ui.pushButton_yes.isEnabled(),
-        what="the Run Milling prompt",
-    )
-
-    ui.pushButton_yes.click()  # Run Milling
-    _pump_until(
-        qapp,
-        lambda: _viewer(ui) is not None and _viewer(ui).in_monitor_mode,
-        what="the viewer in monitor mode",
+        lambda: _viewer(ui) is not None and _viewer(ui).in_run_mode,
+        what="the viewer in run mode",
     )
     viewer = _viewer(ui)
-    running = ui.milling_task_config_widget.milling_widget.running_config
+    # the main window's prompt is the same question, Continue only
+    assert ui.label_instructions.text() == MSG
+    assert not ui.pushButton_no.isVisible()
+    # the milling tab was not touched
+    assert ui.milling_task_config_widget.milling_widget.running_config is None
+
+    if viewer.fm_canvas._img_shape is None:
+        viewer.set_fm_image(ui.microscope.fm.acquire_image())
+        qapp.processEvents()
+    H, W = viewer.fm_canvas._img_shape
+    viewer.fm_canvas.rect_overlay.set_rect(0.1 * W, 0.2 * H, 0.3 * W, 0.4 * H)
+    qapp.processEvents()
+
+    viewer.btn_milling.click()  # Start Milling: the viewer's own widget runs it
+    _pump_until(qapp, lambda: viewer._is_milling_active, what="the mill to start")
+    running = viewer.milling_viewer_widget.milling_widget.running_config
     assert running is not None
-    # attached to the strategies of the config actually being run
-    assert viewer._active_strategies == [
-        stage.strategy for stage in running.enabled_stages
-    ]
+    assert running.enabled_stages[0].strategy.config.bbox.left == pytest.approx(
+        0.1, abs=0.01
+    )
 
-    # the (stubbed) mill finishes: the viewer is released, the prompt is re-parked
-    ui._mill_gate.set()
-    _pump_until(qapp, lambda: not viewer.in_monitor_mode, what="monitor released")
+    ui._mill_gate.set()  # the stubbed mill finishes
+    _pump_until(qapp, lambda: not viewer._is_milling_active, what="the mill to end")
+    assert viewer.in_run_mode  # still ours: run again, or Continue
+
+    viewer.btn_setup_skip.click()  # Continue, from the viewer
+    _pump_until(qapp, lambda: not thread.is_alive(), what="the waiter to return")
+    assert "error" not in outcome, outcome.get("error")
+    answered = outcome["config"]
+    assert answered is not None
+    assert answered.enabled_stages[0].strategy.config.bbox.left == pytest.approx(
+        0.1, abs=0.01
+    )
+    assert not viewer.in_run_mode
+    assert not viewer.isVisible()  # Continue puts the window away
+    assert ui.hold is None
+
+
+def test_continue_without_milling_answers_none(ui, qapp):
+    lamella = ui.experiment.positions[0]
+    request = RunCoincidenceMilling(
+        lamella=lamella, milling_config=_coincidence_config(), message=MSG
+    )
+    thread, outcome = _ask_on_worker_thread(ui, request)
     _pump_until(
         qapp,
-        lambda: ui.label_instructions.text() == MSG and ui.pushButton_yes.isEnabled(),
-        what="the re-parked prompt",
+        lambda: _viewer(ui) is not None and _viewer(ui).in_run_mode,
+        what="the viewer in run mode",
     )
-    ui.pushButton_no.click()  # Continue
+    ui.pushButton_yes.click()  # the main window's Continue answers too
     _pump_until(qapp, lambda: not thread.is_alive(), what="the waiter to return")
     assert "error" not in outcome, outcome.get("error")
-    assert outcome["config"].name == request.config.name
+    assert outcome["config"] is None
+    viewer = _viewer(ui)
+    assert not viewer.in_run_mode
+    assert not viewer.isVisible()
 
-
-def test_unsupervised_mill_never_opens_the_viewer(ui, qapp):
-    request = RunMillingTask(
-        config=_coincidence_config(), enabled=True, confirm=lambda: False, message=MSG
-    )
-    ui._mill_gate.set()  # nothing to observe mid-run: let the mill finish at once
+    # the next site's question brings the same window back, not a new one
     thread, outcome = _ask_on_worker_thread(ui, request)
+    _pump_until(qapp, lambda: _viewer(ui).in_run_mode, what="the viewer again")
+    assert _viewer(ui) is viewer and viewer.isVisible()
+    ui.pushButton_yes.click()
     _pump_until(qapp, lambda: not thread.is_alive(), what="the waiter to return")
+
+
+def test_an_automated_mill_is_watched_then_released(ui, qapp):
+    """The task runs the mill itself and tells the viewer to attach and let go;
+    the viewer's Stop is the task's stop."""
+    config = _coincidence_config()
+    stops = []
+    thread, outcome = _ask_on_worker_thread(
+        ui,
+        WatchCoincidenceMilling(
+            milling_config=config, stop=lambda: stops.append(1), title="Coincident"
+        ),
+    )
+    _pump_until(qapp, lambda: not thread.is_alive(), what="the watch to be taken")
     assert "error" not in outcome, outcome.get("error")
     viewer = _viewer(ui)
-    assert viewer is None or not viewer.in_monitor_mode
+    assert viewer is not None and viewer.in_monitor_mode
+    assert viewer.label_task_lock.text() == "Task owns this run"
+    # attached to the very strategies the task is milling with
+    assert viewer._active_strategies == [
+        stage.strategy for stage in config.enabled_stages
+    ]
+    # the run's chrome arrives via the progress signal as for any mill; only
+    # then does the button read Stop (before that it is Start, a manual run)
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    viewer._on_milling_progress(
+        MillingProgress(
+            status=MillingProgressStatus.STAGE_STARTED,
+            stage_name="Coincident Milling 01",
+            current_stage=0,
+            total_stages=1,
+        )
+    )
+    qapp.processEvents()
+    assert viewer.btn_milling.text() == "Stop Milling"
+    viewer.btn_milling.click()  # Stop: the task's stop, not the viewer's mill
+    assert stops == [1]
+
+    thread, outcome = _ask_on_worker_thread(ui, ReleaseCoincidenceMilling())
+    _pump_until(qapp, lambda: not thread.is_alive(), what="the release")
+    assert "error" not in outcome, outcome.get("error")
+    assert not viewer.in_monitor_mode

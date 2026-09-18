@@ -2779,6 +2779,16 @@ class AutoLamellaUI(QMainWindow):
         # aborting waiter cancels its future — by the time this runs, the
         # workflow thread has exited, so anything still parked belongs to nobody.
         self.ui_responder.abandon()
+        # Likewise the coincidence viewer: a setup step holds it between sites
+        # (and an aborted one leaves it locked to the site it was handed), and
+        # the release must not depend on the widgets the early returns guard.
+        viewer = getattr(self, "_coincidence_viewer_window", None)
+        if viewer is not None and (viewer.in_setup_mode or viewer.is_holding_setup):
+            viewer.exit_setup_mode()
+        if viewer is not None and viewer.in_monitor_mode:
+            viewer.exit_monitor_mode()
+        if viewer is not None and viewer.in_run_mode:
+            viewer.exit_run_mode()
         if self.image_widget is None:
             return
         if self.microscope is None:
@@ -2805,15 +2815,6 @@ class AutoLamellaUI(QMainWindow):
         if self.spot_burn_widget is not None:
             self.spot_burn_widget.set_workflow_mode(False)
             self.spot_burn_widget.clear_points_layer()
-
-        # release the coincidence viewer: an aborted setup step leaves it locked to
-        # the site it was handed (no-op after a normal completion, where the answer
-        # already released it)
-        viewer = getattr(self, "_coincidence_viewer_window", None)
-        if viewer is not None and viewer.in_setup_mode:
-            viewer.exit_setup_mode()
-        if viewer is not None and viewer.in_monitor_mode:
-            viewer.exit_monitor_mode()
 
         # clear detection layers
         if self.det_widget is not None:

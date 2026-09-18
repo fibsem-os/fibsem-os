@@ -816,8 +816,10 @@ class ObjectiveControlWidget(QWidget):
         if "Shift" not in modifiers:
             return  # plain scroll -> canvas zoom
 
-        if self.parent_widget is None:
-            return
+        # No parent_widget gate here: nothing below needs one. The busy check asks
+        # the microscope, the flash goes to the canvas that sent the event, and a
+        # host that builds this widget standalone (the coincidence viewer) still
+        # wants Shift+scroll to focus.
         # The microscope's answer, not the parent's: `is_acquisition_active` is only that
         # widget's own work, so another tab's tileset went straight through here
         # (FIB-513), and neither of them notices this widget's threaded insert or retract
