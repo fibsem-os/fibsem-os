@@ -846,8 +846,10 @@ def test_decide_refuses_a_missing_item_or_proposal(tmp_path):
     assert exp.decide(lamella.id, SETUP, confirm).applied is False
 
 
-def _running(lamella, task_name):
+def _running(lamella, task_name, task_id="run-2"):
+    """The item has a run in progress: which task, and which run of it."""
     lamella.task_state.name = task_name
+    lamella.task_state.task_id = task_id
     lamella.task_state.status = AutoLamellaTaskStatus.InProgress
 
 
@@ -906,11 +908,11 @@ def test_rejecting_a_task_that_is_not_the_one_running_lands(tmp_path):
     )
 
 
-def test_deciding_the_task_that_is_running_is_still_refused(tmp_path):
+def test_deciding_the_run_that_is_in_progress_is_still_refused(tmp_path):
     """The original case: the answer is Stop, not a decision."""
     exp = _experiment(tmp_path)
     lamella = _awaiting(exp, _proposal())
-    _running(lamella, SETUP)
+    _running(lamella, SETUP, task_id=RUN)  # the run the proposal is from
 
     result = exp.decide(
         lamella.id,
@@ -928,13 +930,39 @@ def test_deciding_the_task_that_is_running_is_still_refused(tmp_path):
     assert lamella.proposals[SETUP].pending
 
 
+def test_a_rerun_of_the_same_task_does_not_block_looking_at_the_earlier_run(
+    tmp_path,
+):
+    """It is the run that matters, not the task name: a second run of the task
+    is a different run, and the result being looked at is the first one's."""
+    exp = _experiment(tmp_path)
+    lamella = _awaiting(exp, _proposal())
+    _running(lamella, SETUP, task_id="run-2")
+    before = _snapshot(lamella)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="the first attempt missed",
+        ),
+    )
+
+    assert result.applied is True and result.running is False
+    assert _snapshot(lamella)[:2] == before[:2], "poi and patterns untouched"
+    assert lamella.task_state.task_id == "run-2", "the running run is left alone"
+    assert lamella.task_state.status is AutoLamellaTaskStatus.InProgress
+
+
 def test_decide_refuses_a_value_written_under_any_running_task(tmp_path):
     """Values reach the item a running task is reading: that is a stop."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.proposals[SETUP] = _proposal()
-    lamella.task_state.name = ROUGH
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    _running(lamella, ROUGH)
 
     result = exp.decide(
         lamella.id,

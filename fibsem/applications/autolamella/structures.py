@@ -1860,11 +1860,12 @@ class Experiment:
         task that already finished (a result someone checks) changes nothing
         but the record.
 
-        Refused, without a write, when there is no such proposal; when the task
-        being decided is the one running on the item (a decision then is a stop,
-        not a decision); or when a decision carrying values arrives while any
-        task runs on the item. Looking at what an earlier task did, while a
-        later one runs, is not refused: it writes nothing.
+        Refused, without a write, when there is no such proposal; when the run
+        being decided is the run in progress (a decision then is a stop, not a
+        decision); or when a decision carrying values arrives while any task
+        runs on the item. Looking at what an earlier run did, while a later one
+        runs, is not refused: it writes nothing -- including an earlier run of
+        the task that is running now.
         """
         return _call_on_main_thread(self._decide, item_id, task_name, decision)
 
@@ -1884,13 +1885,15 @@ class Experiment:
                     reason=f"{item.name} has no proposal from {task_name!r}.",
                 )
             # A decision while something runs on the item is refused only where
-            # it could reach that run: the task being decided is the one running
+            # it could reach that run: the proposal is from the run in progress
             # (the answer there is Stop, not a decision), or the decision writes
-            # values the running task may be reading. Looking at an earlier
-            # task's result writes nothing, and a grid's tasks run back to back,
-            # so anything stricter refuses the ordinary case (FIB-1008).
+            # values the running task may be reading. The run, not the task
+            # name -- a task that has re-run is still running when its earlier
+            # result is looked at, and that look writes nothing. A grid's tasks
+            # run back to back, so anything stricter refuses the ordinary case
+            # (FIB-1008).
             running = item.task_state.status is AutoLamellaTaskStatus.InProgress
-            if running and item.task_state.name == task_name:
+            if running and proposal.task_id == item.task_state.task_id:
                 return DecisionResult(
                     applied=False,
                     running=True,

@@ -330,7 +330,10 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
         assert resp.status_code == 409
         assert resp.json()["detail"]["error_type"] == "running"
 
-        lamella.task_state.name = SETUP  # now the task being decided is running
+        # now the run being decided is the run in progress: a stop, not a
+        # decision, even though it carries no values
+        lamella.task_state.name = SETUP
+        lamella.task_state.task_id = RUN
         resp = _post_on_worker(
             qapp,
             client,
@@ -340,7 +343,6 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
                 "task_name": SETUP,
                 "task_id": RUN,
                 "outcome": "Confirmed",
-                "values": {"poi": {"x": 1e-6, "y": 0.0}},
             },
         )
         assert resp.status_code == 409
