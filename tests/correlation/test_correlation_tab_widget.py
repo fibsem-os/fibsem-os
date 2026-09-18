@@ -916,6 +916,48 @@ def test_discover_correlation_files(tmp_path):
     assert os.path.basename(found["result"]) == "correlation_result.json"
 
 
+def test_a_run_folder_takes_its_images_from_the_lamella_above(tmp_path):
+    """A run folder holds only the JSON; the images are one level up. The
+    launcher walks up for them, preferring the post-burn reference the
+    fiducials were picked on over the lamella's other references."""
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
+        _discover_correlation_files,
+        _images_beside_a_run,
+    )
+
+    lamella = tmp_path / "02-pro-moose"
+    run = lamella / "Correlation" / "2026-09-13_20-56-15"
+    run.mkdir(parents=True)
+    (tmp_path / "experiment.yaml").write_text("{}")
+    for name in (
+        "ref_Mill Fiducial_final_res_01_ib.tif",
+        "ref_Spot Burn Fiducial_final_res_01_ib.tif",
+        "ref_Spot Burn Fiducial_final_res_02_ib.tif",
+        "ref_Spot Burn Fiducial_start_ib.tif",
+        "02-pro-moose-zstack.ome.tiff",
+    ):
+        (lamella / name).write_bytes(b"")
+    (run / "correlation.json").write_text("{}")
+
+    # the run folder alone offers no images
+    assert _discover_correlation_files(str(run))["fib"] is None
+    assert _discover_correlation_files(str(run))["fm"] is None
+
+    found = _images_beside_a_run(str(lamella))
+    # the spot-burn task's final reference, not the alphabetically first _ib
+    assert os.path.basename(found["fib"]) == (
+        "ref_Spot Burn Fiducial_final_res_02_ib.tif"
+    )
+    assert os.path.basename(found["fm"]) == "02-pro-moose-zstack.ome.tiff"
+
+    # with no spot-burn reference it falls back to whatever ion-beam image is there
+    (lamella / "ref_Spot Burn Fiducial_final_res_01_ib.tif").unlink()
+    (lamella / "ref_Spot Burn Fiducial_final_res_02_ib.tif").unlink()
+    assert os.path.basename(_images_beside_a_run(str(lamella))["fib"]).endswith(
+        "_ib.tif"
+    )
+
+
 def test_discover_fib_falls_back_to_non_ome_tif(tmp_path):
     """With no *_ib.tif, the FIB is the first TIFF that isn't the OME-TIFF."""
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
