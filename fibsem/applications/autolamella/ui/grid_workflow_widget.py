@@ -213,6 +213,9 @@ class _TaskRow(QWidget):
         super().__init__(parent)
         self.config = config
         self._reason: Optional[str] = None
+        # Whether another task in the protocol requires this one: what a Review
+        # state needs to be honest about (nothing waits on a task nothing uses).
+        self._has_dependents = False
         self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 3, 6, 3)
@@ -268,6 +271,11 @@ class _TaskRow(QWidget):
         self._reason = reason
         self.refresh()
 
+    def set_has_dependents(self, has_dependents: bool) -> None:
+        if has_dependents != self._has_dependents:
+            self._has_dependents = has_dependents
+            self.refresh()
+
     def _toggle_attention(self) -> None:
         self.config.attention = (
             Attention.automated
@@ -285,13 +293,23 @@ class _TaskRow(QWidget):
             f"background: transparent; "
             f"color: {NEUTRAL_200 if available else NEUTRAL_550};",
         )
+        # the column carries the warning when a Review holds nothing; a reason
+        # this system cannot run the task still comes first
+        nothing_waits = (
+            available and _review_available() and self._reviewed_without_dependents
+        )
         self.detail_label.setText(
-            self.config.display_name if available else self._reason
+            self._reason
+            if not available
+            else "nothing waits on this"
+            if nothing_waits
+            else self.config.display_name
         )
         self.detail_label.setToolTip(self._reason or "")
         style_with_tooltip(
             self.detail_label,
-            f"background: transparent; color: {NEUTRAL_700}; "
+            f"background: transparent; "
+            f"color: {stylesheets.WARN_COLOR if nothing_waits else NEUTRAL_700}; "
             f"font-size: {_SIDE_FONT_PX}px;",
         )
         self._refresh_attention()
@@ -299,6 +317,10 @@ class _TaskRow(QWidget):
             self.checkbox.setChecked(False)
         self.checkbox.setEnabled(available)
         self.checkbox.setToolTip(self._reason or "")
+
+    @property
+    def _reviewed_without_dependents(self) -> bool:
+        return self.config.attention is Attention.review and not self._has_dependents
 
     def _refresh_attention(self) -> None:
         review_available = _review_available()
@@ -310,7 +332,12 @@ class _TaskRow(QWidget):
             colour = stylesheets.REVIEW_COLOR
             tooltip = (
                 "Review — the task ends waiting for your decision in the Review "
-                "tab, with what it acquired to look at. Click for Automated."
+                "tab, with what it acquired to look at; the tasks that require "
+                "it wait on that decision. Click for Automated."
+                if self._has_dependents
+                else "Review — but no task requires this one, so nothing waits "
+                "on the decision: what it acquired is in the Review tab to look "
+                "at, and the run goes on. Click for Automated."
             )
         else:
             colour = stylesheets.AUTOMATED_COLOR
@@ -536,6 +563,13 @@ class GridWorkflowWidget(QWidget):
                 row.attention_changed.connect(self._on_attention_changed)
                 _add_row(self.task_list, row, key=name)
                 self._task_rows[name] = row
+            required = {
+                req
+                for config in protocol.task_config.values()
+                for req in config.requires
+            }
+            for name, row in self._task_rows.items():
+                row.set_has_dependents(name in required)
                 # Every task ticked by default: the usual run is the whole protocol.
                 row.checkbox.setChecked(name in checked_tasks or not checked_tasks)
         # The header box reads the rows, so its next click means the opposite.

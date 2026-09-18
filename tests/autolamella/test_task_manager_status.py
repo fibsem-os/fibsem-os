@@ -312,6 +312,89 @@ def test_a_prerequisite_still_in_the_queue_defers_rather_than_skips(tmp_path):
     assert all(i.status is Status.Completed for i in m.queue.items)
 
 
+def _one_lamella_manager(tmp_path):
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
+    )
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    m.review_enabled = True
+    return m, experiment.get_lamella_by_name("L1")
+
+
+def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_failed(tmp_path):
+    """FIB-1006: the latest run of a requirement is the answer."""
+    m, lamella = _one_lamella_manager(tmp_path)
+    m.queue.build_from_matrix(["Undercut"], ["L1"])
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.Completed)
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.Failed)
+    )
+    assert lamella.has_completed_task("Trench"), "the old success is still history"
+    assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
+
+
+def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_was_rejected(
+    tmp_path,
+):
+    from fibsem.applications.autolamella.proposals import (
+        Decision,
+        DecisionOutcome,
+        Proposal,
+    )
+
+    m, lamella = _one_lamella_manager(tmp_path)
+    m.queue.build_from_matrix(["Undercut"], ["L1"])
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.Completed)
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
+    )
+    lamella.proposals["Trench"] = Proposal(
+        kind="task_result", provenance={"task_id": "run-2"}
+    )
+    assert m._defer_reason(lamella, "Undercut") == "awaiting_decision"
+
+    m.experiment._decide(
+        lamella.id,
+        "Trench",
+        Decision(
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="no",
+            task_id="run-2",
+        ),
+    )
+
+    assert m._defer_reason(lamella, "Undercut") is None
+    assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
+
+
+def test_a_queued_rerun_of_a_requirement_outranks_its_old_success(tmp_path):
+    """Undercut is selected before Trench's rerun: it waits for the rerun, and
+    is skipped when the rerun fails, whatever the earlier Trench did."""
+    m, lamella = _one_lamella_manager(tmp_path)
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.Completed)
+    )
+    m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
+    assert m._defer_reason(lamella, "Undercut") == "prereq_pending"
+
+    def rerun_fails(task_name, lam):
+        status = Status.Failed if task_name == "Trench" else Status.Completed
+        lam.task_history.append(AutoLamellaTaskState(name=task_name, status=status))
+
+    executed = run_queue_with(m, rerun_fails)
+
+    assert executed == [("L1", "Trench")], "Undercut waited, then was skipped"
+    (undercut,) = [i for i in m.queue.items if i.task_name == "Undercut"]
+    assert undercut.status is Status.Skipped
+
+
 def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     """Trench ran and waits on a decision: it is not finished, so Undercut waits.
     It stays pending -- not Skipped -- and runs once the decision lands, which

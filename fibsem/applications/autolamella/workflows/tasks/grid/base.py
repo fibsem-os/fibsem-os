@@ -14,7 +14,7 @@ import os
 import uuid
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -70,13 +70,16 @@ class GridTaskConfig(ABC):
     # automated while the review preference is off. A grid task asks nothing
     # while it runs, so supervised reads as automated too.
     attention: Attention = Attention.automated
+    # The tasks, by name, whose result this one uses, as on the lamella
+    # workflow: it waits while one of them awaits a decision or is still queued
+    # for the grid, and is skipped when one of them did not complete. Empty:
+    # it runs whatever happened before it on the grid.
+    requires: List[str] = field(default_factory=list)
 
     @property
     def parameters(self) -> Tuple[str, ...]:
         """The task-specific fields, in declaration order: what a form shows."""
-        return tuple(
-            f.name for f in fields(self) if f.name not in ("task_name", "attention")
-        )
+        return tuple(f.name for f in fields(self) if f.name not in _WORKFLOW_FIELDS)
 
     @property
     def field_metadata(self) -> Dict[str, Dict[str, Any]]:
@@ -87,6 +90,7 @@ class GridTaskConfig(ABC):
             "task_type": self.task_type,
             "task_name": self.task_name,
             "attention": self.attention.value,
+            "requires": list(self.requires),
         }
         for name in self.parameters:
             data[name] = _serialise(getattr(self, name))
@@ -102,11 +106,31 @@ class GridTaskConfig(ABC):
             if f.name == "attention":
                 kwargs[f.name] = _attention(data[f.name], data.get("task_name", ""))
                 continue
+            if f.name == "requires":
+                kwargs[f.name] = _requires(data[f.name], data.get("task_name", ""))
+                continue
             kwargs[f.name] = _deserialise(hints.get(f.name), data[f.name])
         unknown = set(data) - {f.name for f in fields(cls)} - {"task_type"}
         for key in sorted(unknown):
             logging.warning(f"Unknown field '{key}' in {cls.__name__}; ignored.")
         return cls(**kwargs)
+
+
+# Fields that say how a task takes part in the workflow, not how it runs: not
+# form parameters, and serialised by the base.
+_WORKFLOW_FIELDS = ("task_name", "attention", "requires")
+
+
+def _requires(value: Any, task_name: str) -> List[str]:
+    """Stored requirements as task names, or none with a warning: a malformed
+    value must not drop the task from the protocol."""
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return list(value)
+    logging.warning(
+        f"Grid task '{task_name}' has requires {value!r}, not a list of task "
+        "names; read as none."
+    )
+    return []
 
 
 def _attention(value: Any, task_name: str) -> Attention:
