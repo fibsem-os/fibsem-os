@@ -42,17 +42,81 @@ class PointXYZ:
         return PointXYZ(x=data["x"], y=data["y"], z=data["z"])
 
 
+class PointStatus:
+    """What has been established about a coordinate's position (FIB-956).
+
+    Plain strings on ``Coordinate.status`` so a file written by an older build
+    reads back unchanged (the field defaults to ""). Three things are kept
+    apart: what the position *is* (this), where it *came from*
+    (:class:`PointProvenance`), and what the UI *emphasises*
+    (``Coordinate.suggested``, transient).
+
+    ``PREDICTED``: the projection put it here and nobody has looked; drawn
+    hollow, never fed to a fit. ``PLACED``: the user put it here. ``FITTED``:
+    the local image fitter landed it, from a placed or a predicted start.
+    ``ACCEPTED``: a prediction taken as it was, unmoved -- usable by the final
+    fit but no evidence for refining the map, since its position is the map's
+    own. ``REJECTED``: left out of the fit, by the user or by rejection; stays
+    on screen and in the file.
+
+    A failed fit is an event, not a state: the point stays what it was.
+    """
+
+    PREDICTED = "predicted"
+    PLACED = "placed"
+    FITTED = "fitted"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+    # positions the transform may be fitted to
+    USABLE = frozenset({"", PLACED, FITTED, ACCEPTED})
+    # positions that are only a guess
+    TENTATIVE = frozenset({PREDICTED})
+
+    # what earlier builds wrote (2026-09-09 .. 2026-09-14)
+    LEGACY = {
+        "adjusted": PLACED,
+        "confirmed": ACCEPTED,
+        "suggested": PREDICTED,
+        "fit_failed": PLACED,
+    }
+
+
+class PointProvenance:
+    """Where a coordinate's position came from; set once, never changes."""
+
+    PATTERN = "pattern"  # the spot-burn task's own coordinates
+    PROJECTED = "projected"  # the other image's point through the transform
+    DETECTED = "detected"  # found by a search
+    USER = "user"
+    IMPORTED = "imported"
+
+
 @dataclass
 class Coordinate:
     point: PointXYZ = field(default_factory=PointXYZ)
     point_type: PointType = field(default=PointType.FIB)
     fitted: bool = False  # True when this position came from an accepted auto-fit
+    # Per-point state (FIB-956): see PointStatus / PointProvenance. Provenance,
+    # not position -- `matches_inputs` ignores both, as it ignores `fitted`.
+    status: str = ""
+    provenance: str = ""
+    # UI emphasis, not state: one of the predictions worth dragging first.
+    # Never saved; recomputed by the projection.
+    suggested: bool = field(default=False, compare=False)
+
+    @property
+    def usable(self) -> bool:
+        """Whether this position may feed the transform."""
+        return self.status in PointStatus.USABLE
 
     def to_dict(self):
         return {
             "point": self.point.to_dict(),
             "point_type": self.point_type.value,
             "fitted": self.fitted,
+            "status": self.status,
+            "provenance": self.provenance,
         }
 
     @staticmethod
@@ -60,7 +124,13 @@ class Coordinate:
         point = PointXYZ.from_dict(data["point"])
         point_type = PointType(data["point_type"])
         return Coordinate(
-            point=point, point_type=point_type, fitted=data.get("fitted", False)
+            point=point,
+            point_type=point_type,
+            fitted=data.get("fitted", False),
+            status=PointStatus.LEGACY.get(
+                data.get("status", "") or "", data.get("status", "") or ""
+            ),
+            provenance=data.get("provenance", "") or "",
         )
 
 
@@ -369,6 +439,10 @@ class CorrelationResult:
     fm_z_scale: float = 1.0
     seed: Optional[dict] = None
     branch_check: Optional[dict] = None
+    # Where the fiducials put FM pixel (0, 0) minus where the stage metadata
+    # put it, in microns in the FIB image's frame (x, y). The next lamella's
+    # first projection adds it to its own metadata translation (FIB-979).
+    placement_offset: Optional[list] = None
 
     @property
     def dimage_dz_px_per_slice(self) -> Optional[list]:
@@ -411,6 +485,7 @@ class CorrelationResult:
             "fm_z_scale": self.fm_z_scale,
             "seed": self.seed,
             "branch_check": self.branch_check,
+            "placement_offset": self.placement_offset,
         }
 
     @staticmethod
@@ -456,6 +531,7 @@ class CorrelationResult:
             fm_z_scale=data.get("fm_z_scale", 1.0),
             seed=data.get("seed"),
             branch_check=data.get("branch_check"),
+            placement_offset=data.get("placement_offset"),
         )
 
     def apply_refractive_index_correction(

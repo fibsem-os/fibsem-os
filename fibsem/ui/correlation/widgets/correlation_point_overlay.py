@@ -307,6 +307,30 @@ class CorrelationPointOverlay(PointOverlay):
             # a point added while labels are off must not arrive showing its name
             ann.set_visible(self._labels_visible and self._visible)
             ann.set_path_effects(LABEL_OUTLINE)
+        self._style_by_status(idx)
+
+    def _style_by_status(self, idx: int) -> None:
+        """A projected position is a guess, not a pick: drawn as a hollow ring
+        (a suggested one larger, so the eye finds the three to drag), and a
+        rejected point fades but stays, so the record is visible on screen."""
+        if idx >= len(self._coords) or idx >= len(self._artists):
+            return
+        from fibsem.correlation.structures import PointStatus
+
+        status = getattr(self._coords[idx], "status", "")
+        line = self._artists[idx]
+        if status in PointStatus.TENTATIVE:
+            line.set_markerfacecolor("none")
+            line.set_markeredgecolor(self._point_color(idx, idx == self._selected))
+            line.set_markeredgewidth(1.5)
+            if getattr(self._coords[idx], "suggested", False):
+                line.set_markersize(self._size * 1.8)
+                line.set_markeredgewidth(2.5)
+        elif status == PointStatus.REJECTED:
+            line.set_alpha(0.35)
+            ann = self._anns[idx] if idx < len(self._anns) else None
+            if ann is not None:
+                ann.set_alpha(0.35)
 
     def _legend_entries(self):
         """One swatch per PointType currently on screen.
