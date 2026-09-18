@@ -136,13 +136,15 @@ class CorrelationSetupSection(QWidget):
                 collapsible=False,
             )
         )
-        layout.addWidget(
-            TitledPanel(
-                "Inherited Settings",
-                content=self._build_inherited_body(),
-                collapsible=False,
-            )
+        # Kept as an attribute: the host places it after its Method panel, so
+        # the Setup tab reads what to start from, how it fits, then what the
+        # experiment already decided.
+        self.inherited_panel = TitledPanel(
+            "Inherited Settings",
+            content=self._build_inherited_body(),
+            collapsible=False,
         )
+        layout.addWidget(self.inherited_panel)
 
         self._apply_burn_availability()
         self.rb_prev.setEnabled(bool(self._prev_runs))

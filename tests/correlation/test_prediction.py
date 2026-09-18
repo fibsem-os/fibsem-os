@@ -73,9 +73,9 @@ def test_predictions_are_not_pairs_and_accepted_predictions_are_not_evidence():
     fm[0].status = PointStatus.ACCEPTED
     assert len(usable_pairs(fib, fm)) == 1
     assert independent_pairs(fib, fm) == []
-    # moved by the user: evidence
+    # moved by the user: evidence, whatever its provenance says about its origin
     fm[1].status = PointStatus.PLACED
-    fm[1].provenance = PointProvenance.USER
+    assert fm[1].provenance == PointProvenance.PROJECTED
     assert len(independent_pairs(fib, fm)) == 1
     # rejected: neither
     fm[1].status = PointStatus.REJECTED
@@ -120,6 +120,25 @@ def test_with_no_pairs_the_map_is_the_geometry_and_predictions_are_rigid(nominal
             (a.point.x, a.point.y), abs=1e-6
         )
     # suggestions survive a projection without pairs
+    assert sum(1 for c in fm if c.suggested) == 3
+
+
+def test_start_here_goes_to_predictions_the_user_can_see(nominal):
+    """A ring off the image cannot be dragged, so the suggestion is made
+    from where the predictions landed, among those inside the image."""
+    fib = _fib(ARCTIS)
+    fm = predictions_for(fib, [], z_slice=5.0)
+    proj = build_projection(nominal, fib, fm, z_slice=5.0)
+    place_predictions(proj, fib, fm)
+    ys = sorted(b.point.y for b in fm)
+    # a frame that cuts off the lowest-y predictions
+    cut = (int(ys[len(ys) // 2]), 10_000)
+    place_predictions(proj, fib, fm, fm_shape=cut)
+    chosen = [b for b in fm if b.suggested]
+    assert len(chosen) == 3
+    assert all(0 <= b.point.y <= cut[0] for b in chosen)
+    # without a shape every prediction is a candidate again
+    place_predictions(proj, fib, fm)
     assert sum(1 for c in fm if c.suggested) == 3
 
 
