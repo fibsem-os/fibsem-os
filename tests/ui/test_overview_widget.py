@@ -4059,15 +4059,27 @@ class TestTheTileGridHasItsOwnButton:
         widget.tile_grid_panel.visibility_changed.emit(True)
         assert overlay.is_grid_visible
 
-    def test_re_centring_clears_a_dragged_target(self, widget, microscope):
-        """The panel's re-centre is the way back after dragging the grid off the stage,
-        and `clear_target` is what this tab already calls it."""
-        base = microscope.get_stage_position()
-        widget._target = _at(base, dx=250e-6)
+    def test_re_centring_clears_a_dragged_target(self, widget):
+        """The panel's re-centre is the way back after dragging the grid off the stage.
 
-        widget.tile_grid_panel.centre_requested.emit()
+        Through the button rather than by emitting `centre_requested`, because the button
+        is the half that was broken: the panel builds it disabled and this tab never
+        enabled it, so the signal this test used to emit was one nothing could send
+        (FIB-1007). A click on a disabled button emits nothing, so the drag would have
+        stood.
+        """
+        assert not widget.tile_grid_panel.button_centre.isEnabled(), (
+            "the button started out enabled, so this proves nothing"
+        )
 
-        assert widget._target is None
+        widget._on_grid_moved(250.0, 90.0)
+        assert widget.target is not None, "the drag did not set a target"
+        assert widget.tile_grid_panel.button_centre.isEnabled()
+
+        widget.tile_grid_panel.button_centre.click()
+
+        assert widget.target is None
+        assert not widget.tile_grid_panel.button_centre.isEnabled()
 
     def test_the_button_opens_and_closes_it(self, widget):
         assert not widget.tile_grid_panel.isVisible()

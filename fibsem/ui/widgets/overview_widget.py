@@ -2332,6 +2332,11 @@ class FibsemOverviewWidget(QWidget):
         except Exception as e:
             logger.debug(f"Could not resolve the dragged grid position: {e}")
             return
+        # The way back. The panel builds it disabled and only `set_centre_enabled` turns
+        # it on, which this tab never called -- so on the beam side the button was always
+        # dead and a dragged grid could not be re-centred at all, short of restarting the
+        # app. The fluorescence tab has always done this (FIB-1007).
+        self.tile_grid_panel.set_centre_enabled(True)
         # Only the grid. A drag emits on every motion event, and the full context
         # refresh redraws the limits, the slots, every marker and the lattice as well
         # -- none of which move when the grid does. Measured on a canvas holding four
@@ -2344,6 +2349,7 @@ class FibsemOverviewWidget(QWidget):
         if self._target is None:
             return
         self._target = None
+        self.tile_grid_panel.set_centre_enabled(False)
         self._refresh_tile_grid()
 
     # Delegated to `stage_context`, which owns the drawing both tabs share. Kept as
