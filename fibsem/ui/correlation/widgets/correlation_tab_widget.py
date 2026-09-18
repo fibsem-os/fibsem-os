@@ -2027,8 +2027,13 @@ class CorrelationTabWidget(QWidget):
 
         splitter.addWidget(right_pane)
         # The side pane must hold its four tabs and a full coordinate row without
-        # clipping; at 350 px the last tab scrolled off (FIB-978).
+        # clipping; at 350 px the last tab scrolled off (FIB-978). The two image
+        # panes are re-split from the images' aspect ratios once both are loaded
+        # (_fit_split_to_images), unless the user has dragged the handle.
         splitter.setSizes([480, 480, 440])
+        splitter.splitterMoved.connect(self._on_splitter_moved)
+        self._splitter = splitter
+        self._splitter_user_set = False
 
         self._build_point_registry()
 
@@ -2037,6 +2042,37 @@ class CorrelationTabWidget(QWidget):
     # them rather than copying them: every handler in this class reaches its
     # parts by attribute name, so what matters is that the builders create the
     # same attributes, not where they are laid out.
+
+    def _on_splitter_moved(self, *_) -> None:
+        self._splitter_user_set = True
+
+    def _fit_split_to_images(self) -> None:
+        """Give each image pane the width its image's aspect ratio wants.
+
+        Side by side at equal widths, a 3:2 FIB image and a square FM stack
+        left two thirds of the canvas area black (FIB-978). With both loaded,
+        the panes share the width left beside the side pane in proportion to
+        each image's width-for-height, so the taller image gets the narrower
+        pane. Only until the user drags the handle; after that the split is
+        theirs.
+        """
+        if self._splitter_user_set or self._fib_image is None or self._fm_image is None:
+            return
+        try:
+            fib_h, fib_w = self._fib_image.data.shape[:2]
+            fm_h, fm_w = self._fm_image.data.shape[-2:]
+        except Exception:
+            return
+        sizes = self._splitter.sizes()
+        if len(sizes) != 3:
+            return
+        side = sizes[2]
+        available = max(sum(sizes) - side, 200)
+        want_fib = fib_w / fib_h if fib_h else 1.0
+        want_fm = fm_w / fm_h if fm_h else 1.0
+        total = want_fib + want_fm
+        fib_px = int(round(available * want_fib / total))
+        self._splitter.setSizes([fib_px, available - fib_px, side])
 
     def _build_menubar(self) -> QMenuBar:
         menubar = QMenuBar()
@@ -2356,6 +2392,7 @@ class CorrelationTabWidget(QWidget):
         # and re-opens the readiness question. data_changed drives both (via
         # _on_data_changed and _update_run_button) — without it, Continue stayed
         # armed and committed a POI scaled by the *previous* image (FIB-317).
+        self._fit_split_to_images()
         self.data_changed.emit(self.data)
 
     def _update_fib_name_label(self, image: FibsemImage) -> None:
@@ -2416,6 +2453,7 @@ class CorrelationTabWidget(QWidget):
         self._images_tab.set_fm_image(fm_image)
         # As for the FIB image: a new volume invalidates the result and changes
         # what "ready to run" means (FIB-317).
+        self._fit_split_to_images()
         self.data_changed.emit(self.data)
 
     @staticmethod

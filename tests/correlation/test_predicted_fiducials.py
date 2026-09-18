@@ -658,6 +658,25 @@ def test_a_poor_verdict_disables_continue(loaded):
     assert loaded._btn_continue.toolTip() == ""
 
 
+def test_the_image_panes_split_by_aspect_ratio_until_the_user_drags(widget, tmp_path):
+    fib, fm = _images(ARCTIS, fm_geometry=True)  # FIB 3:2 landscape, FM square
+    widget.resize(1600, 900)
+    widget.set_project_dir(str(tmp_path))
+    widget.set_fib_image(fib)
+    widget.set_fm_image(fm)
+    fib_w, fm_w, side = widget._splitter.sizes()
+    assert side > 0
+    fib_h, fib_wpx = fib.data.shape[:2]
+    fm_h, fm_wpx = fm.data.shape[-2:]
+    assert fib_w / fm_w == pytest.approx((fib_wpx / fib_h) / (fm_wpx / fm_h), rel=0.05)
+    # a drag makes the split the user's
+    widget._on_splitter_moved(300, 1)
+    widget._splitter.setSizes([300, fib_w + fm_w - 300, side])
+    before = widget._splitter.sizes()
+    widget.set_fm_image(fm)
+    assert widget._splitter.sizes() == before
+
+
 # ── the placement offset and the Method panel's projection row (FIB-979) ──
 
 
