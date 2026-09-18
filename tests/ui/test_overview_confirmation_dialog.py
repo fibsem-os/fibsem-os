@@ -11,6 +11,7 @@ covered in `test_overview_widget.py`, and what is checked here is the wording.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_overview_confirmation_dialog.py
 """
+
 from __future__ import annotations
 
 import os
@@ -77,22 +78,43 @@ class TestWhereTheRunWillHappen:
     def test_a_dragged_grid_says_how_far_and_which_way(self, dialog):
         """Components, not a distance: the grid is dragged in x and y and checked
         against the canvas in x and y, and "520 µm away" does not say which way."""
-        text = dialog(settings=_settings(), offset=(500e-6, -150e-6))._centre_text()
+        text = dialog(
+            settings=_settings(), offset=(500e-6, -150e-6, 0.0)
+        )._centre_text()
         assert "+500" in text
         assert "-150" in text
         assert "from the stage position" in text
 
+    def test_a_grid_dragged_along_a_tilted_sample_says_what_z_does(self, dialog):
+        """The stage moves in z to follow the surface, and nothing else in the dialog
+        would mention it. On a milling pose that is the bigger half of the move."""
+        text = dialog(
+            settings=_settings(), offset=(0.0, -500e-6, 390e-6)
+        )._centre_text()
+        assert "+390" in text
+        assert "in z" in text
+
+    def test_a_flat_drag_does_not_mention_z_at_all(self, dialog):
+        """A row that says "and +0 µm in z" on every drag is noise, and trains people
+        to stop reading the one that matters."""
+        text = dialog(
+            settings=_settings(), offset=(500e-6, -150e-6, 4e-9)
+        )._centre_text()
+        assert "in z" not in text
+
     def test_floating_point_dust_is_not_a_dragged_grid(self, dialog):
         """A target resolved through the projection lands a few nanometres off where it
         started. Reported literally, that reads as a grid someone moved."""
-        text = dialog(settings=_settings(), offset=(2e-9, -5e-9))._centre_text()
+        text = dialog(settings=_settings(), offset=(2e-9, -5e-9, 1e-9))._centre_text()
         assert text == "the stage position"
 
     def test_the_view_is_named_when_there_is_one(self, dialog):
-        rows = _rows(dialog(
-            settings=_settings(),
-            view_description="Ion beam, stage at the MILLING orientation.",
-        ))
+        rows = _rows(
+            dialog(
+                settings=_settings(),
+                view_description="Ion beam, stage at the MILLING orientation.",
+            )
+        )
         assert rows["Acquired in"] == "Ion beam, stage at the MILLING orientation."
 
     def test_no_view_leaves_the_row_out_rather_than_guessing(self, dialog):
@@ -254,6 +276,7 @@ class TestTheRunsCost:
         expected = 9 * width * height + mosaic_w * mosaic_h
 
         from fibsem.ui.widgets.preflight import format_bytes
+
         assert format_bytes(expected) in rows["Disk"]
         assert f"{mosaic_w} × {mosaic_h} px stitched" in rows["Disk"]
 
@@ -261,10 +284,19 @@ class TestTheRunsCost:
         """The stitch does not shrink -- skipped tiles keep their place -- so only the
         per-tile half of the estimate follows the mask."""
         full = _rows(dialog(settings=_settings(nrows=3, ncols=3)))["Disk"]
-        sparse = _rows(dialog(settings=_settings(
-            nrows=3, ncols=3,
-            tile_mask=[[True, False, False], [False, True, False], [False, False, True]],
-        )))["Disk"]
+        sparse = _rows(
+            dialog(
+                settings=_settings(
+                    nrows=3,
+                    ncols=3,
+                    tile_mask=[
+                        [True, False, False],
+                        [False, True, False],
+                        [False, False, True],
+                    ],
+                )
+            )
+        )["Disk"]
         assert full != sparse
 
     def test_the_destination_is_marked_as_a_path(self, dialog):
@@ -307,7 +339,9 @@ class TestAGridTheStageCannotReach:
         the runner refuse after the dialog is gone."""
         d = dialog(settings=_settings(), unreachable=[(0, 0), (0, 1), (2, 2)])
         shown = [label.text() for label in d.findChildren(QLabel)]
-        assert any("3 tiles are outside the stage's travel" in text for text in shown), shown
+        assert any(
+            "3 tiles are outside the stage's travel" in text for text in shown
+        ), shown
         assert any("Turn them off" in text for text in shown), shown
 
     def test_one_tile_is_not_reported_as_1_tiles(self, dialog):
@@ -319,7 +353,10 @@ class TestAGridTheStageCannotReach:
         """The runner's error names every tile because it has nowhere else to say it. A
         grid can have dozens out of range, and that list is not something anyone reads
         and acts on -- the canvas is where "which ones" gets answered."""
-        d = dialog(settings=_settings(), unreachable=[(r, c) for r in range(3) for c in range(3)])
+        d = dialog(
+            settings=_settings(),
+            unreachable=[(r, c) for r in range(3) for c in range(3)],
+        )
         assert "9 tiles are outside" in d.button_start.toolTip()
         assert "(0,0)" not in d.button_start.toolTip()
 
