@@ -68,12 +68,19 @@ _POPUP_WIDTH = 400
 # The position control reads as text until it is approached. Flat, transparent and in
 # the same muted colour the label used, so a row at rest looks exactly as it did; the
 # hover state is the whole of the affordance, which is why it has to be visible.
+# A notch down from the app default, matching the lamella list's own row and detail
+# sizes: the position is a five-axis string and this row also carries a provenance
+# chip and three buttons, so the text that can afford to be smaller is.
+_POSITION_FONT_PX = 11
+_CHIP_FONT_PX = 10
+
 _POSITION_BUTTON_STYLE = f"""
 QPushButton {{
     background: transparent;
     border: none;
     padding: 0px;
     text-align: left;
+    font-size: {_POSITION_FONT_PX}px;
     color: {NEUTRAL_550};
 }}
 QPushButton:hover {{
@@ -204,7 +211,7 @@ class LamellaPoseRowWidget(QWidget):
         self.provenance_label.setText(text)
         self.provenance_label.setToolTip(tooltip)
         self.provenance_label.setStyleSheet(
-            f"background: transparent; color: {colour}; font-size: 11px;"
+            f"background: transparent; color: {colour}; font-size: {_CHIP_FONT_PX}px;"
         )
         self.provenance_label.setVisible(True)
 
