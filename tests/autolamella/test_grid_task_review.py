@@ -1,10 +1,16 @@
-"""Grid tasks propose their result and are decided, the way lamella tasks are.
+"""Grid tasks propose and are decided, the way lamella tasks are.
 
 Real overview tasks on the Arctis simulator, run through a real GridTaskManager:
-every run records a task_result proposal on the grid pointing at the stitched
-overview; automated, the task confirms its own; under review (the protocol says
-so and the preference is on), the task ends AwaitingDecision and a decision
-finishes it.
+every run records a proposal on the grid pointing at the stitched overview;
+automated, the task confirms its own; under review (the protocol says so and
+the preference is on), the task ends AwaitingDecision and a decision finishes
+it.
+
+An overview proposes ``overview_positions`` -- where the lamellae go on this
+grid -- rather than a bare result, because that is the question the image is
+acquired to answer, and confirming it creates them (FIB-1015). These tests
+confirm with none placed, which is a real answer and keeps them about the
+run's lifecycle rather than about placing.
 """
 
 import os
@@ -18,7 +24,7 @@ import yaml
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.proposals import (
-    TASK_RESULT,
+    OVERVIEW_POSITIONS,
     AuthorKind,
     Decision,
     DecisionOutcome,
@@ -164,7 +170,7 @@ class TestAGridTaskProposes:
 
         assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
         proposal = grid.proposals[OVERVIEW]
-        assert proposal.kind == TASK_RESULT
+        assert proposal.kind == OVERVIEW_POSITIONS
         assert not proposal.pending
         assert proposal.decisions[-1].author.kind is AuthorKind.automated
 
@@ -200,6 +206,7 @@ class TestAGridTaskProposes:
             Decision(
                 outcome=DecisionOutcome.Confirmed,
                 author="human:op",
+                values={"positions": []},
                 task_id=grid.proposals[OVERVIEW].task_id,
             ),
         )
@@ -290,6 +297,9 @@ def _decide_when(experiment, grid_name, ready, outcome, reason=""):
                 outcome=outcome,
                 author="human:op",
                 reason=reason,
+                values={"positions": []}
+                if outcome is DecisionOutcome.Confirmed
+                else {},
                 task_id=grid.proposals[OVERVIEW].task_id,
             ),
         )

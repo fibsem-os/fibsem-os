@@ -2289,6 +2289,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.grids_tab.set_experiment(self.autolamella_ui.experiment)
         self.grid_workflow_widget.set_experiment(self.autolamella_ui.experiment)
         self.review_tab.set_experiment(self.autolamella_ui.experiment)
+        self.review_tab.set_microscope(self.autolamella_ui.microscope)
         experiment = self.autolamella_ui.experiment
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
@@ -2722,7 +2723,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             grids = getattr(self, "grids_tab", None)
             if grids is not None:
                 self.tab_widget.setCurrentWidget(grids)
-                grids.select_grid(item)
+                # Positions, not wherever the tab was left: every grid review
+                # is about an overview, and placing on one is the thing a
+                # reviewer comes here to do -- an automated overview's row
+                # sends them here for exactly that.
+                grids.show_positions(item)
             return
         container = getattr(self, "_lamella_tab_container", None)
         cards = getattr(self, "lamella_card_container", None)

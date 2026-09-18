@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from copy import deepcopy
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
@@ -53,6 +54,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import conversions
 from fibsem.applications.autolamella.proposals import (
+    OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
     TASK_RESULT,
     Author,
@@ -64,7 +66,7 @@ from fibsem.applications.autolamella.proposals import (
 from fibsem.applications.autolamella.structures import Attention, Experiment, GridRecord
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import BeamType, FibsemImage, Point
-from fibsem.ui import stylesheets
+from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -366,6 +368,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
 
         self._controller = MicroscopeViewController(view=LamellaEditorView())
         self._controller.widget.show_beams()
+        self._view = self._build_view()
 
         # No header: the selected inbox row already says the lamella and the
         # task, and the canvas has its own beam label. These two are kept for
@@ -415,7 +418,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 4, 10, 8)
         layout.setSpacing(8)
-        layout.addWidget(self._controller.widget, 1)
+        layout.addWidget(self._view, 1)
         # said in place of the image when there is none to show, so the last
         # proposal's image is never left under this one's verbs
         self.no_image = QLabel()
@@ -431,6 +434,52 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self.btn_reject.clicked.connect(self.reject_requested)
         self.btn_open.clicked.connect(lambda: self.open_item_requested.emit(self._item))
         self._refresh_line()
+
+    # -- what a kind may put in the middle ------------------------------------
+
+    def _build_view(self) -> QWidget:
+        """The widget the panel is built around. A result is its images, so
+        this is the beam canvas; a kind whose decision is about something else
+        -- where the lamellae go on a grid's overview -- returns its own and
+        fills it in ``_show_proposal``."""
+        return self._controller.widget
+
+    def _show_proposal(self) -> None:
+        """Put this proposal on the view. Called by ``set_proposal`` once the
+        record and the chrome are set, so an override has the item, the task
+        and the proposal to work from."""
+        recorded = str(self._proposal.provenance.get("reference_image") or "")
+        shown = self._image is not None or self._fluorescence is not None
+        self._view.setVisible(shown)
+        self.no_image.setVisible(not shown)
+        self.no_image.setText(
+            ""
+            if shown
+            else f"The recorded image could not be read: {os.path.basename(recorded)}"
+            if recorded
+            else "No image was recorded for this result."
+        )
+        # The result image goes on the canvas of the beam that took it: a grid's
+        # SEM overview is an electron image, and labelled FIB it misleads. A
+        # kind's values are drawn on the ion image, which is where every kind
+        # with values records them.
+        electron_only = (
+            self._image is not None
+            and self._electron is None
+            and _beam_of(self._image) is BeamType.ELECTRON
+        )
+        if electron_only:
+            self._controller.set_image(BeamType.ELECTRON, self._image)
+        else:
+            if self._image is not None:
+                self._controller.set_image(BeamType.ION, self._image)
+                self._draw_values()
+            if self._electron is not None:
+                self._controller.set_image(BeamType.ELECTRON, self._electron)
+        self._controller.widget.set_sem_visible(
+            electron_only or self._electron is not None
+        )
+        self._controller.widget.set_fib_visible(not electron_only)
 
     # -- what a kind adds: its values, on the image ---------------------------
 
@@ -520,38 +569,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
             self._controller.set_fm_image(self._fluorescence)
         else:
             view.show_beams()
-        shown = self._image is not None or self._fluorescence is not None
-        view.setVisible(shown)
-        self.no_image.setVisible(not shown)
-        recorded = str(proposal.provenance.get("reference_image") or "")
-        self.no_image.setText(
-            ""
-            if shown
-            else f"The recorded image could not be read: {os.path.basename(recorded)}"
-            if recorded
-            else "No image was recorded for this result."
-        )
-        # The result image goes on the canvas of the beam that took it: a grid's
-        # SEM overview is an electron image, and labelled FIB it misleads. A
-        # kind's values are drawn on the ion image, which is where every kind
-        # with values records them.
-        electron_only = (
-            self._image is not None
-            and self._electron is None
-            and _beam_of(self._image) is BeamType.ELECTRON
-        )
-        if electron_only:
-            self._controller.set_image(BeamType.ELECTRON, self._image)
-        else:
-            if self._image is not None:
-                self._controller.set_image(BeamType.ION, self._image)
-                self._draw_values()
-            if self._electron is not None:
-                self._controller.set_image(BeamType.ELECTRON, self._electron)
-        self._controller.widget.set_sem_visible(
-            electron_only or self._electron is not None
-        )
-        self._controller.widget.set_fib_visible(not electron_only)
+        self._show_proposal()
         self._refresh_line()
 
     def set_running(self, running: bool) -> None:
@@ -820,6 +838,213 @@ def review_preview(image: Any) -> Optional[Any]:
             logging.exception("Could not project the fluorescence image for review")
             return None
     return image
+
+
+@register_review_renderer(OVERVIEW_POSITIONS)
+class OverviewPositionsReviewRenderer(TaskResultReviewRenderer):
+    """Where the lamellae go on this grid: the one review whose confirm makes
+    items rather than editing the one it is on.
+
+    The grid's overview, the lamellae it already has drawn locked for context,
+    and the positions being placed drawn over them. Confirm creates one lamella
+    per placed position; the locked ones are not part of it, and are not
+    editable here -- one may already have been milled, and moving a lamella is
+    the Lamella tab's job.
+    """
+
+    PENDING_HINT = "Enter — create the lamellae you have placed"
+    CONFIRM_LABEL = "Confirm"
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        self._microscope: Any = None
+        self._drafts: List[Any] = []  # LamellaPoses, in placement order
+        # Placements that have not been confirmed, per run of the producing
+        # task. One renderer serves every row of this kind, so without this a
+        # glance at another grid would throw away what had been placed here.
+        # Keyed on the run, so a re-run -- a new image, possibly a new stage
+        # position -- never inherits marks made on the old one.
+        self._drafts_by_run: Dict[str, List[Any]] = {}
+        super().__init__(parent)
+
+    # -- the view -------------------------------------------------------------
+
+    def _build_view(self) -> QWidget:
+        from fibsem.ui.widgets.stored_overview_canvas import StoredOverviewCanvas
+
+        self.canvas = StoredOverviewCanvas()
+        self.canvas.position_add_requested.connect(self._on_add_requested)
+        self.canvas.draft_remove_requested.connect(self._on_remove_requested)
+        return self.canvas
+
+    def set_microscope(self, microscope: Any) -> None:
+        """Placing a position needs the instrument's geometry; reading this
+        review does not. Without one the overview and what is on it still
+        show, and the line says why nothing can be placed."""
+        self._microscope = microscope
+        self._refresh_line()
+
+    # -- what this kind shows -------------------------------------------------
+
+    def _show_proposal(self) -> None:
+        run = self._proposal.task_id
+        self._drafts = self._drafts_by_run.get(run) or list(
+            self._proposal.values.get("positions") or []
+        )
+        self._drafts_by_run[run] = self._drafts
+        self.canvas.clear()
+        shown = False
+        if self._image is not None:
+            self.canvas.set_image(self._image)
+            shown = True
+        self.canvas.setVisible(shown)
+        self.no_image.setVisible(not shown)
+        self.no_image.setText("" if shown else "The grid's overview could not be read.")
+        self._draw_context()
+        self._draw_drafts()
+
+    def _draw_context(self) -> None:
+        """The lamellae this grid already has, locked: the operator is placing
+        into a populated picture, so they add what is missing instead of a
+        second set."""
+        experiment, item = self._experiment, self._item
+        if experiment is None or item is None:
+            return
+        existing = []
+        for lamella in getattr(experiment, "positions", []):
+            if getattr(lamella, "grid_id", None) != getattr(item, "id", None):
+                continue
+            pose = getattr(
+                getattr(lamella, "milling_pose", None), "stage_position", None
+            )
+            if pose is None:
+                continue
+            place = deepcopy(pose)
+            place.name = lamella.name
+            existing.append(place)
+        self.canvas.set_positions(existing, movable=False)
+
+    def _placing(self) -> bool:
+        """Placing is for a decision that has not been made. A decided
+        proposal -- including one its own producer confirmed, which is what a
+        to-check row is -- is looked at, not changed; changing what it created
+        is a re-run of the overview."""
+        return self._decided is None and self._applied is None
+
+    def _draw_drafts(self) -> None:
+        places = []
+        for poses in self._drafts:
+            place = getattr(getattr(poses, "milling", None), "stage_position", None)
+            if place is not None:
+                places.append(place)
+        self.canvas.set_draft_positions(places)
+        self.canvas.set_placing_enabled(self._placing())
+        self._refresh_line()
+
+    # -- placing --------------------------------------------------------------
+
+    def _on_add_requested(self, position: Any, _record_id: Any = None) -> None:
+        """A position marked on the overview, turned into the poses a lamella
+        is made from there and then: the geometry is read here, where there is
+        an instrument, and never where the decision is applied."""
+        if not self._placing():
+            return  # decided: the canvas offers nothing here either
+        if self._microscope is None:
+            notification_service.show_toast(
+                "Connect to a microscope to place positions: a lamella's poses "
+                "are built with the instrument's geometry.",
+                "warning",
+            )
+            return
+        from fibsem.applications.autolamella.poses import build_lamella_poses
+
+        try:
+            self._drafts.append(
+                build_lamella_poses(microscope=self._microscope, position=position)
+            )
+        except Exception as e:  # noqa: BLE001 - said to the user, not raised
+            logging.error(f"Could not place a position: {e}")
+            notification_service.show_toast(str(e), "error")
+            return
+        self._draw_drafts()
+
+    def _on_remove_requested(self, index: int) -> None:
+        if not self._placing():
+            return
+        if 0 <= index < len(self._drafts):
+            self._drafts.pop(index)
+            self._draw_drafts()
+
+    # -- the decision ---------------------------------------------------------
+
+    def current_values(self) -> Dict[str, Any]:
+        return {"positions": list(self._drafts)}
+
+    def set_to_check(self, applied: Optional[Decision]) -> None:
+        super().set_to_check(applied)
+        self._draw_drafts()
+
+    def set_read_only(self, decided: Optional[Decision]) -> None:
+        super().set_read_only(decided)
+        self._draw_drafts()
+
+    def _state_words(self) -> tuple:
+        return "Decided", self._task_name
+
+    def _fact(self) -> str:
+        proposal = self._proposal
+        if proposal is None:
+            return ""
+        name = getattr(self._item, "name", "this grid")
+        proposed = len(proposal.values.get("positions") or [])
+        head = (
+            f"{proposed} position(s) proposed for {name}"
+            if proposed
+            else f"Nothing was proposed: place the lamellae for {name}"
+        )
+        when = clock(proposal.created_at)
+        where = os.path.basename(str(proposal.provenance.get("reference_image") or ""))
+        return f"{head}, on its overview{f' {where}' if where else ''} at {when}."
+
+    def _refresh_line(self) -> None:
+        super()._refresh_line()
+        if self._proposal is None:
+            return
+        if self._applied is not None and self._decided is None:
+            # Nobody was asked, so nothing was placed. Saying only "decided
+            # automatically" leaves the reader with an overview, an obvious
+            # next thought, and no way to act on it here -- placing is an edit
+            # to the grid, not a second decision on a record that has one. So
+            # the line says where that is done.
+            made = len(self._applied.values.get("positions") or [])
+            if made:
+                self.line.setText(
+                    f"Created {made} lamella{'e' if made != 1 else ''} "
+                    "automatically · not checked yet"
+                )
+            else:
+                self.line.setText(
+                    "Decided automatically · no lamellae were placed · "
+                    "add them on the Grids tab"
+                )
+                self.line.setToolTip(
+                    f"{self._fact()}\n"
+                    "Nobody was asked where the lamellae go, so none were "
+                    "placed. Add them on the Grids tab, or set this task to "
+                    "Review and run it again to place them here."
+                )
+            return
+        n = len(self._drafts)
+        if self._decided is None and self._applied is None:
+            self.btn_confirm.setText(
+                f"Confirm · add {n} lamella{'e' if n != 1 else ''}"
+                if n
+                else "Confirm · add none"
+            )
+            if self._microscope is None:
+                self.line.setText(
+                    "Connect a microscope to place positions · "
+                    + self.line.text().lower()
+                )
 
 
 def _duration(seconds: float) -> str:
@@ -1096,6 +1321,7 @@ class ReviewTabWidget(QWidget):
         # it; a look is owed) or "decided" (read-only). Only waiting is pending.
         self._entries: List[tuple] = []
         self._renderers: Dict[str, ReviewRenderer] = {}
+        self._microscope: Any = None
         self._running = False
 
         self.list = QListWidget()
@@ -1179,6 +1405,21 @@ class ReviewTabWidget(QWidget):
         reject.activated.connect(self._on_reject_shortcut)
 
     # -- wiring --------------------------------------------------------------
+
+    def set_microscope(self, microscope: Any) -> None:
+        """The instrument, for the one renderer that needs its geometry.
+
+        Reading a review needs nothing but the record, and rejecting one needs
+        nothing either. *Placing* a position does: a lamella's poses are built
+        from the instrument's geometry, so a review that creates lamellae can
+        only be answered at a connected microscope. Every other kind ignores
+        this, and this one says so rather than failing at the confirm.
+        """
+        self._microscope = microscope
+        for renderer in self._renderers.values():
+            setter = getattr(renderer, "set_microscope", None)
+            if setter is not None:
+                setter(microscope)
 
     def set_experiment(self, experiment: Optional[Experiment]) -> None:
         if self._experiment is not None:
@@ -1456,6 +1697,9 @@ class ReviewTabWidget(QWidget):
             renderer.confirm_requested.connect(self.confirm_current)
             renderer.reject_requested.connect(self.reject_current)
             renderer.open_item_requested.connect(self.open_item_requested)
+            setter = getattr(renderer, "set_microscope", None)
+            if setter is not None:
+                setter(self._microscope)
             self.stack.addWidget(renderer)
             self._renderers[kind] = renderer
         return renderer

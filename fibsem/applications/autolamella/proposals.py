@@ -23,12 +23,14 @@ from __future__ import annotations
 import contextlib
 import logging
 import math
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
-from fibsem.structures import Point
+from fibsem.applications.autolamella.poses import LamellaPoses
+from fibsem.structures import MicroscopeState, Point
 
 __all__ = [
     "Alternative",
@@ -40,6 +42,7 @@ __all__ = [
     "DecisionOutcome",
     "DecisionResult",
     "PROPOSAL_KINDS",
+    "OVERVIEW_POSITIONS",
     "POINT_OF_INTEREST",
     "Proposal",
     "ProposalKind",
@@ -57,6 +60,10 @@ __all__ = [
 
 # A point on an image: the point of interest the tasks that follow it sync to.
 POINT_OF_INTEREST = "point_of_interest"
+# Where the lamellae go on a grid: the positions a decision creates them at.
+# The only kind whose confirmed values make items rather than edit the one the
+# proposal is on.
+OVERVIEW_POSITIONS = "overview_positions"
 # What a task did, for someone to look at: no values, the final reference
 # images in provenance. Recorded by the base task class for any task whose
 # review is on and that did not propose a kind of its own.
@@ -154,6 +161,7 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
 
 
 register_proposal_kind(ProposalKind(name=POINT_OF_INTEREST, values=("poi",)))
+register_proposal_kind(ProposalKind(name=OVERVIEW_POSITIONS, values=("positions",)))
 register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
 
 
@@ -166,6 +174,51 @@ register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
 # contract, so codecs and writers are keyed by it rather than by kind.
 
 
+# A position a decision creates a lamella at is carried as the pose pair the
+# instrument's geometry produced for it (``build_lamella_poses``), which is
+# what ``Experiment.add_new_lamella`` takes.
+#
+# Not a point on an image and not a bare stage position: either would have
+# made a decision need a microscope to turn into poses, and there is no
+# instrument where a decision is made -- the Review tab days later, or an
+# agent over the server. The geometry is read where the position is placed
+# instead, in the renderer or in a proposer running at the beam.
+
+
+def _positions_to_dict(value: Any) -> Any:
+    if not isinstance(value, (list, tuple)):
+        return value
+    return [
+        {
+            "milling": p.milling.to_dict(),
+            "fluorescence": (
+                p.fluorescence.to_dict() if p.fluorescence is not None else None
+            ),
+        }
+        if isinstance(p, LamellaPoses)
+        else p
+        for p in value
+    ]
+
+
+def _positions_from_dict(value: Any) -> Any:
+    if not isinstance(value, (list, tuple)):
+        return value
+    out: List[Any] = []
+    for p in value:
+        if not isinstance(p, dict) or "milling" not in p:
+            out.append(p)
+            continue
+        fm = p.get("fluorescence")
+        out.append(
+            LamellaPoses(
+                milling=MicroscopeState.from_dict(p["milling"]),
+                fluorescence=MicroscopeState.from_dict(fm) if fm else None,
+            )
+        )
+    return out
+
+
 def _point_to_dict(p: Any) -> Any:
     return p.to_dict() if isinstance(p, Point) else p
 
@@ -176,6 +229,7 @@ def _point_from_dict(d: Any) -> Any:
 
 _VALUE_CODECS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
     "poi": (_point_to_dict, _point_from_dict),
+    "positions": (_positions_to_dict, _positions_from_dict),
 }
 
 
@@ -217,7 +271,7 @@ class PreparedWrite:
     undo: Callable[[], None]
 
 
-def _prepare_poi(item: Any, value: Any) -> PreparedWrite:
+def _prepare_poi(experiment: Any, item: Any, value: Any) -> PreparedWrite:
     """The GUI's move path, planned in full before any of it happens: the new
     point, then every pattern that follows it. Same domain plan, same order --
     a write that bypassed the sync left the rough and polishing patterns
@@ -254,10 +308,88 @@ def _prepare_poi(item: Any, value: Any) -> PreparedWrite:
     return PreparedWrite(apply=apply, undo=undo)
 
 
-# name -> prepare(item, value): checks the value and plans every effect without
-# touching the item, returning how to apply it and how to undo it.
-_VALUE_WRITERS: Dict[str, Callable[[Any, Any], PreparedWrite]] = {
+def _prepare_positions(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """The only write that makes items: one lamella per position, on the grid
+    the proposal is on.
+
+    Planned in full before any of it happens, like every other write here, and
+    undone together: a half-created set is worse than none, and the decision is
+    only appended once the whole set is on the experiment. The poses come from
+    the value rather than the instrument (see the codec above), so nothing here
+    needs a microscope.
+    """
+    if not isinstance(value, (list, tuple)):
+        raise ValueRefused(f"positions must be a list, not {type(value).__name__}.")
+    placed: List[LamellaPoses] = []
+    for entry in value:
+        if not isinstance(entry, LamellaPoses):
+            raise ValueRefused(
+                f"every position must be a LamellaPoses, not {type(entry).__name__}."
+            )
+        if entry.milling is None:
+            raise ValueRefused("every position needs a milling pose.")
+        placed.append(entry)
+    add = getattr(experiment, "add_new_lamella", None)
+    if add is None:
+        raise ValueRefused("positions can only be written to an experiment.")
+    grid_id = getattr(item, "id", None)
+    if grid_id is None:
+        raise ValueRefused(
+            f"{getattr(item, 'name', 'this item')} has no id to stamp on a lamella."
+        )
+    protocol = getattr(experiment, "task_protocol", None)
+    if placed and getattr(protocol, "lamella_defaults", None) is None:
+        # Checked here, not discovered half way through creating them: a
+        # lamella is built from the protocol's defaults, and an experiment
+        # with no protocol loaded cannot make one.
+        raise ValueRefused(
+            "No protocol is loaded, so a lamella cannot be created. Load one "
+            "for this experiment and decide again."
+        )
+    made: List[Any] = []
+
+    def apply() -> List[str]:
+        for entry in placed:
+            # add_new_lamella returns nothing and appends, so the lamella it
+            # made is the one on the end. Taken here rather than assumed later:
+            # undo has to remove exactly what this write added.
+            add(
+                microscope_state=entry.milling,
+                task_config=deepcopy(getattr(protocol, "task_config", None)) or {},
+                fluorescence_pose=entry.fluorescence,
+                grid_id=grid_id,
+            )
+            made.append(experiment.positions[-1])
+        if made:
+            logging.info(
+                f"Created {len(made)} lamella(e) on {getattr(item, 'name', '?')}: "
+                + ", ".join(getattr(m, "name", "?") or "?" for m in made)
+            )
+        return []
+
+    def undo() -> None:
+        # Removing what this write made, newest first. Nothing else can have
+        # taken them: the decision has not been appended and the experiment
+        # lock is still held.
+        for lamella in reversed(made):
+            try:
+                experiment.positions.remove(lamella)
+            except ValueError:
+                logging.warning(
+                    f"Could not undo the creation of {getattr(lamella, 'name', '?')}"
+                )
+        made.clear()
+
+    return PreparedWrite(apply=apply, undo=undo)
+
+
+# name -> prepare(experiment, item, value): checks the value and plans every
+# effect without touching anything, returning how to apply it and how to undo
+# it. The experiment is there for the one write that makes items rather than
+# editing the one the proposal is on.
+_VALUE_WRITERS: Dict[str, Callable[[Any, Any, Any], PreparedWrite]] = {
     "poi": _prepare_poi,
+    "positions": _prepare_positions,
 }
 
 
@@ -269,7 +401,9 @@ def known_value_names() -> List[str]:
     return sorted(_VALUE_WRITERS)
 
 
-def prepare_values(item: Any, kind: str, values: Dict[str, Any]) -> PreparedWrite:
+def prepare_values(
+    experiment: Any, item: Any, kind: str, values: Dict[str, Any]
+) -> PreparedWrite:
     """Check every confirmed value and plan every write, touching nothing.
 
     Refused (``ValueRefused``) when a name is not one the proposal's kind
@@ -288,7 +422,9 @@ def prepare_values(item: Any, kind: str, values: Dict[str, Any]) -> PreparedWrit
         raise ValueRefused(
             f"No consumer writes {unknown}; known values: {known_value_names()}."
         )
-    steps = [_VALUE_WRITERS[name](item, value) for name, value in values.items()]
+    steps = [
+        _VALUE_WRITERS[name](experiment, item, value) for name, value in values.items()
+    ]
 
     def apply() -> List[str]:
         synced: List[str] = []

@@ -1994,7 +1994,9 @@ class Experiment:
                 # before the decision is appended, so a refusal -- or a planning
                 # error -- leaves the record, the item and the task as they were.
                 try:
-                    apply_values = prepare_values(item, proposal.kind, decision.values)
+                    apply_values = prepare_values(
+                        self, item, proposal.kind, decision.values
+                    )
                 except ValueRefused as e:
                     return DecisionResult(
                         applied=False, error_type="invalid_value", reason=str(e)
