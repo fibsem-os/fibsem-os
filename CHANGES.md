@@ -1,10 +1,18 @@
 # Changes
 
-## v0.5.3 (unreleased)
+## v0.6.0 (unreleased)
 
-Seeded from four entries that were written into the v0.5.2 section after v0.5.2rc2 was
-cut, and so describe work that is not in v0.5.2. Everything else from the 386 commits
-since rc2 still needs writing up.
+A minor bump, not a patch: since v0.5.2 main has taken the agent server, the app router,
+config schema v1, propose-and-review and a Grids preview. Calling that 0.5.3 would be the
+same mislabelling that made the last release awkward.
+
+0.5.3 is reserved for fixes cut from `release/v0.5.2`, which is the branch v0.5.2 was
+tagged from. Those do not appear here; a fix that belongs in both lands on main first and
+is cherry-picked there.
+
+The entries below are the four that were written into the v0.5.2 section after v0.5.2rc2
+was cut, and so describe work that is not in v0.5.2. Everything else from the 441 commits
+since the tag still needs writing up.
 
 ### Grids (preview)
 
