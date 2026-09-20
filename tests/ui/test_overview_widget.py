@@ -3249,6 +3249,7 @@ class TestARunIsConfirmedFirst:
         expected = (
             widget.target.x - widget._stage_position.x,
             widget.target.y - widget._stage_position.y,
+            widget.target.z - widget._stage_position.z,
         )
         assert dragged.offset == pytest.approx(expected)
         assert "from the stage position" in dragged._centre_text()
