@@ -44,7 +44,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 logging.basicConfig(level=logging.INFO)
 
 import numpy as np
-from PyQt5.QtCore import QObject, QSize, Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QObject, QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QKeySequence
 from PyQt5.QtWidgets import (
     QAbstractSpinBox,
@@ -151,6 +151,11 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
+
+# How long the points must be still before an automatic run (FIB-1020). Long
+# enough that a drag is one run rather than fifty, short enough to feel like a
+# response to the drop.
+AUTO_RERUN_DELAY_MS = 400
 # Choice combos (a word or two) share one width, so the column lines up; a
 # longer channel name still grows its own combo.
 _CHOICE_COMBO_WIDTH = 150
@@ -1056,6 +1061,12 @@ class _CoordinatesTab(QWidget):
         # fits still surface the dialog — see _on_refit_requested.
         self._auto_accept_check = QCheckBox("Auto-accept fits")
 
+        # Opt-in: run the correlation again whenever the points settle, so the
+        # verdict and the reprojected rings follow the fiducial you just moved
+        # instead of waiting for a press. Off by default -- a run is the
+        # deliberate step the verdict's wording was written for (FIB-1020).
+        self._auto_rerun_check = QCheckBox("Re-run on change")
+
         # Match the 11-12px labels these sit beside (see _form_label).
         for _ctl in (
             self._fib_method_combo,
@@ -1065,6 +1076,7 @@ class _CoordinatesTab(QWidget):
             self._fm_poi_ch_combo,
             self._show_diag_check,
             self._auto_accept_check,
+            self._auto_rerun_check,
         ):
             _ctl.setStyleSheet(CONTROL_STYLE)
         for _combo in (
@@ -1085,8 +1097,14 @@ class _CoordinatesTab(QWidget):
         checks_layout = QHBoxLayout(checks)
         checks_layout.setContentsMargins(0, 2, 0, 0)
         checks_layout.setSpacing(16)
+        self._auto_rerun_check.setToolTip(
+            "Run the correlation again when the points stop changing, rather "
+            "than waiting for Run.\nContinue still has to be pressed, and a "
+            "poor fit still refuses it."
+        )
         checks_layout.addWidget(self._show_diag_check)
         checks_layout.addWidget(self._auto_accept_check)
+        checks_layout.addWidget(self._auto_rerun_check)
         checks_layout.addStretch(1)
         fit_form.addRow(checks)
 
@@ -2566,6 +2584,17 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.connect(self._update_run_button)
         self.data_changed.connect(self._on_data_changed)
 
+        # Debounce for the opt-in auto re-run. A drag emits data_changed on
+        # every mouse move, so the run waits for the points to stop moving
+        # (FIB-1020).
+        self._auto_rerun_timer = QTimer(self)
+        self._auto_rerun_timer.setSingleShot(True)
+        self._auto_rerun_timer.setInterval(AUTO_RERUN_DELAY_MS)
+        self._auto_rerun_timer.timeout.connect(self._auto_rerun)
+        self._coords_tab._auto_rerun_check.toggled.connect(
+            lambda _on: self._schedule_auto_rerun()
+        )
+
     def _set_result_live(self, live: bool) -> None:
         """Reflect whether the displayed result still describes the current points.
 
@@ -2596,6 +2625,7 @@ class CorrelationTabWidget(QWidget):
         # Any coordinate edit invalidates the last run: the transform no longer
         # fits the points it is displayed against.
         self._set_result_live(False)
+        self._schedule_auto_rerun(data)
         self._ri_tab.set_result(
             self._result,
             input_data=data,
@@ -3603,6 +3633,40 @@ class CorrelationTabWidget(QWidget):
             f" {placed} pair{'s' if placed != 1 else ''} placed by you, "
             f"{accepted} accepted from the projection."
         )
+
+    def _schedule_auto_rerun(self, data: Optional[CorrelationInputData] = None) -> None:
+        """Start (or restart) the wait before an automatic run.
+
+        Restarting on every edit is the debounce: a drag emits ``data_changed``
+        continuously, and only the last one survives the wait. Points that
+        cannot be run are left alone -- the run bar already says what is
+        missing, and a timer that fires on an ungateable state would say it
+        twice.
+        """
+        if not self._coords_tab._auto_rerun_check.isChecked():
+            self._auto_rerun_timer.stop()
+            return
+        if self._can_run(data):
+            self._auto_rerun_timer.start()
+        else:
+            self._auto_rerun_timer.stop()
+
+    def _auto_rerun(self) -> None:
+        """Run, if the points have settled and nothing has changed the answer.
+
+        A run already in flight is waited for rather than interrupted: killing
+        a solve mid-flight is not worth it for something that takes well under
+        a second, and the result it delivers is checked against the current
+        points anyway (``matches_inputs``, FIB-315).
+        """
+        if not self._coords_tab._auto_rerun_check.isChecked():
+            return
+        if self._worker is not None and self._worker.isRunning():
+            self._auto_rerun_timer.start()
+            return
+        if not self._can_run():
+            return
+        self._run()
 
     def _run(self) -> None:
         if self._worker is not None and self._worker.isRunning():
