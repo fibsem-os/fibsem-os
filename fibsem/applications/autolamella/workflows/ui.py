@@ -11,6 +11,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     ConfirmDetection,
     EditAlignmentArea,
     PickPOI,
+    ReviewDetection,
     SetImages,
     ask,
 )
@@ -70,8 +71,6 @@ def update_detection_ui(
     validate: bool = True,
     msg: str = "Lamella",
     position: Optional[FibsemStagePosition] = None,
-    item_id: str = "",
-    task_name: str = "",
 ) -> DetectedFeatures:
     feat_str = ", ".join([f.name for f in features])
     if len(feat_str) > 15:
@@ -93,14 +92,59 @@ def update_detection_ui(
         # No timeout: a human answers, and silence means thinking.
         det = ask(
             parent_ui.ui_responder,
-            # Who is asking travels with the question: see ConfirmDetection.
-            ConfirmDetection(detection=det, item_id=item_id, task_name=task_name),
+            ConfirmDetection(detection=det),
             abort=lambda: _abort_requested(parent_ui),
         )
     else:
         det_utils.save_ml_feature_data(det)
 
     # TODO: set images in ui here
+    return det
+
+
+def review_detection_ui(
+    microscope: FibsemMicroscope,
+    image_settings: ImageSettings,
+    checkpoint: str,
+    features: Sequence[Feature],
+    item_id: str,
+    task_name: str,
+    parent_ui: Optional["AutoLamellaUI"] = None,
+    validate: bool = True,
+    msg: str = "Lamella",
+    position: Optional[FibsemStagePosition] = None,
+) -> DetectedFeatures:
+    """``update_detection_ui``, asked so that it can go on the item's record.
+
+    The second version, beside the first rather than in place of it: nothing in
+    the workflow calls this yet. It differs in one thing -- it says which item
+    and task are asking (``ReviewDetection``), so that with interactive review
+    on the question is recorded as a proposal, holds the run, and is corrected
+    and confirmed in the Review tab (FIB-1025). Wherever it cannot be recorded
+    it is the same Detection tab prompt ``update_detection_ui`` puts up, and
+    unsupervised it does exactly what that does.
+    """
+    feat_str = ", ".join([f.name for f in features])
+    if len(feat_str) > 15:
+        feat_str = feat_str[:15] + "..."
+    update_status_ui(parent_ui, f"{msg}: Detecting Features ({feat_str})...")
+
+    det = detection.take_image_and_detect_features(
+        microscope=microscope,
+        image_settings=image_settings,
+        features=features,
+        point=position,
+        checkpoint=checkpoint,
+    )
+
+    if validate and parent_ui is not None:
+        det = ask(
+            parent_ui.ui_responder,
+            ReviewDetection(detection=det, item_id=item_id, task_name=task_name),
+            abort=lambda: _abort_requested(parent_ui),
+        )
+    else:
+        det_utils.save_ml_feature_data(det)
     return det
 
 

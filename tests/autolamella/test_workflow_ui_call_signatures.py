@@ -109,38 +109,46 @@ def test_call_site_matches_signature(path, lineno, name, call):
 _WORKFLOWS_DIR = Path(workflow_ui.__file__).parent
 
 
-def _detection_calls() -> List[Tuple[Path, int, ast.Call]]:
-    """Every call to ``update_detection_ui`` under ``workflows/`` -- the tasks and
-    the shared alignment helpers in ``core.py`` that they call."""
+def test_update_detection_ui_keeps_the_signature_others_call_it_with():
+    """``update_detection_ui`` is called from code outside this repository, so
+    its parameters are a contract: their names, their order and which of them
+    may be left out. New behaviour goes in a second function beside it
+    (``review_detection_ui``), not into this one."""
+    parameters = inspect.signature(workflow_ui.update_detection_ui).parameters
+
+    assert list(parameters) == [
+        "microscope",
+        "image_settings",
+        "checkpoint",
+        "features",
+        "parent_ui",
+        "validate",
+        "msg",
+        "position",
+    ]
+    optional = {n for n, p in parameters.items() if p.default is not p.empty}
+    assert optional == {"parent_ui", "validate", "msg", "position"}
+    assert parameters["validate"].default is True
+    assert parameters["msg"].default == "Lamella"
+
+
+def _calls_to(name: str) -> List[Tuple[Path, int]]:
+    """Every call to a ``workflows.ui`` helper anywhere under ``workflows/`` --
+    the tasks, and the shared alignment helpers in ``core.py`` they call."""
     calls = []
     for path in sorted(_WORKFLOWS_DIR.rglob("*.py")):
         if path == Path(workflow_ui.__file__):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and _called_helper_name(node.func) == "update_detection_ui"
-            ):
-                calls.append((path, node.lineno, node))
+            if isinstance(node, ast.Call) and _called_helper_name(node.func) == name:
+                calls.append((path, node.lineno))
     return calls
 
 
-def test_there_are_detections_to_check():
-    assert _detection_calls(), "the walk found no call to update_detection_ui"
-
-
-@pytest.mark.parametrize(
-    "path, lineno, call",
-    _detection_calls(),
-    ids=[f"{p.name}:{n}" for p, n, _ in _detection_calls()],
-)
-def test_every_detection_says_who_is_asking(path, lineno, call):
-    """``item_id`` and ``task_name`` default to empty, so a caller that leaves
-    them out still runs -- and its corrections are quietly never recorded on the
-    lamella. Nothing at run time would say so, which is why it is checked here."""
-    passed = {kw.arg for kw in call.keywords}
-    missing = {"item_id", "task_name"} - passed
-    assert not missing, (
-        f"{path.name}:{lineno} calls update_detection_ui without {sorted(missing)}"
-    )
+def test_the_workflow_still_asks_detections_the_way_it_always_has():
+    """The second version is for the harness and the tests for now. Moving a
+    task over to it is a decision to make on purpose -- it changes where an
+    operator answers a detection -- so it should have to change this test."""
+    assert _calls_to("update_detection_ui"), "the walk found no detection at all"
+    assert _calls_to("review_detection_ui") == []

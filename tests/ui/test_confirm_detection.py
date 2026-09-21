@@ -253,9 +253,57 @@ def test_update_detection_ui_returns_the_confirmed_features(ui, qapp, monkeypatc
     assert ui.det_widget.confirmed == 1
 
 
-def test_the_question_says_who_is_asking(ui, qapp, monkeypatch):
-    """The item and the task travel in the request, so a responder can put the
-    question on that item's record without guessing at what is running."""
+def test_the_second_version_says_who_is_asking(ui, qapp, monkeypatch):
+    """``review_detection_ui`` asks a ``ReviewDetection``: the item and the task
+    travel in the request, so a responder can put the question on that item's
+    record without guessing at what is running. In this window there is no
+    Review tab to answer it in, so it is the Detection tab prompt -- which is
+    the other half of what it promises."""
+    from fibsem.applications.autolamella.workflows import ui as workflow_ui
+    from fibsem.applications.autolamella.workflows.interaction import ReviewDetection
+
+    monkeypatch.setattr(
+        workflow_ui.detection,
+        "take_image_and_detect_features",
+        lambda **kwargs: _make_detection(),
+    )
+    outcome = {}
+
+    def target():
+        outcome["answer"] = workflow_ui.review_detection_ui(
+            microscope=ui.microscope,
+            image_settings=None,
+            checkpoint="unused",
+            features=[LamellaCentre()],
+            item_id="lamella-uuid",
+            task_name="Mill Undercut",
+            parent_ui=ui,
+            validate=True,
+        )
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        if ui.label_instructions.text() == PROMPT:
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("the detection was never asked")
+
+    request = ui.ui_responder.pending_question()
+    assert isinstance(request, ReviewDetection)
+    assert (request.item_id, request.task_name) == ("lamella-uuid", "Mill Undercut")
+
+    ui.pushButton_yes.click()
+    _finish(thread, qapp)
+    assert "answer" in outcome
+
+
+def test_the_first_version_asks_exactly_what_it_always_did(ui, qapp, monkeypatch):
+    """A plain ``ConfirmDetection`` and nothing more: no identity on it, so
+    nothing that could put it on a record."""
     from fibsem.applications.autolamella.workflows import ui as workflow_ui
 
     monkeypatch.setattr(
@@ -263,7 +311,6 @@ def test_the_question_says_who_is_asking(ui, qapp, monkeypatch):
         "take_image_and_detect_features",
         lambda **kwargs: _make_detection(),
     )
-
     thread = threading.Thread(
         target=lambda: workflow_ui.update_detection_ui(
             microscope=ui.microscope,
@@ -272,8 +319,6 @@ def test_the_question_says_who_is_asking(ui, qapp, monkeypatch):
             features=[LamellaCentre()],
             parent_ui=ui,
             validate=True,
-            item_id="lamella-uuid",
-            task_name="Mill Undercut",
         ),
         daemon=True,
     )
@@ -281,23 +326,15 @@ def test_the_question_says_who_is_asking(ui, qapp, monkeypatch):
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         qapp.processEvents()
-        if ui.ui_responder.pending_question() is not None:
+        if ui.label_instructions.text() == PROMPT:
             break
         time.sleep(0.01)
     else:
         raise AssertionError("the detection was never asked")
 
     request = ui.ui_responder.pending_question()
-    assert isinstance(request, ConfirmDetection)
-    assert (request.item_id, request.task_name) == ("lamella-uuid", "Mill Undercut")
+    assert type(request) is ConfirmDetection
+    assert not hasattr(request, "item_id")
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)
-
-
-def test_a_caller_with_neither_still_asks():
-    """Both are optional: a question from a caller that knows neither is asked
-    and answered exactly as before, and simply is not recorded."""
-    request = ConfirmDetection(detection=_make_detection())
-
-    assert (request.item_id, request.task_name) == ("", "")

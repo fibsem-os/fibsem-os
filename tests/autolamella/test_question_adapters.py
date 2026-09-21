@@ -37,6 +37,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.interaction import (
     Confirm,
     ConfirmDetection,
+    ReviewDetection,
 )
 from fibsem.applications.autolamella.workflows.question_adapters import (
     answer_from,
@@ -106,7 +107,7 @@ def _record(experiment, detection):
         # folder; a test that says nothing about the picture gets the same.
         stem = f"ml-{len(os.listdir(str(lamella.path)))}_ib"
         detection.fibsem_image.save(os.path.join(str(lamella.path), stem))
-    request = ConfirmDetection(detection=detection)
+    request = ReviewDetection(detection=detection, item_id=lamella.id, task_name=TASK)
     proposal = proposal_for(request, experiment, lamella)
     assert proposal is not None
     assert experiment.ask_proposal(lamella.id, TASK, proposal)
@@ -186,6 +187,20 @@ def test_a_request_with_no_value_has_nothing_to_record(experiment):
     with pytest.raises(NotImplementedError):
         answer_from(request, {})
     assert lamella.proposals.get(TASK) is None
+
+
+def test_the_detection_question_as_it_always_was_is_not_recorded(experiment):
+    """``ConfirmDetection`` is asked by ``update_detection_ui``, here and in
+    code outside this repository, and answered on the Detection tab. It stays
+    exactly that: only the second request type has anything to record."""
+    lamella = experiment.positions[0]
+    detection = _detection()
+    detection.fibsem_image.save(os.path.join(str(lamella.path), "ml-plain_ib"))
+    request = ConfirmDetection(detection=detection)
+
+    assert proposal_for(request, experiment, lamella) is None
+    with pytest.raises(NotImplementedError):
+        answer_from(request, {})
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +378,9 @@ def test_a_question_on_a_picture_that_was_never_saved_is_not_recorded(experiment
     in memory -- and nothing is written or recorded on its behalf."""
     lamella = experiment.positions[0]
     before = sorted(os.listdir(str(lamella.path)))
-    request = ConfirmDetection(detection=_detection())
+    request = ReviewDetection(
+        detection=_detection(), item_id=lamella.id, task_name=TASK
+    )
 
     assert proposal_for(request, experiment, lamella) is None
     assert lamella.proposals.get(TASK) is None

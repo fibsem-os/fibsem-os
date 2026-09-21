@@ -43,6 +43,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.workflows.interaction import (
     ConfirmDetection,
+    ReviewDetection,
     ask,
 )
 from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
@@ -192,12 +193,12 @@ def _ask(window, qapp, request, abort=None):
     return thread, outcome
 
 
-def _request(window, **kwargs) -> ConfirmDetection:
+def _request(window, **kwargs) -> ReviewDetection:
     lamella = window.autolamella_ui.experiment.positions[0]
     fields = {"item_id": lamella.id, "task_name": TASK}
     fields.update(kwargs)
     detection = fields.pop("detection", None) or _detection(lamella.path)
-    return ConfirmDetection(detection=detection, **fields)
+    return ReviewDetection(detection=detection, **fields)
 
 
 def _decide(window, outcome=DecisionOutcome.Confirmed, px=None, reason="", **kwargs):
@@ -424,7 +425,7 @@ def test_the_timeline_hears_who_answered(window, qapp):
 
     assert [kind for kind, _ in heard] == ["prompt_raised", "prompt_answered"]
     assert heard[1][1] == {
-        "type": "ConfirmDetection",
+        "type": "ReviewDetection",
         "response": True,
         "answered_by": "agent",
         "nonce": nonce,
@@ -506,7 +507,7 @@ def test_the_agent_server_says_how_it_is_answered(window, qapp):
     thread, outcome = _ask(window, qapp, _request(window))
 
     pending = context.pending_prompt()["pending"]
-    assert pending["type"] == "ConfirmDetection"
+    assert pending["type"] == "ReviewDetection"
     assert pending["answer_via"] == "decide"
     named = {
         "item_id": lamella.id,
@@ -617,6 +618,21 @@ def _asked_the_old_way(window, qapp, thread, outcome) -> None:
     ui.pushButton_yes.click()
     _finish(qapp, thread)
     assert "answer" in outcome, outcome
+
+
+def test_the_detection_question_as_it_always_was_is_never_recorded(window, qapp):
+    """The guarantee the second version exists to keep. ``ConfirmDetection`` --
+    what ``update_detection_ui`` asks, in this repository and outside it -- is
+    the Detection tab prompt with interactive review on, a Review tab showing,
+    a saved image and a running item: everything that would let it be recorded,
+    except a caller that chose to."""
+    lamella = window.autolamella_ui.experiment.positions[0]
+    request = ConfirmDetection(detection=_detection(lamella.path))
+
+    thread, outcome = _ask(window, qapp, request)
+
+    assert window.tab_widget.currentWidget() is not window.review_tab
+    _asked_the_old_way(window, qapp, thread, outcome)
 
 
 def test_with_interactive_review_off_it_is_a_prompt(window, qapp):
