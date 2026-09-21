@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type
 import numpy as np
 
 from fibsem import constants
-from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+from fibsem.applications.autolamella.poses import (
+    FLUORESCENCE_POSE,
+    MILLING_POSE,
+    derive_pose,
+    move_pose,
+)
 from fibsem.applications.autolamella.proposals import (
     POINT_OF_INTEREST,
     Decision,
@@ -240,16 +245,24 @@ class SelectMillingPositionTask(AutoLamellaTask):
         self._acquire_set_of_reference_images(self.image_settings)
 
         # store milling pose and angle
-        self.lamella.milling_pose = self.microscope.get_microscope_state()
-        self.lamella.update_milling_angle(self.microscope)
         # the task moved the lamella (the coincidence walk, the operator's own
-        # centring), so the fluorescence pose derived when it was marked now
-        # describes where it used to be. Every UI path that moves a lamella
-        # syncs it; a fluorescence stack taken from the stale pose lands tens
-        # of microns off the marks it is meant to show (FIB-954). Opt-in: the
-        # default leaves the pose alone, as the task always has.
-        if self.config.sync_fluorescence_pose:
-            sync_fluorescence_pose(self.microscope, self.lamella)
+        # centring), so this is a move and not only a record: a fluorescence pose
+        # that is still a guess is worked out again from the new milling pose, as
+        # it is wherever a person moves a lamella. Left behind, a fluorescence
+        # stack taken from it lands tens of microns off the marks it is meant to
+        # show (FIB-954). One somebody centred under the objective is theirs, and
+        # stays -- unless the task is configured to overwrite it.
+        move_pose(
+            self.microscope,
+            self.lamella,
+            MILLING_POSE,
+            state=self.microscope.get_microscope_state(),
+        )
+        if (
+            self.config.sync_fluorescence_pose
+            and self.lamella.fluorescence_pose is not None
+        ):
+            derive_pose(self.microscope, self.lamella, FLUORESCENCE_POSE)
 
     def _align_coincident_for_milling(
         self, milling_angle: float, is_close: bool

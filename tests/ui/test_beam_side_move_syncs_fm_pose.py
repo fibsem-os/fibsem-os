@@ -63,8 +63,7 @@ def _lamella(microscope, tmp_path, x=100e-6, y=50e-6):
 
     poses = build_lamella_poses(microscope, _at(microscope, MILLING_ORIENTATION, x, y))
     lamella = Lamella(petname="Lamella-01", path=str(tmp_path / "Lamella-01"), number=1)
-    lamella.milling_pose = poses.milling
-    lamella.fluorescence_pose = poses.fluorescence
+    poses.write_to(lamella)  # marked at the beams: the fluorescence pose is a guess
     return lamella
 
 

@@ -30,13 +30,15 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from enum import Enum
+from typing import TYPE_CHECKING, Dict, Optional
 
 import numpy as np
 
 from fibsem.structures import DeviceImagingState, FibsemStagePosition, MicroscopeState
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
+    from fibsem.applications.autolamella.structures import Lamella
     from fibsem.microscope import FibsemMicroscope
 
 # The orientation a lamella is milled at, when one has to be chosen rather than
@@ -59,6 +61,21 @@ MILLING_POSE = "MILLING"
 FLUORESCENCE_POSE = "FLUORESCENCE"
 
 
+class PoseProvenance(str, Enum):
+    """Where a lamella pose came from.
+
+    A lamella's milling and fluorescence poses are two observations of one piece of
+    sample from two instruments, and the conversion between them is a first guess for
+    the side nobody has looked through yet. So each pose says which it is, and that
+    decides what may happen to it: a derived pose follows when the other one moves --
+    a guess replacing a guess -- and an observed pose is never rewritten unless
+    somebody asks (`poses.move_pose`, `poses.derive_pose`).
+    """
+
+    OBSERVED = "observed"  # marked, centred or recorded at that instrument
+    DERIVED = "derived"  # worked out from the other pose
+
+
 @dataclass(frozen=True)
 class LamellaPoses:
     """Both poses for a lamella, whichever side it was marked from.
@@ -74,6 +91,26 @@ class LamellaPoses:
     milling: MicroscopeState
     fluorescence: Optional[MicroscopeState] = None
     observed: str = MILLING_POSE
+
+    @property
+    def provenance(self) -> Dict[str, PoseProvenance]:
+        """Which pose was marked and which worked out, as `Lamella` records it."""
+        if self.fluorescence is None:
+            return {MILLING_POSE: PoseProvenance.OBSERVED}
+        derived = FLUORESCENCE_POSE if self.observed == MILLING_POSE else MILLING_POSE
+        return {
+            self.observed: PoseProvenance.OBSERVED,
+            derived: PoseProvenance.DERIVED,
+        }
+
+    def write_to(self, lamella: "Lamella") -> None:
+        """Put both poses on *lamella*, each saying where it came from."""
+        provenance = self.provenance
+        lamella.set_pose(MILLING_POSE, self.milling, provenance[MILLING_POSE])
+        if self.fluorescence is not None:
+            lamella.set_pose(
+                FLUORESCENCE_POSE, self.fluorescence, provenance[FLUORESCENCE_POSE]
+            )
 
 
 def build_lamella_poses(
@@ -187,58 +224,193 @@ def _refuse_unsupported(
     )
 
 
-def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
-    """Bring a lamella's fluorescence pose back in line with its milling pose.
+class Followed(str, Enum):
+    """What `move_pose` did with the *other* pose."""
 
-    For the callers that move a lamella on the beam side. They set the milling pose and
-    have historically stopped there, which leaves the fluorescence pose describing where
-    the lamella *used to be* -- a stale pose being worse than a missing one, because
-    nothing about it looks wrong.
+    DERIVED = "derived"  # it was a guess (or asked for), so it was worked out again
+    KEPT = "kept"  # somebody observed it; it stays until they ask
+    MISSING = "missing"  # there is none, and a move does not invent one
+    FAILED = "failed"  # it should have followed, and could not be worked out
 
-    Only the stage position is rewritten. Everything else the fluorescence pose carries
-    is kept, the objective position most of all: someone focused on this lamella by hand,
-    and moving it sideways is not a reason to throw that away.
 
-    Deliberately does **not** invent a pose for a lamella that has none. A lamella with
-    no fluorescence pose has never been marked under fluorescence, and `fluorescence_
-    selected` asks only whether an objective position exists -- so conjuring one here
-    would make a lamella nobody has ever looked at report itself as focused.
+def other_pose(name: str) -> str:
+    return MILLING_POSE if name == FLUORESCENCE_POSE else FLUORESCENCE_POSE
+
+
+def move_pose(
+    microscope: "FibsemMicroscope",
+    lamella: "Lamella",
+    name: str,
+    position: Optional[FibsemStagePosition] = None,
+    state: Optional[MicroscopeState] = None,
+    objective_position: Optional[float] = None,
+) -> Followed:
+    """A person moved one of a lamella's poses. The one write path for that.
+
+    Writes the pose as observed -- *state* replaces it whole, *position* moves it and
+    keeps the rest, the objective position most of all -- and then applies the one
+    rule about the other pose:
+
+    * it is still **derived**: worked out again from the new one. Nobody has looked
+      through that side, and a guess pointing at where the lamella used to be looks
+      exactly like a right one.
+    * it is **observed**: left alone. Somebody centred it, and the conversion is a
+      guess; only `derive_pose`, asked for by name, overwrites it.
+    * there is **none**: left that way. A lamella with no fluorescence pose has never
+      been looked at under fluorescence, and `fluorescence_selected` asks only whether
+      an objective position exists -- conjuring a pose here would make it report
+      itself as focused.
+
+    The milling angle follows every write to the milling pose, here rather than at
+    each caller. Saving and announcing the change stay with the caller.
+
+    A fluorescence pose moved on a lamella that has none is built on its milling
+    pose's state, with *objective_position* if given.
+    """
+    if name not in (MILLING_POSE, FLUORESCENCE_POSE):
+        raise ValueError(f"No pose named {name!r} to move.")
+    if state is not None:
+        # A recorded microscope state does not capture the objective, so replacing a
+        # pose outright would wipe the focus somebody set on it.
+        existing = lamella.poses.get(name)
+        if state.objective_position is None and existing is not None:
+            state.objective_position = existing.objective_position
+        lamella.set_pose(name, state)
+    elif position is None:
+        raise ValueError("move_pose needs a position or a state.")
+    elif lamella.poses.get(name) is not None:
+        lamella.set_pose_position(name, deepcopy(position))
+    else:
+        base = lamella.poses.get(other_pose(name))
+        if base is None:
+            raise ValueError(f"{lamella.name} has no pose to build a {name} pose on.")
+        pose = deepcopy(base)
+        pose.stage_position = deepcopy(position)
+        if name == FLUORESCENCE_POSE:
+            pose.objective_position = objective_position
+        lamella.set_pose(name, pose)
+    if name == MILLING_POSE:
+        lamella.update_milling_angle(microscope)
+
+    other = other_pose(name)
+    if lamella.poses.get(other) is None:
+        return Followed.MISSING
+    if lamella.provenance_of(other) is not PoseProvenance.DERIVED:
+        return Followed.KEPT
+    if derive_pose(microscope, lamella, other):
+        return Followed.DERIVED
+    return Followed.FAILED
+
+
+def record_pose(
+    microscope: "FibsemMicroscope",
+    lamella: "Lamella",
+    name: str,
+    state: MicroscopeState,
+) -> Followed:
+    """Record *state* as the named pose: "set the current position as this pose".
+
+    The milling and fluorescence poses go through `move_pose`. Any other named pose
+    is a record with no counterpart, and is just written.
+    """
+    if name in (MILLING_POSE, FLUORESCENCE_POSE):
+        return move_pose(microscope, lamella, name, state=state)
+    lamella.set_pose(name, state)
+    return Followed.MISSING
+
+
+POSE_NOUNS = {MILLING_POSE: "milling pose", FLUORESCENCE_POSE: "fluorescence pose"}
+
+
+def followed_note(name: str, followed: Followed) -> str:
+    """What to tell a person about the *other* pose after `move_pose`; "" if nothing.
+
+    Said the same way wherever a pose can be moved, so the rule reads as one rule.
+    """
+    if name not in POSE_NOUNS:
+        return ""
+    other = POSE_NOUNS[other_pose(name)]
+    if followed is Followed.DERIVED:
+        return f"Its {other} was worked out again from the new position."
+    if followed is Followed.KEPT:
+        return f"Its {other} was set by hand and stays where it is."
+    if followed is Followed.FAILED:
+        return f"Its {other} could not be worked out from here and stays where it was."
+    return ""
+
+
+def move_consequence(lamella: "Lamella", name: str) -> str:
+    """What moving the named pose will do to the other one, said *before* the move.
+
+    For a confirmation on a canvas that shows only one side: the person cannot see
+    the other pose from there, so they are told what is about to happen to it.
+    """
+    other = other_pose(name)
+    noun = POSE_NOUNS[other]
+    if lamella.poses.get(other) is None:
+        return ""
+    if lamella.provenance_of(other) is PoseProvenance.DERIVED:
+        return (
+            f"Its {noun} is worked out again from the new position and moves with it."
+        )
+    return f"Its {noun} was set by hand and stays where it is."
+
+
+def derive_pose(
+    microscope: "FibsemMicroscope",
+    lamella: "Lamella",
+    name: str,
+    orientation: Optional[str] = None,
+) -> bool:
+    """Overwrite the named pose with one worked out from the other, and say so.
+
+    For a caller that has decided to: `move_pose` when the pose was a guess already,
+    a person asking for it by name, a task configured to. Only the stage position is
+    derived. A fluorescence pose keeps its objective position -- someone focused on
+    this lamella, and moving it sideways is not a reason to throw that away -- or
+    takes the objective's configured focus if it had none.
+
+    *orientation* is for the fluorescence pose: the orientation to derive it into.
+    Left out, the one it is already in is kept where the FM images from it, so a pose
+    chosen at the SEM tilt is not flipped because its lamella moved. The milling pose
+    is always derived into the milling orientation, under the beams.
 
     Returns:
-        True if the pose was updated; False if there was none to update, or the
-        instrument cannot work one out.
+        True if the pose was written. False, with the existing pose untouched, if
+        there is nothing to derive it from or the instrument cannot work it out -- a
+        wrong milling pose is the dangerous outcome, so that direction refuses unless
+        the fluorescence pose is somewhere the objective sees the sample from.
     """
-    pose = getattr(lamella, "fluorescence_pose", None)
-    if pose is None:
+    if name not in (MILLING_POSE, FLUORESCENCE_POSE):
+        raise ValueError(f"No derivation for a pose named {name!r}.")
+    source = lamella.poses.get(other_pose(name))
+    if source is None or source.stage_position is None:
+        logging.debug(f"Cannot derive the {name} pose of {lamella.name}: no source.")
         return False
+    existing = lamella.poses.get(name)
 
-    milling = getattr(lamella, "milling_pose", None)
-    if milling is None or milling.stage_position is None:
-        logging.debug(
-            f"Cannot sync the fluorescence pose of {getattr(lamella, 'name', '?')}: "
-            f"it has no milling pose to derive one from."
-        )
-        return False
+    if name == FLUORESCENCE_POSE:
+        if orientation is None and existing is not None:
+            orientation = _kept_orientation(microscope, existing.stage_position)
+        position = _to_fluorescence(microscope, source.stage_position, orientation)
+        if position is None:
+            return False
+    else:
+        try:
+            position = _to_milling(microscope, source.stage_position)
+        except ValueError as e:
+            logging.warning(f"Could not derive the milling pose of {lamella.name}: {e}")
+            return False
 
-    # Into the orientation the pose is already in, where the FM images from it: a
-    # pose somebody chose at the SEM tilt is not flipped because its lamella moved.
-    position = _to_fluorescence(
-        microscope,
-        milling.stage_position,
-        orientation=_kept_orientation(microscope, pose.stage_position),
-    )
-    if position is None:
-        # Left as it stands rather than cleared. It cannot be derived on this system, so
-        # whatever is there was put there deliberately and is the better of two bad
-        # answers -- but it is now stale, and saying so is the only thing left to do.
-        logging.warning(
-            f"Could not update the fluorescence pose of "
-            f"{getattr(lamella, 'name', '?')} to follow its milling pose; it still "
-            f"describes the previous position."
-        )
-        return False
-
+    pose = deepcopy(existing if existing is not None else source)
     pose.stage_position = position
+    if name == FLUORESCENCE_POSE and (
+        existing is None or existing.objective_position is None
+    ):
+        pose.objective_position = microscope.fm.objective.focus_position
+    lamella.set_pose(name, pose, PoseProvenance.DERIVED)
+    if name == MILLING_POSE:
+        lamella.update_milling_angle(microscope)
     return True
 
 

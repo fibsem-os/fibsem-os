@@ -26,7 +26,10 @@ from PyQt5.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_POSE,
-    build_lamella_poses,
+    Followed,
+    followed_note,
+    move_consequence,
+    move_pose,
 )
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
@@ -125,14 +128,14 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
     def _on_move_requested(self, name: str, position) -> None:
         """A user asked to move a marked lamella to a point on the overview.
 
-        Confirmed first, because moving one pose moves both: the milling pose is derived
-        from this one, so a lamella dragged across the fluorescence view also stops being
-        where the beam was going to mill it. That is usually the point -- the two describe
-        one piece of sample -- but it is not visible from this canvas, which shows only
-        the fluorescence side, so it gets said rather than assumed.
+        Moves the fluorescence pose. The milling pose does what the rule in
+        `poses.move_pose` says: worked out again while it is still a guess -- so a
+        lamella dragged here also stops being where the beam was going to mill it --
+        and left alone once it has been set at the beams. Neither is visible from this
+        canvas, which shows only the fluorescence side, so the move is confirmed first
+        and the confirmation says which.
 
-        Not shared with the beam tab, which writes the milling pose directly and syncs
-        this one after it. See `overview_tab_base`.
+        Not shared with the beam tab, which does not confirm. See `overview_tab_base`.
         """
         experiment = self.experiment
         if experiment is None:
@@ -147,52 +150,42 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             )
             return
 
-        try:
-            poses = build_lamella_poses(
-                microscope=self.microscope,
-                position=position,
-                objective_position=self._objective_position(),
-                # Only reaches the result in one case, and it is worth it for that one:
-                # a lamella with no fluorescence pose yet gets a whole new one below, and
-                # it should be built on what this lamella recorded rather than on
-                # whatever the microscope happens to be set to now. Everywhere else only
-                # the stage positions are read, and those come from `position`.
-                state=lamella.milling_pose,
-                observed=FLUORESCENCE_POSE,
-            )
-        except Exception as e:
-            logger.error(f"Could not move {name} from the FM overview: {e}")
-            notification_service.show_toast(str(e), "error")
-            return
-
         history = (
             f"\n\n{name} has already completed {', '.join(lamella.completed_tasks)}."
             if lamella.completed_tasks
             else ""
         )
+        # Said before the move, because it is not visible from this canvas: whether
+        # the milling pose comes along is decided by where that pose came from.
+        consequence = move_consequence(lamella, FLUORESCENCE_POSE)
         if not message_box_ui(
             title=f"Move {name}?",
             text=(
-                f"Move {name} to {poses.fluorescence.stage_position.pretty_string}?"
-                f"\n\nThis moves the milling pose with it, to "
-                f"{poses.milling.stage_position.pretty_string}."
-                f"{history}"
+                f"Move {name} to {position.pretty_string}?\n\n{consequence}{history}"
             ),
             parent=self,
         ):
             return
 
-        # Only the stage positions are replaced, so anything else the poses carry --
+        # Only the stage position is replaced, so anything else the pose carries --
         # notably the objective position on a lamella that was focused by hand -- is
-        # kept. `stage_position` is the milling pose's, via the property.
-        lamella.stage_position = poses.milling.stage_position
-        lamella.update_milling_angle(self.microscope)
-        if lamella.fluorescence_pose is None:
-            lamella.fluorescence_pose = poses.fluorescence
-        else:
-            lamella.fluorescence_pose.stage_position = poses.fluorescence.stage_position
+        # kept. A lamella with no fluorescence pose yet gets one built on what it
+        # recorded, with the objective where it is now.
+        followed = move_pose(
+            self.microscope,
+            lamella,
+            FLUORESCENCE_POSE,
+            position=position,
+            objective_position=self._objective_position(),
+        )
 
         experiment.save()
+        # Writing a pose emits nothing, so the other canvas and the lamella cards
+        # would go on showing the old place; the window re-marks both tabs from this.
+        experiment.positions.events.changed.emit()
         self.refresh_positions()
         self.autolamella_ui.update_ui()
-        notification_service.show_toast(f"Moved {name}.", "info")
+        level = "warning" if followed is Followed.FAILED else "info"
+        notification_service.show_toast(
+            f"Moved {name}. {followed_note(FLUORESCENCE_POSE, followed)}".strip(), level
+        )
