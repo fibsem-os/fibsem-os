@@ -7,15 +7,21 @@ Run it:
 
 The real app opens, connected to the Demo microscope with a throwaway
 experiment. A worker thread plays the part of a milling task: it takes an ion
-image, invents a detection on it, and asks through ``ReviewResponder`` instead
-of putting a prompt up. So:
+image, invents a detection on it, records it as a question and parks until a
+decision lands on it. So:
 
 * a row appears in the **Review** tab, on the lamella, holding the workflow;
 * the panel shows the image with a magenta marker per feature, draggable;
 * **Confirm** hands the points back and the worker prints what it got, with
   how far each one moved;
 * **Reject** raises on the worker instead, the way a failed task unwinds;
-* **Attention Required** brings you back to it if you look elsewhere.
+* closing the window while it is parked takes the question back.
+
+Nothing in the app asks this way yet, so the wait is played here, by
+``_HarnessAsker``: the real owner of the wait is ``QtResponder``, which does not
+record questions until it is taught to. That also means **Attention Required
+does not light** in this harness -- the hold comes from the responder, and no
+responder is involved. Everything the record and the Review tab do is real.
 
 The prediction is fabricated and randomly placed -- no model, no ``ml`` extra
 -- so each round is a different correction to make. Nothing in the real
@@ -31,6 +37,7 @@ import random
 import sys
 import threading
 import time
+from copy import deepcopy
 
 os.environ.setdefault("QT_QPA_PLATFORM", "")  # a real window, not offscreen
 
@@ -38,6 +45,8 @@ import numpy as np
 from psygnal.containers import EventedDict
 from PyQt5.QtWidgets import QApplication
 
+from fibsem import acquire, utils
+from fibsem.applications.autolamella.proposals import DecisionOutcome
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
@@ -46,7 +55,10 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_ui_module
 from fibsem.applications.autolamella.workflows.interaction import ConfirmDetection, ask
-from fibsem.applications.autolamella.workflows.review_responder import ReviewResponder
+from fibsem.applications.autolamella.workflows.question_adapters import (
+    answer_from,
+    proposal_for,
+)
 from fibsem.detection.detection import DetectedFeatures, ImageCentre, LamellaCentre
 from fibsem.structures import BeamType, ImageSettings, MicroscopeState, Point
 
@@ -80,8 +92,48 @@ def _fake_detection(image) -> DetectedFeatures:
         mask=mask,
         rgb=np.zeros((rows, cols, 3), dtype=np.uint8),
         pixelsize=image.metadata.pixel_size.x,
-        fibsem_image=image,
+        # A copy, as ``detect_features_v2`` takes one; it keeps the filepath.
+        fibsem_image=deepcopy(image),
     )
+
+
+class _HarnessAsker:
+    """Stands in for the responder that will own this wait: records the
+    question, and completes the future when a decision lands on it.
+
+    Harness only. It raises no hold and has no nonce, which is exactly what
+    the real responder brings -- so it is not something to build on.
+    """
+
+    def __init__(self, experiment, item_id: str, task_name: str) -> None:
+        self._experiment = experiment
+        self._item_id = item_id
+        self._task_name = task_name
+
+    def submit(self, request, future) -> None:
+        experiment = self._experiment
+        item = experiment.get_item_by_id(self._item_id)
+        proposal = proposal_for(request, experiment, item)
+        if proposal is None:  # nothing to record: the real asker prompts instead
+            future.set_exception(RuntimeError("the question was not recordable"))
+            return
+        experiment.ask_proposal(self._item_id, self._task_name, proposal)
+
+        def on_decided(item_id: str, task_name: str) -> None:
+            if (item_id, task_name) != (self._item_id, self._task_name):
+                return
+            decision = proposal.current
+            if decision is None or future.done():
+                return
+            experiment.decided.disconnect(on_decided)
+            if decision.outcome is DecisionOutcome.Confirmed:
+                future.set_result(answer_from(request, decision.values))
+            elif decision.outcome is DecisionOutcome.Rejected:
+                future.set_exception(RuntimeError(f"rejected: {decision.reason}"))
+            else:
+                future.cancel()
+
+        experiment.decided.connect(on_decided)
 
 
 def _pretend_to_be_a_task(window, experiment, lamella) -> None:
@@ -91,13 +143,21 @@ def _pretend_to_be_a_task(window, experiment, lamella) -> None:
     is which responder it asks.
     """
     microscope = window.autolamella_ui.microscope
-    # save=False on purpose: a real task may or may not write its image, and
-    # the question has to hold up either way. The responder saves the picture
-    # it is asking about, so the panel has one regardless.
-    image = microscope.acquire_image(
+    # Acquired the way ``take_image_and_detect_features`` acquires: through
+    # ``acquire.new_image``, always saved, into the lamella's folder, named
+    # ``ml-<timestamp>``. The save is what gives the image its ``filepath`` --
+    # beam suffix and extension included -- and that is the file the question
+    # records, so the panel shows the task's own picture and not a copy.
+    image = acquire.new_image(
+        microscope,
         ImageSettings(
-            beam_type=BeamType.ION, hfw=80e-6, resolution=[768, 512], save=False
-        )
+            beam_type=BeamType.ION,
+            hfw=80e-6,
+            resolution=[768, 512],
+            save=True,
+            path=str(lamella.path),
+            filename=f"ml-{utils.current_timestamp_v2()}",
+        ),
     )
     detection = _fake_detection(image)
     proposed = {f.name: Point(f.px.x, f.px.y) for f in detection.features}
@@ -106,7 +166,7 @@ def _pretend_to_be_a_task(window, experiment, lamella) -> None:
         print(f"    {name}: proposed at ({px.x:.0f}, {px.y:.0f}) px")
     print("    Answer it in the Review tab.\n")
 
-    responder = ReviewResponder(experiment, lamella.id, TASK)
+    responder = _HarnessAsker(experiment, lamella.id, TASK)
     try:
         answer = ask(responder, ConfirmDetection(detection=detection))
     except Exception as exc:  # noqa: BLE001 - the harness reports it
@@ -118,7 +178,8 @@ def _pretend_to_be_a_task(window, experiment, lamella) -> None:
         moved = ((feature.px.x - was.x) ** 2 + (feature.px.y - was.y) ** 2) ** 0.5
         print(
             f"    {feature.name}: ({feature.px.x:.0f}, {feature.px.y:.0f}) px "
-            f"· moved {moved:.0f} px"
+            f"· moved {moved:.0f} px "
+            f"· {feature.feature_m.x * 1e6:+.2f}, {feature.feature_m.y * 1e6:+.2f} µm"
         )
     print("    Milling would carry on from here.\n")
 

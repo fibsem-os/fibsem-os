@@ -421,6 +421,8 @@ class TaskResultReviewRenderer(ReviewRenderer):
         actions.addStretch(1)
         actions.addWidget(self.btn_confirm)
         actions.addWidget(self.btn_reject)
+        # Kept for a kind that adds a control of its own beside the verbs.
+        self._actions = actions
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 4, 10, 8)
@@ -846,8 +848,9 @@ class DetectionReviewRenderer(TaskResultReviewRenderer):
         self.btn_put_back.setToolTip("Move every feature back where the model put it")
         self.btn_put_back.clicked.connect(self._draw_values)
         # Beside the verbs, because it undoes an edit rather than deciding.
-        actions = self.layout().itemAt(self.layout().count() - 1).layout()
-        actions.insertWidget(actions.count() - 2, self.btn_put_back)
+        self._actions.insertWidget(
+            self._actions.indexOf(self.btn_confirm), self.btn_put_back
+        )
 
     def _state_words(self) -> tuple:
         return "Applied", self._task_name

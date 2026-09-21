@@ -310,6 +310,14 @@ class PreparedWrite:
     apply: Callable[[], List[str]]
     undo: Callable[[], None]
 
+    @classmethod
+    def nothing(cls) -> "PreparedWrite":
+        """A value that is checked and written nowhere: its consumer is not the
+        item. An in-run answer is the first -- the task parked on it applies it
+        (FIB-1025) -- and an answer given at the instrument, already applied by
+        the hardware when it is recorded, is the same shape."""
+        return cls(apply=lambda: [], undo=lambda: None)
+
 
 def _prepare_poi(experiment: Any, item: Any, value: Any) -> PreparedWrite:
     """The GUI's move path, planned in full before any of it happens: the new
@@ -447,14 +455,7 @@ def _prepare_features(experiment: Any, item: Any, value: Any) -> PreparedWrite:
             raise ValueRefused("every feature needs a name to be matched back by.")
         if not isinstance(entry.get("px"), Point):
             raise ValueRefused(f"{entry['name']} needs a point in image pixels.")
-
-    def apply() -> List[str]:
-        return []
-
-    def undo() -> None:
-        return None
-
-    return PreparedWrite(apply=apply, undo=undo)
+    return PreparedWrite.nothing()
 
 
 # name -> prepare(experiment, item, value): checks the value and plans every

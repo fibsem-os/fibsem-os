@@ -5,7 +5,6 @@ import os
 import threading
 import uuid
 from abc import ABC
-from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
@@ -2208,34 +2207,6 @@ class Experiment:
             logging.exception(f"a subscriber to asked raised for {task_name}")
         return True
 
-    @contextmanager
-    def asking(self, item_id: str, task_name: str):
-        """Mark a proposal as the question the run is parked on, for as long as
-        it is being asked.
-
-        Inside the block a decision on it is allowed even though its task is
-        running, because the task is not running *over* it -- it is stopped
-        until someone answers. Outside, the ordinary refusal is back.
-
-        A context manager rather than two calls because the clearing is the
-        part that matters: an ask that aborts, raises or is cancelled must
-        still close the question, or the exception it left behind would let a
-        later decision land on a task that really is reading.
-
-        Yields the proposal, or ``None`` when there is no such item or
-        proposal -- the caller is asking either way, and a missing record is
-        not a reason to refuse to ask.
-        """
-        item = self.get_item_by_id(item_id)
-        proposal = item.proposals.get(task_name) if item is not None else None
-        if proposal is not None:
-            proposal.asking = True
-        try:
-            yield proposal
-        finally:
-            if proposal is not None:
-                proposal.asking = False
-
     def withdraw_proposal(
         self, item_id: str, task_name: str, reason: str
     ) -> DecisionResult:
@@ -2251,12 +2222,15 @@ class Experiment:
         It never touches a task's status. The task has its own ending, and the
         withdrawal is a consequence of it rather than a cause: what requires
         that task is gated on the task, not on this.
-        """
-        return _call_on_main_thread(self._withdraw_proposal, item_id, task_name, reason)
 
-    def _withdraw_proposal(
-        self, item_id: str, task_name: str, reason: str
-    ) -> DecisionResult:
+        Like ``ask_proposal`` and unlike ``decide``, this does **not** run on
+        the main thread. It is called while a run is unwinding -- an abort, a
+        failing task -- which is exactly when the main thread may be waiting
+        on the workflow thread. Waiting for it here stalls for the marshal's
+        timeout and then raises out of the abort path, while the queued call
+        still lands later. The write is an append to a plain list under the
+        write lock; only the notification is handed to the GUI thread.
+        """
         with EXPERIMENT_WRITE_LOCK:
             item = self.get_item_by_id(item_id)
             if item is None:
@@ -2295,7 +2269,7 @@ class Experiment:
                 }
             )
         try:
-            self.decided.emit(item_id, task_name)
+            _emit_on_main_thread(self.decided, item_id, task_name)
         except Exception:
             logging.exception(f"a subscriber to decided raised for {task_name}")
         return DecisionResult(applied=True)
