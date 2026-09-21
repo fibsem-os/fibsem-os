@@ -674,6 +674,23 @@ def test_re_run_on_change_waits_for_the_points_to_settle(loaded, monkeypatch):
     assert runs == [1]
 
 
+def test_re_run_on_change_is_carried_by_the_experiment_config(loaded):
+    """The tick is remembered per experiment, not per dialog: the protocol
+    editor builds a new correlation dialog for every lamella, so a session-only
+    preference would have to be re-set on each one (FIB-1020)."""
+    from fibsem.correlation.config import CorrelationConfig
+
+    assert loaded.correlation_config.auto_rerun is False
+
+    loaded.set_correlation_config(CorrelationConfig(auto_rerun=True))
+    assert loaded._coords_tab._auto_rerun_check.isChecked()
+    assert loaded.correlation_config.auto_rerun is True
+
+    # and the other way: the checkbox is what the config reads back
+    loaded._coords_tab._auto_rerun_check.setChecked(False)
+    assert loaded.correlation_config.auto_rerun is False
+
+
 def test_re_run_on_change_leaves_a_run_that_cannot_happen_alone(loaded, monkeypatch):
     """The run gate still decides. A state the run bar already refuses is not
     worth a timer, and a run in flight is waited for, not interrupted."""

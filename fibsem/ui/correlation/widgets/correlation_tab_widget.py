@@ -1063,8 +1063,10 @@ class _CoordinatesTab(QWidget):
 
         # Opt-in: run the correlation again whenever the points settle, so the
         # verdict and the reprojected rings follow the fiducial you just moved
-        # instead of waiting for a press. Off by default -- a run is the
-        # deliberate step the verdict's wording was written for (FIB-1020).
+        # instead of waiting for a press. Off by default, and carried in the
+        # experiment's correlation config rather than the session -- this dialog
+        # is rebuilt per lamella, so a session-only tick would have to be redone
+        # for every one of them (FIB-1020).
         self._auto_rerun_check = QCheckBox("Re-run on change")
 
         # Match the 11-12px labels these sit beside (see _form_label).
@@ -3334,6 +3336,7 @@ class CorrelationTabWidget(QWidget):
         """Apply an experiment-global config as the fit + RI defaults."""
         self._correlation_config = config
         self._apply_fit_config()
+        self._coords_tab._auto_rerun_check.setChecked(config.auto_rerun)
         ri = config.ri
         self._ri_tab._ri_widget.set_params(
             ZetaParams(
@@ -3401,6 +3404,7 @@ class CorrelationTabWidget(QWidget):
             fit=fit,
             ri=ri,
             load_spot_burns=stored.load_spot_burns,
+            auto_rerun=cl._auto_rerun_check.isChecked(),
         )
 
     # ------------------------------------------------------------------
