@@ -865,8 +865,14 @@ class AgentContext:
                     "item_id": item.id,
                     "item_name": item.name,
                     "task_name": task_name,
-                    # the run this is; decide_review passes it back
+                    # what this is; decide_review passes it back. The run is
+                    # here as a fact about it, and still names it for a caller
+                    # that has not learned the id.
+                    "proposal_id": proposal.id,
                     "task_id": proposal.task_id,
+                    # The task that made it is stopped on the answer: nothing
+                    # else runs until it is decided, so it comes first.
+                    "holding_the_run": bool(proposal.asking),
                     "gated": is_gated(experiment, task_name, item),
                     "waiting_on": waiting_on(experiment, task_name, item),
                 }
@@ -900,12 +906,19 @@ class AgentContext:
         reason: str = "",
         author: str = "",
         task_id: str = "",
+        proposal_id: str = "",
     ) -> Dict[str, Any]:
         """Decide a pending proposal, exactly as the Review tab would: the same
         Experiment.decide, on the main thread, blocking until applied. The
-        author is recorded as the agent, never as the operator. ``task_id`` is
-        the run the agent was shown (from get_pending_reviews); a missing or
-        stale one is refused."""
+        author is recorded as the agent, never as the operator.
+
+        ``proposal_id`` is the proposal the agent was shown (from
+        get_pending_reviews), and what the decision is checked against: a task
+        may ask several questions in one run, and only the id tells the one
+        that was shown from the one that replaced it. ``task_id``, the run, is
+        accepted in its place from a caller that has not learned the id, and
+        is checked the way it always was. One of them is needed; a stale one
+        is refused."""
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "applied": False, "reason": "No experiment."}
@@ -931,6 +944,7 @@ class AgentContext:
             reason=reason,
             via="server",
             task_id=str(task_id or ""),
+            proposal_id=str(proposal_id or ""),
         )
         result = experiment.decide(item_id, task_name, decision)
         doc = result.to_dict()
@@ -1586,7 +1600,11 @@ class AgentContext:
             # decision an agent makes on any other review. Answering the prompt
             # would decide nothing, so it says so up front.
             payload["answer_via"] = "decide"
-            payload["decide"] = {"item_id": recorded[0], "task_name": recorded[1]}
+            payload["decide"] = {
+                "item_id": recorded[0],
+                "task_name": recorded[1],
+                "proposal_id": recorded[2],
+            }
         current = self._peek_current(responder, payload["type"], nonce)
         if current is not None:
             payload["current"] = current
@@ -1685,6 +1703,7 @@ class AgentContext:
                 "answer_via": "decide",
                 "item_id": recorded[0],
                 "task_name": recorded[1],
+                "proposal_id": recorded[2],
             }
 
         parsed = None
