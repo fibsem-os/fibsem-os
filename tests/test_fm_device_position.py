@@ -201,7 +201,9 @@ def test_neither_axis_answers_on_both_mountings():
     So "replace the orientation check with a device check" breaks the compustage as
     thoroughly as the orientation check breaks the offset mount.
     """
-    compustage = _microscope(ARCTIS_CONFIG)
+    # From FIB on both: it is the one beam pose this compustage's objective does not
+    # image from, so "move to the FM" re-poses it rather than finding it already there.
+    compustage = _at_fib(_microscope(ARCTIS_CONFIG))
     compustage.move_to_microscope("FM")
 
     offset = _at_fib(_microscope())
