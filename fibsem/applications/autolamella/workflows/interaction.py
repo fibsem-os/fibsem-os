@@ -120,9 +120,19 @@ class Confirm(Request[bool]):
 
 @dataclass(frozen=True)
 class ConfirmDetection(Request["DetectedFeatures"]):
-    """Show detected features for correction; answer with the (possibly moved) set."""
+    """Show detected features for correction; answer with the (possibly moved) set.
+
+    ``item_id`` and ``task_name`` say who is asking: the item the detection was
+    made for and the task that made it. They are what a responder needs to put
+    the question on that item's record, and it has no other honest way to learn
+    them -- "whatever is running" is a guess about the screen, not something
+    the request said. Empty from a caller that has neither, and then the
+    question is answered and not recorded, as it always was.
+    """
 
     detection: "DetectedFeatures"
+    item_id: str = ""
+    task_name: str = ""
 
 
 @dataclass(frozen=True)

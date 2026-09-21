@@ -10,6 +10,7 @@ These helpers are called from workflow tasks that need hardware and a GUI, so no
 imports them under test and a plain signature mismatch is invisible until an operator hits
 it mid-run. Checking the call sites statically costs nothing and catches the whole class.
 """
+
 from __future__ import annotations
 
 import ast
@@ -26,7 +27,8 @@ from fibsem.applications.autolamella.workflows import ui as workflow_ui
 _HELPERS = {
     name: obj
     for name, obj in vars(workflow_ui).items()
-    if inspect.isfunction(obj) and not name.startswith("_")
+    if inspect.isfunction(obj)
+    and not name.startswith("_")
     and obj.__module__ == workflow_ui.__name__
 }
 
@@ -39,7 +41,9 @@ def _call_sites() -> List[Tuple[Path, int, str, ast.Call]]:
     for path in sorted(_TASKS_DIR.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError:  # pragma: no cover - a broken file is another test's problem
+        except (
+            SyntaxError
+        ):  # pragma: no cover - a broken file is another test's problem
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -100,3 +104,43 @@ def test_call_site_matches_signature(path, lineno, name, call):
             f"{path.name}:{lineno} calls {name}({', '.join(sorted(kwargs))}) "
             f"but the signature is {name}{signature} — {exc}"
         )
+
+
+_WORKFLOWS_DIR = Path(workflow_ui.__file__).parent
+
+
+def _detection_calls() -> List[Tuple[Path, int, ast.Call]]:
+    """Every call to ``update_detection_ui`` under ``workflows/`` -- the tasks and
+    the shared alignment helpers in ``core.py`` that they call."""
+    calls = []
+    for path in sorted(_WORKFLOWS_DIR.rglob("*.py")):
+        if path == Path(workflow_ui.__file__):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and _called_helper_name(node.func) == "update_detection_ui"
+            ):
+                calls.append((path, node.lineno, node))
+    return calls
+
+
+def test_there_are_detections_to_check():
+    assert _detection_calls(), "the walk found no call to update_detection_ui"
+
+
+@pytest.mark.parametrize(
+    "path, lineno, call",
+    _detection_calls(),
+    ids=[f"{p.name}:{n}" for p, n, _ in _detection_calls()],
+)
+def test_every_detection_says_who_is_asking(path, lineno, call):
+    """``item_id`` and ``task_name`` default to empty, so a caller that leaves
+    them out still runs -- and its corrections are quietly never recorded on the
+    lamella. Nothing at run time would say so, which is why it is checked here."""
+    passed = {kw.arg for kw in call.keywords}
+    missing = {"item_id", "task_name"} - passed
+    assert not missing, (
+        f"{path.name}:{lineno} calls update_detection_ui without {sorted(missing)}"
+    )

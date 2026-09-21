@@ -70,6 +70,8 @@ def update_detection_ui(
     validate: bool = True,
     msg: str = "Lamella",
     position: Optional[FibsemStagePosition] = None,
+    item_id: str = "",
+    task_name: str = "",
 ) -> DetectedFeatures:
     feat_str = ", ".join([f.name for f in features])
     if len(feat_str) > 15:
@@ -91,7 +93,8 @@ def update_detection_ui(
         # No timeout: a human answers, and silence means thinking.
         det = ask(
             parent_ui.ui_responder,
-            ConfirmDetection(detection=det),
+            # Who is asking travels with the question: see ConfirmDetection.
+            ConfirmDetection(detection=det, item_id=item_id, task_name=task_name),
             abort=lambda: _abort_requested(parent_ui),
         )
     else:
