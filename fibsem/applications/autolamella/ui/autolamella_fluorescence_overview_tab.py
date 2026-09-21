@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.poses import (
-    FLUORESCENCE_ORIENTATION,
+    FLUORESCENCE_POSE,
     build_lamella_poses,
 )
 from fibsem.applications.autolamella.ui.overview_tab_base import (
@@ -79,17 +79,16 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
         return pose.stage_position
 
     def _add_lamella_kwargs(self) -> Dict[str, Any]:
-        """The orientation is *declared* rather than left to be derived.
+        """What this tab knows that the position does not.
 
-        On a compustage deriving it would give the same answer; on an offset mount it
-        would not, and the wrong answer there is a lamella with a milling pose 48 mm off
-        the beam axis that nothing rejects until something tries to mill it (FIB-93).
-        Declaring it turns that into a refusal at the point of marking, where there is a
-        user to tell.
+        Where the objective is, and that the position was marked through it. Which
+        side the position is on is read off the geometry by `build_lamella_poses`;
+        `observed` only settles a position both instruments can use, where the
+        geometry cannot say which one the person was looking through.
         """
         return {
             "objective_position": self._objective_position(),
-            "marked_at": FLUORESCENCE_ORIENTATION,
+            "observed": FLUORESCENCE_POSE,
         }
 
     def _objective_position(self) -> Optional[float]:
@@ -159,7 +158,7 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
                 # whatever the microscope happens to be set to now. Everywhere else only
                 # the stage positions are read, and those come from `position`.
                 state=lamella.milling_pose,
-                marked_at=FLUORESCENCE_ORIENTATION,
+                observed=FLUORESCENCE_POSE,
             )
         except Exception as e:
             logger.error(f"Could not move {name} from the FM overview: {e}")
@@ -167,8 +166,7 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             return
 
         history = (
-            f"\n\n{name} has already completed "
-            f"{', '.join(lamella.completed_tasks)}."
+            f"\n\n{name} has already completed {', '.join(lamella.completed_tasks)}."
             if lamella.completed_tasks
             else ""
         )

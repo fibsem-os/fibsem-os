@@ -187,69 +187,161 @@ def test_a_microscope_without_fluorescence_gets_no_fluorescence_pose():
     assert poses.milling is not None
 
 
-def test_an_offset_mount_cannot_tell_a_fluorescence_position_apart():
-    """Why `marked_at` exists at all.
-
-    Deriving the orientation from the position works on a compustage, where each
-    orientation has its own tilt. On an offset mount the fluorescence position is
-    distinguished by travelling ~48 mm in x, which no r/t derivation can see: the
-    stage at the FM holds the FIB pose it was carried out in, and there is no FM
-    orientation there at all any more.
-
-    So a caller there cannot rely on the derivation, and this test says so rather than
-    leaving the next person to discover it.
-    """
-    microscope = _microscope(compustage=False)
-
-    fib = microscope.get_orientation("FIB")
-    at_the_fm = FibsemStagePosition(x=48.8e-3, y=0.0, z=0.0, r=fib.r, t=fib.t)
-
-    assert microscope.get_stage_orientation(at_the_fm) != FLUORESCENCE_ORIENTATION
+# ── an offset mount: the side is a place, not a pose ────────────────────
 
 
-def test_marking_from_fluorescence_is_refused_on_an_offset_mount():
-    """There is no transform between the fluorescence and beam positions there — the
-    ~48 mm shuttle is not modelled (FIB-93). Refused, because the alternative is a
-    lamella with a milling pose nothing can mill at.
+def _iflm():
+    import os
 
-    Declared rather than derived, because on this system it cannot be derived."""
-    microscope = _microscope(compustage=False)
-    fm_position = FibsemStagePosition(
-        x=48.8e-3, y=50e-6, z=0.0, r=0.0, t=np.deg2rad(17)
+    import fibsem.config as cfg
+
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
-
-    with pytest.raises(ValueError, match="FIB-93"):
-        build_lamella_poses(microscope, fm_position, marked_at=FLUORESCENCE_ORIENTATION)
+    return microscope
 
 
-def test_a_declared_orientation_wins_over_the_derived_one():
-    """The FM tab knows which side it is marking from; the position may not say."""
-    microscope = _microscope()
-    # A beam-side position by its tilt, declared as fluorescence anyway.
-    beam_position = _at(microscope, MILLING_ORIENTATION)
+def test_an_offset_mount_cannot_tell_a_fluorescence_position_by_its_pose():
+    """Why the side is read off the *place* there. The stage at the FM holds the FIB
+    pose it was carried out in, and no r/t derivation can see 48 mm of x."""
+    microscope = _iflm()
+    at_the_fm = microscope.to_device(_at(microscope, "FIB"), "FM")
 
-    poses = build_lamella_poses(
-        microscope, beam_position, marked_at=FLUORESCENCE_ORIENTATION
-    )
+    assert microscope.get_stage_orientation(at_the_fm) == "FIB"
+    assert microscope.is_at_device("FM", at_the_fm)
 
-    # Treated as the fluorescence pose: kept as given, and a milling pose derived.
-    assert poses.fluorescence.stage_position.t == pytest.approx(beam_position.t)
+
+def test_a_position_at_an_offset_fm_is_the_fluorescence_pose():
+    """It used to be refused: there was no conversion across the traverse. There is
+    now, so a target found in fluorescence gets a milling pose under the beams."""
+    from fibsem.applications.autolamella.poses import FLUORESCENCE_POSE
+
+    microscope = _iflm()
+    at_the_fm = microscope.to_device(_at(microscope, "FIB"), "FM")
+
+    poses = build_lamella_poses(microscope, at_the_fm)
+
+    assert poses.observed == FLUORESCENCE_POSE
+    assert poses.fluorescence.stage_position.x == pytest.approx(at_the_fm.x)
+    assert microscope.is_at_device("FIBSEM", poses.milling.stage_position)
     assert (
         microscope.get_stage_orientation(poses.milling.stage_position)
         == MILLING_ORIENTATION
     )
 
 
-def test_marking_from_the_beam_side_still_works_on_an_offset_mount():
-    """The other direction is a convenience, not a requirement. Refusing the whole
-    lamella because no fluorescence pose could be worked out would stop offset systems
-    marking lamellae at all."""
-    microscope = _microscope(compustage=False)
+def test_a_beam_position_on_an_offset_mount_gets_a_fluorescence_pose():
+    from fibsem.applications.autolamella.poses import MILLING_POSE
+    from fibsem.structures import DeviceImagingState
+
+    microscope = _iflm()
     marked = _at(microscope, MILLING_ORIENTATION)
 
     poses = build_lamella_poses(microscope, marked)
 
+    assert poses.observed == MILLING_POSE
     assert poses.milling.stage_position.x == pytest.approx(marked.x)
+    assert (
+        microscope.get_device_imaging_state("FM", poses.fluorescence.stage_position)
+        is DeviceImagingState.READY
+    )
+
+
+def test_the_two_directions_agree_on_an_offset_mount():
+    """Marked at the beams, its fluorescence pose fed back names the same x/y."""
+    microscope = _iflm()
+    marked = _at(microscope, MILLING_ORIENTATION)
+
+    out = build_lamella_poses(microscope, marked)
+    back = build_lamella_poses(microscope, out.fluorescence.stage_position)
+
+    assert back.milling.stage_position.x == pytest.approx(marked.x, abs=1e-9)
+    assert back.milling.stage_position.y == pytest.approx(marked.y, abs=1e-9)
+
+
+def test_mid_traverse_is_refused():
+    """Neither somewhere to mill nor somewhere the objective sees the sample from."""
+    microscope = _iflm()
+    between = _at(microscope, "FIB", x=24e-3)
+    assert microscope.get_current_device(between) is None
+
+    with pytest.raises(ValueError, match="fluorescence position"):
+        build_lamella_poses(microscope, between)
+
+
+def test_a_declared_side_cannot_override_the_geometry():
+    """`observed` breaks a tie and nothing else. A beam position declared as
+    fluorescence is still the milling pose -- declaring the side outright is how a
+    milling pose 48 mm from the beams used to be possible."""
+    from fibsem.applications.autolamella.poses import FLUORESCENCE_POSE, MILLING_POSE
+
+    microscope = _iflm()
+    marked = _at(microscope, MILLING_ORIENTATION)
+
+    poses = build_lamella_poses(microscope, marked, observed=FLUORESCENCE_POSE)
+
+    assert poses.observed == MILLING_POSE
+    assert poses.milling.stage_position.x == pytest.approx(marked.x)
+
+
+# ── a position both instruments can use ─────────────────────────────────
+
+
+def _both_can_use_sem(microscope):
+    """A compustage whose objective also images from the SEM pose."""
+    microscope.system.stage.devices["FM"].acquisition_orientations = ["FM", "SEM"]
+    return microscope
+
+
+def test_a_position_both_can_use_is_both_poses():
+    """The fluorescence pose is a copy, not a flip: the person was looking at the
+    sample from here, and t = -180 is somewhere else."""
+    microscope = _both_can_use_sem(_microscope())
+    marked = _at(microscope, "SEM")
+
+    poses = build_lamella_poses(microscope, marked)
+
+    assert poses.milling.stage_position.t == pytest.approx(marked.t)
+    assert poses.fluorescence.stage_position.t == pytest.approx(marked.t)
+    assert poses.fluorescence.stage_position.x == pytest.approx(marked.x)
+
+
+def test_the_caller_says_which_instrument_a_shared_position_was_marked_through():
+    from fibsem.applications.autolamella.poses import FLUORESCENCE_POSE, MILLING_POSE
+
+    microscope = _both_can_use_sem(_microscope())
+    marked = _at(microscope, "SEM")
+
+    assert build_lamella_poses(microscope, marked).observed == MILLING_POSE
+    assert (
+        build_lamella_poses(microscope, marked, observed=FLUORESCENCE_POSE).observed
+        == FLUORESCENCE_POSE
+    )
+
+
+# ── an unsupported pose ─────────────────────────────────────────────────
+
+
+def test_an_unsupported_pose_is_refused_where_a_fluorescence_pose_is_owed():
+    microscope = _microscope()
+    marked = _at(microscope, "SEM")
+    marked.t = np.radians(-90)
+    assert microscope.get_stage_orientation(marked) == "NONE"
+
+    with pytest.raises(ValueError, match="not a supported orientation"):
+        build_lamella_poses(microscope, marked)
+
+
+def test_an_unsupported_pose_is_still_a_milling_pose_without_an_fm():
+    """Nothing is owed there but the milling pose, which is the position verbatim --
+    what a beam-only system has always got."""
+    microscope = _microscope(with_fm=False)
+    marked = _at(microscope, "SEM")
+    marked.t = np.radians(-90)
+
+    poses = build_lamella_poses(microscope, marked)
+
+    assert poses.milling.stage_position.t == pytest.approx(marked.t)
     assert poses.fluorescence is None
 
 
@@ -327,18 +419,32 @@ def test_a_lamella_with_no_fluorescence_pose_is_not_given_one():
     assert lamella.fluorescence_pose is None
 
 
-def test_an_offset_mount_says_so_rather_than_inventing_a_pose():
-    """There is no transform between the two sides there (FIB-93). The existing pose is
-    left alone -- it was put there deliberately and is the better of two bad answers --
-    and the caller is told the sync did not happen."""
-    microscope = _microscope(compustage=False)
+def test_the_fluorescence_pose_follows_on_an_offset_mount_too():
+    """There was no conversion across the traverse, so the pose was left behind and
+    the caller told. There is one now."""
+    microscope = _iflm()
     lamella = _lamella(microscope)
-    lamella.fluorescence_pose = deepcopy(lamella.milling_pose)
-    lamella.fluorescence_pose.stage_position = _at(microscope, "FIB", 1e-6, 2e-6)
     _move_milling_to(microscope, lamella, 400e-6, -200e-6)
 
-    assert sync_fluorescence_pose(microscope, lamella) is False
-    assert lamella.fluorescence_pose.stage_position.x == pytest.approx(1e-6)
+    assert sync_fluorescence_pose(microscope, lamella) is True
+    expected = microscope.to_device(lamella.milling_pose.stage_position, "FM")
+    assert lamella.fluorescence_pose.stage_position.x == pytest.approx(expected.x)
+    assert lamella.fluorescence_pose.stage_position.y == pytest.approx(expected.y)
+
+
+def test_syncing_keeps_a_pose_in_the_orientation_it_was_put_in():
+    """A fluorescence pose somebody chose at the SEM tilt is not flipped to t = -180
+    because its lamella moved."""
+    microscope = _both_can_use_sem(_microscope())
+    lamella = _lamella(microscope)
+    lamella.fluorescence_pose.stage_position = _at(microscope, "SEM")
+    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+
+    assert sync_fluorescence_pose(microscope, lamella) is True
+    assert (
+        microscope.get_stage_orientation(lamella.fluorescence_pose.stage_position)
+        == "SEM"
+    )
 
 
 def test_syncing_agrees_with_marking_the_same_position_afresh():
