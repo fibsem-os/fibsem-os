@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import cycle
-from typing import Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from skimage.transform import resize
@@ -51,6 +51,9 @@ from fibsem.structures import (
     SystemSettings,
 )
 from fibsem.util.draw_numbers import draw_text
+
+if TYPE_CHECKING:
+    from fibsem.microscopes._stage import DemoSampleLoader
 
 ######################## SIMULATOR ########################
 

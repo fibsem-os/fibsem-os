@@ -31,6 +31,8 @@ from fibsem.structures import (
 from fibsem.utils import save_json
 
 if TYPE_CHECKING:
+    import threading
+
     from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
 

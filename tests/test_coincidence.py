@@ -7,6 +7,8 @@ independent noise). The measurement must recover the known offset, and refuse
 on scenes or conditions it cannot trust.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 from scipy import ndimage as ndi
@@ -17,6 +19,9 @@ from fibsem.alignment.coincidence import (
     CoincidenceMeasurement,
     measure_coincidence,
 )
+
+if TYPE_CHECKING:
+    from fibsem.structures import FibsemImage
 
 PIXEL_SIZE = 65e-9  # ~100 um hfw at 1536 px, typical reference imaging
 # arbitrary test geometry: the synthetic FIB view is built with the same

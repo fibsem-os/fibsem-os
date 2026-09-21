@@ -19,10 +19,15 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from typing import TYPE_CHECKING
+
 from PyQt5.QtWidgets import QApplication, QDialog
 
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
+
+if TYPE_CHECKING:
+    from fibsem.structures import DeviceImagingState
 
 
 @pytest.fixture(scope="module")
