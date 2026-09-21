@@ -1914,6 +1914,16 @@ class ReviewTabWidget(QWidget):
         index = row.data(Qt.UserRole)
         return index if isinstance(index, int) else None
 
+    def select(self, item_id: str, task_name: str) -> bool:
+        """Select the row for this item and task, if it is listed. For a caller
+        that has just put something in the inbox and wants it in front of the
+        operator -- a question the run is held on, asked from outside the tab."""
+        for index, (item, name, _proposal, _state) in enumerate(self._entries):
+            if (item.id, name) == (item_id, task_name):
+                self._select_entry(index)
+                return True
+        return False
+
     def _select_entry(self, index: int) -> None:
         for i in range(self.list.count()):
             if self.list.item(i).data(Qt.UserRole) == index:

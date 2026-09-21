@@ -11,11 +11,13 @@ expects. It does **not** ask, wait or release. Whoever owns the wait does that,
 and there is one of those: recording a question is something the responder does
 on the way to putting it up, not a second way of asking.
 
-It does **not** make the question deferrable either. The task is still parked
-with the instrument where it left it, and the answer is still needed now; this
-is only what gets written down.
+It does **not** make the question one that can be left for later either. The
+run is still held with the instrument where the task left it, and the answer is
+still needed now; this is only what gets written down.
 
-A parallel track for now: nothing in the workflow records a question yet.
+``QtResponder`` is that owner. It records a question when the request says who
+is asking and the Review tab is there to answer it in, and asks the way it
+always has when not.
 """
 
 from __future__ import annotations
@@ -40,6 +42,7 @@ __all__ = [
     "QuestionAdapter",
     "adapter_for",
     "answer_from",
+    "answered",
     "proposal_for",
     "register_adapter",
 ]
@@ -78,6 +81,11 @@ class QuestionAdapter:
     # the picture it has in memory. A request carries its context, so a missing
     # image is the asker's defect to fix, not something to paper over here.
     needs_image: bool = False
+    # What else has to happen once the question is answered, given the request
+    # and the answer -- whatever the prompt path did on the click besides
+    # answering, so that a question moved onto the record does not quietly stop
+    # doing it.
+    on_answered: Callable[[Any, Any], None] = lambda _request, _answer: None
 
 
 _ADAPTERS: Dict[Type[Request], QuestionAdapter] = {}
@@ -165,6 +173,26 @@ def _detection_image(request: ConfirmDetection, folder: str) -> str:
     return relative.replace(os.sep, "/")
 
 
+def _detection_answered(request: ConfirmDetection, answer: Any) -> None:
+    """Write the training data the Detection tab writes on its Continue click:
+    the image, the mask and a row per feature with how far it was moved, and
+    the ``feature_detection`` log records the reports are built from.
+
+    The delta is on the item's record now, but those readers have not moved,
+    and the mask is in neither the record nor anywhere else.
+    """
+    import numpy as np
+
+    from fibsem.detection import utils as det_utils
+
+    if answer.mask is not None:
+        # PIL needs uint8 to write it; the widget normalises it the same way.
+        answer.mask = np.asarray(answer.mask).astype(np.uint8)
+    det_utils.save_ml_feature_data(
+        det=answer, initial_features=request.detection.features
+    )
+
+
 def _detection_provenance(request: ConfirmDetection) -> Dict[str, Any]:
     """Which model said this. ``ConfirmDetection`` is the question's type, not
     its author, and a correction only means something measured against the
@@ -186,6 +214,7 @@ register_adapter(
         to_answer=_detection_answer,
         to_image=_detection_image,
         needs_image=True,
+        on_answered=_detection_answered,
         to_provenance=_detection_provenance,
     ),
 )
@@ -244,3 +273,20 @@ def answer_from(request: Request, values: Dict[str, Any]) -> Any:
             f"{type(request).__name__} carries no value, so no decision answers it."
         )
     return adapter.to_answer(request, values)
+
+
+def answered(request: Request, answer: Any) -> None:
+    """Do whatever else answering ``request`` entails (``on_answered``).
+
+    Never raises. By now the decision is on the record and the answer is on its
+    way to the task; an export that fails is worth a log line, not the run.
+    """
+    adapter = adapter_for(request)
+    if adapter is None:
+        return
+    try:
+        adapter.on_answered(request, answer)
+    except Exception:
+        logging.exception(
+            f"{type(request).__name__} was answered, but what follows an answer failed"
+        )

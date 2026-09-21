@@ -1580,6 +1580,13 @@ class AgentContext:
 
         payload = serialize_request(request)
         payload["nonce"] = nonce
+        recorded = responder.recorded_question()
+        if recorded is not None:
+            # On the item's record as a proposal, and answered there: the same
+            # decision an agent makes on any other review. Answering the prompt
+            # would decide nothing, so it says so up front.
+            payload["answer_via"] = "decide"
+            payload["decide"] = {"item_id": recorded[0], "task_name": recorded[1]}
         current = self._peek_current(responder, payload["type"], nonce)
         if current is not None:
             payload["current"] = current
@@ -1665,6 +1672,20 @@ class AgentContext:
         from fibsem.applications.autolamella.workflows.interaction import (
             StalePromptError,
         )
+
+        recorded = responder.recorded_question()
+        _request, pending_nonce = responder.pending_question_and_nonce()
+        if recorded is not None and pending_nonce == int(nonce):
+            # Nothing was clicked. This question is decided, not answered: see
+            # ``answer_via`` on the pending prompt.
+            return {
+                "available": True,
+                "applied": False,
+                "stale": False,
+                "answer_via": "decide",
+                "item_id": recorded[0],
+                "task_name": recorded[1],
+            }
 
         parsed = None
         if value is not None:
