@@ -274,6 +274,10 @@ class AutoLamellaUI(QMainWindow):
         # The embedded agent server (FIB-845): built on microscope connect when the
         # agent_server_enabled preference is on; None means the feature is off.
         self._agent_server_host = None
+        # The app's event stream (FIB-1031): built on microscope connect, always,
+        # and recorded to events.jsonl in the experiment directory. The agent
+        # server reads it when it runs; None only while disconnected.
+        self._event_recorder = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
         # Why the last run ended short of done, for the summary dialog's
         # headline: a run that gave up waiting for a review must not read as
@@ -654,6 +658,10 @@ class AutoLamellaUI(QMainWindow):
 
         experiment.configure_logging()
         logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
+        # getattr: the adoption tests drive this method on a stand-in window.
+        recorder = getattr(self, "_event_recorder", None)
+        if recorder is not None:
+            recorder.set_experiment(experiment.path)
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
@@ -674,7 +682,49 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is not None:
             self._disconnect_experiment_events()
             self._setup_experiment_connections()
+        self._start_event_recorder()
         self._start_agent_server()
+
+    def _start_event_recorder(self) -> None:
+        """Start recording events for this microscope connection, whatever else runs.
+
+        Never raises: the recording is a record of the connection, and failing to
+        keep one must not stop the connection being used.
+
+        This is the slot for the system widget's ``connected_signal``, which fires
+        whenever that widget refreshes while connected -- not once per connection
+        -- so it can run again for a microscope that already has a stream, and
+        that microscope keeps it. A different microscope (the connection dialog can
+        hand one back) gets a new stream, and a running agent server is stopped so
+        it restarts on the new buffer: left alone it would serve a closed one.
+        """
+        recorder = self._event_recorder
+        if recorder is not None and recorder.microscope is self.microscope:
+            return
+        if self.microscope is None:
+            self._stop_event_recorder()
+            return
+        if recorder is not None:
+            host = self._agent_server_host
+            if host is not None and host.running:
+                host.stop()
+            self._stop_event_recorder()
+        try:
+            from fibsem.applications.autolamella.event_recording import EventRecorder
+
+            self._event_recorder = EventRecorder(
+                self.microscope,
+                responder=getattr(self, "ui_responder", None),
+                experiment_path=self.experiment.path if self.experiment else None,
+            )
+        except Exception:
+            logging.exception("event stream failed to start; continuing without it")
+            self._event_recorder = None
+
+    def _stop_event_recorder(self) -> None:
+        if self._event_recorder is not None:
+            self._event_recorder.close()
+            self._event_recorder = None
 
     def _start_agent_server(self) -> None:
         """Host the agent server over this session, if the preference asks for it.
@@ -687,7 +737,14 @@ class AutoLamellaUI(QMainWindow):
 
             if self._agent_server_host is None:
                 self._agent_server_host = AgentServerHost(self)
-            self._agent_server_host.start(self.microscope)
+            recorder = self._event_recorder
+            self._agent_server_host.start(
+                self.microscope,
+                event_buffer=recorder.buffer if recorder is not None else None,
+                lifecycle_hook=recorder.lifecycle_hook
+                if recorder is not None
+                else None,
+            )
 
     def sync_agent_server_with_preference(self) -> None:
         """Start or stop the embedded server to match the saved preference.
@@ -707,6 +764,7 @@ class AutoLamellaUI(QMainWindow):
     def disconnect_from_microscope(self):
         if self._agent_server_host is not None:
             self._agent_server_host.stop()
+        self._stop_event_recorder()
         self.microscope = None
         self.settings = None
         self.update_microscope_ui()
@@ -1971,11 +2029,21 @@ class AutoLamellaUI(QMainWindow):
         preferences = fibsem_cfg.load_user_preferences()
         manager = build_hook_manager(preferences.hooks)
 
-        # The agent server's lifecycle feed. Registered here, per run, because this
+        # The event stream's lifecycle feed. Registered here, per run, because this
         # manager is rebuilt each run — a once-at-startup registration would go
         # silently deaf after the first workflow (the trap events.py documents).
+        # The agent server shares the recorder's hook; one of its own (a host
+        # started without a recorder) is registered as before, never both.
+        recorder = self._event_recorder
+        if recorder is not None:
+            manager.register(recorder.lifecycle_hook)
         host = self._agent_server_host
-        if host is not None and host.running and host.lifecycle_hook is not None:
+        if (
+            host is not None
+            and host.running
+            and host.lifecycle_hook is not None
+            and (recorder is None or host.lifecycle_hook is not recorder.lifecycle_hook)
+        ):
             manager.register(host.lifecycle_hook)
 
         # Deliberately not registered yet. The trigger is proven end to end and the
