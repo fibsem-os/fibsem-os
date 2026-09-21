@@ -57,6 +57,7 @@ from fibsem.transformations import (
 
 if TYPE_CHECKING:
     from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.microscopes._stage import SampleGridLoader
 
 
 # The device the orientation transform is defined at. `_get_compucentric_rotation_position`

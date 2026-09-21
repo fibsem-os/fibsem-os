@@ -3,7 +3,7 @@ import io
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,6 +38,9 @@ from fibsem.constants import DATE_LONG
 from fibsem.imaging.tiled import plot_stage_positions_on_image
 from fibsem.milling import plot_milling_patterns
 from fibsem.structures import FibsemImage
+
+if TYPE_CHECKING:
+    import plotly.graph_objects as go
 
 
 class PDFReportGenerator:

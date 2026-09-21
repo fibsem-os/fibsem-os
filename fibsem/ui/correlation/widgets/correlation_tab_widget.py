@@ -39,7 +39,7 @@ import os
 import time
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 logging.basicConfig(level=logging.INFO)
 
@@ -149,6 +149,11 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueComboBox,
 )
+
+if TYPE_CHECKING:
+    from fibsem.ui.correlation.widgets.correlation_setup_section import (
+        CorrelationSetupSection,
+    )
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
 

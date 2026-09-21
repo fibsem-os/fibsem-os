@@ -42,6 +42,11 @@ from fibsem.config import (
 from fibsem.manufacturers import normalize_manufacturer
 from fibsem.versioning import get_revision
 
+if TYPE_CHECKING:
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+    from fibsem.fm.structures import FluorescenceConfiguration
+    from fibsem.microscope import FibsemMicroscope
+
 TFibsemPatternSettings = TypeVar(
     "TFibsemPatternSettings", bound="FibsemPatternSettings"
 )

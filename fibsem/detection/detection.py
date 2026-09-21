@@ -6,7 +6,7 @@ import os
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -35,6 +35,9 @@ try:
     from fibsem.segmentation.utils import decode_segmap_v2
 except ImportError as e:
     logging.debug(f"Could not import segmentation util / config {e}")
+
+if TYPE_CHECKING:
+    from fibsem.segmentation.model import SegmentationModel
 
 
 @dataclass

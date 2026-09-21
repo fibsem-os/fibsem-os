@@ -62,6 +62,10 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from autoscript_sdb_microscope_client._dynamic_object_proxies import (
+        ElectronBeam,
+        IonBeam,
+    )
     from numpy.typing import NDArray
 
     from fibsem.structures import TFibsemPatternSettings

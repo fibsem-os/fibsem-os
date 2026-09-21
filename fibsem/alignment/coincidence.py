@@ -42,7 +42,7 @@ from fibsem.structures import FibsemImage, FibsemStagePosition
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import ImageSettings
+    from fibsem.structures import BeamType, ImageSettings
 
 DEFAULT_FIB_COLUMN_TILT = np.deg2rad(52.0)
 

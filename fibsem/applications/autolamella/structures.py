@@ -74,6 +74,11 @@ from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
 
 if TYPE_CHECKING:
+    import numpy as np
+
+    from fibsem.applications.autolamella.workflows.tasks.grid.base import (
+        GridTaskConfig,
+    )
     from fibsem.microscope import FibsemMicroscope
 
 

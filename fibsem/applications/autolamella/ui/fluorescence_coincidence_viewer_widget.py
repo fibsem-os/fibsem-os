@@ -99,6 +99,7 @@ from fibsem.ui.widgets.custom_widgets import (
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
+    from fibsem.fm.structures import FluorescenceConfiguration
     from fibsem.microscope import FibsemMicroscope
     from fibsem.milling.tasks import FibsemMillingTaskConfig
 
