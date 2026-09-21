@@ -31,6 +31,7 @@ def ui(qapp):
     finally:
         if window._agent_server_host is not None:
             window._agent_server_host.stop()
+        window._stop_event_recorder()
         window.close()
         window.deleteLater()
         qapp.processEvents()
@@ -141,3 +142,35 @@ def test_default_preference_hosts_nothing(ui, monkeypatch):
     assert ui._agent_server_host is None
     manager = ui.setup_hooks()
     assert manager is not None  # and built without any agent involvement
+
+
+def test_the_event_stream_runs_without_the_agent_server(ui, monkeypatch):
+    """The stream is the app's (FIB-1031): connect starts it, server or not."""
+    monkeypatch.setattr(
+        fibsem_cfg, "load_user_preferences", lambda: fibsem_cfg.UserPreferences()
+    )
+    ui.system_widget.connect_to_microscope()
+    ui.connect_to_microscope()
+    recorder = ui._event_recorder
+    assert recorder is not None and ui._agent_server_host is None
+    assert recorder.lifecycle_hook in ui.setup_hooks()._hooks
+    assert recorder.buffer.append in ui.ui_responder._question_observers
+
+    ui.disconnect_from_microscope()
+    assert ui._event_recorder is None
+    assert recorder.buffer.append not in ui.ui_responder._question_observers
+    assert not recorder.writer.alive
+
+
+def test_the_agent_server_reads_the_session_stream(ui, agent_server_enabled):
+    # connect_to_microscope runs twice here: through the widget's signal, then
+    # called directly -- as it would on any later refresh of the widget while
+    # connected. The second must not leave the server on a stream it replaced.
+    ui.system_widget.connect_to_microscope()
+    ui.connect_to_microscope()
+    host, recorder = ui._agent_server_host, ui._event_recorder
+    assert host.running
+    assert host.event_buffer is recorder.buffer
+    assert host.lifecycle_hook is recorder.lifecycle_hook
+    hooks = ui.setup_hooks()._hooks
+    assert sum(hook is recorder.lifecycle_hook for hook in hooks) == 1
