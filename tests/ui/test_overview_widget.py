@@ -2073,6 +2073,13 @@ def pretilted_widget(pretilted):
     view is, and is where a wrong height does the most damage.
     """
     before = pretilted.get_stage_position()
+    # Flat, and said so rather than inherited from wherever the simulator opens: the
+    # tests below raise the stage in plain z, and only at t = 0 is that the same thing as
+    # a lift. On a tilted stage a z move is part lift and part travel along the slope
+    # (329 um of lift in 490 at 35 degrees), which is what the coincidence tests cover.
+    flat = deepcopy(before)
+    flat.t = 0.0
+    pretilted.safe_absolute_stage_movement(flat)
     w = FibsemOverviewWidget(pretilted)
     w.resize(900, 700)
     w.settings_widget.combo_beam.set_value(BeamType.ION)
@@ -2207,9 +2214,10 @@ class TestADraggedGridIsLiftedToTheStage:
             "the grid was made to chase where a stale ion map draws it"
         )
 
+    @pytest.mark.parametrize("tilt", [12.0, 35.0])
     @pytest.mark.parametrize("beam", [BeamType.ELECTRON, BeamType.ION])
     def test_setting_coincidence_re_acquires_the_same_piece_of_sample(
-        self, pretilted, beam
+        self, pretilted, beam, tilt
     ):
         """The reported flow: drag the grid, acquire, set coincidence, acquire again.
 
@@ -2222,7 +2230,7 @@ class TestADraggedGridIsLiftedToTheStage:
         before = pretilted.get_stage_position()
         try:
             tilted = deepcopy(before)
-            tilted.t = np.deg2rad(12.0)
+            tilted.t = np.deg2rad(tilt)
             pretilted.safe_absolute_stage_movement(tilted)
             widget = FibsemOverviewWidget(pretilted)
             widget.resize(900, 700)
