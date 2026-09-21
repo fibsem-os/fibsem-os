@@ -1979,6 +1979,7 @@ class FibsemMicroscope(ABC):
         self,
         expected_y: float,
         view_tilt: float = 0.0,
+        stage_position: Optional[FibsemStagePosition] = None,
     ) -> FibsemStagePosition:
         """Project a displacement seen in an image onto the tilted sample plane.
 
@@ -1992,6 +1993,10 @@ class FibsemMicroscope(ABC):
         Args:
             expected_y: distance along the image y-axis, in metres.
             view_tilt: tilt of the viewing axis from the electron column, in radians.
+            stage_position: the pose the displacement is seen from. Defaults to where
+                the stage is, which is right for a move made now and wrong for a
+                position planned in another pose: the split across y and z, and on a
+                compustage the *sign* of y, both follow the tilt.
 
         Returns:
             FibsemStagePosition: y-corrected stage movement (relative position)
@@ -2011,8 +2016,15 @@ class FibsemMicroscope(ABC):
             2 * np.pi
         )
 
-        # current stage position
-        current_stage_position = self.get_stage_position()
+        # the pose the displacement is seen from
+        # A position that does not say its pose (a bare x/y/z) cannot stand in for one.
+        current_stage_position = (
+            stage_position
+            if stage_position is not None
+            and stage_position.r is not None
+            and stage_position.t is not None
+            else self.get_stage_position()
+        )
         stage_rotation = current_stage_position.r % (2 * np.pi)
         stage_tilt = current_stage_position.t
 
@@ -2036,7 +2048,10 @@ class FibsemMicroscope(ABC):
         ):
             PRETILT_SIGN = -1.0
 
-        if self.stage_is_compustage and self.get_stage_orientation() == "FIB":
+        if (
+            self.stage_is_compustage
+            and self.get_stage_orientation(current_stage_position) == "FIB"
+        ):
             # Stays after FIB-834 made `rotation_180` derived. A compustage does not
             # rotate, so it derives to `rotation_reference` -- the same value the
             # configuration used to state, which is why both comparisons above still
@@ -2122,7 +2137,12 @@ class FibsemMicroscope(ABC):
             return dx, dy
         return self.fm._transform.apply_to_delta(dx, dy)
 
-    def _fm_stage_delta(self, dx: float, dy: float) -> FibsemStagePosition:
+    def _fm_stage_delta(
+        self,
+        dx: float,
+        dy: float,
+        stage_position: Optional[FibsemStagePosition] = None,
+    ) -> FibsemStagePosition:
         """Relative stage movement for a displacement seen in the displayed FM image.
 
         The projection shared by :meth:`fm_stable_move` and
@@ -2143,6 +2163,8 @@ class FibsemMicroscope(ABC):
         Args:
             dx: distance along the x-axis, in displayed image coordinates.
             dy: distance along the y-axis, in displayed image coordinates.
+            stage_position: the pose the image is seen from. Defaults to where the
+                stage is.
 
         Returns:
             FibsemStagePosition: relative movement, with the y-displacement split
@@ -2159,6 +2181,7 @@ class FibsemMicroscope(ABC):
         yz_move = self._view_corrected_stage_movement(
             expected_y=dy,
             view_tilt=np.deg2rad(self.fm.camera_tilt),
+            stage_position=stage_position,
         )
         return FibsemStagePosition(
             x=dx, y=yz_move.y, z=yz_move.z, r=0, t=0, coordinate_system="RAW"
@@ -2185,7 +2208,11 @@ class FibsemMicroscope(ABC):
         Args:
             dx: distance along the x-axis, in displayed image coordinates.
             dy: distance along the y-axis, in displayed image coordinates.
-            base_position: the position the displacement is measured from.
+            base_position: the position the displacement is measured from, and the
+                pose it is seen in. The projection follows *its* tilt, not the live
+                stage's: a grid planned around a centre in one pose while the stage
+                stands in another was laid out for the wrong one, mirrored in y on a
+                compustage and scaled by the tilt everywhere.
 
         Returns:
             FibsemStagePosition: the absolute position the displacement lands on.
@@ -2193,7 +2220,7 @@ class FibsemMicroscope(ABC):
         Raises:
             ValueError: if no fluorescence microscope is available.
         """
-        delta = self._fm_stage_delta(dx, dy)
+        delta = self._fm_stage_delta(dx, dy, stage_position=base_position)
 
         new_position = deepcopy(base_position)
         new_position.x += delta.x
