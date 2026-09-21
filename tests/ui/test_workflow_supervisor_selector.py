@@ -71,8 +71,8 @@ def test_with_interactive_review_the_cycle_ends_in_review(row, monkeypatch):
     row._on_attention_clicked()
     assert _fields(row.task) == (A.supervised, "human")
     row._on_attention_clicked()
-    assert _fields(row.task) == (A.review, "human"), "review clears supervise"
-    assert row.btn_attention.text() == "Review"
+    assert _fields(row.task) == (A.review_later, "human"), "it clears supervise"
+    assert row.btn_attention.text() == "Review later"
     row._on_attention_clicked()
     assert _fields(row.task) == (A.automated, "human")
 
@@ -93,7 +93,7 @@ def test_a_designated_task_displays_as_supervised_when_the_feature_is_off(
 def test_a_gated_task_displays_as_automated_when_interactive_review_is_off(
     row, monkeypatch
 ):
-    row.task.attention = Attention.review
+    row.task.attention = Attention.review_later
     row.refresh()
     assert row.btn_attention.text() == "Automated"
     assert "interactive review is off" in row.btn_attention.toolTip()
@@ -112,18 +112,18 @@ def test_each_click_announces_only_what_changed(row, monkeypatch):
     assert seen == [
         (A.supervised, "human"),  # Automated -> Supervised
         (A.supervised, "agent"),  # Supervised -> Agent
-        (A.review, "human"),  # Agent -> Review: the designation resets
-        (A.automated, "human"),  # Review -> Automated
+        (A.review_later, "human"),  # Agent -> Review later: the designation resets
+        (A.automated, "human"),  # Review later -> Automated
     ]
 
 
 def test_a_review_task_nothing_requires_says_so(qapp, monkeypatch):
     monkeypatch.setattr(module, "_review_available", lambda: True)
     setup = AutoLamellaTaskDescription(
-        name="Setup", required=True, attention=Attention.review
+        name="Setup", required=True, attention=Attention.review_later
     )
     rough = AutoLamellaTaskDescription(
-        name="Rough", required=True, attention=Attention.review
+        name="Rough", required=True, attention=Attention.review_later
     )
     widget = module.WorkflowConfigWidget()
     widget.set_config(AutoLamellaWorkflowConfig(tasks=[setup, rough]))

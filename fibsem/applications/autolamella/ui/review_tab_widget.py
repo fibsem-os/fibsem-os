@@ -209,9 +209,11 @@ def is_gated(experiment: Experiment, task_name: str, item: Any = None) -> bool:
             config = experiment.grid_protocol.task_config.get(task_name)
         except ValueError:
             return False
-        return config is not None and config.attention is Attention.review
+        return config is not None and config.attention is Attention.review_later
     protocol = getattr(experiment, "task_protocol", None)
-    return bool(protocol) and protocol.get_attention(task_name) is Attention.review
+    return (
+        bool(protocol) and protocol.get_attention(task_name) is Attention.review_later
+    )
 
 
 # ---------------------------------------------------------------------------

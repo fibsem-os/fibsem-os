@@ -46,24 +46,27 @@ REQUIRES_MAX_WIDTH = 170
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
 # The attention chip: the mode's icon (the same ones the lamella rows and
-# status chips use) and one word, fixed width so the row does not jump
-# between states. "Supervised" is the widest word it shows. The schedule
+# status chips use) and its name, fixed width so the row does not jump
+# between states. "Review later" is the widest it shows. The schedule
 # clock button, which only duplicated the pencil, gave up the width.
-_CHIP_WIDTH = 92
+_CHIP_WIDTH = 104
 _CHIP_ICONS = {
     "automated": "mdi:lightning-bolt-circle",
     "supervised": "mdi:account-hard-hat",
     "agent": "mdi:star-four-points",
-    "review": "mdi:clipboard-check",
+    "review_later": "mdi:clipboard-check",
 }
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() + _CHIP_WIDTH + 8  # attention chip + edit + 1 gap
 # Long labels on purpose: the short set (Auto / Superv. / Review) reads badly
-# and the long ones fit at the chip's width.
+# and the long ones fit at the chip's width. In the order a task is trusted:
+# watched, then checked afterwards, then left to get on with it. "Review
+# later" and not "Review", because the Review tab collects the decisions of
+# every mode; what this one says is *when* the operator decides.
 ATTENTION_LABELS = {
-    "automated": "Automated",
     "supervised": "Supervised",
     "agent": "Agent",
-    "review": "Review",
+    "review_later": "Review later",
+    "automated": "Automated",
 }
 
 
@@ -137,8 +140,8 @@ def attention_state(
         if getattr(task, "supervisor", "human") == "agent" and agent_available:
             return "agent"
         return "supervised"
-    if task.attention is Attention.review and review_available:
-        return "review"
+    if task.attention is Attention.review_later and review_available:
+        return "review_later"
     return "automated"
 
 
@@ -163,14 +166,14 @@ def _attention_chip(
             "Supervised — asks you in the workflow, at the microscope; your "
             "answer is the decision on the record. Click to change.",
         )
-    if state == "review":
+    if state == "review_later":
         tip = (
-            "Review — the next task waits for your decision in the Review tab. "
-            "Click to change."
+            "Review later — the task finishes, and the next one waits for your "
+            "decision in the Review tab. Click to change."
         )
         if not has_dependents:
             tip = (
-                "Review — but nothing requires this task, so nothing waits on "
+                "Review later — but nothing requires this task, so nothing waits on "
                 "the decision. Add a requirement to a later task, or click to "
                 "change."
             )
@@ -179,9 +182,9 @@ def _attention_chip(
         "Automated — runs without anyone; what it did is listed in the Review "
         "tab to check. Click to change."
     )
-    if task.attention is Attention.review:
+    if task.attention is Attention.review_later:
         tip = (
-            "Runs as Automated: the protocol says Review, but interactive "
+            "Runs as Automated: the protocol says Review later, but interactive "
             "review is off in Preferences. Click to change."
         )
     return label, stylesheets.AUTOMATED_COLOR, tip
@@ -358,19 +361,21 @@ class WorkflowTaskRowWidget(QWidget):
             self.refresh()
 
     def _on_attention_clicked(self) -> None:
-        """Cycle Automated → Supervised → Agent → Review → Automated.
+        """Cycle Supervised → Agent → Review later → Automated → Supervised:
+        down the ladder of trust a step at a time, and back to the top.
 
         The Agent step exists only while the agent-server preference is on,
-        the Review step only while interactive review is on; with neither this
-        is the old two-state toggle. Leaving Agent resets ``supervisor`` to
+        the Review later step only while interactive review is on; with
+        neither this is the old two-state toggle. Leaving Agent resets ``supervisor`` to
         human, so nothing hidden survives a click.
         """
         task = self.task
-        order = ["automated", "supervised"]
+        order = ["supervised"]
         if _agent_supervision_available():
             order.append("agent")
         if _review_available():
-            order.append("review")
+            order.append("review_later")
+        order.append("automated")
         current = attention_state(task)
         following = order[(order.index(current) + 1) % len(order)]
         before = (task.attention, getattr(task, "supervisor", "human"))
@@ -406,8 +411,10 @@ class WorkflowTaskRowWidget(QWidget):
             )
         self.setToolTip("\n".join(tips))
         label, colour, tooltip = _attention_chip(self.task, self._has_dependents)
-        # the file says Review but the preference is off: shown as it will run
-        downgraded = self.task.attention is Attention.review and not _review_available()
+        # the file says Review later but the preference is off: shown as it will run
+        downgraded = (
+            self.task.attention is Attention.review_later and not _review_available()
+        )
         self.btn_attention.setText(label)
         self.btn_attention.setIcon(
             fibsem_icon(
@@ -417,7 +424,7 @@ class WorkflowTaskRowWidget(QWidget):
         )
         self.btn_attention.setToolTip(tooltip)
         self.btn_attention.setStyleSheet(_chip_style(colour, muted=downgraded))
-        if attention_state(self.task) == "review" and not self._has_dependents:
+        if attention_state(self.task) == "review_later" and not self._has_dependents:
             # the column keeps the task's own dependency when it has one; the
             # colour and the chip's tooltip carry the warning
             if not self.requires_label.text():
@@ -557,7 +564,7 @@ class WorkflowConfigWidget(QWidget):
         tasks = self.get_tasks()
         required = {req for task in tasks for req in task.requires}
         reviewed = (
-            {t.name for t in tasks if t.attention is Attention.review}
+            {t.name for t in tasks if t.attention is Attention.review_later}
             if _review_available()
             else set()
         )

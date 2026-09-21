@@ -72,7 +72,7 @@ def experiment(tmp_path) -> Experiment:
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=SETUP, required=True, attention=Attention.review
+                    name=SETUP, required=True, attention=Attention.review_later
                 ),
                 AutoLamellaTaskDescription(
                     name=FIDUCIAL, required=True, requires=[SETUP]
@@ -529,14 +529,14 @@ def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
     changed = []
     row.attention_changed.connect(changed.append)
     row.btn_attention.click()
-    assert task.attention is Attention.review and changed == [task]
-    assert row.btn_attention.text() == "Review"
+    assert task.attention is Attention.review_later and changed == [task]
+    assert row.btn_attention.text() == "Review later"
     row.btn_attention.click()
     assert task.attention is Attention.automated
     assert row.btn_attention.text() == "Automated"
 
     monkeypatch.setattr(W, "_review_available", lambda: False)
-    task.attention = Attention.review
+    task.attention = Attention.review_later
     off = WorkflowTaskRowWidget(task)
     assert off.btn_attention.text() == "Automated", "runs as what it will run as"
     off.btn_attention.click()
@@ -609,7 +609,9 @@ def _grid_waiting(experiment):
 
     protocol = experiment.grid_protocol
     protocol.add(
-        BeamOverviewGridTaskConfig(task_name="SEM Overview", attention=Attention.review)
+        BeamOverviewGridTaskConfig(
+            task_name="SEM Overview", attention=Attention.review_later
+        )
     )
     protocol.add(
         BeamOverviewGridTaskConfig(

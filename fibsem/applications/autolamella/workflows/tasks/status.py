@@ -154,7 +154,8 @@ class HoldKind(str, Enum):
 
     question = "question"  # a supervised question is up, for the operator
     agent = "agent"  # the same question, addressed to a connected agent
-    review = "review"  # parked on decisions in the Review tab
+    # parked on decisions that were left for later, in the Review tab
+    review_later = "review_later"
 
 
 @dataclass(frozen=True)

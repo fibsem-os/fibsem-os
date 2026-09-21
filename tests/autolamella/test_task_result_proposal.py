@@ -107,7 +107,7 @@ def _task(microscope, exp: Experiment, body=None) -> MillRoughTask:
 
 
 def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     task = _task(microscope, exp)
     lamella = exp.positions[0]
 
@@ -161,7 +161,7 @@ def test_the_result_images_mapping_decides_which_roles_the_proposal_points_at(
 
 
 def test_a_failed_task_records_its_result_with_the_failure(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     lamella = exp.positions[0]
 
     def boom():
@@ -195,7 +195,7 @@ def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_pa
 
 def test_without_the_flag_the_result_is_recorded_but_never_gates(microscope, tmp_path):
     """The flag hides the Review surface, not the record."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     task = _task(microscope, exp)
     task.task_manager.review_enabled = False
     task.run()
@@ -224,7 +224,7 @@ def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path
     for cls in (MillFiducialTask, AcquireReferenceImageTask, MillRoughTask):
         assert cls.proposer.kind == TASK_RESULT, "a bad fiducial is gateable"
     assert SelectMillingPositionTask.proposer.kind == POINT_OF_INTEREST
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     task = _task(microscope, exp)
     type(task).proposer = None
     try:
@@ -292,7 +292,7 @@ def test_a_proposer_may_not_carry_a_value_its_kind_does_not_register(
 
 
 def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     lamella = exp.positions[0]
     _task(microscope, exp).run()
     exp.decide(

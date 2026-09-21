@@ -189,7 +189,7 @@ class AutoLamellaTask(ABC):
         protocol = getattr(manager.experiment, "task_protocol", None)
         if protocol is None:
             return False
-        return protocol.get_attention(self.task_name) is Attention.review
+        return protocol.get_attention(self.task_name) is Attention.review_later
 
     def _settle(self, failure: str = "") -> None:
         """Propose this run's result on the lamella and decide it; see

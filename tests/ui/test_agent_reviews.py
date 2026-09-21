@@ -87,7 +87,7 @@ def ui(qapp, monkeypatch, tmp_path):
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=SETUP, required=True, attention=Attention.review
+                    name=SETUP, required=True, attention=Attention.review_later
                 ),
                 AutoLamellaTaskDescription(name=ROUGH, required=True, requires=[SETUP]),
             ]

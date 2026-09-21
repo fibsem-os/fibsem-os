@@ -42,7 +42,7 @@ def test_one_reader_takes_every_form_a_stored_attention_has_had():
     its place in v0.5.2 and in the per-stage supervision before it."""
     assert attention_from(True) is Attention.supervised
     assert attention_from(False) is Attention.automated
-    assert attention_from("review") is Attention.review
+    assert attention_from("review") is Attention.review_later
     assert attention_from(Attention.supervised) is Attention.supervised
 
 

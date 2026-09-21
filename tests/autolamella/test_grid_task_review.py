@@ -120,12 +120,28 @@ class TestAttentionOnTheConfig:
     def test_round_trips_through_the_protocol(self):
         protocol = GridTaskProtocol()
         protocol.add(
-            BeamOverviewGridTaskConfig(task_name=OVERVIEW, attention=Attention.review)
+            BeamOverviewGridTaskConfig(
+                task_name=OVERVIEW, attention=Attention.review_later
+            )
         )
         data = yaml.safe_load(yaml.safe_dump(protocol.to_dict()))
-        assert data["tasks"][OVERVIEW]["attention"] == "review"
+        assert data["tasks"][OVERVIEW]["attention"] == "review_later"
         again = GridTaskProtocol.from_dict(data)
-        assert again.task_config[OVERVIEW].attention is Attention.review
+        assert again.task_config[OVERVIEW].attention is Attention.review_later
+
+    def test_a_protocol_saved_before_the_rename_still_loads(self):
+        """The mode was stored as ``review`` on main before 0.6.0. It never
+        shipped, but grid protocols saved from those builds carry it."""
+        protocol = GridTaskProtocol()
+        protocol.add(
+            BeamOverviewGridTaskConfig(
+                task_name=OVERVIEW, attention=Attention.review_later
+            )
+        )
+        data = yaml.safe_load(yaml.safe_dump(protocol.to_dict()))
+        data["tasks"][OVERVIEW]["attention"] = "review"
+        again = GridTaskProtocol.from_dict(data)
+        assert again.task_config[OVERVIEW].attention is Attention.review_later
 
     def test_an_unknown_value_reads_as_automated_and_keeps_the_task(self):
         data = BeamOverviewGridTaskConfig(task_name=OVERVIEW).to_dict()
@@ -190,7 +206,9 @@ class TestAGridTaskProposes:
     def test_under_review_the_task_waits_and_a_decision_finishes_it(
         self, microscope, experiment
     ):
-        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.review
+        experiment.grid_protocol.task_config[
+            OVERVIEW
+        ].attention = Attention.review_later
         _run(microscope, experiment, review_enabled=True)
         grid = experiment.get_grid_by_name(GRID)
 
@@ -216,7 +234,9 @@ class TestAGridTaskProposes:
     def test_review_in_the_protocol_runs_automated_while_the_preference_is_off(
         self, microscope, experiment
     ):
-        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.review
+        experiment.grid_protocol.task_config[
+            OVERVIEW
+        ].attention = Attention.review_later
         _run(microscope, experiment, review_enabled=False)
         grid = experiment.get_grid_by_name(GRID)
 
@@ -226,7 +246,9 @@ class TestAGridTaskProposes:
     def test_a_failed_task_proposes_its_failure_and_stays_failed(
         self, microscope, experiment
     ):
-        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.review
+        experiment.grid_protocol.task_config[
+            OVERVIEW
+        ].attention = Attention.review_later
         # an orientation the stage does not have: a real failure, inside the
         # task and before any beam
         experiment.grid_protocol.task_config[OVERVIEW].orientation = "NOWHERE"
@@ -256,7 +278,7 @@ def test_item_path_is_a_lamellas_own_and_a_grids_derived(tmp_path, experiment):
 def _with_later_task(experiment, review_wait, requires=(OVERVIEW,)):
     """The SEM overview under review, then an automated FIB overview that
     requires it (a stand-in for a task that uses the overview)."""
-    experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.review
+    experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.review_later
     experiment.grid_protocol.add(
         BeamOverviewGridTaskConfig(
             task_name=LATER,
@@ -534,7 +556,9 @@ class TestTheLatestRunOfARequirementCounts:
         self, microscope, experiment
     ):
         grid = self._succeed_once(microscope, experiment)
-        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.review
+        experiment.grid_protocol.task_config[
+            OVERVIEW
+        ].attention = Attention.review_later
         manager = _manager(microscope, experiment)
         thread = _decide_when(
             experiment,

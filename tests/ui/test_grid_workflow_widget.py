@@ -229,12 +229,12 @@ class TestAttentionChip:
         row.btn_attention.click()
 
         config = experiment.grid_protocol.task_config["overview_sem"]
-        assert config.attention is Attention.review
-        assert row.btn_attention.text() == "Review"
+        assert config.attention is Attention.review_later
+        assert row.btn_attention.text() == "Review later"
         assert changed == [True]
         again = Experiment.load(Path(experiment.path) / "experiment.yaml")
         assert again.grid_protocol.task_config["overview_sem"].attention is (
-            Attention.review
+            Attention.review_later
         )
 
         row.btn_attention.click()
@@ -249,7 +249,9 @@ def test_review_on_a_task_nothing_requires_says_nothing_waits(
     import fibsem.applications.autolamella.ui.grid_workflow_widget as module
 
     monkeypatch.setattr(module, "_review_available", lambda: True)
-    experiment.grid_protocol.task_config["overview_sem"].attention = Attention.review
+    experiment.grid_protocol.task_config[
+        "overview_sem"
+    ].attention = Attention.review_later
     widget = GridWorkflowWidget()
     widget.set_microscope(arctis)
     widget.set_experiment(experiment)

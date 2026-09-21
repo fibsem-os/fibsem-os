@@ -220,7 +220,7 @@ class GridTask(ABC):
         manager = self.task_manager
         if manager is None or not getattr(manager, "review_enabled", False):
             return False
-        return self.config.attention is Attention.review
+        return self.config.attention is Attention.review_later
 
     @property
     def result_images(self) -> Dict[str, str]:

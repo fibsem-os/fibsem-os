@@ -173,7 +173,7 @@ def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
 
     ui = main_ui.autolamella_ui
     ui.hold = Hold(
-        HoldKind.review,
+        HoldKind.review_later,
         "decide 01-a and 02-b in the Review tab",
         ("01-a/Setup", "02-b/Setup"),
     )
