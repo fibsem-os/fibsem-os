@@ -1,5 +1,36 @@
 # Changes
 
+## v0.5.3 (unreleased)
+
+A patch release: fixes only, cut from the v0.5.2 release branch. Nothing here changes how
+a workflow is set up or run.
+
+### Bug fixes
+
+- **An overview or a lamella could be sent back to the height and tilt the Overview tab
+  was opened at.** Setting coincidence, or tilting to a different milling angle, after the
+  tab had been opened was not carried into a dragged tile grid or into a position marked
+  by right-clicking the overview: the run, or the lamella's first task, drove the stage
+  back to the old height or tilt. Reported as an overview and its lamellae landing at
+  Z 31.88 mm after coincidence had been set at 32.37 mm, and as an ion tileset acquired at
+  the tilt the application was launched at rather than the milling angle the stage had
+  been moved to. The dragged grid and marked positions now take their height and pose
+  from the stage at the moment they are used, and Acquire reads the stage once before
+  planning, so a move made in the microscope vendor's software is seen as well.
+- **A dragged tile grid is dropped when the view it was dragged in is left** — a change of
+  beam or of stage orientation — and the plan returns to the stage position, rather than
+  being re-read in a view it was never placed in.
+- **"Centre on stage" works on the FIB/SEM Overview tab.** The button was never enabled
+  there, so a dragged grid could not be returned to the stage without restarting.
+
+### Known issues
+
+- Ion overviews acquired at different stage heights or milling tilts are drawn on one
+  canvas plane, so an ion overview taken *before* a coincidence correction or a tilt change
+  appears offset from one taken after it. Acquisitions go to the right place regardless.
+  Setting coincidence before the first ion overview avoids it. Electron overviews are not
+  affected.
+
 ## v0.5.2 (16/09/2026)
 
 A running workflow became something you can edit, the image display moved onto a
