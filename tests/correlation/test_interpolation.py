@@ -356,3 +356,94 @@ def test_rescale_only_touches_fm_side_points(qapp):
     w._rescale_fm_z(2.0)
     assert w._coords_tab.fib_list.coordinates[0].point.z == 5.0  # FIB untouched
     assert w._coords_tab.fm_list.coordinates[0].point.z == 10.0  # FM scaled
+
+
+def _aniso_fm(nz=8, xy=1e-7, z=5e-7, shape=(8, 8)):
+    """A small anisotropic stack, enough for the auto-interpolation gates."""
+    import numpy as np
+
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    h, w = shape
+    return FluorescenceImage(
+        data=np.zeros((1, nz, h, w), dtype=np.uint16),
+        metadata=FluorescenceImageMetadata(
+            acquisition_date="2026-09-21T00:00:00",
+            pixel_size_x=xy,
+            pixel_size_y=xy,
+            pixel_size_z=z,
+            resolution=(w, h),
+            channels=[
+                FluorescenceChannelMetadata(
+                    name="GFP",
+                    color="#00FF00",
+                    excitation_wavelength=488,
+                    emission_wavelength=509,
+                    power=1.0,
+                    exposure_time=0.1,
+                    gain=1.0,
+                    offset=0.0,
+                )
+            ],
+        ),
+    )
+
+
+def test_auto_interpolation_only_runs_when_asked_and_worth_it(qapp, monkeypatch):
+    """FIB-1023: off by default; and when on, it skips a stack that is already
+    isotropic, a single plane, or one with no slice thickness to aim at."""
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
+        CorrelationTabWidget,
+    )
+
+    w = CorrelationTabWidget()
+    started = []
+    monkeypatch.setattr(
+        type(w), "_start_fm_interpolation", lambda self, t, m: started.append((t, m))
+    )
+
+    assert not w._images_tab._chk_auto_interpolate.isChecked()  # off by default
+    w.set_fm_image(_aniso_fm())
+    assert started == []
+
+    w._images_tab._chk_auto_interpolate.setChecked(True)
+    w.set_fm_image(_aniso_fm())
+    assert started == [(1e-7, "linear")]  # targets the xy pixel size
+
+    started.clear()
+    w.set_fm_image(_aniso_fm(z=1e-7))  # already isotropic
+    assert started == []
+    w.set_fm_image(_aniso_fm(nz=1))  # a single plane
+    assert started == []
+    w.set_fm_image(_aniso_fm(z=None))  # no slice thickness to aim at
+    assert started == []
+    w.close()
+
+
+def test_auto_interpolation_refuses_a_volume_too_large_to_make_silently(
+    qapp, monkeypatch
+):
+    """The preference is on, so not doing it needs a reason the user can see."""
+    from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
+
+    w = ctw.CorrelationTabWidget()
+    started, said = [], []
+    monkeypatch.setattr(
+        type(w), "_start_fm_interpolation", lambda self, t, m: started.append(t)
+    )
+    monkeypatch.setattr(
+        ctw.notification_service, "show", lambda msg, level="info": said.append(msg)
+    )
+    w._images_tab._chk_auto_interpolate.setChecked(True)
+
+    # 2048-square, 21 slices at 20x: ~1800 slices, ~15 GB — past the cap.
+    # The frame is empty, so the fixture itself stays small.
+    w.set_fm_image(_aniso_fm(nz=21, z=2e-6, shape=(2048, 2048)))
+    assert started == []
+    assert said and "Not interpolated automatically" in said[0]
+    assert "Interpolate" in said[0]  # names the manual route
+    w.close()

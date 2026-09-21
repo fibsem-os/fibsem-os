@@ -115,6 +115,12 @@ class CorrelationConfig:
     # protocol editor builds a new correlation dialog for every lamella, so a
     # session-only preference is re-set once per lamella and reaches nobody.
     auto_rerun: bool = False
+    # Resample an anisotropic FM stack to isotropic as it loads, off the GUI
+    # thread, instead of waiting for the Interpolate action (FIB-1023). The fit
+    # does not need it -- it converts z to xy pixels itself (FIB-881) -- so this
+    # is for the display and for anything downstream that assumes isotropic
+    # voxels. Off by default: it costs a rewrite of the volume.
+    auto_interpolate: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -122,6 +128,7 @@ class CorrelationConfig:
             "ri": self.ri.to_dict(),
             "load_spot_burns": self.load_spot_burns,
             "auto_rerun": self.auto_rerun,
+            "auto_interpolate": self.auto_interpolate,
         }
 
     @staticmethod
@@ -132,4 +139,5 @@ class CorrelationConfig:
             ri=RISettings.from_dict(d.get("ri")),
             load_spot_burns=d.get("load_spot_burns", True),
             auto_rerun=d.get("auto_rerun", False),
+            auto_interpolate=d.get("auto_interpolate", False),
         )

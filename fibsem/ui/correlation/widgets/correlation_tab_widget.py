@@ -161,6 +161,24 @@ _FIT_METHODS = ["None", "Hole", "Gaussian"]
 # enough that a drag is one run rather than fifty, short enough to feel like a
 # response to the drop.
 AUTO_RERUN_DELAY_MS = 400
+
+# Auto-interpolation (FIB-1023). The ratio below which a stack is already
+# isotropic enough to leave alone -- the same 5% the pixel-size caption uses to
+# decide whether to mention anisotropy at all.
+_ISOTROPIC_TOLERANCE = 0.05
+_AUTO_INTERPOLATE_METHOD = "linear"
+# Above this, the resampled volume is not made without being asked. An Arctis
+# stack at 10.3x comes to ~1.1 GB, which is worth doing on request and not worth
+# doing silently on every load.
+AUTO_INTERPOLATE_MAX_BYTES = 2_000_000_000
+
+
+def _volume_bytes(image, n_slices: int) -> int:
+    """Bytes the volume would occupy at ``n_slices``, same dtype and frame."""
+    c, _, h, w = image.data.shape
+    return int(c) * int(n_slices) * int(h) * int(w) * image.data.dtype.itemsize
+
+
 # Choice combos (a word or two) share one width, so the column lines up; a
 # longer channel name still grows its own combo.
 _CHOICE_COMBO_WIDTH = 150
@@ -667,6 +685,16 @@ class _ImagesTab(QWidget):
         )
         self._btn_interpolate.setEnabled(False)  # enabled once a z-stack is loaded
         self._btn_interpolate.clicked.connect(lambda: self.interpolate_requested.emit())
+        # Beside the action it automates rather than with the fit settings:
+        # this is about the image, and the button is the manual route.
+        self._chk_auto_interpolate = QCheckBox("Auto")
+        self._chk_auto_interpolate.setStyleSheet(CONTROL_STYLE)
+        self._chk_auto_interpolate.setToolTip(
+            "Interpolate a z-stack to isotropic as it loads, in the background.\n"
+            "The fit does not need it — it converts the units itself — so this is\n"
+            "for the display and for anything that assumes isotropic voxels."
+        )
+        panel.add_header_widget(self._chk_auto_interpolate)
         panel.add_header_widget(self._btn_interpolate)
         layout.addWidget(panel)
         layout.addStretch(1)
@@ -2745,6 +2773,43 @@ class CorrelationTabWidget(QWidget):
         # what "ready to run" means (FIB-317).
         self._fit_split_to_images()
         self.data_changed.emit(self.data)
+        self._maybe_auto_interpolate()
+
+    def _maybe_auto_interpolate(self) -> None:
+        """Resample this stack to isotropic, if that was asked for (FIB-1023).
+
+        Only what the Interpolate dialog would do by default, started for you.
+        Skipped unless the stack is worth resampling and cheap enough to: the
+        fit does not need it (it converts z to xy pixels itself), so a minute
+        of work and a gigabyte of memory have to be asked for, not assumed.
+        """
+        if not self._images_tab._chk_auto_interpolate.isChecked():
+            return
+        image = self._fm_image
+        if image is None or self._interp_worker is not None:
+            return
+        n_z = image.data.shape[1]
+        xy = getattr(image.metadata, "pixel_size_x", None)
+        z = getattr(image.metadata, "pixel_size_z", None)
+        if n_z < 2 or not xy or not z:
+            return  # a single plane, or no slice thickness to resample toward
+        if abs(z / xy - 1.0) <= _ISOTROPIC_TOLERANCE:
+            return  # already isotropic
+        new_nz = round(n_z * z / xy)
+        if _volume_bytes(image, new_nz) > AUTO_INTERPOLATE_MAX_BYTES:
+            # Say so rather than silently not doing it: the preference is on,
+            # and a stack that reads as "not interpolated" needs a reason.
+            gb = _volume_bytes(image, new_nz) / 1e9
+            logging.info(
+                "Auto-interpolation skipped: %d slices would be %.1f GB", new_nz, gb
+            )
+            notification_service.show(
+                f"Not interpolated automatically — {new_nz} slices would be "
+                f"{gb:.1f} GB. Use Interpolate… to do it anyway.",
+                "info",
+            )
+            return
+        self._start_fm_interpolation(xy, _AUTO_INTERPOLATE_METHOD)
 
     @staticmethod
     def _effective_fm_pixel_size(fm_image: FluorescenceImage) -> Optional[float]:
@@ -3355,6 +3420,7 @@ class CorrelationTabWidget(QWidget):
         self._correlation_config = config
         self._apply_fit_config()
         self._coords_tab._auto_rerun_check.setChecked(config.auto_rerun)
+        self._images_tab._chk_auto_interpolate.setChecked(config.auto_interpolate)
         ri = config.ri
         self._ri_tab._ri_widget.set_params(
             ZetaParams(
@@ -3423,6 +3489,7 @@ class CorrelationTabWidget(QWidget):
             ri=ri,
             load_spot_burns=stored.load_spot_burns,
             auto_rerun=cl._auto_rerun_check.isChecked(),
+            auto_interpolate=self._images_tab._chk_auto_interpolate.isChecked(),
         )
 
     # ------------------------------------------------------------------
