@@ -3372,13 +3372,13 @@ def _wired_host(qapp, tmp_path, positions=()):
     host.autolamella_ui.updated = 0
 
     def add_new_lamella(
-        stage_position=None, name=None, objective_position=None, marked_at=None
+        stage_position=None, name=None, objective_position=None, observed=None
     ):
         host.autolamella_ui.added.append(
             {
                 "position": stage_position,
                 "objective_position": objective_position,
-                "marked_at": marked_at,
+                "observed": observed,
             }
         )
         lamella = type(
@@ -3414,19 +3414,18 @@ def _real_lamella(name, microscope, tmp_path, x=100e-6, y=50e-6):
     return lamella
 
 
-def test_adding_declares_the_fluorescence_orientation(qapp, tmp_path):
-    """Not left to be derived. On a compustage the answer would be the same; on an
-    offset mount it would not, and the wrong answer there is a lamella with a milling
-    pose 48 mm off the beam axis that nothing rejects until something tries to mill it
-    (FIB-93). Declaring it turns that into a refusal with a user to tell."""
-    from fibsem.applications.autolamella.poses import FLUORESCENCE_ORIENTATION
+def test_adding_says_the_position_was_marked_through_the_objective(qapp, tmp_path):
+    """Which side the position is on is read off the geometry. What the geometry
+    cannot say, for a position both instruments can use, is which one the person was
+    looking through -- and this tab knows."""
+    from fibsem.applications.autolamella.poses import FLUORESCENCE_POSE
 
     host = _wired_host(qapp, tmp_path)
     position = _named("wherever", 120e-6, -60e-6)
 
     host.fm_overview_tab._on_add_requested(position)
 
-    assert host.autolamella_ui.added[0]["marked_at"] == FLUORESCENCE_ORIENTATION
+    assert host.autolamella_ui.added[0]["observed"] == FLUORESCENCE_POSE
     assert host.autolamella_ui.added[0]["position"] is position
 
     host._teardown_fm_overview_widget()

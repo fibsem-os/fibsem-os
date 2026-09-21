@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.poses import (
-    FLUORESCENCE_ORIENTATION,
+    FLUORESCENCE_POSE,
     build_lamella_poses,
     sync_fluorescence_pose,
 )
@@ -399,7 +399,7 @@ class GridPositionsWidget(QWidget):
 
     def _add_kwargs(self) -> dict:
         if self.canvas.view == VIEW_FM:
-            return {"marked_at": FLUORESCENCE_ORIENTATION}
+            return {"observed": FLUORESCENCE_POSE}
         return {}
 
     def _on_add_requested(self, position, _record_id=None) -> None:
@@ -453,7 +453,7 @@ class GridPositionsWidget(QWidget):
                     microscope=microscope,
                     position=position,
                     state=lamella.milling_pose,
-                    marked_at=FLUORESCENCE_ORIENTATION,
+                    observed=FLUORESCENCE_POSE,
                 )
             except Exception as e:  # noqa: BLE001 - said to the user, not raised
                 notification_service.show_toast(str(e), "error")
