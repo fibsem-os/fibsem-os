@@ -30,7 +30,11 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import constants
-from fibsem.fm.acquisition import FMTiledAcquisitionRunner, OverviewDestination
+from fibsem.fm.acquisition import (
+    FMTiledAcquisitionRunner,
+    OverviewDestination,
+    record_fluorescence_image,
+)
 from fibsem.fm.progress import (
     FluorescenceAcquisitionProgress,
     FluorescenceAcquisitionStatus,
@@ -2673,6 +2677,12 @@ class FMOverviewWidget(QWidget):
                 # now, so a big run appeared to hang just as it completed.
                 self._emit_state(TiledStatus.SAVING)
                 self._saved_path = self._destination.save_mosaic(mosaic)
+            # getattr: describing the run for the record must not be able to fail it
+            record_fluorescence_image(
+                self.microscope,
+                mosaic,
+                overview=getattr(runner, "overview_parameters", None),
+            )
             self.overview_acquired.emit(mosaic)
             self._emit_terminal(TiledStatus.FINISHED)
         except OperationCancelledError:

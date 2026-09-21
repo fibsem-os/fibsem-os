@@ -291,6 +291,20 @@ def run_coarse_fine_autofocus(
         (last_result.working_distance - initial_position) * 1e6,
     )
 
+    record = getattr(microscope.parent, "record_event", None)
+    if record is not None:  # for the experiment's record; it never raises
+        record(
+            "fm_autofocus",
+            {
+                "method": str(last_result.method),
+                "passes": len(active_passes),
+                "completed_passes": len({it.pass_index for it in all_iterations}),
+                "initial_position": initial_position,
+                "position": last_result.working_distance,
+                "focus_score": last_result.focus_score,
+            },
+        )
+
     return AutoFocusResult(
         image=last_result.image,
         working_distance=last_result.working_distance,

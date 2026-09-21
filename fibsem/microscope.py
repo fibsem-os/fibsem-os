@@ -2241,6 +2241,9 @@ class FibsemMicroscope(ABC):
         * ``task_step`` -- from the AutoLamella task bases
         * ``milling_stage_started`` -- from ``FibsemMillingTask``, with the stage
         * ``spot_burn_started`` -- from ``run_spot_burn``, with the field of view
+        * ``fm_image_acquired`` -- from ``fm.acquisition``, a z-stack, image or
+          stitched overview, with the saved path
+        * ``fm_autofocus`` -- from ``run_coarse_fine_autofocus``
         """
         try:
             self.record_signal.emit(kind, payload)
