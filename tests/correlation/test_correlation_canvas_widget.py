@@ -10,6 +10,7 @@ against a deleted module proves nothing. What it incidentally pinned is now
 asserted directly against the live consumer instead, which is the better test
 anyway: `_CanvasAdapter` and the tab widget's four-signal loop.
 """
+
 import sys
 
 import numpy as np
@@ -48,7 +49,12 @@ def test_the_tab_widget_can_connect_its_four_signals():
 
     so a rename here silently disconnects half the correlation UI.
     """
-    for name in ("point_selected", "point_moved", "point_removed", "point_add_requested"):
+    for name in (
+        "point_selected",
+        "point_moved",
+        "point_removed",
+        "point_add_requested",
+    ):
         assert hasattr(CorrelationCanvasWidget, name), name
 
 
@@ -77,8 +83,16 @@ def test_the_result_overlay_takes_the_keywords_the_tab_widget_passes():
     import inspect
 
     params = inspect.signature(CorrelationCanvasWidget.add_overlay_points).parameters
-    for key in ("color", "label_prefix", "size", "marker", "alpha",
-                "show_labels", "hollow", "legend_label"):
+    for key in (
+        "color",
+        "label_prefix",
+        "size",
+        "marker",
+        "alpha",
+        "show_labels",
+        "hollow",
+        "legend_label",
+    ):
         assert key in params, key
     assert callable(getattr(CorrelationCanvasWidget, "clear_overlay", None))
 
@@ -290,8 +304,9 @@ def test_label_toggle_covers_the_result_markers_too():
 def test_result_markers_go_to_the_result_overlay():
     w = _widget()
     w.set_coordinates([_coord(10, 10)])
-    w.add_overlay_points([(20.0, 20.0), (30.0, 30.0)], color="#ff4444",
-                         legend_label="FM reprojected (E)")
+    w.add_overlay_points(
+        [(20.0, 20.0), (30.0, 30.0)], color="#ff4444", legend_label="FM reprojected (E)"
+    )
 
     assert len(w.results._artists) == 2
     assert w.points.get_points() == [(10.0, 10.0)]  # untouched by the result
