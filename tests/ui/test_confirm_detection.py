@@ -251,3 +251,53 @@ def test_update_detection_ui_returns_the_confirmed_features(ui, qapp, monkeypatc
     assert "error" not in outcome
     assert outcome["answer"] is produced
     assert ui.det_widget.confirmed == 1
+
+
+def test_the_question_says_who_is_asking(ui, qapp, monkeypatch):
+    """The item and the task travel in the request, so a responder can put the
+    question on that item's record without guessing at what is running."""
+    from fibsem.applications.autolamella.workflows import ui as workflow_ui
+
+    monkeypatch.setattr(
+        workflow_ui.detection,
+        "take_image_and_detect_features",
+        lambda **kwargs: _make_detection(),
+    )
+
+    thread = threading.Thread(
+        target=lambda: workflow_ui.update_detection_ui(
+            microscope=ui.microscope,
+            image_settings=None,
+            checkpoint="unused",
+            features=[LamellaCentre()],
+            parent_ui=ui,
+            validate=True,
+            item_id="lamella-uuid",
+            task_name="Mill Undercut",
+        ),
+        daemon=True,
+    )
+    thread.start()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        if ui.ui_responder.pending_question() is not None:
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("the detection was never asked")
+
+    request = ui.ui_responder.pending_question()
+    assert isinstance(request, ConfirmDetection)
+    assert (request.item_id, request.task_name) == ("lamella-uuid", "Mill Undercut")
+
+    ui.pushButton_yes.click()
+    _finish(thread, qapp)
+
+
+def test_a_caller_with_neither_still_asks():
+    """Both are optional: a question from a caller that knows neither is asked
+    and answered exactly as before, and simply is not recorded."""
+    request = ConfirmDetection(detection=_make_detection())
+
+    assert (request.item_id, request.task_name) == ("", "")

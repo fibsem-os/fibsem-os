@@ -78,6 +78,8 @@ def align_feature_coincident(
         validate=validate,
         msg=lamella.info,
         position=lamella.stage_position,
+        item_id=lamella.id,
+        task_name=lamella.task_state.name,
     )
 
     microscope.stable_move(
@@ -99,6 +101,8 @@ def align_feature_coincident(
         validate=validate,
         msg=lamella.info,
         position=lamella.stage_position,
+        item_id=lamella.id,
+        task_name=lamella.task_state.name,
     )
 
     # align vertical
@@ -160,6 +164,8 @@ def align_feature_beam_shift(
         validate=validate,
         msg=lamella.info,
         position=None,
+        item_id=lamella.id,
+        task_name=lamella.task_state.name,
     )
 
     # TODO: add movement modes; stable move, vertical move, beam shift

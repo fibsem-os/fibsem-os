@@ -133,6 +133,8 @@ class MillUndercutTask(AutoLamellaTask):
                 parent_ui=self.parent_ui,
                 validate=self.validate,
                 msg=lamella.status_info,
+                item_id=self.lamella.id,
+                task_name=self.task_name,
             )
 
             # set pattern position
@@ -173,6 +175,8 @@ class MillUndercutTask(AutoLamellaTask):
             parent_ui=self.parent_ui,
             validate=self.validate,
             msg=self.lamella.status_info,
+            item_id=self.lamella.id,
+            task_name=self.task_name,
         )
 
         # align vertical
