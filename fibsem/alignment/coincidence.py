@@ -559,13 +559,18 @@ def check_coincidence(
     """
     from copy import deepcopy
 
+    from fibsem import acquire
     from fibsem.structures import BeamType
 
     settings = deepcopy(image_settings or _default_image_settings())
+    # Acquired as given, as the microscope did before this went through
+    # `acquire`: never autocontrasted or saved here, whatever the settings say.
+    settings.autocontrast = False
+    settings.save = False
     settings.beam_type = BeamType.ELECTRON
-    sem_image = microscope.acquire_image(image_settings=settings)
+    sem_image = acquire.acquire_image(microscope, settings)
     settings.beam_type = BeamType.ION
-    fib_image = microscope.acquire_image(image_settings=settings)
+    fib_image = acquire.acquire_image(microscope, settings)
     measurement = measure_coincidence_from_images(
         sem_image,
         fib_image,

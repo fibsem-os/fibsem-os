@@ -382,8 +382,8 @@ class FibsemMillingTask:
                 and not self.config.acquisition.enabled
             ):
                 self.microscope.autocontrast(beam_type=self.config.channel)
-                fib_image = self.microscope.acquire_image(
-                    image_settings=None, beam_type=self.config.channel
+                fib_image = acquire.acquire_current_image(
+                    self.microscope, self.config.channel
                 )
                 self.microscope.fib_acquisition_signal.emit(fib_image)
         except Exception as e:

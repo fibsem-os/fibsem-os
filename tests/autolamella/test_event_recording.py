@@ -517,3 +517,73 @@ def test_a_stage_that_cannot_be_described_still_mills(
         recorder.close()
     assert milled == [True]
     assert not _of_kind(_written(tmp_path / EVENTS_FILENAME), "milling_stage_started")
+
+
+# ── acquisitions outside new_image ───────────────────────────────────────────
+
+
+def test_an_image_taken_as_the_beam_is_set_records_the_exact_file(tmp_path, microscope):
+    """Saved at the name given -- no `_ib` suffix -- as the coincidence strategy's
+    before and after images always were."""
+    from fibsem import acquire
+    from fibsem.structures import BeamType
+
+    target = tmp_path / "pre-milling-fib-image.tif"
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        image = acquire.acquire_current_image(
+            microscope, BeamType.ION, path=str(target)
+        )
+        acquire.acquire_current_image(microscope, BeamType.ION)
+    finally:
+        recorder.close()
+    saved, unsaved = _of_kind(_written(tmp_path / EVENTS_FILENAME), "image_acquired")
+    assert target.exists() and saved["payload"]["path"] == image.filepath == str(target)
+    assert saved["payload"]["beam_type"] == "ION"
+    assert unsaved["payload"]["path"] is None
+
+
+def test_milling_s_final_image_is_recorded_after_its_stages(tmp_path, microscope):
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig.from_stages(
+        stages=[FibsemMillingStage(name="Rough Mill 01")], name="Rough Milling"
+    )
+    config.alignment.enabled = False
+    assert config.acquisition.acquire_final_image and not config.acquisition.enabled
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        FibsemMillingTask(microscope, config).run()
+    finally:
+        recorder.close()
+    records = _written(tmp_path / EVENTS_FILENAME)
+    (started,) = _of_kind(records, "milling_stage_started")
+    final = _of_kind(records, "image_acquired")[-1]
+    assert final["seq"] > started["seq"]
+    assert final["payload"]["beam_type"] == "ION"
+    assert final["payload"]["reduced_area"] is None  # a full frame: it ends the overlay
+
+
+def test_a_coincidence_check_is_recorded_and_still_acquires_as_given(
+    tmp_path, microscope, monkeypatch
+):
+    """Through `acquire` now, and still never autocontrasted or saved, whatever
+    the settings ask -- as when it called the microscope directly."""
+    from fibsem.alignment.coincidence import _default_image_settings, check_coincidence
+
+    settings = _default_image_settings()
+    settings.autocontrast, settings.save, settings.path = True, True, str(tmp_path)
+    autocontrasted = []
+    monkeypatch.setattr(
+        microscope, "autocontrast", lambda *a, **k: autocontrasted.append(a)
+    )
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        check_coincidence(microscope, image_settings=settings)
+    finally:
+        recorder.close()
+    pair = _of_kind(_written(tmp_path / EVENTS_FILENAME), "image_acquired")
+    assert [r["payload"]["beam_type"] for r in pair] == ["ELECTRON", "ION"]
+    assert all(r["payload"]["path"] is None for r in pair)
+    assert autocontrasted == [] and not list(tmp_path.glob("*.tif"))
