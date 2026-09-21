@@ -2029,16 +2029,50 @@ class Experiment:
                     )
             if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
                 return DecisionResult(applied=False, reason="A reject needs a reason.")
-            # The decision is on the result the decider saw: the run it names
-            # must be the run the proposal is from.
-            if not decision.task_id:
+            if decision.outcome is DecisionOutcome.Withdrawn:
+                # Not something a decider says. It is what the record shows
+                # when whatever asked is gone, and only that can write it.
+                return DecisionResult(
+                    applied=False,
+                    error_type="invalid_value",
+                    reason="Withdrawn is not a decision: confirm or reject. A "
+                    "question is withdrawn by what asked it.",
+                )
+            # The decision is on the result the decider saw. Named by the
+            # proposal when the decider can: a task may ask several questions
+            # in one run, they share its task_id, and only the proposal's own
+            # id tells the one that was shown from the one that replaced it.
+            if decision.proposal_id:
+                if decision.proposal_id != proposal.id:
+                    # Which of the two it was, when the decider also said what
+                    # run it saw: a different run is a re-run, the same one is
+                    # a task that has asked again since.
+                    what = f"{task_name} on {item.name}"
+                    if not decision.task_id:
+                        changed = f"{what} is not what you looked at any more"
+                    elif decision.task_id != proposal.task_id:
+                        changed = f"{what} has re-run since you looked"
+                    else:
+                        changed = f"{what} has asked again since you looked"
+                    return DecisionResult(
+                        applied=False,
+                        error_type="stale_review",
+                        reason=f"{changed}; look at the current one and decide that.",
+                    )
+                if not decision.task_id:
+                    # The run is still worth having on the decision, as a fact
+                    # about where the proposal came from.
+                    decision.task_id = proposal.task_id
+            # By the run otherwise, as every caller did before proposals had
+            # ids: the run it names must be the run the proposal is from.
+            elif not decision.task_id:
                 return DecisionResult(
                     applied=False,
                     error_type="missing_field",
-                    reason="A decision names the run it decides: pass the task_id "
-                    "of the proposal you looked at.",
+                    reason="A decision names what it decides: pass the "
+                    "proposal_id of the proposal you looked at.",
                 )
-            if decision.task_id != proposal.task_id:
+            elif decision.task_id != proposal.task_id:
                 return DecisionResult(
                     applied=False,
                     error_type="stale_review",
@@ -2258,6 +2292,7 @@ class Experiment:
                     reason=reason,
                     via="workflow",
                     task_id=proposal.task_id,
+                    proposal_id=proposal.id,
                 )
             )
             logging.info(

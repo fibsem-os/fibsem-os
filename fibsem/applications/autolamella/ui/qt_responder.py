@@ -101,13 +101,13 @@ class QtResponder(QObject):
         # corpse) is a new question and gets a new one.
         self._pending_question: Optional[Tuple[Request, "Future", int]] = None
         self._question_seq = 0
-        # (experiment, item_id, task_name) when the pending question is also on
+        # (experiment, item_id, task_name, proposal_id) when the pending question is also on
         # the record as a proposal (FIB-1025): it is answered by a decision in
         # the Review tab rather than by the prompt's button, and a decision
         # landing on it is what completes the future. None for a question that
         # is only a prompt. One attribute, read cross-thread by the agent
         # server the same way _pending_question is.
-        self._recorded: Optional[Tuple[object, str, str]] = None
+        self._recorded: Optional[Tuple[object, str, str, str]] = None
         # A RunMillingTask whose mill is currently running: the prompt is down,
         # the future is pending, and finished_milling_signal decides what next.
         self._active_milling: Optional[Tuple[RunMillingTask, "Future"]] = None
@@ -250,7 +250,7 @@ class QtResponder(QObject):
             # A recorded question has one way to be answered, for an agent as
             # for a person: a decision. A click here would say "applied" and
             # decide nothing.
-            _experiment, item_id, task_name = self._recorded
+            _experiment, item_id, task_name, _proposal_id = self._recorded
             self._fail(
                 outcome,
                 ValueError(
@@ -775,7 +775,7 @@ class QtResponder(QObject):
             releases=f"decide {item.name} in the Review tab",
             items=(f"{item.name}/{task_name}",),
         )
-        self._recorded = (experiment, item_id, task_name)
+        self._recorded = (experiment, item_id, task_name, proposal.id)
         experiment.decided.connect(self._on_decided)
 
         # However the wait ends without an answer -- Stop, a timeout, a run that
@@ -814,12 +814,16 @@ class QtResponder(QObject):
         recorded, pending = self._recorded, self._pending_question
         if recorded is None or pending is None:
             return
-        experiment, asked_item, asked_task = recorded
+        experiment, asked_item, asked_task, asked_id = recorded
         if (item_id, task_name) != (asked_item, asked_task):
             return
         item = experiment.get_item_by_id(item_id)
         proposal = item.proposals.get(task_name) if item is not None else None
-        decision = proposal.current if proposal is not None else None
+        if proposal is None or proposal.id != asked_id:
+            # A decision on this item and task, but not on the question that
+            # is up: the pair is not what names a question, the proposal is.
+            return
+        decision = proposal.current
         if decision is None:
             return
         request, future, nonce = pending

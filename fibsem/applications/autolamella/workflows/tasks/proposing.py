@@ -90,7 +90,16 @@ def propose(
     decided = item.proposals.get(task.task_name)
     if decided is not None and decided.pending:
         decided = None  # replaced, not superseded
-    if decided is not None:
+    if decided is not None and decided.task_id == state.task_id:
+        # Not a re-run: a question this same run asked and had answered
+        # (FIB-1025). It shares the slot with the run's own result, so it goes
+        # under it like anything else the slot held -- but saying "re-run"
+        # here would put a run in the log that never happened.
+        logging.info(
+            f"{item.name}: {task.task_name} asked a question during this run; "
+            "its answer is kept under the run's result."
+        )
+    elif decided is not None:
         logging.info(
             f"{item.name}: {task.task_name} re-run; the decided "
             "proposal is superseded and a new one is pending."
@@ -162,6 +171,7 @@ def settle(
         return
     # The producer decides the proposal it has just made: its own run.
     decision.task_id = proposal.task_id
+    decision.proposal_id = proposal.id
     try:
         result = experiment.decide(item.id, task.task_name, decision)
     except Exception:

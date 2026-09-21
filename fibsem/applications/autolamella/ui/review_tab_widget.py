@@ -1997,7 +1997,8 @@ class ReviewTabWidget(QWidget):
             author=self._experiment.author(),
             via="review",
             values=values,
-            task_id=proposal.task_id,  # the run shown, refused if it re-ran
+            task_id=proposal.task_id,
+            proposal_id=proposal.id,  # what was shown, refused if it is not this
         )
         self._apply(item, task_name, decision)
 
@@ -2022,6 +2023,7 @@ class ReviewTabWidget(QWidget):
                     values={},
                     via="review",
                     task_id=proposal.task_id,
+                    proposal_id=proposal.id,
                 ),
             )
             if result.applied:
@@ -2057,6 +2059,7 @@ class ReviewTabWidget(QWidget):
             via="review",
             reason=reason,
             task_id=proposal.task_id,
+            proposal_id=proposal.id,
         )
         self._apply(item, task_name, decision)
 
