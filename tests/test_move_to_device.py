@@ -153,8 +153,9 @@ def test_to_device_round_trips():
 
 
 def test_to_device_on_a_compustage_is_the_flip():
+    """From FIB, the one beam pose this compustage's objective does not image from."""
     microscope = _microscope(ARCTIS_CONFIG)
-    start = _off_centre(microscope, "SEM")
+    start = _off_centre(microscope, "FIB")
 
     at_fm = microscope.to_device(start, "FM")
 
