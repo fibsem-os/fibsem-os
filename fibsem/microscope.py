@@ -2311,13 +2311,6 @@ class FibsemMicroscope(ABC):
 
         return self.get_stage_position()
 
-    def move_to_device(self, device: str) -> None:
-        """Move the stage to the predefined device position."""
-        logging.warning(
-            f"move_to_device is not implemented for {self.__class__.__name__}."
-        )
-        pass
-
     def _get_device(self, device: str) -> StageDeviceSettings:
         """The configuration for `device`, or a refusal naming the ones there are."""
         try:
@@ -2551,6 +2544,57 @@ class FibsemMicroscope(ABC):
                 setattr(translation, axis, end - start)
         return translation
 
+    def _arrival_orientation(
+        self,
+        device: str,
+        stage_position: FibsemStagePosition,
+        orientation: Optional[str] = None,
+    ) -> Optional[str]:
+        """The orientation a position has to be re-posed into for `device`, or None.
+
+        One rule, shared by the move (`move_to_device`) and the conversion
+        (`to_device`) so the stage arrives where the conversion said it would. An
+        explicit ask is honoured as asked. Otherwise the pose is kept whenever the
+        device can image from it -- a traverse must not discard a tilt somebody
+        dialled in -- and the device's first declared acquisition orientation stands
+        in when it cannot. None means "keep the pose".
+        """
+        if orientation is not None:
+            return orientation
+        allowed = self._get_device(device).acquisition_orientations
+        if allowed and self.get_stage_orientation(stage_position) not in allowed:
+            return allowed[0]
+        return None
+
+    def to_device(
+        self,
+        stage_position: FibsemStagePosition,
+        device: str,
+        orientation: Optional[str] = None,
+    ) -> FibsemStagePosition:
+        """*stage_position* as `device` sees it: where `move_to_device` would arrive.
+
+        The one spelling of "this piece of sample, at that instrument" -- a lamella's
+        fluorescence pose from its milling pose, a grid slot on the FM canvas, a
+        milling pose from a target found in fluorescence. The same on both mountings:
+        a compustage takes the device leg with a zero translation, an offset mount
+        gets the traverse.
+
+        `orientation` names the pose to arrive in; omitted, `_arrival_orientation`
+        decides -- kept if the device images from it, else the first it declares.
+
+        Raises:
+            ValueError: from `get_target_position` -- a position in no supported
+                orientation (`"NONE"`), or at no configured device, has no conversion.
+        """
+        return self.get_target_position(
+            deepcopy(stage_position),
+            target_orientation=self._arrival_orientation(
+                device, stage_position, orientation
+            ),
+            target_device=device,
+        )
+
     def move_to_device(self, device: str, orientation: Optional[str] = None) -> None:
         """Travel to `device`, re-posing on the way when the pose has to change.
 
@@ -2589,15 +2633,13 @@ class FibsemMicroscope(ABC):
         # The pose to arrive in. An explicit ask is honoured as asked; otherwise the
         # pose is carried across, unless the target device cannot image from it --
         # then its first declared acquisition orientation stands in.
-        desired = orientation
-        allowed = target_device.acquisition_orientations
-        if desired is None and allowed:
-            if self.get_stage_orientation(stage_position) not in allowed:
-                desired = allowed[0]
-                logging.info(
-                    f"The {device} device images from {allowed}; re-posing to "
-                    f"{desired} at the beams before travelling."
-                )
+        desired = self._arrival_orientation(device, stage_position, orientation)
+        if desired is not None and orientation is None:
+            logging.info(
+                f"The {device} device images from "
+                f"{target_device.acquisition_orientations}; re-posing to {desired} "
+                f"at the beams before travelling."
+            )
 
         if desired is None and source == device:
             logging.info(f"Already at {device} position, no need to move.")
@@ -2614,9 +2656,33 @@ class FibsemMicroscope(ABC):
             if desired is not None:
                 # The bracketing order: every re-pose happens at the beams, where
                 # the rotation is about the sample rather than a 48.8 mm arm.
+                #
+                # Driven to the *converted* position, not to the orientation by
+                # name. `move_to_orientation` rewrites r and t where the stage
+                # stands; a half turn there is compucentric about a centre that is
+                # not the sample, so the point that was under the beam is swung
+                # away and the traverse carries the wrong piece of sample out. The
+                # transform is what every pose derivation and overview marker uses,
+                # so arriving where it says is what puts the stage on the marked
+                # point. Falls back to the bare re-pose only from a pose the
+                # classifier cannot name: there is no point to keep there, and the
+                # fallback is how a stage in an unsupported pose gets back to a
+                # supported one.
+                try:
+                    at_the_beams = self.get_target_position(
+                        stage_position, desired, target_device="FIBSEM"
+                    )
+                except ValueError as e:
+                    logging.warning(
+                        f"Re-posing to {desired} without keeping the sample point: {e}"
+                    )
+                    at_the_beams = None
                 if source != "FIBSEM":
                     self.move_stage_relative(self._device_translation(source, "FIBSEM"))
-                self.move_to_orientation(desired)
+                if at_the_beams is not None:
+                    self.safe_absolute_stage_movement(at_the_beams)
+                else:
+                    self.move_to_orientation(desired)
                 if device != "FIBSEM":
                     self.move_stage_relative(self._device_translation("FIBSEM", device))
             else:
