@@ -637,6 +637,96 @@ def test_a_seeded_run_shows_the_verdict_and_annotates_the_rows(loaded):
     assert rows[1].state_label.text() == ""
 
 
+def test_re_run_on_change_waits_for_the_points_to_settle(loaded, monkeypatch):
+    """Opt-in auto re-run (FIB-1020): a drag emits data_changed on every mouse
+    move, so the run waits out the burst and happens once. Off by default."""
+    from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
+
+    runs = []
+    monkeypatch.setattr(type(loaded), "_run", lambda self: runs.append(1))
+
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    for c in _fm(loaded):
+        c.point.x += 1.0
+        loaded._on_canvas_moved(c)
+    loaded._coords_tab.poi_list.coordinates = [
+        Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
+    ]
+    loaded.data_changed.emit(loaded.data)
+
+    # off by default: a runnable edit schedules nothing
+    assert not loaded._coords_tab._auto_rerun_check.isChecked()
+    assert not loaded._auto_rerun_timer.isActive()
+    assert runs == []
+
+    loaded._coords_tab._auto_rerun_check.setChecked(True)
+    assert loaded._auto_rerun_timer.isActive()  # turning it on schedules a run
+    assert loaded._auto_rerun_timer.interval() == ctw.AUTO_RERUN_DELAY_MS
+
+    # a burst of edits keeps restarting the wait rather than running per edit
+    for _ in range(5):
+        loaded.data_changed.emit(loaded.data)
+        assert loaded._auto_rerun_timer.isActive()
+    assert runs == []
+
+    loaded._auto_rerun()  # the wait elapses
+    assert runs == [1]
+
+
+def test_re_run_on_change_is_carried_by_the_experiment_config(loaded):
+    """The tick is remembered per experiment, not per dialog: the protocol
+    editor builds a new correlation dialog for every lamella, so a session-only
+    preference would have to be re-set on each one (FIB-1020)."""
+    from fibsem.correlation.config import CorrelationConfig
+
+    assert loaded.correlation_config.auto_rerun is False
+
+    loaded.set_correlation_config(CorrelationConfig(auto_rerun=True))
+    assert loaded._coords_tab._auto_rerun_check.isChecked()
+    assert loaded.correlation_config.auto_rerun is True
+
+    # and the other way: the checkbox is what the config reads back
+    loaded._coords_tab._auto_rerun_check.setChecked(False)
+    assert loaded.correlation_config.auto_rerun is False
+
+
+def test_re_run_on_change_leaves_a_run_that_cannot_happen_alone(loaded, monkeypatch):
+    """The run gate still decides. A state the run bar already refuses is not
+    worth a timer, and a run in flight is waited for, not interrupted."""
+    runs = []
+    monkeypatch.setattr(type(loaded), "_run", lambda self: runs.append(1))
+    loaded._coords_tab._auto_rerun_check.setChecked(True)
+
+    # no target placed: not runnable, so nothing is scheduled
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    loaded.data_changed.emit(loaded.data)
+    assert not loaded._can_run()
+    assert not loaded._auto_rerun_timer.isActive()
+    loaded._auto_rerun()
+    assert runs == []
+
+    # with a worker in flight the wait is re-armed instead of starting a second
+    for c in _fm(loaded):
+        c.point.x += 1.0
+        loaded._on_canvas_moved(c)
+    loaded._coords_tab.poi_list.coordinates = [
+        Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
+    ]
+    loaded.data_changed.emit(loaded.data)
+
+    class _Busy:
+        def isRunning(self):
+            return True
+
+    loaded._worker = _Busy()
+    loaded._auto_rerun_timer.stop()
+    loaded._auto_rerun()
+    assert runs == [] and loaded._auto_rerun_timer.isActive()
+    loaded._worker = None
+
+
 def test_a_poor_verdict_disables_continue(loaded):
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
