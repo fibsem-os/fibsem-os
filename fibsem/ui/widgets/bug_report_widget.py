@@ -14,11 +14,13 @@ from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -177,14 +179,54 @@ class BugReportDialog(QDialog):
         self.pushButton_cancel.clicked.connect(self.reject)
 
     def _setup_layout(self):
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.addWidget(self.label_description)
+        body_layout.addWidget(self.details_panel)
+        body_layout.addWidget(self.data_panel)
+        body_layout.addWidget(self.label_preview)
+        body_layout.addStretch()
+
+        # The form is tall enough (~970px with both text areas and the preview)
+        # to exceed a laptop screen. Without the scroll area the dialog clamps
+        # to its minimum and the QFormLayout squeezes the rows -- a QLineEdit
+        # has no minimum height, so the title/severity/contact fields clip their
+        # text before anything else gives. Scrolling degrades honestly instead.
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidget(body)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.viewport().setAutoFillBackground(False)
+        body.setAutoFillBackground(False)
+
         layout = QVBoxLayout()
-        layout.addWidget(self.label_description)
-        layout.addWidget(self.details_panel)
-        layout.addWidget(self.data_panel)
-        layout.addWidget(self.label_preview)
-        layout.addStretch()
+        layout.addWidget(self.scroll_area)
         layout.addWidget(self.button_box)
         self.setLayout(layout)
+
+        self._resize_to_fit_screen(body)
+
+    def _resize_to_fit_screen(self, body: QWidget):
+        """Open at the form's natural height, capped to what the screen holds.
+
+        ``sizeHint`` is useless once the body is inside a scroll area -- the
+        scroll area reports a small hint of its own -- so the natural height is
+        measured on the body and the buttons directly.
+        """
+        natural = (
+            body.sizeHint().height()
+            + self.button_box.sizeHint().height()
+            + 2 * self.layout().spacing()
+            + self.layout().contentsMargins().top()
+            + self.layout().contentsMargins().bottom()
+        )
+        screen = QApplication.primaryScreen()
+        available = screen.availableGeometry().height() if screen else natural
+        self.resize(
+            max(self.minimumWidth(), body.sizeHint().width()),
+            min(natural, int(available * 0.9)),
+        )
 
     def _content(self) -> BugReportContent:
         return BugReportContent(
