@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from PyQt5 import QtWidgets
+from PyQt5 import QtCore, QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.structures import (
@@ -20,11 +20,64 @@ from fibsem.config import (
 )
 from fibsem.constants import DATETIME_EXPERIMENT
 from fibsem.ui import utils as fui
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, TitledPanel
+from fibsem.util.system import DiskSpace, FreeSpaceLevel, disk_space
+from fibsem.utils import format_bytes
+
+# What an experiment costs on disk, per lamella. Measured 2026-09-21 over the four
+# completed lamellae in the real experiments under `tmp/`: 224, 256, 302 and 378 MB.
+# One of them breaks down as ~32 MB of reference images (20 of them, 1536x1024 uint8
+# plus header), a ~107 MB fluorescence z-stack, ~29 MB of alignment images and ~83 MB
+# of autofocus sweeps.
+#
+# A flat figure rather than one derived from the protocol, which was the first plan.
+# The protocol specifies only the reference images -- 13% of that total -- so a
+# protocol-derived estimate would be exact about the eighth it can see and silent
+# about the rest, reading as authoritative while being wrong by six times. This is the
+# whole number, shown as "about", and re-derived by measuring a few real experiments
+# again. Grid overviews are on top of it and are per-experiment, not per-lamella.
+BYTES_PER_LAMELLA = 300e6
+
+# The size of experiment the figure is quoted for. Quoting the rate instead ("about
+# 300 MB per lamella") leaves the reader to multiply, and quoting what is left over
+# ("room for about 47") answers a question nobody asked. What a person wants here is
+# whether a run fits, and that is read straight off two totals in the same units.
+TYPICAL_LAMELLA_COUNT = 20
+
+# How long after the last keystroke to go and ask the filesystem. `disk_usage` on a
+# disconnected mapped drive does not fail fast -- an SMB reconnect can hang for tens of
+# seconds -- so the probe runs on a worker thread, and this keeps one from being
+# launched per character typed into the directory field.
+DISK_PROBE_DEBOUNCE_MS = 400
+
+FREE_SPACE_COLORS = {
+    FreeSpaceLevel.AMPLE: TEXT_MUTED_COLOR,
+    FreeSpaceLevel.LOW: WARN_COLOR,
+    FreeSpaceLevel.CRITICAL: ERROR_COLOR,
+}
+
+
+def describe_free_space(space: DiskSpace) -> str:
+    """The free-space line: what is left, beside what a run of that size costs.
+
+    Two totals in the same units and nothing to work out: "6.1 GB free of 500.0 GB ·
+    about 6.0 GB for a 20-lamella experiment" is the comparison, already made. The
+    wording is the same in every band -- only the colour moves.
+
+    A plain function rather than a method so the wording can be tested without a
+    dialog, and so it stays next to the figure it quotes.
+    """
+    return (
+        f"{format_bytes(space.free)} free of {format_bytes(space.total)}"
+        f" · about {format_bytes(BYTES_PER_LAMELLA * TYPICAL_LAMELLA_COUNT)}"
+        f" for a {TYPICAL_LAMELLA_COUNT}-lamella experiment"
+    )
 
 
 class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
@@ -49,6 +102,16 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         self.setWindowTitle("Create New Experiment")
         self.setMinimumWidth(600)
+
+        # Bumped every time a probe is launched and again when the dialog closes. A
+        # probe that comes back holding a stale number is dropped, which covers both a
+        # slow share answering after the directory has changed and one answering after
+        # there is no longer a label to write to.
+        self._disk_probe_generation = 0
+        self._disk_probe_timer = QtCore.QTimer(self)
+        self._disk_probe_timer.setSingleShot(True)
+        self._disk_probe_timer.setInterval(DISK_PROBE_DEBOUNCE_MS)
+        self._disk_probe_timer.timeout.connect(self._start_disk_probe)
 
         self._setup_ui()
         self._connect_signals()
@@ -120,6 +183,15 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         exp_form_layout.addRow("Project", self.lineEdit_experiment_project)
         exp_form_layout.addRow("Organisation", self.lineEdit_experiment_organisation)
         exp_form_layout.addRow("Directory", self.lineEdit_experiment_directory)
+
+        # Free space on whatever volume that directory lands on, under the field that
+        # chooses it. Added to the form's value column with no label of its own: it is
+        # a note about the row above, not a field of its own, and "Disk" in the label
+        # column would read as something to fill in.
+        self.label_disk_space = QtWidgets.QLabel("")
+        self.label_disk_space.setWordWrap(True)
+        self._set_disk_space_text("", FreeSpaceLevel.AMPLE)
+        exp_form_layout.addRow("", self.label_disk_space)
 
         exp_layout.addLayout(exp_form_layout)
 
@@ -215,11 +287,18 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         if not self._default_protocol_loaded:
             self._load_default_protocol()
             self._default_protocol_loaded = True
+        # Directly rather than through the debounce timer: the directory was filled in
+        # by `_setup_ui` before the signals were connected, so nothing has asked for
+        # this yet and there is no burst of keystrokes to wait out.
+        self._start_disk_probe()
 
     def _connect_signals(self):
         """Connect UI signals."""
         self.lineEdit_experiment_directory.textChanged.connect(
             self._validate_experiment_path
+        )
+        self.lineEdit_experiment_directory.textChanged.connect(
+            self._disk_probe_timer.start
         )
         self.btn_select_protocol.clicked.connect(self._select_protocol)
         self.btn_select_legacy_protocol.clicked.connect(self._select_legacy_protocol)
@@ -246,6 +325,78 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             )
         else:
             self.label_validation_warning.setText("")
+
+    def _set_disk_space_text(self, text: str, level: FreeSpaceLevel) -> None:
+        """Write the free-space line, coloured for how much room is left.
+
+        Colour is the whole signal here; the line is never a refusal. A user who knows
+        they are writing one lamella to a disk with 4 GB left is right, and a dialog
+        that argued with them would be wrong -- so Create stays enabled at every level.
+        """
+        self.label_disk_space.setText(text)
+        self.label_disk_space.setStyleSheet(
+            f"color: {FREE_SPACE_COLORS[level]}; font-size: 11px;"
+        )
+
+    def _start_disk_probe(self) -> None:
+        """Ask the filesystem how much room the chosen directory has, off-thread.
+
+        Off-thread because `disk_usage` on a disconnected mapped drive can hang for
+        tens of seconds on an SMB reconnect, and this is reached from `textChanged`.
+        """
+        directory = self.lineEdit_experiment_directory.text()
+        self._disk_probe_generation += 1
+        generation = self._disk_probe_generation
+
+        if not directory:
+            self._set_disk_space_text("", FreeSpaceLevel.AMPLE)
+            self.label_disk_space.setToolTip("")
+            return
+
+        # Rather than leaving the previous volume's numbers up while a new path is
+        # being measured. On a local disk this is gone within a frame; on a share that
+        # takes twenty seconds to answer, attributing the old drive's free space to
+        # the newly typed one is exactly the wrong thing to do with the wait.
+        self._set_disk_space_text("Checking free space…", FreeSpaceLevel.AMPLE)
+        worker = FunctionWorker(disk_space, directory)
+        worker.returned.connect(lambda space: self._on_disk_space(space, generation))
+        # `errored` deliberately unconnected: `disk_space` returns None for every
+        # filesystem failure it exists to absorb, so anything arriving there is a bug
+        # in it, and FunctionWorker has already logged that with a traceback.
+        worker.start()
+
+    def _on_disk_space(self, space: Optional[DiskSpace], generation: int) -> None:
+        """Show what the probe found, unless it has been overtaken."""
+        if generation != self._disk_probe_generation:
+            # The directory changed, or the dialog closed, while the share was asked.
+            return
+        if space is None:
+            # An unmapped drive letter reaches here. Said plainly and left muted: the
+            # path being unusable is `_on_ok_clicked`'s refusal to make, and colouring
+            # it here would claim the disk is full when it is not there at all.
+            self._set_disk_space_text(
+                "Free space is not available for this location.", FreeSpaceLevel.AMPLE
+            )
+            self.label_disk_space.setToolTip("")
+            return
+        self._set_disk_space_text(describe_free_space(space), space.level)
+        # The rate behind the figure, and which volume answered. Both are second
+        # questions -- someone planning 40 lamellae wants the per-lamella number, and a
+        # mapped drive can point anywhere -- so neither earns a place on the line.
+        self.label_disk_space.setToolTip(
+            f"About {format_bytes(BYTES_PER_LAMELLA)} per lamella."
+            f" Measured on {space.path}"
+        )
+
+    def done(self, result: int) -> None:
+        """Invalidate any probe still out on a slow share, then close.
+
+        Its callback writes to the label, and once the dialog is done there may be no
+        label left to write to -- the C++ widget can be gone while the lambda holding
+        this object alive is not.
+        """
+        self._disk_probe_generation += 1
+        super().done(result)
 
     def _load_default_protocol(self):
         """Load the default task protocol, preferring the path set in user preferences."""
