@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -10,11 +10,13 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from fibsem.applications.autolamella.poses import DISAGREEMENT_WARNING_M, PoseProvenance
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.structures import MicroscopeState
 from fibsem.ui import stylesheets
@@ -23,8 +25,10 @@ from fibsem.ui.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
     NEUTRAL_550,
+    SEMANTIC_WARNING_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
+    TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.widgets.microscope_state_widget import MicroscopeStateWidget
@@ -39,19 +43,40 @@ from fibsem.utils import (
 _NAME_WIDTH = 110
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
-_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 2 + 8  # 2 buttons + 1 gap
+_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 3 + 16  # 3 buttons + 2 gaps
+
+ICON_DERIVE_POSE = "mdi:link-variant"  # derive this pose from the other one
+
+# What a pose's provenance looks like on its row: a small word after the position,
+# only when there is something to say. An observed pose says nothing -- it is the
+# normal state, and a chip on every row is a chip on none.
+_PROVENANCE_CHIP = {
+    PoseProvenance.DERIVED: (
+        "derived",
+        TEXT_MUTED_COLOR,
+        "Worked out from the other pose, not yet centred by hand here. It follows "
+        "when the other pose moves.",
+    ),
+}
 
 _POPUP_WIDTH = 400
 
 # The position control reads as text until it is approached. Flat, transparent and in
 # the same muted colour the label used, so a row at rest looks exactly as it did; the
 # hover state is the whole of the affordance, which is why it has to be visible.
+# A notch down from the app default, matching the lamella list's own row and detail
+# sizes: the position is a five-axis string and this row also carries a provenance
+# chip and three buttons, so the text that can afford to be smaller is.
+_POSITION_FONT_PX = 11
+_CHIP_FONT_PX = 10
+
 _POSITION_BUTTON_STYLE = f"""
 QPushButton {{
     background: transparent;
     border: none;
     padding: 0px;
     text-align: left;
+    font-size: {_POSITION_FONT_PX}px;
     color: {NEUTRAL_550};
 }}
 QPushButton:hover {{
@@ -85,17 +110,27 @@ class LamellaPoseRowWidget(QWidget):
 
     update_clicked = pyqtSignal(str)  # pose name
     move_to_clicked = pyqtSignal(str)  # pose name
+    derive_clicked = pyqtSignal(str, object)  # pose name, orientation or None
 
     def __init__(
         self,
         pose_name: str,
         state: Optional[MicroscopeState],
         parent: Optional[QWidget] = None,
+        provenance: PoseProvenance = PoseProvenance.OBSERVED,
+        derive_orientations: Optional[List[str]] = None,
     ) -> None:
+        """*derive_orientations* are the orientations this pose may be derived into;
+        more than one and the derive button offers a menu, otherwise it derives
+        straight away (into the one orientation, or into whatever the derivation
+        decides)."""
         super().__init__(parent)
         self.pose_name = pose_name
         self._state = state
         self._popup: Optional[_PoseDetailPopup] = None
+        self.derive_orientations = list(derive_orientations or [])
+        self._provenance = PoseProvenance.OBSERVED
+        self._disagreement: Optional[float] = None
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
@@ -113,6 +148,24 @@ class LamellaPoseRowWidget(QWidget):
         self.position_button.setStyleSheet(_POSITION_BUTTON_STYLE)
         self.position_button.clicked.connect(self._show_details)
         layout.addWidget(self.position_button, 1)
+
+        self.provenance_label = QLabel()
+        self.provenance_label.setStyleSheet("background: transparent;")
+        layout.addWidget(self.provenance_label)
+        self.set_provenance(provenance)
+
+        self.btn_derive = IconToolButton(
+            icon=ICON_DERIVE_POSE,
+            tooltip="Derive from the other pose",
+            size=_BTN_SIZE.width(),
+        )
+        layout.addWidget(self.btn_derive)
+        self.btn_derive.clicked.connect(self._on_derive_clicked)
+        # Only the two poses that are each other's counterpart can be derived; any
+        # other named pose is a record. Kept in the layout so the rows stay aligned.
+        if pose_name not in ("MILLING", "FLUORESCENCE"):
+            self.btn_derive.setEnabled(False)
+            self.btn_derive.setToolTip("This pose has no counterpart to derive it from")
 
         self.btn_move_to = IconToolButton(
             icon=ICON_MOVE_TO_POSITION,
@@ -149,6 +202,67 @@ class LamellaPoseRowWidget(QWidget):
         self.position_button.setEnabled(state is not None)
         if self._popup is not None and self._popup.isVisible():
             self._popup.set_state(self.pose_name, state)
+
+    def set_disagreement(self, metres: Optional[float]) -> None:
+        """How far this pose is from where the other one predicts it, or None.
+
+        Replaces the provenance chip while it is over `DISAGREEMENT_WARNING_M`.
+        Two hand-centred poses legitimately differ by a few microns -- that is what
+        centring by hand is for -- so a small distance says nothing; a large one
+        means one of the two was moved a long way and the other was not.
+        """
+        self._disagreement = metres
+        self.set_provenance(self._provenance)
+
+    def set_provenance(self, provenance: PoseProvenance) -> None:
+        self._provenance = PoseProvenance(provenance)
+        off = self._disagreement
+        if off is not None and off > DISAGREEMENT_WARNING_M:
+            self.provenance_label.setText(f"{off * 1e6:.0f} µm off")
+            self.provenance_label.setToolTip(
+                "This pose is that far from where the other pose predicts it. One "
+                "of the two was moved and the other was not: check both, or derive "
+                "one from the other."
+            )
+            self.provenance_label.setStyleSheet(
+                f"background: transparent; color: {SEMANTIC_WARNING_COLOR}; "
+                f"font-size: {_CHIP_FONT_PX}px;"
+            )
+            self.provenance_label.setVisible(True)
+            return
+        chip = _PROVENANCE_CHIP.get(self._provenance)
+        if chip is None:
+            self.provenance_label.setText("")
+            self.provenance_label.setToolTip("")
+            self.provenance_label.setVisible(False)
+            return
+        text, colour, tooltip = chip
+        self.provenance_label.setText(text)
+        self.provenance_label.setToolTip(tooltip)
+        self.provenance_label.setStyleSheet(
+            f"background: transparent; color: {colour}; font-size: {_CHIP_FONT_PX}px;"
+        )
+        self.provenance_label.setVisible(True)
+
+    def _build_derive_menu(self) -> QMenu:
+        """One entry per orientation this pose may be derived into."""
+        menu = QMenu(self)
+        for orientation in self.derive_orientations:
+            action = menu.addAction(f"Derive into the {orientation} orientation")
+            action.triggered.connect(
+                lambda _checked=False, o=orientation: self.derive_clicked.emit(
+                    self.pose_name, o
+                )
+            )
+        return menu
+
+    def _on_derive_clicked(self) -> None:
+        if len(self.derive_orientations) > 1:
+            menu = self._build_derive_menu()
+            menu.exec_(self.btn_derive.mapToGlobal(self.btn_derive.rect().bottomLeft()))
+            return
+        orientation = self.derive_orientations[0] if self.derive_orientations else None
+        self.derive_clicked.emit(self.pose_name, orientation)
 
     def _show_details(self) -> None:
         if self._state is None:
@@ -246,9 +360,15 @@ class LamellaPoseListWidget(QWidget):
 
     update_requested = pyqtSignal(str)  # pose name
     move_to_requested = pyqtSignal(str)  # pose name
+    derive_requested = pyqtSignal(str, object)  # pose name, orientation or None
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        # The orientations the fluorescence pose may be derived into: what the FM
+        # declares it images from. Handed in by the host, which has the microscope.
+        self._fluorescence_orientations: List[str] = []
+        self._lamella: Optional[Lamella] = None
+        self._disagreement: Optional[float] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -281,9 +401,57 @@ class LamellaPoseListWidget(QWidget):
         if lamella is None or not lamella.poses:
             return
         for pose_name in self._sorted_pose_names(lamella.poses):
-            self._add_row(pose_name, lamella.poses[pose_name])
+            self._add_row(
+                pose_name,
+                lamella.poses[pose_name],
+                provenance=lamella.provenance_of(pose_name),
+                derive_orientations=(
+                    self._fluorescence_orientations
+                    if pose_name == "FLUORESCENCE"
+                    else []
+                ),
+            )
+        self._lamella = lamella
+        self._show_disagreement()
 
-    def refresh_pose(self, pose_name: str, state: Optional[MicroscopeState]) -> None:
+    def set_fluorescence_orientations(self, orientations: List[str]) -> None:
+        """The orientations the fluorescence pose may be derived into."""
+        self._fluorescence_orientations = list(orientations)
+
+    def set_pose_disagreement(self, metres: Optional[float]) -> None:
+        """How far apart the two poses are from what each predicts of the other.
+
+        Handed in by the host, which has the microscope (`poses.pose_disagreement`);
+        this widget never asks the instrument anything. Shown on the pose that is
+        still derived if there is one -- that is the one to derive again -- and
+        otherwise on the fluorescence pose.
+        """
+        self._disagreement = metres
+        self._show_disagreement()
+
+    def _show_disagreement(self) -> None:
+        rows = {
+            row.pose_name: row
+            for row in (
+                self._list.itemWidget(self._list.item(i))
+                for i in range(self._list.count())
+            )
+            if isinstance(row, LamellaPoseRowWidget)
+        }
+        lamella = self._lamella
+        target = "FLUORESCENCE"
+        if lamella is not None and "MILLING" in rows:
+            if lamella.provenance_of("MILLING") is PoseProvenance.DERIVED:
+                target = "MILLING"
+        for name, row in rows.items():
+            row.set_disagreement(self._disagreement if name == target else None)
+
+    def refresh_pose(
+        self,
+        pose_name: str,
+        state: Optional[MicroscopeState],
+        provenance: Optional[PoseProvenance] = None,
+    ) -> None:
         """Update an existing pose row in place, from the record itself.
 
         Takes the ``MicroscopeState`` rather than a rendered string: the row now shows
@@ -297,6 +465,8 @@ class LamellaPoseListWidget(QWidget):
             row = self._list.itemWidget(self._list.item(i))
             if isinstance(row, LamellaPoseRowWidget) and row.pose_name == pose_name:
                 row.set_state(state)
+                if provenance is not None:
+                    row.set_provenance(provenance)
                 return
 
     def clear(self) -> None:
@@ -319,13 +489,23 @@ class LamellaPoseListWidget(QWidget):
         return sorted(poses.keys(), key=key)
 
     def _add_row(
-        self, pose_name: str, state: Optional[MicroscopeState]
+        self,
+        pose_name: str,
+        state: Optional[MicroscopeState],
+        provenance: PoseProvenance = PoseProvenance.OBSERVED,
+        derive_orientations: Optional[List[str]] = None,
     ) -> LamellaPoseRowWidget:
-        row = LamellaPoseRowWidget(pose_name, state)
+        row = LamellaPoseRowWidget(
+            pose_name,
+            state,
+            provenance=provenance,
+            derive_orientations=derive_orientations,
+        )
         item = QListWidgetItem()
         item.setSizeHint(QSize(0, _ROW_HEIGHT))
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
         row.update_clicked.connect(self.update_requested)
         row.move_to_clicked.connect(self.move_to_requested)
+        row.derive_clicked.connect(self.derive_requested)
         return row
