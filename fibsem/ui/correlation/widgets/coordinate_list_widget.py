@@ -34,6 +34,7 @@ from fibsem.correlation.structures import (
     PointType,
 )
 from fibsem.ui import stylesheets
+from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
     DRAG_HANDLE_WIDTH,
@@ -503,10 +504,16 @@ class CoordinateListWidget(QWidget):
         coordinates: Optional[List[Coordinate]] = None,
         point_type: Optional[PointType] = None,
         parent: Optional[QWidget] = None,
+        store: Optional[CorrelationPointStore] = None,
     ) -> None:
         super().__init__(parent)
-        self._coordinates: List[Coordinate] = []
-        self._selected_coordinate: Optional[Coordinate] = None
+        if point_type is None:
+            raise ValueError("a coordinate list shows one point type")
+        self._point_type = point_type
+        # The points and the selection live in the store (FIB-973); this widget
+        # renders them. Until the tab widget shares one store between the lists
+        # and the canvases, each list has its own.
+        self._store = store if store is not None else CorrelationPointStore(self)
         self._x_max: Optional[float] = None
         self._y_max: Optional[float] = None
         self._z_max: Optional[float] = None
@@ -514,6 +521,7 @@ class CoordinateListWidget(QWidget):
 
         self._setup_ui()
         self._connect_signals()
+        self._rebuild_rows()
 
         if coordinates:
             self.coordinates = coordinates
@@ -547,6 +555,9 @@ class CoordinateListWidget(QWidget):
 
     def _connect_signals(self) -> None:
         self._list.reordered.connect(self._on_reordered)
+        self._store.structure_changed.connect(self._on_structure_changed)
+        self._store.points_changed.connect(self._on_points_changed)
+        self._store.selection_changed.connect(self._show_selection)
 
     # ------------------------------------------------------------------
     # Public API
@@ -570,32 +581,62 @@ class CoordinateListWidget(QWidget):
                     w.set_axis_maxima(x_max, y_max, z_max)
 
     @property
+    def store(self) -> CorrelationPointStore:
+        return self._store
+
+    @property
     def selected_coordinate(self) -> Optional[Coordinate]:
-        return self._selected_coordinate
+        """The store's current point, when it is one of this list's."""
+        current = self._store.current
+        if current is not None and current.point_type is self._point_type:
+            return current
+        return None
 
     @property
     def coordinates(self) -> List[Coordinate]:
-        return list(self._coordinates)
+        return self._store.of_type(self._point_type)
 
     @coordinates.setter
     def coordinates(self, value: List[Coordinate]) -> None:
-        self._coordinates = list(value)
-        self._selected_coordinate = None
-        self._rebuild_rows()
-        if self._coordinates:
-            self._set_selected(self._coordinates[0])
+        self._store.replace_type(self._point_type, value)
+        # Selecting row 1 is this setter's, not the store's: it is what made a
+        # canvas delete jump the selection (FIB-965), and it goes with the last
+        # caller that assigns a whole list.
+        coords = self.coordinates
+        if coords:
+            self._set_selected(coords[0])
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
     def _rebuild_rows(self) -> None:
+        coords = self.coordinates
         self._list.clear()
-        names = _generate_names(self._coordinates)
-        for coord, name in zip(self._coordinates, names):
+        for coord, name in zip(coords, _generate_names(coords)):
             self._add_row(coord, name)
-        self._empty_label.setVisible(len(self._coordinates) == 0)
+        self._empty_label.setVisible(len(coords) == 0)
         self._fit_height_to_rows()
+        self._show_selection()
+
+    def _row_coordinates(self) -> List[Coordinate]:
+        return [
+            self._list.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(self._list.count())
+        ]
+
+    def _on_structure_changed(self) -> None:
+        # A shared store announces every type's changes. Rebuilding for another
+        # list's change would destroy a spinbox being typed in here.
+        rows, coords = self._row_coordinates(), self.coordinates
+        if len(rows) == len(coords) and all(a is b for a, b in zip(rows, coords)):
+            return
+        self._rebuild_rows()
+
+    def _on_points_changed(self, coords: tuple) -> None:
+        for coord in coords:
+            if coord.point_type is self._point_type:
+                self.refresh_coordinate(coord)
 
     def set_notes(self, notes: dict) -> None:
         """Per-point remarks from the last run, keyed by coordinate identity:
@@ -645,14 +686,21 @@ class CoordinateListWidget(QWidget):
         row_widget.reject_toggled.connect(self.reject_toggled)
 
     def _set_selected(self, coord: Coordinate) -> None:
-        self._selected_coordinate = coord
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            if item is not None and item.data(Qt.ItemDataRole.UserRole) is coord:
-                self._list.setCurrentItem(item)
-                break
-        self._mark_selected(coord)
+        """A selection made here: select in the store, and announce it."""
+        self._store.select(coord)
         self.coordinate_selected.emit(coord)
+
+    def _show_selection(self) -> None:
+        coord = self.selected_coordinate
+        if coord is None:
+            self._list.clearSelection()
+        else:
+            for i in range(self._list.count()):
+                item = self._list.item(i)
+                if item is not None and item.data(Qt.ItemDataRole.UserRole) is coord:
+                    self._list.setCurrentItem(item)
+                    break
+        self._mark_selected(coord)
 
     def _mark_selected(self, coord: Optional[Coordinate]) -> None:
         """Show the actions on the selected row only."""
@@ -667,16 +715,18 @@ class CoordinateListWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_row_clicked(self, coord: Coordinate) -> None:
-        if coord is not self._selected_coordinate:
+        if coord is not self.selected_coordinate:
             self._set_selected(coord)
 
     def _on_reordered(self, coords: List[Coordinate]) -> None:
-        self._coordinates = coords
-        selected_before = self._selected_coordinate
+        self._store.reorder(self._point_type, coords)
+        # Qt clears the row widgets on a move, so the rows are rebuilt even
+        # when the drop left the order as it was and the store said nothing.
         self._rebuild_rows()
-        if selected_before is not None and selected_before in self._coordinates:
-            self._set_selected(selected_before)
-        self.order_changed.emit(list(self._coordinates))
+        selected = self.selected_coordinate
+        if selected is not None:
+            self.coordinate_selected.emit(selected)
+        self.order_changed.emit(self.coordinates)
 
     def remove_coordinate(self, coord: Coordinate) -> bool:
         """Remove *coord*'s row and select its neighbour, without emitting anything.
@@ -688,30 +738,11 @@ class CoordinateListWidget(QWidget):
         made a canvas delete jump the selection to row 1 (FIB-965).
         Returns False if *coord* is not here.
         """
-        # Identity, not equality: the overlay and the tab widget both key on the
-        # object, and two coordinates can hold equal values and still be different points.
-        idx = next((i for i, c in enumerate(self._coordinates) if c is coord), None)
-        if idx is None:
+        # The store removes by identity and selects the neighbour; the rows and
+        # the highlight follow from its signals.
+        if coord.point_type is not self._point_type:
             return False
-        del self._coordinates[idx]
-
-        next_coord = None
-        if self._coordinates:
-            next_idx = min(idx, len(self._coordinates) - 1)
-            next_coord = self._coordinates[next_idx]
-
-        if self._selected_coordinate is coord:
-            self._selected_coordinate = None
-
-        self._rebuild_rows()
-
-        if next_coord is not None:
-            self.blockSignals(True)
-            try:
-                self._set_selected(next_coord)
-            finally:
-                self.blockSignals(False)
-        return True
+        return self._store.remove(coord)
 
     def _on_remove(self, coord: Coordinate) -> None:
         # Removal first, then the neighbour's selection: the tab widget answers
@@ -719,16 +750,16 @@ class CoordinateListWidget(QWidget):
         # so a selection announced before the removal was wiped by it (FIB-965).
         if self.remove_coordinate(coord):
             self.coordinate_removed.emit(coord)
-            if self._selected_coordinate is not None:
-                self.coordinate_selected.emit(self._selected_coordinate)
+            selected = self.selected_coordinate
+            if selected is not None:
+                self.coordinate_selected.emit(selected)
 
     def add_coordinate(self, coord: Coordinate) -> None:
-        """Append a coordinate, rebuild its row, and select it."""
-        self._coordinates.append(coord)
-        names = _generate_names(self._coordinates)
-        self._add_row(coord, names[-1])
-        self._empty_label.setVisible(False)
-        self._set_selected(coord)
+        """Add a coordinate and select it."""
+        if coord.point_type is not self._point_type:
+            raise ValueError(f"{coord} is not a {self._point_type} point")
+        self._store.add(coord)
+        self.coordinate_selected.emit(coord)
 
     def refresh_coordinate(self, coord: Coordinate) -> None:
         """Re-sync spinboxes for one coordinate after an external edit (e.g. canvas drag)."""
@@ -742,14 +773,8 @@ class CoordinateListWidget(QWidget):
 
     def select_coordinate_silent(self, coord: Optional[Coordinate]) -> None:
         """Highlight a row without emitting ``coordinate_selected`` (avoids sync loops)."""
-        self._selected_coordinate = coord
-        if coord is None:
-            self._mark_selected(None)
-            self._list.clearSelection()
-            return
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            if item is not None and item.data(Qt.ItemDataRole.UserRole) is coord:
-                self._list.setCurrentItem(item)
-                break
-        self._mark_selected(coord)
+        if coord is not None and coord not in self._store:
+            coord = None
+        if coord is None and self.selected_coordinate is None:
+            return  # the selection is another list's: leave it
+        self._store.select(coord)

@@ -235,6 +235,24 @@ class CorrelationPointStore(QObject):
         self._points[point_type] = coords
         self.structure_changed.emit()
 
+    def replace_type(self, point_type: PointType, coords: Sequence[Coordinate]) -> None:
+        """Replace one type's points. Selected points that are gone are
+        deselected; nothing is selected in their place.
+
+        What assigning ``CoordinateListWidget.coordinates`` does while the tab
+        widget still writes whole lists.
+        """
+        coords = _unique(coords)
+        for coord in coords:
+            if coord.point_type is not point_type:
+                raise ValueError(f"{coord} is not a {point_type} point")
+        self._points[point_type] = coords
+        kept = [c for c in self._selection if c in self]
+        selection_changed = self._set_selection(kept)
+        self.structure_changed.emit()
+        if selection_changed:
+            self.selection_changed.emit()
+
     def replace_all(self, coords: Iterable[Coordinate]) -> None:
         """Replace every point and clear the selection (a load or a seed).
 
