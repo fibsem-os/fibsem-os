@@ -8,7 +8,7 @@ was. Beside them, the recorded actions as a list: click one to go there, or
 play them back at a multiple of real time.
 
 Everything comes from :mod:`fibsem.applications.autolamella.tools.replay`,
-which reads the experiment's log. Nothing here talks to a microscope, and
+which reads the experiment's ``events.jsonl``, or its log if it has none. Nothing here talks to a microscope, and
 nothing here writes to the experiment.
 """
 
@@ -45,6 +45,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
 from fibsem.applications.autolamella.tools.replay import (
     EventKind,
     ExperimentReplay,
@@ -512,7 +513,8 @@ class ExperimentReplayWidget(QWidget):
 
         if self.replay.records_unreadable:
             self.meta_label.setToolTip(
-                f"{self.replay.records_unreadable} log records could not be read and are not shown."
+                f"{self.replay.records_unreadable} records in {self.replay.source} "
+                "could not be read and are not shown."
             )
 
     def _button(self, icon, tooltip: str, slot) -> QPushButton:
@@ -526,13 +528,20 @@ class ExperimentReplayWidget(QWidget):
     def _meta_text(self) -> str:
         events = self.replay.events
         if not events:
+            if self.replay.source == EVENTS_FILENAME:
+                return (
+                    f"Nothing recorded — {EVENTS_FILENAME} has no replayable actions."
+                )
             return "Nothing recorded — the log has no replayable actions (it is written at DEBUG level)."
         images = [e for e in events if e.kind == EventKind.IMAGE]
         on_disk = sum(e.image_on_disk for e in images)
         span = _elapsed(self.replay.start, self.replay.end or self.replay.start).lstrip(
             "+"
         )
-        return f"{len(events)} actions · {span} · {on_disk} of {len(images)} images on disk"
+        return (
+            f"{len(events)} actions · {span} · {on_disk} of {len(images)} images on disk"
+            f" · from {self.replay.source}"
+        )
 
     def _fill_table(self) -> None:
         events = self.replay.events

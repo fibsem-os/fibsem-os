@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
 from fibsem.applications.autolamella.tools.replay import (
     EventKind,
     load_replay,
@@ -343,3 +344,236 @@ def test_an_fm_image_belongs_to_the_task_step_it_was_taken_in(tmp_path):
 def test_a_directory_without_a_log_cannot_be_replayed(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_replay(tmp_path)
+
+
+# ── an experiment recorded with events.jsonl ─────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def recorded_twice(tmp_path_factory):
+    """One Demo run, replayed from its events.jsonl and from its log."""
+    from fibsem.applications.autolamella.tools.replay import _load_from_log
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        root = record_demo_experiment(
+            tmp_path_factory.mktemp("replay-events") / "exp",
+            monkeypatch,
+            record_events=True,
+        )
+    finally:
+        monkeypatch.undo()
+    return load_replay(root), _load_from_log(root)
+
+
+def test_an_experiment_with_events_is_replayed_from_them(recorded_twice):
+    events, _ = recorded_twice
+    assert events.source == EVENTS_FILENAME
+    assert events.records_read > 0 and events.records_unreadable == 0
+
+
+def test_the_events_replay_what_the_log_replays(recorded_twice):
+    """The same run, read both ways: the same steps, files, milling and spots."""
+    events, log = recorded_twice
+
+    def steps(replay):
+        # STARTED / FINISHED reach events.jsonl from the lifecycle hook, which
+        # the app registers per run; this bare task run has no task manager to
+        # fire it. The reader's handling of them is pinned by hand below.
+        return [
+            (e.item, e.task, e.step)
+            for _, e in _of(replay, EventKind.TASK)
+            if e.step not in ("STARTED", "FINISHED")
+        ]
+
+    def files(replay):
+        return {
+            e.image_path for _, e in _of(replay, EventKind.IMAGE) if e.image_on_disk
+        }
+
+    def mills(replay):
+        return [
+            e.data["stage"]["name"]
+            for _, e in _of(replay, EventKind.MILLING)
+            if "stage" in e.data
+        ]
+
+    assert steps(events) == steps(log)
+    assert files(events) and files(events) == files(log)
+    assert mills(events) == mills(log) == list(MILLING_STAGES)
+    assert all(e.item_type == "lamella" for e in events.events if e.item)
+    spots = [i for i, e in _of(events, EventKind.MILLING) if "spot" in e.data]
+    log_spots = [i for i, e in _of(log, EventKind.MILLING) if "spot" in e.data]
+    assert events.scene(spots[-1]).spots == pytest.approx(
+        log.scene(log_spots[-1]).spots
+    )
+    ((_, fm),) = _of(events, EventKind.FLUORESCENCE)
+    assert fm.image_path.name == FM_STACK
+
+
+def test_milling_is_placed_when_it_started_not_worked_back_from_its_end(
+    recorded_twice,
+):
+    events, _ = recorded_twice
+    for index, mill in _of(events, EventKind.MILLING):
+        if "stage" not in mill.data:
+            continue
+        assert mill.duration is not None and mill.duration >= 0
+        scene = events.scene(index)
+        assert [d["name"] for d in scene.milling_stages] == list(MILLING_STAGES)
+        assert FibsemMillingStage.from_dict(scene.milling_stages[0]).define_patterns()
+
+
+# ── the events reader's own decisions ────────────────────────────────────────
+
+
+def _record(t, kind, payload=None, item=None, task=None, task_id="T1"):
+    return {
+        "t": t,
+        "kind": kind,
+        "payload": payload or {},
+        "item": {"id": "L1", "name": item} if item else None,
+        "task": {"id": task_id, "name": task} if task else None,
+    }
+
+
+def _write_events(root, *records, torn=None):
+    import json
+
+    text = "".join(json.dumps(r) + "\n" for r in records)
+    (root / EVENTS_FILENAME).write_text(text + (torn or ""), encoding="utf-8")
+
+
+def test_event_times_are_the_instrument_s_wall_clock(tmp_path):
+    """Read as the log and the FM files record time: not converted to this
+    machine's zone, whatever it is."""
+    _write_events(
+        tmp_path, _record("2026-09-21T14:00:00.250+02:00", "task_started", task="Mill")
+    )
+    (event,) = load_replay(tmp_path).events
+    assert event.time == datetime(2026, 9, 21, 14, 0, 0, 250000)
+
+
+def test_a_record_cut_short_is_counted_not_read(tmp_path):
+    _write_events(
+        tmp_path,
+        _record("2026-09-21T14:00:00.000+10:00", "task_started", task="Mill"),
+        torn='{"t": "2026-09-21T14:00:01',
+    )
+    replay = load_replay(tmp_path)
+    assert len(replay.events) == 1
+    assert replay.records_unreadable == 1
+
+
+def test_a_recorded_path_is_found_in_a_copied_and_renamed_experiment(tmp_path):
+    (tmp_path / "01-test").mkdir()
+    (tmp_path / "01-test" / "ref_ib.tif").write_bytes(b"")
+    _write_events(
+        tmp_path,
+        _record(
+            "2026-09-21T14:00:00.000+10:00",
+            "image_acquired",
+            {"path": "D:\\data\\old-name\\01-test\\ref_ib.tif", "beam_type": "ION"},
+        ),
+    )
+    (image,) = load_replay(tmp_path).events
+    assert image.image_path == tmp_path / "01-test" / "ref_ib.tif"
+
+
+def test_a_cancelled_spot_burn_replays_only_the_points_it_reached(tmp_path):
+    start = {
+        "coordinates": [[0.1, 0.5], [0.5, 0.5], [0.9, 0.5]],
+        "field_of_view": 1e-4,
+        "exposure_time": 10.0,
+        "milling_current": 1e-10,
+    }
+    _write_events(
+        tmp_path,
+        _record("2026-09-21T14:00:00.000+10:00", "spot_burn_started", start),
+        _record(
+            "2026-09-21T14:00:12.000+10:00",
+            "spot_burn_progress",
+            {"status": "burning", "current_point": 2},
+        ),
+        _record(
+            "2026-09-21T14:00:13.000+10:00",
+            "spot_burn_progress",
+            {"status": "cancelled", "current_point": 3},
+        ),
+    )
+    spots = load_replay(tmp_path).events
+    assert [e.data["spot"] for e in spots] == [(0.1, 0.5), (0.5, 0.5)]
+    assert spots[1].time - spots[0].time == timedelta(seconds=10)
+    assert all(e.data["field_of_view"] == 1e-4 for e in spots)
+
+
+def test_a_prompt_is_replayed_from_when_it_was_asked(tmp_path):
+    _write_events(
+        tmp_path,
+        _record(
+            "2026-09-21T14:00:00.000+10:00",
+            "prompt_raised",
+            {"type": "PickPOI", "message": "Pick the point of interest"},
+        ),
+        _record(
+            "2026-09-21T14:02:00.000+10:00",
+            "prompt_answered",
+            {"type": "PickPOI", "response": True, "answered_by": "operator"},
+        ),
+    )
+    asked, answered = load_replay(tmp_path).events
+    assert asked.summary == "PickPOI asked: Pick the point of interest"
+    assert answered.summary == "PickPOI answered Yes by the operator"
+    assert answered.time - asked.time == timedelta(minutes=2)
+
+
+def test_a_failed_task_ends_its_context(tmp_path):
+    """Warnings come from the log; each belongs to the task running when it was
+    written, and a failed task is no longer running."""
+    _write_events(
+        tmp_path,
+        _record(
+            "2026-09-21T14:00:00.000+10:00", "task_started", item="01", task="Mill"
+        ),
+        _record(
+            "2026-09-21T14:01:00.000+10:00",
+            "task_failed",
+            {"error": "stage limit"},
+            item="01",
+            task="Mill",
+        ),
+    )
+    (tmp_path / "logfile.log").write_text(
+        _line(datetime(2026, 9, 21, 14, 0, 30), "mill", "drift high", "WARNING")
+        + _line(datetime(2026, 9, 21, 14, 2), "move", "limit reached", "WARNING"),
+        encoding="utf-8",
+    )
+    started, during, failed, after = load_replay(tmp_path).events
+    assert failed.step == "FAILED" and failed.summary == "Mill — Failed: stage limit"
+    assert (during.kind, during.item, during.task) == (EventKind.MESSAGE, "01", "Mill")
+    assert (after.kind, after.item, after.task) == (EventKind.MESSAGE, None, None)
+
+
+def test_a_spot_is_placed_by_the_field_its_burn_recorded(tmp_path):
+    """Not by the last frame's, which the log had to assume was the same."""
+    _write_events(
+        tmp_path,
+        _record(
+            "2026-09-21T14:00:00.000+10:00",
+            "image_acquired",
+            {"beam_type": "ION", "hfw": 2e-4, "shape": [1024, 1536], "path": None},
+        ),
+        _record(
+            "2026-09-21T14:00:10.000+10:00",
+            "spot_burn_started",
+            {"coordinates": [[0.75, 0.5]], "field_of_view": 1e-4, "exposure_time": 1.0},
+        ),
+        _record(
+            "2026-09-21T14:00:11.000+10:00",
+            "spot_burn_progress",
+            {"status": "finished"},
+        ),
+    )
+    replay = load_replay(tmp_path)
+    (spot,) = replay.scene(len(replay.events) - 1).spots
+    assert spot == pytest.approx((0.25 * 1e-4, 0.0))
