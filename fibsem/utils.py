@@ -241,6 +241,26 @@ def format_distance(metres: Optional[float]) -> str:
     return f"{metres:.4f} m"
 
 
+def format_bytes(count: float) -> str:
+    """`3.4 GB`, `880 MB`, `12 kB`. Decimal units, because a disk is sold in them.
+
+    One decimal place above a gigabyte and none below: the callers are estimates of
+    what a run will write and readings of what a volume has left, and quoting either
+    to four figures would claim a precision neither has.
+
+    Lives here rather than in the pre-flight dialogs that first needed it because the
+    experiment dialogs quote free disk space with it, and a formatter in a module of
+    Qt furniture is not one a non-UI caller can reach.
+    """
+    for unit, step in (("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("kB", 1e3)):
+        if count >= step:
+            value = count / step
+            return (
+                f"{value:.1f} {unit}" if unit in ("TB", "GB") else f"{value:.0f} {unit}"
+            )
+    return f"{int(count)} B"
+
+
 def format_current(amps: Optional[float]) -> str:
     """A beam current: `1.0 nA`, `60 pA`."""
     if amps is None:

@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from PyQt5 import QtWidgets
+from PyQt5 import QtCore, QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.structures import (
@@ -20,11 +20,64 @@ from fibsem.config import (
 )
 from fibsem.constants import DATETIME_EXPERIMENT
 from fibsem.ui import utils as fui
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, TitledPanel
+from fibsem.util.system import DiskSpace, FreeSpaceLevel, disk_space
+from fibsem.utils import format_bytes
+
+# What an experiment costs on disk, per lamella. Measured 2026-09-21 over the four
+# completed lamellae in the real experiments under `tmp/`: 224, 256, 302 and 378 MB.
+# One of them breaks down as ~32 MB of reference images (20 of them, 1536x1024 uint8
+# plus header), a ~107 MB fluorescence z-stack, ~29 MB of alignment images and ~83 MB
+# of autofocus sweeps.
+#
+# A flat figure rather than one derived from the protocol, which was the first plan.
+# The protocol specifies only the reference images -- 13% of that total -- so a
+# protocol-derived estimate would be exact about the eighth it can see and silent
+# about the rest, reading as authoritative while being wrong by six times. This is the
+# whole number, shown as "about", and re-derived by measuring a few real experiments
+# again. Grid overviews are on top of it and are per-experiment, not per-lamella.
+BYTES_PER_LAMELLA = 300e6
+
+# The size of experiment the figure is quoted for. Quoting the rate instead ("about
+# 300 MB per lamella") leaves the reader to multiply, and quoting what is left over
+# ("room for about 47") answers a question nobody asked. What a person wants here is
+# whether a run fits, and that is read straight off two totals in the same units.
+TYPICAL_LAMELLA_COUNT = 20
+
+# How long after the last keystroke to go and ask the filesystem. `disk_usage` on a
+# disconnected mapped drive does not fail fast -- an SMB reconnect can hang for tens of
+# seconds -- so the probe runs on a worker thread, and this keeps one from being
+# launched per character typed into the directory field.
+DISK_PROBE_DEBOUNCE_MS = 400
+
+FREE_SPACE_COLORS = {
+    FreeSpaceLevel.AMPLE: TEXT_MUTED_COLOR,
+    FreeSpaceLevel.LOW: WARN_COLOR,
+    FreeSpaceLevel.CRITICAL: ERROR_COLOR,
+}
+
+
+def describe_free_space(space: DiskSpace) -> str:
+    """The free-space line: what is left, beside what a run of that size costs.
+
+    Two totals in the same units and nothing to work out: "6.1 GB free of 500.0 GB ·
+    about 6.0 GB for a 20-lamella experiment" is the comparison, already made. The
+    wording is the same in every band -- only the colour moves.
+
+    A plain function rather than a method so the wording can be tested without a
+    dialog, and so it stays next to the figure it quotes.
+    """
+    return (
+        f"{format_bytes(space.free)} free of {format_bytes(space.total)}"
+        f" · about {format_bytes(BYTES_PER_LAMELLA * TYPICAL_LAMELLA_COUNT)}"
+        f" for a {TYPICAL_LAMELLA_COUNT}-lamella experiment"
+    )
 
 
 class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
@@ -49,6 +102,16 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         self.setWindowTitle("Create New Experiment")
         self.setMinimumWidth(600)
+
+        # Bumped every time a probe is launched and again when the dialog closes. A
+        # probe that comes back holding a stale number is dropped, which covers both a
+        # slow share answering after the directory has changed and one answering after
+        # there is no longer a label to write to.
+        self._disk_probe_generation = 0
+        self._disk_probe_timer = QtCore.QTimer(self)
+        self._disk_probe_timer.setSingleShot(True)
+        self._disk_probe_timer.setInterval(DISK_PROBE_DEBOUNCE_MS)
+        self._disk_probe_timer.timeout.connect(self._start_disk_probe)
 
         self._setup_ui()
         self._connect_signals()
@@ -75,7 +138,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         # Experiment Description
         self.lineEdit_experiment_description = QtWidgets.QLineEdit()
-        self.lineEdit_experiment_description.setPlaceholderText("Optional description of the experiment...")
+        self.lineEdit_experiment_description.setPlaceholderText(
+            "Optional description of the experiment..."
+        )
 
         # User (optional)
         self.lineEdit_experiment_user = QtWidgets.QLineEdit()
@@ -87,7 +152,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         # Organisation (optional)
         self.lineEdit_experiment_organisation = QtWidgets.QLineEdit()
-        self.lineEdit_experiment_organisation.setPlaceholderText("Optional organisation name...")
+        self.lineEdit_experiment_organisation.setPlaceholderText(
+            "Optional organisation name..."
+        )
 
         # Experiment Directory
         self.lineEdit_experiment_directory = QDirectoryLineEdit()
@@ -97,7 +164,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             self.lineEdit_experiment_directory.setText(pref_dir)
         else:
             if pref_dir:
-                logging.warning(f"Preference default_experiment_directory '{pref_dir}' does not exist; using default.")
+                logging.warning(
+                    f"Preference default_experiment_directory '{pref_dir}' does not exist; using default."
+                )
             self.lineEdit_experiment_directory.setText(str(cfg.LOG_PATH))
 
         exp_prefs = prefs.experiment
@@ -115,15 +184,28 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         exp_form_layout.addRow("Organisation", self.lineEdit_experiment_organisation)
         exp_form_layout.addRow("Directory", self.lineEdit_experiment_directory)
 
+        # Free space on whatever volume that directory lands on, under the field that
+        # chooses it. Added to the form's value column with no label of its own: it is
+        # a note about the row above, not a field of its own, and "Disk" in the label
+        # column would read as something to fill in.
+        self.label_disk_space = QtWidgets.QLabel("")
+        self.label_disk_space.setWordWrap(True)
+        self._set_disk_space_text("", FreeSpaceLevel.AMPLE)
+        exp_form_layout.addRow("", self.label_disk_space)
+
         exp_layout.addLayout(exp_form_layout)
 
         # Validation warning label
         self.label_validation_warning = QtWidgets.QLabel("")
-        self.label_validation_warning.setStyleSheet("color: orange; font-style: italic;")
+        self.label_validation_warning.setStyleSheet(
+            "color: orange; font-style: italic;"
+        )
         self.label_validation_warning.setWordWrap(True)
         exp_layout.addWidget(self.label_validation_warning)
 
-        exp_group = TitledPanel("Experiment Information", content=exp_content, collapsible=False)
+        exp_group = TitledPanel(
+            "Experiment Information", content=exp_content, collapsible=False
+        )
         main_layout.addWidget(exp_group)
 
         # Protocol Information
@@ -169,11 +251,15 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         protocol_info_label = QtWidgets.QLabel(
             "Note: You will be able to edit the protocol after creating the experiment."
         )
-        protocol_info_label.setStyleSheet("color: gray; font-style: italic; font-size: 10px;")
+        protocol_info_label.setStyleSheet(
+            "color: gray; font-style: italic; font-size: 10px;"
+        )
         protocol_info_label.setWordWrap(True)
         protocol_layout.addWidget(protocol_info_label)
 
-        protocol_group = TitledPanel("Protocol Information", content=protocol_content, collapsible=False)
+        protocol_group = TitledPanel(
+            "Protocol Information", content=protocol_content, collapsible=False
+        )
         protocol_group.add_header_widget(self.btn_select_legacy_protocol)
         protocol_group.add_header_widget(self.btn_select_protocol)
         main_layout.addWidget(protocol_group)
@@ -201,13 +287,24 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         if not self._default_protocol_loaded:
             self._load_default_protocol()
             self._default_protocol_loaded = True
+        # Directly rather than through the debounce timer: the directory was filled in
+        # by `_setup_ui` before the signals were connected, so nothing has asked for
+        # this yet and there is no burst of keystrokes to wait out.
+        self._start_disk_probe()
 
     def _connect_signals(self):
         """Connect UI signals."""
-        self.lineEdit_experiment_directory.textChanged.connect(self._validate_experiment_path)
+        self.lineEdit_experiment_directory.textChanged.connect(
+            self._validate_experiment_path
+        )
+        self.lineEdit_experiment_directory.textChanged.connect(
+            self._disk_probe_timer.start
+        )
         self.btn_select_protocol.clicked.connect(self._select_protocol)
         self.btn_select_legacy_protocol.clicked.connect(self._select_legacy_protocol)
-        self.lineEdit_experiment_name.textChanged.connect(self._validate_experiment_path)
+        self.lineEdit_experiment_name.textChanged.connect(
+            self._validate_experiment_path
+        )
         self.btn_ok.clicked.connect(self._on_ok_clicked)
         self.btn_cancel.clicked.connect(self.reject)
 
@@ -229,6 +326,78 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         else:
             self.label_validation_warning.setText("")
 
+    def _set_disk_space_text(self, text: str, level: FreeSpaceLevel) -> None:
+        """Write the free-space line, coloured for how much room is left.
+
+        Colour is the whole signal here; the line is never a refusal. A user who knows
+        they are writing one lamella to a disk with 4 GB left is right, and a dialog
+        that argued with them would be wrong -- so Create stays enabled at every level.
+        """
+        self.label_disk_space.setText(text)
+        self.label_disk_space.setStyleSheet(
+            f"color: {FREE_SPACE_COLORS[level]}; font-size: 11px;"
+        )
+
+    def _start_disk_probe(self) -> None:
+        """Ask the filesystem how much room the chosen directory has, off-thread.
+
+        Off-thread because `disk_usage` on a disconnected mapped drive can hang for
+        tens of seconds on an SMB reconnect, and this is reached from `textChanged`.
+        """
+        directory = self.lineEdit_experiment_directory.text()
+        self._disk_probe_generation += 1
+        generation = self._disk_probe_generation
+
+        if not directory:
+            self._set_disk_space_text("", FreeSpaceLevel.AMPLE)
+            self.label_disk_space.setToolTip("")
+            return
+
+        # Rather than leaving the previous volume's numbers up while a new path is
+        # being measured. On a local disk this is gone within a frame; on a share that
+        # takes twenty seconds to answer, attributing the old drive's free space to
+        # the newly typed one is exactly the wrong thing to do with the wait.
+        self._set_disk_space_text("Checking free space…", FreeSpaceLevel.AMPLE)
+        worker = FunctionWorker(disk_space, directory)
+        worker.returned.connect(lambda space: self._on_disk_space(space, generation))
+        # `errored` deliberately unconnected: `disk_space` returns None for every
+        # filesystem failure it exists to absorb, so anything arriving there is a bug
+        # in it, and FunctionWorker has already logged that with a traceback.
+        worker.start()
+
+    def _on_disk_space(self, space: Optional[DiskSpace], generation: int) -> None:
+        """Show what the probe found, unless it has been overtaken."""
+        if generation != self._disk_probe_generation:
+            # The directory changed, or the dialog closed, while the share was asked.
+            return
+        if space is None:
+            # An unmapped drive letter reaches here. Said plainly and left muted: the
+            # path being unusable is `_on_ok_clicked`'s refusal to make, and colouring
+            # it here would claim the disk is full when it is not there at all.
+            self._set_disk_space_text(
+                "Free space is not available for this location.", FreeSpaceLevel.AMPLE
+            )
+            self.label_disk_space.setToolTip("")
+            return
+        self._set_disk_space_text(describe_free_space(space), space.level)
+        # The rate behind the figure, and which volume answered. Both are second
+        # questions -- someone planning 40 lamellae wants the per-lamella number, and a
+        # mapped drive can point anywhere -- so neither earns a place on the line.
+        self.label_disk_space.setToolTip(
+            f"About {format_bytes(BYTES_PER_LAMELLA)} per lamella."
+            f" Measured on {space.path}"
+        )
+
+    def done(self, result: int) -> None:
+        """Invalidate any probe still out on a slow share, then close.
+
+        Its callback writes to the label, and once the dialog is done there may be no
+        label left to write to -- the C++ widget can be gone while the lambda holding
+        this object alive is not.
+        """
+        self._disk_probe_generation += 1
+        super().done(result)
+
     def _load_default_protocol(self):
         """Load the default task protocol, preferring the path set in user preferences."""
         prefs = load_user_preferences()
@@ -237,7 +406,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             protocol_path_to_load = pref_protocol
         else:
             if pref_protocol:
-                logging.warning(f"Preference default_protocol_path '{pref_protocol}' does not exist; using default.")
+                logging.warning(
+                    f"Preference default_protocol_path '{pref_protocol}' does not exist; using default."
+                )
             if not os.path.exists(cfg.TASK_PROTOCOL_PATH):
                 return
             protocol_path_to_load = str(cfg.TASK_PROTOCOL_PATH)
@@ -252,7 +423,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(
                 self,
                 "Protocol Load Error",
-                "The default protocol file could not be loaded. It may be corrupted or incorrectly formatted.\n\nPlease select a valid protocol file manually."
+                "The default protocol file could not be loaded. It may be corrupted or incorrectly formatted.\n\nPlease select a valid protocol file manually.",
             )
 
     def _select_protocol(self):
@@ -282,7 +453,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(
                 self,
                 "Invalid Protocol",
-                "The selected protocol file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\nPlease select a valid protocol file (*.yaml)."
+                "The selected protocol file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\nPlease select a valid protocol file (*.yaml).",
             )
 
     def _select_legacy_protocol(self):
@@ -303,21 +474,25 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         # Validate and convert the legacy protocol file
         try:
-            self.protocol = AutoLamellaTaskProtocol.load_from_old_protocol(Path(protocol_path))
+            self.protocol = AutoLamellaTaskProtocol.load_from_old_protocol(
+                Path(protocol_path)
+            )
             self.protocol_path = protocol_path
             self._update_protocol_display()
-            logging.info(f"Legacy protocol loaded and converted successfully from {protocol_path}")
+            logging.info(
+                f"Legacy protocol loaded and converted successfully from {protocol_path}"
+            )
             QtWidgets.QMessageBox.information(
                 self,
                 "Legacy Protocol Converted",
-                "The legacy protocol has been successfully converted to the new task-based format."
+                "The legacy protocol has been successfully converted to the new task-based format.",
             )
         except Exception as e:
             logging.error(f"Failed to load legacy protocol: {e}")
             QtWidgets.QMessageBox.critical(
                 self,
                 "Invalid Legacy Protocol",
-                f"The selected legacy protocol file could not be converted. It may be corrupted, incorrectly formatted, or missing required fields.\n\nError: {e}\n\nPlease select a valid legacy protocol file (*.yaml)."
+                f"The selected legacy protocol file could not be converted. It may be corrupted, incorrectly formatted, or missing required fields.\n\nError: {e}\n\nPlease select a valid legacy protocol file (*.yaml).",
             )
 
     def _update_protocol_display(self):
@@ -341,9 +516,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         experiment_name = self.lineEdit_experiment_name.text().strip()
         if not experiment_name:
             QtWidgets.QMessageBox.warning(
-                self,
-                "Invalid Name",
-                "Please enter an experiment name."
+                self, "Invalid Name", "Please enter an experiment name."
             )
             return
 
@@ -351,18 +524,14 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         directory = self.lineEdit_experiment_directory.text()
         if not directory or not os.path.exists(directory):
             QtWidgets.QMessageBox.warning(
-                self,
-                "Invalid Directory",
-                "Please select a valid directory."
+                self, "Invalid Directory", "Please select a valid directory."
             )
             return
 
         # Validate protocol
         if self.protocol is None:
             QtWidgets.QMessageBox.warning(
-                self,
-                "No Protocol",
-                "Please select a task protocol file."
+                self, "No Protocol", "Please select a task protocol file."
             )
             return
 
@@ -374,7 +543,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
                 "Experiment Exists",
                 f"An experiment named '{experiment_name}' already exists in this directory.\n\nDo you want to overwrite it?",
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                QtWidgets.QMessageBox.No
+                QtWidgets.QMessageBox.No,
             )
             if reply == QtWidgets.QMessageBox.No:
                 return
@@ -386,7 +555,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             experiment_description = self.lineEdit_experiment_description.text().strip()
             experiment_user = self.lineEdit_experiment_user.text().strip()
             experiment_project = self.lineEdit_experiment_project.text().strip()
-            experiment_organisation = self.lineEdit_experiment_organisation.text().strip()
+            experiment_organisation = (
+                self.lineEdit_experiment_organisation.text().strip()
+            )
 
             if experiment_description:
                 metadata["description"] = experiment_description
@@ -400,7 +571,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             self.experiment = Experiment.create(
                 path=Path(directory),
                 name=experiment_name,
-                metadata=metadata if metadata else None
+                metadata=metadata if metadata else None,
             )
 
             # Attach the protocol to the experiment
@@ -410,14 +581,18 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             protocol_save_path = os.path.join(self.experiment.path, "protocol.yaml")
             self.experiment.task_protocol.save(protocol_save_path)
 
-            logging.info(f"Experiment '{experiment_name}' created successfully at {self.experiment.path}")
+            logging.info(
+                f"Experiment '{experiment_name}' created successfully at {self.experiment.path}"
+            )
             logging.info(f"Protocol saved to {protocol_save_path}")
 
             # Save last used experiment path + record in the recent quick-select
             # list (single load/save cycle).
             prefs = load_user_preferences()
             prefs.experiment.last_experiment_path = str(self.experiment.path)
-            add_recent_experiment(prefs, os.path.join(self.experiment.path, "experiment.yaml"))
+            add_recent_experiment(
+                prefs, os.path.join(self.experiment.path, "experiment.yaml")
+            )
             save_user_preferences(prefs)
 
             # Accept the dialog
@@ -426,9 +601,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         except Exception as e:
             logging.error(f"Failed to create experiment: {e}")
             QtWidgets.QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to create experiment:\n\n{e}"
+                self, "Error", f"Failed to create experiment:\n\n{e}"
             )
 
     def get_experiment(self) -> Optional[Experiment]:
@@ -436,7 +609,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         return self.experiment
 
 
-def create_experiment_dialog(parent: Optional[QtWidgets.QWidget] = None) -> Optional[Experiment]:
+def create_experiment_dialog(
+    parent: Optional[QtWidgets.QWidget] = None,
+) -> Optional[Experiment]:
     """Create and execute the experiment creation dialog.
 
     Args:
@@ -456,7 +631,9 @@ def create_experiment_dialog(parent: Optional[QtWidgets.QWidget] = None) -> Opti
             logging.info(f"Experiment created: {experiment.name}")
             logging.info(f"Path: {experiment.path}")
             logging.info(f"Protocol: {experiment.task_protocol.name}")
-            logging.info(f"Number of tasks: {len(experiment.task_protocol.task_config)}")
+            logging.info(
+                f"Number of tasks: {len(experiment.task_protocol.task_config)}"
+            )
         return experiment
     else:
         logging.info("Experiment creation cancelled")
