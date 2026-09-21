@@ -14,6 +14,7 @@ implementation of all three. The visible trades, agreed 2026-08-10: per-channel
 intensity moves from a clip percentage to the layers panel's contrast/gamma, and
 the channel rows move from an always-visible pane into the popover.
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
@@ -75,7 +76,9 @@ class CorrelationFMCanvasWidget(FMCanvasWidget):
         # only place it can be discovered. Set here rather than on FMCanvasWidget
         # because only this widget wires it -- the quad view would be advertising
         # something that does nothing.
-        self._z_slider.setToolTip("Drag to change Z-slice, or Shift+scroll on the image")
+        self._z_slider.setToolTip(
+            "Drag to change Z-slice, or Shift+scroll on the image"
+        )
 
     def set_fm_image(self, image) -> None:
         """Load a stack and start in the middle of it.

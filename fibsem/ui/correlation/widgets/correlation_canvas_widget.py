@@ -18,6 +18,7 @@ What comes free with the shared canvas, and is the reason for the whole exercise
 where they are exactly the controls an operator wants while picking points. Also
 zoom/pan, the scalebar, the toolbar and the 11 other overlay types.
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
