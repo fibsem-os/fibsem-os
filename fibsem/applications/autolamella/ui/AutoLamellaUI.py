@@ -2217,21 +2217,21 @@ class AutoLamellaUI(QMainWindow):
         stage_position: Optional[FibsemStagePosition] = None,
         name: Optional[str] = None,
         objective_position: Optional[float] = None,
-        marked_at: Optional[str] = None,
+        observed: Optional[str] = None,
         grid_id: Optional[str] = None,
     ) -> Lamella:
         """Add a lamella to the experiment.
 
         Args:
-            stage_position: Where the lamella is, in any orientation -- which one is
-                read off the position itself, so a position picked on the fluorescence
-                side is taken as the fluorescence pose rather than as somewhere to mill.
-                If None, the current stage position is used.
+            stage_position: Where the lamella is. If only the beams can use it, it is
+                the milling pose and the fluorescence pose is derived; if only the
+                objective sees the sample from it, the other way round -- see
+                `build_lamella_poses`. If None, the current stage position is used.
             name: The name of the lamella. If None, a default name will be generated.
             objective_position: The objective position of the lamella. If None, the 'focused' objective position is used.
-            marked_at: The orientation *stage_position* is in, for a caller that knows.
-                Left alone it is read off the position, which is right on a compustage
-                and cannot be on an offset mount -- see `build_lamella_poses`.
+            observed: Which pose the position was marked as, for a caller that knows
+                which instrument it was marked through. Read only for a position both
+                instruments can use; the geometry decides the rest.
             grid_id: The grid this lamella is on, for a caller that knows -- one
                 marked on a grid's overview belongs to that grid whether or not it
                 is on the stage. Left alone it is resolved from the stage.
@@ -2251,7 +2251,7 @@ class AutoLamellaUI(QMainWindow):
             microscope=self.microscope,
             position=stage_position,
             objective_position=objective_position,
-            marked_at=marked_at,
+            observed=observed,
         )
 
         # create the lamella, with both poses already on it -- see
