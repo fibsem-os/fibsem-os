@@ -21,8 +21,10 @@ The records here are plain data. The one write path is
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import logging
 import math
+import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -598,6 +600,13 @@ class Decision:
     # the decider was shown. Experiment.decide refuses a decision that names no
     # run, or a run the proposal is no longer from (the task re-ran since).
     task_id: str = ""
+    # Which proposal this decides: the ``Proposal.id`` the decider was shown.
+    # The run is not enough to say so -- a task may ask several questions in
+    # one run, and they share a task_id -- so a decision that names its
+    # proposal is checked against that, and the run is kept as what it is: a
+    # fact about where the proposal came from. Empty on records and from
+    # callers that predate it, which are checked by the run as before.
+    proposal_id: str = ""
 
     def __post_init__(self) -> None:
         # a string from the file, the wire or a test is accepted and parsed
@@ -612,6 +621,7 @@ class Decision:
             "timestamp": self.timestamp,
             "via": self.via,
             "task_id": self.task_id,
+            "proposal_id": self.proposal_id,
         }
 
     @classmethod
@@ -624,6 +634,7 @@ class Decision:
             timestamp=data.get("timestamp", 0.0),
             via=data.get("via", ""),
             task_id=data.get("task_id", ""),
+            proposal_id=data.get("proposal_id", ""),
         )
 
 
@@ -660,6 +671,12 @@ class Proposal:
     # exists while something is waiting on it, and a flag that survived a
     # reload would claim a waiter that is gone.
     asking: bool = field(default=False, compare=False, repr=False)
+    # This proposal's own name, minted when it is made. What a decision names
+    # (``Decision.proposal_id``), and what anything outside the record -- an
+    # event, a responder waiting on an answer -- points at: ``(item, task)``
+    # stops being unique the moment a task asks twice. Opaque: nothing reads
+    # anything out of it.
+    id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     @property
     def pending(self) -> bool:
@@ -735,6 +752,7 @@ class Proposal:
             "decisions": [d.to_dict() for d in self.decisions],
             "created_at": self.created_at,
             "superseded": [p.to_dict() for p in self.superseded],
+            "id": self.id,
         }
 
     @classmethod
@@ -750,7 +768,28 @@ class Proposal:
             decisions=[Decision.from_dict(d) for d in data.get("decisions", [])],
             created_at=data.get("created_at", 0.0),
             superseded=[Proposal.from_dict(p) for p in data.get("superseded", [])],
+            id=data.get("id") or _id_for_a_record_without_one(data),
         )
+
+
+def _id_for_a_record_without_one(data: dict) -> str:
+    """An id for a proposal saved before proposals had one.
+
+    Derived from the record rather than minted, so it is the same every time
+    the file is read: two readers of one experiment -- the app and a monitor,
+    this session and the next -- must agree on what a proposal is called
+    without either of them having to save first.
+    """
+    provenance = data.get("provenance", {}) or {}
+    seed = "|".join(
+        str(part)
+        for part in (
+            data.get("kind", ""),
+            provenance.get("task_id", ""),
+            repr(data.get("created_at", 0.0)),
+        )
+    )
+    return hashlib.sha1(seed.encode("utf-8")).hexdigest()[:32]
 
 
 # ---------------------------------------------------------------------------

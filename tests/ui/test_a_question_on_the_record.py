@@ -33,6 +33,7 @@ from fibsem.applications.autolamella.proposals import (
     DETECTION,
     Decision,
     DecisionOutcome,
+    Proposal,
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -357,6 +358,55 @@ def test_a_decision_on_something_else_does_not_release_it(window, qapp):
     assert thread.is_alive() and "answer" not in outcome
     assert window.autolamella_ui.ui_responder.pending_question() is not None
 
+    _decide(window)
+    _finish(qapp, thread)
+
+
+def test_a_decision_by_the_proposals_own_id_releases_it(window, qapp):
+    """What the Review tab and an agent pass: the proposal they were shown."""
+    lamella = window.autolamella_ui.experiment.positions[0]
+    thread, outcome = _ask(window, qapp, _request(window))
+    proposal = lamella.proposals[TASK]
+
+    result = window.autolamella_ui.experiment.decide(
+        lamella.id,
+        TASK,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"features": [{"name": "LamellaCentre", "px": Point(5, 5)}]},
+            proposal_id=proposal.id,
+        ),
+    )
+
+    assert result.applied, result.reason
+    _finish(qapp, thread)
+    assert outcome["answer"].features[0].px == Point(5, 5)
+
+
+def test_a_decision_on_another_proposal_in_the_same_slot_does_not_release_it(
+    window, qapp
+):
+    """The item and the task do not name a question -- the proposal does. A
+    decision announced for the pair, but landing on something else that holds
+    the slot, is not the answer the run is held on."""
+    experiment = window.autolamella_ui.experiment
+    lamella = experiment.positions[0]
+    thread, outcome = _ask(window, qapp, _request(window))
+    ours = lamella.proposals[TASK]
+    other = Proposal(kind=DETECTION, provenance={"task_id": RUN})
+    other.decisions.append(
+        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id=RUN)
+    )
+    lamella.proposals[TASK] = other
+
+    experiment.decided.emit(lamella.id, TASK)
+    qapp.processEvents()
+
+    assert thread.is_alive() and "answer" not in outcome
+    assert window.autolamella_ui.ui_responder.pending_question() is not None
+
+    lamella.proposals[TASK] = ours
     _decide(window)
     _finish(qapp, thread)
 

@@ -16,6 +16,7 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.proposals import (
+    DETECTION,
     POINT_OF_INTEREST,
     TASK_RESULT,
     Decision,
@@ -289,6 +290,47 @@ def test_a_proposer_may_not_carry_a_value_its_kind_does_not_register(
             task.run()
     finally:
         type(task).proposer = TaskResultProposer()
+
+
+def test_a_question_answered_during_the_run_is_not_logged_as_a_rerun(
+    microscope, tmp_path, caplog
+):
+    """A question asked mid-run (FIB-1025) shares the slot with the run's own
+    result, so at the end of the task it goes under the result like anything
+    else the slot held. It is kept -- but it is the same run, and a log that
+    says "re-run" puts a run in the record that never happened."""
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    lamella = exp.positions[0]
+    asked = {}
+
+    def ask_and_be_answered():
+        question = Proposal(
+            kind=DETECTION,
+            values={"features": [{"name": "LamellaCentre", "px": Point(10, 20)}]},
+            provenance={"task_id": lamella.task_state.task_id, "in_run": True},
+        )
+        assert exp.ask_proposal(lamella.id, ROUGH, question)
+        result = exp.decide(
+            lamella.id,
+            ROUGH,
+            Decision(
+                outcome=DecisionOutcome.Confirmed,
+                author="human:op",
+                values=dict(question.values),
+                proposal_id=question.id,
+            ),
+        )
+        assert result.applied, result.reason
+        asked["question"] = question
+
+    with caplog.at_level("INFO"):
+        _task(microscope, exp, body=ask_and_be_answered).run()
+
+    result = lamella.proposals[ROUGH]
+    assert result.kind == TASK_RESULT and result.pending
+    assert result.superseded == [asked["question"]], "the answer is kept"
+    assert "asked a question during this run" in caplog.text
+    assert "re-run" not in caplog.text
 
 
 def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
