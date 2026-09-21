@@ -5,13 +5,16 @@ Two paths are supported:
 * **Public report** — open a pre-filled GitHub issue in the browser. No data
   leaves the machine beyond what the user types + basic environment info.
 * **Private data bundle** — build a scrubbed ``.zip`` of the selected experiment
-  artifacts (log file, experiment/protocol yaml, optionally screenshots/images).
+  artifacts (log file, experiment/protocol yaml, optionally screenshots/images)
+  for the user to email to the support address themselves.
 
-The bundle is the deliverable. Instrument PCs frequently have no mail client and
-no browser session, so everything that leaves this machine over the network is
-best-effort: :func:`compose_support_email` and :func:`open_github_issue` report
-whether they actually opened anything, and the caller falls back to the file on
-disk, which the user can move by USB stick or network share.
+The bundle is the deliverable, and it is self-contained: ``report.md`` inside it
+carries the whole report. Nothing here tries to send it. Instrument PCs commonly
+have no mail client, no browser session and sometimes no network, so composing
+the mail is the user's step, on whichever machine they actually have email --
+the application's job ends at a findable file and an address to send it to.
+:func:`open_github_issue` is the one outbound action, and it reports whether it
+actually opened anything rather than assuming.
 
 An inert :func:`init_sentry` hook is included so automatic crash reporting can be
 enabled later (by installing ``sentry-sdk`` and setting a DSN in preferences)
@@ -31,7 +34,7 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
 import fibsem
 import fibsem.config as fibsem_cfg
@@ -45,26 +48,17 @@ SUPPORT_EMAIL = "contact@fibsemos.org"
 GITHUB_REPO_URL = "https://github.com/fibsem-os/fibsem-os"
 GITHUB_NEW_ISSUE_URL = f"{GITHUB_REPO_URL}/issues/new"
 
-# Both budgets are on the *encoded* URL, never the raw text: percent-encoding
-# turns every newline into three characters, so a body that looks comfortably
-# short still overflows once quoted -- which is precisely the case that matters,
-# a traceback handed to a shell that drops the overflow without saying so.
-#
-# Windows dispatches ``mailto:`` through ShellExecute, which truncates or
-# refuses URLs beyond roughly 2000 characters, and a crash report pre-fills the
-# description with a full traceback. The email only has to point at the bundle;
-# report.md inside it carries the whole thing.
-MAILTO_MAX_URL_LENGTH = 1800
-
-# GitHub itself accepts a longer prefill, but browsers and corporate proxies
-# start dropping query strings well before its limit.
+# The budget is on the *encoded* URL, never the raw text: percent-encoding turns
+# every newline into three characters, so a body that looks comfortably short
+# still overflows once quoted -- and a crash report pre-fills the description
+# with a full traceback. GitHub itself accepts a longer prefill, but browsers
+# and corporate proxies start dropping query strings well before its limit.
 GITHUB_MAX_URL_LENGTH = 7000
 
 _TRUNCATION_NOTE = "\n\n[trimmed -- the full text was copied to your clipboard]"
 
 # A user-typed title goes into the URL alongside the body. Capping it keeps a
-# runaway title (a pasted traceback, say) from eating the whole budget and
-# leaving no room for the part that says where the bundle is.
+# runaway title (a pasted traceback, say) from eating the whole budget.
 _TITLE_MAX_LENGTH = 120
 
 # Text file extensions whose contents are scrubbed before being added to a bundle.
@@ -103,10 +97,10 @@ class SubmitResult:
     """Outcome of handing a report to an external application.
 
     ``opened`` is what the platform reported, not proof that the user saw a
-    window. On macOS a ``mailto:`` always "succeeds" because Mail.app exists
-    even with no account configured. It is trustworthy on Windows, where the
-    shell raises when nothing is registered for the scheme -- which is the case
-    that actually matters here, an instrument PC with no mail client.
+    window: a browser that launches but never reaches GitHub still reports
+    success. It is trustworthy in the negative, which is the case that matters
+    on an instrument PC -- no browser, or none registered, means the report was
+    not filed and the user has to be told.
 
     ``full_text`` is the untruncated body, for the caller to put on the
     clipboard when ``truncated`` is set.
@@ -269,12 +263,8 @@ def _fit_url(
     return build_url(_candidate(low)), True
 
 
-def render_report_text(content: BugReportContent) -> str:
-    """Render the human-readable report body.
-
-    Used for ``report.md`` inside the bundle and for the clipboard fallback,
-    which is what the user pastes when no mail client or browser opens.
-    """
+def _render_report_text(content: BugReportContent) -> str:
+    """Render the human-readable report body written to ``report.md``."""
     lines = [
         f"# AutoLamella Bug Report: {content.title or '(no title)'}",
         "",
@@ -319,7 +309,7 @@ def build_bug_report_bundle(
     zip_path = os.path.join(output_dir, zip_name)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("report.md", scrub_text(render_report_text(content)))
+        zf.writestr("report.md", scrub_text(_render_report_text(content)))
         zf.writestr(
             "system_info.json",
             scrub_text(json.dumps(content.system_context, indent=2)),
@@ -389,73 +379,6 @@ def open_github_issue(content: BugReportContent) -> SubmitResult:
         opened = False
 
     return SubmitResult(opened=opened, full_text=body, truncated=truncated)
-
-
-def _support_email_body(
-    content: BugReportContent, attachment_path: Optional[str]
-) -> str:
-    """Short body pointing at the bundle, for a length-limited ``mailto:``.
-
-    Ordered so the bundle pointer comes first and the free text last, because
-    :func:`_fit_url` trims the tail: the one line that must survive a trim is
-    where to find the file, not the prose the bundle already contains.
-    """
-    lines = [
-        f"Severity: {content.severity}",
-        f"Version: {content.system_context.get('fibsem_version', 'unknown')}",
-    ]
-    if attachment_path:
-        lines += [
-            "",
-            "A data bundle was saved to:",
-            attachment_path,
-            "",
-            "Please attach this file before sending. It contains the full "
-            "report, including the steps to reproduce and the environment.",
-        ]
-    lines += [
-        "",
-        "---",
-        content.description or "(see the attached bundle)",
-    ]
-    return "\n".join(lines)
-
-
-def compose_support_email(
-    content: BugReportContent, attachment_path: Optional[str]
-) -> SubmitResult:
-    """Open a pre-filled email to the support address, if a mail client exists.
-
-    ``mailto:`` cannot attach files, so the body points at the bundle on disk
-    and asks the user to attach it. Returns whether anything actually opened --
-    on an instrument PC with no mail client, nothing will, and the caller must
-    fall back to the saved bundle rather than claim an email is waiting.
-    """
-    title = (content.title or "Untitled")[:_TITLE_MAX_LENGTH]
-    subject = f"[AutoLamella Bug Report] {title}"
-
-    def _build(text: str) -> str:
-        return f"mailto:{SUPPORT_EMAIL}?" + urlencode(
-            {"subject": subject, "body": text}, quote_via=quote
-        )
-
-    url, truncated = _fit_url(
-        _build, _support_email_body(content, attachment_path), MAILTO_MAX_URL_LENGTH
-    )
-
-    # The clipboard fallback gets the whole report, not the short email body.
-    full_text = render_report_text(content)
-    if attachment_path:
-        full_text += f"\n\nData bundle: {attachment_path}"
-
-    logging.info("Opening support email to %s", SUPPORT_EMAIL)
-    try:
-        opened = bool(webbrowser.open(url))
-    except Exception:
-        logging.exception("Could not open a mail client for the support email.")
-        opened = False
-
-    return SubmitResult(opened=opened, full_text=full_text, truncated=truncated)
 
 
 def init_sentry() -> bool:

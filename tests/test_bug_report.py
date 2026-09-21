@@ -180,7 +180,7 @@ def test_scrub_text_redacts_other_user_paths(text):
 
 
 def _body_of(url):
-    """The decoded ``body`` parameter of a mailto:/issue URL."""
+    """The decoded ``body`` parameter of a prefilled issue URL."""
     from urllib.parse import parse_qs, urlparse
 
     return parse_qs(urlparse(url).query)["body"][0]
@@ -213,30 +213,6 @@ def _crash_content():
     )
 
 
-def test_mailto_url_stays_within_the_shell_limit(monkeypatch, tmp_path):
-    """A full traceback must not blow the ~2000 char ShellExecute cap."""
-    seen = _capture_url(monkeypatch)
-    content = _crash_content()
-    assert len(content.description) > bug_report.MAILTO_MAX_URL_LENGTH  # precondition
-
-    result = bug_report.compose_support_email(content, str(tmp_path / "bundle.zip"))
-
-    assert len(seen["url"]) <= bug_report.MAILTO_MAX_URL_LENGTH
-    assert result.truncated
-
-
-def test_mailto_keeps_the_bundle_path_when_it_trims(monkeypatch, tmp_path):
-    """Trimming eats the prose, never the line saying where the bundle is."""
-    seen = _capture_url(monkeypatch)
-    zip_path = str(tmp_path / "bug-report-autolamella-2026.zip")
-
-    bug_report.compose_support_email(_crash_content(), zip_path)
-
-    body = _body_of(seen["url"])
-    assert zip_path in body
-    assert "attach this file" in body
-
-
 def test_github_url_stays_within_budget(monkeypatch):
     seen = _capture_url(monkeypatch)
 
@@ -248,41 +224,20 @@ def test_github_url_stays_within_budget(monkeypatch):
     assert len(result.full_text) > len(seen["url"])
 
 
-def test_short_reports_are_not_truncated(monkeypatch, tmp_path):
+def test_short_reports_are_not_truncated(monkeypatch):
     seen = _capture_url(monkeypatch)
     content = BugReportContent(title="t", description="it broke", severity="Normal")
 
-    email = bug_report.compose_support_email(content, str(tmp_path / "b.zip"))
-    assert not email.truncated
+    result = bug_report.open_github_issue(content)
+
+    assert not result.truncated
     assert "it broke" in _body_of(seen["url"])
 
-    github = bug_report.open_github_issue(content)
-    assert not github.truncated
 
-
-def test_compose_email_reports_when_no_mail_client_opened(monkeypatch, tmp_path):
-    """The Windows shell raises when nothing handles mailto: — say so."""
-
-    def raising_open(url, *args, **kwargs):
-        raise OSError("no application is associated with mailto")
-
-    monkeypatch.setattr(bug_report.webbrowser, "open", raising_open)
-
-    result = bug_report.compose_support_email(
-        BugReportContent(title="t", description="d"), str(tmp_path / "b.zip")
-    )
-
-    assert result.opened is False
-    # the clipboard fallback carries the whole report, not the short email body
-    assert "Steps to reproduce" in result.full_text
-
-
-def test_compose_email_reports_a_false_return(monkeypatch, tmp_path):
-    seen = _capture_url(monkeypatch, opened=False)
-    result = bug_report.compose_support_email(
-        BugReportContent(title="t", description="d"), str(tmp_path / "b.zip")
-    )
-    assert seen["url"].startswith("mailto:")
+def test_github_reports_a_false_return(monkeypatch):
+    """A browser that declines to open is not a submitted report."""
+    _capture_url(monkeypatch, opened=False)
+    result = bug_report.open_github_issue(BugReportContent(title="t", description="d"))
     assert result.opened is False
 
 
@@ -302,13 +257,12 @@ def test_clip_at_line_prefers_a_line_boundary():
     assert bug_report._clip_at_line("x" * 100, 10) == "x" * 10
 
 
-def test_a_runaway_title_still_leaves_room_for_the_body(monkeypatch, tmp_path):
-    """A pasted traceback in the title must not starve the bundle pointer."""
+def test_a_runaway_title_still_leaves_room_for_the_body(monkeypatch):
+    """A pasted traceback in the title must not starve the report body."""
     seen = _capture_url(monkeypatch)
-    zip_path = str(tmp_path / "b.zip")
-    content = BugReportContent(title="T" * 5000, description="d")
+    content = BugReportContent(title="T" * 5000, description="the trench collapsed")
 
-    bug_report.compose_support_email(content, zip_path)
+    bug_report.open_github_issue(content)
 
-    assert len(seen["url"]) <= bug_report.MAILTO_MAX_URL_LENGTH
-    assert zip_path in _body_of(seen["url"])
+    assert len(seen["url"]) <= bug_report.GITHUB_MAX_URL_LENGTH
+    assert "the trench collapsed" in _body_of(seen["url"])

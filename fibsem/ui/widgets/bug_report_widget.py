@@ -276,7 +276,7 @@ class BugReportDialog(QDialog):
             )
             return
 
-        BundleCreatedDialog(zip_path, content, parent=self).exec_()
+        BundleCreatedDialog(zip_path, parent=self).exec_()
         self.accept()
 
     def keyPressEvent(self, event):
@@ -289,22 +289,20 @@ class BugReportDialog(QDialog):
 class BundleCreatedDialog(QDialog):
     """Confirms the bundle on disk and offers the ways of getting it to support.
 
-    The bundle is the deliverable and it already exists by the time this opens.
-    Email, the clipboard and the file explorer are conveniences layered on top,
-    and each reports what it actually did rather than asserting success — an
-    instrument PC often has no mail client, and telling the user an email is
-    waiting when none opened is how a report gets silently dropped.
+    The bundle is the deliverable and it already exists by the time this opens,
+    so this dialog only has to help the user find it and say where to send it.
+    Sending is deliberately theirs: an instrument PC commonly has no mail client
+    and no browser session, and an application that claims to have opened an
+    email when it has not is how a report gets silently dropped.
     """
 
     def __init__(
         self,
         zip_path: str,
-        content: BugReportContent,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self.zip_path = zip_path
-        self.content = content
 
         self.setWindowTitle("Bundle created")
         self.setModal(True)
@@ -318,11 +316,15 @@ class BundleCreatedDialog(QDialog):
         self.label_title.setStyleSheet("font-weight: bold;")
 
         self.label_instructions = QLabel(
-            f"Email it to <b>{bug_report.SUPPORT_EMAIL}</b>, or copy it to a USB "
-            "stick or network share and send it from another machine. This "
-            "computer does not need email or internet access."
+            f"Email this file to <b>{bug_report.SUPPORT_EMAIL}</b>. It contains "
+            "the full report, so nothing else needs to be sent with it. If this "
+            "computer has no email, copy it to a USB stick or network share and "
+            "send it from one that does."
         )
         self.label_instructions.setWordWrap(True)
+        self.label_instructions.setTextInteractionFlags(
+            Qt.TextSelectableByMouse  # type: ignore
+        )
         self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
 
         self.lineEdit_path = QLineEdit(self.zip_path)
@@ -337,24 +339,14 @@ class BundleCreatedDialog(QDialog):
         self.pushButton_open_folder.setAutoDefault(False)
         self.pushButton_open_folder.clicked.connect(self._on_open_folder)
 
-        self.pushButton_copy_report = QPushButton("Copy Report Text")
-        self.pushButton_copy_report.setAutoDefault(False)
-        self.pushButton_copy_report.clicked.connect(self._on_copy_report)
-
-        self.pushButton_email = QPushButton("Open Email...")
-        self.pushButton_email.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_email.setAutoDefault(False)
-        self.pushButton_email.clicked.connect(self._on_open_email)
-
         self.label_status = QLabel("")
         self.label_status.setWordWrap(True)
         self.label_status.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
-        # Reserve the room up front. A word-wrapped QLabel does not reliably
-        # grow its dialog once the dialog has been laid out, and the message
-        # that matters most -- no mail client on this PC -- is the longest one,
-        # so without this it is the one that gets clipped.
+        # Reserve the room up front: a word-wrapped QLabel does not reliably
+        # grow its dialog once the dialog has been laid out, so a two-line
+        # status would otherwise be clipped to one.
         self.label_status.setMinimumHeight(
-            3 * self.label_status.fontMetrics().lineSpacing()
+            2 * self.label_status.fontMetrics().lineSpacing()
         )
 
         self.pushButton_close = QPushButton("Close")
@@ -369,8 +361,6 @@ class BundleCreatedDialog(QDialog):
 
         action_row = QHBoxLayout()
         action_row.addWidget(self.pushButton_open_folder)
-        action_row.addWidget(self.pushButton_copy_report)
-        action_row.addWidget(self.pushButton_email)
         action_row.addStretch()
 
         layout = QVBoxLayout()
@@ -403,43 +393,12 @@ class BundleCreatedDialog(QDialog):
         else:
             self._set_status("Could not access the clipboard.", warn=True)
 
-    def _on_copy_report(self):
-        text = bug_report.render_report_text(self.content)
-        text += f"\n\nData bundle: {self.zip_path}"
-        if _copy_to_clipboard(text):
-            self._set_status(
-                "Report text copied to the clipboard — paste it into an email "
-                "or a message, and attach the bundle."
-            )
-        else:
-            self._set_status("Could not access the clipboard.", warn=True)
-
     def _on_open_folder(self):
         if open_path_in_file_explorer(os.path.dirname(self.zip_path)):
             self._set_status("Opened the bundle's folder.")
         else:
             self._set_status(
                 "Could not open a file explorer. Use the path above.", warn=True
-            )
-
-    def _on_open_email(self):
-        try:
-            result = bug_report.compose_support_email(self.content, self.zip_path)
-        except Exception as e:
-            logging.exception("Failed to compose the support email.")
-            self._set_status(f"Could not open a mail client: {e}", warn=True)
-            return
-
-        if result.opened:
-            self._set_status("Mail client opened — attach the bundle before sending.")
-        else:
-            _copy_to_clipboard(result.full_text)
-            self._set_status(
-                "No mail client opened on this computer. The report text was "
-                f"copied to your clipboard — email it to "
-                f"{bug_report.SUPPORT_EMAIL} from another machine, with the "
-                "bundle attached.",
-                warn=True,
             )
 
 
