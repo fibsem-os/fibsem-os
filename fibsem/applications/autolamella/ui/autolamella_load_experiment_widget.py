@@ -21,6 +21,7 @@ from fibsem.config import (
 )
 from fibsem.ui import utils as fui
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     BORDER_COLOR,
     DISABLED_TEXT_COLOR,
@@ -33,6 +34,8 @@ from fibsem.ui.stylesheets import (
     TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.util.system import directory_size
+from fibsem.utils import format_bytes
 
 # Error message constants
 ERROR_PROTOCOL_NOT_FOUND_TITLE = "Protocol Not Found"
@@ -72,6 +75,16 @@ ERROR_INVALID_LEGACY_PROTOCOL_MSG = (
 
 # Width of the recent-experiments quick-select column
 RECENT_COLUMN_WIDTH = 260
+
+# How long a selection has to settle before the experiment is measured. Walking an
+# experiment is thousands of `stat` calls, and on a share that is thousands of round
+# trips -- clicking down the recent list would otherwise start one walk per row, none
+# of which can be called off once running.
+SIZE_PROBE_DEBOUNCE_MS = 400
+
+# Shown while the walk is running, and in place of a size that cannot be measured.
+SIZE_MEASURING_TEXT = "Measuring…"
+SIZE_UNAVAILABLE_TEXT = "—"
 
 # Recent-experiment row icons (material design icons) and colours
 RECENT_FOLDER_ICON = "mdi:folder-outline"
@@ -164,6 +177,15 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.setWindowTitle("Load Existing Experiment")
         self.setMinimumWidth(860)
 
+        # Bumped on every launch and again when the dialog closes, so a walk that
+        # finishes after the selection moved on -- or after there is no field left to
+        # write to -- is dropped rather than shown against the wrong experiment.
+        self._size_probe_generation = 0
+        self._size_probe_timer = QtCore.QTimer(self)
+        self._size_probe_timer.setSingleShot(True)
+        self._size_probe_timer.setInterval(SIZE_PROBE_DEBOUNCE_MS)
+        self._size_probe_timer.timeout.connect(self._start_size_probe)
+
         self._setup_ui()
         self._connect_signals()
         self._populate_recent_experiments()
@@ -220,6 +242,13 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.lineEdit_experiment_lamella.setEnabled(False)
         self.lineEdit_experiment_lamella.setPlaceholderText("0")
 
+        # Size on disk (Read Only). Filled in after the rest of the form: it is the one
+        # field here that cannot be read out of experiment.yaml, and measuring it means
+        # walking the whole directory.
+        self.lineEdit_experiment_size = QtWidgets.QLineEdit()
+        self.lineEdit_experiment_size.setEnabled(False)
+        self.lineEdit_experiment_size.setPlaceholderText(SIZE_UNAVAILABLE_TEXT)
+
         exp_form_layout.addRow("Name", self.lineEdit_experiment_name)
         exp_form_layout.addRow("Description", self.lineEdit_experiment_description)
         exp_form_layout.addRow("User", self.lineEdit_experiment_user)
@@ -227,6 +256,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         exp_form_layout.addRow("Organisation", self.lineEdit_experiment_organisation)
         exp_form_layout.addRow("Directory", self.lineEdit_experiment_directory)
         exp_form_layout.addRow("Lamella", self.lineEdit_experiment_lamella)
+        exp_form_layout.addRow("Size", self.lineEdit_experiment_size)
 
         exp_layout.addLayout(exp_form_layout)
 
@@ -494,6 +524,10 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             )
             self.lineEdit_experiment_lamella.setText("")
             self.lineEdit_experiment_lamella.setPlaceholderText("0")
+            self.lineEdit_experiment_size.setText("")
+            self.lineEdit_experiment_size.setPlaceholderText(SIZE_UNAVAILABLE_TEXT)
+            # Anything still walking is for an experiment no longer on screen.
+            self._size_probe_generation += 1
             return
 
         self.lineEdit_experiment_name.setText(self.experiment.name or "")
@@ -516,6 +550,53 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.lineEdit_experiment_directory.setText(str(self.experiment.path) or "")
         self.lineEdit_experiment_directory.setCursorPosition(0)
         self.lineEdit_experiment_lamella.setText(str(len(self.experiment.positions)))
+
+        # Everything above came out of experiment.yaml, which is already in memory.
+        # The size has to be walked for, so it is asked for separately and arrives
+        # late -- debounced, because clicking down the recent list lands here once per
+        # row and each walk runs to completion.
+        self.lineEdit_experiment_size.setText(SIZE_MEASURING_TEXT)
+        self._size_probe_timer.start()
+
+    def _start_size_probe(self) -> None:
+        """Measure the selected experiment on a worker thread.
+
+        Off-thread because the walk is one `stat` per file -- a few hundred of them for
+        a small experiment, thousands for a real one, and every one a round trip when
+        the experiment lives on a share.
+        """
+        self._size_probe_generation += 1
+        generation = self._size_probe_generation
+
+        experiment = self.experiment
+        if experiment is None:
+            return
+        path = str(experiment.path)
+        if not os.path.isdir(path):
+            # `directory_size` cannot tell an empty experiment from an unreadable one:
+            # it skips what it cannot read, so both come back as zero. Guarded here so
+            # a share that dropped between loading experiment.yaml and measuring reads
+            # as unknown rather than as an experiment with nothing in it.
+            self.lineEdit_experiment_size.setText("")
+            return
+
+        worker = FunctionWorker(directory_size, path)
+        worker.returned.connect(lambda total: self._on_size_measured(total, generation))
+        worker.start()
+
+    def _on_size_measured(self, total: int, generation: int) -> None:
+        """Show the measured size, unless the selection has moved on."""
+        if generation != self._size_probe_generation:
+            return
+        self.lineEdit_experiment_size.setText(format_bytes(total))
+
+    def done(self, result: int) -> None:
+        """Invalidate a walk still running, then close.
+
+        Its callback writes to a field that may not outlive this call.
+        """
+        self._size_probe_generation += 1
+        super().done(result)
 
     def _update_protocol_display(self):
         """Update the protocol information display."""
