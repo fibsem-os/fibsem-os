@@ -132,10 +132,22 @@ def _at(base, dx=0.0, dy=0.0):
 
 
 def _lamella(tab, microscope, dx=0.0, dy=0.0):
-    """A lamella added the way the canvas adds one."""
-    return tab.autolamella_ui.add_new_lamella(
+    """A lamella added the way the canvas adds one, with its fluorescence pose
+    flipped to the FM orientation.
+
+    This compustage's objective also images from the beam side, so a lamella marked
+    there gets a fluorescence pose that is a *copy* of its milling pose -- and the
+    tests below tell the two poses apart by their tilt. Derived into "FM", which is
+    what a person would pick from the Derive menu, they differ again.
+    """
+    from fibsem.applications.autolamella.poses import FLUORESCENCE_POSE, derive_pose
+
+    lamella = tab.autolamella_ui.add_new_lamella(
         stage_position=_at(microscope.get_stage_position(), dx, dy)
     )
+    if lamella.fluorescence_pose is not None:
+        assert derive_pose(microscope, lamella, FLUORESCENCE_POSE, orientation="FM")
+    return lamella
 
 
 class TestItMarksTheBeamSidePose:

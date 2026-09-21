@@ -7,6 +7,12 @@ stage:
     rotation_reference:         0                           
     shuttle_pre_tilt:           0                        
     manipulator_height_limit:   0.0037                      
+    devices:                                                # where the stage travels for each instrument to see the sample
+        FIBSEM:
+            origin:     {x: 0.0}                            # the beams: the chamber origin                          [metres][SPECIFIED]
+        FM:
+            origin:     {x: 0.0}                            # the FM: under the grid, the same place, reached by re-posing [metres][SPECIFIED]
+            acquisition_orientations: [FM, SEM, MILLING]    # the objective images the sample flipped (FM), or from the beam side at the SEM or a milling tilt [SPECIFIED]
 electron:                                              
     enabled:                    true                        
     column_tilt:                0                           

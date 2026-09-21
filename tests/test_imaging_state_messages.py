@@ -40,12 +40,13 @@ def test_a_wrong_place_says_travel():
 
 def test_a_wrong_pose_says_re_pose():
     microscope = _microscope(ARCTIS_CONFIG)
-    microscope.move_to_orientation("SEM")
+    # FIB: the one beam pose this compustage does not declare for its objective.
+    microscope.move_to_orientation("FIB")
 
     message = microscope.describe_device_imaging_state("FM")
 
     assert "Re-pose" in message
-    assert "held in the SEM orientation" in message
+    assert "held in the FIB orientation" in message
     assert "travel there" not in message
 
 

@@ -132,9 +132,14 @@ class FluorescenceOverviewGridTask(GridTask):
         """The grid's calibrated slot position, as the FM sees it.
 
         One call on either mounting (`to_device`): a compustage gets the flip, an
-        offset mount gets the traverse, and the pose is kept where the objective
-        images from it and otherwise put into the first orientation it declares.
+        offset mount gets the traverse. Always into the *first* orientation the FM
+        declares, not whichever pose the slot happened to be calibrated in: an
+        overview of a whole grid is taken in the instrument's own pose, so two grids
+        -- or the same grid on two days -- are looked at the same way.
         """
+        fm = getattr(self.microscope, "fm", None)
+        if fm is None:
+            raise RuntimeError("This system has no fluorescence microscope.")
         slot = self.slot
         if slot is None:
             raise RuntimeError(
@@ -142,7 +147,10 @@ class FluorescenceOverviewGridTask(GridTask):
             )
         if slot.position is None:
             raise RuntimeError(uncalibrated_message(slot.name))
-        return self.microscope.to_device(slot.position, "FM")
+        declared = fm.acquisition_orientations
+        return self.microscope.to_device(
+            slot.position, "FM", orientation=declared[0] if declared else None
+        )
 
     def _run(self) -> None:
         fm = getattr(self.microscope, "fm", None)

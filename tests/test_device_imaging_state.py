@@ -64,7 +64,8 @@ def test_the_failing_term_names_the_remedy_on_a_compustage():
     shares the beams' origin), the pose is wrong. Re-pose, which is exactly how a
     compustage reaches its FM."""
     microscope = _microscope(ARCTIS_CONFIG)
-    microscope.move_to_orientation("SEM")
+    # FIB: the one beam pose this compustage does not declare for its objective.
+    microscope.move_to_orientation("FIB")
 
     assert microscope.get_device_imaging_state("FM") is DeviceImagingState.NEEDS_REPOSE
 
