@@ -298,3 +298,222 @@ def test_closing_detaches_the_taps(tmp_path, microscope):
     _move(microscope)
     assert recorder.buffer.events_since(0)["latest_seq"] == before
     assert not recorder.writer.alive
+
+
+# ── facts for the record (FIB-1032) ──────────────────────────────────────────
+
+
+def _of_kind(records, kind):
+    return [r for r in records if r["kind"] == kind]
+
+
+def test_an_acquisition_records_the_file_it_was_saved_to(tmp_path, microscope):
+    from fibsem import acquire
+    from fibsem.structures import BeamType, ImageSettings
+
+    settings = ImageSettings(
+        beam_type=BeamType.ION, filename="ref_test", path=str(tmp_path), save=True
+    )
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        saved = acquire.new_image(microscope, settings)
+        settings.save = False
+        acquire.new_image(microscope, settings)
+    finally:
+        recorder.close()
+    first, second = _of_kind(_written(tmp_path / EVENTS_FILENAME), "image_acquired")
+    assert first["payload"]["path"] == saved.filepath
+    # the name actually written: suffix and extension, which the log never had
+    assert os.path.basename(first["payload"]["path"]) == "ref_test_ib.tif"
+    assert first["payload"]["beam_type"] == "ION"
+    assert first["payload"]["filename"] == "ref_test"
+    assert first["payload"]["hfw"] == saved.metadata.image_settings.hfw
+    assert second["payload"]["path"] is None  # not saved: nothing to point at
+    assert len(json.dumps(first)) < 2000  # metadata, never pixels
+
+
+def test_a_failing_subscriber_costs_the_record_not_the_acquisition(
+    tmp_path, microscope
+):
+    from fibsem import acquire
+    from fibsem.structures import BeamType, ImageSettings
+
+    def broken(kind, payload):
+        raise RuntimeError("a broken subscriber")
+
+    microscope.record_signal.connect(broken)
+    try:
+        image = acquire.new_image(
+            microscope,
+            ImageSettings(
+                beam_type=BeamType.ELECTRON, filename="x", path=str(tmp_path), save=True
+            ),
+        )
+    finally:
+        microscope.record_signal.disconnect(broken)
+    assert os.path.exists(image.filepath)
+
+
+def test_a_tap_that_fails_never_reaches_the_emitting_thread(microscope):
+    """psygnal hands a subscriber's exception back to the emitter -- for milling
+    progress, the milling thread. The taps swallow their own failures."""
+    from fibsem.applications.autolamella.server.events import attach_microscope_taps
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    class BrokenBuffer(EventBuffer):
+        def append(self, kind, payload):
+            raise RuntimeError("the buffer is broken")
+
+    disposers = attach_microscope_taps(BrokenBuffer(), microscope)
+    try:
+        microscope.milling_progress_signal.emit(
+            MillingProgress(status=MillingProgressStatus.STAGE_UPDATE)
+        )
+        microscope.record_event("anything", {})
+        _move(microscope)  # stage_position_changed
+    finally:
+        for dispose in disposers:
+            dispose()
+
+
+def test_a_task_records_its_steps_and_every_image_it_saved(tmp_path, microscope):
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.applications.autolamella.workflows.tasks.select_position import (
+        SelectMillingPositionTask,
+        SelectMillingPositionTaskConfig,
+    )
+
+    lamella = Lamella(path=tmp_path / "01-test", number=1, petname="test")
+    lamella.path.mkdir(parents=True)
+    lamella.milling_pose = microscope.get_microscope_state()
+    task = SelectMillingPositionTask(
+        microscope=microscope,
+        config=SelectMillingPositionTaskConfig(use_autofocus=False),
+        lamella=lamella,
+    )
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        task.run()
+    finally:
+        recorder.close()
+    records = _written(tmp_path / EVENTS_FILENAME)
+
+    steps = _of_kind(records, "task_step")
+    assert steps
+    assert not {"STARTED", "FINISHED"} & {s["payload"]["step"] for s in steps}
+    for step in steps:
+        assert step["payload"]["item_type"] == "lamella"
+        assert step["item"] == {"id": lamella.id, "name": lamella.name}
+        assert step["task"]["name"] == task.task_name
+
+    recorded = {
+        r["payload"]["path"]
+        for r in _of_kind(records, "image_acquired")
+        if r["payload"]["path"]
+    }
+    on_disk = {str(p) for p in lamella.path.rglob("*.tif")}
+    assert on_disk and on_disk == recorded
+
+
+def test_a_milling_stage_is_recorded_with_its_patterns_before_it_mills(
+    tmp_path, microscope
+):
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
+
+    names = ["Rough Mill 01", "Rough Mill 02"]
+    config = FibsemMillingTaskConfig.from_stages(
+        stages=[FibsemMillingStage(name=name) for name in names], name="Rough Milling"
+    )
+    config.alignment.enabled = False
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        FibsemMillingTask(microscope, config).run()
+    finally:
+        recorder.close()
+    records = _written(tmp_path / EVENTS_FILENAME)
+
+    started = _of_kind(records, "milling_stage_started")
+    assert [r["payload"]["stage"]["name"] for r in started] == names
+    for record in started:
+        stage = record["payload"]["stage"]
+        assert stage["pattern"]["name"]  # the geometry that was milled
+        assert stage["milling"]["hfw"] == config.field_of_view  # as the task set it
+        # the end is the progress signal's; the start comes first
+        (finished,) = [
+            r
+            for r in _of_kind(records, "milling_progress")
+            if r["payload"]["status"] == "stage-finished"
+            and r["payload"]["stage_name"] == stage["name"]
+        ]
+        assert record["seq"] < finished["seq"]
+
+
+def test_a_spot_burn_records_its_points_and_field_of_view(
+    tmp_path, microscope, monkeypatch
+):
+    from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.structures import BeamType, Point
+
+    monkeypatch.setattr(time, "sleep", lambda *_: None)  # the exposure countdown
+    field_of_view = microscope.get_field_of_view(BeamType.ION)
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        microscope.run_spot_burn(
+            settings=SpotBurnSettings(
+                coordinates=[Point(0.25, 0.5), Point(0.75, 0.5), Point(1.5, 0.5)],
+                exposure_time=1.0,
+                milling_current=1e-10,
+            ),
+            beam_type=BeamType.ION,
+        )
+    finally:
+        recorder.close()
+    records = _written(tmp_path / EVENTS_FILENAME)
+
+    (started,) = _of_kind(records, "spot_burn_started")
+    assert started["payload"]["coordinates"] == [[0.25, 0.5], [0.75, 0.5]]
+    assert started["payload"]["dropped"] == 1  # outside the field: not burned
+    # fractions of the field: this is what places them on another image
+    assert started["payload"]["field_of_view"] == field_of_view
+    (ended,) = [
+        r
+        for r in _of_kind(records, "spot_burn_progress")
+        if r["payload"]["status"] == "finished"
+    ]
+    assert started["seq"] < ended["seq"]
+
+
+def test_a_stage_that_cannot_be_described_still_mills(
+    tmp_path, microscope, monkeypatch
+):
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.strategy.standard import StandardMillingStrategy
+    from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
+
+    def broken(self, short=False):
+        raise RuntimeError("cannot describe this stage")
+
+    milled = []
+    real_run = StandardMillingStrategy.run
+
+    def run(self, *args, **kwargs):
+        milled.append(True)
+        monkeypatch.setattr(FibsemMillingStage, "to_dict", real_to_dict)
+        return real_run(self, *args, **kwargs)
+
+    config = FibsemMillingTaskConfig.from_stages(
+        stages=[FibsemMillingStage(name="Rough Mill 01")], name="Rough Milling"
+    )
+    config.alignment.enabled = False
+    real_to_dict = FibsemMillingStage.to_dict
+    # broken only until the mill starts: the log line after it describes the stage too
+    monkeypatch.setattr(FibsemMillingStage, "to_dict", broken)
+    monkeypatch.setattr(StandardMillingStrategy, "run", run)
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        FibsemMillingTask(microscope, config).run()
+    finally:
+        recorder.close()
+    assert milled == [True]
+    assert not _of_kind(_written(tmp_path / EVENTS_FILENAME), "milling_stage_started")

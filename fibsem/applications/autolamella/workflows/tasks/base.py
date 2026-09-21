@@ -405,6 +405,18 @@ class AutoLamellaTask(ABC):
                 display_message if display_message is not None else ""
             )
 
+        if message not in _LIFECYCLE_STEPS:
+            # STARTED / FINISHED are recorded as task_started / task_completed.
+            self.microscope.record_event(
+                "task_step",
+                {
+                    "step": message,
+                    "display_message": display_message,
+                    "item_type": "lamella",
+                    "task_type": self.task_type,
+                },
+            )
+
         if message not in _LIFECYCLE_STEPS and self.parent_ui is not None:
             self.parent_ui.step_update_signal.emit(display_message or message)
 

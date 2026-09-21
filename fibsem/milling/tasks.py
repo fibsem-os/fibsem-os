@@ -419,6 +419,7 @@ class FibsemMillingTask:
             stage.imaging.path = self.config.acquisition.imaging.path
             stage.imaging = self.config.acquisition.imaging
             stage.alignment = self.config.alignment
+            self._record_stage_started(stage, idx)
             stage.strategy.run(
                 microscope=self.microscope,
                 stage=stage,
@@ -460,6 +461,29 @@ class FibsemMillingTask:
             logging.error(
                 f"Error running milling stage: {stage.name}, {e}", exc_info=True
             )
+
+    def _record_stage_started(self, stage: FibsemMillingStage, idx: int) -> None:
+        """Record what a stage is about to mill, for the experiment's record.
+
+        The stage as this task configured it, patterns included. The log records a
+        stage only once it has finished, so a reader had to subtract the duration
+        to place the start; the end is already on the progress signal
+        (STAGE_FINISHED). Never raises: a stage that cannot be described still mills.
+        """
+        try:
+            payload = {
+                "task_id": self.task_id,
+                "task_name": self.name,
+                "stage_index": idx,
+                "total_stages": len(self.stages),
+                "stage": stage.to_dict(),
+            }
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug(
+                f"could not describe {stage.name} for the record", exc_info=True
+            )
+            return
+        self.microscope.record_event("milling_stage_started", payload)
 
     def _acquire_reference_image(self) -> Optional[FibsemImage]:
         """Acquire a reference image for the milling task."""
