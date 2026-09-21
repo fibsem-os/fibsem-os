@@ -157,7 +157,7 @@ class BaseTaskManager:
         n = len({i.item_name for i in awaiting})
         self._set_hold(
             Hold(
-                kind=HoldKind.review,
+                kind=HoldKind.review_later,
                 releases=f"decide {_named(sorted({i.item_name for i in awaiting}), self.ITEM_NOUN)} "
                 "in the Review tab",
                 items=tuple(f"{i.item_name}/{i.task_name}" for i in awaiting),

@@ -149,10 +149,10 @@ def test_reset_keeps_attention_and_requires(widget, experiment):
     widget.add_task(BEAM, "overview_sem")
     widget.add_task(BEAM, "overview_fib")
     config = experiment.grid_protocol.task_config["overview_fib"]
-    config.attention = Attention.review
+    config.attention = Attention.review_later
     config.requires = ["overview_sem"]
     fresh = widget.reset_selected()
-    assert fresh.attention is Attention.review
+    assert fresh.attention is Attention.review_later
     assert fresh.requires == ["overview_sem"]
 
 

@@ -97,22 +97,29 @@ class AutoLamellaTaskStatus(Enum):
 
 
 class Attention(str, Enum):
-    """Who decides a task's record, and when. A property of the producing
-    task: it says whose decision the record carries. What waits on it follows
-    from the ``requires`` graph, not from a switch of its own.
+    """How far a task is trusted: who decides its record, and when. A property
+    of the producing task. What waits on the decision follows from the
+    ``requires`` graph, not from a switch of its own.
 
-    automated  -- the producer confirms its own record after the task; the
-                  run continues.
-    supervised -- the operator, in the workflow's own question, at the
-                  microscope; the run waits there.
-    review     -- the operator, later, in the Review tab; the task ends
-                  AwaitingDecision and what requires it waits. Read as
-                  automated while the review preference is off.
+    The three are rungs of one ladder, the way work is handed to a student:
+    watch everything they do, then check their work afterwards, then let them
+    get on with it. A task moves down as its record earns it.
+
+    supervised   -- the operator decides now, in the task's own question; the
+                    run is held there.
+    review_later -- the operator decides afterwards, in the Review tab; the
+                    task ends AwaitingDecision and what requires it waits.
+                    Read as automated while the review preference is off.
+    automated    -- the producer confirms its own record after the task; the
+                    run continues, and what it did is listed to check.
+
+    The name says when the operator decides, not where: the Review tab
+    collects the decisions of every rung.
     """
 
-    automated = "automated"
     supervised = "supervised"
-    review = "review"
+    review_later = "review_later"
+    automated = "automated"
 
 
 # AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
@@ -344,6 +351,10 @@ def attention_from(value: Any, where: str = "") -> Attention:
     """
     if isinstance(value, bool):
         return Attention.supervised if value else Attention.automated
+    if value == "review":
+        # What review_later was called on main before 0.6.0. It never shipped,
+        # but protocols and experiments saved from those builds carry it.
+        return Attention.review_later
     try:
         return Attention(value)
     except ValueError:
@@ -390,6 +401,12 @@ class AutoLamellaTaskDescription:
             # carries it. That form shipped, so this mapping stays; the review
             # flag and the interim mode strings beside it never did.
             data["attention"] = attention_from(bool(data.pop("supervise", False)))
+        else:
+            # Through the one reader, so a stored value this build spells
+            # differently -- or does not know -- loads instead of raising.
+            data["attention"] = attention_from(
+                data["attention"], f"task {data.get('name', '')!r}"
+            )
         # Known fields only: a protocol written by a newer version (with fields
         # this one does not know) must load, not crash on an unexpected kwarg.
         known = {f.name for f in fields(cls)}

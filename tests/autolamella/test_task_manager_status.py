@@ -802,7 +802,7 @@ def test_a_parked_run_holds_the_window_and_says_who_releases_it(tmp_path):
     run_queue_with(m)
 
     parked, released = holds
-    assert parked.kind is HoldKind.review
+    assert parked.kind is HoldKind.review_later
     assert parked.items == ("L1/Undercut", "L2/Undercut")
     assert parked.releases == "decide L1 and L2 in the Review tab"
     assert released is None and ui.hold is None

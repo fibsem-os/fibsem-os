@@ -369,8 +369,8 @@ class _TaskRow(QWidget):
     def _toggle_attention(self) -> None:
         self.config.attention = (
             Attention.automated
-            if self.config.attention is Attention.review
-            else Attention.review
+            if self.config.attention is Attention.review_later
+            else Attention.review_later
         )
         self.refresh()
         self.attention_changed.emit(self.task_name)
@@ -423,22 +423,25 @@ class _TaskRow(QWidget):
 
     @property
     def _reviewed_without_dependents(self) -> bool:
-        return self.config.attention is Attention.review and not self._has_dependents
+        return (
+            self.config.attention is Attention.review_later and not self._has_dependents
+        )
 
     def _refresh_attention(self) -> None:
         review_available = _review_available()
         self.btn_attention.setVisible(review_available)
         if not review_available:
             return
-        state = "review" if self.config.attention is Attention.review else "automated"
-        if state == "review":
+        reviewed = self.config.attention is Attention.review_later
+        state = "review_later" if reviewed else "automated"
+        if reviewed:
             colour = stylesheets.REVIEW_COLOR
             tooltip = (
-                "Review — the task ends waiting for your decision in the Review "
+                "Review later — the task ends waiting for your decision in the Review "
                 "tab, with what it acquired to look at; the tasks that require "
                 "it wait on that decision. Click for Automated."
                 if self._has_dependents
-                else "Review — but no task requires this one, so nothing waits "
+                else "Review later — but no task requires this one, so nothing waits "
                 "on the decision: what it acquired is in the Review tab to look "
                 "at, and the run goes on. Click for Automated."
             )
@@ -804,7 +807,7 @@ class GridWorkflowWidget(QWidget):
         reviewed = {
             name
             for name, config in protocol.task_config.items()
-            if config.attention is Attention.review
+            if config.attention is Attention.review_later
         }
         for name, row in self._task_rows.items():
             row.set_has_dependents(name in required, reviewed)

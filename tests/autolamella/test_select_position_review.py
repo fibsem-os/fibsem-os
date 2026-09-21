@@ -102,7 +102,7 @@ def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
 def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
     microscope, tmp_path
 ):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     task = _task(microscope, exp, flag=True)
     assert task.review is True
     lamella = exp.positions[0]
@@ -146,7 +146,7 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
 
 
 def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     task = _task(microscope, exp, flag=True)
     task.run()
     manager = task.task_manager
@@ -175,7 +175,7 @@ def test_the_proposal_carries_the_point_something_else_already_set(
     Setup runs. The proposer proposes that point rather than the image centre,
     so recording the proposal and confirming it changes nothing: whatever set
     the point is not undone by the step that is meant to check it."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     lamella = exp.positions[0]
     lamella.poi = Point(4e-6, -2e-6)
     task = _task(microscope, exp, flag=True)
@@ -192,7 +192,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     """Re-running Setup is a deliberate act: the operator gets a new proposal
     on the new image, and the old one -- with its decision -- stays on the
     record. The confirmed point stays on the lamella until the new decision."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     task = _task(microscope, exp, flag=True)
     task.run()
     lamella = exp.positions[0]
@@ -227,7 +227,7 @@ def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
     """The flag hides the Review surface, not the record. A protocol that says
     review runs ungated with it off: the producer confirms its own proposal
     and nothing defers."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     task = _task(microscope, exp, flag=False)
     assert task.review is False, "gate needs the flag"
     task.run()
@@ -300,7 +300,7 @@ def test_supervised_the_inline_answer_is_the_decision(
 
 
 def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review)
+    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
     lamella = exp.positions[0]
     assert consumed_values(lamella) == ["poi"]
     del lamella.task_config[ROUGH]
@@ -311,17 +311,33 @@ def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
 
 def test_attention_round_trips_through_the_protocol():
     d = AutoLamellaTaskDescription(
-        name=SETUP, required=True, attention=Attention.review
+        name=SETUP, required=True, attention=Attention.review_later
     )
-    assert d.to_dict()["attention"] == "review"
+    assert d.to_dict()["attention"] == "review_later"
     again = AutoLamellaTaskDescription.from_dict(d.to_dict())
-    assert again.attention is Attention.review
+    assert again.attention is Attention.review_later
     assert AutoLamellaTaskDescription(name=SETUP, attention="supervised").attention is (
         Attention.supervised
     ), "a string from a hand-edited file is the enum"
     cfg_ = AutoLamellaWorkflowConfig(tasks=[d])
-    assert cfg_.get_attention(SETUP) is Attention.review
+    assert cfg_.get_attention(SETUP) is Attention.review_later
     assert cfg_.get_attention("nope") is Attention.automated
+
+
+def test_a_protocol_saved_before_the_rename_still_loads(caplog):
+    """The mode was stored as ``review`` on main before 0.6.0. It never
+    shipped, but protocols and experiments saved from those builds carry it --
+    and a stored value goes through the one reader, so neither that spelling
+    nor one this build does not know takes the whole protocol down."""
+    load = AutoLamellaTaskDescription.from_dict
+    base = {"name": SETUP, "required": True, "requires": []}
+    assert load({**base, "attention": "review"}).attention is Attention.review_later
+    assert load({**base, "attention": "review"}).to_dict()["attention"] == (
+        "review_later"
+    ), "and it is written back under its new name"
+    with caplog.at_level("WARNING"):
+        assert load({**base, "attention": "gate"}).attention is Attention.automated
+    assert f"Unknown attention 'gate' on task {SETUP!r}" in caplog.text
 
 
 def test_a_protocol_written_with_the_supervise_flag_still_loads():
