@@ -252,6 +252,28 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     fm = getattr(microscope, "fm", None)
     if fm is not None:
         tap(fm.acquisition_progress_signal, "fm_acquisition_progress", to_plain)
+        objective = getattr(fm, "objective", None)
+        if objective is not None:
+            # Every move announces itself, each z-stack plane included; the record
+            # wants the insert and the retract, so only a change of state. The
+            # state is not read on attach -- that would be a hardware read -- so
+            # the first move records the state it found.
+            last_state: List[Optional[str]] = [None]
+
+            def on_objective(position: float, state: str) -> None:
+                if state == last_state[0]:
+                    return
+                last_state[0] = state
+                append(
+                    "objective_state_changed",
+                    to_plain,
+                    {"state": state, "position": position},
+                )
+
+            objective.position_changed.connect(on_objective)
+            disposers.append(
+                lambda: objective.position_changed.disconnect(on_objective)
+            )
 
     return disposers
 

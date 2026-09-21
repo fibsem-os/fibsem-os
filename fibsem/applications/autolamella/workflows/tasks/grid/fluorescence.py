@@ -22,7 +22,11 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
 )
 from fibsem.autofunctions.autofocus import AutoFocusSettings
 from fibsem.cancellation import OperationCancelledError
-from fibsem.fm.acquisition import FMTiledAcquisitionRunner, OverviewDestination
+from fibsem.fm.acquisition import (
+    FMTiledAcquisitionRunner,
+    OverviewDestination,
+    record_fluorescence_image,
+)
 from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.imaging.thumbnail import write_thumbnail
@@ -87,6 +91,7 @@ def acquire_fluorescence_overview(
         mosaic = runner.run_and_stitch()
         report(TiledStatus.SAVING)
         path = destination.save_mosaic(mosaic)
+        record_fluorescence_image(microscope, mosaic, overview=parameters)
     except OperationCancelledError:
         report(TiledStatus.CANCELLED)
         raise

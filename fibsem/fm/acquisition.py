@@ -4,7 +4,7 @@ import threading
 import time
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -185,12 +185,66 @@ def acquire_z_stack(
         return FluorescenceImage.create_multi_channel_image(images)
 
 
+def record_fluorescence_image(
+    microscope: "FibsemMicroscope",
+    image: FluorescenceImage,
+    overview: Optional[OverviewParameters] = None,
+) -> None:
+    """Record an FM acquisition for the experiment's record (``fm_image_acquired``).
+
+    The file it was saved to (``image.filepath``; None if it was not), what it
+    was acquired with, and where. ``overview`` names the tile grid a stitched
+    overview was acquired as. Never raises: an image that cannot be described
+    is still acquired and saved.
+    """
+    try:
+        md = image.metadata
+        payload: Dict[str, Any] = {
+            "path": image.filepath,
+            "acquired_at": md.acquisition_date,  # the start, on the instrument's clock
+            "resolution": list(md.resolution) if md.resolution else None,
+            "pixel_size": md.pixel_size_x,
+            "channels": [
+                {
+                    "name": c.name,
+                    "excitation_wavelength": c.excitation_wavelength,
+                    "emission_wavelength": c.emission_wavelength,
+                    "exposure_time": c.exposure_time,
+                    "power": c.power,
+                    "gain": c.gain,
+                    "objective_position": c.objective_position,
+                }
+                for c in md.channels or []
+            ],
+            "z_positions": list(md.z_positions) if md.z_positions else None,
+            "stage_position": (
+                md.stage_position.to_dict() if md.stage_position is not None else None
+            ),
+            "overview": (
+                {
+                    "rows": overview.rows,
+                    "cols": overview.cols,
+                    "overlap": overview.overlap,
+                }
+                if overview is not None
+                else None
+            ),
+        }
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug("could not describe an FM image for the record", exc_info=True)
+        return
+    record = getattr(microscope, "record_event", None)
+    if record is not None:
+        record("fm_image_acquired", payload)
+
+
 def acquire_image(
     microscope: FluorescenceMicroscope,
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     zparams: Optional[ZParameters] = None,
     stop_event: Optional[threading.Event] = None,
     filename: Optional[str] = None,
+    record: bool = True,
 ) -> Optional[FluorescenceImage]:
     """Acquire a fluroescence image for a single channel or multiple channels.
     If zparams is provided, a Z-stack will be acquired instead.
@@ -200,6 +254,8 @@ def acquire_image(
         zparams: ZParameters for Z-stack acquisition (optional)
         stop_event: Threading event for cancellation (optional)
         filename: Full file path to save the image (optional)
+        record: Record it for the experiment (``record_fluorescence_image``).
+            False for an overview's tiles: the stitched overview stands for them.
     Returns:
             FluorescenceImage object containing the acquired image(s)"""
     if microscope.parent is None:
@@ -230,6 +286,9 @@ def acquire_image(
             image.save(filename)
         except Exception as e:
             logging.error(f"Failed to save image to {filename}: {e}")
+
+    if image is not None and record:
+        record_fluorescence_image(microscope.parent, image)
 
     microscope.acquisition_progress_signal.emit(
         FluorescenceAcquisitionProgress(status=FluorescenceAcquisitionStatus.FINISHED)
@@ -929,6 +988,7 @@ class FMTiledAcquisitionRunner:
             zparams=self.zparams,
             stop_event=self.stop_event,
             filename=filename,
+            record=False,  # the stitched overview stands for its tiles
         )
 
         # acquire_image returns None only when it was cancelled part-way.
@@ -1423,6 +1483,7 @@ def acquire_and_stitch_tileset(
     # Save overview to experiment directory
     if destination is not None:
         destination.save_mosaic(overview_image)
+    record_fluorescence_image(microscope, overview_image, overview=overview_parameters)
 
     return overview_image
 
