@@ -14,6 +14,7 @@ from pathlib import Path
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.applications.autolamella.event_recording import EventRecorder
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
@@ -33,9 +34,15 @@ FM_STACK = f"{LAMELLA}-zstack.ome.tiff"
 FM_PLANES, FM_CHANNELS = 3, 2
 
 
-def record_demo_experiment(root: Path, monkeypatch) -> Path:
+def record_demo_experiment(
+    root: Path, monkeypatch, record_events: bool = False
+) -> Path:
     """Run a task, a mill and a spot burn on Demo, logging into *root*, and save
-    an FM z-stack the way an acquisition does (the Demo instrument has no FM)."""
+    an FM z-stack the way an acquisition does (the Demo instrument has no FM).
+
+    With *record_events*, the run is also recorded to ``events.jsonl`` as the
+    app records it, so the replay reads that instead of the log.
+    """
     root.mkdir(parents=True, exist_ok=True)
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
@@ -45,6 +52,9 @@ def record_demo_experiment(root: Path, monkeypatch) -> Path:
     # experiment's logfile is set up once the microscope is connected.
     handlers, level = logging.getLogger().handlers[:], logging.getLogger().level
     utils.configure_logging(path=str(root))
+    recorder = (
+        EventRecorder(microscope, experiment_path=root) if record_events else None
+    )
     try:
         lamella = Lamella(path=root / LAMELLA, number=1, petname="test")
         lamella.path.mkdir(parents=True, exist_ok=True)
@@ -75,6 +85,8 @@ def record_demo_experiment(root: Path, monkeypatch) -> Path:
                 beam_type=BeamType.ION,
             )
     finally:
+        if recorder is not None:
+            recorder.close()
         microscope.disconnect()
         for handler in logging.getLogger().handlers:
             handler.close()

@@ -1,5 +1,10 @@
 """Read an experiment's recorded actions back as a timeline, for replay.
 
+An experiment recorded with the event stream has an ``events.jsonl`` beside its
+log (FIB-455), and that is read when it is there: every event already says which
+lamella or grid and task it belongs to, and names the file an image was saved
+to. Experiments recorded before it are read from the log, as follows.
+
 Everything an experiment did is already in its ``logfile.log``: every image
 acquisition (with its full metadata and where it was saved), every stage move
 and stage read-back, every milling stage (its patterns and how long it ran),
@@ -18,8 +23,7 @@ code emit, so they are Python reprs rather than JSON: ``np.float64(2e-09)``,
 ``FibsemStagePosition(x=...)``, ``array([...])``. They are read with a small
 AST walk that accepts literals and those call shapes and nothing else -- no
 ``eval`` -- so a record that is not data is skipped, never executed. The
-stream exists only at DEBUG level; a machine-readable event file (FIB-455)
-would replace :func:`read_log_records` and leave the rest unchanged.
+stream exists only at DEBUG level.
 """
 
 from __future__ import annotations
@@ -33,6 +37,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, Iterator, List, Optional, Tuple
+
+from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +68,10 @@ _MOVE_SETTLE = timedelta(seconds=10)
 # suffixes them. The recorded `filename` is the stem before this suffix.
 _BEAM_SUFFIX = {"ELECTRON": "_eb", "ION": "_ib"}
 _BEAM_LABEL = {"ELECTRON": "SEM", "ION": "FIB"}
+
+# The steps that end a task's context. The log records only FINISHED; the event
+# stream also says when a task failed, was cancelled or was skipped.
+_TASK_ENDS = {"FINISHED", "FAILED", "CANCELLED", "SKIPPED"}
 
 
 class EventKind:
@@ -166,10 +176,14 @@ def parse_record(message: str) -> Optional[Dict[str, Any]]:
 # ── resolving where an image went ────────────────────────────────────────────
 
 
-def _path_parts(recorded: str) -> Tuple[str, ...]:
+def _pure_path(recorded: str):
     if "\\" in recorded or re.match(r"^[A-Za-z]:", recorded):
-        return PureWindowsPath(recorded).parts
-    return PurePosixPath(recorded).parts
+        return PureWindowsPath(recorded)
+    return PurePosixPath(recorded)
+
+
+def _path_parts(recorded: str) -> Tuple[str, ...]:
+    return _pure_path(recorded).parts
 
 
 class _ImageResolver:
@@ -215,6 +229,16 @@ class _ImageResolver:
                 return candidate
         return None
 
+    def resolve_path(self, recorded: Optional[str]) -> Optional[Path]:
+        """A recorded file path -- the file actually written -- as it is now."""
+        if not recorded:
+            return None
+        path = _pure_path(recorded)
+        directory = self._directory(str(path.parent))
+        if directory is None or not (directory / path.name).is_file():
+            return None
+        return directory / path.name
+
 
 # ── events ───────────────────────────────────────────────────────────────────
 
@@ -251,9 +275,15 @@ class ReplayEvent:
         return self.image_path is not None
 
     @property
+    def _image_settings(self) -> Dict[str, Any]:
+        # The log nests an acquisition's settings in its metadata; the event
+        # stream records them flat.
+        return (self.data.get("metadata") or {}).get("image") or self.data
+
+    @property
     def field_size(self) -> Optional[Tuple[float, float]]:
         """The (width, height) in metres an image covers, if recorded."""
-        settings = (self.data.get("metadata") or {}).get("image") or {}
+        settings = self._image_settings
         try:
             hfw = float(settings["hfw"])
             w, h = (float(v) for v in settings["resolution"])
@@ -264,8 +294,7 @@ class ReplayEvent:
     @property
     def is_full_frame(self) -> bool:
         """An image of the beam's whole field, not a reduced-area crop."""
-        settings = (self.data.get("metadata") or {}).get("image") or {}
-        return not settings.get("reduced_area")
+        return not self._image_settings.get("reduced_area")
 
 
 @dataclass
@@ -306,6 +335,8 @@ class ExperimentReplay:
     stage_track: List[Tuple[datetime, Dict[str, Any]]]
     records_read: int = 0
     records_unreadable: int = 0
+    # The file the timeline was read from: events.jsonl, or the log.
+    source: str = LOGFILE_NAME
     # The scene lookups, per item they are scoped to (None: the whole run).
     _indexes: Dict[Optional[str], Dict[str, List[int]]] = field(
         default_factory=dict, repr=False
@@ -431,7 +462,11 @@ class ExperimentReplay:
                 if item is not None and self.events[j].item != item:
                     continue
                 if self.events[j].kind == EventKind.MILLING and spot is not None:
-                    spots.append(((spot[0] - 0.5) * width, (spot[1] - 0.5) * height))
+                    # The event stream records the field the burn scanned; the
+                    # log leaves it to be taken from the last full frame.
+                    fov = self.events[j].data.get("field_of_view")
+                    w, h = (fov, fov * height / width) if fov else (width, height)
+                    spots.append(((spot[0] - 0.5) * w, (spot[1] - 0.5) * h))
 
         fib = at("fib_full") if (milling is not None or spots) else at("fib")
 
@@ -515,6 +550,22 @@ def _image_event(record: LogRecord, d: Dict[str, Any]) -> Optional[ReplayEvent]:
     )
 
 
+def _milling_summary(
+    task_name: Any, stage: Dict[str, Any], duration: Optional[float]
+) -> str:
+    milling = stage.get("milling") or {}
+    pattern = stage.get("pattern") or {}
+    current = milling.get("milling_current")
+    current_txt = (
+        f", {float(current) * 1e9:.2f} nA" if isinstance(current, (int, float)) else ""
+    )
+    took = f", {duration:.0f} s" if duration else ""
+    return (
+        f"Mill {task_name or '?'} / {stage.get('name', '?')}"
+        f" ({pattern.get('name', '?')}{current_txt}{took})"
+    )
+
+
 def _milling_event(record: LogRecord, d: Dict[str, Any]) -> ReplayEvent:
     stage = d.get("stage") if isinstance(d.get("stage"), dict) else {}
     duration = None
@@ -526,17 +577,7 @@ def _milling_event(record: LogRecord, d: Dict[str, Any]) -> ReplayEvent:
     # clock -- not by `start_time`, an epoch that would be read in this
     # machine's time zone rather than the instrument's.
     time = record.time - timedelta(seconds=duration) if duration else record.time
-    milling = stage.get("milling") or {}
-    pattern = stage.get("pattern") or {}
-    current = milling.get("milling_current")
-    current_txt = (
-        f", {float(current) * 1e9:.2f} nA" if isinstance(current, (int, float)) else ""
-    )
-    took = f", {duration:.0f} s" if duration else ""
-    summary = (
-        f"Mill {d.get('milling_task_name', '?')} / {stage.get('name', '?')}"
-        f" ({pattern.get('name', '?')}{current_txt}{took})"
-    )
+    summary = _milling_summary(d.get("milling_task_name"), stage, duration)
     return ReplayEvent(
         time=time, kind=EventKind.MILLING, summary=summary, data=d, duration=duration
     )
@@ -560,12 +601,21 @@ def _spot_event(record: LogRecord) -> Optional[ReplayEvent]:
     )
 
 
+def _answer_summary(kind: Any, response: Any, by: Any, adjusted: bool) -> str:
+    answer = {True: "Yes", False: "No"}.get(response, response)
+    summary = f"{kind} answered {answer} by the {by}"
+    if adjusted:
+        summary += ", after adjusting it"
+    return summary
+
+
+def _task_summary(task: Any, step: Any) -> str:
+    return f"{task or 'Task'} — {str(step).replace('_', ' ').title()}"
+
+
 def _prompt_event(record: LogRecord, m: "re.Match", item, task, step) -> ReplayEvent:
     kind, response, by, adjusted = m.groups()
-    answer = {"True": "Yes", "False": "No"}.get(response, response)
-    summary = f"{kind} answered {answer} by the {by}"
-    if adjusted == "True":
-        summary += ", after adjusting it"
+    summary = _answer_summary(kind, response == "True", by, adjusted == "True")
     return ReplayEvent(
         record.time,
         EventKind.PROMPT,
@@ -645,7 +695,9 @@ def _fluorescence_event(path: Path) -> Optional[ReplayEvent]:
     )
 
 
-def _stamp_from_task_steps(events: List[ReplayEvent]) -> None:
+def _stamp_from_task_steps(
+    events: List[ReplayEvent], kinds: Tuple[str, ...] = (EventKind.FLUORESCENCE,)
+) -> None:
     """Give events placed from outside the log the task step they fell in.
 
     The same rule the log parse applies: a step's context holds from its
@@ -654,9 +706,9 @@ def _stamp_from_task_steps(events: List[ReplayEvent]) -> None:
     context: Tuple[Any, Any, Any] = (None, None, None)
     for e in events:
         if e.kind == EventKind.TASK:
-            finished = e.step == "FINISHED"
+            finished = e.step in _TASK_ENDS
             context = (None, None, None) if finished else (e.item, e.task, e.step)
-        elif e.kind == EventKind.FLUORESCENCE and e.item is None:
+        elif e.kind in kinds and e.item is None:
             e.item, e.task, e.step = context
 
 
@@ -680,13 +732,20 @@ def _stamp_item_types(events: List[ReplayEvent]) -> None:
 def load_replay(root: Path) -> ExperimentReplay:
     """Read the experiment at *root* into a replay timeline.
 
-    Raises FileNotFoundError when *root* has no logfile; anything inside the
-    log that cannot be read is skipped and counted, never raised.
+    From its ``events.jsonl`` when it has one, otherwise from its log. Raises
+    FileNotFoundError when *root* has neither; anything inside them that cannot
+    be read is skipped and counted, never raised.
     """
     root = Path(root)
+    if (root / EVENTS_FILENAME).is_file():
+        return _load_from_events(root)
+    return _load_from_log(root)
+
+
+def _load_from_log(root: Path) -> ExperimentReplay:
     logfile = root / LOGFILE_NAME
     if not logfile.is_file():
-        raise FileNotFoundError(f"No {LOGFILE_NAME} in {root}")
+        raise FileNotFoundError(f"No {EVENTS_FILENAME} or {LOGFILE_NAME} in {root}")
 
     resolver = _ImageResolver(root)
     events: List[ReplayEvent] = []
@@ -739,10 +798,7 @@ def load_replay(root: Path) -> ExperimentReplay:
             item = d.get("lamella") or d.get("grid")
             task, step = d.get("task_name"), d.get("task_step")
             event = ReplayEvent(
-                record.time,
-                EventKind.TASK,
-                f"{task or 'Task'} — {str(step).replace('_', ' ').title()}",
-                data=d,
+                record.time, EventKind.TASK, _task_summary(task, step), data=d
             )
         elif msg == "get_stage_position":
             if isinstance(d.get("pos"), dict):
@@ -818,7 +874,12 @@ def load_replay(root: Path) -> ExperimentReplay:
     _attach_images(events, resolver)
     _attach_stage_results(events, track)
     return ExperimentReplay(
-        root, events, track, records_read=read, records_unreadable=unreadable
+        root,
+        events,
+        track,
+        records_read=read,
+        records_unreadable=unreadable,
+        source=LOGFILE_NAME,
     )
 
 
@@ -847,8 +908,13 @@ def _attach_images(events: List[ReplayEvent], resolver: _ImageResolver) -> None:
     for e in events:
         if e.kind != EventKind.IMAGE or not e.saved:
             continue
-        settings = (e.data.get("metadata") or {}).get("image") or {}
-        path = resolver.resolve(settings.get("path"), settings.get("filename"), e.beam)
+        if e.data.get("path"):  # the event stream: the file actually written
+            path = resolver.resolve_path(e.data["path"])
+        else:  # the log: a directory and a stem, the suffix guessed
+            settings = e._image_settings
+            path = resolver.resolve(
+                settings.get("path"), settings.get("filename"), e.beam
+            )
         if path is not None:
             last_writer[path] = e
     for path, e in last_writer.items():
@@ -873,3 +939,255 @@ def _attach_stage_results(
             e.position = track[i][1]
         elif e.data.get("msg") == "move_stage_absolute":
             e.position = e.data.get("position")
+
+
+# ── reading events.jsonl ─────────────────────────────────────────────────────
+
+# The lifecycle events that end a task, as the step the timeline shows.
+_TASK_END_STEPS = {
+    "task_completed": "FINISHED",
+    "task_failed": "FAILED",
+    "task_cancelled": "CANCELLED",
+    "task_skipped": "SKIPPED",
+}
+_SPOT_BURN_ENDS = ("finished", "cancelled", "failed")
+
+
+def _record_time(record: Dict[str, Any]) -> Optional[datetime]:
+    """When an event happened, on the instrument's wall clock.
+
+    ``t`` carries its UTC offset. The offset is dropped rather than converted
+    to this machine's zone, so the time reads as the log and the FM files
+    record theirs: naive, on the instrument's clock.
+    """
+    try:
+        return datetime.fromisoformat(record["t"]).replace(tzinfo=None)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _recorded_image(time: datetime, payload: Dict[str, Any]) -> ReplayEvent:
+    beam = payload.get("beam_type")
+    shape = payload.get("shape") or []
+    data = dict(payload)
+    if len(shape) >= 2:
+        data["resolution"] = [shape[1], shape[0]]  # (width, height), as the log has it
+    size = f"{shape[1]}×{shape[0]}" if len(shape) >= 2 else "?"
+    summary = f"{_BEAM_LABEL.get(beam, str(beam))} image {size}, HFW {_um(payload.get('hfw'))} µm"
+    path = payload.get("path")
+    if path:
+        summary += f" — {_pure_path(path).name}"
+    return ReplayEvent(
+        time=time,
+        kind=EventKind.IMAGE,
+        summary=summary,
+        data=data,
+        beam=beam,
+        saved=bool(path),
+        position=payload.get("stage_position"),
+    )
+
+
+def _spot_events(burn: Dict[str, Any], burned: int) -> List[ReplayEvent]:
+    """One event per spot burned, placed at when its exposure started.
+
+    The burn records its points once, at the start, and each runs for the
+    exposure time in order; a cancelled burn stops at the point it was on.
+    """
+    exposure = burn["exposure_time"] or 0.0
+    current = burn["milling_current"]
+    current_txt = f", {current * 1e9:.2f} nA" if current else ""
+    events = []
+    for i, (x, y) in enumerate(burn["coordinates"][:burned]):
+        events.append(
+            ReplayEvent(
+                burn["time"] + timedelta(seconds=i * exposure),
+                EventKind.MILLING,
+                f"Burn spot {i + 1} ({exposure:g} s{current_txt})",
+                burn["item"],
+                burn["task"],
+                burn["step"],
+                data={
+                    "spot": (x, y),
+                    "field_of_view": burn["field_of_view"],
+                    "exposure_time": exposure,
+                    "milling_current": current,
+                },
+                duration=exposure,
+            )
+        )
+    return events
+
+
+def _load_from_events(root: Path) -> ExperimentReplay:
+    """The timeline from ``events.jsonl``.
+
+    Each event names its lamella or grid and task, so nothing is inferred from
+    order; an image names the file it was saved to. Warnings and errors are
+    human messages and stay in the log, so they are read from there, for the
+    span the events cover.
+
+    Only acquisitions through ``acquire.new_image`` are recorded. Live view and
+    the few direct ``acquire_image`` calls -- milling's own final image among
+    them -- are not, so a milling overlay stays drawn until the next recorded
+    full-frame FIB image, where the log would have ended it at the final image.
+    """
+    path = root / EVENTS_FILENAME
+    records = list(read_events(path))
+    with open(path, encoding="utf-8") as f:
+        lines = sum(1 for line in f if line.strip())
+
+    resolver = _ImageResolver(root)
+    events: List[ReplayEvent] = []
+    track: List[Tuple[datetime, Dict[str, Any]]] = []
+    steps: Dict[Any, Any] = {}  # task id -> the step it is on
+    item_types: Dict[str, str] = {}
+    mills: Dict[Tuple[Any, Any], ReplayEvent] = {}  # (task id, stage) -> started
+    burn: Optional[Dict[str, Any]] = None
+    burned = 0
+
+    for record in records:
+        time = _record_time(record)
+        if time is None:
+            continue
+        kind = record.get("kind")
+        payload = record.get("payload") or {}
+        item = (record.get("item") or {}).get("name")
+        task_ref = record.get("task") or {}
+        task, task_id = task_ref.get("name"), task_ref.get("id")
+        event: Optional[ReplayEvent] = None
+
+        if kind == "task_started" or kind in _TASK_END_STEPS or kind == "task_step":
+            if kind == "task_step":
+                step = payload.get("step")
+                if item and payload.get("item_type"):
+                    item_types.setdefault(item, payload["item_type"])
+            else:
+                step = _TASK_END_STEPS.get(kind, "STARTED")
+            summary = _task_summary(task, step)
+            if kind == "task_failed" and payload.get("error"):
+                summary += f": {payload['error']}"
+            event = ReplayEvent(time, EventKind.TASK, summary, data=payload)
+            steps[task_id] = step
+        elif kind == "image_acquired":
+            event = _recorded_image(time, payload)
+            if isinstance(event.position, dict):
+                track.append((time, event.position))
+        elif kind == "stage_position_changed":
+            position = payload.get("position")
+            if isinstance(position, dict):
+                track.append((time, position))
+                event = ReplayEvent(
+                    time,
+                    EventKind.STAGE,
+                    f"Stage at {_describe_position(position)}",
+                    data=payload,
+                    position=position,
+                )
+        elif kind == "milling_stage_started":
+            stage = payload.get("stage") or {}
+            event = ReplayEvent(
+                time,
+                EventKind.MILLING,
+                _milling_summary(payload.get("task_name"), stage, None),
+                data={
+                    "stage": stage,
+                    "milling_task_id": payload.get("task_id"),
+                    "milling_task_name": payload.get("task_name"),
+                },
+            )
+            mills[(payload.get("task_id"), stage.get("name"))] = event
+        elif kind == "milling_progress" and payload.get("status") == "stage-finished":
+            started = mills.pop(
+                (payload.get("task_id"), payload.get("stage_name")), None
+            )
+            if started is not None:
+                started.duration = (time - started.time).total_seconds()
+                started.summary = _milling_summary(
+                    started.data["milling_task_name"],
+                    started.data["stage"],
+                    started.duration,
+                )
+        elif kind == "spot_burn_started":
+            if burn is not None:  # a burn that never reported its end
+                events.extend(_spot_events(burn, burned))
+            burn = {
+                "time": time,
+                "item": item,
+                "task": task,
+                "step": steps.get(task_id),
+                "coordinates": [tuple(p) for p in payload.get("coordinates") or []],
+                "field_of_view": payload.get("field_of_view"),
+                "exposure_time": payload.get("exposure_time"),
+                "milling_current": payload.get("milling_current"),
+            }
+            burned = 0
+        elif kind == "spot_burn_progress" and burn is not None:
+            status = payload.get("status")
+            if status == "burning":
+                burned = max(burned, payload.get("current_point") or 0)
+            elif status in _SPOT_BURN_ENDS:
+                if status == "finished":
+                    burned = len(burn["coordinates"])
+                events.extend(_spot_events(burn, burned))
+                burn = None
+        elif kind in ("prompt_raised", "prompt_answered", "prompt_cancelled"):
+            prompt = payload.get("type", "Prompt")
+            if kind == "prompt_answered":
+                summary = _answer_summary(
+                    prompt,
+                    payload.get("response"),
+                    payload.get("answered_by"),
+                    bool(payload.get("adjusted")),
+                )
+            elif kind == "prompt_raised":
+                message = payload.get("message")
+                summary = f"{prompt} asked: {message}" if message else f"{prompt} asked"
+            else:
+                summary = f"{prompt} withdrawn"
+            event = ReplayEvent(time, EventKind.PROMPT, summary, data=payload)
+
+        if event is not None:
+            event.item, event.task = item, task
+            event.step = steps.get(task_id) if task_id is not None else None
+            events.append(event)
+        if kind in _TASK_END_STEPS:
+            steps.pop(task_id, None)
+
+    if burn is not None:
+        events.extend(_spot_events(burn, burned))
+
+    start = min((e.time for e in events), default=None)
+    logfile = root / LOGFILE_NAME
+    if start is not None and logfile.is_file():
+        for line in read_log_records(logfile):
+            if line.level in ("WARNING", "ERROR", "CRITICAL") and line.time >= start:
+                events.append(
+                    ReplayEvent(
+                        line.time,
+                        EventKind.MESSAGE,
+                        f"{line.level.title()}: {line.message}",
+                        data={"level": line.level},
+                    )
+                )
+
+    for fm_path in find_fluorescence_images(root):
+        event = _fluorescence_event(fm_path)
+        if event is not None:
+            events.append(event)
+
+    events.sort(key=lambda e: e.time)
+    _stamp_from_task_steps(events, (EventKind.FLUORESCENCE, EventKind.MESSAGE))
+    for e in events:
+        if e.item:
+            e.item_type = item_types.get(e.item)
+    track.sort(key=lambda p: p[0])
+    _attach_images(events, resolver)
+    return ExperimentReplay(
+        root,
+        events,
+        track,
+        records_read=len(records),
+        records_unreadable=lines - len(records),
+        source=EVENTS_FILENAME,
+    )
