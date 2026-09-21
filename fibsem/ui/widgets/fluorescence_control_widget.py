@@ -181,28 +181,6 @@ class FMControlWidget(QWidget):
         self.pushButton_run_autofocus = QPushButton("Run Auto-Focus", self)
         self.pushButton_cancel_acquisition = QPushButton("Cancel Acquisition", self)
 
-        # Default orientation for fluorescence pose when adding a lamella. This is a
-        # *planning* choice -- which pose new lamellas get their fluorescence pose
-        # derived into -- and both options are orientations; the device the pose is
-        # imaged at is not this control's business.
-        self.label_default_orientation = QLabel("Default Orientation", self)
-        self.comboBox_default_orientation = ValueComboBox(parent=self)
-        self.comboBox_default_orientation.addItems(["SEM", "FM"])
-        self.comboBox_default_orientation.setCurrentText(self.fm.default_orientation)
-        self.comboBox_default_orientation.setToolTip(
-            "Stage orientation used when computing the fluorescence pose for new lamellas"
-        )
-        # On an offset mount there is no FM orientation and the pose derivation cannot
-        # produce a fluorescence pose at all yet (it needs the device leg -- FIB-831),
-        # so a choice here would decide nothing. Disabled rather than hidden, with the
-        # reason where the user's pointer already is.
-        if not self.microscope.stage_is_compustage:
-            self.comboBox_default_orientation.setEnabled(False)
-            self.comboBox_default_orientation.setToolTip(
-                "Fluorescence poses cannot yet be derived on an offset-mounted FM; "
-                "mark positions from the FM overview instead."
-            )
-
         # Checkbox for lamella association
         self.checkBox_associate_with_lamella = QCheckBox(
             "Save to Selected Lamella", self
@@ -243,16 +221,14 @@ class FMControlWidget(QWidget):
 
         # create grid layout for buttons
         button_layout = QGridLayout()
-        button_layout.addWidget(self.label_default_orientation, 0, 0)
-        button_layout.addWidget(self.comboBox_default_orientation, 0, 1)
-        button_layout.addWidget(self.checkBox_associate_with_lamella, 1, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_toggle_acquisition, 2, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_run_autofocus, 3, 0, 1, 2)
-        button_layout.addWidget(self.pushButton_acquire_single_image, 4, 0)
-        button_layout.addWidget(self.pushButton_acquire_zstack, 4, 1)
-        button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
-        button_layout.addWidget(self.progressText, 6, 0, 1, 2)
-        button_layout.addWidget(self.progressBar_current_acquisition, 7, 0, 1, 2)
+        button_layout.addWidget(self.checkBox_associate_with_lamella, 0, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_toggle_acquisition, 1, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_run_autofocus, 2, 0, 1, 2)
+        button_layout.addWidget(self.pushButton_acquire_single_image, 3, 0)
+        button_layout.addWidget(self.pushButton_acquire_zstack, 3, 1)
+        button_layout.addWidget(self.pushButton_cancel_acquisition, 4, 0, 1, 2)
+        button_layout.addWidget(self.progressText, 5, 0, 1, 2)
+        button_layout.addWidget(self.progressBar_current_acquisition, 6, 0, 1, 2)
 
         # Main layout with scroll area and buttons
         layout = QVBoxLayout()
@@ -315,9 +291,6 @@ class FMControlWidget(QWidget):
         self.btn_save_objective_calibration.clicked.connect(
             self.objectiveControlWidget.save_calibration
         )
-        self.comboBox_default_orientation.currentTextChanged.connect(
-            lambda orientation: setattr(self.fm, "default_orientation", orientation)
-        )
 
         # microscope signals
         self.fm.acquisition_signal.connect(self.update_image)
@@ -343,9 +316,6 @@ class FMControlWidget(QWidget):
         self.cameraWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.autofocusWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.zParametersWidget.settings_changed.connect(self._on_fm_settings_changed)
-        self.comboBox_default_orientation.currentTextChanged.connect(
-            self._on_fm_settings_changed
-        )
         self.objectiveControlWidget.doubleSpinBox_focus_position.valueChanged.connect(
             self._on_fm_settings_changed
         )
@@ -1161,7 +1131,6 @@ class FMControlWidget(QWidget):
                 if self._configured_objective("limit_position") is None
                 else None
             ),
-            default_orientation=self.fm.default_orientation,
         )
 
     def _configured_objective(self, name: str) -> Optional[float]:
@@ -1215,7 +1184,6 @@ class FMControlWidget(QWidget):
                 and self._configured_objective("limit_position") is None
             ):
                 self.objectiveControlWidget._set_limit_position(config.limit_position)
-            self.comboBox_default_orientation.setCurrentText(config.default_orientation)
         finally:
             self._loading_config = False
 
