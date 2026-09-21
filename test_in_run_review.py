@@ -15,17 +15,19 @@ decision lands on it. So:
 * **Confirm** hands the points back and the worker prints what it got, with
   how far each one moved;
 * **Reject** raises on the worker instead, the way a failed task unwinds;
+* **Attention Required** lights, and brings you back to it if you look
+  elsewhere; so does **Go to Review** on the Microscope tab's prompt bar;
 * closing the window while it is parked takes the question back.
 
-Nothing in the app asks this way yet, so the wait is played here, by
-``_HarnessAsker``: the real owner of the wait is ``QtResponder``, which does not
-record questions until it is taught to. That also means **Attention Required
-does not light** in this harness -- the hold comes from the responder, and no
-responder is involved. Everything the record and the Review tab do is real.
+The question goes through the window's own ``QtResponder``, exactly as a task's
+does. Interactive review is switched on for this window only -- the preference
+on disk is not touched -- because without the Review tab the same question is
+the old Detection tab prompt.
 
 The prediction is fabricated and randomly placed -- no model, no ``ml`` extra
--- so each round is a different correction to make. Nothing in the real
-workflow asks this way yet; this file is the only caller, which is the point.
+-- so each round is a different correction to make. A real task's detection
+takes the same path whenever interactive review is on: this is a way to see it
+without a model, a sample or a mill.
 
 Not a pytest module despite the name: ``test_*.py`` outside ``tests/`` is this
 repo's convention for a GUI harness.
@@ -46,7 +48,6 @@ from psygnal.containers import EventedDict
 from PyQt5.QtWidgets import QApplication
 
 from fibsem import acquire, utils
-from fibsem.applications.autolamella.proposals import DecisionOutcome
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
@@ -55,10 +56,6 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_ui_module
 from fibsem.applications.autolamella.workflows.interaction import ConfirmDetection, ask
-from fibsem.applications.autolamella.workflows.question_adapters import (
-    answer_from,
-    proposal_for,
-)
 from fibsem.detection.detection import DetectedFeatures, ImageCentre, LamellaCentre
 from fibsem.structures import BeamType, ImageSettings, MicroscopeState, Point
 
@@ -97,45 +94,6 @@ def _fake_detection(image) -> DetectedFeatures:
     )
 
 
-class _HarnessAsker:
-    """Stands in for the responder that will own this wait: records the
-    question, and completes the future when a decision lands on it.
-
-    Harness only. It raises no hold and has no nonce, which is exactly what
-    the real responder brings -- so it is not something to build on.
-    """
-
-    def __init__(self, experiment, item_id: str, task_name: str) -> None:
-        self._experiment = experiment
-        self._item_id = item_id
-        self._task_name = task_name
-
-    def submit(self, request, future) -> None:
-        experiment = self._experiment
-        item = experiment.get_item_by_id(self._item_id)
-        proposal = proposal_for(request, experiment, item)
-        if proposal is None:  # nothing to record: the real asker prompts instead
-            future.set_exception(RuntimeError("the question was not recordable"))
-            return
-        experiment.ask_proposal(self._item_id, self._task_name, proposal)
-
-        def on_decided(item_id: str, task_name: str) -> None:
-            if (item_id, task_name) != (self._item_id, self._task_name):
-                return
-            decision = proposal.current
-            if decision is None or future.done():
-                return
-            experiment.decided.disconnect(on_decided)
-            if decision.outcome is DecisionOutcome.Confirmed:
-                future.set_result(answer_from(request, decision.values))
-            elif decision.outcome is DecisionOutcome.Rejected:
-                future.set_exception(RuntimeError(f"rejected: {decision.reason}"))
-            else:
-                future.cancel()
-
-        experiment.decided.connect(on_decided)
-
-
 def _pretend_to_be_a_task(window, experiment, lamella) -> None:
     """The workflow thread's part: acquire, predict, ask, use the answer.
 
@@ -166,9 +124,15 @@ def _pretend_to_be_a_task(window, experiment, lamella) -> None:
         print(f"    {name}: proposed at ({px.x:.0f}, {px.y:.0f}) px")
     print("    Answer it in the Review tab.\n")
 
-    responder = _HarnessAsker(experiment, lamella.id, TASK)
+    # The window's own responder, as a task's parent_ui hands it over. It
+    # records the question because the request says who is asking and the
+    # Review tab is showing; otherwise this would be the Detection tab prompt.
+    responder = window.autolamella_ui.ui_responder
     try:
-        answer = ask(responder, ConfirmDetection(detection=detection))
+        answer = ask(
+            responder,
+            ConfirmDetection(detection=detection, item_id=lamella.id, task_name=TASK),
+        )
     except Exception as exc:  # noqa: BLE001 - the harness reports it
         print(f"\n--- the task unwound: {type(exc).__name__}: {exc} ---\n")
         return
@@ -184,8 +148,20 @@ def _pretend_to_be_a_task(window, experiment, lamella) -> None:
     print("    Milling would carry on from here.\n")
 
 
+def _keep_the_fabrication_out_of_the_training_data() -> None:
+    """A confirmed detection writes its image, mask and corrections to the ML
+    data directory, for training. This one is invented, so it must not."""
+    from fibsem.detection import utils as det_utils
+
+    def not_written(det, initial_features=None) -> None:
+        print("    (training data not written: this detection is fabricated)")
+
+    det_utils.save_ml_feature_data = not_written
+
+
 def main() -> int:
     logging.basicConfig(level=logging.WARNING)
+    _keep_the_fabrication_out_of_the_training_data()
     app = QApplication(sys.argv)
     window = main_ui_module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
@@ -209,6 +185,8 @@ def main() -> int:
 
     window.autolamella_ui.experiment = experiment
     window._on_experiment_update()
+    window._preferences.features.proposer_reviewer_workflow_enabled = True
+    window._apply_review_visibility()
     window.tab_widget.setCurrentWidget(window.review_tab)
     window.show()
 

@@ -40,6 +40,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
 )
 from fibsem.applications.autolamella.workflows.question_adapters import (
     answer_from,
+    answered,
     proposal_for,
 )
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
@@ -483,3 +484,53 @@ def test_a_question_with_no_checkpoint_still_names_a_proposer(experiment):
     _, proposal = _record(experiment, _detection())
 
     assert proposal.provenance["proposer"] == "segmentation model"
+
+
+# ---------------------------------------------------------------------------
+# What else an answer entails
+# ---------------------------------------------------------------------------
+
+
+def test_a_confirmed_detection_writes_its_training_data(experiment, monkeypatch):
+    """What the Detection tab writes on its Continue click, so a question moved
+    onto the record does not quietly stop writing it: the corrected set,
+    measured against what the model said."""
+    from fibsem.detection import utils as det_utils
+
+    written = []
+    monkeypatch.setattr(
+        det_utils,
+        "save_ml_feature_data",
+        lambda det, initial_features=None: written.append((det, initial_features)),
+    )
+    request, proposal = _record(experiment, _detection())
+    _confirm(experiment, Point(2, 6))
+    answer = answer_from(request, proposal.current.values)
+
+    answered(request, answer)
+
+    assert len(written) == 1
+    assert written[0][0] is answer
+    assert written[0][1][0].px == Point(10, 20)
+    assert answer.mask.dtype == np.uint8, "PIL cannot write anything else"
+
+
+def test_a_failed_export_does_not_fail_the_answer(experiment, monkeypatch, caplog):
+    """By then the decision is on the record and the task is about to carry
+    on; a CSV that could not be written is a log line, not a failed run."""
+    from fibsem.detection import utils as det_utils
+
+    def boom(det, initial_features=None):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(det_utils, "save_ml_feature_data", boom)
+    request, proposal = _record(experiment, _detection())
+    _confirm(experiment, Point(2, 6))
+
+    answered(request, answer_from(request, proposal.current.values))
+
+    assert "what follows an answer failed" in caplog.text
+
+
+def test_a_request_with_no_adapter_has_nothing_to_follow(experiment):
+    answered(Confirm(message="Continue?"), True)
