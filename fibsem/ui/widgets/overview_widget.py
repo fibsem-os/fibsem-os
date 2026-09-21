@@ -3196,11 +3196,18 @@ class FibsemOverviewWidget(QWidget):
             logger.debug(f"Could not check the grid against the stage limits: {e}")
             return []
 
-    def _target_offset(self) -> Optional[Tuple[float, float]]:
+    def _target_offset(self) -> Optional[Tuple[float, float, float]]:
         """How far the grid's centre sits from the stage, in metres, or None for on it.
 
         From the cached stage position, like everything else here -- opening a dialog
-        must not reach for the instrument.
+        must not reach for the instrument. `acquire` has just refreshed that cache, so
+        what this reports is measured against the pose the run will actually use.
+
+        z as well as x and y. It is not a drag -- the canvas cannot be dragged in z --
+        but it is a move the run makes: the offset is resolved along the sample surface,
+        which on a pre-tilted stage climbs as it goes, and it includes any lift the stage
+        has off the map's plane. Two components said what was dragged; three say what
+        the stage will do (FIB-1007).
         """
         target = self.target
         if target is None or self._stage_position is None:
@@ -3208,6 +3215,7 @@ class FibsemOverviewWidget(QWidget):
         return (
             target.x - self._stage_position.x,
             target.y - self._stage_position.y,
+            (target.z or 0.0) - (self._stage_position.z or 0.0),
         )
 
     def _acquire_worker(
