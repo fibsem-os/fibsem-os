@@ -386,6 +386,18 @@ class GridTask(ABC):
         )
         self.grid.task_state.step = message
         self.grid.task_state.status_message = display_message or ""
+        record = getattr(self.microscope, "record_event", None)
+        if message not in _LIFECYCLE_STEPS and record is not None:
+            # STARTED / FINISHED are recorded as task_started / task_completed.
+            record(
+                "task_step",
+                {
+                    "step": message,
+                    "display_message": display_message,
+                    "item_type": "grid",
+                    "task_type": self.task_type,
+                },
+            )
         signal = getattr(self.parent_ui, "step_update_signal", None)
         if message not in _LIFECYCLE_STEPS and signal is not None:
             signal.emit(display_message or message)

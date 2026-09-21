@@ -1712,6 +1712,10 @@ class TescanMicroscope(FibsemMicroscope):
 
         hfw = self.get("hfw", beam_type)
         resolution = self.get("resolution", beam_type)
+        # milling_current None: TESCAN burns at SPOT_BURN_PRESET, not the request
+        self._record_spot_burn_started(
+            coordinates, beam_type, exposure_time, None, len(dropped), field_of_view=hfw
+        )
         layer = self._create_spot_burn_layer(
             coordinates=coordinates,
             exposure_time=exposure_time,

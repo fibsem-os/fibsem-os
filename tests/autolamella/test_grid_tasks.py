@@ -227,6 +227,31 @@ class TestLifecycle:
         assert (experiment.grid_path(grid) / "echo" / "hello-1.txt").exists()
         assert grid.has_completed_task("echo")
 
+    def test_a_step_is_recorded_as_the_grid_s(self, microscope, experiment, tmp_path):
+        from fibsem.applications.autolamella.event_recording import (
+            EVENTS_FILENAME,
+            EventRecorder,
+            read_events,
+        )
+
+        grid = _grid(experiment)
+        recorder = EventRecorder(microscope, experiment_path=tmp_path)
+        try:
+            run_grid_task(microscope, "echo", experiment, grid)
+        finally:
+            recorder.close()
+        steps = [
+            r
+            for r in read_events(tmp_path / EVENTS_FILENAME)
+            if r["kind"] == "task_step"
+        ]
+        # STARTED / FINISHED are the lifecycle events, not steps
+        assert [s["payload"]["step"] for s in steps] == ["WROTE"]
+        (step,) = steps
+        assert step["payload"]["item_type"] == "grid"
+        assert step["item"]["name"] == grid.name
+        assert step["task"]["name"] == "echo"
+
     def test_output_layout_is_grids_name_task(self, microscope, experiment, tmp_path):
         grid = _grid(experiment, "grid-birch")
         run_grid_task(microscope, "echo", experiment, grid)

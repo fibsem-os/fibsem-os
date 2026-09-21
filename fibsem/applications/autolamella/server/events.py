@@ -16,9 +16,10 @@ Rules the taps live by:
   automatic GC precisely because off-thread Qt finalization crashes.
 * **Metadata, not pixels.** Acquisition events carry beam/field-of-view/shape;
   the images themselves are fetched through the preview endpoints on demand.
-  Known upstream gap: the acquisition signals fire only from the streaming
-  live-view worker -- a one-shot ``acquire_image`` emits nothing on them, so
-  single-shot acquisitions are invisible to this stream until that changes.
+  The acquisition signals fire only from the streaming live-view worker. A
+  one-shot acquisition reaches the stream as ``image_acquired`` (on
+  ``record_signal``) when it goes through ``acquire.new_image``, as workflow
+  reference images do; a direct ``microscope.acquire_image`` call still does not.
 
 Sequence numbers make polling honest: a client asks for everything after seq
 N, and if eviction has eaten past N the response's ``oldest_available`` says
@@ -213,12 +214,29 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     """
     disposers: List[Callable[[], None]] = []
 
+    def append(kind: str, serialize: Callable[[Any], Dict[str, Any]], value) -> None:
+        # psygnal hands a subscriber's exception back to whoever emitted -- often
+        # the milling thread. An event that cannot be recorded is lost; the
+        # emitter never hears about it.
+        try:
+            buffer.append(kind, serialize(value))
+        except Exception:  # noqa: BLE001
+            logging.debug(f"could not record a {kind} event", exc_info=True)
+
     def tap(signal, kind: str, serialize: Callable[[Any], Dict[str, Any]]):
         def callback(value):
-            buffer.append(kind, serialize(value))
+            append(kind, serialize, value)
 
         signal.connect(callback)
         disposers.append(lambda: signal.disconnect(callback))
+
+    # Facts for the record (FibsemMicroscope.record_event): the producer names
+    # the kind.
+    def on_record(kind: str, payload: Any) -> None:
+        append(kind, to_plain, payload)
+
+    microscope.record_signal.connect(on_record)
+    disposers.append(lambda: microscope.record_signal.disconnect(on_record))
 
     tap(microscope.milling_progress_signal, "milling_progress", to_plain)
     tap(microscope.spot_burn_progress_signal, "spot_burn_progress", to_plain)

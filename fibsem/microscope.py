@@ -102,6 +102,12 @@ class FibsemMicroscope(ABC):
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None
 
+    # (kind, payload): a fact for the experiment's record -- an image acquired, a
+    # task step. Emit through record_event, which never raises; the app records it
+    # to events.jsonl (autolamella/event_recording.py). Progress for a UI belongs
+    # on the typed signals above, not here.
+    record_signal = Signal(str, object)
+
     @abstractmethod
     def connect_to_microscope(
         self, ip_address: str, port: int, reset_beam_shift: bool = True
@@ -1277,6 +1283,10 @@ class FibsemMicroscope(ABC):
             )
         coordinates = in_bounds
 
+        self._record_spot_burn_started(
+            coordinates, beam_type, exposure_time, milling_current, len(dropped)
+        )
+
         total_estimated_time = len(coordinates) * exposure_time
         total_remaining_time = total_estimated_time
 
@@ -2215,6 +2225,62 @@ class FibsemMicroscope(ABC):
         """
         return FibsemHardwareGeometry.from_system_settings(
             self.system, is_compustage=self.stage_is_compustage
+        )
+
+    def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
+        """Report a fact for the experiment's record on ``record_signal``.
+
+        Never raises. psygnal hands a subscriber's exception back to whoever
+        emitted, and the callers are acquiring and running tasks: a failure to
+        record must cost the record, never the acquisition.
+
+        ``payload`` is small plain data built by the caller -- no pixels. Kinds
+        recorded today:
+
+        * ``image_acquired`` -- from ``acquire.new_image``, with the saved path
+        * ``task_step`` -- from the AutoLamella task bases
+        * ``milling_stage_started`` -- from ``FibsemMillingTask``, with the stage
+        * ``spot_burn_started`` -- from ``run_spot_burn``, with the field of view
+        """
+        try:
+            self.record_signal.emit(kind, payload)
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug(f"could not record a {kind} event", exc_info=True)
+
+    def _record_spot_burn_started(
+        self,
+        coordinates: List[Point],
+        beam_type: BeamType,
+        exposure_time: float,
+        milling_current: Optional[float],
+        dropped: int,
+        field_of_view: Optional[float] = None,
+    ) -> None:
+        """Record what a spot burn is about to burn, for the experiment's record.
+
+        The coordinates are fractions of the beam's scan field, so the field of
+        view is what places them on an image taken at another width; it is read
+        here unless the caller has it. How the burn ends is already on
+        ``spot_burn_progress_signal``. Never raises: a burn that cannot be
+        described still burns.
+        """
+        if field_of_view is None:
+            try:
+                field_of_view = self.get_field_of_view(beam_type)
+            except Exception:  # noqa: BLE001 - recording must not matter
+                logging.debug(
+                    "spot burn recorded without its field of view", exc_info=True
+                )
+        self.record_event(
+            "spot_burn_started",
+            {
+                "beam_type": beam_type.name,
+                "coordinates": [[point.x, point.y] for point in coordinates],
+                "field_of_view": field_of_view,
+                "exposure_time": exposure_time,
+                "milling_current": milling_current,
+                "dropped": dropped,
+            },
         )
 
     def _set_additional_metadata(self, image: FibsemImage) -> None:

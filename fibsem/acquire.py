@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import copy
+import logging
 import os
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from fibsem import manufacturers
 from fibsem.autofunctions.acb import run_auto_contrast_brightness
@@ -49,11 +50,44 @@ def new_image(
     )
 
     # save image
+    path = None
     if settings.save:
         filename = os.path.join(settings.path, filename)  # type: ignore
-        image.save(path=filename)
+        path = image.save(path=filename)
+
+    microscope.record_event("image_acquired", _acquisition_record(image, path))
 
     return image
+
+
+def _acquisition_record(image: FibsemImage, path: Optional[str]) -> Dict[str, Any]:
+    """What the experiment's record says about an acquisition: how, and where it went.
+
+    ``path`` is the file actually written -- suffix and extension included, which
+    the log's ``filename`` never had -- or None when this acquisition was not
+    saved here, which is most of them. None does not mean no copy exists: the
+    alignment and autofocus diagnostics save their own images, outside this path.
+    Not the pixels, and not the full metadata: a saved file embeds that.
+    """
+    record: Dict[str, Any] = {"path": path, "shape": list(image.data.shape)}
+    try:
+        settings = image.metadata.image_settings
+        record.update(
+            beam_type=settings.beam_type.name,
+            filename=settings.filename,
+            hfw=settings.hfw,
+            dwell_time=settings.dwell_time,
+            reduced_area=(
+                settings.reduced_area.to_dict()
+                if settings.reduced_area is not None
+                else None
+            ),
+            pixel_size=image.metadata.pixel_size.x,
+            stage_position=image.metadata.microscope_state.stage_position.to_dict(),
+        )
+    except Exception:  # noqa: BLE001 - an image without full metadata still says where it went
+        logging.debug("recording an acquisition without its metadata", exc_info=True)
+    return record
 
 
 def acquire_image(microscope: FibsemMicroscope, settings: ImageSettings) -> FibsemImage:
