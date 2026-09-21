@@ -632,3 +632,56 @@ def test_an_unknown_provenance_reads_as_observed(tmp_path):
         Lamella.from_dict(data).provenance_of(FLUORESCENCE_POSE)
         is PoseProvenance.OBSERVED
     )
+
+
+# ── the Arctis simulator, as configured ─────────────────────────────────
+
+
+def _arctis():
+    import os
+
+    import fibsem.config as cfg
+
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    )
+    return microscope
+
+
+@pytest.mark.parametrize("orientation", ["SEM", MILLING_ORIENTATION])
+def test_the_arctis_images_from_the_beam_side_so_the_fluorescence_pose_is_a_copy(
+    orientation,
+):
+    """Its objective images from the SEM and milling poses, as declared, so a lamella
+    marked there is looked at under fluorescence where it was marked -- not flipped
+    to t = -180, which is somewhere the person was not looking."""
+    microscope = _arctis()
+    marked = _at(microscope, orientation)
+
+    poses = build_lamella_poses(microscope, marked)
+
+    assert poses.fluorescence.stage_position.t == pytest.approx(marked.t)
+    assert poses.fluorescence.stage_position.x == pytest.approx(marked.x)
+    assert poses.observed == MILLING_POSE
+
+
+def test_the_arctis_still_flips_from_the_pose_it_cannot_image_from():
+    microscope = _arctis()
+
+    poses = build_lamella_poses(microscope, _at(microscope, "FIB"))
+
+    assert (
+        microscope.get_stage_orientation(poses.fluorescence.stage_position)
+        == FLUORESCENCE_ORIENTATION
+    )
+
+
+def test_a_mark_through_the_arctis_objective_at_the_sem_pose_is_the_fluorescence_pose():
+    microscope = _arctis()
+
+    poses = build_lamella_poses(
+        microscope, _at(microscope, "SEM"), observed=FLUORESCENCE_POSE
+    )
+
+    assert poses.observed == FLUORESCENCE_POSE
+    assert poses.provenance[MILLING_POSE] is PoseProvenance.DERIVED

@@ -114,7 +114,7 @@ def test_a_compustage_tileset_needs_the_fm_pose():
     """The runner now applies the gate the widget always applied.
 
     A tileset walks the stage and stitches through a frame built from the pose, so it
-    requires the pose the objective images from -- `["FM"]` on a compustage. The
+    requires a pose the objective images from -- whatever the FM device declares. The
     widget's acquire button was already gated exactly this way; only direct API calls
     could previously start a tileset from SEM, through the runner's own inlined list.
     """
@@ -129,7 +129,9 @@ def test_a_compustage_tileset_needs_the_fm_pose():
     )
     assert tiles[0][0] is not None
 
-    microscope.move_to_orientation("SEM")
+    # FIB, not SEM: this compustage declares that its objective images from the SEM
+    # and milling poses too, so FIB is the beam pose left that it cannot use.
+    microscope.move_to_orientation("FIB")
     with pytest.raises(ValueError, match="Re-pose"):
         acquire_tileset(
             microscope=microscope,
