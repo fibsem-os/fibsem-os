@@ -26,6 +26,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from psygnal.containers import EventedDict
+from PyQt5.QtCore import QCoreApplication, QEvent
 from PyQt5.QtWidgets import QWidget
 
 from fibsem import conversions
@@ -79,6 +80,9 @@ class _DetWidget(QWidget):
     def confirm_button_clicked(self):
         pass
 
+    def _teardown_connections(self):
+        """Called when the window disconnects from the microscope."""
+
 
 @pytest.fixture
 def window(qapp, tmp_path):
@@ -111,14 +115,24 @@ def window(qapp, tmp_path):
     win.tab_widget.setCurrentIndex(0)
 
     yield win
-    if ui.microscope is not None:
-        ui.microscope.disconnect()
+    # Taken down properly, not just hidden. Every test here builds a whole main
+    # window, and one that is only closed stays alive -- its widgets, and the
+    # event-recorder thread that disconnect_from_microscope stops. Two dozen of
+    # them left behind make the next test file's app-wide setStyleSheet, which
+    # re-polishes every live widget, take minutes.
+    microscope = ui.microscope
+    ui.disconnect_from_microscope()
+    if microscope is not None:
+        microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
         win.close()
     finally:
         qapp.quit = original_quit
+    win.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    qapp.processEvents()
 
 
 @pytest.fixture(autouse=True)
