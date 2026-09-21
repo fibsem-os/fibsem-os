@@ -14,6 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+from psygnal.containers import EventedList
 
 pytest.importorskip("PyQt5")
 
@@ -3038,8 +3039,7 @@ def _lamella_with_poses(name: str, microscope, tmp_path, x: float, y: float):
     marked = FibsemStagePosition(x=x, y=y, z=0.0, r=beam.r, t=beam.t)
     poses = build_lamella_poses(microscope, marked)
     lamella = Lamella(petname=name, path=str(tmp_path / name), number=1)
-    lamella.milling_pose = poses.milling
-    lamella.fluorescence_pose = poses.fluorescence
+    poses.write_to(lamella)
     return lamella
 
 
@@ -3352,7 +3352,9 @@ def _experiment_with(positions, tmp_path):
     class _Exp:
         def __init__(self):
             self.path = str(tmp_path)
-            self.positions = list(positions)
+            # Evented, as the real one is: the tab announces a moved pose through
+            # `positions.events.changed`, the only notification a pose write gets.
+            self.positions = EventedList(positions)
             self.saves = 0
 
         def save(self):
@@ -3394,23 +3396,24 @@ def _wired_host(qapp, tmp_path, positions=()):
     return host
 
 
-def _real_lamella(name, microscope, tmp_path, x=100e-6, y=50e-6):
-    """A real `Lamella` with both poses, so the property setters behave as they do live."""
-    from fibsem.applications.autolamella.poses import (
-        MILLING_ORIENTATION,
-        build_lamella_poses,
-    )
+def _real_lamella(name, microscope, tmp_path, x=100e-6, y=50e-6, marked_at="FM"):
+    """A real `Lamella` with both poses, so the property setters behave as they do live.
+
+    Marked through the objective by default -- a target found in fluorescence -- so
+    its milling pose is the derived one and follows a move made on this tab. Pass
+    `marked_at="MILLING"` for one marked at the beams, whose milling pose stays.
+    """
+    from fibsem.applications.autolamella.poses import build_lamella_poses
     from fibsem.applications.autolamella.structures import Lamella
     from fibsem.structures import FibsemStagePosition
 
-    beam = microscope.get_orientation(MILLING_ORIENTATION)
+    beam = microscope.get_orientation(marked_at)
     poses = build_lamella_poses(
         microscope,
         FibsemStagePosition(x=x, y=y, z=0.0, r=beam.r, t=beam.t),
     )
     lamella = Lamella(petname=name, path=str(tmp_path / name), number=1)
-    lamella.milling_pose = poses.milling
-    lamella.fluorescence_pose = poses.fluorescence
+    poses.write_to(lamella)
     return lamella
 
 
@@ -3509,7 +3512,7 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     before = deepcopy(lamella.poses)
 
     asked = []
@@ -3543,7 +3546,7 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     target = _named("target", 400e-6, -200e-6)
@@ -3563,6 +3566,36 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
     host._teardown_fm_overview_widget()
 
 
+def test_a_move_leaves_a_milling_pose_set_at_the_beams_and_says_so(
+    qapp, tmp_path, monkeypatch
+):
+    """A lamella marked at the beams: its milling pose is somebody's. Dragging it on
+    this canvas moves the fluorescence pose only, and the confirmation says that
+    before anything moves, since none of it is visible from here."""
+    from fibsem.applications.autolamella.ui import (
+        autolamella_fluorescence_overview_tab as module,
+    )
+
+    host = _wired_host(qapp, tmp_path)
+    microscope = host.autolamella_ui.microscope
+    lamella = _real_lamella("Lamella-01", microscope, tmp_path, marked_at="MILLING")
+    host.autolamella_ui.experiment.positions[:] = [lamella]
+    asked = []
+    monkeypatch.setattr(
+        module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or True
+    )
+
+    host.fm_overview_tab._on_move_requested(
+        "Lamella-01", _named("target", 400e-6, -200e-6)
+    )
+
+    assert "stays where it is" in asked[0]["text"]
+    assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
+    assert lamella.milling_pose.stage_position.x == pytest.approx(100e-6)
+
+    host._teardown_fm_overview_widget()
+
+
 def test_a_move_rewrites_the_stage_positions_and_nothing_else(
     qapp, tmp_path, monkeypatch
 ):
@@ -3578,7 +3611,7 @@ def test_a_move_rewrites_the_stage_positions_and_nothing_else(
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_pose.electron_detector.brightness = 0.123
     lamella.fluorescence_pose.objective_position = 7.7e-3
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.fm_overview_tab._on_move_requested(
@@ -3604,7 +3637,7 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_pose.electron_detector.brightness = 0.123
     del lamella.poses["FLUORESCENCE"]
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.fm_overview_tab._on_move_requested(
@@ -3632,7 +3665,7 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_angle = 999.0
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.fm_overview_tab._on_move_requested(
@@ -3656,7 +3689,7 @@ def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
 
     host = _wired_host(qapp, tmp_path)
     lamella = _real_lamella("Lamella-01", host.autolamella_ui.microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     asked = []
     monkeypatch.setattr(
         module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or True
@@ -3877,7 +3910,7 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions[:] = [lamella]
     host._update_fm_overview_positions()
     before = host.fm_overview_widget._positions[0].x
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
