@@ -87,19 +87,25 @@ class _SelectedList:
         pass
 
 
-class _SelectedLamellaPanel:
-    """The Selected Lamella panel, which refreshes its pose rows in place.
+def _panel():
+    """The real Selected Lamella panel. A followed pose whose row is not redrawn leaves
+    the panel displaying a position that pose no longer has, which is the same wrong
+    answer the rule exists to remove -- just on screen instead of on disk."""
+    from fibsem.applications.autolamella.ui.selected_lamella_widget import (
+        SelectedLamellaWidget,
+    )
 
-    Recorded rather than ignored: a synced pose whose row is not redrawn leaves the
-    panel displaying a position that pose no longer has, which is the same wrong answer
-    the sync exists to remove -- just on screen instead of on disk.
-    """
+    return SelectedLamellaWidget()
 
-    def __init__(self):
-        self.refreshed = {}
 
-    def refresh_pose(self, pose_name, pretty):
-        self.refreshed[pose_name] = pretty
+def _shown(panel, pose_name):
+    """The stage position the panel's row for *pose_name* is showing."""
+    rows = panel.pose_list._list
+    for i in range(rows.count()):
+        row = rows.itemWidget(rows.item(i))
+        if row.pose_name == pose_name:
+            return row._state.stage_position
+    raise AssertionError(f"the panel shows no {pose_name} row")
 
 
 def test_dragging_a_lamella_on_the_overview_moves_its_fluorescence_pose(tmp_path):
@@ -241,7 +247,7 @@ def _pose_row_ui(module, microscope, lamella):
             self.microscope = microscope
             self.experiment = _Experiment([lamella])
             self.lamella_list = _SelectedList()
-            self.selected_lamella_widget = _SelectedLamellaPanel()
+            self.selected_lamella_widget = _panel()
 
     return _UI()
 
@@ -273,7 +279,7 @@ def test_setting_the_milling_pose_from_the_pose_rows_moves_the_fluorescence_pose
         microscope.get_stage_orientation(lamella.fluorescence_pose.stage_position)
         == FLUORESCENCE_ORIENTATION
     )
-    assert "FLUORESCENCE" in ui.selected_lamella_widget.refreshed
+    assert _shown(ui.selected_lamella_widget, "FLUORESCENCE").x == pytest.approx(400e-6)
 
 
 def test_setting_the_fluorescence_pose_from_the_pose_rows_is_not_undone(
@@ -356,7 +362,7 @@ def test_setting_the_milling_pose_in_the_coincidence_viewer_moves_it_too(
             self.microscope = microscope
             self._selected_lamella = lamella
             self.experiment = _Experiment([lamella])
-            self.selected_lamella_widget = _SelectedLamellaPanel()
+            self.selected_lamella_widget = _panel()
 
     viewer = _Viewer()
     viewer._on_slw_pose_update("MILLING")
@@ -368,7 +374,9 @@ def test_setting_the_milling_pose_in_the_coincidence_viewer_moves_it_too(
         microscope.get_stage_orientation(lamella.fluorescence_pose.stage_position)
         == FLUORESCENCE_ORIENTATION
     )
-    assert "FLUORESCENCE" in viewer.selected_lamella_widget.refreshed
+    assert _shown(viewer.selected_lamella_widget, "FLUORESCENCE").x == pytest.approx(
+        lamella.fluorescence_pose.stage_position.x
+    )
     # this copy never recomputed the milling angle either, so the lamella went on
     # reporting the angle it was marked at rather than the one it now sits at
     assert lamella.milling_angle is not None

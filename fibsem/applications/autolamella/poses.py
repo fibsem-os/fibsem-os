@@ -356,6 +356,72 @@ def move_consequence(lamella: "Lamella", name: str) -> str:
     return f"Its {noun} was set by hand and stays where it is."
 
 
+def derivation_question(
+    lamella: "Lamella", name: str, orientation: Optional[str] = None
+) -> str:
+    """The confirmation for *Derive*, in the words a person needs before saying yes.
+
+    Every derivation overwrites, so every one confirms -- and the one that overwrites
+    a pose somebody set by hand says so, since that is the case the answer changes.
+    """
+    noun = POSE_NOUNS[name]
+    into = f" into the {orientation} orientation" if orientation else ""
+    text = (
+        f"Derive the {noun} of {lamella.name} from its "
+        f"{POSE_NOUNS[other_pose(name)]}{into}?"
+    )
+    if (
+        lamella.poses.get(name) is not None
+        and lamella.provenance_of(name) is PoseProvenance.OBSERVED
+    ):
+        text += f"\n\nThis overwrites a {noun} that was set by hand."
+    if name == FLUORESCENCE_POSE:
+        text += (
+            "\n\nThe objective position is kept; refocus before acquiring if the "
+            "orientation changed."
+        )
+    return text
+
+
+# How far apart the two poses may be, from what each predicts of the other, before a
+# person is told. Two hand-centred poses legitimately differ by a few microns; tens
+# means one was moved and the other was not (FIB-954).
+DISAGREEMENT_WARNING_M = 20e-6
+
+
+def pose_disagreement(
+    microscope: "FibsemMicroscope", lamella: "Lamella"
+) -> Optional[float]:
+    """How far the fluorescence pose is from where the milling pose predicts it [m].
+
+    Arithmetic on two stored positions: nothing is asked of the instrument, so it is
+    safe to compute on a UI event. Replaces a stored "stale" state -- no writer has to
+    remember to set it, so a task, a script and a person are all covered -- and says
+    how much, which a flag cannot.
+
+    Compared in the orientation the fluorescence pose is already in. None when either
+    pose is missing, there is no FM, or the conversion refuses.
+    """
+    milling, fluorescence = lamella.milling_pose, lamella.fluorescence_pose
+    if microscope is None or microscope.fm is None:
+        return None
+    if milling is None or fluorescence is None:
+        return None
+    a, b = milling.stage_position, fluorescence.stage_position
+    if a is None or b is None:
+        return None
+    try:
+        predicted = microscope.to_device(a, FM_DEVICE, _kept_orientation(microscope, b))
+    except ValueError:
+        return None
+    deltas = [
+        getattr(predicted, axis) - getattr(b, axis)
+        for axis in ("x", "y", "z")
+        if getattr(predicted, axis) is not None and getattr(b, axis) is not None
+    ]
+    return float(np.sqrt(sum(d * d for d in deltas))) if deltas else None
+
+
 def derive_pose(
     microscope: "FibsemMicroscope",
     lamella: "Lamella",

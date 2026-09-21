@@ -58,14 +58,13 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import conversions
-from fibsem.applications.autolamella.poses import (
-    Followed,
-    followed_note,
-    other_pose,
-    record_pose,
-)
+from fibsem.applications.autolamella.poses import followed_note, record_pose
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
+)
+from fibsem.applications.autolamella.ui.pose_actions import (
+    derive_lamella_pose,
+    show_lamella_poses,
 )
 from fibsem.applications.autolamella.ui.selected_lamella_widget import (
     SelectedLamellaWidget,
@@ -731,6 +730,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.selected_lamella_widget.pose_update_requested.connect(
             self._on_slw_pose_update
         )
+        self.selected_lamella_widget.pose_derive_requested.connect(
+            self._on_slw_pose_derive
+        )
         layout.addWidget(self.selected_lamella_widget)
         layout.addStretch()
         return container
@@ -1320,7 +1322,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         name = lamella.name if lamella is not None else "None"
         self.label_selected_lamella.setText(f"Lamella: {name}")
         if getattr(self, "selected_lamella_widget", None) is not None:
-            self.selected_lamella_widget.set_lamella(lamella)
+            show_lamella_poses(self.selected_lamella_widget, self.microscope, lamella)
         self._reset_timelapse()
         self.lamella_selected_signal.emit(lamella)
 
@@ -1356,7 +1358,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         lamella.fluorescence_pose.objective_position = value_m
         if self.experiment is not None:
             self.experiment.save()
-        self.selected_lamella_widget.set_lamella(lamella)
+        show_lamella_poses(self.selected_lamella_widget, self.microscope, lamella)
         notification_service.show_toast(
             f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm "
             f"for {lamella.name}.",
@@ -1483,9 +1485,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # Keeps the objective position, updates the milling angle, and applies the one
         # rule about the other pose -- see `poses.move_pose`.
         followed = record_pose(self.microscope, lamella, pose_name, state)
-        if followed is Followed.DERIVED:
-            other = other_pose(pose_name)
-            self.selected_lamella_widget.refresh_pose(other, lamella.poses[other])
         note = followed_note(pose_name, followed)
         if note:
             notification_service.show_toast(note, "info")
@@ -1496,7 +1495,17 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             # them back, so a pose that moved here is one it only hears about by being
             # told.
             self.experiment.positions.events.changed.emit()
-        self.selected_lamella_widget.refresh_pose(pose_name, lamella.poses[pose_name])
+        # The whole panel, not the one row: the other pose may have moved with it, and
+        # where each came from and how far apart they are have changed either way.
+        show_lamella_poses(self.selected_lamella_widget, self.microscope, lamella)
+
+    def _on_slw_pose_derive(self, pose_name: str, orientation=None) -> None:
+        """The pose rows' *Derive* -- see `pose_actions.derive_lamella_pose`."""
+        lamella = self._selected_lamella
+        if derive_lamella_pose(
+            self, self.microscope, self.experiment, lamella, pose_name, orientation
+        ):
+            show_lamella_poses(self.selected_lamella_widget, self.microscope, lamella)
 
     def _on_lamella_defect_changed(self, lamella: Optional["Lamella"]):
         """Persist a defect set from this list's row menu.

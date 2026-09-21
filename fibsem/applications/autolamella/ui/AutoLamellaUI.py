@@ -79,11 +79,9 @@ from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
     MILLING_POSE,
-    Followed,
     build_lamella_poses,
     followed_note,
     move_pose,
-    other_pose,
     record_pose,
 )
 from fibsem.applications.autolamella.structures import (
@@ -102,6 +100,10 @@ from fibsem.applications.autolamella.ui.autolamella_load_experiment_widget impor
 )
 from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget import (
     load_task_protocol_dialog,
+)
+from fibsem.applications.autolamella.ui.pose_actions import (
+    derive_lamella_pose,
+    show_lamella_poses,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
@@ -432,6 +434,9 @@ class AutoLamellaUI(QMainWindow):
         )
         self.selected_lamella_widget.pose_move_to_requested.connect(
             self._move_to_lamella_pose
+        )
+        self.selected_lamella_widget.pose_derive_requested.connect(
+            self._derive_lamella_pose
         )
 
     ##########
@@ -2121,7 +2126,7 @@ class AutoLamellaUI(QMainWindow):
         logging.info(f"Updating Lamella UI for {lamella.status_info}")
 
         # refresh objective position + pose display for the selected lamella
-        self.selected_lamella_widget.set_lamella(lamella)
+        show_lamella_poses(self.selected_lamella_widget, self.microscope, lamella)
 
         self._update_minimap_data(selected_name=lamella.name)
 
@@ -2434,12 +2439,11 @@ class AutoLamellaUI(QMainWindow):
         # rule about the other pose -- see `poses.move_pose`.
         followed = record_pose(self.microscope, lamella, pose_name, state)
         note = followed_note(pose_name, followed)
-        if followed is Followed.DERIVED:
-            other = other_pose(pose_name)
-            self.selected_lamella_widget.refresh_pose(other, lamella.poses[other])
 
         self.experiment.save()
-        self.selected_lamella_widget.refresh_pose(pose_name, lamella.poses[pose_name])
+        # The whole panel, not the one row: the other pose may have moved with it, and
+        # where each came from and how far apart they are have changed either way.
+        show_lamella_poses(self.selected_lamella_widget, self.microscope, lamella)
         # The FM overview canvas draws these positions itself rather than reading them
         # back, so a pose that moved here is one it only hears about by being told.
         self.experiment.positions.events.changed.emit()
@@ -2447,6 +2451,19 @@ class AutoLamellaUI(QMainWindow):
             f"Set current position as pose '{pose_name}' for {lamella.name}. {note}".strip(),
             "info",
         )
+
+    def _derive_lamella_pose(self, pose_name: str, orientation=None) -> None:
+        """The pose rows' *Derive* -- see `pose_actions.derive_lamella_pose`."""
+        idx = self.lamella_list.selected_index
+        lamella = (
+            self.experiment.positions[idx]
+            if self.experiment is not None and idx != -1
+            else None
+        )
+        if derive_lamella_pose(
+            self, self.microscope, self.experiment, lamella, pose_name, orientation
+        ):
+            show_lamella_poses(self.selected_lamella_widget, self.microscope, lamella)
 
     def _move_to_lamella_pose(self, pose_name: str):
         """Move the stage to the given pose for the current lamella."""
@@ -2518,7 +2535,7 @@ class AutoLamellaUI(QMainWindow):
         lamella.fluorescence_pose.objective_position = value_m
         self.experiment.save()
         # full refresh so the objective value shows and "Apply to All" re-enables
-        self.selected_lamella_widget.set_lamella(lamella)
+        show_lamella_poses(self.selected_lamella_widget, self.microscope, lamella)
         notification_service.show_toast(
             f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.",
             "info",
