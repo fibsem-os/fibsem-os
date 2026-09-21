@@ -210,3 +210,15 @@ def test_assigning_the_list_still_selects_row_1_and_announces_it():
     fm.coordinates = coords
     assert store.current is coords[0]
     assert _same(emitted, [coords[0]])
+
+
+def test_assigning_the_same_points_again_redraws_their_rows():
+    # `set_data(self.data)` after a z-interpolation hands back the same objects
+    # with new values; the rows have to show them
+    _, fm, _ = _shared()
+    coords = _coords(PointType.FM, 2)
+    fm.coordinates = coords
+
+    coords[1].point.z = 9.0
+    fm.coordinates = coords
+    assert _rows(fm)[1].z_spin.value() == 9.0

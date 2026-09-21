@@ -514,6 +514,7 @@ class CoordinateListWidget(QWidget):
         # renders them. Until the tab widget shares one store between the lists
         # and the canvases, each list has its own.
         self._store = store if store is not None else CorrelationPointStore(self)
+        self._assigning = False
         self._x_max: Optional[float] = None
         self._y_max: Optional[float] = None
         self._z_max: Optional[float] = None
@@ -598,7 +599,14 @@ class CoordinateListWidget(QWidget):
 
     @coordinates.setter
     def coordinates(self, value: List[Coordinate]) -> None:
-        self._store.replace_type(self._point_type, value)
+        # Always redrawn, even for the same points: `set_data(self.data)` hands
+        # the same objects back with new values to have them shown.
+        self._assigning = True
+        try:
+            self._store.replace_type(self._point_type, value)
+        finally:
+            self._assigning = False
+        self._rebuild_rows()
         # Selecting row 1 is this setter's, not the store's: it is what made a
         # canvas delete jump the selection (FIB-965), and it goes with the last
         # caller that assigns a whole list.
@@ -628,6 +636,8 @@ class CoordinateListWidget(QWidget):
     def _on_structure_changed(self) -> None:
         # A shared store announces every type's changes. Rebuilding for another
         # list's change would destroy a spinbox being typed in here.
+        if self._assigning:
+            return  # the setter redraws once, itself
         rows, coords = self._row_coordinates(), self.coordinates
         if len(rows) == len(coords) and all(a is b for a, b in zip(rows, coords)):
             return
