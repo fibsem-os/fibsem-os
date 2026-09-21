@@ -34,7 +34,11 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtWidgets import QWidget
 
-from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+from fibsem.applications.autolamella.poses import (
+    MILLING_POSE,
+    followed_note,
+    move_pose,
+)
 from fibsem.applications.autolamella.structures import DefectType
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
@@ -148,13 +152,12 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
     def _on_move_requested(self, name: str, position) -> None:
         """A user asked to move a marked lamella to a point on the overview.
 
-        Moves the milling pose, and takes the fluorescence one with it. They describe
-        one piece of sample from two sides, so leaving the other behind would have it go
-        on naming where this lamella *used to be* -- and nothing about a stale pose
-        looks wrong.
+        Moves the milling pose. The fluorescence pose does what the rule in
+        `poses.move_pose` says: worked out again while it is still a guess, left alone
+        once somebody has centred it under the objective.
 
-        Not shared with the fluorescence tab, which derives both poses through
-        `build_lamella_poses` and confirms first. See `overview_tab_base`.
+        Not shared with the fluorescence tab, which confirms first: a milling pose
+        moving is not visible from that canvas. See `overview_tab_base`.
         """
         experiment = self.experiment
         if experiment is None:
@@ -164,10 +167,15 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
             logger.debug(f"Cannot move {name!r}: no such lamella in the experiment.")
             return
 
-        lamella.stage_position = position
-        lamella.update_milling_angle(self.microscope)
-        sync_fluorescence_pose(self.microscope, lamella)
+        followed = move_pose(self.microscope, lamella, MILLING_POSE, position=position)
 
         experiment.save()
+        # Writing a pose emits nothing -- `poses` is a plain dict and the evented list
+        # only sees slot reassignment -- so the other canvas and the lamella cards
+        # would go on showing the old place. This is the one notification there is;
+        # the window re-marks both overview tabs from it.
+        experiment.positions.events.changed.emit()
         self.refresh_positions()
-        notification_service.show_toast(f"Moved {name}.", "info")
+        notification_service.show_toast(
+            f"Moved {name}. {followed_note(MILLING_POSE, followed)}".strip(), "info"
+        )

@@ -30,6 +30,7 @@ from psygnal.containers import EventedDict, EventedList
 
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.poses import PoseProvenance
 from fibsem.applications.autolamella.proposals import (
     PROPOSAL_KINDS,
     Author,
@@ -1205,6 +1206,9 @@ class Lamella:
         default_factory=lambda: EventedDict()
     )
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
+    # One entry per pose, by the same key. A pose with no entry is `OBSERVED`: every
+    # pose saved before this existed was somebody's decision.
+    pose_provenance: Dict[str, PoseProvenance] = field(default_factory=dict)
     task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
     task_history: List["AutoLamellaTaskState"] = field(default_factory=list)
     defect: DefectState = field(default_factory=DefectState)
@@ -1303,7 +1307,7 @@ class Lamella:
 
     @stage_position.setter
     def stage_position(self, value: FibsemStagePosition):
-        self.milling_pose.stage_position = value
+        self.set_pose_position("MILLING", value)
 
     def has_completed_task(self, task_name: str) -> bool:
         """Check if the lamella has completed a specific task."""
@@ -1378,10 +1382,14 @@ class Lamella:
 
     @milling_pose.setter
     def milling_pose(self, value: MicroscopeState):
-        """Set the milling pose for the lamella."""
-        if not isinstance(value, MicroscopeState):
-            raise TypeError("Milling pose must be a MicroscopeState instance.")
-        self.poses["MILLING"] = value
+        """Set the milling pose, as something observed at the beams.
+
+        The plain assignment every workflow task uses to record where it milled.
+        Touches nothing else: a task recording its pose is not a reason to rewrite the
+        fluorescence one. A caller *moving* the lamella goes through
+        `poses.move_pose`, which decides what the other pose does.
+        """
+        self.set_pose("MILLING", value)
 
     @property
     def fluorescence_pose(self) -> Optional[MicroscopeState]:
@@ -1389,10 +1397,38 @@ class Lamella:
 
     @fluorescence_pose.setter
     def fluorescence_pose(self, value: MicroscopeState):
-        """Set the fluorescence pose for the lamella."""
+        """Set the fluorescence pose, as something observed under the objective."""
+        self.set_pose("FLUORESCENCE", value)
+
+    def set_pose(
+        self,
+        name: str,
+        value: MicroscopeState,
+        provenance: PoseProvenance = PoseProvenance.OBSERVED,
+    ) -> None:
+        """Write a pose and say where it came from."""
         if not isinstance(value, MicroscopeState):
-            raise TypeError("Fluorescence pose must be a MicroscopeState instance.")
-        self.poses["FLUORESCENCE"] = value
+            raise TypeError(f"{name} pose must be a MicroscopeState instance.")
+        self.poses[name] = value
+        self.pose_provenance[name] = PoseProvenance(provenance)
+
+    def set_pose_position(
+        self,
+        name: str,
+        position: FibsemStagePosition,
+        provenance: PoseProvenance = PoseProvenance.OBSERVED,
+    ) -> None:
+        """Move a pose, keeping everything else it carries -- the objective position
+        of a fluorescence pose someone focused by hand, most of all."""
+        pose = self.poses.get(name)
+        if pose is None:
+            raise ValueError(f"{self.name} has no {name} pose to move.")
+        pose.stage_position = position
+        self.pose_provenance[name] = PoseProvenance(provenance)
+
+    def provenance_of(self, name: str) -> PoseProvenance:
+        """How the named pose got there; `OBSERVED` for a pose that never said."""
+        return PoseProvenance(self.pose_provenance.get(name, PoseProvenance.OBSERVED))
 
     @property
     def fluorescence_selected(self) -> bool:
@@ -1431,6 +1467,11 @@ class Lamella:
             "number": self.number,
             "id": str(self.id),
             "poses": {k: v.to_dict() for k, v in self.poses.items()},
+            "pose_provenance": {
+                k: PoseProvenance(v).value
+                for k, v in self.pose_provenance.items()
+                if k in self.poses
+            },
             "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
             "task_state": self.task_state.to_dict(),
             "task_history": [task.to_dict() for task in self.task_history],
@@ -1478,6 +1519,16 @@ class Lamella:
             if poses["FLUORESCENCE"].objective_position is None:
                 poses["FLUORESCENCE"].objective_position = legacy_obj_pos
 
+        # Only for poses that exist, and an unknown value reads as observed like a
+        # missing one: a file cannot make a pose easier to overwrite than a person did.
+        provenance = {}
+        for k, v in (data.get("pose_provenance") or {}).items():
+            if k in poses:
+                try:
+                    provenance[k] = PoseProvenance(v)
+                except ValueError:
+                    provenance[k] = PoseProvenance.OBSERVED
+
         return cls(
             petname=data["petname"],
             path=data["path"],
@@ -1485,6 +1536,7 @@ class Lamella:
             number=data.get("number", data.get("number", 0)),
             id=data.get("id", ""),
             poses=poses,
+            pose_provenance=provenance,
             task_config=load_task_config(data.get("task_config", {})),
             task_state=AutoLamellaTaskState.from_dict(data.get("task_state", {})),
             task_history=[
@@ -2536,10 +2588,14 @@ class Experiment:
         name: Optional[str] = None,
         fluorescence_pose: Optional[MicroscopeState] = None,
         grid_id: Optional[str] = None,
+        pose_provenance: Optional[Dict[str, PoseProvenance]] = None,
     ) -> None:
         """Create a new lamella and add it to the experiment.
 
         Args:
+            pose_provenance: which of the two poses was marked and which worked out
+                from it (`LamellaPoses.provenance`). On the constructor for the same
+                reason as the pose below. Left out, both read as observed.
             fluorescence_pose: where the lamella is under the objective, if the caller
                 worked one out. Passed in rather than assigned by the caller afterwards
                 because `add_lamella` publishes `positions.events.inserted`, and
@@ -2579,6 +2635,9 @@ class Experiment:
         lamella.milling_pose = microscope_state
         if fluorescence_pose is not None:
             lamella.fluorescence_pose = fluorescence_pose
+        for pose_name, provenance in (pose_provenance or {}).items():
+            if pose_name in lamella.poses:
+                lamella.pose_provenance[pose_name] = PoseProvenance(provenance)
 
         # create the lamella directory
         os.makedirs(lamella.path, exist_ok=True)

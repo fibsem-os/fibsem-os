@@ -105,8 +105,7 @@ class _StubWindow:
             path=os.path.join(str(self.experiment.path), name),
             number=number,
         )
-        lamella.milling_pose = poses.milling
-        lamella.fluorescence_pose = poses.fluorescence
+        poses.write_to(lamella)
         self.added.append(lamella)
         self.experiment.positions.append(lamella)
         return lamella
@@ -221,14 +220,10 @@ class TestMovingAPosition:
     def test_moving_a_lamella_takes_its_fluorescence_pose_with_it(
         self, tab, microscope
     ):
-        """The two poses describe one piece of sample from two sides. Left behind, the
-        fluorescence one goes on naming where this lamella *used to be* — and nothing
-        about a stale pose looks wrong."""
+        """A lamella marked at the beams has a fluorescence pose that is still a
+        guess. Left behind, it goes on naming where this lamella *used to be* — and
+        nothing about a pose pointing at the old place looks wrong."""
         lamella = _lamella(tab, microscope)
-        lamella.update_milling_angle(microscope)
-        from fibsem.applications.autolamella.poses import sync_fluorescence_pose
-
-        sync_fluorescence_pose(microscope, lamella)
         before = lamella.fluorescence_pose
         before_position = (
             None
@@ -246,6 +241,24 @@ class TestMovingAPosition:
             assert (after.x, after.y) != before_position, (
                 "the fluorescence pose was left behind at the old location"
             )
+
+    def test_moving_a_lamella_leaves_a_fluorescence_pose_somebody_centred(
+        self, tab, microscope
+    ):
+        """The other half of the rule: a pose set under the objective is theirs."""
+        from fibsem.applications.autolamella.poses import FLUORESCENCE_POSE, move_pose
+
+        lamella = _lamella(tab, microscope)
+        if lamella.fluorescence_pose is None:
+            pytest.skip("this configuration has no fluorescence microscope")
+        centred = lamella.fluorescence_pose.stage_position
+        move_pose(microscope, lamella, FLUORESCENCE_POSE, position=centred)
+
+        target = _at(microscope.get_stage_position(), dx=250e-6, dy=-125e-6)
+        tab._on_move_requested(lamella.name, target)
+
+        assert lamella.stage_position.x == pytest.approx(target.x)
+        assert lamella.fluorescence_pose.stage_position.x == pytest.approx(centred.x)
 
     def test_moving_an_unknown_name_does_nothing(self, tab, microscope):
         _lamella(tab, microscope)

@@ -113,9 +113,48 @@ def test_a_position_round_trips_through_the_record(microscope):
     assert (read.fluorescence is None) == (placed.fluorescence is None)
 
 
+def test_which_pose_was_marked_round_trips_through_the_record(microscope):
+    """The record used to keep the two poses and drop which one was marked, so a
+    lamella made from a decision read both as somebody's."""
+    import dataclasses
+
+    from fibsem.applications.autolamella.poses import FLUORESCENCE_POSE
+
+    placed = dataclasses.replace(
+        _placed(microscope, 1e-4, 2e-4), observed=FLUORESCENCE_POSE
+    )
+    proposal = _proposal({"positions": [placed]})
+
+    back = Proposal.from_dict(proposal.to_dict())
+
+    assert back.values["positions"][0].observed == FLUORESCENCE_POSE
+
+
 # ---------------------------------------------------------------------------
 # What a confirm does
 # ---------------------------------------------------------------------------
+
+
+def test_a_lamella_made_from_a_decision_says_which_pose_was_marked(
+    microscope, experiment
+):
+    """So its derived pose follows a move, as one marked in the app does."""
+    from fibsem.applications.autolamella.poses import (
+        FLUORESCENCE_POSE,
+        MILLING_POSE,
+        PoseProvenance,
+    )
+
+    grid = experiment.grids[0]
+    placed = _placed(microscope, 1e-4, 0)
+
+    result = _decide(experiment, grid, _proposal(), {"positions": [placed]})
+
+    assert result.applied, result.reason
+    made = experiment.positions[-1]
+    assert made.provenance_of(MILLING_POSE) is PoseProvenance.OBSERVED
+    if made.fluorescence_pose is not None:
+        assert made.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.DERIVED
 
 
 def test_confirming_creates_one_lamella_for_each_accepted_position(

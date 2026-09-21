@@ -78,8 +78,13 @@ import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
+    MILLING_POSE,
+    Followed,
     build_lamella_poses,
-    sync_fluorescence_pose,
+    followed_note,
+    move_pose,
+    other_pose,
+    record_pose,
 )
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -2268,6 +2273,7 @@ class AutoLamellaUI(QMainWindow):
                 if grid_id is not None
                 else self._grid_id_for_new_lamella(poses.milling.stage_position)
             ),
+            pose_provenance=poses.provenance,
         )
         lamella = self.experiment.positions[-1]
 
@@ -2369,14 +2375,20 @@ class AutoLamellaUI(QMainWindow):
         if ret != QMessageBox.Yes:
             return
 
-        lamella.milling_pose = deepcopy(self.microscope.get_microscope_state())
-
-        # keep the milling angle consistent with the updated milling pose
-        lamella.update_milling_angle(self.microscope)
-        # ...and the fluorescence pose, which describes the same piece of sample from
-        # the other side. Left behind, it would go on naming where this lamella used to
-        # be -- and nothing about a stale pose looks wrong.
-        sync_fluorescence_pose(self.microscope, lamella)
+        # The milling angle follows, and the fluorescence pose does what the rule in
+        # `move_pose` says: re-derived while it is still a guess, left alone once
+        # somebody has centred it.
+        followed = move_pose(
+            self.microscope,
+            lamella,
+            MILLING_POSE,
+            state=deepcopy(self.microscope.get_microscope_state()),
+        )
+        note = followed_note(MILLING_POSE, followed)
+        if note:
+            notification_service.show_toast(
+                f"Saved the position of {lamella.name}. {note}", "info"
+            )
 
         self.update_lamella_combobox()
         self.update_ui()
@@ -2418,33 +2430,22 @@ class AutoLamellaUI(QMainWindow):
         if ret != QMessageBox.Yes:
             return
 
-        # preserve the configured objective (focus) position of the existing pose:
-        # get_microscope_state() does not capture the objective position, so replacing
-        # the pose outright would wipe the fluorescence pose's focus setting.
-        existing_pose = lamella.poses.get(pose_name)
-        if existing_pose is not None and existing_pose.objective_position is not None:
-            state.objective_position = existing_pose.objective_position
-
-        lamella.poses[pose_name] = state
-
-        # Replacing the milling pose moves the lamella, so what is derived from it has to
-        # follow: the milling angle, and the fluorescence pose, which describes the same
-        # piece of sample from the other side. Left behind, that pose would go on naming
-        # where this lamella used to be -- and nothing about a stale pose looks wrong.
-        if pose_name == "MILLING":
-            lamella.update_milling_angle(self.microscope)
-            if sync_fluorescence_pose(self.microscope, lamella):
-                self.selected_lamella_widget.refresh_pose(
-                    "FLUORESCENCE", lamella.fluorescence_pose
-                )
+        # Keeps the objective position, updates the milling angle, and applies the one
+        # rule about the other pose -- see `poses.move_pose`.
+        followed = record_pose(self.microscope, lamella, pose_name, state)
+        note = followed_note(pose_name, followed)
+        if followed is Followed.DERIVED:
+            other = other_pose(pose_name)
+            self.selected_lamella_widget.refresh_pose(other, lamella.poses[other])
 
         self.experiment.save()
-        self.selected_lamella_widget.refresh_pose(pose_name, state)
+        self.selected_lamella_widget.refresh_pose(pose_name, lamella.poses[pose_name])
         # The FM overview canvas draws these positions itself rather than reading them
         # back, so a pose that moved here is one it only hears about by being told.
         self.experiment.positions.events.changed.emit()
         notification_service.show_toast(
-            f"Set current position as pose '{pose_name}' for {lamella.name}.", "info"
+            f"Set current position as pose '{pose_name}' for {lamella.name}. {note}".strip(),
+            "info",
         )
 
     def _move_to_lamella_pose(self, pose_name: str):

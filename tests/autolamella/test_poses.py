@@ -19,9 +19,14 @@ import pytest
 from fibsem import utils
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_ORIENTATION,
+    FLUORESCENCE_POSE,
     MILLING_ORIENTATION,
+    MILLING_POSE,
+    Followed,
+    PoseProvenance,
     build_lamella_poses,
-    sync_fluorescence_pose,
+    derive_pose,
+    move_pose,
 )
 from fibsem.structures import FibsemStagePosition
 
@@ -345,122 +350,285 @@ def test_an_unsupported_pose_is_still_a_milling_pose_without_an_fm():
     assert poses.fluorescence is None
 
 
-# ── keeping the two in step when only one of them moves ──────────────────
+# ── moving one pose: what the other one does ─────────────────────────────
+#
+# The rule (`move_pose`): a pose that is still derived follows; one somebody observed
+# stays until `derive_pose` is asked for by name; a missing one is not invented.
 
 
-def _lamella(microscope, x=100e-6, y=50e-6, with_fluorescence=True):
-    """A stand-in lamella with both poses, built the way the app builds them."""
+def _lamella(microscope, tmp_path, x=100e-6, y=50e-6, with_fluorescence=True):
+    """A real lamella with both poses, built and stamped the way the app does it."""
+    from fibsem.applications.autolamella.structures import Lamella
+
     poses = build_lamella_poses(microscope, _at(microscope, MILLING_ORIENTATION, x, y))
-
-    class _Lamella:
-        name = "Lamella-01"
-
-    lamella = _Lamella()
+    lamella = Lamella(petname="Lamella-01", path=str(tmp_path / "L01"), number=1)
     lamella.milling_pose = poses.milling
-    lamella.fluorescence_pose = poses.fluorescence if with_fluorescence else None
+    if with_fluorescence:
+        lamella.fluorescence_pose = poses.fluorescence
+    lamella.pose_provenance.update(
+        {k: v for k, v in poses.provenance.items() if k in lamella.poses}
+    )
     return lamella
 
 
-def _move_milling_to(microscope, lamella, x, y):
-    """Move only the milling pose, as every beam-side caller has always done."""
-    lamella.milling_pose.stage_position = _at(microscope, MILLING_ORIENTATION, x, y)
-
-
-def test_the_fluorescence_pose_follows_a_milling_pose_that_moved():
-    """The bug this exists for. A lamella moved on the beam side kept a fluorescence
-    pose describing where it used to be -- and nothing about a stale pose looks wrong."""
+def test_a_new_lamella_says_which_pose_was_marked(tmp_path):
     microscope = _microscope()
-    lamella = _lamella(microscope)
-    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+    lamella = _lamella(microscope, tmp_path)
 
-    assert sync_fluorescence_pose(microscope, lamella) is True
+    assert lamella.provenance_of(MILLING_POSE) is PoseProvenance.OBSERVED
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.DERIVED
 
+
+def test_a_derived_pose_follows_the_one_that_moved(tmp_path):
+    """The bug the old sync existed for. A lamella moved on the beam side kept a
+    fluorescence pose describing where it used to be -- and nothing about a pose
+    pointing at the old place looks wrong."""
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path)
+
+    followed = move_pose(
+        microscope,
+        lamella,
+        MILLING_POSE,
+        position=_at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6),
+    )
+
+    assert followed is Followed.DERIVED
     assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
     assert lamella.fluorescence_pose.stage_position.y == pytest.approx(-200e-6)
-
-
-def test_the_synced_pose_is_still_in_the_fluorescence_orientation():
-    """Only the place moves. A pose that came back carrying the milling tilt would put
-    the stage 157 degrees from where the objective is."""
-    microscope = _microscope()
-    lamella = _lamella(microscope)
-    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
-
-    sync_fluorescence_pose(microscope, lamella)
-
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.DERIVED
     assert (
         microscope.get_stage_orientation(lamella.fluorescence_pose.stage_position)
         == FLUORESCENCE_ORIENTATION
     )
 
 
-def test_syncing_keeps_the_objective_position():
-    """Someone focused on this lamella by hand. Moving it sideways is not a reason to
-    throw that away, and re-deriving the whole pose would."""
+def test_an_observed_pose_stays_where_somebody_put_it(tmp_path):
+    """The bug the old sync *had*: it rewrote a pose somebody had centred by hand."""
     microscope = _microscope()
-    lamella = _lamella(microscope)
-    lamella.fluorescence_pose.objective_position = 7.7e-3
-    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+    lamella = _lamella(microscope, tmp_path)
+    centred = _at(microscope, FLUORESCENCE_ORIENTATION, 103e-6, 48e-6)
+    move_pose(microscope, lamella, FLUORESCENCE_POSE, position=centred)
 
-    sync_fluorescence_pose(microscope, lamella)
+    followed = move_pose(
+        microscope,
+        lamella,
+        MILLING_POSE,
+        position=_at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6),
+    )
+
+    assert followed is Followed.KEPT
+    assert lamella.fluorescence_pose.stage_position.x == pytest.approx(103e-6)
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.OBSERVED
+
+
+def test_moving_a_pose_makes_it_observed_and_leaves_an_observed_other_alone(tmp_path):
+    """Centring the fluorescence pose of a lamella marked at the beams: both are now
+    somebody's, and neither moves the other."""
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path)
+    before = lamella.milling_pose.stage_position.x
+
+    followed = move_pose(
+        microscope,
+        lamella,
+        FLUORESCENCE_POSE,
+        position=_at(microscope, FLUORESCENCE_ORIENTATION, 103e-6, 48e-6),
+    )
+
+    assert followed is Followed.KEPT
+    assert lamella.milling_pose.stage_position.x == pytest.approx(before)
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.OBSERVED
+
+
+def test_a_derived_milling_pose_follows_a_fluorescence_move(tmp_path):
+    """A target found in fluorescence: its milling pose is the guess, and follows --
+    with the milling angle, which no caller has to remember."""
+    from fibsem.applications.autolamella.structures import Lamella
+
+    microscope = _microscope()
+    poses = build_lamella_poses(microscope, _at(microscope, FLUORESCENCE_ORIENTATION))
+    lamella = Lamella(petname="Lamella-01", path=str(tmp_path / "L01"), number=1)
+    lamella.milling_pose = poses.milling
+    lamella.fluorescence_pose = poses.fluorescence
+    lamella.pose_provenance.update(poses.provenance)
+    lamella.milling_angle = 999.0
+
+    followed = move_pose(
+        microscope,
+        lamella,
+        FLUORESCENCE_POSE,
+        position=_at(microscope, FLUORESCENCE_ORIENTATION, 400e-6, -200e-6),
+    )
+
+    assert followed is Followed.DERIVED
+    assert lamella.milling_pose.stage_position.x == pytest.approx(400e-6)
+    assert lamella.milling_angle != 999.0
+
+
+def test_derive_overwrites_an_observed_pose_because_it_was_asked_to(tmp_path):
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path)
+    move_pose(
+        microscope,
+        lamella,
+        FLUORESCENCE_POSE,
+        position=_at(microscope, FLUORESCENCE_ORIENTATION, 103e-6, 48e-6),
+    )
+
+    assert derive_pose(microscope, lamella, FLUORESCENCE_POSE) is True
+
+    assert lamella.fluorescence_pose.stage_position.x == pytest.approx(100e-6)
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.DERIVED
+
+
+def test_a_move_keeps_the_objective_position(tmp_path):
+    """Someone focused on this lamella by hand; moving it sideways is not a reason to
+    throw that away."""
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path)
+    lamella.fluorescence_pose.objective_position = 7.7e-3
+
+    move_pose(
+        microscope,
+        lamella,
+        MILLING_POSE,
+        position=_at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6),
+    )
 
     assert lamella.fluorescence_pose.objective_position == pytest.approx(7.7e-3)
 
 
-def test_a_lamella_with_no_fluorescence_pose_is_not_given_one():
-    """It has never been marked under fluorescence, and `fluorescence_selected` asks
-    only whether an objective position exists -- so conjuring one here would make a
-    lamella nobody has looked at report itself as focused."""
+def test_recording_a_state_keeps_the_objective_position(tmp_path):
+    """A recorded microscope state does not capture the objective."""
     microscope = _microscope()
-    lamella = _lamella(microscope, with_fluorescence=False)
-    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+    lamella = _lamella(microscope, tmp_path)
+    lamella.fluorescence_pose.objective_position = 7.7e-3
+    state = deepcopy(lamella.fluorescence_pose)
+    state.objective_position = None
 
-    assert sync_fluorescence_pose(microscope, lamella) is False
+    move_pose(microscope, lamella, FLUORESCENCE_POSE, state=state)
+
+    assert lamella.fluorescence_pose.objective_position == pytest.approx(7.7e-3)
+
+
+def test_a_move_does_not_invent_a_fluorescence_pose(tmp_path):
+    """A lamella with none has never been looked at under fluorescence, and
+    `fluorescence_selected` asks only whether an objective position exists."""
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path, with_fluorescence=False)
+
+    followed = move_pose(
+        microscope,
+        lamella,
+        MILLING_POSE,
+        position=_at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6),
+    )
+
+    assert followed is Followed.MISSING
     assert lamella.fluorescence_pose is None
 
 
-def test_the_fluorescence_pose_follows_on_an_offset_mount_too():
-    """There was no conversion across the traverse, so the pose was left behind and
-    the caller told. There is one now."""
+def test_a_derived_pose_follows_on_an_offset_mount_too(tmp_path):
     microscope = _iflm()
-    lamella = _lamella(microscope)
-    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+    lamella = _lamella(microscope, tmp_path)
 
-    assert sync_fluorescence_pose(microscope, lamella) is True
+    followed = move_pose(
+        microscope,
+        lamella,
+        MILLING_POSE,
+        position=_at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6),
+    )
+
+    assert followed is Followed.DERIVED
     expected = microscope.to_device(lamella.milling_pose.stage_position, "FM")
     assert lamella.fluorescence_pose.stage_position.x == pytest.approx(expected.x)
     assert lamella.fluorescence_pose.stage_position.y == pytest.approx(expected.y)
 
 
-def test_syncing_keeps_a_pose_in_the_orientation_it_was_put_in():
-    """A fluorescence pose somebody chose at the SEM tilt is not flipped to t = -180
+def test_a_derived_pose_stays_in_the_orientation_it_was_put_in(tmp_path):
+    """A fluorescence pose derived at the SEM tilt is not flipped to t = -180
     because its lamella moved."""
     microscope = _both_can_use_sem(_microscope())
-    lamella = _lamella(microscope)
-    lamella.fluorescence_pose.stage_position = _at(microscope, "SEM")
-    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+    lamella = _lamella(microscope, tmp_path)
+    assert derive_pose(microscope, lamella, FLUORESCENCE_POSE, orientation="SEM")
 
-    assert sync_fluorescence_pose(microscope, lamella) is True
+    move_pose(
+        microscope,
+        lamella,
+        MILLING_POSE,
+        position=_at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6),
+    )
+
     assert (
         microscope.get_stage_orientation(lamella.fluorescence_pose.stage_position)
         == "SEM"
     )
 
 
-def test_syncing_agrees_with_marking_the_same_position_afresh():
-    """A moved lamella and a newly marked one at the same place have to describe the
-    same thing. Two routes to a fluorescence pose that disagreed would be a bug that
-    only showed up on lamellae with a history."""
-    microscope = _microscope()
-    lamella = _lamella(microscope)
-    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
-    sync_fluorescence_pose(microscope, lamella)
+def test_a_milling_pose_is_not_derived_from_somewhere_the_fm_cannot_see(tmp_path):
+    """The dangerous direction refuses, and leaves what was there."""
+    microscope = _iflm()
+    lamella = _lamella(microscope, tmp_path)
+    lamella.fluorescence_pose.stage_position = _at(microscope, "FIB")  # at the beams
+    before = lamella.milling_pose.stage_position.x
 
-    fresh = build_lamella_poses(
-        microscope, _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
-    )
+    assert derive_pose(microscope, lamella, MILLING_POSE) is False
+    assert lamella.milling_pose.stage_position.x == pytest.approx(before)
+
+
+def test_following_agrees_with_marking_the_same_position_afresh(tmp_path):
+    """A moved lamella and a newly marked one at the same place have to describe the
+    same fluorescence pose, or the two paths have drifted apart."""
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path)
+    target = _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
+
+    move_pose(microscope, lamella, MILLING_POSE, position=target)
+    fresh = build_lamella_poses(microscope, target)
 
     moved = lamella.fluorescence_pose.stage_position
     assert moved.x == pytest.approx(fresh.fluorescence.stage_position.x, abs=1e-12)
     assert moved.y == pytest.approx(fresh.fluorescence.stage_position.y, abs=1e-12)
     assert moved.t == pytest.approx(fresh.fluorescence.stage_position.t, abs=1e-9)
+
+
+# ── provenance on disk ──────────────────────────────────────────────────
+
+
+def test_provenance_round_trips(tmp_path):
+    from fibsem.applications.autolamella.structures import Lamella
+
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path)
+
+    loaded = Lamella.from_dict(lamella.to_dict())
+
+    assert loaded.provenance_of(MILLING_POSE) is PoseProvenance.OBSERVED
+    assert loaded.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.DERIVED
+
+
+def test_a_file_from_before_provenance_reads_as_observed(tmp_path):
+    """Anything saved was somebody's decision, so nothing of theirs starts following."""
+    from fibsem.applications.autolamella.structures import Lamella
+
+    microscope = _microscope()
+    data = _lamella(microscope, tmp_path).to_dict()
+    del data["pose_provenance"]
+
+    loaded = Lamella.from_dict(data)
+
+    assert loaded.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.OBSERVED
+
+
+def test_an_unknown_provenance_reads_as_observed(tmp_path):
+    from fibsem.applications.autolamella.structures import Lamella
+
+    microscope = _microscope()
+    data = _lamella(microscope, tmp_path).to_dict()
+    data["pose_provenance"]["FLUORESCENCE"] = "stale"
+
+    assert (
+        Lamella.from_dict(data).provenance_of(FLUORESCENCE_POSE)
+        is PoseProvenance.OBSERVED
+    )
