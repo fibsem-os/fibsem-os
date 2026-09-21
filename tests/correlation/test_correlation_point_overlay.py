@@ -146,10 +146,13 @@ def test_one_overlay_carries_several_point_types():
     )
     _, ov = _attached([fib, poi, surf])
 
-    assert ov._point_color(0, False) == POINT_COLORS[PointType.FIB]
-    assert ov._point_color(1, False) == POINT_COLORS[PointType.POI]
-    assert ov._point_marker(0) == "o"
-    assert ov._point_marker(2) == "+"  # SURFACE is a crosshair
+    # by identity: the store draws a type's points together, in the order the
+    # tab widget has always handed them over, not the order given here
+    i_fib, i_poi, i_surf = (ov.index_of(c) for c in (fib, poi, surf))
+    assert ov._point_color(i_fib, False) == POINT_COLORS[PointType.FIB]
+    assert ov._point_color(i_poi, False) == POINT_COLORS[PointType.POI]
+    assert ov._point_marker(i_fib) == "o"
+    assert ov._point_marker(i_surf) == "+"  # SURFACE is a crosshair
 
 
 def test_selected_point_keeps_its_type_colour():

@@ -49,10 +49,12 @@ POINT_RULES: Dict[PointType, PointRule] = {
     PointType.SURFACE_FM: PointRule("fm", max_one=True, exclusive_group="surface"),
 }
 
-# Multi-select is not built. Selection is a tuple and ``selection_changed``
-# carries no payload so that raising this changes the views, not the store's
-# subscribers.
-MAX_SELECTION = 1
+# One selected point per canvas, not one overall: a fiducial named in the
+# verdict selects its pair, the FM point and its FIB partner, so that both
+# canvases show it. Multi-select within a canvas is not built. Selection is a
+# tuple and ``selection_changed`` carries no payload so that raising this
+# changes the views, not the store's subscribers.
+MAX_SELECTION_PER_SIDE = 1
 
 _FIELDS = ("x", "y", "z")
 
@@ -132,6 +134,20 @@ class CorrelationPointStore(QObject):
     def current(self) -> Optional[Coordinate]:
         """The last point selected: what refit, reset and the row highlight use."""
         return self._selection[-1] if self._selection else None
+
+    def selected_on(self, side: str) -> Optional[Coordinate]:
+        """The selected point drawn on one canvas, or None."""
+        for coord in reversed(self._selection):
+            if POINT_RULES[coord.point_type].side == side:
+                return coord
+        return None
+
+    def selected_of_type(self, point_type: PointType) -> Optional[Coordinate]:
+        """The selected point in one list, or None."""
+        for coord in reversed(self._selection):
+            if coord.point_type is point_type:
+                return coord
+        return None
 
     def index_of(self, coord: Coordinate) -> Optional[int]:
         """The coordinate's row within its own point type, or None."""
@@ -273,7 +289,8 @@ class CorrelationPointStore(QObject):
     # ------------------------------------------------------------------
 
     def select(self, coords: _Coords, extend: bool = False) -> None:
-        """Select the given points, or none. ``extend`` adds to the selection."""
+        """Select the given points, or none. ``extend`` adds to the selection,
+        replacing what was selected on the same canvas."""
         coords = _as_list(coords)
         self._require_present(coords)
         if extend:
@@ -281,10 +298,24 @@ class CorrelationPointStore(QObject):
         if self._set_selection(coords):
             self.selection_changed.emit()
 
+    def deselect(self, coords: _Coords) -> None:
+        """Take points out of the selection and leave the rest of it."""
+        gone = _as_list(coords)
+        kept = [c for c in self._selection if _position(gone, c) is None]
+        if self._set_selection(kept):
+            self.selection_changed.emit()
+
     def _set_selection(self, coords: Sequence[Coordinate]) -> bool:
         # last occurrence wins, so re-selecting a point makes it current
         ordered = _unique(reversed(list(coords)))[::-1]
-        new = tuple(ordered[-MAX_SELECTION:])
+        kept: List[Coordinate] = []
+        per_side: Dict[str, int] = {}
+        for coord in reversed(ordered):
+            side = POINT_RULES[coord.point_type].side
+            if per_side.get(side, 0) < MAX_SELECTION_PER_SIDE:
+                per_side[side] = per_side.get(side, 0) + 1
+                kept.append(coord)
+        new = tuple(reversed(kept))
         if len(new) == len(self._selection) and all(
             a is b for a, b in zip(new, self._selection)
         ):

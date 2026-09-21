@@ -587,11 +587,8 @@ class CoordinateListWidget(QWidget):
 
     @property
     def selected_coordinate(self) -> Optional[Coordinate]:
-        """The store's current point, when it is one of this list's."""
-        current = self._store.current
-        if current is not None and current.point_type is self._point_type:
-            return current
-        return None
+        """The selected point, when it is one of this list's."""
+        return self._store.selected_of_type(self._point_type)
 
     @property
     def coordinates(self) -> List[Coordinate]:
@@ -785,6 +782,9 @@ class CoordinateListWidget(QWidget):
         """Highlight a row without emitting ``coordinate_selected`` (avoids sync loops)."""
         if coord is not None and coord not in self._store:
             coord = None
-        if coord is None and self.selected_coordinate is None:
-            return  # the selection is another list's: leave it
-        self._store.select(coord)
+        if coord is None:
+            # only this list's: the selection may be another list's
+            self._store.deselect(self.selected_coordinate)
+        else:
+            # beside the other canvas's selection, as a verdict's pair link asks
+            self._store.select(coord, extend=True)
