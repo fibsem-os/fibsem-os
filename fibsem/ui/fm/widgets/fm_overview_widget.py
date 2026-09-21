@@ -554,9 +554,9 @@ class FMOverviewWidget(QWidget):
         self.orientation_notice.setStyleSheet(
             f"color: {stylesheets.WARN_COLOR}; font-size: 11px;"
         )
-        # Labelled in `_refresh_orientation_banner`, from the same `default_orientation`
-        # the move targets -- the control widget lets that be changed at runtime, and a
-        # button naming one orientation while going to another is worse than no button.
+        # Labelled in `_refresh_orientation_banner`, from the same orientation the move
+        # targets: a button naming one orientation while going to another is worse
+        # than no button.
         self.button_move_to_fm = QPushButton()
         self.button_move_to_fm.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.button_move_to_fm.clicked.connect(self.move_to_fm_device)

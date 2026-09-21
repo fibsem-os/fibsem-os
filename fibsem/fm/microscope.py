@@ -738,9 +738,6 @@ class FluorescenceMicroscope(ABC):
         self._transform: Optional[CameraImageTransform] = (
             CameraImageTransform.NONE
         )  # image transformation
-        self.default_orientation: str = (
-            "FM"  # orientation used when computing fluorescence pose for new lamellas
-        )
         # Orientations the objective can actually image the sample from. Not a control
         # gate: whether the user may *operate* the FM somewhere is answered by hardware
         # interlocks (the objective's own z/t restrictions, the no-rotation-at-the-FM
@@ -751,9 +748,9 @@ class FluorescenceMicroscope(ABC):
         # Read from the device declaration (`stage.devices.FM.acquisition_orientations`)
         # so there is exactly one source of truth. On a compustage that is `["FM"]` --
         # what this attribute always held. On an offset mount it is the beam pose the
-        # sample is held in at the FM (`["FIB"]` on the iFLM simulator), which the old
-        # hardcoded `[default_orientation]` got wrong: `"FM"` is a pose the classifier
-        # never returns there. This attribute survives only until its readers move onto
+        # sample is held in at the FM (`["FIB"]` on the iFLM simulator), which a
+        # hardcoded `["FM"]` got wrong: that is a pose the classifier never returns
+        # there. This attribute survives only until its readers move onto
         # `get_device_imaging_state` (FIB-839), then goes with them.
         self.acquisition_orientations: list[str] = (
             self._configured_acquisition_orientations()
@@ -762,14 +759,15 @@ class FluorescenceMicroscope(ABC):
     def _configured_acquisition_orientations(self) -> list[str]:
         """The FM device's declared imaging orientations, from the stage configuration.
 
-        Falls back to `[default_orientation]` for an FM constructed without a parent
-        microscope (widget tests do this), where there is no configuration to read.
+        Falls back to `["FM"]` for an FM constructed without a parent microscope
+        (widget tests do this), where there is no configuration to read -- the
+        compustage declaration, which is what this attribute always held.
         """
         try:
             devices = self.parent.system.stage.devices
             return list(devices["FM"].acquisition_orientations)
         except (AttributeError, KeyError, TypeError):
-            return [self.default_orientation]
+            return ["FM"]
 
     def __repr__(self):
         """Return a string representation of the fluorescence microscope.
