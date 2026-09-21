@@ -49,85 +49,96 @@ class PDFReportGenerator:
             rightMargin=72,
             leftMargin=72,
             topMargin=72,
-            bottomMargin=72
+            bottomMargin=72,
         )
         self.styles = getSampleStyleSheet()
         self.story = []
 
         # Create custom styles
-        self.styles.add(ParagraphStyle(
-            'CustomTitle',
-            parent=self.styles['Heading1'],
-            fontSize=24,
-            spaceAfter=30,
-            alignment=1  # Center alignment
-        ))
-        
-        self.styles.add(ParagraphStyle(
-            'Subtitle',
-            parent=self.styles['Normal'],
-            fontSize=14,
-            textColor=colors.grey,
-            alignment=1,
-            spaceAfter=20
-        ))
+        self.styles.add(
+            ParagraphStyle(
+                "CustomTitle",
+                parent=self.styles["Heading1"],
+                fontSize=24,
+                spaceAfter=30,
+                alignment=1,  # Center alignment
+            )
+        )
+
+        self.styles.add(
+            ParagraphStyle(
+                "Subtitle",
+                parent=self.styles["Normal"],
+                fontSize=14,
+                textColor=colors.grey,
+                alignment=1,
+                spaceAfter=20,
+            )
+        )
 
     def add_title(self, title: str, subtitle: Optional[str] = None):
         """Add a title and optional subtitle to the document"""
-        self.story.append(Paragraph(title, self.styles['CustomTitle']))
+        self.story.append(Paragraph(title, self.styles["CustomTitle"]))
         if subtitle:
-            self.story.append(Paragraph(subtitle, self.styles['Subtitle']))
+            self.story.append(Paragraph(subtitle, self.styles["Subtitle"]))
         self.story.append(Spacer(1, 20))
 
     def add_heading(self, text: str, level: int = 2):
         """Add a heading with specified level"""
-        style = self.styles[f'Heading{level}']
+        style = self.styles[f"Heading{level}"]
         self.story.append(Paragraph(text, style))
         self.story.append(Spacer(1, 12))
 
     def add_paragraph(self, text: str):
         """Add a paragraph of text"""
-        self.story.append(Paragraph(text, self.styles['Normal']))
+        self.story.append(Paragraph(text, self.styles["Normal"]))
         self.story.append(Spacer(1, 12))
 
     def add_page_break(self):
         """Add a page break"""
         self.story.append(PageBreak())
 
-    def add_image(self, path: str, width=6*inch, height=4*inch):
+    def add_image(self, path: str, width=6 * inch, height=4 * inch):
         """Add an image to the PDF"""
         img = Image(path, width=width, height=height)
         self.story.append(img)
         self.story.append(Spacer(1, 20))
 
-    def add_dataframe(self, df: pd.DataFrame, title: Optional[str] = None, includes_totals: bool = False):
+    def add_dataframe(
+        self,
+        df: pd.DataFrame,
+        title: Optional[str] = None,
+        includes_totals: bool = False,
+    ):
         """Add a pandas DataFrame as a table"""
         if title:
             self.add_heading(title, 3)
-        
+
         # Convert DataFrame to list of lists
         data = [df.columns.tolist()] + df.values.tolist()
-        
+
         # Create table style
-        style = TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2F314F")),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.white])
-        ])
-        
+        style = TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2F314F")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+                ("TEXTCOLOR", (0, 1), (-1, -1), colors.black),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 1), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+            ]
+        )
+
         if includes_totals:
-            style.add('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#E8E8E8'))
-            style.add('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold')
-        
+            style.add("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#E8E8E8"))
+            style.add("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")
+
         table = Table(data)
         table.setStyle(style)
         self.story.append(table)
@@ -139,20 +150,22 @@ class PDFReportGenerator:
         """
         if title:
             self.add_heading(title, 3)
-        
+
         # Create plot and save to bytes buffer
         fig = plot_function(*args, **kwargs)
         img_buffer = io.BytesIO()
-        fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=300)
+        fig.savefig(img_buffer, format="png", bbox_inches="tight", dpi=300)
         img_buffer.seek(0)
-        
+
         # Add plot to story
-        img = Image(img_buffer, width=6*inch, height=4*inch)
+        img = Image(img_buffer, width=6 * inch, height=4 * inch)
         self.story.append(img)
         self.story.append(Spacer(1, 20))
         plt.close(fig)
 
-    def add_mpl_figure(self, fig: Figure, width: float = 6*inch, height: float = 4*inch) -> None:
+    def add_mpl_figure(
+        self, fig: Figure, width: float = 6 * inch, height: float = 4 * inch
+    ) -> None:
         """Add a matplotlib figure to the PDF using in-memory buffer
 
         Args:
@@ -161,13 +174,15 @@ class PDFReportGenerator:
             height: Height in inches (default: 4 inches)
         """
         buf = io.BytesIO()
-        fig.savefig(buf, format='png', bbox_inches='tight', dpi=300)
+        fig.savefig(buf, format="png", bbox_inches="tight", dpi=300)
         buf.seek(0)
         plt.close(fig)
         self.story.append(Image(buf, width=width, height=height))
         self.story.append(Spacer(1, 20))
 
-    def add_plotly_figure(self, fig: 'go.Figure', title=None, width=6.5*inch, height=4*inch) -> None:
+    def add_plotly_figure(
+        self, fig: "go.Figure", title=None, width=6.5 * inch, height=4 * inch
+    ) -> None:
         """Add a Plotly figure to the PDF"""
         if title:
             self.add_heading(title, 3)
@@ -188,8 +203,6 @@ class PDFReportGenerator:
         self.doc.build(self.story)
 
 
-
-
 ###### NEW REPORTING FOR NEW TASK-WORKFLOW ######
 # The sections generate_report2 understands, in report order. Exported so callers
 # building a sections dict name them from here rather than by hand -- the report
@@ -206,13 +219,15 @@ REPORT_SECTIONS = (
 )
 
 
-def _add_lamella_section(pdf: PDFReportGenerator,
-                         lamella: Lamella,
-                         df_task_history: pd.DataFrame,
-                         df_milling: pd.DataFrame,
-                         include_workflow: bool = True,
-                         include_images: bool = True,
-                         include_milling: bool = True) -> None:
+def _add_lamella_section(
+    pdf: PDFReportGenerator,
+    lamella: Lamella,
+    df_task_history: pd.DataFrame,
+    df_milling: pd.DataFrame,
+    include_workflow: bool = True,
+    include_images: bool = True,
+    include_milling: bool = True,
+) -> None:
     """Add a complete lamella section to the report.
 
     Args:
@@ -231,27 +246,29 @@ def _add_lamella_section(pdf: PDFReportGenerator,
     if include_workflow:
         df = df_task_history[df_task_history["Lamella Name"] == lamella.name]
         if not df.empty:
-            pdf.add_dataframe(df, 'Workflow')
+            pdf.add_dataframe(df, "Workflow")
 
     # Workflow images
     if include_images:
         fig = plot_lamella_task_workflow_summary(lamella)
         if fig is not None:
-            pdf.add_mpl_figure(fig, width=6*inch, height=4*inch)
+            pdf.add_mpl_figure(fig, width=6 * inch, height=4 * inch)
 
     # Milling data and patterns
     if include_milling:
         df = df_milling[df_milling["Lamella Name"] == lamella.name]
         if not df.empty:
-            pdf.add_dataframe(df, 'Milling Data')
+            pdf.add_dataframe(df, "Milling Data")
 
         figs = plot_task_milling_summary(lamella)
         if figs:
             for fig in figs:
-                pdf.add_mpl_figure(fig, width=6*inch, height=4*inch)
+                pdf.add_mpl_figure(fig, width=6 * inch, height=4 * inch)
 
 
-def generate_report_data2(experiment: Experiment, encoding: str = "utf-8") -> Dict[str, any]:
+def generate_report_data2(
+    experiment: Experiment, encoding: str = "utf-8"
+) -> Dict[str, any]:
     """Generate report data from an experiment by parsing the logfile directly.
 
     Args:
@@ -284,10 +301,12 @@ def generate_report_data2(experiment: Experiment, encoding: str = "utf-8") -> Di
     return REPORT_DATA
 
 
-def generate_report2(experiment: Experiment,
-                    output_filename: str = "autolamella.pdf",
-                    sections: Optional[Dict[str, bool]] = None,
-                    encoding: str = "utf-8") -> None:
+def generate_report2(
+    experiment: Experiment,
+    output_filename: str = "autolamella.pdf",
+    sections: Optional[Dict[str, bool]] = None,
+    encoding: str = "utf-8",
+) -> None:
     """Generate a comprehensive AutoLamella experiment report.
 
     This function generates a PDF report from an experiment by parsing the logfile directly.
@@ -337,11 +356,15 @@ def generate_report2(experiment: Experiment,
     pdf = PDFReportGenerator(output_filename=output_filename)
 
     # Add content - Header and summary tables
-    pdf.add_title(f"AutoLamella Report: {report_data['experiment_name']}",
-                  f'Generated on {datetime.now().strftime(DATE_LONG)}')
-    pdf.add_paragraph('This report summarises the results of the AutoLamella experiment.')
-    pdf.add_dataframe(report_data["workflow_dataframe"], 'Workflow Summary')
-    pdf.add_dataframe(report_data["experiment_summary_dataframe"], 'Experiment Summary')
+    pdf.add_title(
+        f"AutoLamella Report: {report_data['experiment_name']}",
+        f"Generated on {datetime.now().strftime(DATE_LONG)}",
+    )
+    pdf.add_paragraph(
+        "This report summarises the results of the AutoLamella experiment."
+    )
+    pdf.add_dataframe(report_data["workflow_dataframe"], "Workflow Summary")
+    pdf.add_dataframe(report_data["experiment_summary_dataframe"], "Experiment Summary")
 
     # Overview image with positions
     if sections["overview"]:
@@ -353,7 +376,7 @@ def generate_report2(experiment: Experiment,
                 for filename in filenames:
                     image = FibsemImage.load(filename)
                     fig = generate_final_overview_image(exp=experiment, image=image)
-                    pdf.add_mpl_figure(fig, width=4.5*inch, height=4.5*inch)
+                    pdf.add_mpl_figure(fig, width=4.5 * inch, height=4.5 * inch)
         except Exception as e:
             logging.warning(f"Error generating overview image: {e}")
 
@@ -365,11 +388,16 @@ def generate_report2(experiment: Experiment,
 
     # Detection data
     if sections["detection"]:
-        if report_data["detection_dataframe"] is not None and not report_data["detection_dataframe"].empty:
+        if (
+            report_data["detection_dataframe"] is not None
+            and not report_data["detection_dataframe"].empty
+        ):
             pdf.add_page_break()
             pdf.add_heading("Detection Data")
             pdf.add_dataframe(report_data["detection_dataframe"])
-            pdf.add_dataframe(report_data["detection_summary_dataframe"], "Detection Summary")
+            pdf.add_dataframe(
+                report_data["detection_summary_dataframe"], "Detection Summary"
+            )
 
     # Per-lamella sections
     df_task_history = report_data["task_history_dataframe"]
@@ -383,20 +411,23 @@ def generate_report2(experiment: Experiment,
             df_milling=df_milling,
             include_workflow=sections["lamella_workflow"],
             include_images=sections["lamella_workflow_images"],
-            include_milling=sections["lamella_milling"]
+            include_milling=sections["lamella_milling"],
         )
 
     # Generate PDF
     pdf.generate()
 
-def plot_lamella_task_workflow_summary(p: Lamella,
-                         show_title: bool = False,
-                         show_scalebar: bool = True,
-                         figsize: Tuple[int, int] = (30, 5),
-                         target_size: int = 256,
-                         fontsize: int = 12,
-                         mode: str = "light",
-                         show: bool = False) -> Optional[Figure]:
+
+def plot_lamella_task_workflow_summary(
+    p: Lamella,
+    show_title: bool = False,
+    show_scalebar: bool = True,
+    figsize: Tuple[int, int] = (30, 5),
+    target_size: int = 256,
+    fontsize: int = 12,
+    mode: str = "light",
+    show: bool = False,
+) -> Optional[Figure]:
     """Plot the final images for each task of the lamella workflow.
 
     Creates a grid of images showing SEM and FIB views at different resolutions
@@ -426,7 +457,9 @@ def plot_lamella_task_workflow_summary(p: Lamella,
 
     task_filenames = {}
     for task_name in completed_tasks:
-        filenames = sorted(glob.glob(os.path.join(p.path, f"ref_{task_name}*_final_*res*.tif*")))
+        filenames = sorted(
+            glob.glob(os.path.join(p.path, f"ref_{task_name}*_final_*res*.tif*"))
+        )
         if len(filenames) == 0:
             continue
         task_filenames[task_name] = filenames
@@ -456,7 +489,6 @@ def plot_lamella_task_workflow_summary(p: Lamella,
     fig, axes = plt.subplots(nrows, ncols, figsize=(fig_width, fig_height))
 
     for i, task_name in enumerate(completed_tasks):
-
         if nrows == 1:
             ax = axes
         else:
@@ -466,7 +498,14 @@ def plot_lamella_task_workflow_summary(p: Lamella,
             ax = np.expand_dims(ax, axis=0)
 
         # Set y-axis label for this row (only on the leftmost subplot)
-        ax[0].set_ylabel(task_name, fontsize=fontsize, rotation=90, ha='center', va='center', color=text_color)
+        ax[0].set_ylabel(
+            task_name,
+            fontsize=fontsize,
+            rotation=90,
+            ha="center",
+            va="center",
+            color=text_color,
+        )
 
         filenames = task_filenames[task_name]
         try:
@@ -476,7 +515,9 @@ def plot_lamella_task_workflow_summary(p: Lamella,
                 # resize image, maintain aspect ratio
                 shape = img.data.shape
                 resize_shape = (int(shape[0] * (target_size / shape[1])), target_size)
-                arr = resize(img.data, resize_shape, preserve_range=True).astype(img.data.dtype)
+                arr = resize(img.data, resize_shape, preserve_range=True).astype(
+                    img.data.dtype
+                )
                 arr = median_filter(arr, size=3)
 
                 ax[j].imshow(arr, cmap="gray")
@@ -487,13 +528,15 @@ def plot_lamella_task_workflow_summary(p: Lamella,
 
                 # add scalebar
                 if show_scalebar:
-                    ax[j].add_artist(ScaleBar(
-                        dx=img.metadata.pixel_size.x * (shape[1] / target_size),
-                        color="black",
-                        box_color="white",
-                        box_alpha=0.5,
-                    location="lower right",
-                ))
+                    ax[j].add_artist(
+                        ScaleBar(
+                            dx=img.metadata.pixel_size.x * (shape[1] / target_size),
+                            color="black",
+                            box_color="white",
+                            box_alpha=0.5,
+                            location="lower right",
+                        )
+                    )
 
             if j < ncols - 1:
                 # fill remaining subplots with blank images
@@ -503,24 +546,35 @@ def plot_lamella_task_workflow_summary(p: Lamella,
                     ax[k].set_yticks([])
                     for spine in ax[k].spines.values():
                         spine.set_visible(False)
-                    ax[k].text(0.5, 0.5, "No Data", color="white", fontsize=fontsize,
-                               ha='center', va='center', transform=ax[k].transAxes)
+                    ax[k].text(
+                        0.5,
+                        0.5,
+                        "No Data",
+                        color="white",
+                        fontsize=fontsize,
+                        ha="center",
+                        va="center",
+                        transform=ax[k].transAxes,
+                    )
 
         except Exception as e:
             logging.error(f"Error plotting {p.name} - {task_name}: {e}")
             continue
 
     if show_title:
-        fig.suptitle(f"Lamella {p.name}", fontsize=int(fontsize * 1.5), color=text_color)
+        fig.suptitle(
+            f"Lamella {p.name}", fontsize=int(fontsize * 1.5), color=text_color
+        )
 
     # Minimize spacing between subplots
-    plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.02, hspace=0.02)
+    plt.subplots_adjust(
+        left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.02, hspace=0.02
+    )
 
     if show:
         plt.show()
 
     return fig
-
 
 
 def plot_task_milling_summary(p: Lamella, show: bool = False) -> List[Figure]:
@@ -538,34 +592,39 @@ def plot_task_milling_summary(p: Lamella, show: bool = False) -> List[Figure]:
         Returns empty list if no milling tasks are found or images are missing.
     """
     figures = []
-     
-    for k, v in p.task_config.items():
 
+    for k, v in p.task_config.items():
         # check if the task was completed
         if k not in [t.name for t in p.task_history]:
             continue
 
         # check if the task has milling operations
         if v.milling:
-
-            filenames = sorted(glob.glob(os.path.join(p.path, f"ref_{k}_final_*_ib.tif")))
+            filenames = sorted(
+                glob.glob(os.path.join(p.path, f"ref_{k}_final_*_ib.tif"))
+            )
             if len(filenames) == 0:
-                logging.info(f"No final high-res ion beam image found for {p.name} - {k}")
+                logging.info(
+                    f"No final high-res ion beam image found for {p.name} - {k}"
+                )
                 continue
             image = FibsemImage.load(filenames[0])
             milling_stages = []
             for mtask in v.milling.values():
                 milling_stages.extend(mtask.stages)
 
-            fig, ax = plot_milling_patterns(image, milling_stages, title=f"Lamella {p.name} - {k}")
+            fig, ax = plot_milling_patterns(
+                image, milling_stages, title=f"Lamella {p.name} - {k}"
+            )
             figures.append(fig)
             if show:
                 plt.show()
     return figures
 
-def generate_final_overview_image(exp: Experiment,
-                                  image: FibsemImage,
-                                  state: str = "MILLING") -> Figure:
+
+def generate_final_overview_image(
+    exp: Experiment, image: FibsemImage, state: str = "MILLING"
+) -> Figure:
     """Generate an overview image with all the final lamellae positions marked.
 
     Creates a figure showing the overview image with colored markers indicating
@@ -589,11 +648,9 @@ def generate_final_overview_image(exp: Experiment,
         pos.name = p.name
         sem_positions.append(pos)
 
-    fig = plot_stage_positions_on_image(image, sem_positions,
-                                        show=False,
-                                        color="cyan",
-                                        show_scalebar=True,
-                                        figsize=None)
+    fig = plot_stage_positions_on_image(
+        image, sem_positions, show=False, color="cyan", show_scalebar=True, figsize=None
+    )
 
     # plot details
     fig.suptitle(f"Experiment: {exp.name}")
@@ -601,11 +658,12 @@ def generate_final_overview_image(exp: Experiment,
 
     return fig
 
-def save_final_overview_image(exp: Experiment, 
-                        image: FibsemImage, 
-                        output_path: str) -> Figure:
+
+def save_final_overview_image(
+    exp: Experiment, image: FibsemImage, output_path: str
+) -> Figure:
     """Save the final overview image with all the final lamellae positions.
-    Args: 
+    Args:
         exp (Experiment): The experiment to plot.
         image (FibsemImage): The overview image.
         output_path (str): The path to save the image to.
