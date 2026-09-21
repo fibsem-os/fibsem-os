@@ -471,7 +471,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_pending_prompt",
-        description="The supervision question awaiting an answer, if any — message, options, and context images.",
+        description='The supervision question awaiting an answer, if any — message, options, and context images. A question that is also on the item\'s record says answer_via: "decide" and gives the item_id, task_name and proposal_id: it is decided with decide_review, like any other review, and answer_prompt will refuse it.',
         method="GET",
         path="/app/prompt",
         scope="read",
@@ -479,7 +479,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_pending_reviews",
-        description="Every proposal waiting for a decision (the Review tab's inbox, `reviews`): which item and task and the run it is from (task_id, which decide_review passes back), the proposed values (a point of interest in metres, milling frame), confidence and alternatives when the proposer gave any, provenance, its review mode, which tasks are waiting on the decision, and the reference image the values sit on as a JPEG preview. `to_check` lists proposals a producer applied itself (advise mode) that nobody has looked at yet: the run did not wait on them; acknowledge one with decide_review Confirmed and no values, which records the look and writes nothing. Empty lists when nothing is pending.",
+        description="Every proposal waiting for a decision (the Review tab's inbox, `reviews`): which item and task, its own id (proposal_id, which decide_review passes back) and the run it is from (task_id), whether the task that made it is stopped on the answer (holding_the_run: nothing else runs until it is decided, so decide those first), the proposed values (a point of interest in metres, milling frame), confidence and alternatives when the proposer gave any, provenance, its review mode, which tasks are waiting on the decision, and the reference image the values sit on as a JPEG preview. `to_check` lists proposals a producer applied itself (advise mode) that nobody has looked at yet: the run did not wait on them; acknowledge one with decide_review Confirmed and no values, which records the look and writes nothing. Empty lists when nothing is pending.",
         method="GET",
         path="/app/reviews",
         scope="read",
@@ -487,7 +487,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="decide_review",
-        description="Confirm or reject a proposal, exactly as the Review tab would. Pass the task_id get_pending_reviews gave for it: the decision is on that run, and is refused (409 stale_review) if the task has re-run since -- re-read and decide the current one. Confirming a pending proposal needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; they are written through, the consumer becomes runnable, and the delta against the proposal is computed, so pass the values you actually judge right. Confirming a to_check proposal (already applied) acknowledges it and must carry no values; to change an applied value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- or when there is no proposal for that item and task. The decision is recorded with the agent as author. Needs the control permission.",
+        description="Confirm or reject a proposal, exactly as the Review tab would. Pass the proposal_id get_pending_reviews gave for it: the decision is on that proposal, and is refused (409 stale_review) if it is no longer the one on the record -- the task re-ran, or asked again in the same run -- so re-read and decide the current one. (task_id, the run, is accepted in its place but cannot tell two questions from one run apart.) Confirming a pending proposal needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; they are written through, the consumer becomes runnable, and the delta against the proposal is computed, so pass the values you actually judge right. Confirming a to_check proposal (already applied) acknowledges it and must carry no values; to change an applied value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- unless that task is the one stopped on this very proposal (holding_the_run), which a decision releases: Confirmed hands the values back and the task carries on, Rejected fails it. Also refused when there is no proposal for that item and task. The decision is recorded with the agent as author. Needs the control permission.",
         method="POST",
         path="/app/decide",
         scope="control",
@@ -495,7 +495,8 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_id": "the item id from get_pending_reviews (by id, never name)",
             "task_name": "the task name from get_pending_reviews",
-            "task_id": "the task_id from get_pending_reviews: the run you looked at",
+            "proposal_id": "the proposal_id from get_pending_reviews: the proposal you looked at",
+            "task_id": "optional, and only in place of proposal_id: the run the proposal is from",
             "outcome": "Confirmed or Rejected",
             "values": "on Confirmed of a pending proposal: every value its kind carries, as proposed or adjusted; omitted (or empty) when acknowledging a to_check one",
             "reason": "required on Rejected",
@@ -504,7 +505,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="answer_prompt",
-        description="Answer the pending supervision question, exactly as clicking the matching button would. True = the positive option. Echo the nonce from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea and PickPOI the answer may carry a value: adjusted geometry that is placed into the widget (the operator sees it land) and then accepted through the same click path. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.",
+        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the nonce from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea and PickPOI the answer may carry a value: adjusted geometry that is placed into the widget (the operator sees it land) and then accepted through the same click path. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
         method="POST",
         path="/app/prompt/answer",
         scope="control",

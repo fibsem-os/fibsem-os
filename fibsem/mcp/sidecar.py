@@ -421,20 +421,26 @@ def build_sidecar(client, capabilities):
     def decide_review(
         item_id: str,
         task_name: str,
-        task_id: str,
         outcome: str,
+        proposal_id: str = "",
         values: Optional[dict] = None,
         reason: str = "",
         author: str = "",
+        task_id: str = "",
     ):
         body = {
             "item_id": str(item_id),
             "task_name": str(task_name),
-            "task_id": str(task_id),
             "outcome": str(outcome),
             "reason": str(reason),
             "author": str(author),
         }
+        # What the decision is on. The id is the one to pass; the run is
+        # accepted in its place, for a caller written before proposals had ids.
+        if proposal_id:
+            body["proposal_id"] = str(proposal_id)
+        if task_id:
+            body["task_id"] = str(task_id)
         if values is not None:
             body["values"] = dict(values)
         data, err = _call(client, "POST", "/app/decide", body)

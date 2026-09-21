@@ -110,6 +110,8 @@ class AppContext(Protocol):
         values: Optional[Dict[str, Any]] = None,
         reason: str = "",
         author: str = "",
+        task_id: str = "",
+        proposal_id: str = "",
     ) -> Dict[str, Any]: ...
 
     def answer_prompt(
@@ -372,15 +374,20 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         item_id = body.get("item_id")
         task_name = body.get("task_name")
         outcome = body.get("outcome")
-        task_id = body.get("task_id")
-        if not all(
-            isinstance(v, str) and v for v in (item_id, task_name, outcome, task_id)
+        # What the decision is on: the proposal's own id, or -- from a caller
+        # that has not learned it -- the run it came from. The id is the one to
+        # pass: a task may ask several questions in one run.
+        proposal_id = body.get("proposal_id") or ""
+        task_id = body.get("task_id") or ""
+        named = [v for v in (proposal_id, task_id) if v]
+        if not all(isinstance(v, str) and v for v in (item_id, task_name, outcome)) or (
+            not named or not all(isinstance(v, str) for v in named)
         ):
             raise HTTPException(
                 status_code=422,
                 detail={
                     "error_type": "missing_field",
-                    "message": "Pass item_id, task_name, task_id and outcome "
+                    "message": "Pass item_id, task_name, proposal_id and outcome "
                     "(Confirmed or Rejected) from GET /app/reviews.",
                 },
             )
@@ -410,6 +417,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
             reason=str(body.get("reason", "")),
             author=str(body.get("author", "")),
             task_id=task_id,
+            proposal_id=proposal_id,
         )
         if result.get("invalid_value"):
             raise HTTPException(

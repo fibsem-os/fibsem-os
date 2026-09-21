@@ -393,3 +393,81 @@ def test_decide_refuses_a_missing_or_stale_run_and_an_edit_disguised_as_a_look(
         assert resp.status_code == 422, resp.text
         assert "already decided" in resp.json()["detail"]["message"]
     assert lamella.poi == Point(4e-6, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# A decision names the proposal (FIB-1025)
+# ---------------------------------------------------------------------------
+
+
+def test_reviews_give_the_proposals_own_id_to_pass_back(ui):
+    lamella = ui.experiment.positions[0]
+    with _client(ui) as client:
+        waiting = client.get("/app/reviews", headers=AUTH).json()["reviews"]
+
+    assert waiting[0]["proposal_id"] == lamella.proposals[SETUP].id
+    assert waiting[0]["task_id"] == RUN, "the run is still there, as a fact about it"
+    assert waiting[0]["holding_the_run"] is False
+
+
+def test_decide_by_the_proposals_id_needs_no_run(ui, qapp):
+    lamella = ui.experiment.positions[0]
+    proposal = lamella.proposals[SETUP]
+    body = {
+        "item_id": lamella.id,
+        "task_name": SETUP,
+        "outcome": "Confirmed",
+        "proposal_id": proposal.id,
+        "values": {"poi": {"x": 4e-6, "y": 0.0}},
+    }
+    with _client(ui) as client:
+        resp = _post_on_worker(qapp, client, "/app/decide", body)
+
+    assert resp.status_code == 200, resp.text
+    assert lamella.poi == Point(4e-6, 0.0)
+    assert proposal.current.proposal_id == proposal.id
+    assert proposal.current.task_id == RUN, "filled in from the proposal it named"
+
+
+def test_decide_by_an_id_that_is_no_longer_on_the_record_is_stale(ui, qapp):
+    """What the run could not tell: the same run, another proposal. Naming the
+    run as well does not excuse it -- the id decides."""
+    lamella = ui.experiment.positions[0]
+    shown = lamella.proposals[SETUP].id
+    lamella.proposals[SETUP] = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(1e-6, 0.0)},
+        provenance=dict(lamella.proposals[SETUP].provenance),
+    )
+    body = {
+        "item_id": lamella.id,
+        "task_name": SETUP,
+        "outcome": "Confirmed",
+        "proposal_id": shown,
+        "task_id": RUN,
+        "values": {"poi": {"x": 4e-6, "y": 0.0}},
+    }
+    with _client(ui) as client:
+        resp = _post_on_worker(qapp, client, "/app/decide", body)
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error_type"] == "stale_review"
+    assert "asked again since you looked" in resp.json()["detail"]["message"]
+    assert lamella.proposals[SETUP].pending and lamella.poi == Point(0.0, 0.0)
+
+
+def test_withdrawn_cannot_be_posted_as_a_decision(ui, qapp):
+    """The route takes its outcome by name, and Withdrawn is a name."""
+    lamella = ui.experiment.positions[0]
+    body = {
+        "item_id": lamella.id,
+        "task_name": SETUP,
+        "outcome": "Withdrawn",
+        "proposal_id": lamella.proposals[SETUP].id,
+        "reason": "taking it back",
+    }
+    with _client(ui) as client:
+        resp = _post_on_worker(qapp, client, "/app/decide", body)
+
+    assert resp.status_code == 422, resp.text
+    assert lamella.proposals[SETUP].pending

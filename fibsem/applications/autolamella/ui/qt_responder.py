@@ -179,13 +179,14 @@ class QtResponder(QObject):
             return None, None
         return pending[0], pending[2]
 
-    def recorded_question(self) -> Optional[Tuple[str, str]]:
-        """``(item_id, task_name)`` when the pending question is on the record
-        and is answered by deciding that proposal, else None. Any thread."""
+    def recorded_question(self) -> Optional[Tuple[str, str, str]]:
+        """``(item_id, task_name, proposal_id)`` when the pending question is on
+        the record and is answered by deciding that proposal, else None. What a
+        decision has to name, all three. Any thread."""
         recorded = self._recorded
         if recorded is None or self.pending_question() is None:
             return None
-        return recorded[1], recorded[2]
+        return recorded[1], recorded[2], recorded[3]
 
     def submit_answer(
         self,

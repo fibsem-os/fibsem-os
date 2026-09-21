@@ -477,7 +477,11 @@ def test_an_agent_answering_the_prompt_is_told_to_decide_instead(window, qapp):
     lamella = ui.experiment.positions[0]
     thread, outcome = _ask(window, qapp, _request(window))
     _request_up, nonce = ui.ui_responder.pending_question_and_nonce()
-    assert ui.ui_responder.recorded_question() == (lamella.id, TASK)
+    assert ui.ui_responder.recorded_question() == (
+        lamella.id,
+        TASK,
+        lamella.proposals[TASK].id,
+    )
 
     answered = ui.ui_responder.submit_answer(True, nonce=nonce)
     assert _pump(qapp, answered.done)
@@ -504,7 +508,12 @@ def test_the_agent_server_says_how_it_is_answered(window, qapp):
     pending = context.pending_prompt()["pending"]
     assert pending["type"] == "ConfirmDetection"
     assert pending["answer_via"] == "decide"
-    assert pending["decide"] == {"item_id": lamella.id, "task_name": TASK}
+    named = {
+        "item_id": lamella.id,
+        "task_name": TASK,
+        "proposal_id": lamella.proposals[TASK].id,
+    }
+    assert pending["decide"] == named, "everything a decision has to name"
 
     refused = context.answer_prompt(True, nonce=pending["nonce"])
     assert refused == {
@@ -512,13 +521,31 @@ def test_the_agent_server_says_how_it_is_answered(window, qapp):
         "applied": False,
         "stale": False,
         "answer_via": "decide",
-        "item_id": lamella.id,
-        "task_name": TASK,
+        **named,
     }
     assert thread.is_alive() and "answer" not in outcome
 
-    _decide(window, author="agent:claude")
+    # ...and doing what it was told, with exactly what the prompt gave it.
+    decided = {}
+    worker = threading.Thread(
+        target=lambda: decided.update(
+            context.decide(
+                outcome="Confirmed",
+                values={
+                    "features": [{"name": "LamellaCentre", "px": {"x": 5, "y": 5}}]
+                },
+                author="claude",
+                **pending["decide"],
+            )
+        ),
+        daemon=True,
+    )
+    worker.start()
+    assert _pump(qapp, lambda: not worker.is_alive())
+    assert decided["applied"], decided
     _finish(qapp, thread)
+    assert outcome["answer"].features[0].px == Point(5, 5)
+    assert lamella.proposals[TASK].current.author.kind.value == "agent"
     assert "answer_via" not in (context.pending_prompt()["pending"] or {})
 
 
