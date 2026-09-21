@@ -8,11 +8,13 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -36,6 +38,15 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 SEVERITY_OPTIONS = ["Low", "Normal", "High", "Crash"]
+
+
+def _copy_to_clipboard(text: str) -> bool:
+    """Put ``text`` on the system clipboard. False when there is no clipboard."""
+    clipboard = QApplication.clipboard()
+    if clipboard is None:
+        return False
+    clipboard.setText(text)
+    return True
 
 
 class BugReportDialog(QDialog):
@@ -63,9 +74,10 @@ class BugReportDialog(QDialog):
 
     def _create_widgets(self, traceback_text: str):
         self.label_description = QLabel(
-            "Report a bug or issue. Use <b>Report on GitHub</b> for a public "
-            "report (no data), or <b>Create Bundle &amp; Email</b> to send "
-            "experiment data privately to the maintainers."
+            "Report a bug or issue. <b>Create Bundle</b> saves a scrubbed "
+            "<code>.zip</code> of your experiment data to disk, which you can "
+            "send to the maintainers from any machine. Use <b>Report on "
+            "GitHub</b> instead for a public report with no data attached."
         )
         self.label_description.setWordWrap(True)
         self.label_description.setStyleSheet("font-style: italic; margin-bottom: 8px;")
@@ -151,19 +163,17 @@ class BugReportDialog(QDialog):
         self.pushButton_github = QPushButton("Report on GitHub")
         self.pushButton_github.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_github.setAutoDefault(False)
-        self.pushButton_email = QPushButton("Create Bundle && Email")
-        self.pushButton_email.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_email.setAutoDefault(False)
+        self.pushButton_bundle = QPushButton("Create Bundle")
+        self.pushButton_bundle.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_bundle.setAutoDefault(False)
         self.pushButton_cancel = QPushButton("Cancel")
         self.pushButton_cancel.setAutoDefault(False)
 
-        self.button_box.addButton(
-            self.pushButton_github, QDialogButtonBox.ActionRole
-        )
-        self.button_box.addButton(self.pushButton_email, QDialogButtonBox.AcceptRole)
+        self.button_box.addButton(self.pushButton_github, QDialogButtonBox.ActionRole)
+        self.button_box.addButton(self.pushButton_bundle, QDialogButtonBox.AcceptRole)
         self.button_box.addButton(self.pushButton_cancel, QDialogButtonBox.RejectRole)
         self.pushButton_github.clicked.connect(self._on_report_github)
-        self.pushButton_email.clicked.connect(self._on_create_bundle)
+        self.pushButton_bundle.clicked.connect(self._on_create_bundle)
         self.pushButton_cancel.clicked.connect(self.reject)
 
     def _setup_layout(self):
@@ -224,10 +234,32 @@ class BugReportDialog(QDialog):
         if not self._validate(content):
             return
         try:
-            bug_report.open_github_issue(content)
+            result = bug_report.open_github_issue(content)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not open GitHub issue:\n{e}")
             return
+
+        # A prefilled issue is a convenience, not the report. When the browser
+        # never opened, or the body had to be trimmed to fit the URL, the full
+        # text goes to the clipboard so nothing the user typed is lost.
+        if not result.opened:
+            _copy_to_clipboard(result.full_text)
+            QMessageBox.warning(
+                self,
+                "Could not open a browser",
+                "No browser opened on this machine. The report was copied to "
+                "your clipboard — paste it into a new issue at\n\n"
+                f"{bug_report.GITHUB_NEW_ISSUE_URL}",
+            )
+        elif result.truncated:
+            _copy_to_clipboard(result.full_text)
+            QMessageBox.information(
+                self,
+                "Report shortened",
+                "The report was too long to prefill, so the issue shows a "
+                "trimmed copy. The full text was copied to your clipboard — "
+                "paste it over the issue body before submitting.",
+            )
         self.accept()
 
     def _on_create_bundle(self):
@@ -237,30 +269,14 @@ class BugReportDialog(QDialog):
         self._persist_email(content)
         try:
             zip_path = bug_report.build_bug_report_bundle(content, self.experiment_path)
-            bug_report.compose_support_email(content, zip_path)
         except Exception as e:
             logging.exception("Failed to create bug report bundle.")
             QMessageBox.critical(
                 self, "Error", f"Could not create the bug report bundle:\n{e}"
             )
             return
-        msg = QMessageBox(self)
-        msg.setIcon(QMessageBox.Information)
-        msg.setWindowTitle("Bug report created")
-        msg.setText("Bug report created")
-        msg.setInformativeText(
-            f"A data bundle was saved to:\n\n{zip_path}\n\n"
-            f"An email to {bug_report.SUPPORT_EMAIL} has been opened — "
-            f"please attach this file before sending."
-        )
-        open_button = msg.addButton("Open Directory", QMessageBox.ActionRole)
-        open_button.setMinimumWidth(
-            open_button.fontMetrics().boundingRect(open_button.text()).width() + 40
-        )
-        msg.addButton(QMessageBox.Ok)
-        msg.exec_()
-        if msg.clickedButton() is open_button:
-            open_path_in_file_explorer(os.path.dirname(zip_path))
+
+        BundleCreatedDialog(zip_path, content, parent=self).exec_()
         self.accept()
 
     def keyPressEvent(self, event):
@@ -268,6 +284,163 @@ class BugReportDialog(QDialog):
             event.ignore()
         else:
             super().keyPressEvent(event)
+
+
+class BundleCreatedDialog(QDialog):
+    """Confirms the bundle on disk and offers the ways of getting it to support.
+
+    The bundle is the deliverable and it already exists by the time this opens.
+    Email, the clipboard and the file explorer are conveniences layered on top,
+    and each reports what it actually did rather than asserting success — an
+    instrument PC often has no mail client, and telling the user an email is
+    waiting when none opened is how a report gets silently dropped.
+    """
+
+    def __init__(
+        self,
+        zip_path: str,
+        content: BugReportContent,
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.zip_path = zip_path
+        self.content = content
+
+        self.setWindowTitle("Bundle created")
+        self.setModal(True)
+        self.setMinimumWidth(520)
+
+        self._create_widgets()
+        self._setup_layout()
+
+    def _create_widgets(self):
+        self.label_title = QLabel("Bundle created")
+        self.label_title.setStyleSheet("font-weight: bold;")
+
+        self.label_instructions = QLabel(
+            f"Email it to <b>{bug_report.SUPPORT_EMAIL}</b>, or copy it to a USB "
+            "stick or network share and send it from another machine. This "
+            "computer does not need email or internet access."
+        )
+        self.label_instructions.setWordWrap(True)
+        self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
+
+        self.lineEdit_path = QLineEdit(self.zip_path)
+        self.lineEdit_path.setReadOnly(True)
+        self.lineEdit_path.setCursorPosition(0)
+
+        self.pushButton_copy_path = QPushButton("Copy Path")
+        self.pushButton_copy_path.setAutoDefault(False)
+        self.pushButton_copy_path.clicked.connect(self._on_copy_path)
+
+        self.pushButton_open_folder = QPushButton("Open Folder")
+        self.pushButton_open_folder.setAutoDefault(False)
+        self.pushButton_open_folder.clicked.connect(self._on_open_folder)
+
+        self.pushButton_copy_report = QPushButton("Copy Report Text")
+        self.pushButton_copy_report.setAutoDefault(False)
+        self.pushButton_copy_report.clicked.connect(self._on_copy_report)
+
+        self.pushButton_email = QPushButton("Open Email...")
+        self.pushButton_email.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_email.setAutoDefault(False)
+        self.pushButton_email.clicked.connect(self._on_open_email)
+
+        self.label_status = QLabel("")
+        self.label_status.setWordWrap(True)
+        self.label_status.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
+        # Reserve the room up front. A word-wrapped QLabel does not reliably
+        # grow its dialog once the dialog has been laid out, and the message
+        # that matters most -- no mail client on this PC -- is the longest one,
+        # so without this it is the one that gets clipped.
+        self.label_status.setMinimumHeight(
+            3 * self.label_status.fontMetrics().lineSpacing()
+        )
+
+        self.pushButton_close = QPushButton("Close")
+        self.pushButton_close.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_close.setAutoDefault(False)
+        self.pushButton_close.clicked.connect(self.accept)
+
+    def _setup_layout(self):
+        path_row = QHBoxLayout()
+        path_row.addWidget(self.lineEdit_path)
+        path_row.addWidget(self.pushButton_copy_path)
+
+        action_row = QHBoxLayout()
+        action_row.addWidget(self.pushButton_open_folder)
+        action_row.addWidget(self.pushButton_copy_report)
+        action_row.addWidget(self.pushButton_email)
+        action_row.addStretch()
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.label_title)
+        layout.addWidget(self.label_instructions)
+        layout.addLayout(path_row)
+        layout.addLayout(action_row)
+        layout.addWidget(self.label_status)
+        layout.addStretch()
+
+        close_row = QHBoxLayout()
+        close_row.addStretch()
+        close_row.addWidget(self.pushButton_close)
+        layout.addLayout(close_row)
+
+        self.setLayout(layout)
+
+    def _set_status(self, text: str, warn: bool = False):
+        style = (
+            "color: orange; font-style: italic;"
+            if warn
+            else stylesheets.LABEL_INSTRUCTIONS_STYLE
+        )
+        self.label_status.setStyleSheet(style)
+        self.label_status.setText(text)
+
+    def _on_copy_path(self):
+        if _copy_to_clipboard(self.zip_path):
+            self._set_status("Path copied to the clipboard.")
+        else:
+            self._set_status("Could not access the clipboard.", warn=True)
+
+    def _on_copy_report(self):
+        text = bug_report.render_report_text(self.content)
+        text += f"\n\nData bundle: {self.zip_path}"
+        if _copy_to_clipboard(text):
+            self._set_status(
+                "Report text copied to the clipboard — paste it into an email "
+                "or a message, and attach the bundle."
+            )
+        else:
+            self._set_status("Could not access the clipboard.", warn=True)
+
+    def _on_open_folder(self):
+        if open_path_in_file_explorer(os.path.dirname(self.zip_path)):
+            self._set_status("Opened the bundle's folder.")
+        else:
+            self._set_status(
+                "Could not open a file explorer. Use the path above.", warn=True
+            )
+
+    def _on_open_email(self):
+        try:
+            result = bug_report.compose_support_email(self.content, self.zip_path)
+        except Exception as e:
+            logging.exception("Failed to compose the support email.")
+            self._set_status(f"Could not open a mail client: {e}", warn=True)
+            return
+
+        if result.opened:
+            self._set_status("Mail client opened — attach the bundle before sending.")
+        else:
+            _copy_to_clipboard(result.full_text)
+            self._set_status(
+                "No mail client opened on this computer. The report text was "
+                f"copied to your clipboard — email it to "
+                f"{bug_report.SUPPORT_EMAIL} from another machine, with the "
+                "bundle attached.",
+                warn=True,
+            )
 
 
 def open_bug_report_dialog(

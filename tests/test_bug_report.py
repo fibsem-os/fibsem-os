@@ -174,3 +174,141 @@ def test_scrub_text_redacts_other_user_paths(text):
     for name in ("bob", "alice", "carol"):
         assert name not in scrubbed
     assert "<user>" in scrubbed
+
+
+# --- submitting: URL budgets and honest failure reporting ---------------
+
+
+def _body_of(url):
+    """The decoded ``body`` parameter of a mailto:/issue URL."""
+    from urllib.parse import parse_qs, urlparse
+
+    return parse_qs(urlparse(url).query)["body"][0]
+
+
+def _capture_url(monkeypatch, opened=True):
+    """Record the URL handed to the browser, and control whether it 'opened'."""
+    seen = {}
+
+    def fake_open(url, *args, **kwargs):
+        seen["url"] = url
+        return opened
+
+    monkeypatch.setattr(bug_report.webbrowser, "open", fake_open)
+    return seen
+
+
+def _crash_content():
+    """A crash report: the description carries a full traceback."""
+    traceback_text = "\n".join(
+        f'  File "/opt/fibsem/module_{i}.py", line {i}, in some_function_name_{i}'
+        for i in range(200)
+    )
+    return BugReportContent(
+        title="Milling crashed part-way through a trench",
+        description=f"An unexpected error occurred:\n\n{traceback_text}",
+        steps="1. start a run\n2. wait",
+        severity="Crash",
+        system_context={"fibsem_version": "0.6.0", "platform": "Windows-10"},
+    )
+
+
+def test_mailto_url_stays_within_the_shell_limit(monkeypatch, tmp_path):
+    """A full traceback must not blow the ~2000 char ShellExecute cap."""
+    seen = _capture_url(monkeypatch)
+    content = _crash_content()
+    assert len(content.description) > bug_report.MAILTO_MAX_URL_LENGTH  # precondition
+
+    result = bug_report.compose_support_email(content, str(tmp_path / "bundle.zip"))
+
+    assert len(seen["url"]) <= bug_report.MAILTO_MAX_URL_LENGTH
+    assert result.truncated
+
+
+def test_mailto_keeps_the_bundle_path_when_it_trims(monkeypatch, tmp_path):
+    """Trimming eats the prose, never the line saying where the bundle is."""
+    seen = _capture_url(monkeypatch)
+    zip_path = str(tmp_path / "bug-report-autolamella-2026.zip")
+
+    bug_report.compose_support_email(_crash_content(), zip_path)
+
+    body = _body_of(seen["url"])
+    assert zip_path in body
+    assert "attach this file" in body
+
+
+def test_github_url_stays_within_budget(monkeypatch):
+    seen = _capture_url(monkeypatch)
+
+    result = bug_report.open_github_issue(_crash_content())
+
+    assert len(seen["url"]) <= bug_report.GITHUB_MAX_URL_LENGTH
+    assert result.truncated
+    # the untrimmed body is handed back for the clipboard
+    assert len(result.full_text) > len(seen["url"])
+
+
+def test_short_reports_are_not_truncated(monkeypatch, tmp_path):
+    seen = _capture_url(monkeypatch)
+    content = BugReportContent(title="t", description="it broke", severity="Normal")
+
+    email = bug_report.compose_support_email(content, str(tmp_path / "b.zip"))
+    assert not email.truncated
+    assert "it broke" in _body_of(seen["url"])
+
+    github = bug_report.open_github_issue(content)
+    assert not github.truncated
+
+
+def test_compose_email_reports_when_no_mail_client_opened(monkeypatch, tmp_path):
+    """The Windows shell raises when nothing handles mailto: — say so."""
+
+    def raising_open(url, *args, **kwargs):
+        raise OSError("no application is associated with mailto")
+
+    monkeypatch.setattr(bug_report.webbrowser, "open", raising_open)
+
+    result = bug_report.compose_support_email(
+        BugReportContent(title="t", description="d"), str(tmp_path / "b.zip")
+    )
+
+    assert result.opened is False
+    # the clipboard fallback carries the whole report, not the short email body
+    assert "Steps to reproduce" in result.full_text
+
+
+def test_compose_email_reports_a_false_return(monkeypatch, tmp_path):
+    seen = _capture_url(monkeypatch, opened=False)
+    result = bug_report.compose_support_email(
+        BugReportContent(title="t", description="d"), str(tmp_path / "b.zip")
+    )
+    assert seen["url"].startswith("mailto:")
+    assert result.opened is False
+
+
+def test_github_reports_when_no_browser_opened(monkeypatch):
+    monkeypatch.setattr(
+        bug_report.webbrowser, "open", lambda *a, **k: (_ for _ in ()).throw(OSError())
+    )
+    result = bug_report.open_github_issue(BugReportContent(title="t", description="d"))
+    assert result.opened is False
+    assert "Steps to reproduce" in result.full_text
+
+
+def test_clip_at_line_prefers_a_line_boundary():
+    text = "aaaa\nbbbb\ncccc\ndddd"
+    assert bug_report._clip_at_line(text, 12) == "aaaa\nbbbb"
+    # a single long line has no boundary to fall back to: hard cut, not empty
+    assert bug_report._clip_at_line("x" * 100, 10) == "x" * 10
+
+
+def test_a_runaway_title_still_leaves_room_for_the_body(monkeypatch, tmp_path):
+    """A pasted traceback in the title must not starve the bundle pointer."""
+    seen = _capture_url(monkeypatch)
+    zip_path = str(tmp_path / "b.zip")
+    content = BugReportContent(title="T" * 5000, description="d")
+
+    bug_report.compose_support_email(content, zip_path)
+
+    assert len(seen["url"]) <= bug_report.MAILTO_MAX_URL_LENGTH
+    assert zip_path in _body_of(seen["url"])

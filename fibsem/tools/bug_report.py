@@ -5,8 +5,13 @@ Two paths are supported:
 * **Public report** — open a pre-filled GitHub issue in the browser. No data
   leaves the machine beyond what the user types + basic environment info.
 * **Private data bundle** — build a scrubbed ``.zip`` of the selected experiment
-  artifacts (log file, experiment/protocol yaml, optionally screenshots/images)
-  and open a pre-filled email to the support address so the user can attach it.
+  artifacts (log file, experiment/protocol yaml, optionally screenshots/images).
+
+The bundle is the deliverable. Instrument PCs frequently have no mail client and
+no browser session, so everything that leaves this machine over the network is
+best-effort: :func:`compose_support_email` and :func:`open_github_issue` report
+whether they actually opened anything, and the caller falls back to the file on
+disk, which the user can move by USB stick or network share.
 
 An inert :func:`init_sentry` hook is included so automatic crash reporting can be
 enabled later (by installing ``sentry-sdk`` and setting a DSN in preferences)
@@ -25,7 +30,7 @@ import webbrowser
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
 import fibsem
@@ -39,6 +44,28 @@ if TYPE_CHECKING:
 SUPPORT_EMAIL = "contact@fibsemos.org"
 GITHUB_REPO_URL = "https://github.com/fibsem-os/fibsem-os"
 GITHUB_NEW_ISSUE_URL = f"{GITHUB_REPO_URL}/issues/new"
+
+# Both budgets are on the *encoded* URL, never the raw text: percent-encoding
+# turns every newline into three characters, so a body that looks comfortably
+# short still overflows once quoted -- which is precisely the case that matters,
+# a traceback handed to a shell that drops the overflow without saying so.
+#
+# Windows dispatches ``mailto:`` through ShellExecute, which truncates or
+# refuses URLs beyond roughly 2000 characters, and a crash report pre-fills the
+# description with a full traceback. The email only has to point at the bundle;
+# report.md inside it carries the whole thing.
+MAILTO_MAX_URL_LENGTH = 1800
+
+# GitHub itself accepts a longer prefill, but browsers and corporate proxies
+# start dropping query strings well before its limit.
+GITHUB_MAX_URL_LENGTH = 7000
+
+_TRUNCATION_NOTE = "\n\n[trimmed -- the full text was copied to your clipboard]"
+
+# A user-typed title goes into the URL alongside the body. Capping it keeps a
+# runaway title (a pasted traceback, say) from eating the whole budget and
+# leaving no room for the part that says where the bundle is.
+_TITLE_MAX_LENGTH = 120
 
 # Text file extensions whose contents are scrubbed before being added to a bundle.
 _SCRUBBED_EXTENSIONS = {".log", ".yaml", ".yml", ".txt", ".md", ".json", ".csv"}
@@ -69,6 +96,25 @@ class BugReportContent:
     include_images: bool = False
 
     system_context: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class SubmitResult:
+    """Outcome of handing a report to an external application.
+
+    ``opened`` is what the platform reported, not proof that the user saw a
+    window. On macOS a ``mailto:`` always "succeeds" because Mail.app exists
+    even with no account configured. It is trustworthy on Windows, where the
+    shell raises when nothing is registered for the scheme -- which is the case
+    that actually matters here, an instrument PC with no mail client.
+
+    ``full_text`` is the untruncated body, for the caller to put on the
+    clipboard when ``truncated`` is set.
+    """
+
+    opened: bool
+    full_text: str
+    truncated: bool = False
 
 
 def collect_system_context(
@@ -185,8 +231,50 @@ def estimate_bundle_size(
     return total
 
 
-def _render_report_text(content: BugReportContent) -> str:
-    """Render the human-readable report body shared by the bundle and email."""
+def _clip_at_line(text: str, size: int) -> str:
+    """The first ``size`` characters of ``text``, cut back to a line boundary.
+
+    Falls back to a hard cut when the last newline is in the front half, so a
+    single enormous line still gets trimmed rather than emptied.
+    """
+    head = text[:size]
+    newline = head.rfind("\n")
+    return head[:newline] if newline > size // 2 else head
+
+
+def _fit_url(
+    build_url: Callable[[str], str], text: str, limit: int
+) -> Tuple[str, bool]:
+    """Build a URL from ``text``, trimming ``text`` until the URL fits ``limit``.
+
+    Binary-searches the longest prefix that fits once encoded, so the caller
+    gets as much of the report as the platform will carry. Returns the URL and
+    whether anything was dropped -- the caller owes the user the full text on
+    the clipboard when it was.
+    """
+    if len(build_url(text)) <= limit:
+        return build_url(text), False
+
+    def _candidate(size: int) -> str:
+        return _clip_at_line(text, size) + _TRUNCATION_NOTE
+
+    low, high = 0, len(text)
+    while low < high:
+        mid = (low + high + 1) // 2
+        if len(build_url(_candidate(mid))) <= limit:
+            low = mid
+        else:
+            high = mid - 1
+
+    return build_url(_candidate(low)), True
+
+
+def render_report_text(content: BugReportContent) -> str:
+    """Render the human-readable report body.
+
+    Used for ``report.md`` inside the bundle and for the clipboard fallback,
+    which is what the user pastes when no mail client or browser opens.
+    """
     lines = [
         f"# AutoLamella Bug Report: {content.title or '(no title)'}",
         "",
@@ -231,7 +319,7 @@ def build_bug_report_bundle(
     zip_path = os.path.join(output_dir, zip_name)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("report.md", scrub_text(_render_report_text(content)))
+        zf.writestr("report.md", scrub_text(render_report_text(content)))
         zf.writestr(
             "system_info.json",
             scrub_text(json.dumps(content.system_context, indent=2)),
@@ -278,42 +366,96 @@ def _github_issue_body(content: BugReportContent) -> str:
     return "\n".join(lines)
 
 
-def open_github_issue(content: BugReportContent) -> None:
-    """Open a pre-filled GitHub issue in the default browser."""
-    params = {
-        "title": content.title or "AutoLamella issue",
-        "body": _github_issue_body(content),
-    }
-    url = f"{GITHUB_NEW_ISSUE_URL}?{urlencode(params)}"
+def open_github_issue(content: BugReportContent) -> SubmitResult:
+    """Open a pre-filled GitHub issue in the default browser.
+
+    The body is trimmed until the encoded URL fits
+    :data:`GITHUB_MAX_URL_LENGTH`; the result carries the full text so the
+    caller can offer it on the clipboard instead.
+    """
+    body = _github_issue_body(content)
+    title = (content.title or "AutoLamella issue")[:_TITLE_MAX_LENGTH]
+
+    def _build(text: str) -> str:
+        return f"{GITHUB_NEW_ISSUE_URL}?{urlencode({'title': title, 'body': text})}"
+
+    url, truncated = _fit_url(_build, body, GITHUB_MAX_URL_LENGTH)
+
     logging.info("Opening GitHub issue in browser.")
-    webbrowser.open(url)
+    try:
+        opened = bool(webbrowser.open(url))
+    except Exception:
+        logging.exception("Could not open a browser for the GitHub issue.")
+        opened = False
+
+    return SubmitResult(opened=opened, full_text=body, truncated=truncated)
+
+
+def _support_email_body(
+    content: BugReportContent, attachment_path: Optional[str]
+) -> str:
+    """Short body pointing at the bundle, for a length-limited ``mailto:``.
+
+    Ordered so the bundle pointer comes first and the free text last, because
+    :func:`_fit_url` trims the tail: the one line that must survive a trim is
+    where to find the file, not the prose the bundle already contains.
+    """
+    lines = [
+        f"Severity: {content.severity}",
+        f"Version: {content.system_context.get('fibsem_version', 'unknown')}",
+    ]
+    if attachment_path:
+        lines += [
+            "",
+            "A data bundle was saved to:",
+            attachment_path,
+            "",
+            "Please attach this file before sending. It contains the full "
+            "report, including the steps to reproduce and the environment.",
+        ]
+    lines += [
+        "",
+        "---",
+        content.description or "(see the attached bundle)",
+    ]
+    return "\n".join(lines)
 
 
 def compose_support_email(
     content: BugReportContent, attachment_path: Optional[str]
-) -> None:
-    """Open a pre-filled email to the support address.
+) -> SubmitResult:
+    """Open a pre-filled email to the support address, if a mail client exists.
 
-    ``mailto:`` cannot attach files, so the bundle path is included in the body
-    with an instruction for the user to attach it manually.
+    ``mailto:`` cannot attach files, so the body points at the bundle on disk
+    and asks the user to attach it. Returns whether anything actually opened --
+    on an instrument PC with no mail client, nothing will, and the caller must
+    fall back to the saved bundle rather than claim an email is waiting.
     """
-    subject = f"[AutoLamella Bug Report] {content.title or 'Untitled'}"
-    body_lines = [_render_report_text(content)]
-    if attachment_path:
-        body_lines += [
-            "",
-            "---",
-            f"A data bundle was created at:\n{attachment_path}",
-            "",
-            "Please attach this file to this email before sending.",
-        ]
-    body = "\n".join(body_lines)
+    title = (content.title or "Untitled")[:_TITLE_MAX_LENGTH]
+    subject = f"[AutoLamella Bug Report] {title}"
 
-    url = f"mailto:{SUPPORT_EMAIL}?" + urlencode(
-        {"subject": subject, "body": body}, quote_via=quote
+    def _build(text: str) -> str:
+        return f"mailto:{SUPPORT_EMAIL}?" + urlencode(
+            {"subject": subject, "body": text}, quote_via=quote
+        )
+
+    url, truncated = _fit_url(
+        _build, _support_email_body(content, attachment_path), MAILTO_MAX_URL_LENGTH
     )
+
+    # The clipboard fallback gets the whole report, not the short email body.
+    full_text = render_report_text(content)
+    if attachment_path:
+        full_text += f"\n\nData bundle: {attachment_path}"
+
     logging.info("Opening support email to %s", SUPPORT_EMAIL)
-    webbrowser.open(url)
+    try:
+        opened = bool(webbrowser.open(url))
+    except Exception:
+        logging.exception("Could not open a mail client for the support email.")
+        opened = False
+
+    return SubmitResult(opened=opened, full_text=full_text, truncated=truncated)
 
 
 def init_sentry() -> bool:
