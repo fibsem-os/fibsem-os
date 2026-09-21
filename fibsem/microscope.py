@@ -2700,22 +2700,41 @@ class FibsemMicroscope(ABC):
         """The compustage's devices are one place: reaching either is a re-pose.
 
         With no `orientation` asked for, FIBSEM lands at SEM -- the pose every
-        caller of the old `move_to_microscope` relied on -- and the FM lands at its
-        own orientation, under the objective.
+        caller of the old `move_to_microscope` relied on.
+
+        The FM follows the rule the offset route and `to_device` follow
+        (`_arrival_orientation`): the pose is kept where the objective images from
+        it, and otherwise put into the first orientation the FM declares. With the
+        default declaration, `["FM"]`, that is the flip it always was. On a
+        compustage that declares more -- one whose objective also images from the
+        beam side -- "move to the FM" from one of those poses is already there, so
+        the stage stays and only the objective comes in; flipping regardless would
+        take it somewhere other than where `to_device` says the same piece of sample
+        is under the FM, which is where a lamella's fluorescence pose was derived.
         """
         if not self.fm:
             raise ValueError("FM module is not available. Cannot move to FM position.")
 
-        self.fm.objective.retract()  # retract objective (safety precaution)
-
         if device == "FIBSEM":
+            self.fm.objective.retract()  # retract objective (safety precaution)
             self.move_to_orientation(orientation or "SEM")
 
         if device == "FM":
-            if orientation is not None:
-                self.move_to_orientation(orientation)
+            desired = self._arrival_orientation(
+                device, self.get_stage_position(), orientation
+            )
+            if desired is None:
+                # Retracted only for motion, as on the offset route: there is none.
+                logging.info(
+                    "The FM images from the pose the stage is in; inserting the "
+                    "objective without re-posing."
+                )
             else:
-                self.move_stage_absolute(self.get_orientation("FM"))
+                self.fm.objective.retract()  # retract objective (safety precaution)
+                if orientation is None and desired == "FM":
+                    self.move_stage_absolute(self.get_orientation("FM"))
+                else:
+                    self.move_to_orientation(desired)
             self.fm.objective.insert()  # insert objective
 
     def move_to_microscope(self, target: str) -> None:
