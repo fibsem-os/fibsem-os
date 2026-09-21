@@ -232,9 +232,13 @@ def test_a_compustage_lands_at_the_orientation_it_asked_for():
 
 
 def test_a_compustage_keeps_its_default_landing_poses():
-    """Unasked, FIBSEM still lands at SEM and the FM at its own orientation --
-    every existing caller relies on exactly that."""
+    """Unasked, FIBSEM still lands at SEM and the FM at its own orientation.
+
+    From FIB, the one beam pose this compustage's objective does not image from:
+    from SEM or a milling tilt the objective already sees the sample, and "move to
+    the FM" has nowhere to go."""
     microscope = _microscope(ARCTIS_CONFIG)
+    microscope.move_to_orientation("FIB")
 
     microscope.move_to_device("FM")
     assert microscope.get_stage_orientation() == "FM"
