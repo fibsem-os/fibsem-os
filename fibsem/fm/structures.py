@@ -1742,7 +1742,10 @@ class FluorescenceConfiguration:
     camera_settings: CameraSettings = field(default_factory=CameraSettings)
     focus_position: Optional[float] = None  # meters
     limit_position: Optional[float] = None  # meters
-    default_orientation: str = "FM"
+    # No `default_orientation`: the orientation a new lamella's fluorescence pose is
+    # derived into is the FM's first declared acquisition orientation, and a person
+    # chooses another per lamella (Derive, in the lamella details). A saved file may
+    # still carry the key; `from_dict` ignores it (FIB-831).
 
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
@@ -1756,7 +1759,6 @@ class FluorescenceConfiguration:
             "camera_settings": self.camera_settings.to_dict(),
             "focus_position": self.focus_position,
             "limit_position": self.limit_position,
-            "default_orientation": self.default_orientation,
         }
 
     @classmethod
@@ -1784,7 +1786,6 @@ class FluorescenceConfiguration:
             camera_settings=camera_settings,
             focus_position=ddict.get("focus_position"),
             limit_position=ddict.get("limit_position"),
-            default_orientation=ddict.get("default_orientation", "FM"),
         )
 
     def export(self, filename: str) -> str:
