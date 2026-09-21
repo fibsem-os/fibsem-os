@@ -95,6 +95,23 @@ def acquire_image(microscope: FibsemMicroscope, settings: ImageSettings) -> Fibs
     return new_image(microscope, settings)
 
 
+def acquire_current_image(
+    microscope: FibsemMicroscope, beam_type: BeamType, path: Optional[str] = None
+) -> FibsemImage:
+    """Acquire with the beam as it is set now, and record it.
+
+    For a frame whose point is the beam's current field and resolution -- after
+    milling, around a milling strategy -- rather than a protocol's settings,
+    which :func:`new_image` applies. ``path`` is saved to as given (``.tif``
+    added if it has no suffix), without the ``_eb``/``_ib`` suffix
+    :func:`new_image` adds; None saves nothing.
+    """
+    image = microscope.acquire_image(image_settings=None, beam_type=beam_type)
+    written = image.save(path=path) if path is not None else None
+    microscope.record_event("image_acquired", _acquisition_record(image, written))
+    return image
+
+
 def last_image(microscope: FibsemMicroscope, beam_type: BeamType) -> FibsemImage:
     """_summary_
 

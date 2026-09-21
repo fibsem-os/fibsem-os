@@ -407,6 +407,9 @@ def test_the_events_replay_what_the_log_replays(recorded_twice):
     assert events.scene(spots[-1]).spots == pytest.approx(
         log.scene(log_spots[-1]).spots
     )
+    # milling's own final image is recorded, so the overlay ends where the log's does
+    assert events.scene(spots[-1]).milling is None
+    assert log.scene(log_spots[-1]).milling is None
     ((_, fm),) = _of(events, EventKind.FLUORESCENCE)
     assert fm.image_path.name == FM_STACK
 
