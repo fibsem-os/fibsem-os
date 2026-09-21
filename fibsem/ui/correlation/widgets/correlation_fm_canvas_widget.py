@@ -23,6 +23,7 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.correlation.widgets.correlation_picking import CorrelationPicking
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 
@@ -43,6 +44,8 @@ class CorrelationFMCanvasWidget(FMCanvasWidget):
         self,
         parent: Optional[QWidget] = None,
         allowed_point_types: Optional[List[PointType]] = None,
+        store: Optional[CorrelationPointStore] = None,
+        side: Optional[str] = None,
     ) -> None:
         super().__init__(parent)
         # Same reasoning as the FIB canvas: correlation draws SURFACE as an orange
@@ -60,6 +63,8 @@ class CorrelationFMCanvasWidget(FMCanvasWidget):
             self.canvas,
             allowed_point_types=allowed_point_types,
             menu_parent=self,
+            store=store,
+            side=side,
         )
         self.picking.point_selected.connect(self.point_selected)
         self.picking.point_moved.connect(self.point_moved)

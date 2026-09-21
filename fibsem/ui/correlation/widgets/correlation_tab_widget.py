@@ -107,6 +107,7 @@ from fibsem.correlation.verdict import LOO_BAD_UM, LOO_CHECK_UM
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import CameraImageTransform, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
 from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
     CorrelationCanvasWidget,
@@ -941,8 +942,14 @@ class _CoordinatesTab(QWidget):
     surface_list: CoordinateListWidget
     fm_surface_list: CoordinateListWidget
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        store: Optional[CorrelationPointStore] = None,
+    ) -> None:
         super().__init__(parent)
+        # one store for the five lists, shared with the canvases (FIB-973)
+        self._store = store if store is not None else CorrelationPointStore(self)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -966,7 +973,9 @@ class _CoordinatesTab(QWidget):
         layout.addWidget(hint)
 
         # FIB fiducials
-        self.fib_list = CoordinateListWidget(point_type=PointType.FIB)
+        self.fib_list = CoordinateListWidget(
+            point_type=PointType.FIB, store=self._store
+        )
         self._fib_panel = TitledPanel("FIB Fiducials", collapsible=True)
         self._fib_panel.set_content(self.fib_list)
         self._fib_count_label = QLabel("(0)")
@@ -980,7 +989,7 @@ class _CoordinatesTab(QWidget):
         # button does both the first projection and every re-projection after
         # pairs are placed. The row belongs to this list -- it is what it
         # changes -- so it lives in the list's panel, not one of its own.
-        self.fm_list = CoordinateListWidget(point_type=PointType.FM)
+        self.fm_list = CoordinateListWidget(point_type=PointType.FM, store=self._store)
         fm_body = QWidget()
         fm_layout = QVBoxLayout(fm_body)
         fm_layout.setContentsMargins(0, 0, 0, 0)
@@ -1032,7 +1041,9 @@ class _CoordinatesTab(QWidget):
         layout.addWidget(self._fm_panel)
 
         # POI
-        self.poi_list = CoordinateListWidget(point_type=PointType.POI)
+        self.poi_list = CoordinateListWidget(
+            point_type=PointType.POI, store=self._store
+        )
         self._poi_panel = TitledPanel("POI", collapsible=True)
         self._poi_panel.set_content(self.poi_list)
         self._poi_count_label = QLabel("(0)")
@@ -1041,7 +1052,9 @@ class _CoordinatesTab(QWidget):
         layout.addWidget(self._poi_panel)
 
         # Surface (max 1, FIB image; mutually exclusive with FM Surface)
-        self.surface_list = CoordinateListWidget(point_type=PointType.SURFACE)
+        self.surface_list = CoordinateListWidget(
+            point_type=PointType.SURFACE, store=self._store
+        )
         self._surface_panel = TitledPanel("Surface (FIB)", collapsible=True)
         self._surface_panel.set_content(self.surface_list)
         self._surface_count_label = QLabel("(0)")
@@ -1050,7 +1063,9 @@ class _CoordinatesTab(QWidget):
         layout.addWidget(self._surface_panel)
 
         # FM Surface (max 1, FM volume; mutually exclusive with Surface)
-        self.fm_surface_list = CoordinateListWidget(point_type=PointType.SURFACE_FM)
+        self.fm_surface_list = CoordinateListWidget(
+            point_type=PointType.SURFACE_FM, store=self._store
+        )
         self._fm_surface_panel = TitledPanel("Surface (FM)", collapsible=True)
         self._fm_surface_panel.set_content(self.fm_surface_list)
         self._fm_surface_count_label = QLabel("(0)")
@@ -2295,6 +2310,11 @@ class CorrelationTabWidget(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter, stretch=1)
+        # The points and the selection, held once: the five lists and both
+        # canvases draw from it (FIB-973). The slots below still relay between
+        # them as if each held its own copy; with one store that is redundant
+        # rather than wrong, and they go next.
+        self._point_store = CorrelationPointStore(self)
         fib_pane, fm_pane = self._build_image_panes()
         splitter.addWidget(fib_pane)
         splitter.addWidget(fm_pane)
@@ -2432,6 +2452,8 @@ class CorrelationTabWidget(QWidget):
 
         self._fib_canvas = CorrelationCanvasWidget(
             allowed_point_types=self._point_types_for_side("fib"),
+            store=self._point_store,
+            side="fib",
         )
         fib_layout.addWidget(self._fib_canvas, stretch=1)
 
@@ -2452,6 +2474,8 @@ class CorrelationTabWidget(QWidget):
 
         self._fm_display = CorrelationFMCanvasWidget(
             allowed_point_types=self._point_types_for_side("fm"),
+            store=self._point_store,
+            side="fm",
         )
         fm_layout.addWidget(self._fm_display, stretch=1)
 
@@ -2461,7 +2485,7 @@ class CorrelationTabWidget(QWidget):
         """The images, coordinates, results and refractive-index panels."""
         self._images_tab = _ImagesTab()
         self._images_tab.confirm_image_change = self._confirm_image_change
-        self._coords_tab = _CoordinatesTab()
+        self._coords_tab = _CoordinatesTab(store=self._point_store)
         self._coords_tab.projection_link_activated.connect(self._on_projection_link)
         self._results_tab = _ResultsTab()
         self._ri_tab = _RITab()
