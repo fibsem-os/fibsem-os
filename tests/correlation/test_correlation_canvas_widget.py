@@ -58,17 +58,6 @@ def test_the_tab_widget_can_connect_its_four_signals():
         assert hasattr(CorrelationCanvasWidget, name), name
 
 
-def test_the_adapter_surface_is_answered():
-    """_CanvasAdapter calls exactly these three on whatever surface it holds, and
-    it is duck-typed -- nothing else checks they exist until a click does."""
-    from fibsem.ui.correlation.widgets.correlation_tab_widget import _CanvasAdapter
-
-    adapter = _CanvasAdapter(CorrelationCanvasWidget(), side="fib")
-    for name in ("set_coordinates", "set_selected", "refresh_coordinate"):
-        assert callable(getattr(adapter, name)), name
-        assert callable(getattr(CorrelationCanvasWidget, name, None)), name
-
-
 def test_set_image_takes_the_array_its_consumers_pass():
     """The signature check above is only as good as the annotation. This is the
     behaviour: both consumers hold a derived array, never a FibsemImage."""

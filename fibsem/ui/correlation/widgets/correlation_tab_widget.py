@@ -107,7 +107,7 @@ from fibsem.correlation.verdict import LOO_BAD_UM, LOO_CHECK_UM
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import CameraImageTransform, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.correlation.point_store import CorrelationPointStore
+from fibsem.ui.correlation.point_store import POINT_RULES, CorrelationPointStore
 from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
 from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
     CorrelationCanvasWidget,
@@ -2160,23 +2160,10 @@ def _has_coordinates(data: Optional[CorrelationInputData]) -> bool:
 
 
 class _CanvasAdapter:
-    """Thin seam over a point-display surface (canvas or display widget).
+    """Which canvas a point type is drawn on, and the z a new point gets there.
 
-    Outbound canvas calls from the registry-driven handlers all go through
-    this adapter. NOTE: inbound signals (point_selected/moved/removed/
-    add_requested) still connect to the canvases directly and carry
-    identity-based Coordinate payloads — migrating onto the shared canvas
-    stack (fibsem.ui.widgets.canvas, PR #111, index-based PointOverlay
-    signals) therefore means new adapters PLUS an inbound translation layer;
-    what stays untouched is the registry, exclusivity, and lifecycle logic.
-
-    Superseded in part (FIB-535): the translation layer above is no longer the
-    plan. A CorrelationPointOverlay subclassing PointOverlay carries Coordinate
-    identity in its own signals, so nothing has to be translated back from an
-    index — and it also resolves the second mismatch this note misses, that one
-    canvas shows several PointTypes at once while PointOverlay is a single flat
-    list. The last sentence still holds: registry, exclusivity and lifecycle
-    stay untouched.
+    The canvases draw from the point store themselves (FIB-973), so nothing is
+    pushed to them through this any more.
     """
 
     def __init__(
@@ -2189,15 +2176,6 @@ class _CanvasAdapter:
         self.side = side  # "fib" | "fm"
         self._z_provider = z_provider
 
-    def set_coordinates(self, coords: List[Coordinate]) -> None:
-        self._surface.set_coordinates(coords)
-
-    def set_selected(self, coord: Optional[Coordinate]) -> None:
-        self._surface.set_selected(coord)
-
-    def refresh_coordinate(self, coord: Coordinate) -> None:
-        self._surface.refresh_coordinate(coord)
-
     def current_z(self) -> float:
         """z for newly added points (FM: current slice; FIB: 0)."""
         return float(self._z_provider()) if self._z_provider is not None else 0.0
@@ -2208,8 +2186,9 @@ class _PointTypeSpec:
     """Registry entry driving all per-point-type canvas/list plumbing.
 
     Adding a point type = one _POINT_TYPE_SIDES entry + one spec (plus its
-    list panel); the canvas add-menus, generic handlers, selection clearing,
-    exclusivity, axis maxima, and refit routing all follow from the registry.
+    list panel) + one POINT_RULES entry in the point store, which owns
+    replace-on-add and mutual exclusivity; the canvas add-menus, generic
+    handlers, axis maxima, and refit routing all follow from the registry.
     Unregistered point types fail loudly (KeyError) instead of being silently
     misrouted, and inconsistent specs are rejected at construction.
     """
@@ -2217,8 +2196,6 @@ class _PointTypeSpec:
     point_type: PointType
     list_widget: CoordinateListWidget
     adapter: _CanvasAdapter
-    max_one: bool = False  # replace-on-add (surfaces)
-    exclusive_group: Optional[str] = None  # mutually exclusive specs
     fm_fit_role: Optional[str] = None  # "fid" | "poi" → refit combos
     on_cleared: Optional[Callable[[], None]] = None  # fired when the spec's
     # last point is removed
@@ -2564,8 +2541,6 @@ class CorrelationTabWidget(QWidget):
                 PointType.SURFACE,
                 cl.surface_list,
                 adapter_for(PointType.SURFACE),
-                max_one=True,
-                exclusive_group="surface",
             ),
             _PointTypeSpec(
                 PointType.FM, cl.fm_list, adapter_for(PointType.FM), fm_fit_role="fid"
@@ -2580,8 +2555,6 @@ class CorrelationTabWidget(QWidget):
                 PointType.SURFACE_FM,
                 cl.fm_surface_list,
                 adapter_for(PointType.SURFACE_FM),
-                max_one=True,
-                exclusive_group="surface",
                 fm_fit_role="fid",
                 on_cleared=self._clear_pre_correction_factor,
             ),
@@ -2609,23 +2582,24 @@ class CorrelationTabWidget(QWidget):
         self._ri_tab.correction_applied.connect(self._on_correction_applied)
         self._ri_tab.pre_correction_requested.connect(self._on_pre_correction_requested)
 
-        # Canvas → list (registry-driven; handlers resolve the spec by type)
+        # The lists and the canvases draw from the point store and write their
+        # gestures to it (FIB-973), so nothing is relayed between them. What is
+        # left here is what an edit means to the rest of the widget.
+        self._point_store.structure_changed.connect(self._on_store_changed)
+        self._point_store.points_changed.connect(self._on_store_changed)
         for canvas in (self._fib_canvas, self._fm_display):
-            canvas.point_selected.connect(self._on_canvas_selected)
-            canvas.point_moved.connect(self._on_canvas_moved)
-            canvas.point_removed.connect(self._on_canvas_removed)
+            canvas.point_moved.connect(self._on_point_edited)
+            canvas.point_removed.connect(self._on_point_removed)
             canvas.point_add_requested.connect(self._on_canvas_add_requested)
 
         # FM z-stack interpolation (entry point lives in the Images tab)
         self._images_tab.interpolate_requested.connect(self._on_interpolate_fm)
 
-        # List → canvas (one identical wiring block per spec)
         for spec in self._point_specs.values():
             lw = spec.list_widget
-            lw.coordinate_selected.connect(partial(self._on_list_selected, spec))
-            lw.coordinate_changed.connect(partial(self._on_list_changed, spec))
-            lw.coordinate_removed.connect(partial(self._on_list_removed, spec))
-            lw.order_changed.connect(partial(self._on_list_reordered, spec))
+            lw.coordinate_changed.connect(self._on_point_edited)
+            lw.coordinate_removed.connect(self._on_point_removed)
+            lw.order_changed.connect(self._on_point_edited)
             lw.refit_requested.connect(self._on_refit_requested)
             lw.reset_requested.connect(partial(self._on_reset_requested, spec))
             lw.reject_toggled.connect(partial(self._on_reject_toggled, spec))
@@ -2912,15 +2886,13 @@ class CorrelationTabWidget(QWidget):
             )
             surf_coords = []
 
-        cl = self._coords_tab
-        cl.fib_list.coordinates = fib_coords
-        cl.fm_list.coordinates = fm_coords
-        cl.poi_list.coordinates = poi_coords
-        cl.surface_list.coordinates = surf_coords
-        cl.fm_surface_list.coordinates = fm_surf_coords
-        for adapter in self._adapters.values():
-            self._refresh_canvas(adapter)
-        cl.update_headers()
+        store = self._point_store
+        store.replace_all(
+            fib_coords + surf_coords + fm_coords + poi_coords + fm_surf_coords
+        )
+        # `set_data(self.data)` hands back the same objects with new values (a
+        # z-rescale); a view only rebuilds for different points, so say so.
+        store.notify_changed(store.coordinates)
 
         # A factor without an FM surface is meaningless — don't arm it
         self._ri_pre_correction_factor = (
@@ -3062,7 +3034,7 @@ class CorrelationTabWidget(QWidget):
         z_slice = float(self._fm_display.current_z)
         new = predictions_for(fib, cl.fm_list.coordinates, z_slice=z_slice)
         if new:
-            cl.fm_list.coordinates = cl.fm_list.coordinates + new
+            self._point_store.add_many(new)
         elif not any(c.status in PointStatus.TENTATIVE for c in cl.fm_list.coordinates):
             # every FIB point has an FM partner and none of them is a
             # prediction: there is nothing to place and nothing to move
@@ -3096,16 +3068,15 @@ class CorrelationTabWidget(QWidget):
                 z_slice=float(self._fm_display.current_z),
                 fm_shape=tuple(self._fm_image.data.shape[-2:]),
             )
-            moved = place_predictions(
+            place_predictions(
                 projection, fib, fm, fm_shape=tuple(self._fm_image.data.shape[-2:])
             )
         except np.linalg.LinAlgError as exc:
             self._lbl_status.setText(f"Cannot project: {exc}")
             return None
-        for coord in moved:
-            cl.fm_list.refresh_coordinate(coord)
-        self._refresh_canvas(self._fm_adapter)
-        cl.update_headers()
+        # every FM point, not only `moved`: placing also re-picks which
+        # predictions are `suggested`, on points it did not move
+        self._point_store.notify_changed(self._point_store.of_type(PointType.FM))
         return projection
 
     def accept_all_predictions(self) -> None:
@@ -3114,17 +3085,9 @@ class CorrelationTabWidget(QWidget):
         The points keep their ``projected`` provenance, so the status line and
         the record can tell them from positions the user placed.
         """
-        cl = self._coords_tab
-        changed = False
-        for coord in cl.fm_list.coordinates:
-            if coord.status in PointStatus.TENTATIVE:
-                coord.status = PointStatus.ACCEPTED
-                cl.fm_list.refresh_coordinate(coord)
-                changed = True
-        if not changed:
+        store = self._point_store
+        if not store.accept(store.of_type(PointType.FM)):
             return
-        self._refresh_canvas(self._fm_adapter)
-        cl.update_headers()
         self._discard_result()
         self.data_changed.emit(self.data)
 
@@ -3515,26 +3478,6 @@ class CorrelationTabWidget(QWidget):
             auto_rerun=cl._auto_rerun_check.isChecked(),
             auto_interpolate=self._images_tab._chk_auto_interpolate.isChecked(),
         )
-
-    # ------------------------------------------------------------------
-    # Canvas refresh helpers
-    # ------------------------------------------------------------------
-
-    def _refresh_canvas(self, adapter: _CanvasAdapter) -> None:
-        """Push the full coordinate set of every spec shown on this canvas."""
-        coords: List[Coordinate] = []
-        for spec in self._point_specs.values():
-            if spec.adapter is adapter:
-                coords += spec.list_widget.coordinates
-        adapter.set_coordinates(coords)
-
-    def _select_only(self, spec: _PointTypeSpec, coord: Optional[Coordinate]) -> None:
-        """Make coord the sole selection: clear every other list and canvas."""
-        for other in self._point_specs.values():
-            if other is not spec:
-                other.list_widget.select_coordinate_silent(None)
-        for adapter in self._adapters.values():
-            adapter.set_selected(coord if adapter is spec.adapter else None)
 
     # ------------------------------------------------------------------
     # Image loaded slots
@@ -4268,18 +4211,14 @@ class CorrelationTabWidget(QWidget):
         if not href.startswith("pair:"):
             return
         index = int(href.split(":", 1)[1])  # the pair's row
-        spec = self._point_specs[PointType.FM]
-        coords = spec.list_widget.coordinates
+        store = self._point_store
+        coords = store.of_type(PointType.FM)
         if index < len(coords):
-            coord = coords[index]
-            spec.list_widget.select_coordinate_silent(coord)
-            self._select_only(spec, coord)
+            store.select(coords[index])
             # the pair: its FIB partner too, so both canvases show it
-            fib_spec = self._point_specs[PointType.FIB]
-            partners = fib_spec.list_widget.coordinates
+            partners = store.of_type(PointType.FIB)
             if index < len(partners):
-                fib_spec.list_widget.select_coordinate_silent(partners[index])
-                fib_spec.adapter.set_selected(partners[index])
+                store.select(partners[index], extend=True)
 
     def _fib_pixel_size_m(self) -> Optional[float]:
         """FIB pixel size in metres, or None. A result loaded from JSON has no
@@ -4461,48 +4400,35 @@ class CorrelationTabWidget(QWidget):
             )
 
     # ------------------------------------------------------------------
-    # Canvas → list slots
+    # What an edit to the points means to the rest of the widget
     # ------------------------------------------------------------------
 
-    def _on_canvas_selected(self, coord: Coordinate) -> None:
-        spec = self._point_specs[coord.point_type]
-        spec.list_widget.select_coordinate_silent(coord)
-        self._select_only(spec, coord)
-
-    def _on_canvas_moved(self, coord: Coordinate) -> None:
+    def _on_store_changed(self, *_) -> None:
+        """Any change to the points, whoever made it."""
         self._save_armed = True
-        if self._place_by_hand(coord):
-            self._refresh_canvas(self._point_specs[coord.point_type].adapter)
-        spec = self._point_specs[coord.point_type]
-        spec.list_widget.refresh_coordinate(coord)
+        self._coords_tab.update_headers()
+
+    def _on_point_edited(self, *_) -> None:
+        """The user moved, typed over or reordered a point. The view that took
+        the gesture has already made the change in the store."""
         self.data_changed.emit(self.data)
 
-    def _on_canvas_removed(self, coord: Coordinate) -> None:
-        self._save_armed = True
+    def _on_point_removed(self, coord: Coordinate) -> None:
+        """The user removed a point, from a canvas or a list."""
         spec = self._point_specs[coord.point_type]
-        # Through the list's own removal, so the neighbour ends up selected, the
-        # same as the row's trash button. Assigning `coordinates` selects row 1.
-        spec.list_widget.remove_coordinate(coord)
         if spec.on_cleared is not None and not spec.list_widget.coordinates:
-            spec.on_cleared()
-        self._refresh_canvas(spec.adapter)
-        self._select_only(spec, spec.list_widget.selected_coordinate)
-        self._coords_tab.update_headers()
+            spec.on_cleared()  # the type's last point is gone
         self.data_changed.emit(self.data)
 
     def _on_canvas_add_requested(self, x: float, y: float, pt: PointType) -> None:
-        self._save_armed = True
         spec = self._point_specs[pt]
         coord = Coordinate(PointXYZ(x, y, spec.adapter.current_z()), pt)
-        if spec.max_one:
-            spec.list_widget.coordinates = [coord]
-            self._clear_exclusive_siblings(spec)
-        else:
-            spec.list_widget.add_coordinate(coord)
+        # The store replaces a surface point rather than adding a second, and
+        # clears the other surface type; the lists and canvases follow.
+        self._point_store.add(coord)
+        self._clear_exclusive_siblings(pt)
         # Before the emit: the armed factor is part of the data being announced.
         armed = self._auto_arm_pre_correction() if pt is PointType.SURFACE_FM else None
-        self._refresh_canvas(spec.adapter)
-        self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
         if armed is not None:
             # After the emit, which routes through _update_run_button and its
@@ -4511,98 +4437,35 @@ class CorrelationTabWidget(QWidget):
                 f"FM surface placed — RI ×{armed:.3f} armed. Run to apply."
             )
 
-    def _clear_exclusive_siblings(self, spec: _PointTypeSpec) -> None:
-        """Enforce mutual exclusivity (one surface point at a time): clear the
-        other members of the spec's exclusive group and fire their lifecycle
-        hooks (e.g. disarming the pre-correction factor)."""
-        if spec.exclusive_group is None:
+    def _clear_exclusive_siblings(self, point_type: PointType) -> None:
+        """Fire the lifecycle hooks of the types an added point cleared (placing
+        a FIB surface point disarms the FM surface's pre-correction factor)."""
+        group = POINT_RULES[point_type].exclusive_group
+        if group is None:
             return
         for other in self._point_specs.values():
-            if other is spec or other.exclusive_group != spec.exclusive_group:
-                continue
-            if other.list_widget.coordinates:
-                other.list_widget.coordinates = []
-                self._refresh_canvas(other.adapter)
-            if other.on_cleared is not None:
+            if (
+                other.point_type is not point_type
+                and POINT_RULES[other.point_type].exclusive_group == group
+                and other.on_cleared is not None
+            ):
                 other.on_cleared()
-
-    # ------------------------------------------------------------------
-    # List → canvas slots
-    # ------------------------------------------------------------------
-
-    def _on_list_selected(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
-        self._select_only(spec, coord)
-
-    @staticmethod
-    def _place_by_hand(coord: Coordinate) -> bool:
-        """A drag or a typed value makes the point the user's: ``placed``.
-
-        A drop on a prediction is the user's answer, and the projection never
-        moves it again. A fitted or accepted point that is moved is no longer
-        what the fitter or the projection said, so it stops reading as such
-        and, if it was accepted, becomes evidence. Provenance stays: that is
-        where the point came from. Returns True when the status changed.
-        """
-        coord.fitted = False
-        if coord.status in PointStatus.TENTATIVE or coord.status in (
-            PointStatus.FITTED,
-            PointStatus.ACCEPTED,
-        ):
-            coord.status = PointStatus.PLACED
-            return True
-        return False
-
-    def _on_list_changed(
-        self, spec: _PointTypeSpec, coord: Coordinate, _f: str, _v: float
-    ) -> None:
-        self._save_armed = True
-        if self._place_by_hand(coord):
-            self._refresh_canvas(spec.adapter)
-        spec.adapter.refresh_coordinate(coord)
-        spec.list_widget.refresh_coordinate(coord)  # drop the fitted indicator
-        self.data_changed.emit(self.data)
-
-    def _on_list_removed(self, spec: _PointTypeSpec, _coord: Coordinate) -> None:
-        self._save_armed = True
-        # on_cleared = "the spec's LAST point is gone" (the list widget removes
-        # the row before emitting, so the check sees the post-removal state)
-        if spec.on_cleared is not None and not spec.list_widget.coordinates:
-            spec.on_cleared()
-        self._refresh_canvas(spec.adapter)
-        self._select_only(spec, spec.list_widget.selected_coordinate)
-        self._coords_tab.update_headers()
-        self.data_changed.emit(self.data)
 
     def _on_reset_requested(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
         """Back to a prediction: the point is a guess again and re-projects."""
-        if coord.provenance != PointProvenance.PROJECTED:
-            return
-        coord.status = PointStatus.PREDICTED
-        coord.fitted = False
+        if not self._point_store.reset_to_predicted(coord):
+            return  # not a point the projection made
         nominal, _ = self._nominal_transform()
         if nominal is not None:
             self._place_predictions(nominal)
-        spec.list_widget.refresh_coordinate(coord)
-        self._refresh_canvas(spec.adapter)
-        self._coords_tab.update_headers()
         self._discard_result()
         self.data_changed.emit(self.data)
 
     def _on_reject_toggled(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
         """Leave a point out of the fit, or bring it back; it stays on screen."""
-        if coord.status == PointStatus.REJECTED:
-            coord.status = PointStatus.FITTED if coord.fitted else PointStatus.PLACED
-        elif coord.status not in PointStatus.TENTATIVE:
-            coord.status = PointStatus.REJECTED
-        spec.list_widget.refresh_coordinate(coord)
-        self._refresh_canvas(spec.adapter)
-        self._coords_tab.update_headers()
+        if not self._point_store.toggle_rejected(coord):
+            return  # a prediction is not in the fit to begin with
         self._discard_result()
-        self.data_changed.emit(self.data)
-
-    def _on_list_reordered(self, spec: _PointTypeSpec, _coords: list) -> None:
-        self._save_armed = True
-        self._refresh_canvas(spec.adapter)
         self.data_changed.emit(self.data)
 
     # ------------------------------------------------------------------
@@ -4802,9 +4665,10 @@ class CorrelationTabWidget(QWidget):
     def _rescale_fm_z(self, scale: float) -> None:
         """Scale every FM-side point's z index so its physical depth is preserved
         after the z axis is resampled (depth = z_index * pixel_size_z)."""
-        for lst in self._fm_side_lists():
-            for coord in lst.coordinates:
-                coord.point.z *= scale
+        coords = self._point_store.on_side("fm")
+        for coord in coords:
+            coord.point.z *= scale
+        self._point_store.notify_changed(coords)
 
     def _on_interpolate_fm(self) -> None:
         if self._fm_image is None:
@@ -4900,13 +4764,9 @@ class CorrelationTabWidget(QWidget):
         self._delete_shortcut.activated.connect(self._remove_selected_coordinate)
 
     def _selected_coordinate(self) -> Optional[Coordinate]:
-        """The single selected coordinate across the lists (``_select_only``
-        guarantees at most one), or None."""
-        for spec in self._point_specs.values():
-            coord = spec.list_widget.selected_coordinate
-            if coord is not None:
-                return coord
-        return None
+        """The point the `F` and `Delete` hotkeys act on: the last one selected,
+        or None."""
+        return self._point_store.current
 
     def _fit_selected_coordinate(self) -> None:
         """`F` hotkey: fit the currently-selected coordinate."""
@@ -4924,8 +4784,8 @@ class CorrelationTabWidget(QWidget):
         coord = self._selected_coordinate()
         if coord is None:
             return
-        spec = self._point_specs[coord.point_type]
-        spec.list_widget._on_remove(coord)
+        if self._point_store.remove(coord):
+            self._on_point_removed(coord)
 
     def _on_refit_requested(self, coord: Coordinate) -> None:
         """Auto-fit the coordinate, then confirm the result before applying it."""
@@ -5061,16 +4921,8 @@ class CorrelationTabWidget(QWidget):
         """Commit an accepted fit: move the coordinate and flag it as fitted."""
         if result.fitted is None:
             return
-        coord = result.coordinate
-        coord.point.x = result.fitted.x
-        coord.point.y = result.fitted.y
-        coord.point.z = result.fitted.z
-        coord.fitted = True
-        coord.status = PointStatus.FITTED
-        self._save_armed = True
-        spec = self._point_specs[coord.point_type]
-        spec.list_widget.refresh_coordinate(coord)
-        spec.adapter.refresh_coordinate(coord)
+        fitted = result.fitted
+        self._point_store.apply_fit(result.coordinate, fitted.x, fitted.y, fitted.z)
         self.data_changed.emit(self.data)
 
 
