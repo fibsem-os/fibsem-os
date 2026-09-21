@@ -38,6 +38,7 @@ import math
 import os
 import threading
 from copy import deepcopy
+from dataclasses import replace
 from functools import partial
 from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
@@ -593,7 +594,15 @@ class FibsemOverviewWidget(QWidget):
         # Where the next run is planned around, if the grid has been dragged off the
         # stage. None means "wherever the stage is", which is also what the runner
         # falls back to -- so the drawn grid and the acquisition agree by default.
+        #
+        # Kept as a position *on the map's surface plane* -- what the canvas point meant
+        # when it was dropped -- and not as the position the run is sent to. The two
+        # differ by how far the stage is off that plane, which is only known when
+        # something asks: see `target`.
         self._target: Optional[FibsemStagePosition] = None
+        # The view it was dragged in: the plane it lies on, and the only view it means
+        # anything in.
+        self._target_view: Optional["OverviewView"] = None
         # What the run under way is centred on, and None between runs. Its own field
         # rather than a read of `_target`: a run started without one is centred on
         # wherever the stage was when it began, which the stage stops being one tile in.
@@ -1452,6 +1461,13 @@ class FibsemOverviewWidget(QWidget):
         if view is None or view == self._planned_view:
             return
         self._planned_view = view
+        # A dragged grid names a place as the stage reaches it *in this pose*: another
+        # orientation puts the same piece of sample at other stage coordinates, and
+        # another beam looks at it along another axis. So the drag goes and the plan
+        # returns to the stage (FIB-1007). Compared with the view the drag was made in
+        # and not with the last one planned, which is None until something first asks.
+        if self._target_view != view:
+            self.clear_target()
         if view != self._current_view:
             self.show_view(view)
 
@@ -1741,7 +1757,10 @@ class FibsemOverviewWidget(QWidget):
         elif view != self._current_view:
             self.show_view(view)
 
+        sent_to = self.target  # before the anchor moves: see `_carry_the_drag_onto`
         reframed = self._set_origin_from(image, view)
+        if reframed:
+            self._carry_the_drag_onto(view, sent_to)
         # The canvas needs a scale before a frame can exist, and the frame is what turns
         # a stage position into an offset. Usually seeded from the settings before any
         # image arrives (`_seed_frame`); this is the fallback for a widget that has been
@@ -2179,7 +2198,7 @@ class FibsemOverviewWidget(QWidget):
         """
         if self._run_centre is not None:
             return self._run_centre
-        return self._target or self._stage_position
+        return self.target or self._stage_position
 
     def _declare_working_area(self, frame: StageFrame) -> None:
         """Tell the canvas how much ground this tab is describing.
@@ -2254,7 +2273,15 @@ class FibsemOverviewWidget(QWidget):
 
         try:
             tiles = tiled.compute_tile_grid(settings, mask=settings.tile_mask)
-            anchor = self.canvas.metres_to_canvas(*frame.offset(centre))
+            # A dragged grid is drawn at the place on the map it was dropped on, not at
+            # the lifted position the run is sent to. They are the same piece of sample.
+            # A tilted view reads the lift as an apparent y offset, because a map made
+            # at another height really is displaced in that view -- and chasing that
+            # displacement would send the stage after where the old map's pixels are,
+            # not after the sample: measured at 6 mm of travel for a 490 um lift in a
+            # grazing ion view (FIB-1007). Identical whenever the stage is on the plane.
+            on_the_map = self._target if self._target is not None else centre
+            anchor = self.canvas.metres_to_canvas(*frame.offset(on_the_map))
         except Exception as e:
             logger.debug(f"Could not place the planned tileset: {e}")
             self.tile_grid_overlay.clear()
@@ -2318,9 +2345,8 @@ class FibsemOverviewWidget(QWidget):
         instrument are separate acts, and a drag is exploratory -- you push the grid
         around to see what it would cover. The stage goes there when the run does.
 
-        The resolved position keeps the stage's own rotation and tilt, like a click
-        does, so the run stays in the view it was planned in and does not re-pose the
-        stage to reach its own grid.
+        What is kept is the place on the map's surface plane, which is what a canvas
+        point means; `target` turns it into where the run goes.
         """
         if not self._may_edit_the_plan():
             return
@@ -2328,7 +2354,8 @@ class FibsemOverviewWidget(QWidget):
         if frame is None:
             return
         try:
-            self._target = self._posed_like_the_stage(frame.to_stage(x, y))
+            self._target = frame.to_stage(x, y)
+            self._target_view = self._current_view
         except Exception as e:
             logger.debug(f"Could not resolve the dragged grid position: {e}")
             return
@@ -2345,10 +2372,16 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_tile_grid()
 
     def clear_target(self) -> None:
-        """Plan the next overview around the stage position again."""
-        if self._target is None:
+        """Plan the next overview around the stage position again.
+
+        Not while a run is under way: it is drawing from the centre it was started with
+        (`_run_centre`), so this was already a no-op for the run itself, and refusing
+        keeps the panel's button honest about it.
+        """
+        if self._target is None or not self._may_edit_the_plan():
             return
         self._target = None
+        self._target_view = None
         self.tile_grid_panel.set_centre_enabled(False)
         self._refresh_tile_grid()
 
@@ -2367,8 +2400,85 @@ class FibsemOverviewWidget(QWidget):
 
     @property
     def target(self) -> Optional[FibsemStagePosition]:
-        """Where the next run is planned around, or None for wherever the stage is."""
-        return self._target
+        """Where the next run is planned around, or None for wherever the stage is.
+
+        The dragged place, at the height and in the pose the stage is in *now*.
+
+        A canvas is a plane: it can say where on the sample a point is and nothing about
+        height. Resolving a canvas point gives a position on the map's own surface
+        plane -- the one through the view's origin, fixed by the first image placed --
+        and a run sent there drives the stage back to the height that image was taken
+        at. Reported as an overview and its lamellae landing half a millimetre below a
+        coincidence point set after the tab was opened (FIB-1007, GH #943).
+
+        So the one thing the plane cannot know is added here, on every read: how far the
+        stage has been lifted off it. Rotation and tilt come from the stage as well, as
+        they do for a click. Everything else -- x, y and the slope of a pre-tilted
+        surface -- is the map's, which is what keeps the run under the grid.
+        """
+        if self._target is None:
+            return None
+        place = deepcopy(self._target)
+        frame = self._frame(self._target_view)
+        if frame is not None:
+            place = self._lifted(frame, place)
+        return self._posed_like_the_stage(place)
+
+    def _lifted(
+        self, frame: StageFrame, place: FibsemStagePosition, sign: float = 1.0
+    ) -> FibsemStagePosition:
+        """`place`, moved by however far the stage sits off the map's surface plane.
+
+        The plane is the set of positions `from_plane` reaches from the view's origin:
+        travelling along a pre-tilted surface changes z as well as y, and all of that is
+        *in* the plane -- 0.7 um of z per micron of y at a 35 degree pre-tilt, which is
+        millimetres across a grid, and none of it a change of height. What is left over
+        is: coincidence set, or another grid at another height.
+
+        Split along the electron column, because that is the direction a coincidence
+        correction moves in (`vertical_move`): the electron view is blind to it, so the
+        point on the plane that *looks* like the stage from the electron column is the
+        stage before it was lifted, and the difference is the lift. It is a vector, not
+        a height -- on a tilted stage a vertical move is y as well as z -- and adding all
+        of it is what keeps a run over the same piece of sample after coincidence is
+        set. Adding only its z re-acquired 28 um away after a 117 um correction at a
+        12 degree tilt (FIB-1007).
+
+        The electron projection is this view's own with the beam swapped, so nothing
+        is read from the instrument. Unchanged without a cached stage position.
+        """
+        stage = self._stage_position
+        if stage is None:
+            return place
+        origin = frame.origin
+        electron = replace(frame.projection, beam_type=BeamType.ELECTRON)
+        before_the_lift = electron.from_plane(*electron.to_plane(stage, origin), origin)
+        for axis in ("x", "y", "z"):
+            lift = (getattr(stage, axis) or 0.0) - (
+                getattr(before_the_lift, axis) or 0.0
+            )
+            setattr(place, axis, (getattr(place, axis) or 0.0) + sign * lift)
+        return place
+
+    def _carry_the_drag_onto(
+        self, view: "OverviewView", sent_to: Optional[FibsemStagePosition]
+    ) -> None:
+        """Keep a drag meaning the same place after its view has been re-anchored.
+
+        The drag is kept on the map's plane, and the first image placed in a view
+        replaces a provisional anchor -- so the plane moves under it. If the stage was
+        lifted off the old plane and the new anchor was taken at the stage's height,
+        the same stored position would now be read with no lift at all: the grid drawn
+        287 canvas pixels from the image it had just planned, and the next run sent back
+        down to the old height. So the position the run was being sent to is what is
+        kept, put back onto the new plane (FIB-1007).
+        """
+        if sent_to is None or self._target is None or self._target_view != view:
+            return
+        frame = self._frame(view)
+        if frame is None:
+            return
+        self._target = self._lifted(frame, deepcopy(sent_to), sign=-1.0)
 
     def _refresh_stage_info(self) -> None:
         """Say where the stage is, in the canvas's bottom-left info bar.
@@ -2581,11 +2691,15 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_context_overlays()
 
     def _refresh_current_position(self) -> None:
-        """Seed the cached stage position once, at construction.
+        """Read where the stage is, and cache it.
 
-        The one read of the stage this widget does, and it is not on a UI event: without
-        it nothing is marked until the stage happens to move, which on a tab that has
-        just been opened is exactly when a user is looking.
+        Called twice and never on a UI event that repeats: once at construction, because
+        without it nothing is marked until the stage happens to move -- which on a tab
+        that has just been opened is exactly when a user is looking -- and once from
+        `acquire`, which says there why a run cannot be planned on the cache.
+
+        A failed read leaves the cache alone: a run planned on a slightly old pose beats
+        a run refused because a read failed.
         """
         try:
             self._stage_position = deepcopy(self.microscope.get_stage_position())
@@ -2847,7 +2961,11 @@ class FibsemOverviewWidget(QWidget):
             logger.debug(f"Could not resolve the clicked position: {e}")
             return None
 
-        target = self._posed_like_the_stage(target)
+        # Lifted like a dragged grid is, and for the same reason: the canvas answers
+        # with a position on the map's plane, at the height the view was anchored at.
+        # A lamella marked on an overview after coincidence was set was recorded at the
+        # old height, and its first task drove the stage back down to it (GH #943).
+        target = self._posed_like_the_stage(self._lifted(frame, target))
 
         limits = getattr(self.microscope._stage, "limits", None)
         if limits and not target.is_within_limits(limits, axes=["x", "y"]):
@@ -2972,13 +3090,20 @@ class FibsemOverviewWidget(QWidget):
         # from an instrument: the dialog read SEM @ MILLING and the overview came back
         # SEM @ SEM.
         #
-        # The cached pose is not always fresh either -- `stage_position_changed` is
-        # emitted by `get_stage_position`, so a move nobody polls after is a move this
-        # tab never hears about (FIB-669). That is a real defect and this does not fix
-        # it. What it does fix is the *disagreement*: with one value there is no longer a
-        # second reading to differ from, so a stale pose gives a wrong-but-honest run
-        # rather than a run that contradicts what it was authorised to do.
-        self._run_centre = deepcopy(self._target or self._stage_position)
+        # Resolved against a **live** read, which is why the read is here. The cache is
+        # refreshed by `stage_position_changed`, and that is emitted by
+        # `get_stage_position` -- so a move nobody polled after is a move this tab never
+        # heard about (FIB-669). Tolerable for a marker, not for the value a run is
+        # centred on: the runner drives to each tile absolutely, z and tilt included, so
+        # a stale pose is the stage being pushed back to one the user has since left
+        # (FIB-1007, GH #943).
+        #
+        # One read, on an explicit Acquire press. The house rule against hardware reads
+        # on UI events (FIB-544, FIB-600) is aimed at what fires constantly -- a mouse
+        # move, a dialog row -- not at the click that starts driving the stage. It also
+        # arrives before the dialog, so what the dialog describes is what will happen.
+        self._refresh_current_position()
+        self._run_centre = deepcopy(self.target or self._stage_position)
 
         if not self._confirm(settings):
             logger.info("Overview acquisition cancelled before starting")
@@ -3077,11 +3202,12 @@ class FibsemOverviewWidget(QWidget):
         From the cached stage position, like everything else here -- opening a dialog
         must not reach for the instrument.
         """
-        if self._target is None or self._stage_position is None:
+        target = self.target
+        if target is None or self._stage_position is None:
             return None
         return (
-            self._target.x - self._stage_position.x,
-            self._target.y - self._stage_position.y,
+            target.x - self._stage_position.x,
+            target.y - self._stage_position.y,
         )
 
     def _acquire_worker(
