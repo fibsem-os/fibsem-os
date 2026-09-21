@@ -49,7 +49,9 @@ ERROR_INVALID_EXPERIMENT_MSG = (
 )
 
 ERROR_NO_EXPERIMENT_TITLE = "No Experiment"
-ERROR_NO_EXPERIMENT_MSG = "Please select a directory containing an experiment.yaml file."
+ERROR_NO_EXPERIMENT_MSG = (
+    "Please select a directory containing an experiment.yaml file."
+)
 
 ERROR_NO_PROTOCOL_TITLE = "No Protocol"
 ERROR_NO_PROTOCOL_MSG = "The experiment does not have a valid protocol file."
@@ -110,10 +112,13 @@ class _ElidedLabel(QtWidgets.QLabel):
         painter.setPen(self._color)
         painter.setFont(self.font())
         metrics = QtGui.QFontMetrics(self.font())
-        elided = metrics.elidedText(self._full_text, QtCore.Qt.ElideMiddle, self.width())
+        elided = metrics.elidedText(
+            self._full_text, QtCore.Qt.ElideMiddle, self.width()
+        )
         painter.drawText(
             self.rect(), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, elided
         )
+
 
 RECENT_LIST_STYLESHEET = f"""
 QListWidget {{
@@ -225,7 +230,9 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         exp_layout.addLayout(exp_form_layout)
 
-        exp_group = TitledPanel("Experiment Information", content=exp_content, collapsible=False)
+        exp_group = TitledPanel(
+            "Experiment Information", content=exp_content, collapsible=False
+        )
 
         # Protocol Information
         protocol_content = QtWidgets.QWidget()
@@ -236,7 +243,9 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.protocol_button_layout = QtWidgets.QHBoxLayout()
         self.protocol_button_layout.addStretch()
 
-        self.btn_select_legacy_protocol = QtWidgets.QPushButton("Select Legacy Protocol")
+        self.btn_select_legacy_protocol = QtWidgets.QPushButton(
+            "Select Legacy Protocol"
+        )
         self.btn_select_legacy_protocol.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.protocol_button_layout.addWidget(self.btn_select_legacy_protocol)
 
@@ -277,11 +286,15 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         protocol_info_label = QtWidgets.QLabel(
             "Note: You will be able to edit the protocol after loading the experiment."
         )
-        protocol_info_label.setStyleSheet("color: gray; font-style: italic; font-size: 10px;")
+        protocol_info_label.setStyleSheet(
+            "color: gray; font-style: italic; font-size: 10px;"
+        )
         protocol_info_label.setWordWrap(True)
         protocol_layout.addWidget(protocol_info_label)
 
-        protocol_group = TitledPanel("Protocol Information", content=protocol_content, collapsible=False)
+        protocol_group = TitledPanel(
+            "Protocol Information", content=protocol_content, collapsible=False
+        )
 
         # Recent Experiments quick-select (left column)
         recent_content = QtWidgets.QWidget()
@@ -290,14 +303,20 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         self.list_recent_experiments = QtWidgets.QListWidget()
         self.list_recent_experiments.setStyleSheet(RECENT_LIST_STYLESHEET)
-        self.list_recent_experiments.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.list_recent_experiments.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.list_recent_experiments.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarAlwaysOff
+        )
+        self.list_recent_experiments.setSelectionMode(
+            QtWidgets.QAbstractItemView.SingleSelection
+        )
         recent_layout.addWidget(self.list_recent_experiments)
 
         # Manual browse button sits beneath the recent list
         recent_layout.addWidget(self.btn_select_experiment)
 
-        recent_group = TitledPanel("Recent Experiments", content=recent_content, collapsible=False)
+        recent_group = TitledPanel(
+            "Recent Experiments", content=recent_content, collapsible=False
+        )
         recent_group.setFixedWidth(RECENT_COLUMN_WIDTH)
 
         # Right column: experiment + protocol information
@@ -339,7 +358,9 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_select_protocol.clicked.connect(self._select_protocol)
         self.btn_select_legacy_protocol.clicked.connect(self._select_legacy_protocol)
-        self.list_recent_experiments.itemClicked.connect(self._on_recent_experiment_clicked)
+        self.list_recent_experiments.itemClicked.connect(
+            self._on_recent_experiment_clicked
+        )
         self.list_recent_experiments.itemDoubleClicked.connect(
             self._on_recent_experiment_double_clicked
         )
@@ -419,9 +440,11 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
                     QtWidgets.QMessageBox.warning(
                         self,
                         ERROR_PROTOCOL_NOT_FOUND_TITLE,
-                        ERROR_PROTOCOL_NOT_FOUND_MSG.format(experiment_dir=experiment_dir)
+                        ERROR_PROTOCOL_NOT_FOUND_MSG.format(
+                            experiment_dir=experiment_dir
+                        )
                         + "\n\nThe experiment has been loaded without a task protocol. "
-                          "Please load a protocol before continuing."
+                        "Please load a protocol before continuing.",
                     )
                 self.protocol_path = None
                 self.btn_ok.setEnabled(False)
@@ -443,7 +466,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(
                 self,
                 ERROR_INVALID_EXPERIMENT_TITLE,
-                ERROR_INVALID_EXPERIMENT_MSG.format(error=e)
+                ERROR_INVALID_EXPERIMENT_MSG.format(error=e),
             )
             self._clear_display()
             return False
@@ -454,15 +477,21 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             self.lineEdit_experiment_name.setText("")
             self.lineEdit_experiment_name.setPlaceholderText("No experiment loaded")
             self.lineEdit_experiment_description.setText("")
-            self.lineEdit_experiment_description.setPlaceholderText("No experiment loaded")
+            self.lineEdit_experiment_description.setPlaceholderText(
+                "No experiment loaded"
+            )
             self.lineEdit_experiment_user.setText("")
             self.lineEdit_experiment_user.setPlaceholderText("No experiment loaded")
             self.lineEdit_experiment_project.setText("")
             self.lineEdit_experiment_project.setPlaceholderText("No experiment loaded")
             self.lineEdit_experiment_organisation.setText("")
-            self.lineEdit_experiment_organisation.setPlaceholderText("No experiment loaded")
+            self.lineEdit_experiment_organisation.setPlaceholderText(
+                "No experiment loaded"
+            )
             self.lineEdit_experiment_directory.setText("")
-            self.lineEdit_experiment_directory.setPlaceholderText("No experiment loaded")
+            self.lineEdit_experiment_directory.setPlaceholderText(
+                "No experiment loaded"
+            )
             self.lineEdit_experiment_lamella.setText("")
             self.lineEdit_experiment_lamella.setPlaceholderText("0")
             return
@@ -480,7 +509,9 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.lineEdit_experiment_project.setText(self.experiment.project or "")
 
         self.lineEdit_experiment_organisation.setPlaceholderText("")
-        self.lineEdit_experiment_organisation.setText(self.experiment.organisation or "")
+        self.lineEdit_experiment_organisation.setText(
+            self.experiment.organisation or ""
+        )
 
         self.lineEdit_experiment_directory.setText(str(self.experiment.path) or "")
         self.lineEdit_experiment_directory.setCursorPosition(0)
@@ -500,10 +531,14 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             return
 
         self.lineEdit_protocol_name.setText(self.experiment.task_protocol.name or "")
-        self.lineEdit_protocol_description.setText(self.experiment.task_protocol.description or "")
+        self.lineEdit_protocol_description.setText(
+            self.experiment.task_protocol.description or ""
+        )
         self.lineEdit_protocol_path.setText(self.protocol_path or "")
         self.lineEdit_protocol_path.setCursorPosition(0)
-        self.lineEdit_protocol_tasks.setText(str(len(self.experiment.task_protocol.task_config)))
+        self.lineEdit_protocol_tasks.setText(
+            str(len(self.experiment.task_protocol.task_config))
+        )
 
     def _clear_display(self):
         """Clear all display fields and disable OK button."""
@@ -519,18 +554,14 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         # Validate experiment is loaded
         if self.experiment is None:
             QtWidgets.QMessageBox.warning(
-                self,
-                ERROR_NO_EXPERIMENT_TITLE,
-                ERROR_NO_EXPERIMENT_MSG
+                self, ERROR_NO_EXPERIMENT_TITLE, ERROR_NO_EXPERIMENT_MSG
             )
             return
 
         # Validate protocol is loaded
         if self.experiment.task_protocol is None:
             QtWidgets.QMessageBox.warning(
-                self,
-                ERROR_NO_PROTOCOL_TITLE,
-                ERROR_NO_PROTOCOL_MSG
+                self, ERROR_NO_PROTOCOL_TITLE, ERROR_NO_PROTOCOL_MSG
             )
             return
 
@@ -596,9 +627,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         # Leading icon (folder, or an alert marker when unavailable)
         icon_name = RECENT_FOLDER_ICON if available else RECENT_ALERT_ICON
         folder_label = QtWidgets.QLabel()
-        folder_label.setPixmap(
-            fibsem_icon(icon_name, color=icon_color).pixmap(18, 18)
-        )
+        folder_label.setPixmap(fibsem_icon(icon_name, color=icon_color).pixmap(18, 18))
         folder_label.setFixedWidth(18)
         layout.addWidget(folder_label, alignment=QtCore.Qt.AlignVCenter)
 
@@ -633,7 +662,8 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         # Trailing lamella-count pill (omitted for unavailable rows)
         if available:
             layout.addWidget(
-                self._make_lamella_pill(info.num_lamella), alignment=QtCore.Qt.AlignVCenter
+                self._make_lamella_pill(info.num_lamella),
+                alignment=QtCore.Qt.AlignVCenter,
             )
         return widget
 
@@ -641,7 +671,9 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         """Build a small rounded pill showing a layers icon and the lamella count."""
         pill = QtWidgets.QFrame()
         pill.setObjectName("lamellaPill")
-        pill.setStyleSheet(f"#lamellaPill {{ background: {ROW_ALT_COLOR}; border-radius: 9px; }}")
+        pill.setStyleSheet(
+            f"#lamellaPill {{ background: {ROW_ALT_COLOR}; border-radius: 9px; }}"
+        )
 
         pill_layout = QtWidgets.QHBoxLayout(pill)
         pill_layout.setContentsMargins(7, 2, 8, 2)
@@ -649,7 +681,9 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         icon_label = QtWidgets.QLabel()
         icon_label.setPixmap(
-            fibsem_icon(RECENT_LAMELLA_ICON, color=RECENT_PILL_TEXT_COLOR).pixmap(12, 12)
+            fibsem_icon(RECENT_LAMELLA_ICON, color=RECENT_PILL_TEXT_COLOR).pixmap(
+                12, 12
+            )
         )
         count_label = QtWidgets.QLabel(str(num_lamella))
         count_label.setStyleSheet(
@@ -672,14 +706,19 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             return
         self._load_experiment_from_path(path, warn_on_missing_protocol=False)
 
-    def _on_recent_experiment_double_clicked(self, item: QtWidgets.QListWidgetItem) -> None:
+    def _on_recent_experiment_double_clicked(
+        self, item: QtWidgets.QListWidgetItem
+    ) -> None:
         """Load the selected recent experiment and accept immediately (double click)."""
         path = item.data(QtCore.Qt.UserRole)
         if not path:
             return
         if self._load_experiment_from_path(path):
             # Only accept if the experiment loaded with a valid protocol
-            if self.experiment is not None and self.experiment.task_protocol is not None:
+            if (
+                self.experiment is not None
+                and self.experiment.task_protocol is not None
+            ):
                 self._on_ok_clicked()
 
     def get_experiment(self) -> Optional[Experiment]:
@@ -718,7 +757,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
     def _select_legacy_protocol(self):
         """Let the user pick and convert a legacy protocol file."""
-        
+
         protocol_path = fui.open_existing_file_dialog(
             msg="Select a legacy protocol file (*.yaml)",
             path=str(cfg.PROTOCOL_PATH),
@@ -729,7 +768,9 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             return
 
         try:
-            protocol = AutoLamellaTaskProtocol.load_from_old_protocol(Path(protocol_path))
+            protocol = AutoLamellaTaskProtocol.load_from_old_protocol(
+                Path(protocol_path)
+            )
         except Exception as e:
             QtWidgets.QMessageBox.critical(
                 self,
@@ -754,7 +795,9 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.btn_select_legacy_protocol.setEnabled(visible)
 
 
-def load_experiment_dialog(parent: Optional[QtWidgets.QWidget] = None) -> Optional[Experiment]:
+def load_experiment_dialog(
+    parent: Optional[QtWidgets.QWidget] = None,
+) -> Optional[Experiment]:
     """Create and execute the experiment loading dialog.
 
     Args:
@@ -774,7 +817,9 @@ def load_experiment_dialog(parent: Optional[QtWidgets.QWidget] = None) -> Option
             logging.info(f"Experiment loaded: {experiment.name}")
             logging.info(f"Path: {experiment.path}")
             logging.info(f"Protocol: {experiment.task_protocol.name}")
-            logging.info(f"Number of tasks: {len(experiment.task_protocol.task_config)}")
+            logging.info(
+                f"Number of tasks: {len(experiment.task_protocol.task_config)}"
+            )
         return experiment
     else:
         logging.info("Experiment loading cancelled")
