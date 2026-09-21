@@ -103,3 +103,17 @@ def test_auto_rerun_is_off_by_default_and_round_trips():
     older = CorrelationConfig().to_dict()
     del older["auto_rerun"]
     assert CorrelationConfig.from_dict(older).auto_rerun is False
+
+
+def test_auto_interpolate_is_off_by_default_and_round_trips():
+    """FIB-1023: the same reasoning as auto_rerun — per experiment, not per
+    dialog, since the correlation dialog is rebuilt for every lamella."""
+    from fibsem.correlation.config import CorrelationConfig
+
+    assert CorrelationConfig().auto_interpolate is False
+    on = CorrelationConfig(auto_interpolate=True)
+    assert CorrelationConfig.from_dict(on.to_dict()).auto_interpolate is True
+
+    older = CorrelationConfig().to_dict()
+    del older["auto_interpolate"]
+    assert CorrelationConfig.from_dict(older).auto_interpolate is False
