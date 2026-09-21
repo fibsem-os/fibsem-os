@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import os
+import re
 from copy import deepcopy
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import pandas as pd
 
@@ -43,6 +45,21 @@ class PythonLiteralJSONDecoder(json.JSONDecoder):
             raise json.JSONDecodeError(
                 f"{e.msg} | Context: '...{context}...'", e.doc, e.pos
             )
+
+
+# `{'msg': 'status', ...}`: the key every reported record starts with.
+_MSG_KEY = re.compile(r"^\{'msg': '([^']+)'")
+# The records the report reads, by their `msg`.
+_REPORTED = {"status", "milling_task", "feature_detection"}
+# What a lamella task's status record carries.
+_STATUS_KEYS = (
+    "lamella",
+    "lamella_id",
+    "task_name",
+    "task_id",
+    "task_type",
+    "task_step",
+)
 
 
 def parse_msg(msg: str):
@@ -330,117 +347,99 @@ def calculate_statistics_dataframe(path: Path, encoding: str = "cp1252"):
 #### TASK REFACTORING ####
 
 
-def parse_logfile(path: str, encoding="utf-8") -> Dict[str, pd.DataFrame]:
-    """Updated parser for task based workflow"""
+def read_log_tables(fname: str) -> Tuple[List[dict], List[dict], List[dict]]:
+    """The report's rows from a log: task steps, milling stages and detections.
 
-    fname = os.path.join(path, "logfile.log")
-    steps_data = []
-    det_data = []
-    click_data = []
-    milling_data2 = []
+    Each milling stage and detection carries the task step it happened in.
+    Records the report wants but cannot read are counted and logged, not
+    silently skipped.
+    """
+    from fibsem.applications.autolamella.tools.replay import (
+        parse_record,
+        read_log_records,
+    )
+
+    steps_data: List[dict] = []
+    det_data: List[dict] = []
+    milling_data2: List[dict] = []
+    unreadable = 0
 
     stepd = None
 
+    for record in read_log_records(Path(fname)):
+        # Dispatch on the record's own `msg` key, not the function that logged it:
+        # a renamed method would otherwise empty a table without a trace.
+        match = _MSG_KEY.match(record.message)
+        if match is None or match.group(1) not in _REPORTED:
+            continue
+        msgd = parse_record(record.message)
+        if msgd is None:
+            unreadable += 1
+            continue
+        # whole seconds, local time: as the report has always timed its rows
+        tsd = datetime.datetime.timestamp(record.time.replace(microsecond=0))
+        kind = match.group(1)
+
+        if kind == "milling_task":
+            if stepd is None:
+                continue
+
+            # add milling task data
+            msgd2 = stepd
+            msgd2["timestamp"] = tsd
+            msgd2.update(msgd)
+            milling_data2.append(deepcopy(msgd2))
+
+        if kind == "status":
+            # A lamella task's step. A grid task's names its grid instead and is
+            # not in this lamella report.
+            if any(key not in msgd for key in _STATUS_KEYS):
+                continue
+            # global data
+            stepd = {
+                "timestamp": tsd,
+                "lamella": msgd["lamella"],
+                "lamella_id": msgd["lamella_id"],
+                "task_name": msgd["task_name"],
+                "task_id": msgd["task_id"],
+                "task_type": msgd["task_type"],
+                "task_step": msgd["task_step"],
+            }
+            steps_data.append(deepcopy(stepd))
+
+        if kind == "feature_detection":  # DETECTION INTERACTION
+            if stepd is None:
+                continue
+
+            dmsgd2 = stepd
+            dmsgd2["timestamp"] = tsd
+            dmsgd2.update(msgd)
+            det_data.append(deepcopy(dmsgd2))
+
+    if unreadable:
+        logging.warning(
+            f"{unreadable} records in {fname} could not be read and are not in the report."
+        )
+    return steps_data, milling_data2, det_data
+
+
+def parse_logfile(path: str, encoding="utf-8") -> Dict[str, pd.DataFrame]:
+    """Updated parser for task based workflow
+
+    The records are the dicts the task, milling and detection code log at DEBUG,
+    rendered by ``str()``: Python reprs, not JSON. They are read with the replay's
+    AST reader (``tools/replay.py``), which takes literals and calls on dotted
+    names (``np.float64(2e-09)``) and never evaluates anything. The string
+    substitutions this used before corrupted values -- ``(rough)`` became
+    ``[rough]`` -- and failed outright on numpy 2 reprs and apostrophes.
+
+    ``encoding`` is kept for callers; it is detected instead (UTF-8, or cp1252 as
+    older Windows installs wrote), since a wrong guess used to empty the report.
+    """
+    fname = os.path.join(path, "logfile.log")
     print("-" * 80)
     print(f"Parsing {fname}")
-    # encoding = "cp1252" if "nt" in os.name else "cp1252" # TODO: this depends on the OS it was logged on, usually windows, need to make this more robust.
-    with open(fname, encoding=encoding) as f:
-        # Note: need to check the encoding as this is required for em dash (long dash) # TODO: change this delimiter so this isnt required.
-        lines = f.read().splitlines()
-        for i, line in enumerate(lines):
-            if line == "":
-                continue
-            try:
-                # get timestamp, function, and message from log line
-                tsd, func, msg = parse_line(line)
-                msgd = parse_msg(msg)
-
-                if "milling_task" in msg:
-                    if stepd is None:
-                        continue
-
-                    # add milling task data
-                    msgd2 = stepd
-                    msgd2["timestamp"] = tsd
-                    msgd2.update(msgd)
-                    milling_data2.append(deepcopy(msgd2))
-
-                if "log_status_message" in func:
-                    # global data
-                    stepd = {
-                        "timestamp": tsd,
-                        "lamella": msgd["lamella"],
-                        "lamella_id": msgd["lamella_id"],
-                        "task_name": msgd["task_name"],
-                        "task_id": msgd["task_id"],
-                        "task_type": msgd["task_type"],
-                        "task_step": msgd["task_step"],
-                    }
-                    steps_data.append(deepcopy(stepd))
-
-                if "save_ml" in func:  # DETECTION INTERACTION
-                    # log detection data
-                    msgd = parse_msg(msg)
-
-                    if stepd is None:
-                        continue
-
-                    dmsgd2 = stepd
-                    dmsgd2["timestamp"] = tsd
-                    dmsgd2.update(msgd)
-                    det_data.append(deepcopy(dmsgd2))
-
-                    # # log detection interaction
-                    # if detd["is_correct"] == "False":
-                    #     click_d = {
-                    #         "lamella": detd["lamella"],
-                    #         "stage": detd["stage"],
-                    #         "step": detd["step"],
-                    #         "type": "DET",
-                    #         "subtype": detd["feature"],
-                    #         "dm_x": detd["dm_x"],
-                    #         "dm_y": detd["dm_y"],
-                    #         "beam_type": detd["beam_type"],
-                    #         "timestamp": detd["timestamp"],
-                    #     }
-                    #     click_data.append(deepcopy(click_d))
-
-                # if "_single_click" in func: # MILLING INTERACTION
-                #     # log milling interaction
-                #     msgd = parse_msg(msg)
-
-                #     clickd = {}
-                #     clickd["timestamp"] = tsd
-                #     clickd["lamella"] = current_lamella
-                #     clickd["stage"] = current_stage
-                #     clickd["step"] = current_step
-
-                #     clickd["dm_x"] = msgd["dm"]["x"]
-                #     clickd["dm_y"] = msgd["dm"]["y"]
-                #     clickd["type"] = "MILL"
-                #     clickd["subtype"] = msgd["pattern"]
-                #     clickd["beam_type"] = msgd["beam_type"]
-
-                #     click_data.append(deepcopy(clickd))
-
-                # if "_double_click" in func: # MOVEMENT INTERACTION
-
-                #     # log movement interaction
-                #     msgd = parse_msg(msg)
-                #     clickd = {}
-                #     clickd["timestamp"] = tsd
-                #     clickd["lamella"] = current_lamella
-                #     clickd["stage"] = current_stage
-                #     clickd["step"] = current_step
-
-                #     clickd["dm_x"] = msgd["dm"]["x"]
-                #     clickd["dm_y"] = msgd["dm"]["y"]
-                #     clickd["type"] = "MOVE"
-                #     clickd["subtype"] = msgd["movement_mode"]
-                #     clickd["beam_type"] = msgd["beam_type"]
-
-            except Exception as e:
-                pass
+    steps_data, milling_data2, det_data = read_log_tables(fname)
 
     df_tasks = pd.DataFrame(steps_data)
     df_tasks["duration"] = df_tasks["timestamp"].diff().shift(-1)
@@ -733,8 +732,10 @@ def format_pretty_dataframes(dfs: dict[str, pd.DataFrame]) -> dict[str, pd.DataF
         df_det_summary = pd.merge(
             df_det_summary, df_totals, on=["Task Step", "Feature"]
         )
-        # remove rows where Is Correct is False
-        df_det_summary = df_det_summary[df_det_summary["Is Correct"] == "True"]
+        # remove rows where Is Correct is False. A real bool now: the log used to
+        # be read by string substitution, which turned it into the string "True",
+        # and a comparison with that string would now drop every row.
+        df_det_summary = df_det_summary[df_det_summary["Is Correct"].eq(True)]
         # sort by Task Step and Feature
         df_det_summary = df_det_summary.sort_values(
             by=["Task Step", "Feature"], ascending=[True, True]
