@@ -181,13 +181,13 @@ def test_the_detection_summary_counts_correct_detections(tmp_path):
                 "is_completed",
                 "is_failure",
             ]
-        ),
+        ).astype({"milling_angle": float}),  # numeric, as the experiment's is
         "workflow": pd.DataFrame(
             columns=["order", "task_name", "required", "attention"]
         ),
         "task_history": pd.DataFrame(
             columns=["lamella_name", "task_name", "completed_at", "duration"]
-        ),
+        ).astype({"duration": float}),
         "tasks": pd.DataFrame(steps).assign(duration=0.0),
         "milling": pd.DataFrame(
             columns=[
@@ -200,7 +200,7 @@ def test_the_detection_summary_counts_correct_detections(tmp_path):
                 "stage.milling.milling_current",
                 "stage.pattern.depth",
             ]
-        ),
+        ).astype(float),
         "detection": pd.json_normalize(detections),
     }
     summary = format_pretty_dataframes(dfs)["detection_summary"]
