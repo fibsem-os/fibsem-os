@@ -54,6 +54,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import conversions
 from fibsem.applications.autolamella.proposals import (
+    DETECTION,
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
     TASK_RESULT,
@@ -279,6 +280,10 @@ def describe_decision(
         return ""
     who = author_label(d.author, experiment)
     when = clock(d.timestamp)
+    if proposal.withdrawn:
+        # No author worth naming: nothing decided this, the question was taken
+        # back when whatever asked it went away.
+        return f"Withdrawn at {when} — {d.reason}"
     if d.outcome is DecisionOutcome.Rejected:
         return f"Rejected by {who} at {when} — {d.reason}"
     # A producer's own decision applied values (or, with none, recorded the
@@ -416,6 +421,8 @@ class TaskResultReviewRenderer(ReviewRenderer):
         actions.addStretch(1)
         actions.addWidget(self.btn_confirm)
         actions.addWidget(self.btn_reject)
+        # Kept for a kind that adds a control of its own beside the verbs.
+        self._actions = actions
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 4, 10, 8)
@@ -629,7 +636,11 @@ class TaskResultReviewRenderer(ReviewRenderer):
             who = author_label(decided.author, experiment)
             when = clock(decided.timestamp)
             via = _via_text(decided.via)
-            if decided.outcome is DecisionOutcome.Rejected:
+            if proposal.withdrawn:
+                text = f"⊘  Withdrawn at {when} · {decided.reason}"
+                colour = GRAY_SECONDARY_COLOR
+                tip.append(f"Withdrawn before it was answered: {decided.reason}.")
+            elif decided.outcome is DecisionOutcome.Rejected:
                 text = f"✗  Rejected by {who} at {when} · {decided.reason}"
                 colour = DEFECT_RED_COLOR
                 tip.append(f"Rejected {via}: {decided.reason}.".replace("  ", " "))
@@ -676,7 +687,17 @@ class TaskResultReviewRenderer(ReviewRenderer):
             text += f" · {failure}"
             colour = DEFECT_RED_COLOR
         else:
-            text = f"Waiting for your decision · {_held_text(len(gated))}"
+            if proposal.asking:
+                # The run is stopped on this one, which is a stronger thing
+                # than the requires edges below: those defer tasks, this is
+                # the task itself waiting to be told.
+                text = f"{self._task_name} is parked on this · nothing else is running"
+                tip.append(
+                    f"{self._task_name} asked this mid-run and is waiting for the "
+                    "answer. Confirm hands it back and the task carries on."
+                )
+            else:
+                text = f"Waiting for your decision · {_held_text(len(gated))}"
             colour = ORANGE_COLOR  # waiting on you now: the border's colour
             if gated:
                 tip.append("Held until you decide: " + ", ".join(gated) + ".")
@@ -796,6 +817,194 @@ class PointOfInterestReviewRenderer(TaskResultReviewRenderer):
         super().set_proposal(experiment, item, task_name, proposal)
         # a delta only means something against the one image the values sit on
         self._controller.widget.set_sem_visible(False)
+
+
+@register_review_renderer(DETECTION)
+class DetectionReviewRenderer(TaskResultReviewRenderer):
+    """Where the model put the features, for someone to correct: every feature
+    on the image it ran on, each in its own colour and labelled with its name.
+
+    Click a marker to select it and drag it where it belongs -- one overlay
+    holding every point, which is what ``PointsSpec`` is for ("POI / spot burn
+    / detection features", with per-point ``colors`` and ``labels``). Picking
+    the feature first, from a list beside the canvas, was a workaround for a
+    limit that is not there.
+
+    The one kind asked *during* a task rather than after it (FIB-1025), so the
+    run is parked on this answer and the verbs mean what they say right now:
+    Confirm hands the points back and milling carries on, Reject fails the
+    task. Confirming nothing moved is the commonest answer and the one that
+    records the model as right.
+    """
+
+    PENDING_HINT = "Enter — these are right; drag a marker to correct one first"
+    CONFIRM_LABEL = "Confirm"
+    OVERLAY = "features"
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.btn_put_back = QPushButton("Put them back")
+        self.btn_put_back.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.btn_put_back.setToolTip("Move every feature back where the model put it")
+        self.btn_put_back.clicked.connect(self._draw_values)
+        # Beside the verbs, because it undoes an edit rather than deciding.
+        self._actions.insertWidget(
+            self._actions.indexOf(self.btn_confirm), self.btn_put_back
+        )
+
+    def _state_words(self) -> tuple:
+        return "Applied", self._task_name
+
+    def _features(self) -> List[Dict[str, Any]]:
+        proposal = self._proposal
+        values = proposal.values.get("features") if proposal else None
+        return [f for f in (values or []) if isinstance(f, dict)]
+
+    def _beam(self) -> BeamType:
+        """The canvas the base put the image on: an electron image goes on the
+        electron one, anything else on the ion one. Detections run on both
+        beams, so this cannot be assumed."""
+        if self._electron is None and _beam_of(self._image) is BeamType.ELECTRON:
+            return BeamType.ELECTRON
+        return BeamType.ION
+
+    @staticmethod
+    def _colour(name: str) -> str:
+        """The colour the feature carries itself, so a lamella centre looks the
+        same here as it does in the detection widget. Magenta for one this
+        build does not know, which is a feature from a newer model rather than
+        an error."""
+        try:
+            from fibsem.detection.detection import get_feature
+
+            return str(getattr(get_feature(name), "color", "") or "magenta")
+        except Exception:  # noqa: BLE001 - an unknown name is not a failure
+            return "magenta"
+
+    def _points(
+        self, id: str, features: List[Dict[str, Any]], colour: str = ""
+    ) -> None:
+        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
+        points, colours, labels = [], [], []
+        for feature in features:
+            px = feature.get("px")
+            if not isinstance(px, Point):
+                continue
+            name = str(feature.get("name") or "")
+            points.append((px.x, px.y))
+            colours.append(colour or self._colour(name))
+            labels.append(name)
+        if not points:
+            return
+        self._controller.set_overlay(
+            self._beam(),
+            PointsSpec(
+                id=id,
+                points=points,
+                colors=colours,
+                labels=labels,
+                color=colours[0],
+                selected_color="yellow",
+                marker="+",
+                size=14,
+                edge_width=1.2,
+                add_on_right_click=False,
+                removable=False,
+            ),
+        )
+
+    def _show_proposal(self) -> None:
+        super()._show_proposal()
+        # The base draws values only on the ion branch, because every kind
+        # before this one recorded them on an ion image. A detection on an
+        # electron image is drawn here instead.
+        if self._image is not None and self._beam() is BeamType.ELECTRON:
+            self._draw_values()
+
+    def _draw_values(self) -> None:
+        """Every feature where the model put it, in its own colour, labelled.
+
+        A feature's point is already in image pixels -- it is where the model
+        put it on this image -- so unlike a point of interest there is nothing
+        to convert.
+        """
+        if self._image is None:
+            return
+        self._points(self.OVERLAY, self._features())
+        editable = self._decided is None and self._applied is None
+        self.btn_put_back.setVisible(editable)
+        self._controller.arm_overlay(
+            self._beam(),
+            self.OVERLAY if editable else None,
+            label="Features",
+            icon="mdi:map-marker",
+        )
+
+    def _draw_confirmed(self, decision: Decision) -> None:
+        """What was decided in each feature's colour; what the model proposed
+        stays under it in orange, so the correction is visible and not only
+        recorded."""
+        if self._image is None:
+            return
+        self._points("proposed", self._features(), colour=ORANGE_COLOR)
+        decided = [
+            f for f in decision.values.get("features") or [] if isinstance(f, dict)
+        ]
+        self._points(self.OVERLAY, decided or self._features())
+        self.btn_put_back.setVisible(False)
+
+    def current_values(self) -> Dict[str, Any]:
+        """Wherever the markers have been left. Every feature is answered, moved
+        or not: the task is waiting for the whole set, and an unmoved one is
+        the answer that says the model was right."""
+        proposal = self._proposal
+        if proposal is None:
+            return {}
+        features = self._features()
+        if self._image is None:
+            return dict(proposal.values)
+        points = self._controller.overlay_points(self._beam(), self.OVERLAY)
+        if len(points) != len(features):
+            # The overlay is rebuilt from the features every time, so this is
+            # a drawing that never happened rather than an edit to read back.
+            return dict(proposal.values)
+        return {
+            "features": [
+                # float(), because the canvas hands back numpy scalars and the
+                # record is YAML: safe_dump refuses an np.float64 outright, so
+                # a decision made by dragging would record fine and then fail
+                # to save.
+                {
+                    "name": str(f.get("name") or ""),
+                    "px": Point(x=float(col), y=float(row)),
+                }
+                for f, (col, row) in zip(features, points)
+            ]
+        }
+
+    def _fact(self) -> str:
+        proposal = self._proposal
+        if proposal is None:
+            return ""
+        provenance = proposal.provenance
+        names = ", ".join(str(f.get("name") or "?") for f in self._features()) or "none"
+        model = str(provenance.get("proposer") or "?")
+        checkpoint = os.path.basename(str(provenance.get("checkpoint") or ""))
+        where = os.path.basename(str(provenance.get("reference_image") or ""))
+        return (
+            f"{model} found {names} at {clock(proposal.created_at)}"
+            f"{f' on {where}' if where else ''}"
+            f"{f' · checkpoint {checkpoint}' if checkpoint else ''}."
+        )
+
+    def set_proposal(
+        self, experiment: Experiment, item: Any, task_name: str, proposal: Proposal
+    ) -> None:
+        super().set_proposal(experiment, item, task_name, proposal)
+        # a delta only means something against the one image the values sit on
+        if self._beam() is BeamType.ION:
+            self._controller.widget.set_sem_visible(False)
 
 
 def _beam_of(image: FibsemImage) -> Optional[BeamType]:
@@ -1427,12 +1636,18 @@ class ReviewTabWidget(QWidget):
         if self._experiment is not None:
             try:
                 self._experiment.decided.disconnect(self._on_experiment_decided)
+                self._experiment.asked.disconnect(self._on_experiment_decided)
             except Exception:
                 pass
         self._experiment = experiment
         if experiment is not None:
             # Fires on the thread decide() ran on, which is this one (main).
             experiment.decided.connect(self._on_experiment_decided)
+            # A question recorded mid-task. Without this the inbox only
+            # re-derives when a task *finishes*, and an in-run question is
+            # raised halfway through one -- so it would not appear until
+            # something else happened to refresh the tab.
+            experiment.asked.connect(self._on_experiment_decided)
         self.refresh()
 
     def set_running(self, running: bool) -> None:
@@ -1504,7 +1719,29 @@ class ReviewTabWidget(QWidget):
         hidden = 0
         if self._experiment is not None:
             experiment = self._experiment
-            all_waiting = experiment.pending_proposals()
+            all_pending = experiment.pending_proposals()
+            # A question the run is parked on, asked mid-task and waiting to be
+            # told the answer (FIB-1025). Not a new urgency -- it is the
+            # existing "holds a task" distinction with the stakes raised, since
+            # nothing else runs while it is up -- but it is worth its own group
+            # above the rest, because everything under Waiting can be left.
+            all_holding = [e for e in all_pending if e[2].asking]
+            all_waiting = [e for e in all_pending if not e[2].asking]
+            holding = self._shown(all_holding)
+            hidden += len(all_holding) - len(holding)
+            if holding:
+                self._add_header(
+                    f"Holding the workflow · "
+                    f"{self._count(len(holding), len(all_holding))}"
+                )
+            for item, task_name, proposal in holding:
+                self._add_row(
+                    summary=f"{item.name} · {task_name} · asking now",
+                    widget=_InboxRow(ORANGE_COLOR, item.name, task_name, "asking now"),
+                    entry=(item, task_name, proposal, "waiting"),
+                    tooltip=f"{task_name} is parked on this answer; "
+                    "nothing else runs until you give it.",
+                )
             waiting = self._shown(all_waiting)
             hidden += len(all_waiting) - len(waiting)
             if waiting:
@@ -1525,7 +1762,7 @@ class ReviewTabWidget(QWidget):
             # What is pending is a fact about the experiment, not about what
             # the filter is showing: the tab badge and the stall check read
             # these, so a narrowed list must not shrink them.
-            pending = len(all_waiting)
+            pending = len(all_pending)
             all_to_check = experiment.proposals_to_check()
             to_check = self._shown(all_to_check)
             hidden += len(all_to_check) - len(to_check)
@@ -1560,15 +1797,25 @@ class ReviewTabWidget(QWidget):
                 for item, task_name, proposal, superseded in decided:
                     d = proposal.current
                     rejected = d.outcome is DecisionOutcome.Rejected
-                    if superseded:
+                    # Withdrawn is not an answer, so it must not read as one:
+                    # the green tick beside a question nobody answered says
+                    # somebody agreed with it.
+                    withdrawn = proposal.withdrawn
+                    if superseded or withdrawn:
                         colour = GRAY_SECONDARY_COLOR
                     elif rejected:
                         colour = DEFECT_RED_COLOR
                     else:
                         colour = OK_COLOR
+                    word = (
+                        "withdrawn"
+                        if withdrawn
+                        else "rejected"
+                        if rejected
+                        else "confirmed"
+                    )
                     self._add_row(
-                        summary=f"{item.name} · {task_name} · "
-                        + ("rejected" if rejected else "confirmed")
+                        summary=f"{item.name} · {task_name} · {word}"
                         + (" · superseded" if superseded else ""),
                         widget=_InboxRow(
                             colour,

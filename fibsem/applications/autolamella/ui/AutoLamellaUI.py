@@ -782,7 +782,24 @@ class AutoLamellaUI(QMainWindow):
         while candidate is not None and self.tabWidget.indexOf(candidate) == -1:
             candidate = candidate.parentWidget()
         if candidate is not None:
+            # A hidden tab cannot be fronted: Detection is hidden until it is
+            # asked for, so bringing it forward has to un-hide it first or the
+            # call is a second silent no-op.
+            self.tabWidget.setTabVisible(self.tabWidget.indexOf(candidate), True)
             self.tabWidget.setCurrentWidget(candidate)
+
+    def front_question(self) -> None:
+        """Bring forward the tab the question now up is asked on, if it has one.
+
+        A question on its own tab is gone from view the moment the operator
+        looks elsewhere, and the attention button is how they get back to it --
+        so the button cannot just go to the Microscope tab and call it done.
+        Does nothing when no question is up, or when its prompt is the shared
+        one the Microscope tab already shows.
+        """
+        widget = self.ui_responder.question_host()
+        if widget is not None:
+            self.front_tab(widget)
 
     def update_microscope_ui(self):
         """Update the ui based on the current state of the microscope."""

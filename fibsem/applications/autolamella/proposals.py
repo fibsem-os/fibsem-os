@@ -41,6 +41,7 @@ __all__ = [
     "TaskResultProposer",
     "DecisionOutcome",
     "DecisionResult",
+    "DETECTION",
     "PROPOSAL_KINDS",
     "OVERVIEW_POSITIONS",
     "POINT_OF_INTEREST",
@@ -64,6 +65,11 @@ POINT_OF_INTEREST = "point_of_interest"
 # The only kind whose confirmed values make items rather than edit the one the
 # proposal is on.
 OVERVIEW_POSITIONS = "overview_positions"
+# Where a model put the features it was asked to find, for someone to correct:
+# the one kind so far that is asked *during* a task rather than after it
+# (FIB-1025). Its value is the feature set, keyed by name, so a delta is per
+# feature and not one number for the lot.
+DETECTION = "detection"
 # What a task did, for someone to look at: no values, the final reference
 # images in provenance. Recorded by the base task class for any task whose
 # review is on and that did not propose a kind of its own.
@@ -71,8 +77,14 @@ TASK_RESULT = "task_result"
 
 
 class DecisionOutcome(Enum):
+    """What was decided. ``Confirmed`` and ``Rejected`` are answers; a decider
+    looked and said something. ``Withdrawn`` is not: the question was taken
+    back because the thing that asked it is gone, so there is no answer to
+    read and nothing to compare a proposal against."""
+
     Confirmed = auto()
     Rejected = auto()
+    Withdrawn = auto()
 
 
 class AuthorKind(str, Enum):
@@ -162,6 +174,7 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
 
 register_proposal_kind(ProposalKind(name=POINT_OF_INTEREST, values=("poi",)))
 register_proposal_kind(ProposalKind(name=OVERVIEW_POSITIONS, values=("positions",)))
+register_proposal_kind(ProposalKind(name=DETECTION, values=("features",)))
 register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
 
 
@@ -219,6 +232,32 @@ def _positions_from_dict(value: Any) -> Any:
     return out
 
 
+def _features_to_dict(value: Any) -> Any:
+    """A detected feature set as ``[{name, px}]``.
+
+    Only the name and the pixel it sits on: the mask, the rgb and the image
+    are megabytes and already on disk beside the task's outputs, and a delta
+    is computed from the points alone.
+    """
+    if not isinstance(value, (list, tuple)):
+        return value
+    return [
+        {"name": f["name"], "px": _point_to_dict(f["px"])} if isinstance(f, dict) else f
+        for f in value
+    ]
+
+
+def _features_from_dict(value: Any) -> Any:
+    if not isinstance(value, (list, tuple)):
+        return value
+    return [
+        {"name": f.get("name", ""), "px": _point_from_dict(f.get("px"))}
+        if isinstance(f, dict)
+        else f
+        for f in value
+    ]
+
+
 def _point_to_dict(p: Any) -> Any:
     return p.to_dict() if isinstance(p, Point) else p
 
@@ -230,6 +269,7 @@ def _point_from_dict(d: Any) -> Any:
 _VALUE_CODECS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
     "poi": (_point_to_dict, _point_from_dict),
     "positions": (_positions_to_dict, _positions_from_dict),
+    "features": (_features_to_dict, _features_from_dict),
 }
 
 
@@ -269,6 +309,14 @@ class PreparedWrite:
 
     apply: Callable[[], List[str]]
     undo: Callable[[], None]
+
+    @classmethod
+    def nothing(cls) -> "PreparedWrite":
+        """A value that is checked and written nowhere: its consumer is not the
+        item. An in-run answer is the first -- the task parked on it applies it
+        (FIB-1025) -- and an answer given at the instrument, already applied by
+        the hardware when it is recorded, is the same shape."""
+        return cls(apply=lambda: [], undo=lambda: None)
 
 
 def _prepare_poi(experiment: Any, item: Any, value: Any) -> PreparedWrite:
@@ -383,6 +431,33 @@ def _prepare_positions(experiment: Any, item: Any, value: Any) -> PreparedWrite:
     return PreparedWrite(apply=apply, undo=undo)
 
 
+def _prepare_features(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """Checked, and written nowhere.
+
+    Every other writer here edits the item, because its proposal is decided
+    after the task that made it has ended and there is nobody left to act on
+    the answer. A detection is asked *during* a task (FIB-1025): the consumer
+    is the task itself, parked on the answer, which applies it with the
+    instrument in the state it asked in. Writing it to the item here would be
+    a second, later application of the same correction.
+
+    So the value is still checked -- a malformed answer must be refused before
+    the run is released on it -- and then left for its waiter.
+    """
+    if not isinstance(value, (list, tuple)):
+        raise ValueRefused(f"features must be a list, not {type(value).__name__}.")
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise ValueRefused(
+                f"every feature must be a name and a point, not {type(entry).__name__}."
+            )
+        if not entry.get("name"):
+            raise ValueRefused("every feature needs a name to be matched back by.")
+        if not isinstance(entry.get("px"), Point):
+            raise ValueRefused(f"{entry['name']} needs a point in image pixels.")
+    return PreparedWrite.nothing()
+
+
 # name -> prepare(experiment, item, value): checks the value and plans every
 # effect without touching anything, returning how to apply it and how to undo
 # it. The experiment is there for the one write that makes items rather than
@@ -390,6 +465,7 @@ def _prepare_positions(experiment: Any, item: Any, value: Any) -> PreparedWrite:
 _VALUE_WRITERS: Dict[str, Callable[[Any, Any, Any], PreparedWrite]] = {
     "poi": _prepare_poi,
     "positions": _prepare_positions,
+    "features": _prepare_features,
 }
 
 
@@ -446,6 +522,29 @@ def compute_delta(proposed: Any, confirmed: Any) -> Any:
         return Point(x=confirmed.x - proposed.x, y=confirmed.y - proposed.y)
     if isinstance(proposed, (int, float)) and isinstance(confirmed, (int, float)):
         return confirmed - proposed
+    if isinstance(proposed, (list, tuple)) and isinstance(confirmed, (list, tuple)):
+        # A named set -- a detection's features -- so the delta is per name and
+        # not one number for the lot: which feature the model got wrong is the
+        # part worth keeping. Matched by name rather than by position, because
+        # a decider answers the set and need not answer it in order.
+        was = {
+            f["name"]: f.get("px")
+            for f in proposed
+            if isinstance(f, dict) and f.get("name")
+        }
+        now = {
+            f["name"]: f.get("px")
+            for f in confirmed
+            if isinstance(f, dict) and f.get("name")
+        }
+        if not was or not now:
+            return None
+        moved = {
+            name: compute_delta(was[name], point)
+            for name, point in now.items()
+            if name in was
+        }
+        return moved or None
     return None
 
 
@@ -554,6 +653,13 @@ class Proposal:
     # delta -- stays on the record. The old value is not carried over as the
     # new default; a stale default is the rubber stamp the delta detects.
     superseded: List["Proposal"] = field(default_factory=list)
+    # Whether the task that made this is parked on it right now, waiting to be
+    # told the answer -- an in-run question rather than a result left for
+    # later (FIB-1025). It is the one thing that lets a decision land on a
+    # running task, so it is deliberately **not persisted**: a question only
+    # exists while something is waiting on it, and a flag that survived a
+    # reload would claim a waiter that is gone.
+    asking: bool = field(default=False, compare=False, repr=False)
 
     @property
     def pending(self) -> bool:
@@ -572,12 +678,31 @@ class Proposal:
         return self.decisions[-1] if self.decisions else None
 
     @property
+    def withdrawn(self) -> bool:
+        """Closed without an answer: whatever asked this is gone -- the task
+        failed, the run stopped, the operator aborted -- so the question was
+        taken back rather than left open forever.
+
+        Not ``pending`` (there is a decision on the record) and not an answer
+        either, which is why it is its own property: everything that reads a
+        decision as what somebody said has to skip these.
+        """
+        d = self.current
+        return d is not None and d.outcome is DecisionOutcome.Withdrawn
+
+    @property
     def to_check(self) -> bool:
         """Applied by its own producer, or decided by an agent, and not looked
         at by a person since. A person's acknowledgement -- or their reject --
-        is a later decision, which clears it."""
-        return bool(self.decisions) and all(
-            d.author.kind is not AuthorKind.human for d in self.decisions
+        is a later decision, which clears it.
+
+        A withdrawn proposal is never to check: nobody should be asked to
+        acknowledge a question that was taken back before it was answered.
+        """
+        return (
+            bool(self.decisions)
+            and not self.withdrawn
+            and all(d.author.kind is not AuthorKind.human for d in self.decisions)
         )
 
     @property

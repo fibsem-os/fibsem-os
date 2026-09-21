@@ -1558,7 +1558,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to Microscope tab, or to
-        the Review tab when what is waiting is a decision rather than a question."""
+        the Review tab when what is waiting is a decision rather than a question.
+
+        A question asked on a tab of its own -- a detection, a mill -- is not on
+        the Microscope tab, so landing there leaves the operator looking for a
+        prompt that is somewhere else. This is the way back to it.
+
+        The destination comes from the question, never from the hold's kind.
+        ``HoldKind.question`` covers both a prompt answered here and one
+        answered on a tab of its own, and once an in-run review is answered in
+        the Review tab (FIB-1025) it will cover that too -- so the kind says
+        only that something holds the run, and the pending request says where.
+        """
         hold = self.autolamella_ui.hold
         review_tab = getattr(self, "review_tab", None)
         if (
@@ -1568,7 +1579,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ):
             self.tab_widget.setCurrentWidget(review_tab)
             return
+        host = self.autolamella_ui.ui_responder.question_host()
+        if host is not None and self.tab_widget.indexOf(host) != -1:
+            # A question answered on one of this window's own tabs.
+            self.tab_widget.setCurrentWidget(host)
+            return
         self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
+        self.autolamella_ui.front_question()
 
     def _on_run_workflow_clicked(self):
         """Run the workflow using the lamella and task selections from the workflow widget."""
