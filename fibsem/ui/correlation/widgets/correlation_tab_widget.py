@@ -417,12 +417,23 @@ class _ProgressRelay(QObject):
 # ---------------------------------------------------------------------------
 
 
+# Said when the stack does not record how thick its slices are. The fit needs
+# all three axes in one unit, so it converts z (slices) to xy pixels; with no
+# slice thickness that conversion silently becomes 1, the depth column of the
+# fitted map comes out wrong, and the refractive-index correction rides on it
+# (FIB-1017). Anisotropy itself is NOT worth saying -- it is the normal case on
+# both systems and the fit handles it.
+_NO_SLICE_THICKNESS = "slice thickness not recorded — depth cannot be trusted"
+
+
 def _format_fm_pixel_size(metadata) -> str:
     """XY/Z voxel size, with the anisotropy ratio that decides interpolation.
 
     The ratio is the same one ``InterpolateZDialog`` reports, shown here next to
     the Interpolate action so "is this stack anisotropic?" is answerable without
-    opening the dialog.
+    opening the dialog. A stack that records no slice thickness says so instead:
+    silence there reads as "nothing to report", and it is the one case where
+    depth is actually unreliable.
     """
     xy = getattr(metadata, "pixel_size_x", None)
     z = getattr(metadata, "pixel_size_z", None)
@@ -434,7 +445,9 @@ def _format_fm_pixel_size(metadata) -> str:
     if not parts:
         return "—"
     text = " · ".join(parts)
-    if xy and z and abs(z / xy - 1.0) > 0.05:
+    if not z:
+        return text + f" · {_NO_SLICE_THICKNESS}"
+    if xy and abs(z / xy - 1.0) > 0.05:
         text += f" ({z / xy:.1f}× anisotropic)"
     return text
 
@@ -4099,6 +4112,15 @@ class CorrelationTabWidget(QWidget):
                 note = f"unseeded fit: {self._seed_note}"
             if note:
                 self._lbl_status.setText(f"{self._lbl_status.text()} — {note}")
+        # Last, so it survives whichever line above was chosen. Without a slice
+        # thickness the fit could not convert z to the units its other two axes
+        # use, so the depth it found is not a measurement -- and the depth
+        # correction is computed from it (FIB-1017).
+        if live and self._fm_image is not None and self._fm_pixel_size_z() is None:
+            self._lbl_status.setText(
+                f"{self._lbl_status.text()} — the FM stack does not say how thick "
+                "its slices are, so the depth correction cannot be trusted."
+            )
         self.result_changed.emit(result)
 
     # ------------------------------------------------------------------

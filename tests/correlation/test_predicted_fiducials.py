@@ -727,6 +727,41 @@ def test_re_run_on_change_leaves_a_run_that_cannot_happen_alone(loaded, monkeypa
     loaded._worker = None
 
 
+def test_a_run_says_when_the_stack_records_no_slice_thickness(loaded):
+    """The fit needs all three axes in one unit, so it converts z (slices) to
+    xy pixels. With no slice thickness that conversion silently becomes 1 and
+    the depth the fit reports is not a measurement — and the refractive-index
+    correction is computed from it. The run says so (FIB-1017).
+
+    Not a warning about anisotropy: that is the normal case on both systems and
+    the fit handles it.
+    """
+    from fibsem.correlation.structures import (
+        CorrelationPointOfInterest,
+        CorrelationResult,
+    )
+
+    def _run_and_read():
+        loaded._on_result_ready(
+            CorrelationResult(
+                poi=[CorrelationPointOfInterest()],
+                rms_error=1.0,
+                input_data=copy.deepcopy(loaded.fit_data),
+            ),
+            live=True,
+        )
+        return loaded._lbl_status.text()
+
+    # the Arctis stack records 1.13 µm slices: nothing to say
+    assert loaded._fm_pixel_size_z() is not None
+    assert "slices" not in _run_and_read()
+
+    loaded._fm_image.metadata.pixel_size_z = None
+    text = _run_and_read()
+    assert "does not say how thick its slices are" in text
+    assert "depth correction cannot be trusted" in text
+
+
 def test_a_poor_verdict_disables_continue(loaded):
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
