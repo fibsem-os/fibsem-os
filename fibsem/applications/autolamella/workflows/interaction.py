@@ -66,6 +66,7 @@ __all__ = [
     "Request",
     "Confirm",
     "ConfirmDetection",
+    "ReviewDetection",
     "EditAlignmentArea",
     "PickPOI",
     "RunMillingTask",
@@ -120,17 +121,28 @@ class Confirm(Request[bool]):
 
 @dataclass(frozen=True)
 class ConfirmDetection(Request["DetectedFeatures"]):
-    """Show detected features for correction; answer with the (possibly moved) set.
-
-    ``item_id`` and ``task_name`` say who is asking: the item the detection was
-    made for and the task that made it. They are what a responder needs to put
-    the question on that item's record, and it has no other honest way to learn
-    them -- "whatever is running" is a guess about the screen, not something
-    the request said. Empty from a caller that has neither, and then the
-    question is answered and not recorded, as it always was.
-    """
+    """Show detected features for correction; answer with the (possibly moved) set."""
 
     detection: "DetectedFeatures"
+
+
+@dataclass(frozen=True)
+class ReviewDetection(ConfirmDetection):
+    """The same question, from an asker that says who it is -- so it can go on
+    that item's record and be answered in the Review tab (FIB-1025).
+
+    A type of its own rather than two optional fields on ``ConfirmDetection``:
+    that request, the prompt it puts up and the helper that asks it are used as
+    they are, in this repository and outside it, and stay exactly that. Asking
+    this one instead is a choice a caller makes.
+
+    ``item_id`` and ``task_name`` are the item the detection was made for and
+    the task that made it. A responder has no other honest way to learn them:
+    "whatever is running" is a guess about the screen, not something the
+    request said. A responder that cannot record the question asks it as the
+    ``ConfirmDetection`` it also is.
+    """
+
     item_id: str = ""
     task_name: str = ""
 

@@ -31,8 +31,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type
 from fibsem import conversions
 from fibsem.applications.autolamella.proposals import DETECTION, Proposal
 from fibsem.applications.autolamella.workflows.interaction import (
-    ConfirmDetection,
     Request,
+    ReviewDetection,
 )
 
 if TYPE_CHECKING:
@@ -107,13 +107,13 @@ def adapter_for(request: Request) -> Optional[QuestionAdapter]:
 # --- feature detection ------------------------------------------------------
 
 
-def _detection_values(request: ConfirmDetection) -> Dict[str, Any]:
+def _detection_values(request: ReviewDetection) -> Dict[str, Any]:
     return {
         "features": [{"name": f.name, "px": f.px} for f in request.detection.features]
     }
 
 
-def _detection_answer(request: ConfirmDetection, values: Dict[str, Any]) -> Any:
+def _detection_answer(request: ReviewDetection, values: Dict[str, Any]) -> Any:
     """The decided points put back on a copy of the detection.
 
     A copy because the request is frozen and the original is what the delta is
@@ -142,7 +142,7 @@ def _detection_answer(request: ConfirmDetection, values: Dict[str, Any]) -> Any:
     return answer
 
 
-def _detection_image(request: ConfirmDetection, folder: str) -> str:
+def _detection_image(request: ReviewDetection, folder: str) -> str:
     """The file the task saved the image to, named relative to ``folder``.
 
     Nothing is written here. ``take_image_and_detect_features`` always saves
@@ -173,7 +173,7 @@ def _detection_image(request: ConfirmDetection, folder: str) -> str:
     return relative.replace(os.sep, "/")
 
 
-def _detection_answered(request: ConfirmDetection, answer: Any) -> None:
+def _detection_answered(request: ReviewDetection, answer: Any) -> None:
     """Write the training data the Detection tab writes on its Continue click:
     the image, the mask and a row per feature with how far it was moved, and
     the ``feature_detection`` log records the reports are built from.
@@ -193,8 +193,8 @@ def _detection_answered(request: ConfirmDetection, answer: Any) -> None:
     )
 
 
-def _detection_provenance(request: ConfirmDetection) -> Dict[str, Any]:
-    """Which model said this. ``ConfirmDetection`` is the question's type, not
+def _detection_provenance(request: ReviewDetection) -> Dict[str, Any]:
+    """Which model said this. ``ReviewDetection`` is the question's type, not
     its author, and a correction only means something measured against the
     checkpoint that produced it."""
     checkpoint = str(getattr(request.detection, "checkpoint", "") or "")
@@ -207,7 +207,7 @@ def _detection_provenance(request: ConfirmDetection) -> Dict[str, Any]:
 
 
 register_adapter(
-    ConfirmDetection,
+    ReviewDetection,
     QuestionAdapter(
         kind=DETECTION,
         to_values=_detection_values,

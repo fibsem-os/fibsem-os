@@ -55,7 +55,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_ui_module
-from fibsem.applications.autolamella.workflows.interaction import ConfirmDetection, ask
+from fibsem.applications.autolamella.workflows.interaction import ReviewDetection, ask
 from fibsem.detection.detection import DetectedFeatures, ImageCentre, LamellaCentre
 from fibsem.structures import BeamType, ImageSettings, MicroscopeState, Point
 
@@ -131,7 +131,7 @@ def _pretend_to_be_a_task(window, experiment, lamella) -> None:
     try:
         answer = ask(
             responder,
-            ConfirmDetection(detection=detection, item_id=lamella.id, task_name=TASK),
+            ReviewDetection(detection=detection, item_id=lamella.id, task_name=TASK),
         )
     except Exception as exc:  # noqa: BLE001 - the harness reports it
         print(f"\n--- the task unwound: {type(exc).__name__}: {exc} ---\n")

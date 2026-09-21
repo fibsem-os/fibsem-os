@@ -39,6 +39,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     EditAlignmentArea,
     PickPOI,
     Request,
+    ReviewDetection,
     RunMillingTask,
     RunSpotBurn,
     SetFluorescenceChannels,
@@ -90,6 +91,7 @@ class QtResponder(QObject):
         self._deferred_handlers: Dict[Type[Request], Callable] = {
             Confirm: self._confirm,
             ConfirmDetection: self._confirm_detection,
+            ReviewDetection: self._review_detection,
             EditAlignmentArea: self._edit_alignment_area,
             PickPOI: self._pick_poi,
             RunMillingTask: self._run_milling_task,
@@ -541,18 +543,7 @@ class QtResponder(QObject):
         return None
 
     def _confirm_detection(self, request: ConfirmDetection, future: "Future") -> None:
-        """Show detected features for correction; the click answers with the set.
-
-        Unless the question can go on the record (:meth:`_ask_on_the_record`),
-        in which case it is corrected in the Review tab and none of the below
-        happens.
-        """
-        if self._ask_on_the_record(
-            request,
-            future,
-            "The detected features need confirming in the Review tab.",
-        ):
-            return
+        """Show detected features for correction; the click answers with the set."""
         det_widget = self._ui.det_widget
         if det_widget is None:
             # Detection reached the UI without a detection widget: a defect, not
@@ -729,6 +720,18 @@ class QtResponder(QObject):
     # which is where every other judgement is collected. Everything about the
     # *wait* stays here: the nonce, the hold, the abort. Only where the answer
     # comes from changes.
+
+    def _review_detection(self, request: ReviewDetection, future: "Future") -> None:
+        """A detection from an asker that said who it is: on the record and in
+        the Review tab when it can be, and otherwise the Detection tab prompt,
+        untouched -- it is a ``ConfirmDetection`` too."""
+        if self._ask_on_the_record(
+            request,
+            future,
+            "The detected features need confirming in the Review tab.",
+        ):
+            return
+        self._confirm_detection(request, future)
 
     def _review_tab(self):
         """The main window's Review tab when there is one and it is showing --
