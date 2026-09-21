@@ -75,7 +75,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         # Experiment Description
         self.lineEdit_experiment_description = QtWidgets.QLineEdit()
-        self.lineEdit_experiment_description.setPlaceholderText("Optional description of the experiment...")
+        self.lineEdit_experiment_description.setPlaceholderText(
+            "Optional description of the experiment..."
+        )
 
         # User (optional)
         self.lineEdit_experiment_user = QtWidgets.QLineEdit()
@@ -87,7 +89,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         # Organisation (optional)
         self.lineEdit_experiment_organisation = QtWidgets.QLineEdit()
-        self.lineEdit_experiment_organisation.setPlaceholderText("Optional organisation name...")
+        self.lineEdit_experiment_organisation.setPlaceholderText(
+            "Optional organisation name..."
+        )
 
         # Experiment Directory
         self.lineEdit_experiment_directory = QDirectoryLineEdit()
@@ -97,7 +101,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             self.lineEdit_experiment_directory.setText(pref_dir)
         else:
             if pref_dir:
-                logging.warning(f"Preference default_experiment_directory '{pref_dir}' does not exist; using default.")
+                logging.warning(
+                    f"Preference default_experiment_directory '{pref_dir}' does not exist; using default."
+                )
             self.lineEdit_experiment_directory.setText(str(cfg.LOG_PATH))
 
         exp_prefs = prefs.experiment
@@ -119,11 +125,15 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         # Validation warning label
         self.label_validation_warning = QtWidgets.QLabel("")
-        self.label_validation_warning.setStyleSheet("color: orange; font-style: italic;")
+        self.label_validation_warning.setStyleSheet(
+            "color: orange; font-style: italic;"
+        )
         self.label_validation_warning.setWordWrap(True)
         exp_layout.addWidget(self.label_validation_warning)
 
-        exp_group = TitledPanel("Experiment Information", content=exp_content, collapsible=False)
+        exp_group = TitledPanel(
+            "Experiment Information", content=exp_content, collapsible=False
+        )
         main_layout.addWidget(exp_group)
 
         # Protocol Information
@@ -169,11 +179,15 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         protocol_info_label = QtWidgets.QLabel(
             "Note: You will be able to edit the protocol after creating the experiment."
         )
-        protocol_info_label.setStyleSheet("color: gray; font-style: italic; font-size: 10px;")
+        protocol_info_label.setStyleSheet(
+            "color: gray; font-style: italic; font-size: 10px;"
+        )
         protocol_info_label.setWordWrap(True)
         protocol_layout.addWidget(protocol_info_label)
 
-        protocol_group = TitledPanel("Protocol Information", content=protocol_content, collapsible=False)
+        protocol_group = TitledPanel(
+            "Protocol Information", content=protocol_content, collapsible=False
+        )
         protocol_group.add_header_widget(self.btn_select_legacy_protocol)
         protocol_group.add_header_widget(self.btn_select_protocol)
         main_layout.addWidget(protocol_group)
@@ -204,10 +218,14 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
     def _connect_signals(self):
         """Connect UI signals."""
-        self.lineEdit_experiment_directory.textChanged.connect(self._validate_experiment_path)
+        self.lineEdit_experiment_directory.textChanged.connect(
+            self._validate_experiment_path
+        )
         self.btn_select_protocol.clicked.connect(self._select_protocol)
         self.btn_select_legacy_protocol.clicked.connect(self._select_legacy_protocol)
-        self.lineEdit_experiment_name.textChanged.connect(self._validate_experiment_path)
+        self.lineEdit_experiment_name.textChanged.connect(
+            self._validate_experiment_path
+        )
         self.btn_ok.clicked.connect(self._on_ok_clicked)
         self.btn_cancel.clicked.connect(self.reject)
 
@@ -237,7 +255,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             protocol_path_to_load = pref_protocol
         else:
             if pref_protocol:
-                logging.warning(f"Preference default_protocol_path '{pref_protocol}' does not exist; using default.")
+                logging.warning(
+                    f"Preference default_protocol_path '{pref_protocol}' does not exist; using default."
+                )
             if not os.path.exists(cfg.TASK_PROTOCOL_PATH):
                 return
             protocol_path_to_load = str(cfg.TASK_PROTOCOL_PATH)
@@ -252,7 +272,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(
                 self,
                 "Protocol Load Error",
-                "The default protocol file could not be loaded. It may be corrupted or incorrectly formatted.\n\nPlease select a valid protocol file manually."
+                "The default protocol file could not be loaded. It may be corrupted or incorrectly formatted.\n\nPlease select a valid protocol file manually.",
             )
 
     def _select_protocol(self):
@@ -282,7 +302,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(
                 self,
                 "Invalid Protocol",
-                "The selected protocol file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\nPlease select a valid protocol file (*.yaml)."
+                "The selected protocol file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\nPlease select a valid protocol file (*.yaml).",
             )
 
     def _select_legacy_protocol(self):
@@ -303,21 +323,25 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         # Validate and convert the legacy protocol file
         try:
-            self.protocol = AutoLamellaTaskProtocol.load_from_old_protocol(Path(protocol_path))
+            self.protocol = AutoLamellaTaskProtocol.load_from_old_protocol(
+                Path(protocol_path)
+            )
             self.protocol_path = protocol_path
             self._update_protocol_display()
-            logging.info(f"Legacy protocol loaded and converted successfully from {protocol_path}")
+            logging.info(
+                f"Legacy protocol loaded and converted successfully from {protocol_path}"
+            )
             QtWidgets.QMessageBox.information(
                 self,
                 "Legacy Protocol Converted",
-                "The legacy protocol has been successfully converted to the new task-based format."
+                "The legacy protocol has been successfully converted to the new task-based format.",
             )
         except Exception as e:
             logging.error(f"Failed to load legacy protocol: {e}")
             QtWidgets.QMessageBox.critical(
                 self,
                 "Invalid Legacy Protocol",
-                f"The selected legacy protocol file could not be converted. It may be corrupted, incorrectly formatted, or missing required fields.\n\nError: {e}\n\nPlease select a valid legacy protocol file (*.yaml)."
+                f"The selected legacy protocol file could not be converted. It may be corrupted, incorrectly formatted, or missing required fields.\n\nError: {e}\n\nPlease select a valid legacy protocol file (*.yaml).",
             )
 
     def _update_protocol_display(self):
@@ -341,9 +365,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         experiment_name = self.lineEdit_experiment_name.text().strip()
         if not experiment_name:
             QtWidgets.QMessageBox.warning(
-                self,
-                "Invalid Name",
-                "Please enter an experiment name."
+                self, "Invalid Name", "Please enter an experiment name."
             )
             return
 
@@ -351,18 +373,14 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         directory = self.lineEdit_experiment_directory.text()
         if not directory or not os.path.exists(directory):
             QtWidgets.QMessageBox.warning(
-                self,
-                "Invalid Directory",
-                "Please select a valid directory."
+                self, "Invalid Directory", "Please select a valid directory."
             )
             return
 
         # Validate protocol
         if self.protocol is None:
             QtWidgets.QMessageBox.warning(
-                self,
-                "No Protocol",
-                "Please select a task protocol file."
+                self, "No Protocol", "Please select a task protocol file."
             )
             return
 
@@ -374,7 +392,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
                 "Experiment Exists",
                 f"An experiment named '{experiment_name}' already exists in this directory.\n\nDo you want to overwrite it?",
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                QtWidgets.QMessageBox.No
+                QtWidgets.QMessageBox.No,
             )
             if reply == QtWidgets.QMessageBox.No:
                 return
@@ -386,7 +404,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             experiment_description = self.lineEdit_experiment_description.text().strip()
             experiment_user = self.lineEdit_experiment_user.text().strip()
             experiment_project = self.lineEdit_experiment_project.text().strip()
-            experiment_organisation = self.lineEdit_experiment_organisation.text().strip()
+            experiment_organisation = (
+                self.lineEdit_experiment_organisation.text().strip()
+            )
 
             if experiment_description:
                 metadata["description"] = experiment_description
@@ -400,7 +420,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             self.experiment = Experiment.create(
                 path=Path(directory),
                 name=experiment_name,
-                metadata=metadata if metadata else None
+                metadata=metadata if metadata else None,
             )
 
             # Attach the protocol to the experiment
@@ -410,14 +430,18 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             protocol_save_path = os.path.join(self.experiment.path, "protocol.yaml")
             self.experiment.task_protocol.save(protocol_save_path)
 
-            logging.info(f"Experiment '{experiment_name}' created successfully at {self.experiment.path}")
+            logging.info(
+                f"Experiment '{experiment_name}' created successfully at {self.experiment.path}"
+            )
             logging.info(f"Protocol saved to {protocol_save_path}")
 
             # Save last used experiment path + record in the recent quick-select
             # list (single load/save cycle).
             prefs = load_user_preferences()
             prefs.experiment.last_experiment_path = str(self.experiment.path)
-            add_recent_experiment(prefs, os.path.join(self.experiment.path, "experiment.yaml"))
+            add_recent_experiment(
+                prefs, os.path.join(self.experiment.path, "experiment.yaml")
+            )
             save_user_preferences(prefs)
 
             # Accept the dialog
@@ -426,9 +450,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         except Exception as e:
             logging.error(f"Failed to create experiment: {e}")
             QtWidgets.QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to create experiment:\n\n{e}"
+                self, "Error", f"Failed to create experiment:\n\n{e}"
             )
 
     def get_experiment(self) -> Optional[Experiment]:
@@ -436,7 +458,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         return self.experiment
 
 
-def create_experiment_dialog(parent: Optional[QtWidgets.QWidget] = None) -> Optional[Experiment]:
+def create_experiment_dialog(
+    parent: Optional[QtWidgets.QWidget] = None,
+) -> Optional[Experiment]:
     """Create and execute the experiment creation dialog.
 
     Args:
@@ -456,7 +480,9 @@ def create_experiment_dialog(parent: Optional[QtWidgets.QWidget] = None) -> Opti
             logging.info(f"Experiment created: {experiment.name}")
             logging.info(f"Path: {experiment.path}")
             logging.info(f"Protocol: {experiment.task_protocol.name}")
-            logging.info(f"Number of tasks: {len(experiment.task_protocol.task_config)}")
+            logging.info(
+                f"Number of tasks: {len(experiment.task_protocol.task_config)}"
+            )
         return experiment
     else:
         logging.info("Experiment creation cancelled")
