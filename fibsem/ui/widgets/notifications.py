@@ -41,10 +41,10 @@ class ToastNotification(QWidget):
 
     # Notification types with colors
     TYPES = {
-        "info": ACCENT_COLOR,                      # Blue
-        "success": stylesheets.GREEN_COLOR,     # Green
-        "warning": stylesheets.ORANGE_COLOR,    # Orange
-        "error": "#f44336",                     # Red
+        "info": ACCENT_COLOR,  # Blue
+        "success": stylesheets.GREEN_COLOR,  # Green
+        "warning": stylesheets.ORANGE_COLOR,  # Orange
+        "error": "#f44336",  # Red
     }
 
     def __init__(self, parent=None, duration: int = 5000):
@@ -159,7 +159,9 @@ class ToastNotification(QWidget):
             }}
         """)
 
-    def show_toast(self, message: str, notification_type: str = "info", duration: int = 3000):
+    def show_toast(
+        self, message: str, notification_type: str = "info", duration: int = 3000
+    ):
         """Show the toast notification."""
         self.message_label.setText(message)
         self._apply_style(notification_type)
@@ -204,7 +206,7 @@ class ToastNotification(QWidget):
             pass  # Already disconnected
         self.hide()
         # Call cleanup callback if set
-        if hasattr(self, '_cleanup_callback') and self._cleanup_callback:
+        if hasattr(self, "_cleanup_callback") and self._cleanup_callback:
             self._cleanup_callback()
 
 
@@ -238,7 +240,9 @@ class NotificationHistoryPopup(QWidget):
         header_layout.setContentsMargins(12, 10, 12, 10)
 
         header_label = QLabel("Notifications")
-        header_label.setStyleSheet(f"color: {TEXT_COLOR}; font-weight: bold; font-size: 14px;")
+        header_label.setStyleSheet(
+            f"color: {TEXT_COLOR}; font-weight: bold; font-size: 14px;"
+        )
         header_layout.addWidget(header_label)
 
         header_layout.addStretch()
@@ -510,18 +514,26 @@ class ToastManager:
             return self.parent
         return window
 
-    def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000, temporary: bool = False):
+    def show_toast(
+        self,
+        message: str,
+        notification_type: str = "info",
+        duration: int = 5000,
+        temporary: bool = False,
+    ):
         """Show a toast notification."""
         toast = ToastNotification(self._anchor(), duration)
         self.toasts.append(toast)
 
         # Connect to hidden signal for cleanup (not fade_animation.finished which fires on fade-in too)
         toast.hidden_signal_connected = False
+
         def on_hidden():
             if toast in self.toasts:
                 self.toasts.remove(toast)
                 toast.deleteLater()
                 self._reposition_toasts()
+
         toast._cleanup_callback = on_hidden
 
         toast.show_toast(message, notification_type, duration)

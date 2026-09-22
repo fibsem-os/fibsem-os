@@ -11,6 +11,7 @@ The anchor is the last *real* window of ours to hold focus, deliberately not
 ``QApplication.activeWindow()``: that is None whenever the app is unfocused, which is
 the normal state while a run finishes and the operator watches the microscope software.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
