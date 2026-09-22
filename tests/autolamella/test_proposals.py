@@ -258,7 +258,9 @@ def test_items_persist_their_proposals(tmp_path):
     assert again.positions[0].proposal(SETUP).values["poi"] == Point(1e-6, 2e-6)
     assert again.positions[0].proposal(SETUP).pending
     assert again.grids[0].proposal("overview").values == {"n": 3}
-    assert [(item.name, name) for item, name, _p in again.pending_proposals()] == [
+    # Pending with nothing waiting on them: open, listed to check, not waiting.
+    assert again.pending_proposals() == []
+    assert [(item.name, name) for item, name, _p in again.proposals_to_check()] == [
         (again.positions[0].name, SETUP),
         ("Grid-01", "overview"),
     ]

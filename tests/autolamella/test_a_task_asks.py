@@ -235,5 +235,5 @@ def test_a_question_and_the_runs_result_are_both_current(microscope, tmp_path):
         ),
     )
     assert looked.applied, looked.reason
-    assert not question.to_check and result.to_check, "the result is untouched"
+    assert not question.to_check and result.pending, "the result is untouched"
     assert [p for _i, _t, p in exp.proposals_to_check()] == [result]

@@ -67,8 +67,10 @@ def experiment(tmp_path) -> Experiment:
     lamella.path.mkdir(parents=True, exist_ok=True)
     ref = os.path.join(str(lamella.path), "ref_detection_ib")
     _fib_image().save(ref)
+    # The task's record: waiting on the decision, as a question's is once the
+    # task is no longer parked on it; the live task_state below is InProgress.
     lamella.task_history.append(
-        AutoLamellaTaskState(name=TASK, status=AutoLamellaTaskStatus.InProgress)
+        AutoLamellaTaskState(name=TASK, status=AutoLamellaTaskStatus.AwaitingDecision)
     )
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN

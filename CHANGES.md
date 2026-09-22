@@ -82,8 +82,10 @@ correctness work landed in correlation and in what the experiment record remembe
 - **Every task records what it did.** A task that proposes something (Setup
   proposes the milling position; milling tasks record their result with the final
   images) leaves that proposal in the experiment record in every mode, with who
-  decided it and where: the producer itself when automated, your answer in the
-  workflow when supervised. Nothing about how a run behaves has changed; the record
+  decided it and where: your answer in the workflow when supervised; nobody when
+  automated, in which case the value is used as proposed, stays open to correct in
+  the Review tab until a later task uses it, and is then recorded as unreviewed
+  rather than as agreed. Nothing about how a run behaves has changed; the record
   is new. The Review tab, where a task's answer can wait for your decision before
   the next task runs, is behind the "Review workflow (early access)" preference.
   A task waiting there is not finished: it shows as awaiting a decision, confirming

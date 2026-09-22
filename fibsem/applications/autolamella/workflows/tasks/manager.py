@@ -269,6 +269,19 @@ class BaseTaskManager:
         finally:
             self._set_hold(None, message=None)
 
+    def _requirements_of(self, task_name: str) -> List[str]:
+        """The tasks ``task_name`` requires, by this manager's protocol."""
+        raise NotImplementedError
+
+    def _expire_what_this_consumes(self, item_id: str, task_name: str) -> None:
+        """The task is about to start on the values of the tasks it requires:
+        whichever of those are still open are used as they stand, and recorded
+        so. After this a change to them is a re-run, not a correction."""
+        for req in self._requirements_of(task_name):
+            self.experiment.expire_open(
+                item_id, req, f"{task_name} started before anyone looked"
+            )
+
     # --- Deferral: what cannot run yet, and why ---
 
     # How many of the items a hold names read, past three: "4 lamellae".
@@ -582,6 +595,8 @@ class TaskManager(BaseTaskManager):
             self._run_items()
         finally:
             self.experiment.decided.disconnect(self._on_decided)
+            # Nothing will consume an open value now.
+            self.experiment.expire_all_open("the run ended before anyone looked")
 
     def _run_items(self) -> None:
         while not self.is_stopped:
@@ -644,6 +659,8 @@ class TaskManager(BaseTaskManager):
                 self._wait_until_scheduled(scheduled_at, item.task_name, lamella)
                 if self.is_stopped:
                     break
+
+            self._expire_what_this_consumes(lamella.id, item.task_name)
 
             # Emit InProgress status
             self._emit_status(
@@ -878,6 +895,11 @@ class TaskManager(BaseTaskManager):
             # A stranded flag would leave the border reading "nothing is running"
             # for the rest of the run.
             self._set_workflow_pending(False)
+
+    def _requirements_of(self, task_name: str) -> List[str]:
+        return list(
+            self.experiment.task_protocol.workflow_config.requirements(task_name)
+        )
 
     def _defer_reason(self, lamella: "Lamella", task_name: str) -> Optional[str]:
         """Why this task cannot run *yet* -- as opposed to _should_skip, which

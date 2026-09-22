@@ -57,6 +57,7 @@ def _asked(experiment, values=None) -> Proposal:
         provenance={"task_id": "run-1", "proposer": "detection"},
     )
     lamella.proposals[TASK] = [proposal]
+    proposal.asking = True  # the run is parked on it
     return proposal
 
 

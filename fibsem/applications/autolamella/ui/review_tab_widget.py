@@ -380,6 +380,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self._gated: List[str] = []
         self._decided: Optional[Decision] = None
         self._applied: Optional[Decision] = None
+        self._open = False
         self._running = False
         self._position = ""
 
@@ -557,6 +558,11 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self._item = item
         self._task_name = task_name
         self._proposal = proposal
+        self._open = (
+            proposal.pending
+            and not proposal.asking
+            and not item.is_awaiting_decision(task_name)
+        )
         image = _load_reference_image(experiment, item, proposal)
         self._fluorescence = image if isinstance(image, FluorescenceImage) else None
         self._image = image if isinstance(image, FibsemImage) else None
@@ -717,10 +723,15 @@ class TaskResultReviewRenderer(ReviewRenderer):
                     f"{self._task_name} asked this mid-run and is waiting for the "
                     "answer. Confirm hands it back and the task carries on."
                 )
+            elif self._open:
+                text = "Open · nobody was asked · used as it stands until a later task starts"
+                tip.append(
+                    "Correct it here before then, or confirm to record that you looked."
+                )
             else:
                 text = f"Waiting for your decision · {_held_text(len(gated))}"
-            colour = ORANGE_COLOR  # waiting on you now: the border's colour
-            if gated:
+            colour = GRAY_SECONDARY_COLOR if self._open else ORANGE_COLOR
+            if gated and not self._open:
                 tip.append("Held until you decide: " + ", ".join(gated) + ".")
         if self._image is None and self._fluorescence is None:
             tip.append(
@@ -1837,16 +1848,24 @@ class ReviewTabWidget(QWidget):
             for item, task_name, proposal in to_check:
                 applied = proposal.applied or proposal.current
                 failed = bool(proposal.provenance.get("failure"))
+                # An open value: nobody was asked, and it can still be
+                # corrected until the task that uses it starts.
+                open_value = applied is None
                 self._add_row(
-                    summary=f"{item.name} · {task_name} · to check",
+                    summary=f"{item.name} · {task_name} · "
+                    + ("open" if open_value else "to check"),
                     widget=_InboxRow(
                         DEFECT_RED_COLOR if failed else GRAY_SECONDARY_COLOR,
                         item.name,
                         task_name,
-                        age(applied.timestamp),
+                        age(proposal.created_at if open_value else applied.timestamp),
                     ),
                     entry=(item, task_name, proposal, "check"),
-                    tooltip=describe_decision(proposal, experiment),
+                    tooltip=(
+                        "Nobody was asked. Open to correct until a later task uses it."
+                        if open_value
+                        else describe_decision(proposal, experiment)
+                    ),
                 )
             if self.show_decided.isChecked():
                 all_decided = decided_proposals(experiment)
@@ -2053,9 +2072,10 @@ class ReviewTabWidget(QWidget):
         item, task_name, proposal, state = self._entries[index]
         if state == "decided":
             return
-        if state == "check":
-            values: Dict[str, Any] = {}
+        if state == "check" and not proposal.pending:
+            values: Dict[str, Any] = {}  # a look at what was already used
         else:
+            # Waiting, or open: as the reviewer left it.
             values = self._renderer_for(proposal.kind).current_values()
         decision = Decision(
             outcome=DecisionOutcome.Confirmed,
@@ -2085,7 +2105,9 @@ class ReviewTabWidget(QWidget):
                 Decision(
                     outcome=DecisionOutcome.Confirmed,
                     author=author,
-                    values={},
+                    # an open value is checked as it stands, so it carries
+                    # the values it was proposed with; a used one carries none
+                    values=dict(proposal.values) if proposal.pending else {},
                     via="review",
                     task_id=proposal.task_id,
                     proposal_id=proposal.id,
