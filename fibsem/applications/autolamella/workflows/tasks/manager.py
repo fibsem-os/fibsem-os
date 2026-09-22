@@ -275,11 +275,26 @@ class BaseTaskManager:
         """The tasks ``task_name`` requires, by this manager's protocol."""
         raise NotImplementedError
 
+    def _upstream_of(self, task_name: str) -> List[str]:
+        """Every task ``task_name`` requires, directly or through another:
+        Rough Milling requires Mill Fiducial, which requires Setup, and it is
+        Setup's point that Rough Milling mills on."""
+        seen: List[str] = []
+        queue = list(self._requirements_of(task_name))
+        while queue:
+            req = queue.pop(0)
+            if req in seen or req == task_name:
+                continue
+            seen.append(req)
+            queue.extend(self._requirements_of(req))
+        return seen
+
     def _expire_what_this_consumes(self, item_id: str, task_name: str) -> None:
-        """The task is about to start on the values of the tasks it requires:
-        whichever of those are still open are used as they stand, and recorded
-        so. After this a change to them is a re-run, not a correction."""
-        for req in self._requirements_of(task_name):
+        """The task is about to start on the values of the tasks upstream of
+        it: whichever of those are still open are used as they stand, and
+        recorded so. After this a change to them is a re-run, not a
+        correction."""
+        for req in self._upstream_of(task_name):
             self.experiment.expire_open(
                 item_id, req, f"{task_name} started before anyone looked"
             )
@@ -597,8 +612,11 @@ class TaskManager(BaseTaskManager):
             self._run_items()
         finally:
             self.experiment.decided.disconnect(self._on_decided)
-            # Nothing will consume an open value now.
-            self.experiment.expire_all_open("the run ended before anyone looked")
+            # A result nobody looked at is closed; a value stays open for the
+            # task that will use it, whichever run that is.
+            self.experiment.expire_all_open(
+                "the run ended before anyone looked", results_only=True
+            )
 
     def _run_items(self) -> None:
         while not self.is_stopped:

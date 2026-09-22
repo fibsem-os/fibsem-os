@@ -154,16 +154,76 @@ def test_the_manager_expires_what_a_task_consumes_when_it_starts(tmp_path):
     assert "Undercut started" in d.reason
 
 
-def test_the_manager_expires_what_nothing_consumed_when_the_run_ends(tmp_path):
-    experiment = make_experiment(tmp_path, lamella_names=["L1"])
+def test_a_task_downstream_through_another_consumes_it_too(tmp_path):
+    """Rough Milling requires Mill Fiducial, which requires Setup, and it is
+    Setup's point that Rough Milling mills on. The point is closed when the
+    downstream task starts, not only when the task that names Setup does."""
+    experiment = make_experiment(
+        tmp_path,
+        requirements={"Undercut": ["Trench"], "Polishing": ["Undercut"]},
+        lamella_names=["L1"],
+    )
     lamella = experiment.positions[0]
     m = TaskManager(
         microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
     )
+    lamella.record_proposal("Trench", _proposal(POINT_OF_INTEREST, poi=Point(0, 0)))
+    for name in ("Trench", "Undercut"):
+        lamella.task_history.append(
+            AutoLamellaTaskState(
+                name=name, task_id=RUN, status=AutoLamellaTaskStatus.Completed
+            )
+        )
     m.queue.build_from_matrix(["Polishing"], ["L1"])
-    run_queue_with(
-        m, on_task=lambda name, lam: lam.record_proposal("Polishing", _proposal())
-    )
-    d = lamella.proposal("Polishing").current
+    seen = {}
+
+    def on_task(task_name, lam):
+        seen["trench_when_polishing_started"] = lam.proposal("Trench").current
+
+    run_queue_with(m, on_task=on_task)
+
+    d = seen["trench_when_polishing_started"]
     assert d is not None and d.outcome is DecisionOutcome.Unreviewed
-    assert "the run ended" in d.reason
+    assert "Polishing started" in d.reason
+    assert m._upstream_of("Polishing") == ["Undercut", "Trench"]
+
+
+def test_when_the_run_ends_a_result_is_closed_but_a_value_stays_open(tmp_path):
+    """Nothing consumes a result, so a run's end is the last chance to close
+    it. A value is for the task that uses it, whichever run that is: Setup
+    run on its own leaves its point open to correct before Rough Milling is
+    run, which is the point of running it on its own."""
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
+    )
+    lamella = experiment.positions[0]
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    m.queue.build_from_matrix(["Trench"], ["L1"])
+
+    def on_task(name, lam):
+        lam.record_proposal("Trench", _proposal(POINT_OF_INTEREST, poi=Point(0, 0)))
+        lam.record_proposal("Trench", _proposal())
+
+    run_queue_with(m, on_task=on_task)
+
+    point, result = lamella.current_proposals("Trench")
+    assert result.kind == TASK_RESULT and result.unreviewed
+    assert "the run ended" in result.current.reason
+    assert point.kind == POINT_OF_INTEREST and point.pending, "still open"
+    assert experiment._is_open(lamella, "Trench", point)
+
+    # A correction now is a plain confirm with values, as before the run ended.
+    moved = experiment.decide(
+        lamella.id,
+        "Trench",
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(1e-6, 0)},
+            proposal_id=point.id,
+        ),
+    )
+    assert moved.applied, moved.reason
+    assert lamella.poi == Point(1e-6, 0)
