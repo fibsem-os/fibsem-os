@@ -148,8 +148,15 @@ def gauss2d_offset(coords, a, x0, y0, sigma_x, sigma_y, offset):
 
 
 def fit_gauss_2d_mod(
-    slc: np.ndarray, show: bool = False
+    slc: np.ndarray,
+    show: bool = False,
+    center: Optional[Tuple[float, float]] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
+    """Fit a dark 2D Gaussian to ``slc``. The fit starts from ``center``
+    (x, y in ``slc``'s frame), or from the middle of ``slc`` when the caller
+    cut the window around the feature; a window clipped by the image's edge
+    is not centred on it, and a start in the wrong place lands the fit on
+    nothing (FIB-980)."""
     y_indices, x_indices = np.indices(slc.shape)
     # Flatten the coordinate arrays and the slice data for fitting.
     x_data = x_indices.ravel()
@@ -157,10 +164,12 @@ def fit_gauss_2d_mod(
     slc_data = slc.ravel()
 
     # define initial guess
+    if center is None:
+        center = (slc.shape[1] / 2, slc.shape[0] / 2)
     p0 = [
         float(np.min(slc)) - float(np.max(slc)),
-        slc.shape[1] / 2,
-        slc.shape[0] / 2,
+        center[0],
+        center[1],
         1,
         1,
         np.max(slc),
@@ -1222,8 +1231,12 @@ def fit_gauss1d_mod_old(
     return popt, pcov
 
 
-def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
+# Fewer planes than this around the click and the z fit is a line through two
+# points; the fit refuses and says so rather than returning a number.
+_MIN_Z_PLANES = 3
 
+
+def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     from scipy.ndimage import gaussian_filter
 
     # round the (possibly sub-pixel) click for slicing; keep the fraction for
@@ -1231,10 +1244,24 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     xi, yi = int(round(x)), int(round(y))
     zmin = 10
     zmax = 5
-    zmin1 = int(z) - zmin
-    zmax1 = int(z) + zmax
+    nz, height, width = da.shape
 
-    roi = da[zmin1:zmax1, yi - cutout : yi + cutout + 1, xi - cutout : xi + cutout + 1]
+    # Both windows are clamped to the stack and the image. A plain slice with
+    # a negative start wraps to the end of the array: a click below plane 10,
+    # or within the cutout of the top or left edge, gave an empty window and
+    # the fit raised on it (FIB-980). The offsets are kept so the fitted z and
+    # xy still come back absolute.
+    zmin1 = max(0, int(z) - zmin)
+    zmax1 = min(nz, int(z) + zmax)
+    if zmax1 - zmin1 < _MIN_Z_PLANES:
+        raise ValueError(
+            f"only {zmax1 - zmin1} plane(s) around z = {int(z)} to fit through; "
+            f"the z fit needs at least {_MIN_Z_PLANES}"
+        )
+    y0, y1 = max(0, yi - cutout), min(height, yi + cutout + 1)
+    x0, x1 = max(0, xi - cutout), min(width, xi + cutout + 1)
+
+    roi = da[zmin1:zmax1, y0:y1, x0:x1]
     intensity = np.mean(roi, axis=(1, 2))
     intensity = intensity.max() - intensity  # invert: the hole is dark
 
@@ -1244,23 +1271,22 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
 
     # xy fitting on the fitted z-slice
     xy_cutout = 15
-    roi_fitted = da[
-        round(zreal),
-        yi - xy_cutout : yi + xy_cutout + 1,
-        xi - xy_cutout : xi + xy_cutout + 1,
-    ]
-    popt_xy, _ = fit_gauss_2d_mod(roi_fitted)
+    z_fitted = min(max(round(zreal), 0), nz - 1)
+    fy0, fy1 = max(0, yi - xy_cutout), min(height, yi + xy_cutout + 1)
+    fx0, fx1 = max(0, xi - xy_cutout), min(width, xi + xy_cutout + 1)
+    roi_fitted = da[z_fitted, fy0:fy1, fx0:fx1]
+    popt_xy, _ = fit_gauss_2d_mod(roi_fitted, center=(xi - fx0, yi - fy0))
     xopt, yopt = popt_xy[1], popt_xy[2]
-    xopt_real = xopt + xi - xy_cutout
-    yopt_real = yopt + yi - xy_cutout
+    xopt_real = xopt + fx0
+    yopt_real = yopt + fy0
 
     # --- confirmation-friendly diagnostic ---
     # Lead with the "did it land on the feature?" view (ROI + input/fitted
     # markers); a compact z panel answers "did z land right?". The old figure
     # had a raw-profile panel with six reference lines and a second z panel in a
     # different (cutout-relative) frame with the same labels — dropped.
-    n = roi_fitted.shape[0]
-    fit_in_roi = 0 <= xopt < n and 0 <= yopt < n
+    # the window is only square away from the image's edges
+    fit_in_roi = 0 <= xopt < roi_fitted.shape[1] and 0 <= yopt < roi_fitted.shape[0]
 
     # z: signal + gaussian fit (grey). The hole is dark, so the signal is
     # inverted (z_inverted) — the peak is the hole.
@@ -1270,7 +1296,7 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     diagnostic = FitDiagnostic(
         title="Reflection hole fit",
         roi_xy=gaussian_filter(roi_fitted, sigma=1),
-        input_xy=(xy_cutout + (x - xi), xy_cutout + (y - yi)),
+        input_xy=(x - fx0, y - fy0),  # the sub-pixel click, in the window's frame
         # A failed 2D fit lands outside the ROI — say so instead of a marker.
         fitted_xy=(xopt, yopt) if fit_in_roi else None,
         xy_title=f"XY  @ z = {zreal:.1f}",
