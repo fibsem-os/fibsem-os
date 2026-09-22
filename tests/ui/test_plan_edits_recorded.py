@@ -411,6 +411,56 @@ def test_a_correlation_that_cannot_be_recorded_is_still_applied(
     assert "poi" in {e["payload"]["target"] for e in edits()}
 
 
+def test_the_replay_shows_a_correlation_before_the_point_it_moved(
+    qapp, window, editor, experiment, tmp_path, monkeypatch
+):
+    """From the file the app writes, through the reader, to the replay window."""
+    from fibsem.applications.autolamella.tools.replay import EventKind, load_replay
+    from fibsem.applications.autolamella.ui.experiment_replay_widget import (
+        ExperimentReplayWidget,
+    )
+
+    record = tmp_path / "record"
+    record.mkdir()
+    recorder = EventRecorder(
+        window.autolamella_ui.microscope,
+        experiment_path=record,
+        default_actor=OPERATOR,
+    )
+    lamella = experiment.positions[0]
+    try:
+        _accept_correlation(
+            editor, monkeypatch, _correlation_result(Point(x=2e-6, y=-3e-6))
+        )
+        editor.flush_pending_save()
+    finally:
+        recorder.close()
+
+    kinds = (EventKind.CORRELATION, EventKind.EDIT)
+    correlation, *edits = [e for e in load_replay(record).events if e.kind in kinds]
+    assert (correlation.kind, correlation.item) == (EventKind.CORRELATION, lamella.name)
+    assert correlation.summary == (
+        "Correlation: point of interest x=2.0 µm, y=-3.0 µm — RMS 30 nm over 4"
+        " fiducials, check fit, refractive index ×1.30 before the fit"
+        " — by the operator"
+    )
+    assert edits
+    assert {(e.kind, e.item, e.data["via"]) for e in edits} == {
+        (EventKind.EDIT, lamella.name, "correlation")
+    }
+
+    widget = ExperimentReplayWidget.from_directory(record)
+    try:
+        assert widget.filter_boxes[EventKind.CORRELATION].text() == "Correlation (1)"
+        row = widget.replay.events.index(correlation)
+        cells = [widget.table.item(row, col).text() for col in (1, 2)]
+        assert cells == [lamella.name, "Correlation"]
+    finally:
+        widget.close()
+        widget.deleteLater()
+        qapp.processEvents()
+
+
 # ── the agent ────────────────────────────────────────────────────────────────
 
 

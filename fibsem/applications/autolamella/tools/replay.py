@@ -84,10 +84,22 @@ class EventKind:
     STAGE = "stage"
     MILLING = "milling"
     ALIGNMENT = "alignment"
+    CORRELATION = "correlation"  # an accepted correlation: event stream only
     EDIT = "edit"  # a change to a lamella's plan: recorded by the event stream only
     MESSAGE = "message"
 
-    ALL = (TASK, PROMPT, IMAGE, FLUORESCENCE, STAGE, MILLING, ALIGNMENT, EDIT, MESSAGE)
+    ALL = (
+        TASK,
+        PROMPT,
+        IMAGE,
+        FLUORESCENCE,
+        STAGE,
+        MILLING,
+        ALIGNMENT,
+        CORRELATION,
+        EDIT,
+        MESSAGE,
+    )
 
 
 # ── reading the log ──────────────────────────────────────────────────────────
@@ -1154,6 +1166,46 @@ def _changed_values(
     ]
 
 
+def _correlation_summary(payload: Dict[str, Any], actor: Any) -> str:
+    """An accepted correlation: the point of interest it gave, and how well it fits."""
+    poi = payload.get("poi") or {}
+    text = (
+        f"Correlation: point of interest x={_um(poi.get('x'))} µm, "
+        f"y={_um(poi.get('y'))} µm"
+    )
+    fit = []
+    nm, px = (
+        _number(payload.get("rms_nm"), ".0f"),
+        _number(payload.get("rms_px"), ".1f"),
+    )
+    if nm or px:
+        rms = f"RMS {nm} nm" if nm else f"RMS {px} px"
+        if payload.get("fiducials"):
+            rms += f" over {payload['fiducials']} fiducials"
+        fit.append(rms)
+    if payload.get("verdict"):
+        fit.append(f"{payload['verdict']} fit")
+    elif payload.get("seeded") is False:
+        fit.append("unseeded")
+    ri = payload.get("refractive_index") or {}
+    factor = _number(ri.get("factor"), ".2f")
+    if factor:
+        when = "before" if ri.get("mode") == "pre" else "after"
+        fit.append(f"refractive index ×{factor} {when} the fit")
+    if fit:
+        text += " — " + ", ".join(fit)
+    if actor:
+        text += f" — by the {actor}"
+    return text
+
+
+def _number(value: Any, spec: str) -> Optional[str]:
+    try:
+        return format(float(value), spec)
+    except (TypeError, ValueError):
+        return None
+
+
 def _edit_value(value: Any) -> str:
     if value is _ABSENT:
         return "(none)"
@@ -1232,7 +1284,8 @@ def _load_from_events(root: Path) -> ExperimentReplay:
 
     A stage move is one row however many moves it was made of, and shows where
     it ended; a position read is only the stage track. An edit to a lamella's
-    plan is on the lamella and task it edited. Live view is not recorded. An
+    plan, and an accepted correlation, are on the lamella and task they were
+    about. Live view is not recorded. An
     FM file the stream did not record is found on disk and placed by its own
     metadata, as the log's reader places every FM image.
     """
@@ -1376,13 +1429,18 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                     burned = len(burn["coordinates"])
                 events.extend(_spot_events(burn, burned))
                 burn = None
-        elif kind == "edit":
-            # On the lamella and task edited, which need not be the ones a
-            # workflow was running when the edit was made.
+        elif kind in ("edit", "correlation"):
+            # On the lamella (and task) it was about, which need not be the
+            # ones a workflow was running when it was made.
             item = (payload.get("item") or {}).get("name")
             task, task_id = payload.get("task"), None
-            summary = _edit_summary(payload, record.get("actor"))
-            event = ReplayEvent(time, EventKind.EDIT, summary, data=payload)
+            actor = record.get("actor")
+            if kind == "edit":
+                summary = _edit_summary(payload, actor)
+                event = ReplayEvent(time, EventKind.EDIT, summary, data=payload)
+            else:
+                summary = _correlation_summary(payload, actor)
+                event = ReplayEvent(time, EventKind.CORRELATION, summary, data=payload)
         elif kind in ("prompt_raised", "prompt_answered", "prompt_cancelled"):
             prompt = payload.get("type", "Prompt")
             if kind == "prompt_answered":

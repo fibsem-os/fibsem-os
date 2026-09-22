@@ -962,3 +962,66 @@ def test_an_edit_says_what_changed_who_made_it_and_from_where(tmp_path):
         "parameters.coordinates: 0.y 0.2 → 0.25, 1 (none) → {'x': 0.3, 'y': 0.4},"
         " 2 (none) → {'x': 0.5, 'y': 0.6}, 1 more — by the agent (agent patch)",
     ]
+
+
+def test_a_correlation_says_where_it_put_the_point_and_how_well_it_fits(tmp_path):
+    """On the lamella it was for, not the one the run was on."""
+    records = [
+        _correlation(
+            _at(1),
+            {
+                "item": {"id": "L2", "name": "02"},
+                "poi": {"x": 5.95e-6, "y": -4.9e-6},
+                "rms_px": 3.09,
+                "rms_nm": 201.3,
+                "fiducials": 9,
+                "refractive_index": {"mode": "pre", "factor": 1.3},
+                "verdict": "good",
+                "seeded": True,
+            },
+            "operator",
+            item="01",
+            task="Mill Fiducial",
+        ),
+        _correlation(
+            _at(2),
+            {
+                "item": {"id": "L1", "name": "01"},
+                "poi": {"x": 1e-6, "y": 2e-6},
+                "rms_px": 4.04,
+                "rms_nm": None,  # the FIB image had no pixel size
+                "fiducials": 6,
+                "refractive_index": {"mode": "post", "factor": 1.25},
+                "verdict": None,
+                "seeded": False,
+            },
+            None,
+        ),
+        _correlation(_at(3), {"rms_nm": "not a number"}, None),
+    ]
+    _write_events(
+        tmp_path,
+        _record(_at(0), "task_step", {"step": "MILL"}, item="01", task="Mill Fiducial"),
+        *records,
+    )
+    _, *rows = load_replay(tmp_path).events
+    assert all(e.kind == EventKind.CORRELATION for e in rows)
+    assert [(e.item, e.task, e.step) for e in rows] == [
+        ("02", None, None),
+        ("01", None, None),
+        (None, None, None),
+    ]
+    assert [e.summary for e in rows] == [
+        "Correlation: point of interest x=6.0 µm, y=-4.9 µm — RMS 201 nm over 9"
+        " fiducials, good fit, refractive index ×1.30 before the fit"
+        " — by the operator",
+        "Correlation: point of interest x=1.0 µm, y=2.0 µm — RMS 4.0 px over 6"
+        " fiducials, unseeded, refractive index ×1.25 after the fit",
+        "Correlation: point of interest x=? µm, y=? µm",
+    ]
+
+
+def _correlation(t, payload, actor, **context):
+    record = _record(t, "correlation", payload, **context)
+    record["actor"] = actor
+    return record
