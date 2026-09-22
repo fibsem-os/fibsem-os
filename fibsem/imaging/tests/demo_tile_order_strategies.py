@@ -1,7 +1,7 @@
 """Visual comparison of all TileOrderStrategy options for a 5×5 grid.
 
 Run directly:
-    python fibsem/imaging/tests/test_tile_order_strategies.py
+    python fibsem/imaging/tests/demo_tile_order_strategies.py
 """
 
 import matplotlib.pyplot as plt

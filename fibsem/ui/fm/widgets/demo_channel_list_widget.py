@@ -1,7 +1,7 @@
 """Standalone test script for FluorescenceMultiChannelWidget.
 
 Run directly:
-    python fibsem/ui/fm/widgets/test_channel_list_widget.py
+    python fibsem/ui/fm/widgets/demo_channel_list_widget.py
 """
 
 import sys

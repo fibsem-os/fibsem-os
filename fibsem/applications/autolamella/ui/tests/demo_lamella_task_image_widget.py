@@ -4,9 +4,9 @@ Opens the History panel for one lamella of a real experiment, without launching 
 whole application. Defaults to the most recent experiment on this machine that has
 any completed tasks.
 
-    python fibsem/applications/autolamella/ui/tests/test_lamella_task_image_widget.py
-    python fibsem/applications/autolamella/ui/tests/test_lamella_task_image_widget.py <experiment.yaml>
-    python fibsem/applications/autolamella/ui/tests/test_lamella_task_image_widget.py --lamella 02-awake-stork
+    python fibsem/applications/autolamella/ui/tests/demo_lamella_task_image_widget.py
+    python fibsem/applications/autolamella/ui/tests/demo_lamella_task_image_widget.py <experiment.yaml>
+    python fibsem/applications/autolamella/ui/tests/demo_lamella_task_image_widget.py --lamella 02-awake-stork
 
 Also reports, per task, whether its images were found through the paths the run
 recorded or through the filename convention -- the two routes the panel supports.
@@ -57,7 +57,7 @@ def _resolve(path: Optional[str]) -> str:
             return candidate
     raise SystemExit(
         f"No experiment with completed tasks found under {LOG_DIR}.\n"
-        "Pass one explicitly: ... test_lamella_task_image_widget.py <experiment.yaml>"
+        "Pass one explicitly: ... demo_lamella_task_image_widget.py <experiment.yaml>"
     )
 
 

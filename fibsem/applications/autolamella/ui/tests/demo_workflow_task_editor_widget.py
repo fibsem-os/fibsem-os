@@ -5,7 +5,7 @@ Exercises the task editor's PROPERTIES (optional/required), SCHEDULING
 edited AutoLamellaTaskDescription whenever Apply is clicked.
 
 Run directly:
-    python fibsem/applications/autolamella/ui/tests/test_workflow_task_editor_widget.py
+    python fibsem/applications/autolamella/ui/tests/demo_workflow_task_editor_widget.py
 """
 
 import sys

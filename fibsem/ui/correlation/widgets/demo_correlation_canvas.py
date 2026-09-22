@@ -8,7 +8,7 @@ actually works (925 of them once did, on a widget whose setup had been halved).
 
 Usage
 -----
-    PYTHONPATH=$PWD python fibsem/ui/correlation/widgets/test_correlation_canvas_demo.py
+    PYTHONPATH=$PWD python fibsem/ui/correlation/widgets/demo_correlation_canvas.py
 
 What to try
 -----------

@@ -4,7 +4,7 @@ Loads real test images and coordinates, runs the correlation, and prints the res
 
 Usage
 -----
-    python fibsem/correlation/test_correlation_v2.py
+    python fibsem/correlation/demo_correlation_v2.py
 """
 
 from __future__ import annotations

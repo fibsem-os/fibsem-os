@@ -9,7 +9,7 @@ override that shadowed its parent.
 
 Usage
 -----
-    PYTHONPATH=$PWD python fibsem/ui/correlation/widgets/test_correlation_fm_canvas_demo.py
+    PYTHONPATH=$PWD python fibsem/ui/correlation/widgets/demo_correlation_fm_canvas.py
 
 What to try
 -----------
