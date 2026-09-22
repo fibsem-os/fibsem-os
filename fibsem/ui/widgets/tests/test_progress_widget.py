@@ -25,6 +25,7 @@ from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpda
 # Helper — a labelled demo section
 # ---------------------------------------------------------------------------
 
+
 def _group(title: str, widget: QWidget, *buttons: QPushButton) -> QGroupBox:
     box = QGroupBox(title)
     layout = QVBoxLayout(box)
@@ -39,6 +40,7 @@ def _group(title: str, widget: QWidget, *buttons: QPushButton) -> QGroupBox:
 # ---------------------------------------------------------------------------
 # Main demo window
 # ---------------------------------------------------------------------------
+
 
 class ProgressDemo(QWidget):
     def __init__(self):
@@ -62,7 +64,9 @@ class ProgressDemo(QWidget):
         btn_num_reset = QPushButton("Reset")
         btn_num_reset.clicked.connect(self._num_widget.reset)
 
-        outer.addWidget(_group("Numeric (5 / 15)", self._num_widget, btn_num_start, btn_num_reset))
+        outer.addWidget(
+            _group("Numeric (5 / 15)", self._num_widget, btn_num_start, btn_num_reset)
+        )
 
         # ── Countdown ────────────────────────────────────────────────────
         self._cd_widget = FibsemProgressWidget()
@@ -77,7 +81,9 @@ class ProgressDemo(QWidget):
         btn_cd_reset = QPushButton("Reset")
         btn_cd_reset.clicked.connect(self._reset_countdown)
 
-        outer.addWidget(_group("Countdown (30s)", self._cd_widget, btn_cd_start, btn_cd_reset))
+        outer.addWidget(
+            _group("Countdown (30s)", self._cd_widget, btn_cd_start, btn_cd_reset)
+        )
 
         # ── Combined ─────────────────────────────────────────────────────
         self._comb_widget = FibsemProgressWidget()
@@ -94,19 +100,40 @@ class ProgressDemo(QWidget):
         btn_comb_reset = QPushButton("Reset")
         btn_comb_reset.clicked.connect(self._reset_combined)
 
-        outer.addWidget(_group("Combined (5 points × 8s)", self._comb_widget, btn_comb_start, btn_comb_reset))
+        outer.addWidget(
+            _group(
+                "Combined (5 points × 8s)",
+                self._comb_widget,
+                btn_comb_start,
+                btn_comb_reset,
+            )
+        )
 
         # ── Message / indeterminate ───────────────────────────────────────
         self._msg_widget = FibsemProgressWidget()
 
         btn_msg_show = QPushButton("Show")
-        btn_msg_show.clicked.connect(lambda: self._msg_widget.update_progress(ProgressUpdate.indeterminate("Moving stage\u2026")))
+        btn_msg_show.clicked.connect(
+            lambda: self._msg_widget.update_progress(
+                ProgressUpdate.indeterminate("Moving stage\u2026")
+            )
+        )
         btn_msg_done = QPushButton("Done")
-        btn_msg_done.clicked.connect(lambda: self._msg_widget.update_progress(ProgressUpdate.done()))
+        btn_msg_done.clicked.connect(
+            lambda: self._msg_widget.update_progress(ProgressUpdate.done())
+        )
         btn_msg_reset = QPushButton("Reset")
         btn_msg_reset.clicked.connect(self._msg_widget.reset)
 
-        outer.addWidget(_group("Indeterminate / message", self._msg_widget, btn_msg_show, btn_msg_done, btn_msg_reset))
+        outer.addWidget(
+            _group(
+                "Indeterminate / message",
+                self._msg_widget,
+                btn_msg_show,
+                btn_msg_done,
+                btn_msg_reset,
+            )
+        )
 
         self.resize(400, 480)
 
@@ -129,7 +156,9 @@ class ProgressDemo(QWidget):
             self._num_timer.stop()
             return
         self._num_widget.update_progress(
-            ProgressUpdate.numeric(self._num_step, self._num_total, f"Acquiring tile {self._num_step}…")
+            ProgressUpdate.numeric(
+                self._num_step, self._num_total, f"Acquiring tile {self._num_step}…"
+            )
         )
 
     # ------------------------------------------------------------------

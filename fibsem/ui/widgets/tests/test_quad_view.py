@@ -8,6 +8,7 @@ get blank images, the 4th cell is the inert "No Data" placeholder. Each image
 cell carries the full FibsemImageCanvas toolbar (reset / scalebar / crosshair /
 contrast) and supports zoom / pan.
 """
+
 import sys
 
 from PyQt5.QtWidgets import QApplication

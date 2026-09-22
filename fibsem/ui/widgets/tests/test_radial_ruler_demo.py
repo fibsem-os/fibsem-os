@@ -41,12 +41,12 @@ from fibsem.ui.widgets.radial_menu import RadialMenuOverlay
 from fibsem.ui.widgets.zoom_loupe import ZoomLoupeOverlay
 
 _TOOL_HINTS = {
-    "none":    "Right-click = menu  |  P = pin  |  Hold Z = loupe",
-    "ruler":   "Ruler — left-click drag    Shift=H  Ctrl=V  |  Right-click=menu",
-    "rect":    "Rectangle — left-click drag    Shift=square  |  Right-click=menu",
-    "angle":   "Angle — drag arm 1, release, drag arm 2, release  |  Right-click=menu",
+    "none": "Right-click = menu  |  P = pin  |  Hold Z = loupe",
+    "ruler": "Ruler — left-click drag    Shift=H  Ctrl=V  |  Right-click=menu",
+    "rect": "Rectangle — left-click drag    Shift=square  |  Right-click=menu",
+    "angle": "Angle — drag arm 1, release, drag arm 2, release  |  Right-click=menu",
     "profile": "Profile — left-click drag a line  |  Right-click=menu",
-    "pin":     "Pin — left-click to place a pin    Del=clear all  |  Right-click=menu",
+    "pin": "Pin — left-click to place a pin    Del=clear all  |  Right-click=menu",
 }
 
 
@@ -67,13 +67,17 @@ class MeasureImageView(ZoomableImageView):
         super().__init__(parent)
         self._active_tool: str = "none"
         self._on_right_click = None
-        self._on_left_press  = None
-        self._on_mouse_move  = None
+        self._on_left_press = None
+        self._on_mouse_move = None
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.RightButton and self._on_right_click:
             self._on_right_click(event.globalPos())
-        elif event.button() == Qt.LeftButton and self._active_tool != "none" and self._on_left_press:
+        elif (
+            event.button() == Qt.LeftButton
+            and self._active_tool != "none"
+            and self._on_left_press
+        ):
             self._on_left_press(event.globalPos())
         else:
             super().mousePressEvent(event)
@@ -93,7 +97,9 @@ class DemoWidget(QtWidgets.QWidget):
 
         # Fake FibsemImage: 800×600, 100 µm HFW → 125 nm/px
         self._image = FibsemImage.generate_blank_image(
-            resolution=(800, 600), hfw=100e-6, random=True,
+            resolution=(800, 600),
+            hfw=100e-6,
+            random=True,
         )
         self._pixel_size = self._image.metadata.pixel_size.x
 
@@ -117,6 +123,7 @@ class DemoWidget(QtWidgets.QWidget):
 
         # Profile plot docked below the image
         from fibsem.ui.widgets.profile_line import _ProfilePlotWidget
+
         self._profile_plot = _ProfilePlotWidget()
         layout.addWidget(self._profile_plot)
 
@@ -126,21 +133,26 @@ class DemoWidget(QtWidgets.QWidget):
         self._ticker.show()
 
         # ── Tools ─────────────────────────────────────────────────────
-        self._quad_menu = RadialMenuOverlay(items=[
-            ("Ruler",     self._select_ruler),
-            ("Rectangle", self._select_rect),
-            ("Angle",     self._select_angle),
-            ("Profile",   self._select_profile),
-            ("Pin",       lambda: self._set_tool("pin")),
-            ("Clear",     self._clear),
-        ])
+        self._quad_menu = RadialMenuOverlay(
+            items=[
+                ("Ruler", self._select_ruler),
+                ("Rectangle", self._select_rect),
+                ("Angle", self._select_angle),
+                ("Profile", self._select_profile),
+                ("Pin", lambda: self._set_tool("pin")),
+                ("Clear", self._clear),
+            ]
+        )
 
-        self._ruler   = DragDistanceOverlay(pixel_size=self._pixel_size,
-                                            on_measure=self._on_ruler_result)
-        self._rect    = RectMeasureOverlay(pixel_size=self._pixel_size,
-                                           on_measure=self._on_rect_result)
-        self._angle   = AngleMeasureOverlay(pixel_size=self._pixel_size,
-                                            on_measure=self._on_angle_result)
+        self._ruler = DragDistanceOverlay(
+            pixel_size=self._pixel_size, on_measure=self._on_ruler_result
+        )
+        self._rect = RectMeasureOverlay(
+            pixel_size=self._pixel_size, on_measure=self._on_rect_result
+        )
+        self._angle = AngleMeasureOverlay(
+            pixel_size=self._pixel_size, on_measure=self._on_angle_result
+        )
         self._profile = ProfileLineOverlay(
             view=self._view,
             image_data=self._image.data,
@@ -148,31 +160,40 @@ class DemoWidget(QtWidgets.QWidget):
         )
         self._profile.plot_widget = self._profile_plot
 
-        self._pins  = AnnotationPinOverlay(view=self._view, parent=self._view)
+        self._pins = AnnotationPinOverlay(view=self._view, parent=self._view)
         self._pins.show()
 
         self._loupe = ZoomLoupeOverlay(
             view=self._view,
             pixmap=_fibsem_to_pixmap(self._image),
-            zoom=4.0, diameter=220,
+            zoom=4.0,
+            diameter=220,
         )
 
         self._view._on_right_click = self._quad_menu.show_at
-        self._view._on_left_press  = self._on_left_press
-        self._view._on_mouse_move  = self._loupe.on_mouse_move
+        self._view._on_left_press = self._on_left_press
+        self._view._on_mouse_move = self._loupe.on_mouse_move
 
     # ── Tool selection ────────────────────────────────────────────────
 
-    def _select_ruler(self)   -> None: self._set_tool("ruler")
-    def _select_rect(self)    -> None: self._set_tool("rect")
-    def _select_angle(self)   -> None: self._set_tool("angle")
-    def _select_profile(self) -> None: self._set_tool("profile")
+    def _select_ruler(self) -> None:
+        self._set_tool("ruler")
+
+    def _select_rect(self) -> None:
+        self._set_tool("rect")
+
+    def _select_angle(self) -> None:
+        self._set_tool("angle")
+
+    def _select_profile(self) -> None:
+        self._set_tool("profile")
 
     def _set_tool(self, name: str) -> None:
         self._view._active_tool = name
         pan = name == "none"
         self._view.setDragMode(
-            QtWidgets.QGraphicsView.ScrollHandDrag if pan
+            QtWidgets.QGraphicsView.ScrollHandDrag
+            if pan
             else QtWidgets.QGraphicsView.NoDrag
         )
         self._set_status(_TOOL_HINTS[name])

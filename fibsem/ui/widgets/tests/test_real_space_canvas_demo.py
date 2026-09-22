@@ -18,6 +18,7 @@ looks like beside a full-resolution tile.
 
 Pan/zoom, the scalebar and the ruler all work as on any canvas.
 """
+
 import sys
 
 import numpy as np
@@ -70,7 +71,9 @@ class RealSpaceCanvasDemo(QWidget):
 
         self.canvas = FibsemRealSpaceCanvas()
         self.label = QLabel()
-        self.label.setStyleSheet("color: #d1d2d4; padding: 6px; font-family: monospace;")
+        self.label.setStyleSheet(
+            "color: #d1d2d4; padding: 6px; font-family: monospace;"
+        )
 
         # Live cursor position, which is the readout that actually shows the canvas is
         # in real space: hovering the same feature on two tiles should give the same
@@ -92,7 +95,9 @@ class RealSpaceCanvasDemo(QWidget):
 
         btn_reset = QPushButton("Reload tileset")
         btn_reset.clicked.connect(self._reload)
-        btn_coarse = QPushButton("Add same tile at 4x pixel size (covers 4x the ground)")
+        btn_coarse = QPushButton(
+            "Add same tile at 4x pixel size (covers 4x the ground)"
+        )
         btn_coarse.clicked.connect(self._add_coarse)
         btn_clear = QPushButton("Clear images")
         btn_clear.clicked.connect(self._clear)
@@ -125,7 +130,10 @@ class RealSpaceCanvasDemo(QWidget):
                 x = (col - 1) * step
                 y = (row - 1) * step
                 self.canvas.add_image(
-                    _tile(seed), centre=(x, y), pixel_size=PIXEL_SIZE, key=f"r{row}c{col}"
+                    _tile(seed),
+                    centre=(x, y),
+                    pixel_size=PIXEL_SIZE,
+                    key=f"r{row}c{col}",
                 )
                 seed += 1
         self._refresh_markers()
@@ -183,7 +191,8 @@ class RealSpaceCanvasDemo(QWidget):
 
     def _sync_world_button(self) -> None:
         self.btn_world.setText(
-            f"Working area: {WORLD_EXTENT * 1e6:.0f} um" if self._world_on
+            f"Working area: {WORLD_EXTENT * 1e6:.0f} um"
+            if self._world_on
             else "Working area: off (fit to content)"
         )
 
@@ -193,7 +202,9 @@ class RealSpaceCanvasDemo(QWidget):
             self.cursor_label.setText("cursor:  —")
             return
         x, y = self.canvas.canvas_to_metres(event.xdata, event.ydata)
-        self.cursor_label.setText(f"cursor:  x={x * 1e6:+8.2f} um   y={y * 1e6:+8.2f} um")
+        self.cursor_label.setText(
+            f"cursor:  x={x * 1e6:+8.2f} um   y={y * 1e6:+8.2f} um"
+        )
 
     def _reload(self) -> None:
         self.canvas.clear_images()

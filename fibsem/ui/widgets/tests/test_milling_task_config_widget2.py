@@ -3,6 +3,7 @@
 Run directly:
     python fibsem/ui/widgets/tests/test_milling_task_config_widget2.py
 """
+
 import sys
 
 from PyQt5.QtCore import Qt
@@ -84,10 +85,14 @@ def main() -> None:
     right_layout.setContentsMargins(0, 0, 0, 0)
     right_layout.setSpacing(8)
 
-    widget = MillingTaskConfigWidget2(microscope=microscope, milling_task_config=initial_config)
+    widget = MillingTaskConfigWidget2(
+        microscope=microscope, milling_task_config=initial_config
+    )
     right_layout.addWidget(widget)
 
-    status = QLabel("Select a task to load it, or change a setting to see settings_changed.")
+    status = QLabel(
+        "Select a task to load it, or change a setting to see settings_changed."
+    )
     status.setStyleSheet("color: #909090; font-style: italic;")
     right_layout.addWidget(status)
 
@@ -112,15 +117,17 @@ def main() -> None:
 
     def on_settings_changed(cfg: FibsemMillingTaskConfig) -> None:
         status.setText(
-            f"settings_changed: {cfg.name}, fov={cfg.field_of_view*1e6:.1f} µm, "
+            f"settings_changed: {cfg.name}, fov={cfg.field_of_view * 1e6:.1f} µm, "
             f"{len(cfg.stages)} stages"
         )
 
     def on_print() -> None:
         cfg = widget.get_settings()
-        print(f"name={cfg.name}  fov={cfg.field_of_view*1e6:.1f} µm")
+        print(f"name={cfg.name}  fov={cfg.field_of_view * 1e6:.1f} µm")
         for s in cfg.stages:
-            print(f"  {s.name}  pattern={s.pattern.__class__.__name__}  strategy={s.strategy.name}")
+            print(
+                f"  {s.name}  pattern={s.pattern.__class__.__name__}  strategy={s.strategy.name}"
+            )
 
     task_list.itemClicked.connect(on_task_selected)
     widget.settings_changed.connect(on_settings_changed)

@@ -11,6 +11,7 @@ equivalent of FibsemEmbeddedDetectionWidget's napari view (display-only mask).
 Drag the points to correct them (positions are logged). Toggle the mask, or drop
 to Move via the top-right toolbar toggle (the feature points go inert).
 """
+
 import sys
 
 import numpy as np
@@ -32,16 +33,16 @@ H = W = 512
 
 
 def _synthetic_image() -> FibsemImage:
-    img = (np.random.rand(H, W) * 60 + 40)
-    img[H // 2 - 40:H // 2 + 40, W // 4:3 * W // 4] += 120  # bright lamella band
+    img = np.random.rand(H, W) * 60 + 40
+    img[H // 2 - 40 : H // 2 + 40, W // 4 : 3 * W // 4] += 120  # bright lamella band
     return FibsemImage(data=np.clip(img, 0, 255).astype(np.uint8))
 
 
 def _synthetic_mask() -> np.ndarray:
     mask = np.zeros((H, W), dtype=np.uint8)
-    mask[H // 2 - 40:H // 2 + 40, W // 4:3 * W // 4] = 1  # class 1 = lamella
+    mask[H // 2 - 40 : H // 2 + 40, W // 4 : 3 * W // 4] = 1  # class 1 = lamella
     yy, xx = np.ogrid[:H, :W]
-    mask[(yy - 120) ** 2 + (xx - 400) ** 2 < 45 ** 2] = 2  # class 2 = manipulator blob
+    mask[(yy - 120) ** 2 + (xx - 400) ** 2 < 45**2] = 2  # class 2 = manipulator blob
     return mask
 
 
@@ -83,7 +84,9 @@ def main() -> None:
 
     chk = QCheckBox("Show mask")
     chk.setChecked(True)
-    chk.toggled.connect(lambda on: mask_overlay.set_mask(_synthetic_mask() if on else None))
+    chk.toggled.connect(
+        lambda on: mask_overlay.set_mask(_synthetic_mask() if on else None)
+    )
 
     bar = QHBoxLayout()
     bar.addWidget(chk)

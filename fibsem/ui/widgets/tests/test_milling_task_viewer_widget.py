@@ -3,6 +3,7 @@
 Run directly:
     python fibsem/ui/widgets/tests/test_milling_task_viewer_widget.py
 """
+
 import sys
 
 from PyQt5.QtCore import Qt
