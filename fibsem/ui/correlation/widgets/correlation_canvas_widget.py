@@ -18,6 +18,7 @@ What comes free with the shared canvas, and is the reason for the whole exercise
 where they are exactly the controls an operator wants while picking points. Also
 zoom/pan, the scalebar, the toolbar and the 11 other overlay types.
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
@@ -27,6 +28,7 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.correlation.widgets.correlation_picking import CorrelationPicking
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
@@ -47,6 +49,8 @@ class CorrelationCanvasWidget(QWidget):
         self,
         parent: Optional[QWidget] = None,
         allowed_point_types: Optional[List[PointType]] = None,
+        store: Optional[CorrelationPointStore] = None,
+        side: Optional[str] = None,
     ) -> None:
         super().__init__(parent)
         self.canvas = FibsemImageCanvas()
@@ -61,6 +65,8 @@ class CorrelationCanvasWidget(QWidget):
             self.canvas,
             allowed_point_types=allowed_point_types,
             menu_parent=self,
+            store=store,
+            side=side,
         )
 
         layout = QVBoxLayout(self)
