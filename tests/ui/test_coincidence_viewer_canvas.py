@@ -13,7 +13,7 @@ widget drives in place of the private members it used to reach into
 (``pixel_size`` and ``set_title``).
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/applications/autolamella/ui/tests/test_coincidence_viewer_canvas.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_coincidence_viewer_canvas.py
 """
 
 from __future__ import annotations
@@ -24,6 +24,10 @@ import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+import pytest
+
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtWidgets import QApplication, QPushButton
 
 from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (

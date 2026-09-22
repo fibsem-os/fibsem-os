@@ -9,7 +9,7 @@ Verifies the two-way sync between the spinboxes and the canvas overlays:
   * the POI overlay is attached before the alignment overlay (press precedence).
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/applications/autolamella/ui/tests/test_lamella_default_config_widget.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_lamella_default_config_widget.py
 """
 
 from __future__ import annotations
@@ -17,6 +17,10 @@ from __future__ import annotations
 import sys
 
 import numpy as np
+import pytest
+
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import LamellaDefaultConfig

@@ -12,7 +12,7 @@ must still work for callers that never set a controller, and the layer-controls 
 must survive one tab having migrated.
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_lamella_protocol_editor_canvas.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_lamella_protocol_editor_canvas.py
 """
 
 from __future__ import annotations
@@ -24,7 +24,11 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import pytest
 from psygnal.containers import EventedDict
+
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget
 
