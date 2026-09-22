@@ -111,6 +111,11 @@ correctness work landed in correlation and in what the experiment record remembe
   asked. Off, `confirm_position` is only as safe as the automatic positioning that
   put the stage there. The Tilt/Skip choice is gone with the preference on:
   Continue tilts, and Stop is the way not to.
+- **A Review tab row says what it is about.** A task that asks more than one
+  thing in a run (Setup confirms its tilt, then its position, then leaves its
+  point of interest for afterwards) lists one row per question under the same
+  task name; the row now names the kind, "Setup Lamella Position · Position",
+  where it is not the task's own result.
 - **The fluorescence tasks' confirmations are on the record.** With the review
   preference on, Select Fluorescence Position's "move to the fluorescence
   position" and Acquire Fluorescence Image's "run autofocus" prompts are asked on

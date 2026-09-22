@@ -65,6 +65,7 @@ from fibsem.applications.autolamella.proposals import (
     Decision,
     DecisionOutcome,
     Proposal,
+    kind_label,
 )
 from fibsem.applications.autolamella.structures import Attention, Experiment, GridRecord
 from fibsem.fm.structures import FluorescenceImage
@@ -94,7 +95,18 @@ __all__ = [
     "waiting_on",
 ]
 
-_KIND_LABELS = {POINT_OF_INTEREST: "Milling positions", TASK_RESULT: "Task results"}
+
+def _row_kind(proposal: Proposal) -> str:
+    """What of the task's a row is about, when it is not the task's own
+    result -- a run that confirms its tilt, then its position, then leaves
+    its point for afterwards lists three rows under one task name, and the
+    kind is what tells them apart. Empty for the result, the plain case."""
+    return "" if proposal.kind == TASK_RESULT else kind_label(proposal.kind)
+
+
+def _row_summary(item_name: str, task_name: str, kind: str, word: str) -> str:
+    return " · ".join(part for part in (item_name, task_name, kind, word) if part)
+
 
 _HEADER_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 10px; font-weight: 600; "
@@ -1405,10 +1417,15 @@ class _InboxRow(QWidget):
         right: str,
         dim: bool = False,
         quiet: bool = False,
+        kind: str = "",
     ) -> None:
         """``quiet``: a decided row. The filled dot is the "act on me" signal;
         a decided row keeps the colour but hollows the dot, so it reads as
-        done. ``dim``: superseded, smaller and in the muted colour."""
+        done. ``dim``: superseded, smaller and in the muted colour. ``kind``:
+        what of the task's this row is about, when it is not the task's own
+        result; it keeps its width and the task name elides before it, since
+        the task is the same on every row of a run and the kind is what
+        differs."""
         super().__init__()
         # The list paints the row's background and selection; the widget must
         # not paint the app's default one over it.
@@ -1437,15 +1454,30 @@ class _InboxRow(QWidget):
         self.name.setFixedWidth(_ROW_NAME_WIDTH)
         self.name.setToolTip(name)
         layout.addWidget(self.name, 0, Qt.AlignVCenter)
+        self._task_text = task
         self.task = QLabel(task)
         self.task.setStyleSheet(_ROW_TASK_STYLE)
         self.task.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.task.setMinimumWidth(40)
+        self.task.setToolTip(task)
         layout.addWidget(self.task, 1, Qt.AlignVCenter)
+        self.kind = QLabel(f"· {kind}" if kind else "")
+        self.kind.setStyleSheet(_ROW_TASK_STYLE)
+        self.kind.setVisible(bool(kind))
+        layout.addWidget(self.kind, 0, Qt.AlignVCenter)
         self.right = QLabel(right)
         self.right.setStyleSheet(_ROW_RIGHT_STYLE)
         self.right.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(self.right)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        # Elided to whatever the layout leaves it, never clipped mid-glyph:
+        # the kind and the word on the right keep their widths.
+        metrics = QFontMetrics(self.task.font())
+        self.task.setText(
+            metrics.elidedText(self._task_text, Qt.ElideRight, self.task.width())
+        )
 
 
 KIND_ALL = "all"
@@ -1808,9 +1840,12 @@ class ReviewTabWidget(QWidget):
                     f"{self._count(len(holding), len(all_holding))}"
                 )
             for item, task_name, proposal in holding:
+                kind = _row_kind(proposal)
                 self._add_row(
-                    summary=f"{item.name} · {task_name} · asking now",
-                    widget=_InboxRow(ORANGE_COLOR, item.name, task_name, "asking now"),
+                    summary=_row_summary(item.name, task_name, kind, "asking now"),
+                    widget=_InboxRow(
+                        ORANGE_COLOR, item.name, task_name, "asking now", kind=kind
+                    ),
                     entry=(item, task_name, proposal, "waiting"),
                     tooltip=f"{task_name} is parked on this answer; "
                     "nothing else runs until you give it.",
@@ -1823,10 +1858,15 @@ class ReviewTabWidget(QWidget):
                 )
             for item, task_name, proposal in waiting:
                 held = waiting_on(experiment, task_name, item)
+                kind = _row_kind(proposal)
                 self._add_row(
-                    summary=f"{item.name} · {task_name} · waiting",
+                    summary=_row_summary(item.name, task_name, kind, "waiting"),
                     widget=_InboxRow(
-                        ORANGE_COLOR, item.name, task_name, age(proposal.created_at)
+                        ORANGE_COLOR,
+                        item.name,
+                        task_name,
+                        age(proposal.created_at),
+                        kind=kind,
                     ),
                     entry=(item, task_name, proposal, "waiting"),
                     tooltip="Waiting for your decision"
@@ -1851,14 +1891,17 @@ class ReviewTabWidget(QWidget):
                 # An open value: nobody was asked, and it can still be
                 # corrected until the task that uses it starts.
                 open_value = applied is None
+                kind = _row_kind(proposal)
                 self._add_row(
-                    summary=f"{item.name} · {task_name} · "
-                    + ("open" if open_value else "to check"),
+                    summary=_row_summary(
+                        item.name, task_name, kind, "open" if open_value else "to check"
+                    ),
                     widget=_InboxRow(
                         DEFECT_RED_COLOR if failed else GRAY_SECONDARY_COLOR,
                         item.name,
                         task_name,
                         age(proposal.created_at if open_value else applied.timestamp),
+                        kind=kind,
                     ),
                     entry=(item, task_name, proposal, "check"),
                     tooltip=(
@@ -1898,8 +1941,9 @@ class ReviewTabWidget(QWidget):
                         if rejected
                         else "confirmed"
                     )
+                    kind = _row_kind(proposal)
                     self._add_row(
-                        summary=f"{item.name} · {task_name} · {word}"
+                        summary=_row_summary(item.name, task_name, kind, word)
                         + (" · superseded" if superseded else ""),
                         widget=_InboxRow(
                             colour,
@@ -1908,6 +1952,7 @@ class ReviewTabWidget(QWidget):
                             clock(d.timestamp),
                             dim=superseded,
                             quiet=True,
+                            kind=kind,
                         ),
                         entry=(item, task_name, proposal, "decided"),
                         tooltip=describe_decision(proposal, experiment)

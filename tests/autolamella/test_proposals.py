@@ -156,6 +156,25 @@ def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
     assert [p.id for p in again] == [p.id for p in proposals]
 
 
+def test_a_kind_has_a_name_for_a_person():
+    from fibsem.applications.autolamella.proposals import (
+        DETECTION,
+        OVERVIEW_POSITIONS,
+        STATE,
+        TASK_RESULT,
+        kind_label,
+    )
+
+    assert kind_label(POINT_OF_INTEREST) == "Point of interest"
+    assert kind_label(STATE) == "Position"
+    assert kind_label(DETECTION) == "Detection"
+    assert kind_label(OVERVIEW_POSITIONS) == "Lamella positions"
+    assert kind_label(TASK_RESULT) == "Result"
+    assert kind_label("alignment_area") == "Alignment area", (
+        "a kind this build has not registered still reads"
+    )
+
+
 def test_a_runs_questions_of_one_kind_all_stand_and_a_rerun_replaces_them():
     """Setup confirms the tilt and then the position: two ``state`` questions
     from one run, and both are current -- the earlier is a different

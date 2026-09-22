@@ -129,6 +129,50 @@ def tab(qapp, experiment, warnings) -> R.ReviewTabWidget:
     return widget
 
 
+def test_a_row_names_its_kind_when_it_is_not_the_tasks_result(tab, experiment):
+    """One run of Setup confirms its tilt, then its position, then leaves its
+    point for afterwards: three rows under one task name. The kind is what
+    tells them apart, so the row says it. The task's own result is the plain
+    case and says nothing extra."""
+    from fibsem.applications.autolamella.proposals import (
+        STATE,
+        TASK_RESULT,
+        Decision,
+        DecisionOutcome,
+    )
+
+    lamella = experiment.positions[0]
+    unasked = Decision(
+        outcome=DecisionOutcome.Unreviewed,
+        author="auto:nobody",
+        reason="nobody was asked",
+    )
+    position = Proposal(
+        kind=STATE,
+        values={"stage_position": FibsemStagePosition()},
+        provenance={"task_id": RUN, "message": "Press Continue"},
+    )
+    position.decisions.append(unasked)
+    result = Proposal(kind=TASK_RESULT, values={}, provenance={"task_id": RUN})
+    lamella.proposals[SETUP] = [position, *lamella.proposals[SETUP], result]
+    tab.refresh()
+
+    rows = [t for t in tab.row_summaries() if t.count(" · ") >= 2]
+    assert rows == [
+        f"{lamella.name} · {SETUP} · Point of interest · waiting",
+        f"{lamella.name} · {SETUP} · waiting",
+        f"{lamella.name} · {SETUP} · Position · to check",
+    ], "the point, the result, the position; each kind said where it is not the result"
+    widgets = [tab.list.itemWidget(tab.list.item(i)) for i in range(tab.list.count())]
+    kinds = [w.kind.text() for w in widgets if isinstance(w, R._InboxRow)]
+    assert kinds == ["· Point of interest", "", "· Position"]
+    assert all(
+        w.kind.isVisibleTo(tab) == bool(w.kind.text())
+        for w in widgets
+        if isinstance(w, R._InboxRow)
+    )
+
+
 def test_the_inbox_is_derived_from_the_experiment(tab, experiment):
     assert tab.pending_count == 1
     texts = tab.row_summaries()

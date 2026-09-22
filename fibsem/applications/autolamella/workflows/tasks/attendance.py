@@ -21,6 +21,7 @@ from fibsem.applications.autolamella.proposals import (
     STATE,
     TASK_RESULT,
 )
+from fibsem.applications.autolamella.proposals import kind_label as proposal_kind_label
 from fibsem.applications.autolamella.structures import Attention
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ KIND_LABELS = {
 
 
 def kind_label(kind: str) -> str:
-    return KIND_LABELS.get(kind, kind.replace("_", " "))
+    return KIND_LABELS.get(kind, proposal_kind_label(kind).lower())
 
 
 def _named(names: Sequence[str]) -> str:
