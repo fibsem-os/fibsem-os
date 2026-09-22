@@ -879,3 +879,86 @@ def test_a_recorded_fm_image_outside_a_task_is_not_given_one_by_time(tmp_path):
     _, fm = load_replay(tmp_path).events
     assert fm.kind == EventKind.FLUORESCENCE
     assert (fm.item, fm.task) == (None, None)
+
+
+def _edit(t, payload, actor, **context):
+    record = _record(t, "edit", payload, **context)
+    record["actor"] = actor
+    return record
+
+
+def test_an_edit_says_what_changed_who_made_it_and_from_where(tmp_path):
+    """On the lamella and task edited, not the ones the run was on. The values
+    that changed are found in the whole objects recorded before and after."""
+    points = [{"x": 0.1, "y": 0.2}, {"x": 0.3, "y": 0.4}, {"x": 0.5, "y": 0.6}]
+    _write_events(
+        tmp_path,
+        _record(_at(0), "task_step", {"step": "MILL"}, item="01", task="Mill Fiducial"),
+        _edit(
+            _at(1),
+            {
+                "item": {"id": "L2", "name": "02"},
+                "task": "Rough Milling",
+                "target": "milling.mill_rough",
+                "before": {
+                    "stages": [{"name": "Rough", "pattern": {"depth": 2e-6}}],
+                    "acquisition": {"imaging": {"path": "/data/an-experiment/02-bear"}},
+                },
+                "after": {
+                    "stages": [
+                        {"name": "Rough", "pattern": {"depth": 3e-6, "passes": 2}}
+                    ],
+                    "acquisition": {
+                        "imaging": {
+                            "path": "/data/2026-09-22/an-experiment/01-solid-cow"
+                        }
+                    },
+                },
+                "via": "apply to other lamellae",
+            },
+            "operator",
+            item="01",
+            task="Mill Fiducial",
+        ),
+        _edit(
+            _at(2),
+            {
+                "item": None,
+                "task": "Rough Milling",
+                "target": "protocol.parameters.sync_to_poi",
+                "before": True,
+                "after": False,
+                "via": "protocol editor",
+            },
+            None,  # a recorder outside the app does not know who
+        ),
+        _edit(
+            _at(3),
+            {
+                "item": {"id": "L1", "name": "01"},
+                "task": "Spot Burn",
+                "target": "parameters.coordinates",
+                "before": points[:1],
+                "after": [{"x": 0.1, "y": 0.25}] + points[1:] + [{"x": 0.7, "y": 0.8}],
+                "via": "agent patch",
+            },
+            "agent",
+        ),
+    )
+    _, *edits = load_replay(tmp_path).events
+    assert all(e.kind == EventKind.EDIT for e in edits)
+    assert [(e.item, e.task, e.step) for e in edits] == [
+        ("02", "Rough Milling", None),
+        (None, "Rough Milling", None),
+        ("01", "Spot Burn", None),
+    ]
+    assert [e.summary for e in edits] == [
+        "milling.mill_rough: stages.0.pattern.depth 2e-06 → 3e-06,"
+        " stages.0.pattern.passes (none) → 2,"
+        " acquisition.imaging.path /data/an-experiment/02-bear"
+        " → …9-22/an-experiment/01-solid-cow"
+        " — by the operator (apply to other lamellae)",
+        "protocol.parameters.sync_to_poi: True → False (protocol editor)",
+        "parameters.coordinates: 0.y 0.2 → 0.25, 1 (none) → {'x': 0.3, 'y': 0.4},"
+        " 2 (none) → {'x': 0.5, 'y': 0.6}, 1 more — by the agent (agent patch)",
+    ]

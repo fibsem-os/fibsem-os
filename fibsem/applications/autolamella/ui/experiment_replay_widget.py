@@ -106,6 +106,7 @@ _KIND_LABEL = {
     EventKind.STAGE: "Stage",
     EventKind.MILLING: "Milling",
     EventKind.ALIGNMENT: "Alignment",
+    EventKind.EDIT: "Edit",
     EventKind.MESSAGE: "Message",
 }
 _KIND_COLOUR = {
@@ -116,6 +117,7 @@ _KIND_COLOUR = {
     EventKind.STAGE: WARN_COLOR,
     EventKind.MILLING: ORANGE_COLOR,
     EventKind.ALIGNMENT: PURPLE_COLOR,
+    EventKind.EDIT: TEXT_STRONG_COLOR,
     EventKind.MESSAGE: TEXT_MUTED_COLOR,
 }
 _STAGE_MARK = "Stage"
