@@ -144,6 +144,11 @@ def humanize_fit_error(exc: Exception) -> str:
         )
     if isinstance(exc, IndexError) or "out of bounds" in msg or "too close" in msg:
         return "The point is too close to the image edge to fit a region around it."
+    if "plane(s) around z" in msg:  # the reflection fit's own refusal (FIB-980)
+        return (
+            "Too few planes around this z to fit a hole through. Pick a slice "
+            "further from the ends of the stack, or acquire a deeper stack."
+        )
     if isinstance(exc, (ValueError, ZeroDivisionError)) and (
         "empty" in msg or "zero-size" in msg or "float division" in msg
     ):
