@@ -154,6 +154,40 @@ def test_the_manager_expires_what_a_task_consumes_when_it_starts(tmp_path):
     assert "Undercut started" in d.reason
 
 
+def test_a_task_downstream_through_another_consumes_it_too(tmp_path):
+    """Rough Milling requires Mill Fiducial, which requires Setup, and it is
+    Setup's point that Rough Milling mills on. The point is closed when the
+    downstream task starts, not only when the task that names Setup does."""
+    experiment = make_experiment(
+        tmp_path,
+        requirements={"Undercut": ["Trench"], "Polishing": ["Undercut"]},
+        lamella_names=["L1"],
+    )
+    lamella = experiment.positions[0]
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
+    lamella.record_proposal("Trench", _proposal(POINT_OF_INTEREST, poi=Point(0, 0)))
+    for name in ("Trench", "Undercut"):
+        lamella.task_history.append(
+            AutoLamellaTaskState(
+                name=name, task_id=RUN, status=AutoLamellaTaskStatus.Completed
+            )
+        )
+    m.queue.build_from_matrix(["Polishing"], ["L1"])
+    seen = {}
+
+    def on_task(task_name, lam):
+        seen["trench_when_polishing_started"] = lam.proposal("Trench").current
+
+    run_queue_with(m, on_task=on_task)
+
+    d = seen["trench_when_polishing_started"]
+    assert d is not None and d.outcome is DecisionOutcome.Unreviewed
+    assert "Polishing started" in d.reason
+    assert m._upstream_of("Polishing") == ["Undercut", "Trench"]
+
+
 def test_when_the_run_ends_a_result_is_closed_but_a_value_stays_open(tmp_path):
     """Nothing consumes a result, so a run's end is the last chance to close
     it. A value is for the task that uses it, whichever run that is: Setup
