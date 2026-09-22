@@ -261,35 +261,23 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PyQt5")
 
 
-def _real_fm(crop=64):
-    """A concrete FluorescenceImage the dialog/widget can consume, or skip.
-
-    Cropped in XY by default: interpolation is z-only, so a small frame keeps the
-    slice counts, pixel sizes, and the physical-depth invariant identical while
-    the 2048x2048 -> would-be 2 GB / ~36 s full run stays out of the test suite.
+def _meteor_like_fm():
+    """A 21-slice stack at the METEOR pixel sizes (500 nm z, 130 nm xy), the
+    case the dialog's "-> 81 slices" preview and the depth invariant are
+    written for. Synthetic and small: interpolation is z-only, so a 64-square
+    frame keeps the slice counts, pixel sizes and the physical-depth invariant
+    identical to a real 2048-square stack. These used to load a real volume
+    from ``tmp/`` under the current directory and skip when it was missing;
+    the shared conftest runs every test from its own temp dir, so they always
+    skipped, everywhere.
     """
-    import copy
-
-    from fibsem.fm.structures import FluorescenceImage
-
-    path = os.path.join(
-        os.getcwd(), "tmp", "BeforeMilling_G1_-Feature-2-Active-001.ome.tiff"
-    )
-    if not os.path.exists(path):
-        pytest.skip("tmp/ FM volume not present")
-    fm = FluorescenceImage.load(path)
-    if crop:
-        fm = FluorescenceImage(
-            data=fm.data[:, :, :crop, :crop].copy(),
-            metadata=copy.deepcopy(fm.metadata),
-        )
-    return fm
+    return _aniso_fm(nz=21, xy=130e-9, z=500e-9, shape=(64, 64))
 
 
 def test_dialog_defaults_to_isotropic(qapp):
     from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
 
-    fm = _real_fm()
+    fm = _meteor_like_fm()
     dlg = InterpolateZDialog(fm)
     assert dlg._chk_iso.isChecked()  # isotropic on by default
     assert not dlg._spin_target.isEnabled()  # driven by the checkbox
@@ -338,7 +326,7 @@ def test_dialog_opens_with_fm_points_placed(qapp):
 def test_dialog_unchecking_isotropic_frees_the_spinbox(qapp):
     from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
 
-    fm = _real_fm()
+    fm = _meteor_like_fm()
     dlg = InterpolateZDialog(fm)
     dlg._chk_iso.setChecked(False)
     assert dlg._spin_target.isEnabled()
@@ -355,7 +343,7 @@ def test_enter_does_not_run_the_interpolation(qapp):
 
     from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
 
-    dlg = InterpolateZDialog(_real_fm())
+    dlg = InterpolateZDialog(_meteor_like_fm())
     dlg.show()
     QTest.keyClick(dlg, Qt.Key_Return)
     QTest.keyClick(dlg, Qt.Key_Enter)
@@ -365,7 +353,7 @@ def test_enter_does_not_run_the_interpolation(qapp):
     QTest.keyClick(dlg, Qt.Key_Escape)
     assert dlg.isHidden()  # Escape still cancels
 
-    dlg2 = InterpolateZDialog(_real_fm())
+    dlg2 = InterpolateZDialog(_meteor_like_fm())
     dlg2.accept()  # the click path still accepts
     assert dlg2.result() == QDialog.Accepted
 
@@ -390,7 +378,7 @@ def test_interpolate_button_lives_in_images_tab_and_needs_a_zstack(qapp):
     w = _widget(qapp)
     btn = w._images_tab._btn_interpolate  # under the FM load controls, not the canvas
     assert btn.isEnabled() is False  # no image yet
-    w.set_fm_image(_real_fm())
+    w.set_fm_image(_meteor_like_fm())
     assert btn.isEnabled() is True  # 21-slice stack
 
 
@@ -398,7 +386,7 @@ def test_interpolating_shows_embedded_progress_and_locks_the_button(qapp):
     """Progress is a non-modal bar in the Images tab; the button locks while it
     runs, and neither blocks the rest of the GUI."""
     w = _widget(qapp)
-    w.set_fm_image(_real_fm())
+    w.set_fm_image(_meteor_like_fm())
     tab = w._images_tab
     # isHidden(), not isVisible(): the latter is False for any child of an unshown
     # top-level window, so it can't distinguish our explicit hide.
@@ -422,7 +410,7 @@ def test_adopt_interpolated_volume_preserves_physical_depth(qapp):
     from fibsem.correlation.util import interpolate_fm_volume
 
     w = _widget(qapp)
-    fm = _real_fm()
+    fm = _meteor_like_fm()
     w.set_fm_image(fm)
     old_nz = fm.data.shape[1]
     old_z_step = fm.metadata.pixel_size_z
@@ -449,7 +437,7 @@ def test_rescale_only_touches_fm_side_points(qapp):
     from fibsem.correlation.structures import PointType
 
     w = _widget(qapp)
-    w.set_fm_image(_real_fm())
+    w.set_fm_image(_meteor_like_fm())
     w._on_canvas_add_requested(10.0, 10.0, PointType.FIB)  # FIB side
     w._coords_tab.fib_list.coordinates[0].point.z = 5.0
     w._on_canvas_add_requested(20.0, 20.0, PointType.FM)  # FM side
