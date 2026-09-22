@@ -1,7 +1,7 @@
 """Combined demo: Radial Menu + Measure Tools on a FibsemImage.
 
 Run:
-    python fibsem/ui/widgets/tests/test_radial_ruler_demo.py
+    python fibsem/ui/widgets/tests/demo_radial_ruler.py
 
 Right-click → radial menu:
   N — Ruler        left-click drag → line distance

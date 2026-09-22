@@ -1,7 +1,7 @@
 """Standalone test script for MillingTaskConfigWidget2.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_milling_task_config_widget2.py
+    python fibsem/ui/widgets/tests/demo_milling_task_config_widget2.py
 """
 
 import sys

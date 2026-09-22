@@ -1,7 +1,7 @@
 """Standalone demo: active-overlay input model + toolbar mode toggle.
 
 Run:
-    PYTHONPATH=<worktree> python fibsem/ui/widgets/tests/test_active_overlay_mode.py
+    PYTHONPATH=<worktree> python fibsem/ui/widgets/tests/demo_active_overlay_mode.py
 
 A FibsemImageCanvas with a PointOverlay (right-click adds). Use the "Enter POI
 mode" button to make the overlay active — while active the contextual toolbar

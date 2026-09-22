@@ -1,7 +1,7 @@
 """Standalone demo: detection display (MaskOverlay + per-feature PointOverlay).
 
 Run:
-    PYTHONPATH=<worktree> python fibsem/ui/widgets/tests/test_detection_overlay.py
+    PYTHONPATH=<worktree> python fibsem/ui/widgets/tests/demo_detection_overlay.py
 
 A FibsemImageCanvas showing a synthetic image + an alpha-blended segmentation
 mask (MaskOverlay) + draggable, per-feature-coloured, named feature points

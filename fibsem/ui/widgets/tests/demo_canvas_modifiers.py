@@ -1,7 +1,7 @@
 """Standalone test for FibsemImageCanvas modifier-aware mouse signals.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_canvas_modifiers.py
+    python fibsem/ui/widgets/tests/demo_canvas_modifiers.py
 
 Click / double-click / right-click / scroll on the image while holding
 Alt / Shift / Ctrl and watch each event — with its modifier tuple — appear in

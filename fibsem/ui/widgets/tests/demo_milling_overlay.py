@@ -1,7 +1,7 @@
 """Standalone demo for MillingPatternOverlay.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_milling_overlay.py
+    python fibsem/ui/widgets/tests/demo_milling_overlay.py
 
 Shows a few milling stages drawn on a blank FIB canvas — one colour per stage,
 each with a crosshair at its point-of-interest. "Toggle patterns" clears / re-shows

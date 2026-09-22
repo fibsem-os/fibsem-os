@@ -5,7 +5,7 @@ never collects (``testpaths = ["tests"]``). The automated tests live in
 ``tests/ui/test_real_space_canvas.py``.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_real_space_canvas_demo.py
+    python fibsem/ui/widgets/tests/demo_real_space_canvas.py
 
 Shows a 3x3 tileset placed at true stage offsets on a black backdrop, so overlap and
 alignment are visible. The cursor readout gives the position in canvas-frame metres.

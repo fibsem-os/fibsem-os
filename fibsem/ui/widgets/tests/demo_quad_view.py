@@ -1,7 +1,7 @@
 """Standalone demo for the quad-view microscope display.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_quad_view.py
+    python fibsem/ui/widgets/tests/demo_quad_view.py
 
 Shows a QuadViewWidget driven through a MicroscopeViewController: SEM / FIB / FM
 get blank images, the 4th cell is the inert "No Data" placeholder. Each image

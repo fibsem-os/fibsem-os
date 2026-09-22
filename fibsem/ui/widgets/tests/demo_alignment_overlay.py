@@ -1,7 +1,7 @@
 """Standalone demo for AlignmentAreaOverlay.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_alignment_overlay.py
+    python fibsem/ui/widgets/tests/demo_alignment_overlay.py
 
 Drag/resize the dashed lime alignment rectangle on the FIB image; the label shows
 the normalized FibsemRectangle (and whether it's valid). "Toggle editable"

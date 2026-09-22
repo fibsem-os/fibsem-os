@@ -1,7 +1,7 @@
 """Standalone demo: multi-channel FM canvas + per-channel layer controls.
 
 Run:
-    PYTHONPATH=<worktree> python fibsem/ui/widgets/tests/test_fm_canvas.py
+    PYTHONPATH=<worktree> python fibsem/ui/widgets/tests/demo_fm_canvas.py
 
 An FMCanvasWidget showing a synthetic 3-channel fluorescence image composited
 (per-channel colour, additive blend). Click the **layers** button (top-right of

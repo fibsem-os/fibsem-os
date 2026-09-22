@@ -3,7 +3,7 @@
 Exercises all four modes (numeric, countdown, combined, indeterminate)
 with simulate buttons.  Run without hardware:
 
-    python fibsem/ui/widgets/tests/test_progress_widget.py
+    python fibsem/ui/widgets/tests/demo_progress_widget.py
 """
 
 import sys

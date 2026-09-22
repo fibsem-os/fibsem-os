@@ -1,7 +1,7 @@
 """Demo for DragDistanceOverlay.
 
 Run:
-    python fibsem/ui/widgets/tests/test_drag_distance.py
+    python fibsem/ui/widgets/tests/demo_drag_distance.py
 
 Right-click and drag to measure distance.
 Hold Shift  → constrain to horizontal

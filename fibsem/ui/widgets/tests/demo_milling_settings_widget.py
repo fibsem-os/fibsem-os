@@ -1,7 +1,7 @@
 """Standalone test script for FibsemMillingSettingsWidget.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_milling_settings_widget.py
+    python fibsem/ui/widgets/tests/demo_milling_settings_widget.py
 """
 
 import sys

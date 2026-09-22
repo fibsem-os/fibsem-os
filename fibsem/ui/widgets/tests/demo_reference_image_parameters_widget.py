@@ -1,7 +1,7 @@
 """Standalone test script for ReferenceImageParametersWidget.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_reference_image_parameters_widget.py
+    python fibsem/ui/widgets/tests/demo_reference_image_parameters_widget.py
 """
 
 import sys

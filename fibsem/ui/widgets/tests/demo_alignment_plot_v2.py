@@ -1,7 +1,7 @@
 """Standalone test script for plot_multi_step_alignment.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_alignment_plot_v2.py
+    python fibsem/ui/widgets/tests/demo_alignment_plot_v2.py
 """
 
 import numpy as np

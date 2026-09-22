@@ -1,7 +1,7 @@
 """Quick demo for the QuadMenuOverlay widget.
 
 Run:
-    python scripts/test_radial_menu.py
+    python fibsem/ui/widgets/tests/demo_radial_menu.py
 
 Right-click and hold anywhere in the grey area, drag to a sector, release.
 """

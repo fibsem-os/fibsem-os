@@ -1,7 +1,7 @@
 """Manual test for the hook system with toast notifications and config widget.
 
 Usage:
-    python fibsem/ui/widgets/tests/test_hooks_manual.py
+    python fibsem/ui/widgets/tests/demo_hooks_manual.py
 
 Buttons fire hook events directly into a HookManager wired to a real
 ToastManager — no microscope or experiment required.

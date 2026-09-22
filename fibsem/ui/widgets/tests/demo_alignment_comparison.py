@@ -2,12 +2,12 @@
 on real FibsemImage data.
 
 Usage:
-    python fibsem/ui/widgets/tests/test_alignment_comparison.py \
+    python fibsem/ui/widgets/tests/demo_alignment_comparison.py \
         --ref path/to/reference.tif \
         --images path/to/alignment_images/
 
     # or pass images explicitly
-    python fibsem/ui/widgets/tests/test_alignment_comparison.py \
+    python fibsem/ui/widgets/tests/demo_alignment_comparison.py \
         --ref path/to/reference.tif \
         --images img1.tif img2.tif img3.tif
 

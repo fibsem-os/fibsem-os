@@ -1,7 +1,7 @@
 """Standalone test script for MillingStageListWidget.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_milling_stage_list.py
+    python fibsem/ui/widgets/tests/demo_milling_stage_list.py
 """
 
 import sys
