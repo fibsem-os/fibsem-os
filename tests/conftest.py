@@ -52,6 +52,37 @@ def _isolate_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
 
+@pytest.fixture(autouse=True)
+def _refuse_downloads(monkeypatch):
+    """Refuse ``urllib.request.urlretrieve`` in every test.
+
+    It is here for the refractive-index lookup table. When
+    ``fibsem/correlation/data/table_refractive_index_lookup.csv`` is absent (as in
+    every fresh checkout and CI runner), ``_ensure_lut`` downloads it -- 9 MB from
+    the GitHub data release -- and building a ``RefractiveIndexWidget`` reaches it
+    twice: directly, and through ``_default_factor`` -> ``lookup_zeta`` ->
+    ``SliceScalingFactorLUT``. The per-file ``monkeypatch.setattr(riw, "_ensure_lut",
+    ...)`` in tests/correlation/ only covers the first, and tests/ui/ builds
+    ``CorrelationTabWidget`` without either, so the suite fetched the table partway
+    through a run and a test that checks for it at run time passed or skipped
+    depending on what ran before it.
+
+    The guard sits on ``urlretrieve`` rather than on ``_ensure_lut`` because the widget
+    module binds ``_ensure_lut`` by name at import, so patching the defining module
+    would miss it, and importing that module here would pull pandas and scipy into
+    every session. ``_ensure_lut`` looks ``urlretrieve`` up at call time, so this
+    catches every path to it, and the widget already treats a failed download as "no
+    table": tests see what an offline machine sees, and the LUT-gated tests skip
+    whenever the file is absent.
+    """
+    import urllib.request
+
+    def refuse(url, *args, **kwargs):
+        raise RuntimeError(f"tests must not download files: refused {url}")
+
+    monkeypatch.setattr(urllib.request, "urlretrieve", refuse)
+
+
 @pytest.fixture(scope="module")
 def qapp():
     """Shared offscreen QApplication for widget tests.
