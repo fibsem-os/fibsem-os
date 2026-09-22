@@ -15,6 +15,7 @@ and is a better tool than the one being replaced.
 Spacing and width are in metres, and the lattice is centred on a point the caller
 supplies -- the grid centre, in practice, which is the stage origin.
 """
+
 from __future__ import annotations
 
 import logging
@@ -177,14 +178,18 @@ class GridBarOverlay(CanvasOverlay):
         linewidth = self._linewidth_points()
         for offset in self._offsets(half_y):
             (line,) = self._ax.plot(
-                [rect.x0, rect.x1], [cy + offset, cy + offset],
-                linewidth=linewidth, **style,
+                [rect.x0, rect.x1],
+                [cy + offset, cy + offset],
+                linewidth=linewidth,
+                **style,
             )
             self._artists.append(line)
         for offset in self._offsets(half_x):
             (line,) = self._ax.plot(
-                [cx + offset, cx + offset], [rect.y0, rect.y1],
-                linewidth=linewidth, **style,
+                [cx + offset, cx + offset],
+                [rect.y0, rect.y1],
+                linewidth=linewidth,
+                **style,
             )
             self._artists.append(line)
 
