@@ -526,6 +526,54 @@ def _describe_position(pos: Dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
+def _mm(value: Any) -> str:
+    try:
+        return f"{float(value) * 1e3:.3f}"
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _shift(value: Any) -> str:
+    """A beam shift or alignment step: tens of nanometres, so nm below a µm."""
+    try:
+        metres = float(value)
+    except (TypeError, ValueError):
+        return "?"
+    if abs(metres) < 1e-6:
+        return f"{round(metres * 1e9)} nm"
+    return f"{metres * 1e6:.1f} µm"
+
+
+def _beam(value: Any) -> str:
+    return _BEAM_LABEL.get(value, str(value))
+
+
+# The wording both readers use, so a move reads the same from either file.
+
+
+def _beam_move_summary(move: Any, d: Dict[str, Any]) -> str:
+    words = ["Stable move" if move == "stable_move" else "Vertical move"]
+    if d.get("beam_type") in _BEAM_LABEL:
+        words.append(f"in the {_BEAM_LABEL[d['beam_type']]}")
+    words.append(f"dx={_um(d.get('dx'))} µm, dy={_um(d.get('dy'))} µm")
+    return " ".join(words)
+
+
+def _beam_shift_summary(d: Dict[str, Any]) -> str:
+    return (
+        f"{_beam(d.get('beam_type'))} beam shift "
+        f"dx={_shift(d.get('dx'))}, dy={_shift(d.get('dy'))}"
+    )
+
+
+def _coincidence_summary(d: Dict[str, Any]) -> str:
+    ok = "reliable" if d.get("is_reliable") else f"refused ({d.get('refusal_reason')})"
+    return (
+        f"Coincidence measured dx={_um(d.get('dx'))} µm, "
+        f"dy={_um(d.get('dy'))} µm — {ok}"
+    )
+
+
 def _image_event(record: LogRecord, d: Dict[str, Any]) -> Optional[ReplayEvent]:
     metadata = d.get("metadata")
     if not isinstance(metadata, dict):
@@ -668,22 +716,15 @@ def _fluorescence_event(path: Path) -> Optional[ReplayEvent]:
                 metadata = json.loads(value)
             except ValueError:
                 pass
-    started: Optional[datetime] = None
-    try:
-        started = datetime.fromisoformat(str(metadata["acquisition_date"]))
-    except (KeyError, ValueError):
-        if ome.images and ome.images[0].acquisition_date is not None:
-            started = ome.images[0].acquisition_date
+    started = _acquisition_time(metadata.get("acquisition_date"))
+    if started is None and ome.images and ome.images[0].acquisition_date is not None:
+        started = _acquisition_time(ome.images[0].acquisition_date.isoformat())
     if started is None:
         return None
-    if started.tzinfo is not None:
-        started = started.astimezone().replace(tzinfo=None)
 
     channels = [c.get("name", "?") for c in metadata.get("channels") or []]
     planes = len(metadata.get("z_positions") or []) or 1
-    what = f"FM z-stack, {planes} planes" if planes > 1 else "FM image"
-    if channels:
-        what += f", {', '.join(channels)}"
+    what = _fluorescence_what(channels, planes)
     return ReplayEvent(
         time=started,
         kind=EventKind.FLUORESCENCE,
@@ -693,6 +734,27 @@ def _fluorescence_event(path: Path) -> Optional[ReplayEvent]:
         saved=True,
         position=metadata.get("stage_position"),
     )
+
+
+def _acquisition_time(value: Any) -> Optional[datetime]:
+    """When an FM acquisition started, as its metadata records it."""
+    try:
+        started = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    if started.tzinfo is not None:
+        started = started.astimezone().replace(tzinfo=None)
+    return started
+
+
+def _fluorescence_what(channels: List[str], planes: int, overview: bool = False) -> str:
+    if overview:
+        what = "FM overview"
+    else:
+        what = f"FM z-stack, {planes} planes" if planes > 1 else "FM image"
+    if channels:
+        what += f", {', '.join(channels)}"
+    return what
 
 
 def _stamp_from_task_steps(
@@ -824,34 +886,16 @@ def _load_from_log(root: Path) -> ExperimentReplay:
                 data=d,
             )
         elif msg in ("stable_move", "vertical_move"):
-            words = ["Stable move" if msg == "stable_move" else "Vertical move"]
-            if d.get("beam_type") in _BEAM_LABEL:
-                words.append(f"in the {_BEAM_LABEL[d['beam_type']]}")
-            words.append(f"dx={_um(d.get('dx'))} µm, dy={_um(d.get('dy'))} µm")
-            event = ReplayEvent(record.time, EventKind.STAGE, " ".join(words), data=d)
+            summary = _beam_move_summary(msg, d)
+            event = ReplayEvent(record.time, EventKind.STAGE, summary, data=d)
         elif msg == "milling_task":
             event = _milling_event(record, d)
         elif msg == "beam_shift":
-            beam = _BEAM_LABEL.get(d.get("beam_type"), str(d.get("beam_type")))
-            event = ReplayEvent(
-                record.time,
-                EventKind.ALIGNMENT,
-                f"{beam} beam shift dx={_um(d.get('dx'))} µm, dy={_um(d.get('dy'))} µm",
-                data=d,
-            )
+            summary = _beam_shift_summary(d)
+            event = ReplayEvent(record.time, EventKind.ALIGNMENT, summary, data=d)
         elif msg == "measure_coincidence":
-            ok = (
-                "reliable"
-                if d.get("is_reliable")
-                else f"refused ({d.get('refusal_reason')})"
-            )
-            event = ReplayEvent(
-                record.time,
-                EventKind.ALIGNMENT,
-                f"Coincidence measured dx={_um(d.get('dx'))} µm, "
-                f"dy={_um(d.get('dy'))} µm — {ok}",
-                data=d,
-            )
+            summary = _coincidence_summary(d)
+            event = ReplayEvent(record.time, EventKind.ALIGNMENT, summary, data=d)
 
         if event is not None:
             event.item, event.task, event.step = item, task, step
@@ -988,6 +1032,90 @@ def _recorded_image(time: datetime, payload: Dict[str, Any]) -> ReplayEvent:
     )
 
 
+def _failed(payload: Dict[str, Any]) -> str:
+    return f" — failed: {payload['error']}" if payload.get("error") else ""
+
+
+def _move_summary(payload: Dict[str, Any]) -> str:
+    """A stage move, in the words the log's reader uses where it has them."""
+    move = payload.get("move")
+    request = payload.get("request") or {}
+    if move == "move_stage_absolute":
+        text = f"Move stage to {_describe_position(request.get('position') or {})}"
+    elif move == "move_stage_relative":
+        text = f"Move stage by {_describe_position(request.get('position') or {})}"
+    elif move in ("stable_move", "vertical_move"):
+        text = _beam_move_summary(move, request)
+    elif move == "safe_absolute_stage_movement":
+        # the parameter's name differs between the drivers
+        target = request.get("stage_position") or request.get("position") or {}
+        text = f"Move stage safely to {_describe_position(target)}"
+    elif move == "move_to_orientation":
+        text = f"Move to the {request.get('orientation')} orientation"
+    elif move == "move_to_milling_angle":
+        text = f"Move to a milling angle of {_deg(request.get('milling_angle'))}°"
+    elif move == "move_to_device":
+        text = f"Move to the {request.get('device')}"
+        if request.get("orientation"):
+            text += f", in the {request['orientation']} orientation"
+    else:
+        text = f"Stage move ({move})"
+    return text + _failed(payload)
+
+
+def _alignment_summary(payload: Dict[str, Any]) -> str:
+    steps = payload.get("results") or []
+    subsystem = str(payload.get("subsystem") or "?").replace("-", " ")
+    text = (
+        f"{_beam(payload.get('beam_type'))} alignment by {subsystem}, "
+        f"{len(steps)} step{'' if len(steps) == 1 else 's'}"
+    )
+    if steps and isinstance(steps[-1], dict):
+        shift = steps[-1].get("shift") or {}
+        text += f", last shift dx={_shift(shift.get('x'))}, dy={_shift(shift.get('y'))}"
+    validation = payload.get("validation")
+    if isinstance(validation, dict):
+        if validation.get("agreement"):
+            text += " — the methods agree"
+        else:
+            try:
+                apart = f" by {float(validation['max_disagreement_px']):.0f} px"
+            except (KeyError, TypeError, ValueError):
+                apart = ""
+            text += f" — the methods disagree{apart}"
+    if payload.get("aborted"):
+        text += " (stopped)"
+    return text
+
+
+def _recorded_fluorescence(
+    time: datetime, payload: Dict[str, Any], resolver: _ImageResolver
+) -> ReplayEvent:
+    """An FM acquisition as recorded: its file, and when it started."""
+    channels = [
+        c.get("name", "?") for c in payload.get("channels") or [] if isinstance(c, dict)
+    ]
+    planes = len(payload.get("z_positions") or []) or 1
+    what = _fluorescence_what(channels, planes, bool(payload.get("overview")))
+    recorded = payload.get("path")
+    if recorded:
+        what += f" — {_pure_path(recorded).name}"
+    return ReplayEvent(
+        time=_acquisition_time(payload.get("acquired_at")) or time,
+        kind=EventKind.FLUORESCENCE,
+        summary=what,
+        data={
+            "channels": channels,
+            "planes": planes,
+            "overview": payload.get("overview"),
+            "path": recorded,
+        },
+        image_path=resolver.resolve_path(recorded) if recorded else None,
+        saved=bool(recorded),
+        position=payload.get("stage_position"),
+    )
+
+
 def _spot_events(burn: Dict[str, Any], burned: int) -> List[ReplayEvent]:
     """One event per spot burned, placed at when its exposure started.
 
@@ -1027,10 +1155,10 @@ def _load_from_events(root: Path) -> ExperimentReplay:
     human messages and stay in the log, so they are read from there, for the
     span the events cover.
 
-    Only acquisitions through ``acquire.new_image`` are recorded. Live view and
-    the few direct ``acquire_image`` calls -- milling's own final image among
-    them -- are not, so a milling overlay stays drawn until the next recorded
-    full-frame FIB image, where the log would have ended it at the final image.
+    A stage move is one row however many moves it was made of, and shows where
+    it ended; a position read is only the stage track. Live view is not
+    recorded. An FM file the stream did not record is found on disk and placed
+    by its own metadata, as the log's reader places every FM image.
     """
     path = root / EVENTS_FILENAME
     records = list(read_events(path))
@@ -1043,6 +1171,9 @@ def _load_from_events(root: Path) -> ExperimentReplay:
     steps: Dict[Any, Any] = {}  # task id -> the step it is on
     item_types: Dict[str, str] = {}
     mills: Dict[Tuple[Any, Any], ReplayEvent] = {}  # (task id, stage) -> started
+    # FM acquisitions as recorded. They carry their own item and task, so they
+    # are kept out of the stamping by time below.
+    recorded_fm: List[ReplayEvent] = []
     burn: Optional[Dict[str, Any]] = None
     burned = 0
 
@@ -1074,16 +1205,54 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             if isinstance(event.position, dict):
                 track.append((time, event.position))
         elif kind == "stage_position_changed":
+            # A read, not a move: the track the scene's stage position comes
+            # from, as the log's reader treats its read-backs.
             position = payload.get("position")
             if isinstance(position, dict):
                 track.append((time, position))
-                event = ReplayEvent(
-                    time,
-                    EventKind.STAGE,
-                    f"Stage at {_describe_position(position)}",
-                    data=payload,
-                    position=position,
-                )
+        elif kind == "stage_moved":
+            end = payload.get("end") if isinstance(payload.get("end"), dict) else None
+            if end is not None:
+                track.append((time, end))
+            event = ReplayEvent(
+                time,
+                EventKind.STAGE,
+                _move_summary(payload),
+                data=payload,
+                position=end,
+            )
+        elif kind == "beam_shifted":
+            summary = _beam_shift_summary(payload) + _failed(payload)
+            event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)
+        elif kind == "coincidence_measured":
+            summary = _coincidence_summary(payload)
+            event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)
+        elif kind == "alignment":
+            summary = _alignment_summary(payload)
+            event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)
+        elif kind == "autofocus":
+            summary = (
+                f"{_beam(payload.get('beam_type'))} autofocus: working distance "
+                f"{_mm(payload.get('initial_working_distance'))} → "
+                f"{_mm(payload.get('working_distance'))} mm"
+            )
+            event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)
+        elif kind == "fm_image_acquired":
+            fm = _recorded_fluorescence(time, payload, resolver)
+            fm.item, fm.task = item, task
+            fm.step = steps.get(task_id) if task_id is not None else None
+            recorded_fm.append(fm)
+        elif kind == "fm_autofocus":
+            summary = (
+                f"FM autofocus: objective {_um(payload.get('initial_position'))} → "
+                f"{_um(payload.get('position'))} µm"
+            )
+            event = ReplayEvent(time, EventKind.FLUORESCENCE, summary, data=payload)
+        elif kind == "objective_state_changed":
+            state = str(payload.get("state") or "?").lower()
+            event = ReplayEvent(
+                time, EventKind.FLUORESCENCE, f"FM objective {state}", data=payload
+            )
         elif kind == "milling_stage_started":
             stage = payload.get("stage") or {}
             event = ReplayEvent(
@@ -1171,13 +1340,26 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                     )
                 )
 
+    # The files the stream did not record -- an FM image saved outside the
+    # acquisition functions -- are still found, and placed as the log's
+    # reader places them. A file recorded twice shows only for its last write.
+    written: Dict[Path, ReplayEvent] = {}
+    for fm in recorded_fm:
+        if fm.image_path is not None:
+            earlier = written.get(fm.image_path.resolve())
+            if earlier is not None:
+                earlier.image_path = None
+            written[fm.image_path.resolve()] = fm
     for fm_path in find_fluorescence_images(root):
+        if fm_path.resolve() in written:
+            continue
         event = _fluorescence_event(fm_path)
         if event is not None:
             events.append(event)
 
     events.sort(key=lambda e: e.time)
     _stamp_from_task_steps(events, (EventKind.FLUORESCENCE, EventKind.MESSAGE))
+    events = sorted(events + recorded_fm, key=lambda e: e.time)
     for e in events:
         if e.item:
             e.item_type = item_types.get(e.item)

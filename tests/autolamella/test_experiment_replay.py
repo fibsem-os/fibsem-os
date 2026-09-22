@@ -11,7 +11,10 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+from fibsem.applications.autolamella.event_recording import (
+    EVENTS_FILENAME,
+    read_events,
+)
 from fibsem.applications.autolamella.tools.replay import (
     EventKind,
     load_replay,
@@ -580,3 +583,241 @@ def test_a_spot_is_placed_by_the_field_its_burn_recorded(tmp_path):
     replay = load_replay(tmp_path)
     (spot,) = replay.scene(len(replay.events) - 1).spots
     assert spot == pytest.approx((0.25 * 1e-4, 0.0))
+
+
+# ── moves, alignment, focus and FM, as the stream records them ───────────────
+
+
+def test_each_stage_move_is_one_row_where_the_log_has_one_per_call(recorded_twice):
+    """A safe move is up to three absolute moves, and the log has a line for
+    each; the stream records the move once. Both end at the same place."""
+    events, log = recorded_twice
+    moves = [e for _, e in _of(events, EventKind.STAGE)]
+    recorded = [
+        r
+        for r in read_events(events.root / EVENTS_FILENAME)
+        if r["kind"] == "stage_moved"
+    ]
+    assert moves and len(moves) == len(recorded)
+    assert len(moves) < len([e for _, e in _of(log, EventKind.STAGE)])
+    assert all(e.data["move"] for e in moves)
+    assert any(e.position is not None for e in moves)
+    assert events.stage_position_at(events.end) == log.stage_position_at(log.end)
+
+
+def _at(seconds):
+    return f"2026-09-21T14:00:{seconds:02d}.000+10:00"
+
+
+def test_stage_moves_say_what_they_were_and_where_they_ended(tmp_path):
+    end = {"x": 1e-5, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.5}
+    _write_events(
+        tmp_path,
+        _record(
+            _at(0),
+            "stage_moved",
+            {
+                "move": "stable_move",
+                "request": {"dx": 2e-6, "dy": -1e-6, "beam_type": "ELECTRON"},
+                "end": end,
+            },
+        ),
+        _record(
+            _at(1),
+            "stage_moved",
+            {"move": "move_to_orientation", "request": {"orientation": "FIB"}},
+        ),
+        _record(
+            _at(2),
+            "stage_moved",
+            {"move": "move_to_milling_angle", "request": {"milling_angle": 0.2618}},
+        ),
+        _record(
+            _at(3),
+            "stage_moved",
+            {
+                "move": "move_to_device",
+                "request": {"device": "FM", "orientation": None},
+            },
+        ),
+        _record(
+            _at(4),
+            "stage_moved",
+            {
+                "move": "move_to_orientation",
+                "request": {"orientation": "SIDEWAYS"},
+                "error": "ValueError: Orientation SIDEWAYS not supported.",
+            },
+        ),
+    )
+    replay = load_replay(tmp_path)
+    assert [e.summary for e in replay.events] == [
+        "Stable move in the SEM dx=2.0 µm, dy=-1.0 µm",
+        "Move to the FIB orientation",
+        "Move to a milling angle of 15.0°",
+        "Move to the FM",
+        "Move to the SIDEWAYS orientation — failed: "
+        "ValueError: Orientation SIDEWAYS not supported.",
+    ]
+    assert all(e.kind == EventKind.STAGE for e in replay.events)
+    assert replay.events[0].position == end
+    # a move without an end shows the last position known before it
+    assert replay.scene(1).stage_position == end
+
+
+def test_a_position_read_is_the_stage_track_not_a_row(tmp_path):
+    read = {"x": 3e-6, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.0}
+    _write_events(
+        tmp_path,
+        _record(_at(0), "stage_position_changed", {"position": read}),
+        _record(_at(1), "task_started", task="Mill"),
+    )
+    replay = load_replay(tmp_path)
+    (started,) = replay.events
+    assert started.kind == EventKind.TASK
+    assert replay.scene(0).stage_position == read
+
+
+def test_beam_shifts_alignment_focus_and_coincidence_are_alignment_rows(tmp_path):
+    _write_events(
+        tmp_path,
+        _record(_at(0), "beam_shifted", {"dx": 1e-7, "dy": -2e-7, "beam_type": "ION"}),
+        _record(
+            _at(1),
+            "alignment",
+            {
+                "beam_type": "ION",
+                "subsystem": "beam-shift",
+                "results": [
+                    {"shift": {"x": 4e-7, "y": 0.0}},
+                    {"shift": {"x": 1e-7, "y": 0.0}},
+                ],
+                "validation": {"agreement": False, "max_disagreement_px": 6.4},
+                "aborted": False,
+            },
+        ),
+        _record(
+            _at(2),
+            "autofocus",
+            {
+                "beam_type": "ELECTRON",
+                "initial_working_distance": 0.004,
+                "working_distance": 0.00412,
+            },
+        ),
+        _record(
+            _at(3),
+            "coincidence_measured",
+            {
+                "dx": 1e-7,
+                "dy": 3e-6,
+                "is_reliable": False,
+                "refusal_reason": "rival_peak",
+            },
+        ),
+    )
+    replay = load_replay(tmp_path)
+    assert all(e.kind == EventKind.ALIGNMENT for e in replay.events)
+    assert [e.summary for e in replay.events] == [
+        "FIB beam shift dx=100 nm, dy=-200 nm",
+        "FIB alignment by beam shift, 2 steps, last shift dx=100 nm, dy=0 nm"
+        " — the methods disagree by 6 px",
+        "SEM autofocus: working distance 4.000 → 4.120 mm",
+        "Coincidence measured dx=0.1 µm, dy=3.0 µm — refused (rival_peak)",
+    ]
+
+
+def _fm_file(path):
+    from fibsem.fm.structures import FluorescenceImage
+
+    FluorescenceImage.generate_blank_image(
+        resolution=(32, 24), zlevels=2, n_channels=1, random=True
+    ).save(str(path))
+    return path
+
+
+def test_a_recorded_fm_image_is_placed_when_it_started_and_where_its_record_says(
+    tmp_path,
+):
+    (tmp_path / "01-test").mkdir()
+    recorded = _fm_file(tmp_path / "01-test" / "zstack.ome.tiff")
+    unrecorded = _fm_file(tmp_path / "01-test" / "saved-by-hand.ome.tiff")
+    _write_events(
+        tmp_path,
+        _record(
+            _at(30),
+            "fm_image_acquired",
+            {
+                "path": "D:\\old-name\\01-test\\zstack.ome.tiff",
+                "acquired_at": "2026-09-21T14:00:10",
+                "channels": [{"name": "GFP"}],
+                "z_positions": [0.0, 1e-6],
+                "stage_position": {"x": 0.0, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.0},
+            },
+            item="01-test",
+            task="Acquire FM",
+        ),
+    )
+    replay = load_replay(tmp_path)
+    fm = [e for e in replay.events if e.kind == EventKind.FLUORESCENCE]
+    assert sorted(e.image_path.name for e in fm) == [
+        unrecorded.name,
+        recorded.name,
+    ]  # each once: the recorded file is not found again on disk
+    (from_record,) = [e for e in fm if e.image_path == recorded]
+    assert from_record.time == datetime(2026, 9, 21, 14, 0, 10)  # when it started
+    assert (from_record.item, from_record.task) == ("01-test", "Acquire FM")
+    assert from_record.summary == "FM z-stack, 2 planes, GFP — zstack.ome.tiff"
+
+
+def test_an_fm_file_written_twice_shows_only_for_its_last_write(tmp_path):
+    _fm_file(tmp_path / "overview.ome.tiff")
+    overview = {"path": str(tmp_path / "overview.ome.tiff"), "overview": {"rows": 2}}
+    _write_events(
+        tmp_path,
+        _record(_at(0), "fm_image_acquired", overview),
+        _record(_at(9), "fm_image_acquired", overview),
+    )
+    first, last = load_replay(tmp_path).events
+    assert first.image_path is None and last.image_path is not None
+    assert last.summary == "FM overview — overview.ome.tiff"
+
+
+def test_fm_autofocus_and_the_objective_are_fm_rows(tmp_path):
+    _write_events(
+        tmp_path,
+        _record(
+            _at(0), "objective_state_changed", {"state": "Inserted", "position": 0.0}
+        ),
+        _record(
+            _at(1), "fm_autofocus", {"initial_position": 1.2e-3, "position": 1.2015e-3}
+        ),
+    )
+    replay = load_replay(tmp_path)
+    assert all(e.kind == EventKind.FLUORESCENCE for e in replay.events)
+    assert [e.summary for e in replay.events] == [
+        "FM objective inserted",
+        "FM autofocus: objective 1200.0 → 1201.5 µm",
+    ]
+
+
+def test_a_recorded_fm_image_outside_a_task_is_not_given_one_by_time(tmp_path):
+    """A run without the lifecycle hook records no task end, so a task's steps
+    never close. The file scan places FM images by the step they fall in; a
+    recorded image says for itself that it belonged to no task."""
+    _fm_file(tmp_path / "later.ome.tiff")
+    _write_events(
+        tmp_path,
+        _record(_at(0), "task_step", {"step": "MILL"}, item="01", task="Mill"),
+        _record(
+            _at(5),
+            "fm_image_acquired",
+            {
+                "path": str(tmp_path / "later.ome.tiff"),
+                "acquired_at": "2026-09-21T14:00:05",
+            },
+        ),
+    )
+    _, fm = load_replay(tmp_path).events
+    assert fm.kind == EventKind.FLUORESCENCE
+    assert (fm.item, fm.task) == (None, None)
