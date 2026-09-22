@@ -251,11 +251,6 @@ class GridTaskManager(BaseTaskManager):
             self._run_items()
         finally:
             self.experiment.decided.disconnect(self._on_decided)
-            # A result nobody looked at is closed; a value stays open for the
-            # task that will use it, whichever run that is.
-            self.experiment.expire_all_open(
-                "the run ended before anyone looked", results_only=True
-            )
 
     def _requirements_of(self, task_name: str) -> List[str]:
         return self._requirements(task_name)

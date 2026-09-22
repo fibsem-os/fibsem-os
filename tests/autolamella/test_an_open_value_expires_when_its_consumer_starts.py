@@ -2,10 +2,11 @@
 
 Nobody was asked, so nobody confirms it: the value is live from the moment
 it is proposed and can be corrected in the Review tab until then. When its
-consumer starts -- or the run ends with nothing to consume it -- it is
-recorded ``Unreviewed``: used as it stood, never agreement. A question a
-task is parked on, and a supervised task's result the run is holding for,
-are not open and are never expired.
+consumer starts it is recorded ``Unreviewed``: used as it stood, never
+agreement. A run's end closes nothing: a result is consumed by nothing, so
+it stays open until a person looks. A question a task is parked on, and a
+supervised task's result the run is holding for, are not open and are never
+expired.
 """
 
 from pathlib import Path
@@ -89,7 +90,7 @@ def test_a_result_the_run_is_holding_for_is_not_expired(experiment):
     )
     proposal = lamella.record_proposal("Trench", _proposal())
     assert [p for _i, _t, p in experiment.pending_proposals()] == [proposal]
-    assert experiment.expire_all_open("the run ended") == 0
+    assert experiment.expire_all_open("x") == 0
     assert proposal.pending
 
 
@@ -188,11 +189,12 @@ def test_a_task_downstream_through_another_consumes_it_too(tmp_path):
     assert m._upstream_of("Polishing") == ["Undercut", "Trench"]
 
 
-def test_when_the_run_ends_a_result_is_closed_but_a_value_stays_open(tmp_path):
-    """Nothing consumes a result, so a run's end is the last chance to close
-    it. A value is for the task that uses it, whichever run that is: Setup
-    run on its own leaves its point open to correct before Rough Milling is
-    run, which is the point of running it on its own."""
+def test_when_the_run_ends_a_result_and_a_value_both_stay_open(tmp_path):
+    """Nothing consumes a result and nothing waits on it, so it is open until
+    a person looks, however many runs end. A value is for the task that uses
+    it, whichever run that is: Setup run on its own leaves its point open to
+    correct before Rough Milling is run, which is the point of running it on
+    its own."""
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
@@ -209,12 +211,13 @@ def test_when_the_run_ends_a_result_is_closed_but_a_value_stays_open(tmp_path):
     run_queue_with(m, on_task=on_task)
 
     point, result = lamella.current_proposals("Trench")
-    assert result.kind == TASK_RESULT and result.unreviewed
-    assert "the run ended" in result.current.reason
+    assert result.kind == TASK_RESULT and result.pending, "still open"
     assert point.kind == POINT_OF_INTEREST and point.pending, "still open"
-    assert experiment._is_open(lamella, "Trench", point)
+    for proposal in (point, result):
+        assert experiment._is_open(lamella, "Trench", proposal)
+    assert [p for _i, _t, p in experiment.proposals_to_check()] == [point, result]
 
-    # A correction now is a plain confirm with values, as before the run ended.
+    # A correction now is a plain confirm with values, as during the run.
     moved = experiment.decide(
         lamella.id,
         "Trench",

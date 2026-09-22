@@ -133,6 +133,9 @@ correctness work landed in correlation and in what the experiment record remembe
   tab prompt asks exactly as before.
 - **A result an agent looked at is still yours to check.** The Review tab's "to
   check" group clears when a person acknowledges, not when a connected agent does.
+- **A run's end closes nothing in the Review tab.** An automated task's result used
+  to be recorded as unreviewed when the run ended; now it stays open in "to check"
+  until you look, the same as its value does until a later task uses it.
 - **For task authors: a task proposes through a `Proposer`.** A task type carries one
   `proposer` (kind, name, version, `propose(task)`); the base records the result part
   (task, status, times, final images) for every kind and the proposer adds the
