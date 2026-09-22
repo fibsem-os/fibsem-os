@@ -315,7 +315,7 @@ def scipy_interpolation(
     method: str = "linear",
 ) -> np.ndarray:
     """
-    Fast interpolation of a 3D image array along the z-axis using scipy's zoom function.
+    Interpolate a 3D image array along the z-axis.
 
     Parameters:
     -----------
@@ -332,30 +332,161 @@ def scipy_interpolation(
     --------
     ndarray
         Interpolated 3D image with adjusted z-axis resolution
+
+    The name is historical: this used to be scipy's ``zoom``, which is a general
+    n-dimensional resampler and walks every axis of the volume even though only
+    z changes here (9 s per 33x2048x2048 channel at order 1, 76 s at order 3).
+    Only z is resampled, so each output slice is a weighted blend of a few
+    source slices, done one slice at a time below in a fraction of the time.
+    The slice count, the sample grid and the rounding are zoom's own, so the
+    linear result is identical to zoom's to the last bit. The cubic result is
+    too on real data; on synthetic data with exact half-way values it can
+    differ by one grey level, because the four taps are summed in a different
+    order and a tie lands on the other side. :func:`scipy_zoom_z` is the
+    reference, kept for the tests to compare against and for a one-line
+    rollback.
     """
-    # Calculate the scaling factor
-    scale_factor = original_z_size / target_z_size
-
-    # Create zoom factors for each dimension
-    # Only scale the z-axis (first dimension)
-    zoom_factors = (scale_factor, 1, 1)
-
-    # Determine the interpolation order
     if method not in INTERPOLATION_METHODS:
         method = "linear"
-    order = 1 if method == "linear" else 3
+    new_nz = _zoom_slice_count(image_3d.shape[0], original_z_size / target_z_size)
+    if method == "linear":
+        return _linear_z_resample(image_3d, new_nz)
+    return _cubic_z_resample(image_3d, new_nz)
 
-    # Perform the interpolation using scipy's zoom function
-    # mode='reflect' to handle edge cases
-    # prefilter=True for better quality
-    interpolated = ndimage.zoom(
-        image_3d, zoom_factors, order=order, mode="reflect", prefilter=True
+
+def scipy_zoom_z(
+    image_3d: np.ndarray,
+    original_z_size: float,
+    target_z_size: float,
+    method: str = "linear",
+) -> np.ndarray:
+    """The reference: scipy's ``zoom`` along z only, as the production path was
+    until the slice blends replaced it. Not used by the application; the tests
+    hold the blends to this to the last bit."""
+    order = 1 if method == "linear" else 3
+    return ndimage.zoom(
+        image_3d,
+        (original_z_size / target_z_size, 1, 1),
+        order=order,
+        mode="reflect",
+        prefilter=True,
     )
 
-    return interpolated
+
+def _zoom_slice_count(nz: int, scale_factor: float) -> int:
+    """How many slices scipy's ``zoom`` makes of ``nz`` at ``scale_factor``."""
+    return int(round(nz * scale_factor))
+
+
+def _zoom_grid(nz: int, new_nz: int) -> np.ndarray:
+    """Where scipy's ``zoom`` samples the source for each output slice:
+    ``k * (nz - 1) / (new_nz - 1)``, the end slices landing on the end slices."""
+    return np.linspace(0.0, nz - 1, new_nz)
+
+
+def _store_slice(out: np.ndarray, k: int, blend: np.ndarray) -> None:
+    """``out[k] = blend`` with zoom's conversion for an integer ``out``: rounded
+    half away from zero, in double precision, and clamped to the dtype's range
+    (a cubic can overshoot the source values). Round-to-even in float32
+    differed from zoom by one grey level on a few hundred voxels per frame."""
+    if np.issubdtype(out.dtype, np.unsignedinteger):
+        blend += 0.5
+        np.floor(blend, out=blend)
+    elif np.issubdtype(out.dtype, np.signedinteger):
+        blend[:] = np.where(blend >= 0, np.floor(blend + 0.5), np.ceil(blend - 0.5))
+    if np.issubdtype(out.dtype, np.integer):
+        info = np.iinfo(out.dtype)
+        np.clip(blend, info.min, info.max, out=blend)
+    out[k] = blend
+
+
+def _linear_z_resample(image_3d: np.ndarray, new_nz: int) -> np.ndarray:
+    """``image_3d`` (ZYX) resampled to ``new_nz`` slices, linearly along z.
+
+    Each output slice is the blend of the two source slices around it, one
+    slice at a time, so the working memory is two float64 frames rather than
+    a second volume. At order 1 zoom's spline prefilter is the identity and its
+    boundary mode is never reached, so this is all zoom does.
+    """
+    nz = image_3d.shape[0]
+    if new_nz < 1:
+        return image_3d[:0]
+    if nz == 1 or new_nz == 1:
+        # nothing to blend between (or a single output plane, which zoom takes
+        # from the start of the stack): the first slice, repeated
+        return np.repeat(image_3d[:1], new_nz, axis=0)
+
+    source = _zoom_grid(nz, new_nz)
+    below = np.floor(source).astype(int)
+    above = np.minimum(below + 1, nz - 1)
+    weight = source - below
+
+    out = np.empty((new_nz,) + image_3d.shape[1:], dtype=image_3d.dtype)
+    # two frames, reused: the blend is memory-bound, so no per-slice temporaries
+    blend = np.empty(image_3d.shape[1:], dtype=np.float64)
+    other = np.empty_like(blend)
+    for k in range(new_nz):
+        if weight[k] == 0.0:
+            out[k] = image_3d[below[k]]  # an exact source slice, untouched
+            continue
+        np.multiply(image_3d[below[k]], 1.0 - weight[k], out=blend, casting="unsafe")
+        np.multiply(image_3d[above[k]], weight[k], out=other, casting="unsafe")
+        blend += other
+        _store_slice(out, k, blend)
+    return out
+
+
+def _cubic_z_resample(image_3d: np.ndarray, new_nz: int) -> np.ndarray:
+    """``image_3d`` (ZYX) resampled to ``new_nz`` slices with a cubic B-spline
+    along z, which is what zoom at order 3 computes.
+
+    The spline prefilter runs along z only (zoom's runs along every axis, but on
+    an axis that is not resampled it is undone exactly by the evaluation at the
+    knots). Each output slice is then a four-tap blend of coefficient slices,
+    with zoom's ``reflect`` boundary for the taps past either end. The
+    coefficients are one float64 volume the size of the channel; the blends
+    reuse one frame.
+    """
+    nz = image_3d.shape[0]
+    if new_nz < 1:
+        return image_3d[:0]
+    if nz == 1 or new_nz == 1:
+        return np.repeat(image_3d[:1], new_nz, axis=0)
+
+    coefficients = ndimage.spline_filter1d(
+        image_3d, order=3, axis=0, mode="reflect", output=np.float64
+    )
+    source = _zoom_grid(nz, new_nz)
+    out = np.empty((new_nz,) + image_3d.shape[1:], dtype=image_3d.dtype)
+    blend = np.empty(image_3d.shape[1:], dtype=np.float64)
+    for k in range(new_nz):
+        base = int(np.floor(source[k]))
+        t = source[k] - base
+        weights = (
+            (1.0 - t) ** 3 / 6.0,
+            (3.0 * t**3 - 6.0 * t**2 + 4.0) / 6.0,
+            (-3.0 * t**3 + 3.0 * t**2 + 3.0 * t + 1.0) / 6.0,
+            t**3 / 6.0,
+        )
+        blend[:] = 0.0
+        for tap, weight in enumerate(weights):
+            index = base - 1 + tap
+            if index < 0:  # 'reflect': -1 -> 0, -2 -> 1
+                index = -index - 1
+            elif index >= nz:  # nz -> nz - 1, nz + 1 -> nz - 2
+                index = 2 * nz - index - 1
+            blend += weight * coefficients[index]
+        _store_slice(out, k, blend)
+    return out
 
 
 #### multi-channel interpolation ####
+
+# Channels interpolate side by side; the work is memory-bound numpy, which
+# releases the GIL, and four threads take the METEOR stack from 3.0 s to 1.2 s
+# (linear). A cubic channel holds a float64 coefficient volume, ~1 GB for a
+# 33x2048x2048 channel, so fewer of those may be in flight at once.
+_CHANNEL_THREADS = {"linear": 4, "cubic": 2}
 
 
 def multi_channel_interpolation(
@@ -373,31 +504,45 @@ def multi_channel_interpolation(
         pixelsize_out: desired pixel size in z-axis
         method: one of ``INTERPOLATION_METHODS``
         progress_callback: optional ``fn(channels_done, channels_total)`` invoked
-            before the first channel and after each one. Kept UI-agnostic (a plain
-            callable, not a Qt object) so the algorithm stays testable; a worker
-            passes a callback that emits its own progress signal.
+            before the first channel and as each one completes, on the calling
+            thread. Kept UI-agnostic (a plain callable, not a Qt object) so the
+            algorithm stays testable; a worker passes a callback that emits its
+            own progress signal.
 
     Returns:
         interpolated: 4D numpy array (CZYX) with adjusted z-axis resolution
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     n = image.shape[0]
     if progress_callback is not None:
         progress_callback(0, n)
+    if n == 0:
+        return np.empty((0,) + image.shape[1:], dtype=image.dtype)
 
-    ch_interpolated = []
-    for i, channel in enumerate(image):
+    def one(i: int) -> np.ndarray:
         logging.info(f"Interpolating channel {i + 1}/{n}")
-        ch_interpolated.append(
-            interpolate_z_stack(
-                image=channel,
-                pixelsize_in=pixelsize_in,
-                pixelsize_out=pixelsize_out,
-                method=method,
-            )
+        return interpolate_z_stack(
+            image=image[i],
+            pixelsize_in=pixelsize_in,
+            pixelsize_out=pixelsize_out,
+            method=method,
         )
-        if progress_callback is not None:
-            progress_callback(i + 1, n)
-    return np.array(ch_interpolated)
+
+    # Filled channel by channel as each completes: gathering the channels in a
+    # list and stacking them at the end held two copies of the volume at once.
+    interpolated = None
+    workers = min(n, _CHANNEL_THREADS.get(method, 1))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(one, i): i for i in range(n)}
+        for done, future in enumerate(as_completed(futures), start=1):
+            result = future.result()
+            if interpolated is None:
+                interpolated = np.empty((n,) + result.shape, dtype=result.dtype)
+            interpolated[futures[future]] = result
+            if progress_callback is not None:
+                progress_callback(done, n)
+    return interpolated
 
 
 def interpolate_fm_volume(
