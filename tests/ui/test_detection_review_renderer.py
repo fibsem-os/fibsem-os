@@ -280,7 +280,7 @@ def test_the_line_says_the_task_is_parked_rather_than_nothing_is_held(tab, exper
 
     line = renderer.line.text()
 
-    assert "parked on this" in line
+    assert "waiting on this" in line
     assert "nothing is held" not in line
 
 

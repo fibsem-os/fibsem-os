@@ -240,8 +240,10 @@ class BaseTaskManager:
                 self.parent_ui,
                 message,
                 workflow_info=note
-                or f"Waiting on {n} decision(s) before the next task can run.",
-                status_bar=f"Parked on {n} decision(s): {hold.releases}.",
+                or f"Waiting on {n} decision{'s' if n != 1 else ''} before the "
+                "next task can run.",
+                status_bar=f"Waiting on {n} decision{'s' if n != 1 else ''}: "
+                f"{hold.releases}.",
                 check_abort=False,
             )
         else:

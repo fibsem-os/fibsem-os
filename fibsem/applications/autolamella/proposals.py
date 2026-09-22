@@ -61,6 +61,7 @@ __all__ = [
     "record",
     "current_proposal",
     "current_proposals",
+    "kind_label",
     "ValueRefused",
 ]
 
@@ -180,9 +181,21 @@ class ProposalKind:
 
     name: str
     values: Tuple[str, ...]  # the value names a proposal of this kind may carry
+    # How the kind is named to a person: on a Review tab row, in a sentence.
+    label: str = ""
 
 
 PROPOSAL_KINDS: Dict[str, ProposalKind] = {}
+
+
+def kind_label(kind: str) -> str:
+    """The kind's name for a person: "Point of interest", "Position". A kind
+    this build has not registered reads as its name with the underscores
+    out, so a record from a newer build still says something."""
+    registered = PROPOSAL_KINDS.get(kind)
+    if registered is not None and registered.label:
+        return registered.label
+    return kind.replace("_", " ").capitalize()
 
 
 def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
@@ -190,11 +203,21 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
     return kind
 
 
-register_proposal_kind(ProposalKind(name=POINT_OF_INTEREST, values=("poi",)))
-register_proposal_kind(ProposalKind(name=OVERVIEW_POSITIONS, values=("positions",)))
-register_proposal_kind(ProposalKind(name=DETECTION, values=("features",)))
-register_proposal_kind(ProposalKind(name=STATE, values=("stage_position",)))
-register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
+register_proposal_kind(
+    ProposalKind(name=POINT_OF_INTEREST, values=("poi",), label="Point of interest")
+)
+register_proposal_kind(
+    ProposalKind(
+        name=OVERVIEW_POSITIONS, values=("positions",), label="Lamella positions"
+    )
+)
+register_proposal_kind(
+    ProposalKind(name=DETECTION, values=("features",), label="Detection")
+)
+register_proposal_kind(
+    ProposalKind(name=STATE, values=("stage_position",), label="Position")
+)
+register_proposal_kind(ProposalKind(name=TASK_RESULT, values=(), label="Result"))
 
 
 # ---------------------------------------------------------------------------

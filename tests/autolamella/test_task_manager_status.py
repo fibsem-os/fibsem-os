@@ -807,7 +807,7 @@ def test_a_parked_run_holds_the_window_and_says_who_releases_it(tmp_path):
     assert parked.releases == "decide L1 and L2 in the Review tab"
     assert released is None and ui.hold is None
     bars = [e.status_bar for e in ui.workflow_status_signal.emitted if e.status_bar]
-    assert bars[0] == "Parked on 2 decision(s): decide L1 and L2 in the Review tab."
+    assert bars[0] == "Waiting on 2 decisions: decide L1 and L2 in the Review tab."
     assert bars[-1].startswith("Workflow stalled: Timed out after")
     assert "waiting for a review: 2 decision(s) still pending." in bars[-1]
     assert bars[-1].endswith("Decide in the Review tab, then Run again.")
