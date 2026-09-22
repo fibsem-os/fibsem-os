@@ -13,6 +13,7 @@ modules in tests/fm/_odemis_stubs.py, the microscopes are created without
 __init__, and the stage is a recorded in-memory position.
 """
 
+import inspect
 import os
 import sys
 
@@ -21,6 +22,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition
 from tests.fm import _odemis_stubs as stubs
@@ -105,3 +107,12 @@ def test_odemis_moves_the_stage_as_thermo_does(
     thermo.vertical_move(dy=5e-6, beam_type=beam_type, relaxation=relaxation)
 
     assert recorded_moves(odemis) == recorded_moves(thermo)
+
+
+def test_odemis_takes_every_parameter_the_base_declares(odemis_microscope_cls):
+    """The same check as test_vertical_move_views.py makes of the other backends."""
+    base = inspect.signature(FibsemMicroscope.vertical_move).parameters
+    override = inspect.signature(odemis_microscope_cls.vertical_move).parameters
+    for name, param in base.items():
+        assert name in override, f"OdemisThermoMicroscope.vertical_move has no {name}"
+        assert override[name].default == param.default, name

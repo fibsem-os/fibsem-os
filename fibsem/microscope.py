@@ -288,7 +288,11 @@ class FibsemMicroscope(ABC):
 
     @abstractmethod
     def vertical_move(
-        self, dy: float, dx: float = 0, beam_type: BeamType = BeamType.ION
+        self,
+        dy: float,
+        dx: float = 0,
+        beam_type: BeamType = BeamType.ION,
+        relaxation: float = 1.0,
     ) -> FibsemStagePosition:
         """Restore coincidence from an offset measured in one of the beam views.
 
@@ -298,6 +302,10 @@ class FibsemMicroscope(ABC):
             beam_type: the view the offset was measured in. ION (the default, and
                 the historical behaviour) corrects a feature already centred in the
                 SEM; ELECTRON corrects one already centred in the FIB.
+            relaxation: under-relaxation of the correction. 1.0 applies the
+                geometrically exact move; below 1.0 deliberately undershoots it.
+                Every backend must accept it, because ensure_coincident passes it;
+                a backend may ignore it (Tescan does).
 
         Raises:
             NotImplementedError: if this backend cannot correct from that view.
