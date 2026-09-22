@@ -2,10 +2,14 @@
 
 Each test drives the real backend methods on Demo, with a real ``EventRecorder``
 writing a real ``events.jsonl``, and reads back what it wrote -- except the TESCAN
-one, which has no simulator and runs its real move methods on a stubbed connection.
+one, which has no simulator and runs its real move methods on a stubbed connection,
+and the last, which checks that every backend is decorated at all.
 """
 
+import importlib
+import inspect
 import os
+import pkgutil
 import threading
 from types import SimpleNamespace
 
@@ -13,6 +17,7 @@ import numpy as np
 import pytest
 
 import fibsem.config as cfg
+import fibsem.microscopes
 from fibsem import microscope as microscope_module
 from fibsem import utils
 from fibsem.applications.autolamella.event_recording import (
@@ -20,6 +25,12 @@ from fibsem.applications.autolamella.event_recording import (
     EventRecorder,
     read_events,
 )
+from fibsem.microscope import (
+    FibsemMicroscope,
+    _records_beam_shift,
+    _records_stage_move,
+)
+from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition
 
@@ -223,3 +234,64 @@ def test_a_tescan_stable_move_is_one_event_not_three():
     assert [(kind, payload["move"]) for kind, payload in events] == [
         ("stage_moved", "stable_move")
     ]
+
+
+# ── every backend records ─────────────────────────────────────────────────────
+#
+# Nothing fails when a backend's move is not decorated: its moves are just missing
+# from events.jsonl. So a new backend is found here by itself, not by a list
+# someone has to remember to extend.
+
+
+def _backends():
+    """Every concrete microscope class in ``fibsem.microscopes``."""
+    for module in pkgutil.iter_modules(fibsem.microscopes.__path__):
+        try:
+            importlib.import_module(f"fibsem.microscopes.{module.name}")
+        except ImportError:  # a vendor SDK this machine lacks (odemis)
+            continue
+    found, pending = set(), [FibsemMicroscope]
+    while pending:
+        for cls in pending.pop().__subclasses__():
+            pending.append(cls)
+            if cls.__module__.startswith("fibsem.microscopes."):
+                found.add(cls)
+    return sorted(
+        (cls for cls in found if not inspect.isabstract(cls)),
+        key=lambda cls: cls.__name__,
+    )
+
+
+BACKENDS = _backends()
+
+# Every wrapper a decorator makes runs the same code.
+_WRAPPER_CODE = {
+    decorator: decorator(lambda self: None).__code__
+    for decorator in (_records_stage_move, _records_beam_shift)
+}
+
+
+def _records(method, decorator) -> bool:
+    return getattr(method, "__code__", None) is _WRAPPER_CODE[decorator]
+
+
+def test_every_backend_is_found():
+    names = {cls.__name__ for cls in BACKENDS}
+    assert {"ThermoMicroscope", "TescanMicroscope", "DemoMicroscope"} <= names
+
+
+@pytest.mark.parametrize("backend", BACKENDS, ids=lambda cls: cls.__name__)
+def test_every_backend_records_its_moves_and_beam_shifts(backend):
+    # The moves every other move is made of, so none goes unrecorded.
+    for name in ("move_stage_absolute", "move_stage_relative"):
+        assert _records(getattr(backend, name), _records_stage_move), name
+    assert _records(backend.beam_shift, _records_beam_shift)
+
+    # A composite move is recorded as itself: decorated, or handed to
+    # ThermoMicroscope's, which is (Demo and Odemis do this).
+    for name in ("stable_move", "vertical_move", "safe_absolute_stage_movement"):
+        method = getattr(backend, name)
+        hands_on = "ThermoMicroscope" in method.__code__.co_names and _records(
+            getattr(ThermoMicroscope, name), _records_stage_move
+        )
+        assert _records(method, _records_stage_move) or hands_on, name
