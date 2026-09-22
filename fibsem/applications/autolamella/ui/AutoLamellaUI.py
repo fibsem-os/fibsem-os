@@ -1566,13 +1566,28 @@ class AutoLamellaUI(QMainWindow):
         outcome: "Future",
     ) -> None:
         """GUI thread. Complete ``outcome`` with the patch result."""
-        try:
-            result = self._apply_task_config_patch_for_agent(
-                level, item_name, task_name, patch, version
+        from fibsem.acting import AGENT, acting
+        from fibsem.applications.autolamella.ui.edit_recording import (
+            PendingEdits,
+            touch_agent_patch,
+        )
+
+        # The agent's edit, applied here on its behalf: the record says who
+        # (FIB-1062) and what changed, before and after (FIB-1034).
+        edits = PendingEdits(lambda: self.microscope, via="agent patch")
+        with acting(AGENT):
+            touch_agent_patch(
+                edits, self.experiment, level, item_name, task_name, patch
             )
-        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-            outcome.set_exception(exc)
-            return
+            try:
+                result = self._apply_task_config_patch_for_agent(
+                    level, item_name, task_name, patch, version
+                )
+            except Exception as exc:  # noqa: BLE001 - the requester owns the failure
+                outcome.set_exception(exc)
+                return
+            finally:
+                edits.flush()
         outcome.set_result(result)
 
     def _apply_task_config_patch_for_agent(

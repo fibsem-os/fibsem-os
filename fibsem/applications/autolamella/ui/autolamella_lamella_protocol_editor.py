@@ -35,6 +35,7 @@ from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_tas
 from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
+from fibsem.applications.autolamella.ui.edit_recording import PendingEdits
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
@@ -203,6 +204,12 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.timeout.connect(self.flush_pending_save)
+        # Each edit, for the experiment's record (FIB-1034).
+        self._edits = PendingEdits(
+            lambda: getattr(self.parent_widget, "microscope", None),
+            via="lamella editor",
+            parent=self,
+        )
 
         if self.parent_widget.microscope is None:
             return
@@ -897,7 +904,14 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             return
         key = getattr(self, "_current_milling_key", None)
         if key:
-            selected_lamella.task_config[selected_task_name].milling[key] = config
+            milling = selected_lamella.task_config[selected_task_name].milling
+            self._edits.touch(
+                selected_lamella,
+                selected_task_name,
+                f"milling.{key}",
+                lambda: milling.get(key),
+            )
+            milling[key] = config
             logging.info(
                 f"Updated {selected_lamella.name}, {selected_task_name} Task, milling key '{key}'"
             )
@@ -923,7 +937,14 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # TODO: we should integrate both milling and parameter updates into a single config update method
 
         # update parameters in the task config
-        setattr(selected_lamella.task_config[selected_task_name], field_name, new_value)
+        task_config = selected_lamella.task_config[selected_task_name]
+        self._edits.touch(
+            selected_lamella,
+            selected_task_name,
+            f"parameters.{field_name}",
+            lambda: getattr(task_config, field_name, None),
+        )
+        setattr(task_config, field_name, new_value)
 
         self._save_experiment()
 
@@ -973,6 +994,12 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             return
         task_config = selected_lamella.task_config.get(selected_task_name)
         if isinstance(task_config, SpotBurnFiducialTaskConfig):
+            self._edits.touch(
+                selected_lamella,
+                selected_task_name,
+                "parameters.coordinates",
+                lambda: task_config.coordinates,
+            )
             task_config.coordinates = list(settings.coordinates)
         logging.info(
             f"Updated {selected_lamella.name}, {selected_task_name} Spot Burn Coordinates"
@@ -986,6 +1013,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             return
 
         logging.info(f"Updated {selected_lamella.name}, Point of Interest: {point}")
+        self._edits.touch(selected_lamella, None, "poi", lambda: selected_lamella.poi)
+        self._edits.touch_patterns(selected_lamella, via="point of interest")
 
         # update point of interest in the task config
         selected_lamella.poi = point
@@ -1078,9 +1107,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _on_alignment_area_updated(self, rect: FibsemRectangle):
         """Callback when the user drags/resizes the alignment area."""
-        if self._selected_lamella is None or not self.alignment_area_editable:
+        lamella = self._selected_lamella
+        if lamella is None or not self.alignment_area_editable:
             return
-        self._selected_lamella.alignment_area = rect
+        self._edits.touch(
+            lamella, None, "alignment_area", lambda: lamella.alignment_area
+        )
+        lamella.alignment_area = rect
         self._save_experiment()
 
     def _add_poi_context_menu_action(
@@ -1278,6 +1311,19 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if not selected_lamella_names or not selected_tasks:
             return
 
+        via = "apply to other lamellae"
+        targets = [p for p in experiment.positions if p.name in selected_lamella_names]
+        self._edits.touch_task_configs(targets, selected_tasks, via=via)
+        if update_base_protocol:
+            protocol = experiment.task_protocol.task_config
+            for task in selected_tasks:
+                self._edits.touch(
+                    None,
+                    task,
+                    "protocol.task_config",
+                    lambda t=task: protocol.get(t),
+                    via,
+                )
         # Apply configs via experiment method
         updated_count = experiment.apply_lamella_config(
             lamella_names=selected_lamella_names,
@@ -1357,6 +1403,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         is pending, so callers do not have to know whether there is.
         """
         self._save_timer.stop()
+        self._edits.flush()
         experiment, self._pending_save_experiment = self._pending_save_experiment, None
         if experiment is not None:
             experiment.save()

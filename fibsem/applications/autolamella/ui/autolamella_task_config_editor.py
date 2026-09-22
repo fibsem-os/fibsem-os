@@ -31,6 +31,7 @@ from fibsem.applications.autolamella.ui.autolamella_global_task_editor_dialog im
 from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
+from fibsem.applications.autolamella.ui.edit_recording import PendingEdits
 from fibsem.applications.autolamella.ui.grid_protocol_widget import (
     GridProtocolWidget,
 )
@@ -309,6 +310,12 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
     def __init__(self, parent: "AutoLamellaUI"):
         super().__init__(parent)
         self.parent_widget = parent
+        # Each edit, for the experiment's record (FIB-1034).
+        self._edits = PendingEdits(
+            lambda: getattr(self.parent_widget, "microscope", None),
+            via="protocol editor",
+            parent=self,
+        )
         self.setStyleSheet(stylesheets.NAPARI_STYLE)
 
         self.milling_task_editor: Optional[MillingTaskViewerWidget] = None
@@ -702,11 +709,14 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         )
 
         # update parameters in the task config
-        setattr(
-            self.experiment.task_protocol.task_config[selected_task_name],
-            field_name,
-            new_value,
+        task_config = self.experiment.task_protocol.task_config[selected_task_name]
+        self._edits.touch(
+            None,
+            selected_task_name,
+            f"protocol.parameters.{field_name}",
+            lambda: getattr(task_config, field_name, None),
         )
+        setattr(task_config, field_name, new_value)
 
         # save the experiment
         self._save_experiment()
@@ -1059,6 +1069,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         if reply == QMessageBox.Yes:
             # Perform the sync (from base protocol to all lamella)
             all_lamella_names = [p.name for p in self.experiment.positions]
+            self._edits.touch_task_configs(
+                self.experiment.positions, [selected_task_name], via="sync to lamellae"
+            )
             updated_count = self.experiment.apply_lamella_config(
                 lamella_names=all_lamella_names,
                 task_names=[selected_task_name],

@@ -26,9 +26,10 @@ _actor: "ContextVar[Optional[str]]" = ContextVar("fibsem_actor", default=None)
 
 
 @contextmanager
-def acting(actor: str) -> Iterator[None]:
+def acting(actor: Optional[str]) -> Iterator[None]:
     """Mark what runs inside this block, in this thread of control, as *actor*'s.
 
+    None clears the mark: for recording, later, something done unmarked.
     Also a decorator: ``@acting(TASK)`` marks every call of the function.
     """
     token = _actor.set(actor)
