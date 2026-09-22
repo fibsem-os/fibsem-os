@@ -1,7 +1,7 @@
 """Standalone test for FibsemImageCanvas modifier-aware mouse signals.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_canvas_modifiers.py
+    python fibsem/ui/widgets/tests/demo_canvas_modifiers.py
 
 Click / double-click / right-click / scroll on the image while holding
 Alt / Shift / Ctrl and watch each event — with its modifier tuple — appear in
@@ -16,6 +16,7 @@ The "legacy 2-arg slot" counter is connected to ``canvas_clicked`` with a
 2-argument slot; it proves the widening stays backward-compatible (PyQt5
 truncates the extra ``modifiers`` argument for slots that don't want it).
 """
+
 import sys
 
 from PyQt5.QtCore import Qt

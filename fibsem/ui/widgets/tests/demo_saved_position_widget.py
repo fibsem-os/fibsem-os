@@ -1,4 +1,5 @@
 """Standalone test script for SavedPositionListWidget — no hardware required."""
+
 import sys
 
 from PyQt5.QtWidgets import (
@@ -14,7 +15,9 @@ from fibsem.structures import FibsemStagePosition
 from fibsem.ui.widgets.saved_position_widget import SavedPositionListWidget
 
 
-def _make_position(name: str, x: float, y: float, z: float, r: float = 0.0, t: float = 0.0) -> FibsemStagePosition:
+def _make_position(
+    name: str, x: float, y: float, z: float, r: float = 0.0, t: float = 0.0
+) -> FibsemStagePosition:
     pos = FibsemStagePosition(x=x, y=y, z=z, r=r, t=t, coordinate_system="RAW")
     pos.name = name
     return pos
@@ -84,6 +87,7 @@ class TestWindow(QWidget):
     def _add_mock(self) -> None:
         global _counter
         import random
+
         pos = _make_position(
             name=f"Position {_counter:02d}",
             x=random.uniform(-0.01, 0.01),

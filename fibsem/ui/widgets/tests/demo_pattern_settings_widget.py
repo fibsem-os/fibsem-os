@@ -1,8 +1,9 @@
 """Standalone test script for FibsemPatternSettingsWidget.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_pattern_settings_widget.py
+    python fibsem/ui/widgets/tests/demo_pattern_settings_widget.py
 """
+
 import sys
 
 from PyQt5.QtWidgets import (
