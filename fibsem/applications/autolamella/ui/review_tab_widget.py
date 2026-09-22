@@ -256,19 +256,22 @@ class ReviewRenderer(QWidget):
 def decided_proposals(experiment: Experiment) -> List[tuple]:
     """Every decided proposal as (item, task_name, proposal, superseded),
     newest decision first: the other half of the inbox, derived the same way.
-    ``superseded`` marks one that is not the task's current proposal: a later
-    one -- a re-run, or the run's own result after a question it asked --
-    replaced it. A current proposal still to check is not here; it has its
-    own group."""
+    ``superseded`` marks one a later proposal of the same kind replaced -- a
+    re-run. A question a run asked is not replaced by the run's result: they
+    are different kinds, and both are current. A current proposal still to
+    check is not here; it has its own group."""
     decided = []
     for item in list(experiment.positions) + list(experiment.grids):
         for task_name, proposals in item.proposals.items():
-            for p in proposals[:-1]:
-                if not p.pending:
+            current = item.current_proposals(task_name)
+            for p in proposals:
+                if p.pending:
+                    continue
+                if p in current:
+                    if not p.to_check:
+                        decided.append((item, task_name, p, False))
+                else:
                     decided.append((item, task_name, p, True))
-            proposal = proposals[-1] if proposals else None
-            if proposal is not None and not proposal.pending and not proposal.to_check:
-                decided.append((item, task_name, proposal, False))
     decided.sort(key=lambda e: e[2].current.timestamp, reverse=True)
     return decided
 
@@ -286,6 +289,9 @@ def describe_decision(
         # No author worth naming: nothing decided this, the question was taken
         # back when whatever asked it went away.
         return f"Withdrawn at {when} — {d.reason}"
+    if proposal.unreviewed:
+        # Nobody decided this either: the value was used as proposed.
+        return f"Unreviewed at {when} — {d.reason}"
     if d.outcome is DecisionOutcome.Rejected:
         return f"Rejected by {who} at {when} — {d.reason}"
     # A producer's own decision applied values (or, with none, recorded the
@@ -642,6 +648,13 @@ class TaskResultReviewRenderer(ReviewRenderer):
                 text = f"⊘  Withdrawn at {when} · {decided.reason}"
                 colour = GRAY_SECONDARY_COLOR
                 tip.append(f"Withdrawn before it was answered: {decided.reason}.")
+            elif proposal.unreviewed:
+                text = f"○  Unreviewed at {when} · {decided.reason}"
+                colour = GRAY_SECONDARY_COLOR
+                tip.append(
+                    f"Used as proposed; {decided.reason}. Confirm to record that "
+                    "you looked, or reject to say it was wrong."
+                )
             elif decided.outcome is DecisionOutcome.Rejected:
                 text = f"✗  Rejected by {who} at {when} · {decided.reason}"
                 colour = DEFECT_RED_COLOR
@@ -1803,7 +1816,8 @@ class ReviewTabWidget(QWidget):
                     # the green tick beside a question nobody answered says
                     # somebody agreed with it.
                     withdrawn = proposal.withdrawn
-                    if superseded or withdrawn:
+                    unreviewed = proposal.unreviewed
+                    if superseded or withdrawn or unreviewed:
                         colour = GRAY_SECONDARY_COLOR
                     elif rejected:
                         colour = DEFECT_RED_COLOR
@@ -1812,6 +1826,8 @@ class ReviewTabWidget(QWidget):
                     word = (
                         "withdrawn"
                         if withdrawn
+                        else "unreviewed"
+                        if unreviewed
                         else "rejected"
                         if rejected
                         else "confirmed"

@@ -3,6 +3,7 @@
 import logging
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 
@@ -218,10 +219,11 @@ class BaseTaskManager:
             return ""
         return f"{self.stall_reason} Decide in the Review tab, then Run again."
 
-    def _set_hold(self, hold: Optional[Hold]) -> None:
+    def _set_hold(self, hold: Optional[Hold], note: Optional[str] = None) -> None:
         """Tell the window who holds the run (None: nobody), and poke the status
         channel so the chrome -- border, attention button, status bar --
-        redraws from it, the way a pending question does."""
+        redraws from it, the way a pending question does. ``note`` is the
+        workflow line; by default, the parked-between-tasks one."""
         if self.parent_ui is not None:
             self.parent_ui.hold = hold
         if hold is not None:
@@ -229,12 +231,34 @@ class BaseTaskManager:
             update_status_ui(
                 self.parent_ui,
                 "",
-                workflow_info=f"Waiting on {n} decision(s) before the next task can run.",
+                workflow_info=note
+                or f"Waiting on {n} decision(s) before the next task can run.",
                 status_bar=f"Parked on {n} decision(s): {hold.releases}.",
                 check_abort=False,
             )
         else:
             update_status_ui(self.parent_ui, "", status_bar="", check_abort=False)
+
+    @contextmanager
+    def holding_a_question(self, item_name: str, task_name: str):
+        """The run is held on a question a task asked mid-run (``ask``): the
+        task is stopped on its next line until the decision lands in the
+        Review tab. The same hold kind as a park between tasks, because it is
+        released the same way and the attention button goes to the same
+        place; the workflow line says which task is stopped and where."""
+        self._set_hold(
+            Hold(
+                kind=HoldKind.decision,
+                releases=f"decide {item_name} in the Review tab",
+                items=(f"{item_name}/{task_name}",),
+            ),
+            note=f"{task_name} is waiting for your decision on {item_name} "
+            "in the Review tab.",
+        )
+        try:
+            yield
+        finally:
+            self._set_hold(None)
 
     # --- Deferral: what cannot run yet, and why ---
 
