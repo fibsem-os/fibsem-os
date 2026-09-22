@@ -582,6 +582,20 @@ def check_coincidence(
     )
     measurement.sem_image = sem_image
     measurement.fib_image = fib_image
+    microscope.record_event(  # for the experiment's record; it never raises
+        "coincidence_measured",
+        {
+            "hfw": settings.hfw,
+            "dx": measurement.dx,
+            "dy": measurement.dy,
+            "dz": measurement.dz,
+            "band_disagreement": measurement.band_disagreement,
+            "rival_ratio": measurement.rival_ratio,
+            "is_reliable": measurement.is_reliable,
+            "refusal_reason": measurement.refusal_reason,
+            "prior": measurement.prior,
+        },
+    )
     return measurement
 
 
