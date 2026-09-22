@@ -6,6 +6,7 @@ Run directly (headless):
 Or via pytest. Covers the milling slice (MillingSpec -> MillingPatternOverlay) and
 the alignment slice (one AlignmentSpec; edit > display; the input round-trip).
 """
+
 from __future__ import annotations
 
 import os
@@ -48,6 +49,7 @@ def _flush(app: QApplication) -> None:
 
 
 # ── milling slice ───────────────────────────────────────────────────────────
+
 
 def test_set_overlay_creates_attaches_and_renders():
     app = _app()
@@ -101,7 +103,9 @@ def test_image_injected_from_canvas():
     ctl.set_image(BeamType.ION, _image())  # image swap marks dirty -> re-render
     _flush(app)
     assert len(overlay._artists) > 0, "did not render after image arrived"
-    print("ok: reducer injects the canvas image (no image -> no draw -> renders on image)")
+    print(
+        "ok: reducer injects the canvas image (no image -> no draw -> renders on image)"
+    )
 
 
 def test_renders_coalesce_into_one_pass():
@@ -131,6 +135,7 @@ def test_overlay_on_sem_canvas_beam_generic():
 
 
 # ── alignment slice (one overlay; edit > display) ────────────────────────────
+
 
 def test_alignment_edit_shows_editable_and_arms():
     app = _app()
@@ -171,18 +176,24 @@ def test_edit_overrides_display_then_falls_back():
     ctl = MicroscopeViewController()
     fib = ctl.fib_canvas
     ctl.set_image(BeamType.ION, _image())
-    ctl.set_alignment_display(BeamType.ION, _rect(), show=True)   # milling: read-only
-    ctl.set_alignment_edit(BeamType.ION, _rect(), editing=True)   # image widget: edit wins
+    ctl.set_alignment_display(BeamType.ION, _rect(), show=True)  # milling: read-only
+    ctl.set_alignment_edit(
+        BeamType.ION, _rect(), editing=True
+    )  # image widget: edit wins
     _flush(app)
     ov = ctl._overlay_objs[fib]["alignment"]
     assert ov._interactive is True and fib.active_overlay is ov
 
-    ctl.set_alignment_edit(BeamType.ION, None, editing=False)     # end edit; display still on
+    ctl.set_alignment_edit(
+        BeamType.ION, None, editing=False
+    )  # end edit; display still on
     _flush(app)
-    assert ov._area_visible is True and ov._interactive is False, "should fall back to read-only"
+    assert ov._area_visible is True and ov._interactive is False, (
+        "should fall back to read-only"
+    )
     assert fib.active_overlay is None
 
-    ctl.set_alignment_display(BeamType.ION, None, show=False)     # milling stops
+    ctl.set_alignment_display(BeamType.ION, None, show=False)  # milling stops
     _flush(app)
     assert ov._area_visible is False, "nothing wants it -> hidden"
     print("ok: edit > display, falls back to read-only, then hidden")
@@ -197,11 +208,15 @@ def test_alignment_value_survives_end_of_edit():
     r = _rect()
     ctl.set_alignment_edit(BeamType.ION, r, editing=True)
     _flush(app)
-    ctl.set_alignment_edit(BeamType.ION, None, editing=False)  # no display -> hidden, value kept
+    ctl.set_alignment_edit(
+        BeamType.ION, None, editing=False
+    )  # no display -> hidden, value kept
     _flush(app)
     ov = ctl._overlay_objs[fib]["alignment"]
     assert ov._area_visible is False
-    assert ctl.alignment_area(BeamType.ION) is r, "value must survive (workflow reads after clear)"
+    assert ctl.alignment_area(BeamType.ION) is r, (
+        "value must survive (workflow reads after clear)"
+    )
     print("ok: alignment value survives the end of an edit")
 
 
@@ -245,6 +260,7 @@ def test_true_clear_removes_alignment():
 
 # ── points slice (POI / spot / detection share this) ─────────────────────────
 
+
 def test_points_create_arm_and_set():
     app = _app()
     ctl = MicroscopeViewController()
@@ -252,12 +268,15 @@ def test_points_create_arm_and_set():
     ctl.set_image(BeamType.ION, _image())
     ctl.set_overlay(
         BeamType.ION,
-        PointsSpec(id="poi", points=[(10.0, 12.0)], color="magenta", marker="+", size=18),
+        PointsSpec(
+            id="poi", points=[(10.0, 12.0)], color="magenta", marker="+", size=18
+        ),
     )
     ctl.arm_overlay(BeamType.ION, "poi", label="POI")
     _flush(app)
 
     from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
+
     ov = ctl._overlay_objs[fib]["poi"]
     assert isinstance(ov, PointOverlay)
     assert ov in fib._overlays
@@ -278,7 +297,9 @@ def test_points_move_roundtrips_to_model():
     # simulate a drag: the overlay geometry changes, point_moved fires on release
     ov.set_points([(25.0, 30.0)])
     ov.point_moved.emit(0, 25.0, 30.0)
-    assert ctl.overlay_points(BeamType.ION, "poi") == [(25.0, 30.0)], "model not updated from drag"
+    assert ctl.overlay_points(BeamType.ION, "poi") == [(25.0, 30.0)], (
+        "model not updated from drag"
+    )
     print("ok: point move round-trips into the model (read-back authoritative)")
 
 
@@ -308,7 +329,9 @@ def test_points_visible_toggle_keeps_points():
     ctl = MicroscopeViewController()
     fib = ctl.fib_canvas
     ctl.set_image(BeamType.ION, _image())
-    ctl.set_overlay(BeamType.ION, PointsSpec(id="spot", points=[(5.0, 5.0)], visible=True))
+    ctl.set_overlay(
+        BeamType.ION, PointsSpec(id="spot", points=[(5.0, 5.0)], visible=True)
+    )
     _flush(app)
     ov = ctl._overlay_objs[fib]["spot"]
     assert ov._visible is True
@@ -316,7 +339,9 @@ def test_points_visible_toggle_keeps_points():
     ctl.set_overlay_visible(BeamType.ION, "spot", False)  # hide, keep points
     _flush(app)
     assert ov._visible is False
-    assert ctl.overlay_points(BeamType.ION, "spot") == [(5.0, 5.0)], "points kept on hide"
+    assert ctl.overlay_points(BeamType.ION, "spot") == [(5.0, 5.0)], (
+        "points kept on hide"
+    )
 
     ctl.set_overlay_visible(BeamType.ION, "spot", True)
     _flush(app)
@@ -329,7 +354,9 @@ def test_set_points_partial_keeps_config():
     ctl = MicroscopeViewController()
     fib = ctl.fib_canvas
     ctl.set_image(BeamType.ION, _image())
-    ctl.set_overlay(BeamType.ION, PointsSpec(id="spot", points=[(5.0, 5.0)], visible=False))
+    ctl.set_overlay(
+        BeamType.ION, PointsSpec(id="spot", points=[(5.0, 5.0)], visible=False)
+    )
     _flush(app)
     ctl.set_points(BeamType.ION, "spot", [(1.0, 2.0), (3.0, 4.0)])  # points only
     _flush(app)
@@ -348,14 +375,20 @@ def test_canvas_selection_survives_unrelated_reconcile():
     ctl = MicroscopeViewController()
     fib = ctl.fib_canvas
     ctl.set_image(BeamType.ION, _image())
-    ctl.set_overlay(BeamType.ION, PointsSpec(id="spot", points=[(5.0, 5.0), (9.0, 9.0)]))
+    ctl.set_overlay(
+        BeamType.ION, PointsSpec(id="spot", points=[(5.0, 5.0), (9.0, 9.0)])
+    )
     _flush(app)
     ov = ctl._overlay_objs[fib]["spot"]
 
-    ov.set_selected(1)  # user selects a point on the canvas (overlay-side; not in the spec)
+    ov.set_selected(
+        1
+    )  # user selects a point on the canvas (overlay-side; not in the spec)
     assert ov._selected == 1
 
-    ctl._reconcile(fib)  # unrelated reconcile (same points) — must not touch the selection
+    ctl._reconcile(
+        fib
+    )  # unrelated reconcile (same points) — must not touch the selection
     assert ov._selected == 1, "unrelated reconcile wiped the canvas selection"
     print("ok: canvas selection survives an unrelated reconcile")
 
@@ -373,8 +406,10 @@ def test_in_progress_drag_survives_unrelated_reconcile():
     ov = ctl._overlay_objs[fib]["spot"]
 
     ov._points = [[25.0, 30.0]]  # mid-drag live position (spec still holds (5, 5))
-    ctl._reconcile(fib)          # unrelated reconcile while dragging
-    assert ov.get_points() == [(25.0, 30.0)], "reconcile snapped the in-progress drag back"
+    ctl._reconcile(fib)  # unrelated reconcile while dragging
+    assert ov.get_points() == [(25.0, 30.0)], (
+        "reconcile snapped the in-progress drag back"
+    )
     print("ok: in-progress drag survives an unrelated reconcile")
 
 
@@ -388,6 +423,7 @@ def test_mask_overlay_displays_and_removes():
     ctl.set_overlay(BeamType.ION, MaskSpec(id="mask", mask=mask))
     _flush(app)
     from fibsem.ui.widgets.canvas.overlays.mask_overlay import MaskOverlay
+
     ov = ctl._overlay_objs[fib]["mask"]
     assert isinstance(ov, MaskOverlay)
     assert ov in fib._overlays
@@ -402,11 +438,19 @@ def test_detection_features_colors_labels_and_move():
     ctl = MicroscopeViewController()
     fib = ctl.fib_canvas
     ctl.set_image(BeamType.ION, _image())
-    ctl.set_overlay(BeamType.ION, PointsSpec(
-        id="detection", points=[(10.0, 10.0), (20.0, 20.0)],
-        colors=["red", "lime"], labels=["A", "B"],
-        marker="+", removable=False, add_on_right_click=False, modal=True,
-    ))
+    ctl.set_overlay(
+        BeamType.ION,
+        PointsSpec(
+            id="detection",
+            points=[(10.0, 10.0), (20.0, 20.0)],
+            colors=["red", "lime"],
+            labels=["A", "B"],
+            marker="+",
+            removable=False,
+            add_on_right_click=False,
+            modal=True,
+        ),
+    )
     ctl.arm_overlay(BeamType.ION, "detection", label="Detection")
     _flush(app)
     ov = ctl._overlay_objs[fib]["detection"]
@@ -422,6 +466,7 @@ def test_detection_features_colors_labels_and_move():
 
 
 # ── info bar ─────────────────────────────────────────────────────────────────
+
 
 def test_info_bar_renders_ordered_fields_per_canvas():
     app = _app()

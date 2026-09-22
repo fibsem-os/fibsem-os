@@ -8,6 +8,7 @@ RGB composite).
 Run directly (headless):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_fm_z_slider.py
 """
+
 from __future__ import annotations
 
 import os
@@ -25,8 +26,12 @@ from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 
 def _fake_fm(data: np.ndarray, colors):
     """Minimal stand-in for FluorescenceImage: CZYX data + metadata (channels, pixel size)."""
-    channels = [SimpleNamespace(name=f"ch{i}", color=colors[i]) for i in range(data.shape[0])]
-    return SimpleNamespace(data=data, metadata=SimpleNamespace(pixel_size_x=1e-7, channels=channels))
+    channels = [
+        SimpleNamespace(name=f"ch{i}", color=colors[i]) for i in range(data.shape[0])
+    ]
+    return SimpleNamespace(
+        data=data, metadata=SimpleNamespace(pixel_size_x=1e-7, channels=channels)
+    )
 
 
 def _layer(fmw, name):
@@ -41,7 +46,9 @@ def test_fm_z_slider_and_max_projection():
             data[c, z] = c * 100 + (z + 1)  # distinct constant per (channel, z)
 
     fmw = FMCanvasWidget()
-    assert not fmw._btn_mip.isVisibleTo(fmw)  # no stack yet → no MIP toggle (live microscope canvas)
+    assert not fmw._btn_mip.isVisibleTo(
+        fmw
+    )  # no stack yet → no MIP toggle (live microscope canvas)
     fmw.set_fm_image(_fake_fm(data, ["green", "red"]))
     _QAPP.processEvents()
 
@@ -61,7 +68,9 @@ def test_fm_z_slider_and_max_projection():
     assert np.array_equal(_layer(fmw, "ch0").data, data[0][0])  # plane 0
     assert _layer(fmw, "ch0").data.flat[0] == 1
     # fixed clim while scrubbing (decision A)
-    assert _layer(fmw, "ch0").autocontrast is False and _layer(fmw, "ch0").clim is not None
+    assert (
+        _layer(fmw, "ch0").autocontrast is False and _layer(fmw, "ch0").clim is not None
+    )
     clim0 = _layer(fmw, "ch0").clim
 
     # scrub to z = 3
@@ -120,7 +129,9 @@ def test_manual_contrast_survives_live_frames():
     _QAPP.processEvents()
 
     layer = _layer(fmw, "ch0")
-    assert layer.autocontrast is False, "live frame reverted the channel to auto-contrast"
+    assert layer.autocontrast is False, (
+        "live frame reverted the channel to auto-contrast"
+    )
     assert layer.clim == (100.0, 4000.0), "live frame clobbered the manual clim"
 
     # user turns Auto back on: the next frame re-derives the clim (fix doesn't over-preserve)

@@ -7,6 +7,7 @@ a stage move to the image corner. Once an image is present, clicks emit normally
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_empty_canvas_clicks.py
 """
+
 import sys
 import types
 
@@ -20,8 +21,14 @@ _app = QApplication.instance() or QApplication(sys.argv)
 
 def _event(canvas, x, y, *, dblclick=False, button=1):
     return types.SimpleNamespace(
-        inaxes=canvas._ax, xdata=x, ydata=y, dblclick=dblclick, button=button,
-        guiEvent=None, x=10, y=10,
+        inaxes=canvas._ax,
+        xdata=x,
+        ydata=y,
+        dblclick=dblclick,
+        button=button,
+        guiEvent=None,
+        x=10,
+        y=10,
     )
 
 
