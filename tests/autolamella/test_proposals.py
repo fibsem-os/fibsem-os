@@ -24,6 +24,7 @@ from fibsem.applications.autolamella.proposals import (
     DecisionOutcome,
     Proposal,
     ProposalKind,
+    Standing,
     auto_author,
     compute_delta,
     register_proposal_kind,
@@ -35,6 +36,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     GridRecord,
     Verdict,
+    standing,
 )
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
@@ -285,6 +287,47 @@ def test_an_author_is_a_kind_and_a_name_and_travels_as_kind_colon_name():
     assert d.author == auto_author("current-poi"), "a string in is parsed"
     assert Decision.from_dict(d.to_dict()).author == d.author
     assert d.to_dict()["author"] == "auto:current-poi", "the file form is unchanged"
+
+
+def test_standing_is_one_lifecycle_read_off_the_item(tmp_path):
+    """Pending with one of three waiters, then unchecked, then closed."""
+    exp = _experiment(tmp_path)
+    lamella = exp.positions[0]
+    p = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(0.0, 0.0)},
+        provenance={"task_id": RUN},
+    )
+    assert standing(lamella, SETUP, p) is Standing.Open, "nobody waits"
+
+    p.asking = True
+    assert standing(lamella, SETUP, p) is Standing.Asking, "the task waits"
+    p.asking = False
+
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name=SETUP, task_id=RUN, status=AutoLamellaTaskStatus.AwaitingDecision
+        )
+    )
+    assert standing(lamella, SETUP, p) is Standing.Awaiting, "consumers wait"
+    lamella.task_history.pop()
+
+    p.decisions.append(
+        Decision(task_id=RUN, outcome=DecisionOutcome.Unreviewed, author="auto:x")
+    )
+    assert standing(lamella, SETUP, p) is Standing.Unchecked
+    p.decisions.append(
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op")
+    )
+    assert standing(lamella, SETUP, p) is Standing.Closed
+
+    withdrawn = Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
+    withdrawn.decisions.append(
+        Decision(task_id=RUN, outcome=DecisionOutcome.Withdrawn, author="auto:x")
+    )
+    assert standing(lamella, SETUP, withdrawn) is Standing.Closed, (
+        "taken back: nothing for anyone to do"
+    )
 
 
 def test_to_check_clears_only_when_a_person_looked():

@@ -37,6 +37,7 @@ from fibsem.applications.autolamella.proposals import (
     DecisionOutcome,
     DecisionResult,
     Proposal,
+    Standing,
     ValueRefused,
     _encode_values,
     _quietly,
@@ -1784,6 +1785,20 @@ def _same_values(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
         return False
 
 
+def standing(item: Any, task_name: str, proposal: Proposal) -> Standing:
+    """The one lifecycle, read off the item: see ``Standing``. Pending is
+    one of three by who waits; a task's own question and a supervised task's
+    held result are on the proposal and the item, and a pending proposal
+    with neither is open. Decided is unchecked until a person looks."""
+    if proposal.pending:
+        if proposal.asking:
+            return Standing.Asking
+        if item.is_awaiting_decision(task_name):
+            return Standing.Awaiting
+        return Standing.Open
+    return Standing.Unchecked if proposal.to_check else Standing.Closed
+
+
 def _emit_on_main_thread(signal, *args) -> None:
     """Deliver ``signal`` on the Qt main thread without waiting for it.
 
@@ -2053,7 +2068,7 @@ class Experiment:
             # even while the item is busy with another task; a changed value
             # is a write and waits.
             unchanged_open = (
-                self._is_open(item, task_name, proposal)
+                standing(item, task_name, proposal) is Standing.Open
                 and bool(decision.values)
                 and _same_values(decision.values, proposal.values)
             )
@@ -2308,19 +2323,6 @@ class Experiment:
             logging.exception(f"a subscriber to asked raised for {task_name}")
         return True
 
-    @staticmethod
-    def _is_open(item: Any, task_name: str, proposal: Proposal) -> bool:
-        """Undecided, and nothing waits on it: nobody was asked. An automated
-        task's value is live from the moment it is proposed and stays open to
-        correct until the task that consumes it starts; then it is recorded
-        Unreviewed. Not a question a task is parked on, and not a supervised
-        task's result that the run is holding for."""
-        return (
-            proposal.pending
-            and not proposal.asking
-            and not item.is_awaiting_decision(task_name)
-        )
-
     def apply_proposed(
         self, item_id: str, task_name: str, proposal_id: str
     ) -> DecisionResult:
@@ -2410,7 +2412,7 @@ class Experiment:
             if item is None:
                 return 0
             for proposal in item.current_proposals(task_name):
-                if not self._is_open(item, task_name, proposal):
+                if standing(item, task_name, proposal) is not Standing.Open:
                     continue
                 proposal.decisions.append(
                     Decision(
@@ -2602,32 +2604,31 @@ class Experiment:
     def pending_proposals(
         self,
     ) -> List[Tuple[Union["Lamella", GridRecord], str, Proposal]]:
-        """Every undecided proposal, in item order: the review inbox. Derived,
-        never stored, so it is the same list from the GUI and the server."""
-        pending = []
-        for item in list(self.positions) + list(self.grids):
-            for task_name, proposals in item.proposals.items():
-                for proposal in current_proposals(proposals):
-                    if proposal.pending and not self._is_open(
-                        item, task_name, proposal
-                    ):
-                        pending.append((item, task_name, proposal))
-        return pending
+        """Every proposal something waits on -- the task asking it, or the
+        consumers of a held result -- in item order: the review inbox.
+        Derived, never stored, so it is the same list from the GUI and the
+        server."""
+        return self._with_standing(Standing.Asking, Standing.Awaiting)
 
     def proposals_to_check(
         self,
     ) -> List[Tuple[Union["Lamella", GridRecord], str, Proposal]]:
         """Every proposal nobody was asked about and nobody has looked at: an
-        automated task's value, open to correct until its consumer starts and
-        Unreviewed after; a decision an agent made. The inbox's second group.
-        Derived like the first."""
-        to_check = []
+        automated task's value or result, open to correct until its consumer
+        starts and unchecked after; a decision an agent made. The inbox's
+        second group. Derived like the first."""
+        return self._with_standing(Standing.Open, Standing.Unchecked)
+
+    def _with_standing(
+        self, *standings: Standing
+    ) -> List[Tuple[Union["Lamella", GridRecord], str, Proposal]]:
+        listed = []
         for item in list(self.positions) + list(self.grids):
             for task_name, proposals in item.proposals.items():
                 for proposal in current_proposals(proposals):
-                    if proposal.to_check or self._is_open(item, task_name, proposal):
-                        to_check.append((item, task_name, proposal))
-        return to_check
+                    if standing(item, task_name, proposal) in standings:
+                        listed.append((item, task_name, proposal))
+        return listed
 
     def get_lamella_by_name(self, name: str) -> Optional["Lamella"]:
         """Return the Lamella with the given name, or None if not found."""

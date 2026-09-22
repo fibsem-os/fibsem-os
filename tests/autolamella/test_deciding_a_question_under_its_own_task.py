@@ -26,11 +26,13 @@ from fibsem.applications.autolamella.proposals import (
     Decision,
     DecisionOutcome,
     Proposal,
+    Standing,
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskStatus,
     Experiment,
+    standing,
 )
 from fibsem.structures import MicroscopeState, Point
 
@@ -151,7 +153,7 @@ def test_an_open_value_confirmed_as_it_stands_lands_while_the_item_is_busy(exper
     again, so it is a look and lands. Moving it is a write and waits."""
     lamella = _running(experiment, task_name=OTHER, task_id="run-2")
     proposal = _proposal(lamella, task_name=TASK, task_id="run-1")
-    assert experiment._is_open(lamella, TASK, proposal)
+    assert standing(lamella, TASK, proposal) is Standing.Open
 
     look = _answer(experiment, lamella, task_name=TASK, values=dict(proposal.values))
     assert look.applied, look.reason

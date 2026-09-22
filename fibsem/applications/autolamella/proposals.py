@@ -106,6 +106,23 @@ class DecisionOutcome(Enum):
     Unreviewed = auto()
 
 
+class Standing(Enum):
+    """Where a proposal is in its one lifecycle. Pending, with exactly one of
+    three waiters: ``Open`` (nobody: an automated task's value or result, live
+    and correctable until the task that uses it starts), ``Asking`` (the task
+    itself, stopped mid-run on the answer), ``Awaiting`` (its consumers: a
+    supervised task's later value, the run holding for it). Then decided
+    without a person: ``Unchecked``. Then ``Closed``: a person looked, or the
+    question was withdrawn. ``standing`` in ``structures`` reads it off an
+    item; everything that lists, expires or guards a proposal reads that."""
+
+    Open = auto()
+    Asking = auto()
+    Awaiting = auto()
+    Unchecked = auto()
+    Closed = auto()
+
+
 class AuthorKind(str, Enum):
     """What kind of thing decided. ``automated`` is the producer confirming
     its own record so the run continues; a person's look at it is a later
