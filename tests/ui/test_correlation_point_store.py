@@ -486,3 +486,47 @@ def test_no_transition_writes_provenance():
     store.toggle_rejected(coord)
     store.reset_to_predicted(coord)
     assert coord.provenance == PointProvenance.PROJECTED
+
+
+# --------------------------------------------------------------------------
+# replace_type: what assigning a list widget's coordinates does
+# --------------------------------------------------------------------------
+
+
+def test_replace_type_leaves_the_other_types_and_selects_nothing():
+    store = CorrelationPointStore()
+    fm, poi = _coord(PointType.FM), _coord(PointType.POI)
+    store.replace_all([fm, poi])
+    log = _Log(store)
+    new = [_coord(PointType.FM, 1.0), _coord(PointType.FM, 2.0)]
+
+    store.replace_type(PointType.FM, new)
+    assert _same(store.of_type(PointType.FM), new)
+    assert _same(store.of_type(PointType.POI), [poi])
+    assert store.selection == ()
+    assert log.names == ["structure"]
+
+
+def test_replace_type_keeps_a_selection_that_is_still_here():
+    store = CorrelationPointStore()
+    fm, poi = _coord(PointType.FM), _coord(PointType.POI)
+    store.replace_all([fm, poi])
+    store.select(poi)
+    store.replace_type(PointType.FM, [])
+    assert store.current is poi
+
+
+def test_replace_type_drops_a_selection_that_is_gone():
+    store, coords = _store(2)
+    store.select(coords[0])
+    log = _Log(store)
+    store.replace_type(PointType.FIB, [coords[1]])
+    assert store.selection == ()
+    assert log.names == ["structure", "selection"]
+
+
+def test_replace_type_refuses_a_point_of_another_type():
+    store, coords = _store(1)
+    with pytest.raises(ValueError):
+        store.replace_type(PointType.FIB, [_coord(PointType.FM)])
+    assert _same(store.of_type(PointType.FIB), coords)
