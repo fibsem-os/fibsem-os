@@ -1589,6 +1589,34 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.stop_task_workflow()
             self._set_border_state("stopping")
 
+    def _listen_for_questions(self, experiment) -> None:
+        """A question a task asks mid-run (``AutoLamellaTask.ask``) is answered
+        in the Review tab, so the tab is fronted when one is recorded. One
+        subscription per experiment; the previous experiment's is dropped."""
+        previous = getattr(self, "_asked_experiment", None)
+        if previous is experiment:
+            return
+        if previous is not None:
+            try:
+                previous.asked.disconnect(self._on_question_asked)
+            except Exception:
+                pass
+        self._asked_experiment = experiment
+        if experiment is not None:
+            experiment.asked.connect(self._on_question_asked)
+
+    def _on_question_asked(self, item_id: str, task_name: str) -> None:
+        review_tab = getattr(self, "review_tab", None)
+        experiment = getattr(self, "_asked_experiment", None)
+        if review_tab is None or experiment is None:
+            return
+        item = experiment.get_item_by_id(item_id)
+        proposal = item.proposal(task_name) if item is not None else None
+        if proposal is None or not proposal.asking:
+            return
+        self.tab_widget.setCurrentWidget(review_tab)
+        review_tab.select(item_id, task_name)
+
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to Microscope tab, or to
         the Review tab when what is waiting is a decision rather than a question.
@@ -2345,6 +2373,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.review_tab.set_experiment(self.autolamella_ui.experiment)
         self.review_tab.set_microscope(self.autolamella_ui.microscope)
         experiment = self.autolamella_ui.experiment
+        self._listen_for_questions(experiment)
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
             self.lamella_workflow_widget.set_workflow_config(

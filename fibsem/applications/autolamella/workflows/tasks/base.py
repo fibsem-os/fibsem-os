@@ -5,6 +5,7 @@ import glob
 import logging
 import os
 import random
+import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -13,6 +14,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from typing import (
     TYPE_CHECKING,
+    Any,
     ClassVar,
     Dict,
     List,
@@ -30,9 +32,11 @@ from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
 from fibsem.acting import TASK, acting
 from fibsem.applications.autolamella.proposals import (
+    PROPOSAL_KINDS,
     TASK_RESULT,
     Decision,
     DecisionOutcome,
+    Proposal,
     Proposer,
     TaskResultProposer,
     human_author,
@@ -129,9 +133,26 @@ class AutoLamellaTask(ABC):
     # that a Review chip on its row is never a silent no-op. A run records
     # outputs (files, by role); a task proposes a kind, through its proposer.
     proposer: ClassVar[Optional[Proposer]] = TaskResultProposer()
+    # What this task type asks *while it runs*, as proposal kinds: the values
+    # it needs answered before its next line (a detection, then the stage
+    # move that follows it). The proposer is what it leaves for afterwards;
+    # this is what it needs now. Declared on the type, like the proposer, so
+    # what needs a person present is known before the run. ``ask`` refuses a
+    # kind that is not here.
+    questions: ClassVar[Tuple[str, ...]] = ()
+    # Work done at the microscope with the tools, then Continue: a mill, a
+    # spot burn. Declared so the same line can say the task needs someone
+    # there; not asked through ``ask`` and not yet recorded.
+    sessions: ClassVar[Tuple[str, ...]] = ()
     # Which recorded output roles are the result images a proposal points at,
     # by provenance key; the last file under each role is the one shown.
     result_images: ClassVar[Dict[str, str]] = LAMELLA_RESULT_IMAGES
+
+    @classmethod
+    def questions_for(cls, config: AutoLamellaTaskConfig) -> Tuple[str, ...]:
+        """The kinds this task asks under ``config``: a setting may turn one
+        off (Setup's ``select_poi``). By default, everything declared."""
+        return cls.questions
 
     def __init__(
         self,
@@ -439,6 +460,103 @@ class AutoLamellaTask(ABC):
             msg=f"{self.lamella.name} [{self.task_name}] {message}",
             workflow_info=workflow_info,
         )
+
+    def ask(
+        self,
+        kind: str,
+        values: Dict[str, Any],
+        *,
+        image: str = "",
+        provenance: Optional[Dict[str, Any]] = None,
+        message: str = "",
+    ) -> Decision:
+        """Ask for ``values`` of ``kind`` and wait for the answer, on the record.
+
+        The one way a task asks for a value it needs before it can carry on.
+        The ask is a proposal on the lamella (``values`` are what the task
+        would use as they stand; ``image`` the saved file they sit on, relative
+        to the lamella's folder), and the answer is a decision on it, through
+        ``Experiment.decide`` like every other: from the Review tab, from the
+        prompt bar, from a connected agent. Returned as the decision, so the
+        task reads ``.outcome`` and ``.values``; a task applies the decided
+        values itself, so a kind asked here must not write them through.
+
+        Supervised, with a window to answer in (``validate``): the run holds
+        here -- the manager raises the hold, the Review tab is fronted -- until
+        the decision lands, or Stop, which withdraws the question and raises
+        ``InterruptedError``. Otherwise nobody is asked: the proposal goes on
+        the record with an ``Unreviewed`` decision carrying the proposed
+        values, for someone to check afterwards, and returns at once. A
+        declared kind that ``questions_for`` leaves out under this config is
+        the same: recorded, not asked.
+        """
+        declared = type(self).questions
+        if kind not in declared:
+            raise ValueError(
+                f"{type(self).__name__} does not declare {kind!r} in questions "
+                f"(it declares {list(declared)}); a task says what it asks."
+            )
+        carried = PROPOSAL_KINDS[kind].values
+        unknown = [n for n in values if n not in carried]
+        if unknown:
+            raise ValueError(f"{kind} does not carry {unknown}; it carries {carried}")
+        manager = self.task_manager
+        experiment = getattr(manager, "experiment", None)
+        if manager is None or experiment is None:
+            raise RuntimeError("ask needs a task manager with an experiment")
+
+        item = self.lamella
+        proposal = Proposal(
+            kind=kind,
+            values=dict(values),
+            provenance={
+                "proposer": self.task_name,
+                "task_id": self.lamella.task_state.task_id or self.task_id,
+                "reference_image": image,
+                "message": message,
+                **(provenance or {}),
+            },
+        )
+        asked_under_config = kind in type(self).questions_for(self.config)
+        if not asked_under_config or not self.validate:
+            reason = (
+                "turned off in the task's settings"
+                if not asked_under_config
+                else "nobody was asked: the task is not supervised"
+                if not get_task_supervision(self.task_name, self.parent_ui)
+                and self.parent_ui is not None
+                else "nobody was asked: no window to ask in"
+            )
+            experiment.record_unasked(item.id, self.task_name, proposal, reason)
+            return proposal.current
+
+        answered = threading.Event()
+
+        def _on_decided(item_id: str, task_name: str) -> None:
+            if (item_id, task_name) == (item.id, self.task_name):
+                current = item.proposal(task_name)
+                if current is not None and current.id == proposal.id:
+                    answered.set()
+
+        experiment.decided.connect(_on_decided)
+        try:
+            if not experiment.ask_proposal(item.id, self.task_name, proposal):
+                raise RuntimeError(f"could not record the {kind} question")
+            with manager.holding_a_question(item.name, self.task_name):
+                while not answered.wait(0.1):
+                    if self._stop_event is not None and self._stop_event.is_set():
+                        experiment.withdraw_proposal(
+                            item.id,
+                            self.task_name,
+                            "the run stopped before it was answered",
+                        )
+                        raise InterruptedError(f"{kind} question cancelled")
+        finally:
+            experiment.decided.disconnect(_on_decided)
+        decision = proposal.current
+        if decision is None or decision.outcome is DecisionOutcome.Withdrawn:
+            raise InterruptedError(f"{kind} question withdrawn before it was answered")
+        return decision
 
     def _check_for_abort(self) -> None:
         """Raise InterruptedError if this task should stop.

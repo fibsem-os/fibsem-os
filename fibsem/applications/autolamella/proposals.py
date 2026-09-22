@@ -59,6 +59,7 @@ __all__ = [
     "prepare_values",
     "record",
     "current_proposal",
+    "current_proposals",
     "ValueRefused",
 ]
 
@@ -81,13 +82,19 @@ TASK_RESULT = "task_result"
 
 class DecisionOutcome(Enum):
     """What was decided. ``Confirmed`` and ``Rejected`` are answers; a decider
-    looked and said something. ``Withdrawn`` is not: the question was taken
-    back because the thing that asked it is gone, so there is no answer to
-    read and nothing to compare a proposal against."""
+    looked and said something. The other two are not, and only the record
+    writes them. ``Withdrawn``: the question was taken back because the thing
+    that asked it is gone, so there is no answer to read and nothing to
+    compare a proposal against. ``Unreviewed``: nobody was asked (the task is
+    automated) or nobody looked before the task that consumes the value
+    started, and the proposed value was used as it stood. Never agreement:
+    nothing that measures a proposer's or an agent's record may count it as
+    one."""
 
     Confirmed = auto()
     Rejected = auto()
     Withdrawn = auto()
+    Unreviewed = auto()
 
 
 class AuthorKind(str, Enum):
@@ -702,6 +709,13 @@ class Proposal:
         return d is not None and d.outcome is DecisionOutcome.Withdrawn
 
     @property
+    def unreviewed(self) -> bool:
+        """Used as proposed because nobody was asked, or nobody looked in
+        time. Listed to check, like anything a person has not looked at."""
+        d = self.current
+        return d is not None and d.outcome is DecisionOutcome.Unreviewed
+
+    @property
     def to_check(self) -> bool:
         """Applied by its own producer, or decided by an agent, and not looked
         at by a person since. A person's acknowledgement -- or their reject --
@@ -846,10 +860,7 @@ def record(proposals: List[Proposal], proposal: Proposal) -> Proposal:
 def current_proposal(
     proposals: Optional[List[Proposal]], kind: Optional[str] = None
 ) -> Optional[Proposal]:
-    """The proposal a decision, the gate and the inbox act on: the last one
-    for the task, or the last of ``kind``. Everything before it is what a
-    later proposal replaced, and is on the record for its decisions and its
-    delta only."""
+    """The last proposal for the task, or the last of ``kind``."""
     if not proposals:
         return None
     if kind is None:
@@ -858,6 +869,25 @@ def current_proposal(
         if p.kind == kind:
             return p
     return None
+
+
+def current_proposals(proposals: Optional[List[Proposal]]) -> List[Proposal]:
+    """The proposals a decision, the gate and the inbox act on: the last of
+    each kind, in the order they were made. A task's run leaves its result
+    after the questions it asked, and a question is not replaced by a result
+    -- they are different kinds -- so both are current. What an earlier
+    proposal of the same kind is: replaced, on the record for its decisions
+    and its delta only."""
+    if not proposals:
+        return []
+    seen = set()
+    current = []
+    for p in reversed(proposals):
+        if p.kind not in seen:
+            seen.add(p.kind)
+            current.append(p)
+    current.reverse()
+    return current
 
 
 def proposals_to_dict(proposals: Dict[str, List[Proposal]]) -> Dict[str, list]:

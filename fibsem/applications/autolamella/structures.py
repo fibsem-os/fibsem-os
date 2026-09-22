@@ -41,6 +41,7 @@ from fibsem.applications.autolamella.proposals import (
     _quietly,
     auto_author,
     current_proposal,
+    current_proposals,
     human_author,
     prepare_values,
     proposals_from_dict,
@@ -1340,6 +1341,10 @@ class Lamella:
         the last of ``kind``. None when it never proposed."""
         return current_proposal(self.proposals.get(task_name), kind)
 
+    def current_proposals(self, task_name: str) -> List[Proposal]:
+        """Every current proposal from ``task_name``: the last of each kind."""
+        return current_proposals(self.proposals.get(task_name))
+
     def record_proposal(self, task_name: str, proposal: Proposal) -> Proposal:
         """Put ``proposal`` on the record as the current one from ``task_name``."""
         return record(self.proposals.setdefault(task_name, []), proposal)
@@ -1683,6 +1688,10 @@ class GridRecord:
         the last of ``kind``. None when it never proposed."""
         return current_proposal(self.proposals.get(task_name), kind)
 
+    def current_proposals(self, task_name: str) -> List[Proposal]:
+        """Every current proposal from ``task_name``: the last of each kind."""
+        return current_proposals(self.proposals.get(task_name))
+
     def record_proposal(self, task_name: str, proposal: Proposal) -> Proposal:
         """Put ``proposal`` on the record as the current one from ``task_name``."""
         return record(self.proposals.setdefault(task_name, []), proposal)
@@ -2001,6 +2010,15 @@ class Experiment:
                     applied=False,
                     reason=f"{item.name} has no proposal from {task_name!r}.",
                 )
+            if decision.proposal_id and decision.proposal_id != proposal.id:
+                # The task made more than one kind of proposal -- a question it
+                # asked, then its result -- and the decider named the other
+                # one. Any current proposal can be decided; a replaced one is
+                # refused further down as stale.
+                for other in item.current_proposals(task_name):
+                    if other.id == decision.proposal_id:
+                        proposal = other
+                        break
             if proposal.withdrawn:
                 # The question was taken back because whatever asked it is
                 # gone. There is nothing left to answer, and an answer now
@@ -2052,14 +2070,18 @@ class Experiment:
                     )
             if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
                 return DecisionResult(applied=False, reason="A reject needs a reason.")
-            if decision.outcome is DecisionOutcome.Withdrawn:
-                # Not something a decider says. It is what the record shows
-                # when whatever asked is gone, and only that can write it.
+            if decision.outcome in (
+                DecisionOutcome.Withdrawn,
+                DecisionOutcome.Unreviewed,
+            ):
+                # Not something a decider says. Withdrawn is what the record
+                # shows when whatever asked is gone; Unreviewed, when nobody
+                # was asked. Only the record writes either.
                 return DecisionResult(
                     applied=False,
                     error_type="invalid_value",
-                    reason="Withdrawn is not a decision: confirm or reject. A "
-                    "question is withdrawn by what asked it.",
+                    reason=f"{decision.outcome.name} is not a decision: confirm "
+                    "or reject. It is what the record says when nobody did.",
                 )
             # The decision is on the result the decider saw. Named by the
             # proposal when the decider can: a task may ask several questions
@@ -2261,6 +2283,53 @@ class Experiment:
             logging.exception(f"a subscriber to asked raised for {task_name}")
         return True
 
+    def record_unasked(
+        self, item_id: str, task_name: str, proposal: Proposal, reason: str
+    ) -> bool:
+        """Put a question nobody was asked on the record: the proposal, and an
+        ``Unreviewed`` decision on it carrying the values the task went on
+        to use. What an automated task leaves behind for someone to check.
+
+        Written by the task, on its own thread, the way ``ask_proposal`` is:
+        the write is under the lock every writer takes, and only the
+        notification goes to the GUI thread. Not through ``decide``, which
+        refuses ``Unreviewed`` from a decider and would write the values
+        through, when the task applies them itself.
+        """
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return False
+            item.record_proposal(task_name, proposal)
+            proposal.decisions.append(
+                Decision(
+                    outcome=DecisionOutcome.Unreviewed,
+                    author=auto_author(
+                        str(proposal.provenance.get("proposer") or task_name)
+                    ),
+                    values=dict(proposal.values),
+                    reason=reason,
+                    via="workflow",
+                    task_id=proposal.task_id,
+                    proposal_id=proposal.id,
+                )
+            )
+        logging.info(
+            {
+                "msg": "proposal_unreviewed",
+                "lamella": item.name,
+                "task_name": task_name,
+                "kind": proposal.kind,
+                "proposal_id": proposal.id,
+                "reason": reason,
+            }
+        )
+        try:
+            _emit_on_main_thread(self.decided, item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to decided raised for {task_name}")
+        return True
+
     def withdraw_proposal(
         self, item_id: str, task_name: str, reason: str
     ) -> DecisionResult:
@@ -2337,9 +2406,9 @@ class Experiment:
         pending = []
         for item in list(self.positions) + list(self.grids):
             for task_name, proposals in item.proposals.items():
-                proposal = current_proposal(proposals)
-                if proposal is not None and proposal.pending:
-                    pending.append((item, task_name, proposal))
+                for proposal in current_proposals(proposals):
+                    if proposal.pending:
+                        pending.append((item, task_name, proposal))
         return pending
 
     def proposals_to_check(
@@ -2350,9 +2419,9 @@ class Experiment:
         to_check = []
         for item in list(self.positions) + list(self.grids):
             for task_name, proposals in item.proposals.items():
-                proposal = current_proposal(proposals)
-                if proposal is not None and proposal.to_check:
-                    to_check.append((item, task_name, proposal))
+                for proposal in current_proposals(proposals):
+                    if proposal.to_check:
+                        to_check.append((item, task_name, proposal))
         return to_check
 
     def get_lamella_by_name(self, name: str) -> Optional["Lamella"]:
