@@ -74,16 +74,25 @@ jobs:
       run: pytest tests/ -n auto --dist worksteal --timeout=300
 
   ui-tests:
-    # The one job that installs the [ui] extra, and the only place the 2270 tests
-    # under tests/ui/ are ever run.
+    # The one job that installs the [ui] extra, and the only place the Qt tests
+    # are ever run: everything under tests/ui/, plus the files in tests/correlation/
+    # and tests/fm/ that guard on PyQt5.
     #
-    # Every file there opens with `pytest.importorskip("PyQt5")`. The matrix job
-    # above installs `.[test]` without it, so all 103 files skip silently and its
-    # green says nothing whatsoever about that directory. That is not theoretical:
-    # main reported success while tests/ui/test_fm_overview_widget.py failed 17
-    # tests locally, because two pull requests that were each green alone bound the
-    # same name to two different constants (#581). Only a run with PyQt5 installed
-    # could have caught it, and this is that run.
+    # Every file under tests/ui/ opens with `pytest.importorskip("PyQt5")`. The
+    # matrix job above installs `.[test]` without it, so all 103 files skip silently
+    # and its green says nothing whatsoever about that directory. That is not
+    # theoretical: main reported success while tests/ui/test_fm_overview_widget.py
+    # failed 17 tests locally, because two pull requests that were each green alone
+    # bound the same name to two different constants (#581). Only a run with PyQt5
+    # installed could have caught it, and this is that run.
+    #
+    # tests/correlation/ and tests/fm/ are here for the same reason. 21 of their
+    # files guard on PyQt5 too, and until this job listed them nothing ran them:
+    # a test there stayed broken for two weeks after #812 while CI stayed green.
+    # The whole directories are listed, not the 21 files, so a Qt test added there
+    # later is not missed the same way. Their non-Qt tests also run in the matrix;
+    # repeating them here costs minutes, and this job still finishes before the
+    # slowest matrix leg.
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
@@ -128,9 +137,9 @@ jobs:
       # depend on what the files before them left behind. `-n auto --dist
       # worksteal` would shuffle that order differently on every run and turn a
       # deterministic failure into a flake; `--dist loadfile` does not help either,
-      # since it only holds order *within* a file. Three minutes is a fair price
-      # for a result that means the same thing twice in a row.
-      run: pytest tests/ui/ -q --timeout=300
+      # since it only holds order *within* a file. The extra minutes are a fair
+      # price for a result that means the same thing twice in a row.
+      run: pytest tests/ui/ tests/correlation/ tests/fm/ -q --timeout=300
 
   server-tests:
     # The one job that installs the [server] and [mcp] extras, and the only
