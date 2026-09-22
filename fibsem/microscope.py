@@ -107,7 +107,7 @@ def _records_stage_move(method):
         if getattr(_recording_stage_move, "active", False):
             return method(self, *args, **kwargs)
         _recording_stage_move.active = True
-        start = self._stage_position
+        start, reads = self._stage_position, self._stage_position_reads
         began = time.monotonic()
         result: Any = None
         error: Optional[BaseException] = None
@@ -123,6 +123,7 @@ def _records_stage_move(method):
                 method.__name__,
                 (signature, args, kwargs),
                 start,
+                reads,
                 result,
                 error,
                 time.monotonic() - began,
@@ -188,6 +189,9 @@ class FibsemMicroscope(ABC):
 
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None
+    # How many times the position has been read. `_stage_position` is replaced only
+    # when a read finds the stage somewhere else; this says a read happened at all.
+    _stage_position_reads: int = 0
 
     # (kind, payload): a fact for the experiment's record -- an image acquired, a
     # task step. Emit through record_event, which never raises; the app records it
@@ -295,6 +299,7 @@ class FibsemMicroscope(ABC):
 
         if not isinstance(stage_position, FibsemStagePosition):
             raise TypeError(f"Expected FibsemStagePosition, got {type(stage_position)}")
+        self._stage_position_reads += 1
 
         logging.debug({"msg": "get_stage_position", "pos": stage_position.to_dict()})
 
@@ -2385,6 +2390,7 @@ class FibsemMicroscope(ABC):
         move: str,
         call: Tuple[inspect.Signature, tuple, dict],
         start: Optional[FibsemStagePosition],
+        reads: int,
         result: Any,
         error: Optional[BaseException],
         duration: float,
@@ -2394,14 +2400,15 @@ class FibsemMicroscope(ABC):
         ``move`` is the method, ``request`` its arguments. ``start`` is the
         position last read before the move, not a new read: that would be a
         hardware call the move did not make. ``end`` is the position the move
-        returned, or else the one read during it. A move that returns none and
-        reads none, such as a TESCAN absolute move, has no ``end``; the next read
-        is on ``stage_position_changed``.
+        returned, or else the last one read during it -- ``reads`` is the read
+        count when it began. A move that returns none and reads none, such as a
+        TESCAN absolute move, has no ``end``; the next read is on
+        ``stage_position_changed``.
         """
         try:
             if isinstance(result, FibsemStagePosition):
                 end = result
-            elif self._stage_position is not start:  # read, and found it moved
+            elif self._stage_position_reads != reads:  # read during the move
                 end = self._stage_position
             else:
                 end = None
