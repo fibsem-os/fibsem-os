@@ -81,6 +81,17 @@ def test_every_backend_takes_the_view_as_a_parameter(cls):
     assert "beam_type" in inspect.signature(cls.vertical_move).parameters
 
 
+@pytest.mark.parametrize(
+    "cls",
+    [ThermoMicroscope, TescanMicroscope, DemoMicroscope],
+    ids=lambda c: c.__name__,
+)
+def test_every_backend_takes_relaxation(cls):
+    """The automated coincidence alignment calls vertical_move(..., relaxation=...)
+    on whatever backend it is given; an override without it raises TypeError."""
+    assert "relaxation" in inspect.signature(cls.vertical_move).parameters
+
+
 def test_an_unsupported_view_raises_instead_of_moving(microscope):
     """The failure mode being designed out: correcting a SEM-measured offset with the
     FIB's geometry, which is what the old fallbacks did."""
