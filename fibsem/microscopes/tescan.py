@@ -729,19 +729,15 @@ class TescanMicroscope(FibsemMicroscope):
         return new_position
 
     @_records_stage_move
-    def move_stage_absolute(self, position: FibsemStagePosition):
+    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """
         Move the stage to the specified coordinates.
 
         Args:
-            x (float): The x-coordinate to move to (in meters).
-            y (float): The y-coordinate to move to (in meters).
-            z (float): The z-coordinate to move to (in meters).
-            r (float): The rotation to apply (in radians).
-            tx (float): The x-axis tilt to apply (in radians).
+            position: The raw stage position to move to (metres, radians).
 
         Returns:
-            None
+            FibsemStagePosition: The stage position after the move.
         """
         logging.info(f"Moving stage to {position}.")
         # convert to tescan position
@@ -750,6 +746,8 @@ class TescanMicroscope(FibsemMicroscope):
             self.connection.Stage.MoveTo(x=x, y=y, z=z, rot=r, tiltx=t)
 
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
+
+        return self.get_stage_position()
 
     @_records_stage_move
     def move_stage_relative(
@@ -764,12 +762,12 @@ class TescanMicroscope(FibsemMicroscope):
 
         abs_position = current_position + position
         logging.debug(f"Moving stage to {abs_position}")
-        self.move_stage_absolute(abs_position)
+        moved = self.move_stage_absolute(abs_position)  # reads where it ended
 
         # move stage
         logging.debug({"msg": "move_stage_relative", "position": position.to_dict()})
 
-        return self.get_stage_position()
+        return moved
 
     @_records_stage_move
     def stable_move(
