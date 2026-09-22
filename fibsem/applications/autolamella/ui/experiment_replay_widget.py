@@ -75,6 +75,7 @@ from fibsem.ui.tokens import (
     PURPLE_COLOR,
     ROW_ALT_COLOR,
     SAVED_POSITION_COLOUR,
+    SELECTED_POSITION_COLOUR,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
@@ -106,6 +107,7 @@ _KIND_LABEL = {
     EventKind.STAGE: "Stage",
     EventKind.MILLING: "Milling",
     EventKind.ALIGNMENT: "Alignment",
+    EventKind.CORRELATION: "Correlation",
     EventKind.EDIT: "Edit",
     EventKind.MESSAGE: "Message",
 }
@@ -117,6 +119,7 @@ _KIND_COLOUR = {
     EventKind.STAGE: WARN_COLOR,
     EventKind.MILLING: ORANGE_COLOR,
     EventKind.ALIGNMENT: PURPLE_COLOR,
+    EventKind.CORRELATION: SELECTED_POSITION_COLOUR,
     EventKind.EDIT: TEXT_STRONG_COLOR,
     EventKind.MESSAGE: TEXT_MUTED_COLOR,
 }
