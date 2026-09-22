@@ -43,7 +43,12 @@ __all__ = [
     "adapter_for",
     "answer_from",
     "answered",
+    "decided_features",
+    "detection_image_file",
+    "detection_provenance",
+    "detection_values",
     "proposal_for",
+    "record_training_data",
     "register_adapter",
 ]
 
@@ -107,18 +112,21 @@ def adapter_for(request: Request) -> Optional[QuestionAdapter]:
 # --- feature detection ------------------------------------------------------
 
 
+def detection_values(detection: Any) -> Dict[str, Any]:
+    """What the model proposed, in the kind's value names."""
+    return {"features": [{"name": f.name, "px": f.px} for f in detection.features]}
+
+
 def _detection_values(request: ReviewDetection) -> Dict[str, Any]:
-    return {
-        "features": [{"name": f.name, "px": f.px} for f in request.detection.features]
-    }
+    return detection_values(request.detection)
 
 
-def _detection_answer(request: ReviewDetection, values: Dict[str, Any]) -> Any:
+def decided_features(detection: Any, values: Dict[str, Any]) -> Any:
     """The decided points put back on a copy of the detection.
 
-    A copy because the request is frozen and the original is what the delta is
-    measured against. Only the points move: the mask and the rgb are the
-    model's output and a correction does not change what it saw.
+    A copy because the original is what the delta is measured against. Only
+    the points move: the mask and the rgb are the model's output and a
+    correction does not change what it saw.
 
     ``feature_m`` moves with ``px``. It is what every consumer actually reads --
     the stage moves in ``core.py`` and ``undercut.py`` take ``feature_m``, never
@@ -131,7 +139,7 @@ def _detection_answer(request: ReviewDetection, values: Dict[str, Any]) -> Any:
         for f in values.get("features", [])
         if isinstance(f, dict)
     }
-    answer = deepcopy(request.detection)
+    answer = deepcopy(detection)
     for feature in answer.features:
         px = decided.get(feature.name)
         if px is not None:
@@ -142,7 +150,11 @@ def _detection_answer(request: ReviewDetection, values: Dict[str, Any]) -> Any:
     return answer
 
 
-def _detection_image(request: ReviewDetection, folder: str) -> str:
+def _detection_answer(request: ReviewDetection, values: Dict[str, Any]) -> Any:
+    return decided_features(request.detection, values)
+
+
+def detection_image_file(detection: Any, folder: str) -> str:
     """The file the task saved the image to, named relative to ``folder``.
 
     Nothing is written here. ``take_image_and_detect_features`` always saves
@@ -156,7 +168,7 @@ def _detection_image(request: ReviewDetection, folder: str) -> str:
     Empty when the image was never saved, which leaves the question
     unrecorded: see ``QuestionAdapter.needs_image``.
     """
-    image = request.detection.fibsem_image
+    image = detection.fibsem_image
     path = str(getattr(image, "filepath", "") or "")
     if not path:
         return ""
@@ -173,7 +185,11 @@ def _detection_image(request: ReviewDetection, folder: str) -> str:
     return relative.replace(os.sep, "/")
 
 
-def _detection_answered(request: ReviewDetection, answer: Any) -> None:
+def _detection_image(request: ReviewDetection, folder: str) -> str:
+    return detection_image_file(request.detection, folder)
+
+
+def record_training_data(detection: Any, answer: Any) -> None:
     """Write the training data the Detection tab writes on its Continue click:
     the image, the mask and a row per feature with how far it was moved, and
     the ``feature_detection`` log records the reports are built from.
@@ -188,22 +204,28 @@ def _detection_answered(request: ReviewDetection, answer: Any) -> None:
     if answer.mask is not None:
         # PIL needs uint8 to write it; the widget normalises it the same way.
         answer.mask = np.asarray(answer.mask).astype(np.uint8)
-    det_utils.save_ml_feature_data(
-        det=answer, initial_features=request.detection.features
-    )
+    det_utils.save_ml_feature_data(det=answer, initial_features=detection.features)
 
 
-def _detection_provenance(request: ReviewDetection) -> Dict[str, Any]:
-    """Which model said this. ``ReviewDetection`` is the question's type, not
-    its author, and a correction only means something measured against the
-    checkpoint that produced it."""
-    checkpoint = str(getattr(request.detection, "checkpoint", "") or "")
+def _detection_answered(request: ReviewDetection, answer: Any) -> None:
+    record_training_data(request.detection, answer)
+
+
+def detection_provenance(detection: Any) -> Dict[str, Any]:
+    """Which model said this. The question's type is not its author, and a
+    correction only means something measured against the checkpoint that
+    produced it."""
+    checkpoint = str(getattr(detection, "checkpoint", "") or "")
     name = os.path.splitext(os.path.basename(checkpoint))[0] if checkpoint else ""
     return {
         "proposer": name or "segmentation model",
         "checkpoint": checkpoint,
-        "features": [f.name for f in request.detection.features],
+        "features": [f.name for f in detection.features],
     }
+
+
+def _detection_provenance(request: ReviewDetection) -> Dict[str, Any]:
+    return detection_provenance(request.detection)
 
 
 register_adapter(

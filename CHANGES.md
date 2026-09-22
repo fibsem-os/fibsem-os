@@ -111,6 +111,15 @@ correctness work landed in correlation and in what the experiment record remembe
   asked. Off, `confirm_position` is only as safe as the automatic positioning that
   put the stage there. The Tilt/Skip choice is gone with the preference on:
   Continue tilts, and Stop is the way not to.
+- **The undercut's detections are answered in the Review tab, on the record.**
+  With the review preference on, each of Mill Undercut's four detections (two in
+  the coincident alignment, one per undercut, one to finish) is a question on the
+  lamella: the run holds, the Review tab is fronted with the model's features on
+  the image it ran on, and Confirm, with a marker dragged or not, is the decision
+  the stage moves by. Reject fails the task. The training data the Detection tab
+  wrote on its Continue is still written. Automated, nobody is asked and each
+  detection is recorded as used unreviewed. With the preference off the Detection
+  tab prompt asks exactly as before.
 - **A result an agent looked at is still yours to check.** The Review tab's "to
   check" group clears when a person acknowledges, not when a connected agent does.
 - **For task authors: a task proposes through a `Proposer`.** A task type carries one

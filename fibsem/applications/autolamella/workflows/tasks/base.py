@@ -21,6 +21,7 @@ from typing import (
     List,
     Literal,
     Optional,
+    Sequence,
     Tuple,
     Type,
     TypeVar,
@@ -33,6 +34,7 @@ from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
 from fibsem.acting import TASK, acting
 from fibsem.applications.autolamella.proposals import (
+    DETECTION,
     PROPOSAL_KINDS,
     TASK_RESULT,
     Decision,
@@ -74,6 +76,13 @@ from fibsem.applications.autolamella.workflows.interaction import (
     SetMillingConfig,
     ask,
 )
+from fibsem.applications.autolamella.workflows.question_adapters import (
+    decided_features,
+    detection_image_file,
+    detection_provenance,
+    detection_values,
+    record_training_data,
+)
 from fibsem.applications.autolamella.workflows.tasks.proposing import (
     LAMELLA_RESULT_IMAGES,
     settle,
@@ -85,7 +94,9 @@ from fibsem.applications.autolamella.workflows.ui import (
     update_alignment_area_ui,
 )
 from fibsem.cancellation import OperationCancelledError
+from fibsem.detection import detection as detection_module
 from fibsem.detection.detection import (
+    DetectedFeatures,
     Feature,
     LamellaBottomEdge,
     LamellaCentre,
@@ -590,6 +601,67 @@ class AutoLamellaTask(ABC):
                 item.id, self.task_name, proposal.id, dict(decided())
             )
         return decision
+
+    def detect(
+        self,
+        image_settings: ImageSettings,
+        checkpoint: str,
+        features: Sequence[Feature],
+        *,
+        position: Optional[FibsemStagePosition] = None,
+        message: str = "",
+        enabled: bool = True,
+    ) -> DetectedFeatures:
+        """Take an image, run the model on it, and ask about what it found.
+
+        With the review preference on, the detection is a ``detection``
+        question through ``ask``: recorded on the lamella against the image
+        the model ran on, answered in the Review tab (a marker dragged, then
+        Confirm), and the decided points are put back on the detection with
+        ``feature_m`` recomputed, so the stage moves by the corrected value.
+        A rejection fails the task, as Reject in the Review tab says it does.
+        The training data the Detection tab writes on its click is written
+        here too. With the preference off it is ``update_detection_ui``, the
+        Detection tab prompt, exactly as it always was.
+        """
+        message = message or self.lamella.status_info
+        if not getattr(self.task_manager, "review_enabled", False):
+            return update_detection_ui(
+                microscope=self.microscope,
+                image_settings=image_settings,
+                checkpoint=checkpoint,
+                features=features,
+                parent_ui=self.parent_ui,
+                validate=self.validate,
+                msg=message,
+                position=position,
+            )
+        names = ", ".join(f.name for f in features)
+        if len(names) > 15:
+            names = names[:15] + "..."
+        update_status_ui(self.parent_ui, f"{message}: Detecting Features ({names})...")
+        detection = detection_module.take_image_and_detect_features(
+            microscope=self.microscope,
+            image_settings=image_settings,
+            features=features,
+            point=position,
+            checkpoint=checkpoint,
+        )
+        decision = self.ask(
+            DETECTION,
+            detection_values(detection),
+            image=detection_image_file(detection, str(self.lamella.path)),
+            provenance=detection_provenance(detection),
+            message=message,
+            enabled=enabled,
+        )
+        if decision.outcome is DecisionOutcome.Rejected:
+            raise RuntimeError(
+                f"{self.task_name} was rejected: {decision.reason or 'no reason given'}"
+            )
+        answer = decided_features(detection, decision.values)
+        record_training_data(detection, answer)
+        return answer
 
     def _check_for_abort(self) -> None:
         """Raise InterruptedError if this task should stop.
