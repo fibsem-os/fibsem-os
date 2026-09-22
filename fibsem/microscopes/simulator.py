@@ -18,7 +18,11 @@ from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
 from fibsem.fm.microscope import Camera, FluorescenceMicroscope
-from fibsem.microscope import FibsemMicroscope
+from fibsem.microscope import (
+    FibsemMicroscope,
+    _records_beam_shift,
+    _records_stage_move,
+)
 from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.microscopes.sim_scene import fm_channel_weights
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -1099,6 +1103,7 @@ class DemoMicroscope(FibsemMicroscope):
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
 
+    @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
 
         logging.debug(
@@ -1152,6 +1157,7 @@ class DemoMicroscope(FibsemMicroscope):
             exchange_delay=float(cfg.get("exchange_delay", 0.0)),
         )
 
+    @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to the specified position."""
         # Before the position is assigned, not after: a stage that is moving has not
@@ -1176,6 +1182,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         return self.get_stage_position()
 
+    @_records_stage_move
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage by the specified amount."""
         sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)  # see `move_stage_absolute`
