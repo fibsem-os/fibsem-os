@@ -612,11 +612,6 @@ class TaskManager(BaseTaskManager):
             self._run_items()
         finally:
             self.experiment.decided.disconnect(self._on_decided)
-            # A result nobody looked at is closed; a value stays open for the
-            # task that will use it, whichever run that is.
-            self.experiment.expire_all_open(
-                "the run ended before anyone looked", results_only=True
-            )
 
     def _run_items(self) -> None:
         while not self.is_stopped:
