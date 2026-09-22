@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     ClassVar,
     Dict,
     List,
@@ -50,6 +51,7 @@ from fibsem.applications.autolamella.protocol.constants import (
     UNDERCUT_KEY,
 )
 from fibsem.applications.autolamella.structures import (
+    EXPERIMENT_WRITE_LOCK,
     Attention,
     AutoLamellaTaskConfig,
     AutoLamellaTaskState,
@@ -469,6 +471,7 @@ class AutoLamellaTask(ABC):
         image: str = "",
         provenance: Optional[Dict[str, Any]] = None,
         message: str = "",
+        decided: Optional[Callable[[], Dict[str, Any]]] = None,
     ) -> Decision:
         """Ask for ``values`` of ``kind`` and wait for the answer, on the record.
 
@@ -489,6 +492,13 @@ class AutoLamellaTask(ABC):
         values, for someone to check afterwards, and returns at once. A
         declared kind that ``questions_for`` leaves out under this config is
         the same: recorded, not asked.
+
+        ``decided`` is for a confirmation: an answer that says "as it stands"
+        and carries no values of its own (a state, confirmed from the prompt
+        bar). The task, which can read the instrument, is asked for the
+        values as they stand once the confirmation lands, and they go on the
+        decision, so a change the operator made before confirming is the
+        delta. Not called for an answer that already carries values.
         """
         declared = type(self).questions
         if kind not in declared:
@@ -518,13 +528,17 @@ class AutoLamellaTask(ABC):
             },
         )
         asked_under_config = kind in type(self).questions_for(self.config)
-        if not asked_under_config or not self.validate:
+        # A window to answer in is the main window: its Review tab, its prompt
+        # bar. The microscope widget on its own has neither.
+        window = getattr(self.parent_ui, "parent_widget", None) is not None
+        if not asked_under_config or not self.validate or not window:
             reason = (
                 "turned off in the task's settings"
                 if not asked_under_config
                 else "nobody was asked: the task is not supervised"
-                if not get_task_supervision(self.task_name, self.parent_ui)
-                and self.parent_ui is not None
+                if self.parent_ui is not None
+                and window
+                and not get_task_supervision(self.task_name, self.parent_ui)
                 else "nobody was asked: no window to ask in"
             )
             experiment.record_unasked(item.id, self.task_name, proposal, reason)
@@ -556,6 +570,14 @@ class AutoLamellaTask(ABC):
         decision = proposal.current
         if decision is None or decision.outcome is DecisionOutcome.Withdrawn:
             raise InterruptedError(f"{kind} question withdrawn before it was answered")
+        if (
+            decided is not None
+            and decision.outcome is DecisionOutcome.Confirmed
+            and not decision.values
+        ):
+            experiment.fill_in_decision(
+                item.id, self.task_name, proposal.id, dict(decided())
+            )
         return decision
 
     def _check_for_abort(self) -> None:

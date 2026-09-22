@@ -178,7 +178,7 @@ def set_images_ui(
 
 def update_status_ui(
     parent_ui: Optional["AutoLamellaUI"],
-    msg: str,
+    msg: Optional[str],
     workflow_info: Optional[str] = None,
     status_bar: Optional[str] = None,
     check_abort: bool = True,
@@ -212,7 +212,7 @@ def update_status_ui(
 
 def ask_user(
     parent_ui: Optional["AutoLamellaUI"],
-    msg: str,
+    msg: Optional[str],
     pos: str,
     neg: Optional[str] = None,
 ) -> bool:

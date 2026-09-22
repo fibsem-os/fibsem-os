@@ -32,7 +32,7 @@ from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
 from fibsem.applications.autolamella.poses import LamellaPoses
-from fibsem.structures import MicroscopeState, Point
+from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
 
 __all__ = [
     "Alternative",
@@ -44,6 +44,7 @@ __all__ = [
     "DecisionOutcome",
     "DecisionResult",
     "DETECTION",
+    "STATE",
     "PROPOSAL_KINDS",
     "OVERVIEW_POSITIONS",
     "POINT_OF_INTEREST",
@@ -74,6 +75,13 @@ OVERVIEW_POSITIONS = "overview_positions"
 # (FIB-1025). Its value is the feature set, keyed by name, so a delta is per
 # feature and not one number for the lot.
 DETECTION = "detection"
+# The instrument's state as a task arrived at it, for the operator to confirm
+# before the task goes on ("Acquire reference image. Press Continue when
+# ready."). The proposal is the stage position then; the decision is a
+# confirmation, and the task fills in the position as it stands afterwards,
+# so a move the operator made first is the delta. Asked mid-task, so its
+# value is written nowhere: the task is what uses it.
+STATE = "state"
 # What a task did, for someone to look at: no values, the final reference
 # images in provenance. Recorded by the base task class for any task whose
 # review is on and that did not propose a kind of its own.
@@ -185,6 +193,7 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
 register_proposal_kind(ProposalKind(name=POINT_OF_INTEREST, values=("poi",)))
 register_proposal_kind(ProposalKind(name=OVERVIEW_POSITIONS, values=("positions",)))
 register_proposal_kind(ProposalKind(name=DETECTION, values=("features",)))
+register_proposal_kind(ProposalKind(name=STATE, values=("stage_position",)))
 register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
 
 
@@ -280,6 +289,10 @@ _VALUE_CODECS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
     "poi": (_point_to_dict, _point_from_dict),
     "positions": (_positions_to_dict, _positions_from_dict),
     "features": (_features_to_dict, _features_from_dict),
+    "stage_position": (
+        lambda p: p.to_dict() if isinstance(p, FibsemStagePosition) else p,
+        lambda d: FibsemStagePosition.from_dict(d) if isinstance(d, dict) else d,
+    ),
 }
 
 
@@ -472,10 +485,21 @@ def _prepare_features(experiment: Any, item: Any, value: Any) -> PreparedWrite:
 # effect without touching anything, returning how to apply it and how to undo
 # it. The experiment is there for the one write that makes items rather than
 # editing the one the proposal is on.
+def _prepare_stage_position(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """Checked, and written nowhere, for the reason ``_prepare_features`` gives:
+    a state is confirmed mid-task, and the instrument already holds it."""
+    if not isinstance(value, FibsemStagePosition):
+        raise ValueRefused(
+            f"stage_position must be a stage position, not {type(value).__name__}."
+        )
+    return PreparedWrite.nothing()
+
+
 _VALUE_WRITERS: Dict[str, Callable[[Any, Any, Any], PreparedWrite]] = {
     "poi": _prepare_poi,
     "positions": _prepare_positions,
     "features": _prepare_features,
+    "stage_position": _prepare_stage_position,
 }
 
 
@@ -530,6 +554,14 @@ def compute_delta(proposed: Any, confirmed: Any) -> Any:
     None where it does not."""
     if isinstance(proposed, Point) and isinstance(confirmed, Point):
         return Point(x=confirmed.x - proposed.x, y=confirmed.y - proposed.y)
+    if isinstance(proposed, FibsemStagePosition) and isinstance(
+        confirmed, FibsemStagePosition
+    ):
+        axes = (proposed.x, proposed.y, proposed.z, proposed.r, proposed.t)
+        axes += (confirmed.x, confirmed.y, confirmed.z, confirmed.r, confirmed.t)
+        if any(a is None for a in axes):
+            return None
+        return confirmed - proposed
     if isinstance(proposed, (int, float)) and isinstance(confirmed, (int, float)):
         return confirmed - proposed
     if isinstance(proposed, (list, tuple)) and isinstance(confirmed, (list, tuple)):

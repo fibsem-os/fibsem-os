@@ -23,6 +23,7 @@ lost in -- the inbox is re-derived from the experiment on every refresh.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from copy import deepcopy
@@ -57,6 +58,7 @@ from fibsem.applications.autolamella.proposals import (
     DETECTION,
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
+    STATE,
     TASK_RESULT,
     Author,
     AuthorKind,
@@ -66,7 +68,7 @@ from fibsem.applications.autolamella.proposals import (
 )
 from fibsem.applications.autolamella.structures import Attention, Experiment, GridRecord
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import BeamType, FibsemImage, Point
+from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, Point
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -687,7 +689,11 @@ class TaskResultReviewRenderer(ReviewRenderer):
         elif applied is not None:
             verb, rerun = self._state_words()
             text = (
-                f"{verb} automatically at {clock(applied.timestamp)} · not checked yet"
+                # Nobody confirmed this; the value was used as it stood.
+                f"○  Used as proposed at {clock(applied.timestamp)} · "
+                f"{applied.reason} · not checked yet"
+                if proposal.unreviewed
+                else f"{verb} automatically at {clock(applied.timestamp)} · not checked yet"
             )
             colour = GRAY_SECONDARY_COLOR
             if gated:
@@ -832,6 +838,47 @@ class PointOfInterestReviewRenderer(TaskResultReviewRenderer):
         super().set_proposal(experiment, item, task_name, proposal)
         # a delta only means something against the one image the values sit on
         self._controller.widget.set_sem_visible(False)
+
+
+@register_review_renderer(STATE)
+class StateReviewRenderer(TaskResultReviewRenderer):
+    """A task's position, for the operator to confirm before it goes on: what
+    the prompt bar asks on the Microscope tab, listed here too so it can be
+    answered from here -- or by an agent -- and seen afterwards. Nothing to
+    drag: the values on the decision are read from the instrument by the task
+    once it is confirmed, so a move the operator made first is the delta.
+    Usually no image: the question comes before one is taken."""
+
+    PENDING_HINT = "Enter — the position is right, carry on"
+    CONFIRM_LABEL = "Continue · position confirmed"
+
+    def _fact(self) -> str:
+        proposal = self._proposal
+        if proposal is None:
+            return ""
+        message = str(proposal.provenance.get("message") or "")
+        pose = proposal.values.get("stage_position")
+        where = (
+            f" Stage at x {pose.x * 1e3:.3f}, y {pose.y * 1e3:.3f}, "
+            f"z {pose.z * 1e3:.3f} mm, r {math.degrees(pose.r):.1f}°, "
+            f"t {math.degrees(pose.t):.1f}°."
+            if isinstance(pose, FibsemStagePosition)
+            and None not in (pose.x, pose.y, pose.z, pose.r, pose.t)
+            else ""
+        )
+        return (
+            f"{self._task_name} asked at {clock(proposal.created_at)}: {message}{where}"
+        )
+
+    def _state_words(self) -> tuple:
+        return "Confirmed", self._task_name
+
+    def _show_proposal(self) -> None:
+        super()._show_proposal()
+        if self._image is None and self._fluorescence is None:
+            self.no_image.setText(
+                "Asked before an image was taken: the position is the proposal."
+            )
 
 
 @register_review_renderer(DETECTION)

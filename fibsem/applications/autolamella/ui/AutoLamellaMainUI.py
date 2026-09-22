@@ -43,6 +43,7 @@ from superqt import ensure_main_thread
 
 import fibsem
 import fibsem.config as fibsem_cfg
+from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskStatus,
@@ -1599,13 +1600,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if previous is not None:
             try:
                 previous.asked.disconnect(self._on_question_asked)
+                previous.decided.disconnect(self._on_question_decided)
             except Exception:
                 pass
         self._asked_experiment = experiment
         if experiment is not None:
             experiment.asked.connect(self._on_question_asked)
+            experiment.decided.connect(self._on_question_decided)
 
     def _on_question_asked(self, item_id: str, task_name: str) -> None:
+        """Put a question a task just asked in front of the operator, where
+        its kind is answered: a state on the prompt bar of the Microscope tab
+        (the operator is at the instrument, and confirming needs no image);
+        anything else in the Review tab, which is fronted."""
         review_tab = getattr(self, "review_tab", None)
         experiment = getattr(self, "_asked_experiment", None)
         if review_tab is None or experiment is None:
@@ -1614,8 +1621,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         proposal = item.proposal(task_name) if item is not None else None
         if proposal is None or not proposal.asking:
             return
+        if proposal.kind == STATE:
+            self.autolamella_ui.show_state_question(item_id, task_name, proposal)
+            return
         self.tab_widget.setCurrentWidget(review_tab)
         review_tab.select(item_id, task_name)
+
+    def _on_question_decided(self, item_id: str, task_name: str) -> None:
+        """However a state question was answered -- the prompt bar, the Review
+        tab, an agent, or withdrawn by Stop -- the prompt comes down."""
+        self.autolamella_ui.clear_state_question(item_id, task_name)
 
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to Microscope tab, or to
