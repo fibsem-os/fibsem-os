@@ -1,7 +1,7 @@
 """Headless tests for the canvas drag-to-measure RulerOverlay (Phase 7.1).
 
 Run directly (headless):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_ruler_overlay.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_ruler_overlay.py
 
 Or via pytest. Covers SI formatting, the toolbar toggle (seed + activate +
 restore), endpoint/line drag with bounds clamping, screen-space hit testing,
@@ -16,6 +16,10 @@ import types
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+import pytest
+
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas

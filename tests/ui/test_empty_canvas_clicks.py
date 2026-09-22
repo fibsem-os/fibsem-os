@@ -5,12 +5,17 @@ span the default [0,1], so a double-click would otherwise emit ~(0.5, 0.5) "pixe
 a stage move to the image corner. Once an image is present, clicks emit normally.
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_empty_canvas_clicks.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_empty_canvas_clicks.py
 """
+
 import sys
 import types
 
 import numpy as np
+import pytest
+
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
@@ -20,8 +25,14 @@ _app = QApplication.instance() or QApplication(sys.argv)
 
 def _event(canvas, x, y, *, dblclick=False, button=1):
     return types.SimpleNamespace(
-        inaxes=canvas._ax, xdata=x, ydata=y, dblclick=dblclick, button=button,
-        guiEvent=None, x=10, y=10,
+        inaxes=canvas._ax,
+        xdata=x,
+        ydata=y,
+        dblclick=dblclick,
+        button=button,
+        guiEvent=None,
+        x=10,
+        y=10,
     )
 
 

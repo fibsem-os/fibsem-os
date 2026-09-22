@@ -7,14 +7,19 @@ these tests pin the parts that would break silently — that assigning it actual
 the scalebar, and that its None semantics differ from set_array's argument.
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_canvas_pixel_size.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_canvas_pixel_size.py
 """
+
 import os
 import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+import pytest
+
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget

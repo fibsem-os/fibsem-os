@@ -4,11 +4,16 @@ The lamella-editor POI is a "+" marker with a legend; the swatch must be a "+" (
 not a filled square (Patch). Also covers FibsemImageCanvas.set_legend's per-entry marker.
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_point_overlay_legend.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_point_overlay_legend.py
 """
+
 import sys
 
 import numpy as np
+import pytest
+
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
@@ -26,8 +31,12 @@ def _canvas():
 def test_point_overlay_legend_swatch_is_the_marker():
     c = _canvas()
     ov = PointOverlay(
-        color="magenta", marker="+", edge_width=1.2,
-        legend_label="Point of Interest", add_on_right_click=False, removable=False,
+        color="magenta",
+        marker="+",
+        edge_width=1.2,
+        legend_label="Point of Interest",
+        add_on_right_click=False,
+        removable=False,
     )
     c.add_overlay(ov)
     ov.set_points([(16, 16)])
