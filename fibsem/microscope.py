@@ -2400,19 +2400,17 @@ class FibsemMicroscope(ABC):
         """Record a stage move once it has finished or failed. Never raises.
 
         ``move`` is the method, ``request`` its arguments. ``start`` is the
-        position last read before the move, not a new read: that would be a
-        hardware call the move did not make. ``end`` is the position the move
-        returned, or else the one read during it. A move that returns none and
-        reads none, such as a TESCAN absolute move, has no ``end``; the next read
-        is on ``stage_position_changed``.
+        position last read before the move, and ``end`` the position the move
+        returned, or else the position last read -- neither is a new read, which
+        would be a hardware call the move did not make. A move that returns
+        nothing and reads nothing, as TESCAN's and Odemis's absolute moves do
+        today, leaves the last read as the one before it.
         """
         try:
             if isinstance(result, FibsemStagePosition):
                 end = result
-            elif self._stage_position is not start:  # read, and found it moved
-                end = self._stage_position
             else:
-                end = None
+                end = self._stage_position
             payload = {
                 "move": move,
                 "request": _call_arguments(*call),

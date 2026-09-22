@@ -114,6 +114,16 @@ def test_a_move_that_returns_nothing_ends_where_it_was_last_read(microscope, rec
     assert move["end"] == microscope.get_stage_position().to_dict()
 
 
+def test_a_move_to_where_the_stage_already_is_ends_there(microscope, recorded):
+    # It returns nothing, and the position it reads is unchanged: the end is the
+    # start, not unknown.
+    here = microscope.get_stage_position()
+    assert microscope.safe_absolute_stage_movement(here) is None
+
+    (move,) = recorded("stage_moved")
+    assert move["end"] == move["start"] == here.to_dict()
+
+
 def test_a_move_to_a_device_is_one_event_not_three():
     # From the SEM pose to an offset FM: to the beams, re-pose there, travel out.
     microscope, _ = utils.setup_session(
@@ -152,7 +162,7 @@ def test_a_failed_move_is_recorded_with_why_and_the_caller_still_hears(
     failed, after = recorded("stage_moved")
     assert failed["move"] == "move_to_orientation"
     assert failed["error"] == "ValueError: Orientation SIDEWAYS not supported."
-    assert failed["end"] is None
+    assert failed["end"] == failed["start"]  # it failed before moving
     assert after["move"] == "move_stage_relative"
 
 
