@@ -180,15 +180,20 @@ class TestAttentionOnTheConfig:
 
 
 class TestAGridTaskProposes:
-    def test_automated_confirms_its_own_result(self, microscope, experiment):
+    def test_automated_leaves_its_positions_open_for_the_task_that_uses_them(
+        self, microscope, experiment
+    ):
+        """Nobody is asked and nobody confirms: the positions are used as
+        proposed and stay open to correct until the task that consumes them
+        starts. The run ending does not close them; a run of the overview on
+        its own is how they get looked at before screening."""
         _run(microscope, experiment, review_enabled=True)
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
         proposal = grid.proposal(OVERVIEW)
         assert proposal.kind == OVERVIEW_POSITIONS
-        assert not proposal.pending
-        assert proposal.decisions[-1].author.kind is AuthorKind.automated
+        assert proposal.pending and experiment._is_open(grid, OVERVIEW, proposal)
 
     def test_the_proposal_points_at_the_stitched_overview_not_the_thumbnail(
         self, microscope, experiment
@@ -237,7 +242,10 @@ class TestAGridTaskProposes:
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
-        assert not grid.proposal(OVERVIEW).pending
+        assert grid.proposal(OVERVIEW).pending, "open, as under automated"
+        assert (
+            grid.task_history[-1].status is not AutoLamellaTaskStatus.AwaitingDecision
+        )
 
     def test_a_failed_task_proposes_its_failure_and_stays_failed(
         self, microscope, experiment

@@ -1774,6 +1774,11 @@ def _call_on_main_thread(func, *args, **kwargs):
     return ensure_main_thread(await_return=True)(func)(*args, **kwargs)
 
 
+def _kind_carries_values(kind: str) -> bool:
+    registered = PROPOSAL_KINDS.get(kind)
+    return bool(registered.values) if registered is not None else True
+
+
 def _emit_on_main_thread(signal, *args) -> None:
     """Deliver ``signal`` on the Qt main thread without waiting for it.
 
@@ -2374,12 +2379,21 @@ class Experiment:
             self.save()
         return result
 
-    def expire_open(self, item_id: str, task_name: str, reason: str) -> int:
+    def expire_open(
+        self, item_id: str, task_name: str, reason: str, *, results_only: bool = False
+    ) -> int:
         """Close every open proposal from ``task_name`` on the item as
         ``Unreviewed``, carrying the values as proposed: the task that
-        consumes them has started (or the run ended) before anyone looked.
-        Under the write lock, so a decision landing at the same moment either
-        got there first or is refused as a late edit. Returns how many."""
+        consumes them has started before anyone looked. Under the write lock,
+        so a decision landing at the same moment either got there first or is
+        refused as a late edit. Returns how many.
+
+        ``results_only`` closes only proposals whose kind carries no values --
+        a task's result, which nothing consumes and nothing can correct. A
+        value stays open until the task that uses it starts, however many runs
+        end in between: Setup run on its own leaves its point to correct
+        before Rough Milling is run.
+        """
         expired = 0
         with EXPERIMENT_WRITE_LOCK:
             item = self.get_item_by_id(item_id)
@@ -2387,6 +2401,8 @@ class Experiment:
                 return 0
             for proposal in item.current_proposals(task_name):
                 if not self._is_open(item, task_name, proposal):
+                    continue
+                if results_only and _kind_carries_values(proposal.kind):
                     continue
                 proposal.decisions.append(
                     Decision(
@@ -2419,14 +2435,18 @@ class Experiment:
                 logging.exception(f"a subscriber to decided raised for {task_name}")
         return expired
 
-    def expire_all_open(self, reason: str) -> int:
-        """Close every open proposal on every item: the run ended and nothing
-        will consume them now. A supervised task's result the run is holding
-        for is not open, and is left for the decision it waits on."""
+    def expire_all_open(self, reason: str, *, results_only: bool = False) -> int:
+        """Close every open proposal on every item. At a run's end the
+        managers pass ``results_only``: a result nobody looked at is closed,
+        a value stays open for the task that will use it. A supervised task's
+        result the run is holding for is not open, and is left for the
+        decision it waits on."""
         expired = 0
         for item in list(self.positions) + list(self.grids):
             for task_name in list(item.proposals):
-                expired += self.expire_open(item.id, task_name, reason)
+                expired += self.expire_open(
+                    item.id, task_name, reason, results_only=results_only
+                )
         return expired
 
     def record_unasked(
