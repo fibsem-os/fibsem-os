@@ -225,24 +225,23 @@ def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
     microscope, tmp_path
 ):
     """The flag hides the Review surface, not the record. A protocol that says
-    review runs ungated with it off: the producer confirms its own proposal
-    and nothing defers."""
+    supervised runs ungated with it off: the proposal is recorded, open, and
+    nothing defers."""
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp, flag=False)
     assert task.review is False, "gate needs the flag"
     task.run()
     lamella = exp.positions[0]
     proposal = lamella.proposal(SETUP)
-    assert proposal.kind == POINT_OF_INTEREST and not proposal.pending
-    assert str(proposal.current.author) == "auto:current-poi"
+    assert proposal.kind == POINT_OF_INTEREST and proposal.pending
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
 
 
-def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
+def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_path):
     """Not gated, nobody asked inline: the proposal is recorded exactly as
-    under a gate, then confirmed as proposed by the producer, through the
-    same decide path a person's confirm takes. The author says nobody looked;
-    the run never waits."""
+    under a gate, its values are live from that moment, and it stays open to
+    correct. Nobody confirms it; when the task that uses it starts it is
+    closed as Unreviewed, which is never agreement. The run never waits."""
     exp = _experiment(tmp_path, microscope)
     task = _task(microscope, exp, flag=True)
     assert task.review is False
@@ -253,22 +252,39 @@ def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
     task.run()
 
     proposal = lamella.proposal(SETUP)
-    assert not proposal.pending
+    assert proposal.pending, "open"
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "the proposal is untouched"
-    assert proposal.current.outcome is DecisionOutcome.Confirmed
-    assert str(proposal.current.author) == "auto:current-poi"
-    assert proposal.current.via == "workflow"
-    assert proposal.current.values == proposal.values, "confirmed as proposed"
-    assert proposal.delta() == {"poi": Point(0.0, 0.0)}
-    assert heard == [SETUP], "the tab hears it like any other decision"
+    assert lamella.poi == Point(0.0, 0.0), "live as proposed"
+    assert heard == [], "nothing was decided"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None, "nothing waits"
     assert lamella.has_completed_task(SETUP)
+    assert [t for _i, t, _p in exp.proposals_to_check()] == [SETUP]
 
-    # A re-run supersedes the auto-confirmed proposal like a person's.
+    # A correction before the consumer starts is a plain confirm with values.
+    moved = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(1e-6, 0.0)},
+            proposal_id=proposal.id,
+        ),
+    )
+    assert moved.applied, moved.reason
+    assert lamella.poi == Point(1e-6, 0.0)
+    assert heard == [SETUP]
+
+    # A re-run of the task leaves the decided one on the record before it.
     _task(microscope, exp, flag=True).run()
     fresh = lamella.proposal(SETUP)
-    assert fresh is not proposal and not fresh.pending
+    assert fresh is not proposal and fresh.pending
     assert lamella.proposals[SETUP] == [proposal, fresh]
+
+    # A re-run over an open one closes it as used-unreviewed, not dropped.
+    _task(microscope, exp, flag=True).run()
+    assert [p.unreviewed for p in lamella.proposals[SETUP]] == [False, True, False]
+    assert "re-ran" in lamella.proposals[SETUP][1].current.reason
 
 
 def test_supervised_the_inline_answer_is_the_decision(

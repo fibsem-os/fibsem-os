@@ -21,7 +21,6 @@ from fibsem.applications.autolamella.proposals import (
     Proposal,
     Proposer,
     TaskResultProposer,
-    auto_author,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
@@ -103,6 +102,14 @@ def propose(
             f"{item.name}: {task.task_name} re-run; the decided "
             "proposal stays on the record and a new one is pending."
         )
+    experiment = getattr(getattr(task, "task_manager", None), "experiment", None)
+    if experiment is not None:
+        # A re-run while the last run's value is still open: nobody looked at
+        # it, and it was used as it stood, so it is closed as such rather than
+        # dropped as a question nobody answered.
+        experiment.expire_open(
+            item.id, task.task_name, f"{task.task_name} re-ran before anyone looked"
+        )
     item.record_proposal(task.task_name, proposal)
     logging.info(
         {
@@ -160,12 +167,18 @@ def settle(
                     "in the Review tab."
                 )
             return
-        decision = Decision(
-            outcome=DecisionOutcome.Confirmed,
-            author=auto_author(proposal.provenance["proposer"]),
-            values=dict(proposal.values),
-            via="workflow",
-        )
+        # Nobody decides this: the values are used as proposed, live from now,
+        # and the proposal stays open to correct until the task that consumes
+        # them starts, when it is recorded Unreviewed. Not a decision by the
+        # producer: nobody agreed to anything.
+        if experiment is not None and proposal.values:
+            result = experiment.apply_proposed(item.id, task.task_name, proposal.id)
+            if not result.applied:
+                logging.warning(
+                    f"{item.name}: the proposed {task.task_name} values were not "
+                    f"applied ({result.reason})."
+                )
+        return
     if experiment is None:
         return
     # The producer decides the proposal it has just made: its own run.

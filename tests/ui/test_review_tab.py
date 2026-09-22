@@ -220,6 +220,11 @@ def test_an_unregistered_kind_still_gets_the_two_verbs(tab, experiment, qapp):
     lamella.proposals["other"] = [
         Proposal(kind="site_pick_v9", values={}, provenance={"task_id": RUN})
     ]
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name="other", status=AutoLamellaTaskStatus.AwaitingDecision
+        )
+    )
     tab.refresh()
     assert tab.pending_count == 2
     tab._select_entry(1)
@@ -388,6 +393,9 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
             provenance={"task_id": RUN},
         )
     ]
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=ROUGH, status=AutoLamellaTaskStatus.AwaitingDecision)
+    )
     tab.refresh()
     assert tab.check_count == 2 and tab.pending_count == 1
     first = tab.list.itemWidget(tab.list.item(0))
@@ -444,6 +452,9 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     del lamella.proposals[SETUP]
     eb = os.path.join(str(lamella.path), "ref_rough_eb")
     _fib_image().save(eb)
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=ROUGH, status=AutoLamellaTaskStatus.AwaitingDecision)
+    )
     lamella.proposals[ROUGH] = [
         Proposal(
             kind=TASK_RESULT,

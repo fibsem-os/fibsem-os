@@ -2289,6 +2289,146 @@ class Experiment:
             logging.exception(f"a subscriber to asked raised for {task_name}")
         return True
 
+    @staticmethod
+    def _is_open(item: Any, task_name: str, proposal: Proposal) -> bool:
+        """Undecided, and nothing waits on it: nobody was asked. An automated
+        task's value is live from the moment it is proposed and stays open to
+        correct until the task that consumes it starts; then it is recorded
+        Unreviewed. Not a question a task is parked on, and not a supervised
+        task's result that the run is holding for."""
+        return (
+            proposal.pending
+            and not proposal.asking
+            and not item.is_awaiting_decision(task_name)
+        )
+
+    def apply_proposed(
+        self, item_id: str, task_name: str, proposal_id: str
+    ) -> DecisionResult:
+        """Write a proposal's values through as they stand, with no decision:
+        what an automated task's value being live from the moment it is
+        proposed means. On the main thread, through the same planned writes a
+        decision uses; nothing is appended to the record, so the proposal
+        stays open to correct until its consumer starts."""
+        return _call_on_main_thread(
+            self._apply_proposed, item_id, task_name, proposal_id
+        )
+
+    def _apply_proposed(
+        self, item_id: str, task_name: str, proposal_id: str
+    ) -> DecisionResult:
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return DecisionResult(
+                    applied=False, reason=f"No item with id {item_id!r}."
+                )
+            proposal = next(
+                (p for p in item.current_proposals(task_name) if p.id == proposal_id),
+                None,
+            )
+            if proposal is None:
+                return DecisionResult(
+                    applied=False, reason=f"{item.name} has no such proposal."
+                )
+            if not proposal.values:
+                return DecisionResult(applied=True)
+            try:
+                writes = prepare_values(self, item, proposal.kind, proposal.values)
+            except ValueRefused as e:
+                return DecisionResult(
+                    applied=False, error_type="invalid_value", reason=str(e)
+                )
+            except Exception as e:
+                logging.exception(
+                    f"{item.name}: could not plan the proposed {task_name} values"
+                )
+                return DecisionResult(
+                    applied=False, reason=f"Could not apply the values: {e}"
+                )
+            result = DecisionResult(applied=True)
+            try:
+                result.synced_tasks.extend(writes.apply())
+            except Exception as e:
+                logging.exception(
+                    f"{item.name}: applying the proposed {task_name} values failed; "
+                    "undoing."
+                )
+                try:
+                    writes.undo()
+                except Exception:
+                    logging.exception(f"{item.name}: could not undo {task_name}")
+                return DecisionResult(
+                    applied=False, reason=f"Could not apply the values: {e}"
+                )
+            logging.info(
+                {
+                    "msg": "proposal_applied_as_proposed",
+                    "item": item.name,
+                    "task_name": task_name,
+                    "kind": proposal.kind,
+                    "proposal_id": proposal.id,
+                    "synced_tasks": list(result.synced_tasks),
+                }
+            )
+            self.save()
+        return result
+
+    def expire_open(self, item_id: str, task_name: str, reason: str) -> int:
+        """Close every open proposal from ``task_name`` on the item as
+        ``Unreviewed``, carrying the values as proposed: the task that
+        consumes them has started (or the run ended) before anyone looked.
+        Under the write lock, so a decision landing at the same moment either
+        got there first or is refused as a late edit. Returns how many."""
+        expired = 0
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return 0
+            for proposal in item.current_proposals(task_name):
+                if not self._is_open(item, task_name, proposal):
+                    continue
+                proposal.decisions.append(
+                    Decision(
+                        outcome=DecisionOutcome.Unreviewed,
+                        author=auto_author(
+                            str(proposal.provenance.get("proposer") or task_name)
+                        ),
+                        values=dict(proposal.values),
+                        reason=reason,
+                        via="workflow",
+                        task_id=proposal.task_id,
+                        proposal_id=proposal.id,
+                    )
+                )
+                expired += 1
+                logging.info(
+                    {
+                        "msg": "proposal_unreviewed",
+                        "item": item.name,
+                        "task_name": task_name,
+                        "kind": proposal.kind,
+                        "proposal_id": proposal.id,
+                        "reason": reason,
+                    }
+                )
+        if expired:
+            try:
+                _emit_on_main_thread(self.decided, item_id, task_name)
+            except Exception:
+                logging.exception(f"a subscriber to decided raised for {task_name}")
+        return expired
+
+    def expire_all_open(self, reason: str) -> int:
+        """Close every open proposal on every item: the run ended and nothing
+        will consume them now. A supervised task's result the run is holding
+        for is not open, and is left for the decision it waits on."""
+        expired = 0
+        for item in list(self.positions) + list(self.grids):
+            for task_name in list(item.proposals):
+                expired += self.expire_open(item.id, task_name, reason)
+        return expired
+
     def record_unasked(
         self, item_id: str, task_name: str, proposal: Proposal, reason: str
     ) -> bool:
@@ -2444,20 +2584,24 @@ class Experiment:
         for item in list(self.positions) + list(self.grids):
             for task_name, proposals in item.proposals.items():
                 for proposal in current_proposals(proposals):
-                    if proposal.pending:
+                    if proposal.pending and not self._is_open(
+                        item, task_name, proposal
+                    ):
                         pending.append((item, task_name, proposal))
         return pending
 
     def proposals_to_check(
         self,
     ) -> List[Tuple[Union["Lamella", GridRecord], str, Proposal]]:
-        """Every proposal a producer applied itself (advise mode) that nobody
-        has looked at: the inbox's second group. Derived like the first."""
+        """Every proposal nobody was asked about and nobody has looked at: an
+        automated task's value, open to correct until its consumer starts and
+        Unreviewed after; a decision an agent made. The inbox's second group.
+        Derived like the first."""
         to_check = []
         for item in list(self.positions) + list(self.grids):
             for task_name, proposals in item.proposals.items():
                 for proposal in current_proposals(proposals):
-                    if proposal.to_check:
+                    if proposal.to_check or self._is_open(item, task_name, proposal):
                         to_check.append((item, task_name, proposal))
         return to_check
 

@@ -101,6 +101,10 @@ def ui(qapp, monkeypatch, tmp_path):
     lamella.path.mkdir(parents=True, exist_ok=True)
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
+    # A waiting proposal: its task ended waiting for the decision.
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
+    )
     lamella.proposals[SETUP] = [
         Proposal(
             kind=POINT_OF_INTEREST,
