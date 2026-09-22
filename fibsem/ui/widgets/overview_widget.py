@@ -708,6 +708,15 @@ class FibsemOverviewWidget(QWidget):
         # through. Added first so it sits under everything else.
         self.gridbar_overlay = GridBarOverlay()
         self.canvas.add_overlay(self.gridbar_overlay)
+        # Where the bars have been dragged to, from where the holder says they are:
+        # an offset along the sample surface in metres and a turn in degrees. Kept in
+        # surface units rather than canvas ones so the same placement draws in every
+        # view, squashed by whatever that view's foreshortening is (FIB-615).
+        self._gridbar_offset: Tuple[float, float] = (0.0, 0.0)
+        self._gridbar_rotation: float = 0.0
+        self.gridbar_overlay.moved.connect(self._on_gridbars_moved)
+        self.gridbar_overlay.rotated.connect(self._on_gridbars_rotated)
+        self.gridbar_overlay.drag_finished.connect(self._refresh_gridbar_placement)
 
         # What the next run would acquire, tile by tile. Clickable: a tile toggles in
         # or out, an edge resizes the grid, the interior drags it somewhere else.
@@ -871,6 +880,27 @@ class FibsemOverviewWidget(QWidget):
             # over a lattice that was not drawn -- inviting an adjustment that appeared
             # to do nothing.
             _spin.setEnabled(self.overlay_controls.is_visible(_OVERLAY_GRIDBARS))
+        # Dragging the bars into place. Checked, the lattice owns the canvas's clicks
+        # -- drag to move, the handle to turn -- and click-to-move stands down, through
+        # the canvas's own overlay mode and its toolbar toggle. Off with the bars.
+        self.btn_align_gridbars = QPushButton("Align bars")
+        self.btn_align_gridbars.setCheckable(True)
+        self.btn_align_gridbars.setToolTip(
+            "Drag the bars onto the grid in the picture; take the handle to turn them"
+        )
+        self.btn_align_gridbars.toggled.connect(self._on_align_gridbars_toggled)
+        self.btn_reset_gridbars = QPushButton("Reset")
+        self.btn_reset_gridbars.setToolTip("Put the bars back where the holder says")
+        self.btn_reset_gridbars.clicked.connect(self._reset_gridbar_placement)
+        self.label_gridbar_placement = QLabel("")
+        self.label_gridbar_placement.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
+        for _button in (self.btn_align_gridbars, self.btn_reset_gridbars):
+            _button.setEnabled(self.overlay_controls.is_visible(_OVERLAY_GRIDBARS))
+        # The canvas's toggle flips between the lattice and Move without tearing the
+        # mode down; unchecking it here is taken as leaving Align altogether, so the
+        # two buttons cannot disagree about whether the bars are being placed.
+        self.canvas.btn_mode.toggled.connect(self._on_canvas_mode_toggled)
+        self._refresh_gridbar_placement()
 
         # On the canvas toolbar beside contrast, not in the settings column: what is
         # drawn *over* the picture is a looking-at-it question, where the column is for
@@ -1056,6 +1086,12 @@ class FibsemOverviewWidget(QWidget):
         layout.addRow(self.overlay_controls)
         layout.addRow("Bar spacing", self.spin_gridbar_spacing)
         layout.addRow("Bar width", self.spin_gridbar_width)
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.addWidget(self.btn_align_gridbars)
+        buttons.addWidget(self.btn_reset_gridbars)
+        layout.addRow(buttons)
+        layout.addRow(self.label_gridbar_placement)
         return panel
 
     def _toggle_tile_grid_panel(self) -> None:
@@ -1244,6 +1280,11 @@ class FibsemOverviewWidget(QWidget):
             # The pitch controls only mean anything while the bars are drawn.
             self.spin_gridbar_spacing.setEnabled(checked)
             self.spin_gridbar_width.setEnabled(checked)
+            self.btn_align_gridbars.setEnabled(checked)
+            self.btn_reset_gridbars.setEnabled(checked)
+            if not checked:
+                # Bars that are not drawn cannot be placed: leave the mode with them.
+                self.btn_align_gridbars.setChecked(False)
             self.gridbar_overlay.set_visible(checked)
             if checked:
                 self._refresh_gridbars()
@@ -1259,16 +1300,15 @@ class FibsemOverviewWidget(QWidget):
         frame -- the controls are usable from the moment the tab opens, and nothing is
         on screen to reference yet.
 
-        The pitch is still `frame.length()`, and still one number for both axes, which
-        is wrong in the same way the travel envelope was: a square lattice on the sample
-        is not square in a tilted view, so at the milling pose the horizontal bars sit
-        about four times too far apart. Deliberately left (FIB-615) -- the fix is
-        `_canvas_span` and a per-axis `set_lattice`, and it is not what anyone is
-        waiting on.
+        The pitch is `frame.length()` along the unsquashed axis, and the view's own
+        surface foreshortening squashes the other: a square lattice on the sample is
+        not square in a tilted view, and drawn square the horizontal bars sat about
+        four times too far apart at the milling pose (FIB-615). The dragged offset goes
+        the same way -- kept along the surface, squashed for the view -- so the bars
+        stay on the grid's bars whichever view is shown.
 
-        The lattice *centre* is fixed here, because it was a different bug: grid centre
-        is a place, and built with its own rotation it read as a position recorded half
-        a turn away. See :meth:`_landmark`.
+        The lattice *centre* is the grid centre, because building it with its own
+        rotation read as a position recorded half a turn away. See :meth:`_landmark`.
         """
         if not self.overlay_controls.is_visible(_OVERLAY_GRIDBARS):
             return
@@ -1276,7 +1316,13 @@ class FibsemOverviewWidget(QWidget):
         if frame is None:
             return
         try:
-            centre = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))
+            anchor = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))
+            squash = frame.surface_foreshortening()
+            dx, dy = self._gridbar_offset
+            centre = (
+                anchor[0] + frame.length(dx),
+                anchor[1] + frame.length(dy) * squash,
+            )
             pitch = frame.length(
                 self.spin_gridbar_spacing.value() * constants.MICRO_TO_SI
             )
@@ -1286,7 +1332,75 @@ class FibsemOverviewWidget(QWidget):
         except Exception as e:
             logger.debug(f"Could not place the grid bars: {e}")
             return
-        self.gridbar_overlay.set_lattice(centre, pitch, width)
+        self.gridbar_overlay.set_lattice(
+            centre,
+            pitch,
+            width,
+            rotation=self._gridbar_rotation,
+            squash=squash,
+            # A grid's bars stop at its rim. Beyond it the lattice said nothing about
+            # the sample and covered everything else drawn there.
+            radius=frame.length(stage_context.GRID_BOUNDARY_RADIUS_M),
+        )
+
+    @property
+    def gridbar_placement(self) -> Tuple[float, float, float]:
+        """Where the bars have been dragged to: (dx, dy) metres along the sample
+        surface from the grid centre, and the turn in degrees clockwise on screen."""
+        return self._gridbar_offset[0], self._gridbar_offset[1], self._gridbar_rotation
+
+    def set_gridbar_placement(self, dx: float, dy: float, rotation: float) -> None:
+        """Place the bars, in the units :attr:`gridbar_placement` reports."""
+        self._gridbar_offset = (float(dx), float(dy))
+        self._gridbar_rotation = float(rotation)
+        self._refresh_gridbars()
+        self._refresh_gridbar_placement()
+
+    def _on_gridbars_moved(self, cx: float, cy: float) -> None:
+        """The lattice was dragged: back from the canvas to metres along the surface."""
+        frame = self._frame()
+        if frame is None:
+            return
+        try:
+            anchor = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))
+            here = self.canvas.canvas_to_metres(cx, cy)
+            there = self.canvas.canvas_to_metres(*anchor)
+            squash = frame.surface_foreshortening() or 1.0
+        except Exception as e:
+            logger.debug(f"Could not read the dragged grid bars: {e}")
+            return
+        self._gridbar_offset = (here[0] - there[0], (here[1] - there[1]) / squash)
+        self._refresh_gridbars()
+
+    def _on_gridbars_rotated(self, rotation: float) -> None:
+        self._gridbar_rotation = float(rotation)
+        self._refresh_gridbars()
+
+    def _reset_gridbar_placement(self) -> None:
+        self.set_gridbar_placement(0.0, 0.0, 0.0)
+
+    def _refresh_gridbar_placement(self) -> None:
+        dx, dy = self._gridbar_offset
+        rotation = self._gridbar_rotation
+        if dx == 0.0 and dy == 0.0 and rotation == 0.0:
+            self.label_gridbar_placement.setText("Bars at the grid centre")
+            return
+        self.label_gridbar_placement.setText(
+            f"Bars {dx * constants.SI_TO_MICRO:+.1f}, {dy * constants.SI_TO_MICRO:+.1f} um"
+            f" from the grid centre, turned {rotation:+.1f}°"
+        )
+
+    def _on_align_gridbars_toggled(self, checked: bool) -> None:
+        if checked:
+            self.canvas.enter_overlay_mode(
+                self.gridbar_overlay, "Align bars", icon="mdi:cursor-move"
+            )
+        else:
+            self.canvas.exit_overlay_mode(self.gridbar_overlay)
+
+    def _on_canvas_mode_toggled(self, checked: bool) -> None:
+        if not checked and self.canvas._mode_overlay is self.gridbar_overlay:
+            self.btn_align_gridbars.setChecked(False)
 
     # ── state ────────────────────────────────────────────────────────────
 
