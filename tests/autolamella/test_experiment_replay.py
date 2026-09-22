@@ -269,6 +269,39 @@ def test_a_milling_stage_is_placed_at_its_start(tmp_path):
     assert event.duration == 90
 
 
+def test_a_milling_task_s_stages_keep_the_order_they_were_milled_in(tmp_path):
+    """Durations come from a clock coarser than the log's on Windows before 3.13.
+
+    There ``time.time()`` ticks every ~16 ms: a stage milled inside one tick
+    measures 0 s, the next a whole tick. Worked back from its end, the second
+    would have started before the first. It started after the first finished.
+    """
+    root = tmp_path / "exp"
+    root.mkdir()
+    record = (
+        "{'msg': 'milling_task', 'milling_task_id': 'm1', 'milling_task_name': 'Trench',"
+        " 'idx': %d, 'stage': {'name': '%s', 'milling': {}, 'pattern': {}},"
+        " 'start_time': %r, 'end_time': %r}"
+    )
+    lines = [
+        _line(T0, "_mill_stage", record % (0, "Rough", 1000.0, 1000.0)),
+        _line(
+            T0 + timedelta(milliseconds=1),
+            "_mill_stage",
+            record % (1, "Polish", 1000.0, 1000.0156),
+        ),
+    ]
+    (root / "logfile.log").write_text("".join(lines), encoding="utf-8")
+    first, second = load_replay(root).events
+    assert [first.data["stage"]["name"], second.data["stage"]["name"]] == [
+        "Rough",
+        "Polish",
+    ]
+    assert first.time == T0
+    assert second.time == T0  # when the first finished, not before
+    assert second.duration == pytest.approx(0.0156)
+
+
 def test_a_cp1252_log_is_read(tmp_path):
     """Older Windows installs wrote the log in cp1252; the em-dash separator decides."""
     root = tmp_path / "exp"
@@ -484,6 +517,31 @@ def test_a_recorded_path_is_found_in_a_copied_and_renamed_experiment(tmp_path):
     )
     (image,) = load_replay(tmp_path).events
     assert image.image_path == tmp_path / "01-test" / "ref_ib.tif"
+
+
+def test_milling_stages_started_in_the_same_clock_tick_keep_their_order(tmp_path):
+    """Each stage is placed at its own start, so a coarse clock only makes a tie."""
+    t = "2026-09-21T14:00:00.000+10:00"
+
+    def started(idx, name):
+        stage = {"name": name, "milling": {}, "pattern": {}}
+        payload = {"task_id": "m1", "task_name": "Trench", "stage": stage}
+        return _record(t, "milling_stage_started", {**payload, "stage_index": idx})
+
+    def finished(name):
+        payload = {"task_id": "m1", "stage_name": name, "status": "stage-finished"}
+        return _record(t, "milling_progress", payload)
+
+    _write_events(
+        tmp_path,
+        started(0, "Rough"),
+        finished("Rough"),
+        started(1, "Polish"),
+        finished("Polish"),
+    )
+    replay = load_replay(tmp_path)
+    assert [e.data["stage"]["name"] for e in replay.events] == ["Rough", "Polish"]
+    assert [e.duration for e in replay.events] == [0.0, 0.0]
 
 
 def test_a_cancelled_spot_burn_replays_only_the_points_it_reached(tmp_path):

@@ -614,7 +614,10 @@ def _milling_summary(
     )
 
 
-def _milling_event(record: LogRecord, d: Dict[str, Any]) -> ReplayEvent:
+def _milling_event(
+    record: LogRecord, d: Dict[str, Any], not_before: Optional[datetime] = None
+) -> ReplayEvent:
+    """``not_before``: when the task's previous stage finished, by the log's clock."""
     stage = d.get("stage") if isinstance(d.get("stage"), dict) else {}
     duration = None
     try:
@@ -625,6 +628,13 @@ def _milling_event(record: LogRecord, d: Dict[str, Any]) -> ReplayEvent:
     # clock -- not by `start_time`, an epoch that would be read in this
     # machine's time zone rather than the instrument's.
     time = record.time - timedelta(seconds=duration) if duration else record.time
+    # The duration is measured by a clock that can be coarser than the log's
+    # (about 16 ms on Windows before Python 3.13): a stage milled inside one
+    # tick measures 0 s, the next a whole tick. Worked back from its end, that
+    # next stage would start before the one before it finished, which it
+    # cannot have.
+    if not_before is not None and time < not_before:
+        time = not_before
     summary = _milling_summary(d.get("milling_task_name"), stage, duration)
     return ReplayEvent(
         time=time, kind=EventKind.MILLING, summary=summary, data=d, duration=duration
@@ -814,6 +824,8 @@ def _load_from_log(root: Path) -> ExperimentReplay:
     track: List[Tuple[datetime, Dict[str, Any]]] = []
     item = task = step = None
     read = unreadable = 0
+    # Milling task id -> when its latest stage finished, by the log's clock.
+    stage_finished: Dict[Any, datetime] = {}
 
     for record in read_log_records(logfile):
         if record.level in ("WARNING", "ERROR", "CRITICAL"):
@@ -889,7 +901,9 @@ def _load_from_log(root: Path) -> ExperimentReplay:
             summary = _beam_move_summary(msg, d)
             event = ReplayEvent(record.time, EventKind.STAGE, summary, data=d)
         elif msg == "milling_task":
-            event = _milling_event(record, d)
+            task_id = d.get("milling_task_id")
+            event = _milling_event(record, d, stage_finished.get(task_id))
+            stage_finished[task_id] = record.time
         elif msg == "beam_shift":
             summary = _beam_shift_summary(d)
             event = ReplayEvent(record.time, EventKind.ALIGNMENT, summary, data=d)
