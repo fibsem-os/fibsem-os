@@ -173,6 +173,50 @@ def _select_filename(combo: QComboBox, filename: str) -> None:
     combo.setToolTip(combo.currentData() or "")
 
 
+def correlation_record(
+    result: "CorrelationResult", lamella: Any, run_folder: Optional[str], root: Any
+) -> Dict[str, Any]:
+    """An accepted correlation, for the experiment's record (FIB-1068): what it
+    gave, how well it fits, and the run folder that holds the rest."""
+    data = result.input_data
+    pixel_size = data.fib_image_pixel_size if data is not None else None
+    folder = run_folder
+    if run_folder and root:
+        try:
+            folder = os.path.relpath(run_folder, str(root))
+        except ValueError:  # another drive
+            pass
+    ri = result.refractive_index_correction_mode
+    return {
+        "item": {"id": lamella.id, "name": lamella.name},
+        "poi": result.poi[0].px_m.to_dict(),
+        "rms_px": result.rms_error,
+        "rms_nm": result.rms_error * pixel_size * 1e9 if pixel_size else None,
+        "fiducials": len(result.delta_2d),
+        "refractive_index": (
+            {"mode": ri, "factor": result.refractive_index_correction_factor}
+            if ri
+            else None
+        ),
+        "verdict": _verdict_tier(result.diagnostics),
+        "seeded": result.seed is not None,
+        "folder": folder,
+    }
+
+
+def _verdict_tier(diagnostics: Optional[dict]) -> Optional[str]:
+    """The fit verdict's tier, as the dialog showed it; None for an unseeded fit."""
+    if not diagnostics:
+        return None
+    from fibsem.correlation.verdict import FitDiagnostics, verdict
+
+    try:
+        return verdict(FitDiagnostics.from_dict(diagnostics)).tier
+    except Exception:  # noqa: BLE001 - the tier is a detail of the record
+        logging.debug("could not read the fit verdict", exc_info=True)
+        return None
+
+
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
@@ -1006,15 +1050,18 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
         self._save_experiment()
 
-    def _on_point_of_interest_updated(self, point: Point):
-        """Callback when the point of interest is updated."""
+    def _on_point_of_interest_updated(self, point: Point, via: Optional[str] = None):
+        """Callback when the point of interest is updated. *via* names where the
+        point came from, for the record, when not from the editor itself."""
         selected_lamella = self._selected_lamella
         if selected_lamella is None:
             return
 
         logging.info(f"Updated {selected_lamella.name}, Point of Interest: {point}")
-        self._edits.touch(selected_lamella, None, "poi", lambda: selected_lamella.poi)
-        self._edits.touch_patterns(selected_lamella, via="point of interest")
+        self._edits.touch(
+            selected_lamella, None, "poi", lambda: selected_lamella.poi, via
+        )
+        self._edits.touch_patterns(selected_lamella, via=via or "point of interest")
 
         # update point of interest in the task config
         selected_lamella.poi = point
@@ -1210,7 +1257,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self._save_experiment()
 
         if dialog.result is not None:
-            self._handle_correlation_dialog_result(dialog.result)
+            self._handle_correlation_dialog_result(dialog.result, project_path)
 
     @staticmethod
     def _default_fib_filename(
@@ -1261,7 +1308,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 return list(cfg.coordinates)
         return []
 
-    def _handle_correlation_dialog_result(self, result: "CorrelationResult") -> None:
+    def _handle_correlation_dialog_result(
+        self, result: "CorrelationResult", run_folder: Optional[str] = None
+    ) -> None:
         """Handle the CorrelationResult returned from CorrelationTabDialog."""
         if result is None or not result.poi:
             logging.warning("Correlation dialog closed with no POI result.")
@@ -1269,8 +1318,31 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         logging.info(
             f"correlation-result: rms={result.rms_error:.3f}, poi={result.poi[0].px_m}"
         )
+        self._record_correlation(result, run_folder)
         poi: Point = result.poi[0].px_m  # Point in metres, same format as old signal
-        self._on_point_of_interest_updated(poi)
+        self._on_point_of_interest_updated(poi, via="correlation")
+
+    def _record_correlation(
+        self, result: "CorrelationResult", run_folder: Optional[str]
+    ) -> None:
+        """Record the correlation on the experiment's record. Never raises: a
+        correlation that cannot be recorded is still applied."""
+        try:
+            microscope = getattr(self.parent_widget, "microscope", None)
+            if microscope is None or self._selected_lamella is None:
+                return
+            experiment = getattr(self.parent_widget, "experiment", None)
+            microscope.record_event(
+                "correlation",
+                correlation_record(
+                    result,
+                    self._selected_lamella,
+                    run_folder,
+                    getattr(experiment, "path", None),
+                ),
+            )
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug("could not record the correlation", exc_info=True)
 
     def _on_apply_to_other_clicked(self):
         """Open dialog to apply this lamella's config to other lamella."""
