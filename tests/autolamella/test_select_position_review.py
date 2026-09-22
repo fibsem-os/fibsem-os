@@ -17,6 +17,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.proposals import (
     POINT_OF_INTEREST,
+    STATE,
     AuthorKind,
     Decision,
     DecisionOutcome,
@@ -97,6 +98,12 @@ def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
         parent_ui=None,
         task_manager=manager,
     )
+
+
+def _points(lamella) -> list:
+    """Setup's point-of-interest proposals, leaving out the two position
+    confirmations it also records with the flag on."""
+    return [p for p in lamella.proposals[SETUP] if p.kind == POINT_OF_INTEREST]
 
 
 def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
@@ -215,7 +222,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     assert fresh.values["poi"] == Point(1e-6, 1e-6), (
         "proposes the point the last decision left on the lamella"
     )
-    assert lamella.proposals[SETUP] == [decided, fresh]
+    assert _points(lamella) == [decided, fresh]
     assert decided.current.values["poi"] == Point(1e-6, 1e-6)
     assert lamella.poi == Point(1e-6, 1e-6)
     assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_decision"
@@ -247,7 +254,9 @@ def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_p
     assert task.review is False
     lamella = exp.positions[0]
     heard = []
-    exp.decided.connect(lambda item_id, task_name: heard.append(task_name))
+    exp.decided.connect(
+        lambda item_id, task_name: heard.append(lamella.proposal(task_name).kind)
+    )
 
     task.run()
 
@@ -255,10 +264,16 @@ def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_p
     assert proposal.pending, "open"
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "the proposal is untouched"
     assert lamella.poi == Point(0.0, 0.0), "live as proposed"
-    assert heard == [], "nothing was decided"
+    assert heard == [STATE, STATE], (
+        "the tilt and the position went on the record unasked; the point is undecided"
+    )
     assert task.task_manager._defer_reason(lamella, ROUGH) is None, "nothing waits"
     assert lamella.has_completed_task(SETUP)
-    assert [t for _i, t, _p in exp.proposals_to_check()] == [SETUP]
+    assert [p.kind for _i, _t, p in exp.proposals_to_check()] == [
+        STATE,
+        STATE,
+        POINT_OF_INTEREST,
+    ], "all three to check: the two confirmations nobody was asked, and the point"
 
     # A correction before the consumer starts is a plain confirm with values.
     moved = exp.decide(
@@ -273,18 +288,18 @@ def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_p
     )
     assert moved.applied, moved.reason
     assert lamella.poi == Point(1e-6, 0.0)
-    assert heard == [SETUP]
+    assert heard[-1] == POINT_OF_INTEREST
 
     # A re-run of the task leaves the decided one on the record before it.
     _task(microscope, exp, flag=True).run()
     fresh = lamella.proposal(SETUP)
     assert fresh is not proposal and fresh.pending
-    assert lamella.proposals[SETUP] == [proposal, fresh]
+    assert _points(lamella) == [proposal, fresh]
 
     # A re-run over an open one closes it as used-unreviewed, not dropped.
     _task(microscope, exp, flag=True).run()
-    assert [p.unreviewed for p in lamella.proposals[SETUP]] == [False, True, False]
-    assert "re-ran" in lamella.proposals[SETUP][1].current.reason
+    assert [p.unreviewed for p in _points(lamella)] == [False, True, False]
+    assert "re-ran" in _points(lamella)[1].current.reason
 
 
 def test_supervised_the_inline_answer_is_the_decision(

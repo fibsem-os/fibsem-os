@@ -156,6 +156,61 @@ def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
     assert [p.id for p in again] == [p.id for p in proposals]
 
 
+def test_a_runs_questions_of_one_kind_all_stand_and_a_rerun_replaces_them():
+    """Setup confirms the tilt and then the position: two ``state`` questions
+    from one run, and both are current -- the earlier is a different
+    question, not a replaced one. A re-run's question of the same kind does
+    replace them. A proposal with no run stamped on it goes by the old
+    last-of-kind rule."""
+    from fibsem.applications.autolamella.proposals import STATE, current_proposals
+
+    def question(run: str, stamped: bool = True) -> Proposal:
+        return Proposal(
+            kind=STATE,
+            values={"stage_position": FibsemStagePosition()},
+            provenance={"task_id": run} if stamped else {},
+        )
+
+    tilt, position, point = question("run-1"), question("run-1"), _proposal()
+    point.provenance["task_id"] = "run-1"
+    assert current_proposals([tilt, position, point]) == [tilt, position, point]
+
+    again = question("run-2")
+    assert current_proposals([tilt, position, point, again]) == [point, again], (
+        "the re-run's question replaces both of the first run's"
+    )
+
+    old, newer = question("", stamped=False), question("", stamped=False)
+    assert current_proposals([old, newer]) == [newer], "unstamped: last of kind"
+
+    withdrawn = question("run-3")
+    withdrawn.decisions.append(
+        Decision(task_id="run-3", outcome=DecisionOutcome.Withdrawn, author="human:op")
+    )
+    asked_again = question("run-3")
+    assert current_proposals([withdrawn, asked_again]) == [asked_again], (
+        "withdrawn and asked again in the same run: replaced"
+    )
+
+
+def test_recording_replaces_only_an_unanswered_proposal_of_the_same_kind():
+    """A re-run's first question lands after the point the last run left
+    open. That point is another kind: it stays for ``expire_open`` to close,
+    rather than being dropped as if it were the question asked again."""
+    from fibsem.applications.autolamella.proposals import STATE, record
+
+    open_point = _proposal()
+    proposals = [open_point]
+    question = record(
+        proposals,
+        Proposal(kind=STATE, values={"stage_position": FibsemStagePosition()}),
+    )
+    assert proposals == [open_point, question], "the open point is kept"
+
+    fresh_point = record(proposals, _proposal(Point(0, 0)))
+    assert proposals == [question, fresh_point], "the unanswered point is replaced"
+
+
 def test_recording_over_an_unanswered_proposal_replaces_it():
     """Nobody answered it, so there is nothing to keep; two open proposals
     for one task would be two questions where one was asked."""

@@ -879,12 +879,19 @@ def record(proposals: List[Proposal], proposal: Proposal) -> Proposal:
     on the record and puts the new one after it; a question the task asked
     mid-run sits before the run's own result. The old value is never carried
     over as the new default; a stale default is the rubber stamp the delta
-    detects. A trailing proposal nobody answered is dropped first: it was
-    never decided, so there is nothing to keep, and two open proposals for one
-    task would be two questions where only one was ever asked.
+    detects. The previous proposal of the same kind is dropped first if nobody
+    answered it: it was never decided, so there is nothing to keep, and two
+    open proposals of one kind for one task would be two questions where only
+    one was ever asked. One of another kind is left alone: a run's question
+    sits before the point it leaves for afterwards, and a re-run's first
+    question must not take that point off the record (``expire_open`` closes
+    it when the re-run's own result lands).
     """
-    if proposals and proposals[-1].pending:
-        proposals.pop()
+    for i in range(len(proposals) - 1, -1, -1):
+        if proposals[i].kind == proposal.kind:
+            if proposals[i].pending:
+                del proposals[i]
+            break
     proposals.append(proposal)
     return proposal
 
@@ -904,22 +911,28 @@ def current_proposal(
 
 
 def current_proposals(proposals: Optional[List[Proposal]]) -> List[Proposal]:
-    """The proposals a decision, the gate and the inbox act on: the last of
-    each kind, in the order they were made. A task's run leaves its result
-    after the questions it asked, and a question is not replaced by a result
-    -- they are different kinds -- so both are current. What an earlier
-    proposal of the same kind is: replaced, on the record for its decisions
-    and its delta only."""
+    """The proposals a decision, the gate and the inbox act on, in the order
+    they were made: the last run's proposals of each kind. A task's run leaves
+    its result after the questions it asked, and a question is not replaced
+    by a result -- they are different kinds -- so both are current; a run that
+    asks the same kind twice (Setup confirms the tilt, then the position)
+    asked two questions, and both stand. What a re-run replaces is the earlier
+    run's proposals of the kinds it makes again: on the record for their
+    decisions and their deltas only. So is a question the run withdrew and
+    asked again. A proposal with no run stamped on it (a record from before
+    runs were) is replaced by any later one of its kind.
+    """
     if not proposals:
         return []
-    seen = set()
-    current = []
+    latest: Dict[str, Proposal] = {}
     for p in reversed(proposals):
-        if p.kind not in seen:
-            seen.add(p.kind)
-            current.append(p)
-    current.reverse()
-    return current
+        latest.setdefault(p.kind, p)
+    return [
+        p
+        for p in proposals
+        if p is latest[p.kind]
+        or (p.task_id and p.task_id == latest[p.kind].task_id and not p.withdrawn)
+    ]
 
 
 def proposals_to_dict(proposals: Dict[str, List[Proposal]]) -> Dict[str, list]:
