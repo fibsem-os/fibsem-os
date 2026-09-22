@@ -8,15 +8,13 @@ import numpy as np
 
 from fibsem import config as fcfg
 from fibsem import constants
+from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.applications.autolamella.protocol.constants import UNDERCUT_KEY
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
-from fibsem.applications.autolamella.workflows.core import (
-    align_feature_coincident,
-    update_detection_ui,
-)
+from fibsem.applications.autolamella.workflows.core import align_feature_coincident
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.detection.detection import LamellaBottomEdge, LamellaCentre, LamellaTopEdge
 from fibsem.structures import BeamType, field_meta
@@ -52,6 +50,12 @@ class MillUndercutTaskConfig(AutoLamellaTaskConfig):
 class MillUndercutTask(AutoLamellaTask):
     """Task to mill the undercut for a lamella."""
 
+    # Asked while it runs: the detections the stage moves follow, through
+    # ``detect`` (on the record with the review preference on, the Detection
+    # tab prompt without); then the milling session.
+    questions = (DETECTION,)
+    sessions = ("milling",)
+
     config: MillUndercutTaskConfig
     config_cls: ClassVar[Type[MillUndercutTaskConfig]] = MillUndercutTaskConfig
 
@@ -81,6 +85,7 @@ class MillUndercutTask(AutoLamellaTask):
             parent_ui=self.parent_ui,
             validate=self.validate,
             feature=feature,
+            detect=self.detect,
         )
 
         # mill under cut
@@ -125,14 +130,8 @@ class MillUndercutTask(AutoLamellaTask):
                 else LamellaBottomEdge()
             ]
 
-            det = update_detection_ui(
-                microscope=self.microscope,
-                image_settings=image_settings,
-                checkpoint=checkpoint,
-                features=features,
-                parent_ui=self.parent_ui,
-                validate=self.validate,
-                msg=lamella.status_info,
+            det = self.detect(
+                image_settings, checkpoint, features, message=lamella.status_info
             )
 
             # set pattern position
@@ -165,15 +164,7 @@ class MillUndercutTask(AutoLamellaTask):
         image_settings.hfw = fcfg.REFERENCE_HFW_HIGH
 
         features = [LamellaCentre()]
-        det = update_detection_ui(
-            microscope=self.microscope,
-            image_settings=image_settings,
-            checkpoint=checkpoint,
-            features=features,
-            parent_ui=self.parent_ui,
-            validate=self.validate,
-            msg=self.lamella.status_info,
-        )
+        det = self.detect(image_settings, checkpoint, features)
 
         # align vertical
         self.microscope.vertical_move(

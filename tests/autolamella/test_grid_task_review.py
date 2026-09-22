@@ -121,13 +121,13 @@ class TestAttentionOnTheConfig:
         protocol = GridTaskProtocol()
         protocol.add(
             BeamOverviewGridTaskConfig(
-                task_name=OVERVIEW, attention=Attention.review_later
+                task_name=OVERVIEW, attention=Attention.supervised
             )
         )
         data = yaml.safe_load(yaml.safe_dump(protocol.to_dict()))
-        assert data["tasks"][OVERVIEW]["attention"] == "review_later"
+        assert data["tasks"][OVERVIEW]["attention"] == "supervised"
         again = GridTaskProtocol.from_dict(data)
-        assert again.task_config[OVERVIEW].attention is Attention.review_later
+        assert again.task_config[OVERVIEW].attention is Attention.supervised
 
     def test_a_protocol_saved_before_the_rename_still_loads(self):
         """The mode was stored as ``review`` on main before 0.6.0. It never
@@ -135,13 +135,13 @@ class TestAttentionOnTheConfig:
         protocol = GridTaskProtocol()
         protocol.add(
             BeamOverviewGridTaskConfig(
-                task_name=OVERVIEW, attention=Attention.review_later
+                task_name=OVERVIEW, attention=Attention.supervised
             )
         )
         data = yaml.safe_load(yaml.safe_dump(protocol.to_dict()))
         data["tasks"][OVERVIEW]["attention"] = "review"
         again = GridTaskProtocol.from_dict(data)
-        assert again.task_config[OVERVIEW].attention is Attention.review_later
+        assert again.task_config[OVERVIEW].attention is Attention.supervised
 
     def test_an_unknown_value_reads_as_automated_and_keeps_the_task(self):
         data = BeamOverviewGridTaskConfig(task_name=OVERVIEW).to_dict()
@@ -180,15 +180,20 @@ class TestAttentionOnTheConfig:
 
 
 class TestAGridTaskProposes:
-    def test_automated_confirms_its_own_result(self, microscope, experiment):
+    def test_automated_leaves_its_positions_open_for_the_task_that_uses_them(
+        self, microscope, experiment
+    ):
+        """Nobody is asked and nobody confirms: the positions are used as
+        proposed and stay open to correct until the task that consumes them
+        starts. The run ending does not close them; a run of the overview on
+        its own is how they get looked at before screening."""
         _run(microscope, experiment, review_enabled=True)
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
-        proposal = grid.proposals[OVERVIEW]
+        proposal = grid.proposal(OVERVIEW)
         assert proposal.kind == OVERVIEW_POSITIONS
-        assert not proposal.pending
-        assert proposal.decisions[-1].author.kind is AuthorKind.automated
+        assert proposal.pending and experiment._is_open(grid, OVERVIEW, proposal)
 
     def test_the_proposal_points_at_the_stitched_overview_not_the_thumbnail(
         self, microscope, experiment
@@ -196,7 +201,7 @@ class TestAGridTaskProposes:
         _run(microscope, experiment, review_enabled=False)
         grid = experiment.get_grid_by_name(GRID)
 
-        reference = grid.proposals[OVERVIEW].provenance["reference_image"]
+        reference = grid.proposal(OVERVIEW).provenance["reference_image"]
         overview = latest_grid_output(experiment, grid, OVERVIEW)
         assert reference.endswith(".tif") and "thumbnail" not in reference
         path = Path(experiment.item_path(grid)) / reference
@@ -206,17 +211,15 @@ class TestAGridTaskProposes:
     def test_under_review_the_task_waits_and_a_decision_finishes_it(
         self, microscope, experiment
     ):
-        experiment.grid_protocol.task_config[
-            OVERVIEW
-        ].attention = Attention.review_later
+        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
         _run(microscope, experiment, review_enabled=True)
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.is_awaiting_decision(OVERVIEW)
         assert grid.task_state.status is AutoLamellaTaskStatus.AwaitingDecision
-        assert grid.proposals[OVERVIEW].pending
+        assert grid.proposal(OVERVIEW).pending
         assert not grid.has_completed_task(OVERVIEW)
-        assert grid.proposals[OVERVIEW].task_id == grid.task_history[-1].task_id
+        assert grid.proposal(OVERVIEW).task_id == grid.task_history[-1].task_id
 
         result = experiment.decide(
             grid.id,
@@ -225,7 +228,7 @@ class TestAGridTaskProposes:
                 outcome=DecisionOutcome.Confirmed,
                 author="human:op",
                 values={"positions": []},
-                task_id=grid.proposals[OVERVIEW].task_id,
+                task_id=grid.proposal(OVERVIEW).task_id,
             ),
         )
         assert result.applied is True
@@ -234,21 +237,20 @@ class TestAGridTaskProposes:
     def test_review_in_the_protocol_runs_automated_while_the_preference_is_off(
         self, microscope, experiment
     ):
-        experiment.grid_protocol.task_config[
-            OVERVIEW
-        ].attention = Attention.review_later
+        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
         _run(microscope, experiment, review_enabled=False)
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
-        assert not grid.proposals[OVERVIEW].pending
+        assert grid.proposal(OVERVIEW).pending, "open, as under automated"
+        assert (
+            grid.task_history[-1].status is not AutoLamellaTaskStatus.AwaitingDecision
+        )
 
     def test_a_failed_task_proposes_its_failure_and_stays_failed(
         self, microscope, experiment
     ):
-        experiment.grid_protocol.task_config[
-            OVERVIEW
-        ].attention = Attention.review_later
+        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
         # an orientation the stage does not have: a real failure, inside the
         # task and before any beam
         experiment.grid_protocol.task_config[OVERVIEW].orientation = "NOWHERE"
@@ -257,7 +259,7 @@ class TestAGridTaskProposes:
         _run(microscope, experiment, review_enabled=True)
 
         assert grid.task_history[-1].status is AutoLamellaTaskStatus.Failed
-        proposal = grid.proposals[OVERVIEW]
+        proposal = grid.proposal(OVERVIEW)
         assert proposal.provenance["failure"]
         assert proposal.provenance["reference_image"] == ""
         assert not grid.is_awaiting_decision(OVERVIEW), "a failure does not wait"
@@ -278,7 +280,7 @@ def test_item_path_is_a_lamellas_own_and_a_grids_derived(tmp_path, experiment):
 def _with_later_task(experiment, review_wait, requires=(OVERVIEW,)):
     """The SEM overview under review, then an automated FIB overview that
     requires it (a stand-in for a task that uses the overview)."""
-    experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.review_later
+    experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
     experiment.grid_protocol.add(
         BeamOverviewGridTaskConfig(
             task_name=LATER,
@@ -322,7 +324,7 @@ def _decide_when(experiment, grid_name, ready, outcome, reason=""):
                 values={"positions": []}
                 if outcome is DecisionOutcome.Confirmed
                 else {},
-                task_id=grid.proposals[OVERVIEW].task_id,
+                task_id=grid.proposal(OVERVIEW).task_id,
             ),
         )
 
@@ -469,7 +471,7 @@ class TestTheGridRunWaitsOnADecision:
 
         assert len(_ran(grid, OVERVIEW)) == runs, "not re-run over the pending look"
         assert not again.queue.has_pending_pair(GRID, OVERVIEW)
-        assert grid.proposals[OVERVIEW].pending
+        assert grid.proposal(OVERVIEW).pending
 
     def test_review_on_a_task_nothing_requires_holds_nothing(
         self, microscope, experiment
@@ -556,9 +558,7 @@ class TestTheLatestRunOfARequirementCounts:
         self, microscope, experiment
     ):
         grid = self._succeed_once(microscope, experiment)
-        experiment.grid_protocol.task_config[
-            OVERVIEW
-        ].attention = Attention.review_later
+        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
         manager = _manager(microscope, experiment)
         thread = _decide_when(
             experiment,

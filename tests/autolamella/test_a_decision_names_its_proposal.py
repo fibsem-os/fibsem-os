@@ -233,7 +233,7 @@ def test_a_plain_result_is_named_the_same_way(experiment):
     lamella = experiment.positions[0]
     lamella.task_state.status = AutoLamellaTaskStatus.Completed
     proposal = Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
-    lamella.proposals[TASK] = proposal
+    lamella.proposals[TASK] = [proposal]
 
     result = experiment.decide(
         lamella.id,

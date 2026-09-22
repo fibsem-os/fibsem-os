@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from fibsem import acquire
 from fibsem import config as fcfg
@@ -9,6 +9,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     update_status_ui,
 )
 from fibsem.detection.detection import (
+    DetectedFeatures,
     Feature,
     LamellaCentre,
 )
@@ -48,11 +49,30 @@ def align_feature_coincident(
     validate: bool,
     hfw: float = fcfg.REFERENCE_HFW_MEDIUM,
     feature: Feature = LamellaCentre(),
+    detect: Optional[Callable[..., DetectedFeatures]] = None,
 ) -> "Lamella":
-    """Align the feature in the electron and ion beams to be coincident."""
+    """Align the feature in the electron and ion beams to be coincident.
+
+    ``detect`` is how the two detections are asked: a task passes its own
+    ``detect`` so they go on its record; without one they are the Detection
+    tab prompt as always.
+    """
 
     # bookkeeping
     features = [feature]
+    if detect is None:
+
+        def detect(image_settings, checkpoint, features, position=None, message=""):
+            return update_detection_ui(
+                microscope=microscope,
+                image_settings=image_settings,
+                checkpoint=checkpoint,
+                features=features,
+                parent_ui=parent_ui,
+                validate=validate,
+                msg=message,
+                position=position,
+            )
 
     # update status
     log_status_message(lamella, "ALIGN_FEATURE_COINCIDENT")
@@ -69,15 +89,12 @@ def align_feature_coincident(
     set_images_ui(parent_ui, eb_image, ib_image)
 
     # detect
-    det = update_detection_ui(
-        microscope=microscope,
+    det = detect(
         image_settings=image_settings,
-        features=features,
         checkpoint=checkpoint,
-        parent_ui=parent_ui,
-        validate=validate,
-        msg=lamella.info,
+        features=features,
         position=lamella.stage_position,
+        message=lamella.info,
     )
 
     microscope.stable_move(
@@ -90,15 +107,12 @@ def align_feature_coincident(
     image_settings.beam_type = BeamType.ION
     image_settings.hfw = hfw
 
-    det = update_detection_ui(
-        microscope=microscope,
+    det = detect(
         image_settings=image_settings,
-        features=features,
         checkpoint=checkpoint,
-        parent_ui=parent_ui,
-        validate=validate,
-        msg=lamella.info,
+        features=features,
         position=lamella.stage_position,
+        message=lamella.info,
     )
 
     # align vertical

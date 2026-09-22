@@ -23,6 +23,7 @@ lost in -- the inbox is re-derived from the experiment on every refresh.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from copy import deepcopy
@@ -57,16 +58,18 @@ from fibsem.applications.autolamella.proposals import (
     DETECTION,
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
+    STATE,
     TASK_RESULT,
     Author,
     AuthorKind,
     Decision,
     DecisionOutcome,
     Proposal,
+    kind_label,
 )
 from fibsem.applications.autolamella.structures import Attention, Experiment, GridRecord
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import BeamType, FibsemImage, Point
+from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, Point
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -92,7 +95,18 @@ __all__ = [
     "waiting_on",
 ]
 
-_KIND_LABELS = {POINT_OF_INTEREST: "Milling positions", TASK_RESULT: "Task results"}
+
+def _row_kind(proposal: Proposal) -> str:
+    """What of the task's a row is about, when it is not the task's own
+    result -- a run that confirms its tilt, then its position, then leaves
+    its point for afterwards lists three rows under one task name, and the
+    kind is what tells them apart. Empty for the result, the plain case."""
+    return "" if proposal.kind == TASK_RESULT else kind_label(proposal.kind)
+
+
+def _row_summary(item_name: str, task_name: str, kind: str, word: str) -> str:
+    return " · ".join(part for part in (item_name, task_name, kind, word) if part)
+
 
 _HEADER_STYLE = (
     f"color: {GRAY_SECONDARY_COLOR}; font-size: 10px; font-weight: 600; "
@@ -203,18 +217,17 @@ def waiting_on(experiment: Experiment, task_name: str, item: Any = None) -> List
 
 
 def is_gated(experiment: Experiment, task_name: str, item: Any = None) -> bool:
-    """Whether ``task_name`` is set to Review for this kind of item: the grid
-    task's attention for a grid, the workflow's for a lamella."""
+    """Whether a person decides ``task_name`` for this kind of item (it is
+    Supervised): the grid task's attention for a grid, the workflow's for a
+    lamella."""
     if isinstance(item, GridRecord):
         try:
             config = experiment.grid_protocol.task_config.get(task_name)
         except ValueError:
             return False
-        return config is not None and config.attention is Attention.review_later
+        return config is not None and config.attention is Attention.supervised
     protocol = getattr(experiment, "task_protocol", None)
-    return (
-        bool(protocol) and protocol.get_attention(task_name) is Attention.review_later
-    )
+    return bool(protocol) and protocol.get_attention(task_name) is Attention.supervised
 
 
 # ---------------------------------------------------------------------------
@@ -257,15 +270,21 @@ class ReviewRenderer(QWidget):
 def decided_proposals(experiment: Experiment) -> List[tuple]:
     """Every decided proposal as (item, task_name, proposal, superseded),
     newest decision first: the other half of the inbox, derived the same way.
-    ``superseded`` marks one a re-run replaced. A proposal still to check is
-    not here; it has its own group."""
+    ``superseded`` marks one a later proposal of the same kind replaced -- a
+    re-run. A question a run asked is not replaced by the run's result: they
+    are different kinds, and both are current. A current proposal still to
+    check is not here; it has its own group."""
     decided = []
     for item in list(experiment.positions) + list(experiment.grids):
-        for task_name, proposal in item.proposals.items():
-            if not proposal.pending and not proposal.to_check:
-                decided.append((item, task_name, proposal, False))
-            for p in proposal.superseded:
-                if not p.pending:
+        for task_name, proposals in item.proposals.items():
+            current = item.current_proposals(task_name)
+            for p in proposals:
+                if p.pending:
+                    continue
+                if p in current:
+                    if not p.to_check:
+                        decided.append((item, task_name, p, False))
+                else:
                     decided.append((item, task_name, p, True))
     decided.sort(key=lambda e: e[2].current.timestamp, reverse=True)
     return decided
@@ -284,6 +303,9 @@ def describe_decision(
         # No author worth naming: nothing decided this, the question was taken
         # back when whatever asked it went away.
         return f"Withdrawn at {when} — {d.reason}"
+    if proposal.unreviewed:
+        # Nobody decided this either: the value was used as proposed.
+        return f"Unreviewed at {when} — {d.reason}"
     if d.outcome is DecisionOutcome.Rejected:
         return f"Rejected by {who} at {when} — {d.reason}"
     # A producer's own decision applied values (or, with none, recorded the
@@ -370,6 +392,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self._gated: List[str] = []
         self._decided: Optional[Decision] = None
         self._applied: Optional[Decision] = None
+        self._open = False
         self._running = False
         self._position = ""
 
@@ -547,6 +570,11 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self._item = item
         self._task_name = task_name
         self._proposal = proposal
+        self._open = (
+            proposal.pending
+            and not proposal.asking
+            and not item.is_awaiting_decision(task_name)
+        )
         image = _load_reference_image(experiment, item, proposal)
         self._fluorescence = image if isinstance(image, FluorescenceImage) else None
         self._image = image if isinstance(image, FibsemImage) else None
@@ -640,6 +668,13 @@ class TaskResultReviewRenderer(ReviewRenderer):
                 text = f"⊘  Withdrawn at {when} · {decided.reason}"
                 colour = GRAY_SECONDARY_COLOR
                 tip.append(f"Withdrawn before it was answered: {decided.reason}.")
+            elif proposal.unreviewed:
+                text = f"○  Unreviewed at {when} · {decided.reason}"
+                colour = GRAY_SECONDARY_COLOR
+                tip.append(
+                    f"Used as proposed; {decided.reason}. Confirm to record that "
+                    "you looked, or reject to say it was wrong."
+                )
             elif decided.outcome is DecisionOutcome.Rejected:
                 text = f"✗  Rejected by {who} at {when} · {decided.reason}"
                 colour = DEFECT_RED_COLOR
@@ -672,7 +707,11 @@ class TaskResultReviewRenderer(ReviewRenderer):
         elif applied is not None:
             verb, rerun = self._state_words()
             text = (
-                f"{verb} automatically at {clock(applied.timestamp)} · not checked yet"
+                # Nobody confirmed this; the value was used as it stood.
+                f"○  Used as proposed at {clock(applied.timestamp)} · "
+                f"{applied.reason} · not checked yet"
+                if proposal.unreviewed
+                else f"{verb} automatically at {clock(applied.timestamp)} · not checked yet"
             )
             colour = GRAY_SECONDARY_COLOR
             if gated:
@@ -691,15 +730,20 @@ class TaskResultReviewRenderer(ReviewRenderer):
                 # The run is stopped on this one, which is a stronger thing
                 # than the requires edges below: those defer tasks, this is
                 # the task itself waiting to be told.
-                text = f"{self._task_name} is parked on this · nothing else is running"
+                text = f"{self._task_name} is waiting on this · nothing else is running"
                 tip.append(
                     f"{self._task_name} asked this mid-run and is waiting for the "
                     "answer. Confirm hands it back and the task carries on."
                 )
+            elif self._open:
+                text = "Open · nobody was asked · used as it stands until a later task starts"
+                tip.append(
+                    "Correct it here before then, or confirm to record that you looked."
+                )
             else:
                 text = f"Waiting for your decision · {_held_text(len(gated))}"
-            colour = ORANGE_COLOR  # waiting on you now: the border's colour
-            if gated:
+            colour = GRAY_SECONDARY_COLOR if self._open else ORANGE_COLOR
+            if gated and not self._open:
                 tip.append("Held until you decide: " + ", ".join(gated) + ".")
         if self._image is None and self._fluorescence is None:
             tip.append(
@@ -817,6 +861,47 @@ class PointOfInterestReviewRenderer(TaskResultReviewRenderer):
         super().set_proposal(experiment, item, task_name, proposal)
         # a delta only means something against the one image the values sit on
         self._controller.widget.set_sem_visible(False)
+
+
+@register_review_renderer(STATE)
+class StateReviewRenderer(TaskResultReviewRenderer):
+    """A task's position, for the operator to confirm before it goes on: what
+    the prompt bar asks on the Microscope tab, listed here too so it can be
+    answered from here -- or by an agent -- and seen afterwards. Nothing to
+    drag: the values on the decision are read from the instrument by the task
+    once it is confirmed, so a move the operator made first is the delta.
+    Usually no image: the question comes before one is taken."""
+
+    PENDING_HINT = "Enter — the position is right, carry on"
+    CONFIRM_LABEL = "Continue · position confirmed"
+
+    def _fact(self) -> str:
+        proposal = self._proposal
+        if proposal is None:
+            return ""
+        message = str(proposal.provenance.get("message") or "")
+        pose = proposal.values.get("stage_position")
+        where = (
+            f" Stage at x {pose.x * 1e3:.3f}, y {pose.y * 1e3:.3f}, "
+            f"z {pose.z * 1e3:.3f} mm, r {math.degrees(pose.r):.1f}°, "
+            f"t {math.degrees(pose.t):.1f}°."
+            if isinstance(pose, FibsemStagePosition)
+            and None not in (pose.x, pose.y, pose.z, pose.r, pose.t)
+            else ""
+        )
+        return (
+            f"{self._task_name} asked at {clock(proposal.created_at)}: {message}{where}"
+        )
+
+    def _state_words(self) -> tuple:
+        return "Confirmed", self._task_name
+
+    def _show_proposal(self) -> None:
+        super()._show_proposal()
+        if self._image is None and self._fluorescence is None:
+            self.no_image.setText(
+                "Asked before an image was taken: the position is the proposal."
+            )
 
 
 @register_review_renderer(DETECTION)
@@ -1332,10 +1417,15 @@ class _InboxRow(QWidget):
         right: str,
         dim: bool = False,
         quiet: bool = False,
+        kind: str = "",
     ) -> None:
         """``quiet``: a decided row. The filled dot is the "act on me" signal;
         a decided row keeps the colour but hollows the dot, so it reads as
-        done. ``dim``: superseded, smaller and in the muted colour."""
+        done. ``dim``: superseded, smaller and in the muted colour. ``kind``:
+        what of the task's this row is about, when it is not the task's own
+        result; it keeps its width and the task name elides before it, since
+        the task is the same on every row of a run and the kind is what
+        differs."""
         super().__init__()
         # The list paints the row's background and selection; the widget must
         # not paint the app's default one over it.
@@ -1364,15 +1454,30 @@ class _InboxRow(QWidget):
         self.name.setFixedWidth(_ROW_NAME_WIDTH)
         self.name.setToolTip(name)
         layout.addWidget(self.name, 0, Qt.AlignVCenter)
+        self._task_text = task
         self.task = QLabel(task)
         self.task.setStyleSheet(_ROW_TASK_STYLE)
         self.task.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.task.setMinimumWidth(40)
+        self.task.setToolTip(task)
         layout.addWidget(self.task, 1, Qt.AlignVCenter)
+        self.kind = QLabel(f"· {kind}" if kind else "")
+        self.kind.setStyleSheet(_ROW_TASK_STYLE)
+        self.kind.setVisible(bool(kind))
+        layout.addWidget(self.kind, 0, Qt.AlignVCenter)
         self.right = QLabel(right)
         self.right.setStyleSheet(_ROW_RIGHT_STYLE)
         self.right.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(self.right)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        # Elided to whatever the layout leaves it, never clipped mid-glyph:
+        # the kind and the word on the right keep their widths.
+        metrics = QFontMetrics(self.task.font())
+        self.task.setText(
+            metrics.elidedText(self._task_text, Qt.ElideRight, self.task.width())
+        )
 
 
 KIND_ALL = "all"
@@ -1735,11 +1840,14 @@ class ReviewTabWidget(QWidget):
                     f"{self._count(len(holding), len(all_holding))}"
                 )
             for item, task_name, proposal in holding:
+                kind = _row_kind(proposal)
                 self._add_row(
-                    summary=f"{item.name} · {task_name} · asking now",
-                    widget=_InboxRow(ORANGE_COLOR, item.name, task_name, "asking now"),
+                    summary=_row_summary(item.name, task_name, kind, "asking now"),
+                    widget=_InboxRow(
+                        ORANGE_COLOR, item.name, task_name, "asking now", kind=kind
+                    ),
                     entry=(item, task_name, proposal, "waiting"),
-                    tooltip=f"{task_name} is parked on this answer; "
+                    tooltip=f"{task_name} is waiting on this answer; "
                     "nothing else runs until you give it.",
                 )
             waiting = self._shown(all_waiting)
@@ -1750,10 +1858,15 @@ class ReviewTabWidget(QWidget):
                 )
             for item, task_name, proposal in waiting:
                 held = waiting_on(experiment, task_name, item)
+                kind = _row_kind(proposal)
                 self._add_row(
-                    summary=f"{item.name} · {task_name} · waiting",
+                    summary=_row_summary(item.name, task_name, kind, "waiting"),
                     widget=_InboxRow(
-                        ORANGE_COLOR, item.name, task_name, age(proposal.created_at)
+                        ORANGE_COLOR,
+                        item.name,
+                        task_name,
+                        age(proposal.created_at),
+                        kind=kind,
                     ),
                     entry=(item, task_name, proposal, "waiting"),
                     tooltip="Waiting for your decision"
@@ -1775,16 +1888,27 @@ class ReviewTabWidget(QWidget):
             for item, task_name, proposal in to_check:
                 applied = proposal.applied or proposal.current
                 failed = bool(proposal.provenance.get("failure"))
+                # An open value: nobody was asked, and it can still be
+                # corrected until the task that uses it starts.
+                open_value = applied is None
+                kind = _row_kind(proposal)
                 self._add_row(
-                    summary=f"{item.name} · {task_name} · to check",
+                    summary=_row_summary(
+                        item.name, task_name, kind, "open" if open_value else "to check"
+                    ),
                     widget=_InboxRow(
                         DEFECT_RED_COLOR if failed else GRAY_SECONDARY_COLOR,
                         item.name,
                         task_name,
-                        age(applied.timestamp),
+                        age(proposal.created_at if open_value else applied.timestamp),
+                        kind=kind,
                     ),
                     entry=(item, task_name, proposal, "check"),
-                    tooltip=describe_decision(proposal, experiment),
+                    tooltip=(
+                        "Nobody was asked. Open to correct until a later task uses it."
+                        if open_value
+                        else describe_decision(proposal, experiment)
+                    ),
                 )
             if self.show_decided.isChecked():
                 all_decided = decided_proposals(experiment)
@@ -1801,7 +1925,8 @@ class ReviewTabWidget(QWidget):
                     # the green tick beside a question nobody answered says
                     # somebody agreed with it.
                     withdrawn = proposal.withdrawn
-                    if superseded or withdrawn:
+                    unreviewed = proposal.unreviewed
+                    if superseded or withdrawn or unreviewed:
                         colour = GRAY_SECONDARY_COLOR
                     elif rejected:
                         colour = DEFECT_RED_COLOR
@@ -1810,12 +1935,15 @@ class ReviewTabWidget(QWidget):
                     word = (
                         "withdrawn"
                         if withdrawn
+                        else "unreviewed"
+                        if unreviewed
                         else "rejected"
                         if rejected
                         else "confirmed"
                     )
+                    kind = _row_kind(proposal)
                     self._add_row(
-                        summary=f"{item.name} · {task_name} · {word}"
+                        summary=_row_summary(item.name, task_name, kind, word)
                         + (" · superseded" if superseded else ""),
                         widget=_InboxRow(
                             colour,
@@ -1824,6 +1952,7 @@ class ReviewTabWidget(QWidget):
                             clock(d.timestamp),
                             dim=superseded,
                             quiet=True,
+                            kind=kind,
                         ),
                         entry=(item, task_name, proposal, "decided"),
                         tooltip=describe_decision(proposal, experiment)
@@ -1988,9 +2117,10 @@ class ReviewTabWidget(QWidget):
         item, task_name, proposal, state = self._entries[index]
         if state == "decided":
             return
-        if state == "check":
-            values: Dict[str, Any] = {}
+        if state == "check" and not proposal.pending:
+            values: Dict[str, Any] = {}  # a look at what was already used
         else:
+            # Waiting, or open: as the reviewer left it.
             values = self._renderer_for(proposal.kind).current_values()
         decision = Decision(
             outcome=DecisionOutcome.Confirmed,
@@ -2020,7 +2150,9 @@ class ReviewTabWidget(QWidget):
                 Decision(
                     outcome=DecisionOutcome.Confirmed,
                     author=author,
-                    values={},
+                    # an open value is checked as it stands, so it carries
+                    # the values it was proposed with; a used one carries none
+                    values=dict(proposal.values) if proposal.pending else {},
                     via="review",
                     task_id=proposal.task_id,
                     proposal_id=proposal.id,

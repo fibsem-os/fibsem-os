@@ -82,17 +82,55 @@ correctness work landed in correlation and in what the experiment record remembe
 - **Every task records what it did.** A task that proposes something (Setup
   proposes the milling position; milling tasks record their result with the final
   images) leaves that proposal in the experiment record in every mode, with who
-  decided it and where: the producer itself when automated, your answer in the
-  workflow when supervised. Nothing about how a run behaves has changed; the record
+  decided it and where: your answer in the workflow when supervised; nobody when
+  automated, in which case the value is used as proposed, stays open to correct in
+  the Review tab until a later task uses it, and is then recorded as unreviewed
+  rather than as agreed. Nothing about how a run behaves has changed; the record
   is new. The Review tab, where a task's answer can wait for your decision before
   the next task runs, is behind the "Review workflow (early access)" preference.
   A task waiting there is not finished: it shows as awaiting a decision, confirming
   completes it, and rejecting fails it (the lamella is not marked defective).
 - **One `attention` per task in the protocol.** A workflow task says `attention:
-  automated`, `supervised` or `review` in place of the `supervise` and `review`
-  flags; protocols saved with the flags still load and are written back in the new
-  form. A task that requires a reviewed task says so in its row: "after review of
-  Setup Lamella Position".
+  automated` or `supervised` in place of the `supervise` and `review` flags;
+  protocols saved with the flags still load and are written back in the new form.
+  Supervised means you decide: a question the task needs answered is asked in the
+  workflow, at the microscope; a result it leaves for afterwards (the point of
+  interest, a task's result) waits for your decision in the Review tab while the
+  run carries on, and the tasks that require it wait with it. A task that requires
+  a supervised task says so in its row: "after review of Setup Lamella Position".
+  A milling task's Continue, after you have watched the mill, is your decision on
+  its result; it is recorded as yours and the task does not wait again in the
+  Review tab. There is no third mode: development builds had one, `review`, and
+  it is read as `supervised`.
+- **Setup's confirmations are on the record, and each has a switch.** With the
+  review preference on, the tilt to the milling angle and the move to the milling
+  position are asked on the prompt bar as before, and each Continue is recorded as
+  your decision with the stage position as it stood. Two new task settings,
+  `confirm_tilt` and `confirm_position` (both on), turn either prompt off: the task
+  then tilts, or uses the position as arrived at, and the record says nobody was
+  asked. Off, `confirm_position` is only as safe as the automatic positioning that
+  put the stage there. The Tilt/Skip choice is gone with the preference on:
+  Continue tilts, and Stop is the way not to.
+- **A Review tab row says what it is about.** A task that asks more than one
+  thing in a run (Setup confirms its tilt, then its position, then leaves its
+  point of interest for afterwards) lists one row per question under the same
+  task name; the row now names the kind, "Setup Lamella Position · Position",
+  where it is not the task's own result.
+- **The fluorescence tasks' confirmations are on the record.** With the review
+  preference on, Select Fluorescence Position's "move to the fluorescence
+  position" and Acquire Fluorescence Image's "run autofocus" prompts are asked on
+  the prompt bar as before, and each Continue is recorded as your decision with
+  the stage position as it stood. Automated, the position is used as arrived at
+  and the record says nobody was asked.
+- **The undercut's detections are answered in the Review tab, on the record.**
+  With the review preference on, each of Mill Undercut's four detections (two in
+  the coincident alignment, one per undercut, one to finish) is a question on the
+  lamella: the run holds, the Review tab is fronted with the model's features on
+  the image it ran on, and Confirm, with a marker dragged or not, is the decision
+  the stage moves by. Reject fails the task. The training data the Detection tab
+  wrote on its Continue is still written. Automated, nobody is asked and each
+  detection is recorded as used unreviewed. With the preference off the Detection
+  tab prompt asks exactly as before.
 - **A result an agent looked at is still yours to check.** The Review tab's "to
   check" group clears when a person acknowledges, not when a connected agent does.
 - **For task authors: a task proposes through a `Proposer`.** A task type carries one

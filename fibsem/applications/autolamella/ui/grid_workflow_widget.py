@@ -369,8 +369,8 @@ class _TaskRow(QWidget):
     def _toggle_attention(self) -> None:
         self.config.attention = (
             Attention.automated
-            if self.config.attention is Attention.review_later
-            else Attention.review_later
+            if self.config.attention is Attention.supervised
+            else Attention.supervised
         )
         self.refresh()
         self.attention_changed.emit(self.task_name)
@@ -424,7 +424,7 @@ class _TaskRow(QWidget):
     @property
     def _reviewed_without_dependents(self) -> bool:
         return (
-            self.config.attention is Attention.review_later and not self._has_dependents
+            self.config.attention is Attention.supervised and not self._has_dependents
         )
 
     def _refresh_attention(self) -> None:
@@ -432,16 +432,16 @@ class _TaskRow(QWidget):
         self.btn_attention.setVisible(review_available)
         if not review_available:
             return
-        reviewed = self.config.attention is Attention.review_later
-        state = "review_later" if reviewed else "automated"
+        reviewed = self.config.attention is Attention.supervised
+        state = "supervised" if reviewed else "automated"
         if reviewed:
-            colour = stylesheets.REVIEW_COLOR
+            colour = stylesheets.PRIMARY_COLOR
             tooltip = (
-                "Review later — the task ends waiting for your decision in the Review "
-                "tab, with what it acquired to look at; the tasks that require "
-                "it wait on that decision. Click for Automated."
+                "Supervised — the task ends waiting for your decision in the "
+                "Review tab, with what it acquired to look at; the tasks that "
+                "require it wait on that decision. Click for Automated."
                 if self._has_dependents
-                else "Review later — but no task requires this one, so nothing waits "
+                else "Supervised — but no task requires this one, so nothing waits "
                 "on the decision: what it acquired is in the Review tab to look "
                 "at, and the run goes on. Click for Automated."
             )
@@ -449,7 +449,7 @@ class _TaskRow(QWidget):
             colour = stylesheets.AUTOMATED_COLOR
             tooltip = (
                 "Automated — runs without anyone; what it acquired is listed in "
-                "the Review tab to check. Click for Review."
+                "the Review tab to check. Click for Supervised."
             )
         self.btn_attention.setText(ATTENTION_LABELS[state])
         self.btn_attention.setIcon(fibsem_icon(_CHIP_ICONS[state], color=colour))
@@ -807,7 +807,7 @@ class GridWorkflowWidget(QWidget):
         reviewed = {
             name
             for name, config in protocol.task_config.items()
-            if config.attention is Attention.review_later
+            if config.attention is Attention.supervised
         }
         for name, row in self._task_rows.items():
             row.set_has_dependents(name in required, reviewed)

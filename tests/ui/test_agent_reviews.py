@@ -87,7 +87,7 @@ def ui(qapp, monkeypatch, tmp_path):
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=SETUP, required=True, attention=Attention.review_later
+                    name=SETUP, required=True, attention=Attention.supervised
                 ),
                 AutoLamellaTaskDescription(name=ROUGH, required=True, requires=[SETUP]),
             ]
@@ -101,15 +101,21 @@ def ui(qapp, monkeypatch, tmp_path):
     lamella.path.mkdir(parents=True, exist_ok=True)
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
-    lamella.proposals[SETUP] = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(0.0, 0.0)},
-        provenance={
-            "proposer": "centre-of-image",
-            "reference_image": ref + ".tif",
-            "task_id": RUN,
-        },
+    # A waiting proposal: its task ended waiting for the decision.
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
     )
+    lamella.proposals[SETUP] = [
+        Proposal(
+            kind=POINT_OF_INTEREST,
+            values={"poi": Point(0.0, 0.0)},
+            provenance={
+                "proposer": "centre-of-image",
+                "reference_image": ref + ".tif",
+                "task_id": RUN,
+            },
+        )
+    ]
     widget.experiment = exp
     yield widget
     if widget.microscope is not None:
@@ -176,7 +182,7 @@ def test_to_check_is_listed_and_an_agent_look_does_not_clear_it(ui, qapp):
     row to check: it is not automatic (a decider acted) and not a person
     (someone may still want to look). A person's look clears it."""
     lamella = ui.experiment.positions[0]
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     proposal.decisions.append(
         Decision(
             outcome=DecisionOutcome.Confirmed,
@@ -241,10 +247,10 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
         body = resp.json()
         assert body["applied"] is True
         assert body["delta"]["poi"] == {"x": 2e-6, "y": -1e-6}
-        assert lamella.proposals[SETUP].current.via == "server"
+        assert lamella.proposal(SETUP).current.via == "server"
         assert ROUGH in body["synced_tasks"]
         assert lamella.poi == Point(2e-6, -1e-6)
-        proposal = lamella.proposals[SETUP]
+        proposal = lamella.proposal(SETUP)
         assert proposal.current.outcome is DecisionOutcome.Confirmed
         assert str(proposal.current.author) == "agent:test-model"
         assert client.get("/app/reviews", headers=AUTH).json()["reviews"] == []
@@ -270,7 +276,7 @@ def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
             },
         )
         assert resp.status_code == 422
-        assert lamella.proposals[SETUP].pending
+        assert lamella.proposal(SETUP).pending
 
         resp = _post_on_worker(
             qapp,
@@ -347,7 +353,7 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
         )
         assert resp.status_code == 409
         assert resp.json()["detail"]["error_type"] == "running"
-    assert lamella.proposals[SETUP].pending
+    assert lamella.proposal(SETUP).pending
 
 
 def test_decide_refuses_a_missing_or_stale_run_and_an_edit_disguised_as_a_look(
@@ -378,7 +384,7 @@ def test_decide_refuses_a_missing_or_stale_run_and_an_edit_disguised_as_a_look(
         assert "needs its values" in resp.json()["detail"]["message"]
 
         assert lamella.poi == Point(0.0, 0.0)
-        assert lamella.proposals[SETUP].pending
+        assert lamella.proposal(SETUP).pending
 
         resp = _post_on_worker(
             qapp, client, "/app/decide", {**base, "task_id": RUN, "values": poi}
@@ -405,14 +411,14 @@ def test_reviews_give_the_proposals_own_id_to_pass_back(ui):
     with _client(ui) as client:
         waiting = client.get("/app/reviews", headers=AUTH).json()["reviews"]
 
-    assert waiting[0]["proposal_id"] == lamella.proposals[SETUP].id
+    assert waiting[0]["proposal_id"] == lamella.proposal(SETUP).id
     assert waiting[0]["task_id"] == RUN, "the run is still there, as a fact about it"
     assert waiting[0]["holding_the_run"] is False
 
 
 def test_decide_by_the_proposals_id_needs_no_run(ui, qapp):
     lamella = ui.experiment.positions[0]
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     body = {
         "item_id": lamella.id,
         "task_name": SETUP,
@@ -433,12 +439,14 @@ def test_decide_by_an_id_that_is_no_longer_on_the_record_is_stale(ui, qapp):
     """What the run could not tell: the same run, another proposal. Naming the
     run as well does not excuse it -- the id decides."""
     lamella = ui.experiment.positions[0]
-    shown = lamella.proposals[SETUP].id
-    lamella.proposals[SETUP] = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(1e-6, 0.0)},
-        provenance=dict(lamella.proposals[SETUP].provenance),
-    )
+    shown = lamella.proposal(SETUP).id
+    lamella.proposals[SETUP] = [
+        Proposal(
+            kind=POINT_OF_INTEREST,
+            values={"poi": Point(1e-6, 0.0)},
+            provenance=dict(lamella.proposal(SETUP).provenance),
+        )
+    ]
     body = {
         "item_id": lamella.id,
         "task_name": SETUP,
@@ -453,7 +461,7 @@ def test_decide_by_an_id_that_is_no_longer_on_the_record_is_stale(ui, qapp):
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["error_type"] == "stale_review"
     assert "asked again since you looked" in resp.json()["detail"]["message"]
-    assert lamella.proposals[SETUP].pending and lamella.poi == Point(0.0, 0.0)
+    assert lamella.proposal(SETUP).pending and lamella.poi == Point(0.0, 0.0)
 
 
 def test_withdrawn_cannot_be_posted_as_a_decision(ui, qapp):
@@ -463,11 +471,11 @@ def test_withdrawn_cannot_be_posted_as_a_decision(ui, qapp):
         "item_id": lamella.id,
         "task_name": SETUP,
         "outcome": "Withdrawn",
-        "proposal_id": lamella.proposals[SETUP].id,
+        "proposal_id": lamella.proposal(SETUP).id,
         "reason": "taking it back",
     }
     with _client(ui) as client:
         resp = _post_on_worker(qapp, client, "/app/decide", body)
 
     assert resp.status_code == 422, resp.text
-    assert lamella.proposals[SETUP].pending
+    assert lamella.proposal(SETUP).pending

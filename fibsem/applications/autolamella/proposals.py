@@ -32,7 +32,7 @@ from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
 from fibsem.applications.autolamella.poses import LamellaPoses
-from fibsem.structures import MicroscopeState, Point
+from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
 
 __all__ = [
     "Alternative",
@@ -44,6 +44,7 @@ __all__ = [
     "DecisionOutcome",
     "DecisionResult",
     "DETECTION",
+    "STATE",
     "PROPOSAL_KINDS",
     "OVERVIEW_POSITIONS",
     "POINT_OF_INTEREST",
@@ -57,7 +58,10 @@ __all__ = [
     "register_proposal_kind",
     "PreparedWrite",
     "prepare_values",
-    "supersede",
+    "record",
+    "current_proposal",
+    "current_proposals",
+    "kind_label",
     "ValueRefused",
 ]
 
@@ -72,6 +76,13 @@ OVERVIEW_POSITIONS = "overview_positions"
 # (FIB-1025). Its value is the feature set, keyed by name, so a delta is per
 # feature and not one number for the lot.
 DETECTION = "detection"
+# The instrument's state as a task arrived at it, for the operator to confirm
+# before the task goes on ("Acquire reference image. Press Continue when
+# ready."). The proposal is the stage position then; the decision is a
+# confirmation, and the task fills in the position as it stands afterwards,
+# so a move the operator made first is the delta. Asked mid-task, so its
+# value is written nowhere: the task is what uses it.
+STATE = "state"
 # What a task did, for someone to look at: no values, the final reference
 # images in provenance. Recorded by the base task class for any task whose
 # review is on and that did not propose a kind of its own.
@@ -80,13 +91,19 @@ TASK_RESULT = "task_result"
 
 class DecisionOutcome(Enum):
     """What was decided. ``Confirmed`` and ``Rejected`` are answers; a decider
-    looked and said something. ``Withdrawn`` is not: the question was taken
-    back because the thing that asked it is gone, so there is no answer to
-    read and nothing to compare a proposal against."""
+    looked and said something. The other two are not, and only the record
+    writes them. ``Withdrawn``: the question was taken back because the thing
+    that asked it is gone, so there is no answer to read and nothing to
+    compare a proposal against. ``Unreviewed``: nobody was asked (the task is
+    automated) or nobody looked before the task that consumes the value
+    started, and the proposed value was used as it stood. Never agreement:
+    nothing that measures a proposer's or an agent's record may count it as
+    one."""
 
     Confirmed = auto()
     Rejected = auto()
     Withdrawn = auto()
+    Unreviewed = auto()
 
 
 class AuthorKind(str, Enum):
@@ -164,9 +181,21 @@ class ProposalKind:
 
     name: str
     values: Tuple[str, ...]  # the value names a proposal of this kind may carry
+    # How the kind is named to a person: on a Review tab row, in a sentence.
+    label: str = ""
 
 
 PROPOSAL_KINDS: Dict[str, ProposalKind] = {}
+
+
+def kind_label(kind: str) -> str:
+    """The kind's name for a person: "Point of interest", "Position". A kind
+    this build has not registered reads as its name with the underscores
+    out, so a record from a newer build still says something."""
+    registered = PROPOSAL_KINDS.get(kind)
+    if registered is not None and registered.label:
+        return registered.label
+    return kind.replace("_", " ").capitalize()
 
 
 def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
@@ -174,10 +203,21 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
     return kind
 
 
-register_proposal_kind(ProposalKind(name=POINT_OF_INTEREST, values=("poi",)))
-register_proposal_kind(ProposalKind(name=OVERVIEW_POSITIONS, values=("positions",)))
-register_proposal_kind(ProposalKind(name=DETECTION, values=("features",)))
-register_proposal_kind(ProposalKind(name=TASK_RESULT, values=()))
+register_proposal_kind(
+    ProposalKind(name=POINT_OF_INTEREST, values=("poi",), label="Point of interest")
+)
+register_proposal_kind(
+    ProposalKind(
+        name=OVERVIEW_POSITIONS, values=("positions",), label="Lamella positions"
+    )
+)
+register_proposal_kind(
+    ProposalKind(name=DETECTION, values=("features",), label="Detection")
+)
+register_proposal_kind(
+    ProposalKind(name=STATE, values=("stage_position",), label="Position")
+)
+register_proposal_kind(ProposalKind(name=TASK_RESULT, values=(), label="Result"))
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +312,10 @@ _VALUE_CODECS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
     "poi": (_point_to_dict, _point_from_dict),
     "positions": (_positions_to_dict, _positions_from_dict),
     "features": (_features_to_dict, _features_from_dict),
+    "stage_position": (
+        lambda p: p.to_dict() if isinstance(p, FibsemStagePosition) else p,
+        lambda d: FibsemStagePosition.from_dict(d) if isinstance(d, dict) else d,
+    ),
 }
 
 
@@ -464,10 +508,21 @@ def _prepare_features(experiment: Any, item: Any, value: Any) -> PreparedWrite:
 # effect without touching anything, returning how to apply it and how to undo
 # it. The experiment is there for the one write that makes items rather than
 # editing the one the proposal is on.
+def _prepare_stage_position(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """Checked, and written nowhere, for the reason ``_prepare_features`` gives:
+    a state is confirmed mid-task, and the instrument already holds it."""
+    if not isinstance(value, FibsemStagePosition):
+        raise ValueRefused(
+            f"stage_position must be a stage position, not {type(value).__name__}."
+        )
+    return PreparedWrite.nothing()
+
+
 _VALUE_WRITERS: Dict[str, Callable[[Any, Any, Any], PreparedWrite]] = {
     "poi": _prepare_poi,
     "positions": _prepare_positions,
     "features": _prepare_features,
+    "stage_position": _prepare_stage_position,
 }
 
 
@@ -522,6 +577,14 @@ def compute_delta(proposed: Any, confirmed: Any) -> Any:
     None where it does not."""
     if isinstance(proposed, Point) and isinstance(confirmed, Point):
         return Point(x=confirmed.x - proposed.x, y=confirmed.y - proposed.y)
+    if isinstance(proposed, FibsemStagePosition) and isinstance(
+        confirmed, FibsemStagePosition
+    ):
+        axes = (proposed.x, proposed.y, proposed.z, proposed.r, proposed.t)
+        axes += (confirmed.x, confirmed.y, confirmed.z, confirmed.r, confirmed.t)
+        if any(a is None for a in axes):
+            return None
+        return confirmed - proposed
     if isinstance(proposed, (int, float)) and isinstance(confirmed, (int, float)):
         return confirmed - proposed
     if isinstance(proposed, (list, tuple)) and isinstance(confirmed, (list, tuple)):
@@ -657,13 +720,6 @@ class Proposal:
     created_at: float = field(
         default_factory=lambda: datetime.timestamp(datetime.now())
     )
-    # Earlier proposals for the same item and task, oldest first, each with
-    # its decisions. A deliberate re-run of the producing task supersedes a
-    # decided proposal rather than keeping or overwriting it: the operator
-    # asked for a new answer on a new image, and the old answer -- and its
-    # delta -- stays on the record. The old value is not carried over as the
-    # new default; a stale default is the rubber stamp the delta detects.
-    superseded: List["Proposal"] = field(default_factory=list)
     # Whether the task that made this is parked on it right now, waiting to be
     # told the answer -- an in-run question rather than a result left for
     # later (FIB-1025). It is the one thing that lets a decision land on a
@@ -706,6 +762,13 @@ class Proposal:
         """
         d = self.current
         return d is not None and d.outcome is DecisionOutcome.Withdrawn
+
+    @property
+    def unreviewed(self) -> bool:
+        """Used as proposed because nobody was asked, or nobody looked in
+        time. Listed to check, like anything a person has not looked at."""
+        d = self.current
+        return d is not None and d.outcome is DecisionOutcome.Unreviewed
 
     @property
     def to_check(self) -> bool:
@@ -751,7 +814,6 @@ class Proposal:
             "provenance": dict(self.provenance),
             "decisions": [d.to_dict() for d in self.decisions],
             "created_at": self.created_at,
-            "superseded": [p.to_dict() for p in self.superseded],
             "id": self.id,
         }
 
@@ -767,7 +829,6 @@ class Proposal:
             provenance=dict(data.get("provenance", {})),
             decisions=[Decision.from_dict(d) for d in data.get("decisions", [])],
             created_at=data.get("created_at", 0.0),
-            superseded=[Proposal.from_dict(p) for p in data.get("superseded", [])],
             id=data.get("id") or _id_for_a_record_without_one(data),
         )
 
@@ -833,22 +894,80 @@ class TaskResultProposer:
         return Proposal(kind=self.kind)
 
 
-def supersede(old: Optional[Proposal], new: Proposal) -> Proposal:
-    """``new`` replaces ``old`` for the same item and task, keeping ``old`` and
-    everything before it on the record, oldest first, flat (no nesting)."""
-    if old is not None:
-        history = list(old.superseded)
-        old.superseded = []
-        new.superseded = history + [old]
-    return new
+def record(proposals: List[Proposal], proposal: Proposal) -> Proposal:
+    """Append ``proposal`` to an item's list for one task, and return it.
+
+    The list is the record of everything that task proposed on the item,
+    oldest first: a deliberate re-run leaves the old answer -- and its delta --
+    on the record and puts the new one after it; a question the task asked
+    mid-run sits before the run's own result. The old value is never carried
+    over as the new default; a stale default is the rubber stamp the delta
+    detects. The previous proposal of the same kind is dropped first if nobody
+    answered it: it was never decided, so there is nothing to keep, and two
+    open proposals of one kind for one task would be two questions where only
+    one was ever asked. One of another kind is left alone: a run's question
+    sits before the point it leaves for afterwards, and a re-run's first
+    question must not take that point off the record (``expire_open`` closes
+    it when the re-run's own result lands).
+    """
+    for i in range(len(proposals) - 1, -1, -1):
+        if proposals[i].kind == proposal.kind:
+            if proposals[i].pending:
+                del proposals[i]
+            break
+    proposals.append(proposal)
+    return proposal
 
 
-def proposals_to_dict(proposals: Dict[str, Proposal]) -> Dict[str, dict]:
-    return {name: p.to_dict() for name, p in proposals.items()}
+def current_proposal(
+    proposals: Optional[List[Proposal]], kind: Optional[str] = None
+) -> Optional[Proposal]:
+    """The last proposal for the task, or the last of ``kind``."""
+    if not proposals:
+        return None
+    if kind is None:
+        return proposals[-1]
+    for p in reversed(proposals):
+        if p.kind == kind:
+            return p
+    return None
 
 
-def proposals_from_dict(data: Optional[Dict[str, dict]]) -> Dict[str, Proposal]:
-    return {name: Proposal.from_dict(p) for name, p in (data or {}).items()}
+def current_proposals(proposals: Optional[List[Proposal]]) -> List[Proposal]:
+    """The proposals a decision, the gate and the inbox act on, in the order
+    they were made: the last run's proposals of each kind. A task's run leaves
+    its result after the questions it asked, and a question is not replaced
+    by a result -- they are different kinds -- so both are current; a run that
+    asks the same kind twice (Setup confirms the tilt, then the position)
+    asked two questions, and both stand. What a re-run replaces is the earlier
+    run's proposals of the kinds it makes again: on the record for their
+    decisions and their deltas only. So is a question the run withdrew and
+    asked again. A proposal with no run stamped on it (a record from before
+    runs were) is replaced by any later one of its kind.
+    """
+    if not proposals:
+        return []
+    latest: Dict[str, Proposal] = {}
+    for p in reversed(proposals):
+        latest.setdefault(p.kind, p)
+    return [
+        p
+        for p in proposals
+        if p is latest[p.kind]
+        or (p.task_id and p.task_id == latest[p.kind].task_id and not p.withdrawn)
+    ]
+
+
+def proposals_to_dict(proposals: Dict[str, List[Proposal]]) -> Dict[str, list]:
+    return {name: [p.to_dict() for p in ps] for name, ps in proposals.items()}
+
+
+def proposals_from_dict(
+    data: Optional[Dict[str, list]],
+) -> Dict[str, List[Proposal]]:
+    return {
+        name: [Proposal.from_dict(p) for p in ps] for name, ps in (data or {}).items()
+    }
 
 
 @dataclass

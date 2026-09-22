@@ -17,6 +17,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.proposals import (
     POINT_OF_INTEREST,
+    STATE,
     AuthorKind,
     Decision,
     DecisionOutcome,
@@ -99,10 +100,16 @@ def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
     )
 
 
+def _points(lamella) -> list:
+    """Setup's point-of-interest proposals, leaving out the two position
+    confirmations it also records with the flag on."""
+    return [p for p in lamella.proposals[SETUP] if p.kind == POINT_OF_INTEREST]
+
+
 def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
     microscope, tmp_path
 ):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp, flag=True)
     assert task.review is True
     lamella = exp.positions[0]
@@ -112,7 +119,7 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
 
     task.run()
 
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     assert proposal.kind == POINT_OF_INTEREST
     assert proposal.pending
     assert proposal.values == {"poi": Point(0.0, 0.0)}
@@ -142,11 +149,11 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
     # The proposal is what the experiment file carries.
     exp.save()
     again = Experiment.load(Path(exp.path) / "experiment.yaml")
-    assert again.positions[0].proposals[SETUP].pending
+    assert again.positions[0].proposal(SETUP).pending
 
 
 def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp, flag=True)
     task.run()
     manager = task.task_manager
@@ -160,7 +167,7 @@ def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_pat
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(3e-6, 0.0)},
-            task_id=lamella.proposals[SETUP].task_id,
+            task_id=lamella.proposal(SETUP).task_id,
         ),
     )
     assert result.applied and result.delta["poi"] == Point(3e-6, 0.0)
@@ -175,14 +182,14 @@ def test_the_proposal_carries_the_point_something_else_already_set(
     Setup runs. The proposer proposes that point rather than the image centre,
     so recording the proposal and confirming it changes nothing: whatever set
     the point is not undone by the step that is meant to check it."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
     lamella.poi = Point(4e-6, -2e-6)
     task = _task(microscope, exp, flag=True)
 
     task.run()
 
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     assert proposal.values == {"poi": Point(4e-6, -2e-6)}
     assert proposal.values["poi"] is not lamella.poi, "a copy, not the live point"
     assert lamella.poi == Point(4e-6, -2e-6), "and nothing was written through"
@@ -192,7 +199,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     """Re-running Setup is a deliberate act: the operator gets a new proposal
     on the new image, and the old one -- with its decision -- stays on the
     record. The confirmed point stays on the lamella until the new decision."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp, flag=True)
     task.run()
     lamella = exp.positions[0]
@@ -203,19 +210,19 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(1e-6, 1e-6)},
-            task_id=lamella.proposals[SETUP].task_id,
+            task_id=lamella.proposal(SETUP).task_id,
         ),
     )
-    decided = lamella.proposals[SETUP]
+    decided = lamella.proposal(SETUP)
 
     _task(microscope, exp, flag=True).run()
 
-    fresh = lamella.proposals[SETUP]
+    fresh = lamella.proposal(SETUP)
     assert fresh is not decided and fresh.pending
     assert fresh.values["poi"] == Point(1e-6, 1e-6), (
         "proposes the point the last decision left on the lamella"
     )
-    assert fresh.superseded == [decided]
+    assert _points(lamella) == [decided, fresh]
     assert decided.current.values["poi"] == Point(1e-6, 1e-6)
     assert lamella.poi == Point(1e-6, 1e-6)
     assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_decision"
@@ -225,50 +232,74 @@ def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
     microscope, tmp_path
 ):
     """The flag hides the Review surface, not the record. A protocol that says
-    review runs ungated with it off: the producer confirms its own proposal
-    and nothing defers."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    supervised runs ungated with it off: the proposal is recorded, open, and
+    nothing defers."""
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp, flag=False)
     assert task.review is False, "gate needs the flag"
     task.run()
     lamella = exp.positions[0]
-    proposal = lamella.proposals[SETUP]
-    assert proposal.kind == POINT_OF_INTEREST and not proposal.pending
-    assert str(proposal.current.author) == "auto:current-poi"
+    proposal = lamella.proposal(SETUP)
+    assert proposal.kind == POINT_OF_INTEREST and proposal.pending
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
 
 
-def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
+def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_path):
     """Not gated, nobody asked inline: the proposal is recorded exactly as
-    under a gate, then confirmed as proposed by the producer, through the
-    same decide path a person's confirm takes. The author says nobody looked;
-    the run never waits."""
+    under a gate, its values are live from that moment, and it stays open to
+    correct. Nobody confirms it; when the task that uses it starts it is
+    closed as Unreviewed, which is never agreement. The run never waits."""
     exp = _experiment(tmp_path, microscope)
     task = _task(microscope, exp, flag=True)
     assert task.review is False
     lamella = exp.positions[0]
     heard = []
-    exp.decided.connect(lambda item_id, task_name: heard.append(task_name))
+    exp.decided.connect(
+        lambda item_id, task_name: heard.append(lamella.proposal(task_name).kind)
+    )
 
     task.run()
 
-    proposal = lamella.proposals[SETUP]
-    assert not proposal.pending
+    proposal = lamella.proposal(SETUP)
+    assert proposal.pending, "open"
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "the proposal is untouched"
-    assert proposal.current.outcome is DecisionOutcome.Confirmed
-    assert str(proposal.current.author) == "auto:current-poi"
-    assert proposal.current.via == "workflow"
-    assert proposal.current.values == proposal.values, "confirmed as proposed"
-    assert proposal.delta() == {"poi": Point(0.0, 0.0)}
-    assert heard == [SETUP], "the tab hears it like any other decision"
+    assert lamella.poi == Point(0.0, 0.0), "live as proposed"
+    assert heard == [STATE, STATE], (
+        "the tilt and the position went on the record unasked; the point is undecided"
+    )
     assert task.task_manager._defer_reason(lamella, ROUGH) is None, "nothing waits"
     assert lamella.has_completed_task(SETUP)
+    assert [p.kind for _i, _t, p in exp.proposals_to_check()] == [
+        STATE,
+        STATE,
+        POINT_OF_INTEREST,
+    ], "all three to check: the two confirmations nobody was asked, and the point"
 
-    # A re-run supersedes the auto-confirmed proposal like a person's.
+    # A correction before the consumer starts is a plain confirm with values.
+    moved = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author="human:op",
+            values={"poi": Point(1e-6, 0.0)},
+            proposal_id=proposal.id,
+        ),
+    )
+    assert moved.applied, moved.reason
+    assert lamella.poi == Point(1e-6, 0.0)
+    assert heard[-1] == POINT_OF_INTEREST
+
+    # A re-run of the task leaves the decided one on the record before it.
     _task(microscope, exp, flag=True).run()
-    fresh = lamella.proposals[SETUP]
-    assert fresh is not proposal and not fresh.pending
-    assert fresh.superseded == [proposal]
+    fresh = lamella.proposal(SETUP)
+    assert fresh is not proposal and fresh.pending
+    assert _points(lamella) == [proposal, fresh]
+
+    # A re-run over an open one closes it as used-unreviewed, not dropped.
+    _task(microscope, exp, flag=True).run()
+    assert [p.unreviewed for p in _points(lamella)] == [False, True, False]
+    assert "re-ran" in _points(lamella)[1].current.reason
 
 
 def test_supervised_the_inline_answer_is_the_decision(
@@ -287,7 +318,7 @@ def test_supervised_the_inline_answer_is_the_decision(
 
     task.run()
 
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "what the proposer said"
     d = proposal.current
     assert d.outcome is DecisionOutcome.Confirmed and d.via == "workflow"
@@ -300,7 +331,7 @@ def test_supervised_the_inline_answer_is_the_decision(
 
 
 def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
     assert consumed_values(lamella) == ["poi"]
     del lamella.task_config[ROUGH]
@@ -311,30 +342,33 @@ def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
 
 def test_attention_round_trips_through_the_protocol():
     d = AutoLamellaTaskDescription(
-        name=SETUP, required=True, attention=Attention.review_later
+        name=SETUP, required=True, attention=Attention.supervised
     )
-    assert d.to_dict()["attention"] == "review_later"
+    assert d.to_dict()["attention"] == "supervised"
     again = AutoLamellaTaskDescription.from_dict(d.to_dict())
-    assert again.attention is Attention.review_later
+    assert again.attention is Attention.supervised
     assert AutoLamellaTaskDescription(name=SETUP, attention="supervised").attention is (
         Attention.supervised
     ), "a string from a hand-edited file is the enum"
     cfg_ = AutoLamellaWorkflowConfig(tasks=[d])
-    assert cfg_.get_attention(SETUP) is Attention.review_later
+    assert cfg_.get_attention(SETUP) is Attention.supervised
     assert cfg_.get_attention("nope") is Attention.automated
 
 
-def test_a_protocol_saved_before_the_rename_still_loads(caplog):
-    """The mode was stored as ``review`` on main before 0.6.0. It never
-    shipped, but protocols and experiments saved from those builds carry it --
-    and a stored value goes through the one reader, so neither that spelling
-    nor one this build does not know takes the whole protocol down."""
+def test_a_protocol_saved_with_the_third_mode_still_loads(caplog):
+    """Development builds before 0.6.0 had a third mode, stored as ``review``
+    and then ``review_later``: the operator deciding afterwards in the Review
+    tab. It was Supervised with the wait in a different place, and reads as
+    Supervised. A stored value goes through the one reader, so neither of
+    those spellings nor one this build does not know takes the whole protocol
+    down."""
     load = AutoLamellaTaskDescription.from_dict
     base = {"name": SETUP, "required": True, "requires": []}
-    assert load({**base, "attention": "review"}).attention is Attention.review_later
-    assert load({**base, "attention": "review"}).to_dict()["attention"] == (
-        "review_later"
-    ), "and it is written back under its new name"
+    for old in ("review", "review_later"):
+        assert load({**base, "attention": old}).attention is Attention.supervised
+        assert load({**base, "attention": old}).to_dict()["attention"] == (
+            "supervised"
+        ), "and it is written back as supervised"
     with caplog.at_level("WARNING"):
         assert load({**base, "attention": "gate"}).attention is Attention.automated
     assert f"Unknown attention 'gate' on task {SETUP!r}" in caplog.text

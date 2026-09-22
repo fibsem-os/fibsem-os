@@ -295,6 +295,9 @@ class LamellaWorkflowWidget(QWidget):
 
     def set_experiment(self, experiment: Optional[Experiment]) -> None:
         self.experiment = experiment
+        self.workflow.set_protocol(
+            getattr(experiment, "task_protocol", None) if experiment else None
+        )
 
     def set_workflow_config(self, config: AutoLamellaWorkflowConfig) -> None:
         self.workflow.set_config(config)

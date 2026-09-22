@@ -3,6 +3,7 @@
 import logging
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 
@@ -157,7 +158,7 @@ class BaseTaskManager:
         n = len({i.item_name for i in awaiting})
         self._set_hold(
             Hold(
-                kind=HoldKind.review_later,
+                kind=HoldKind.decision,
                 releases=f"decide {_named(sorted({i.item_name for i in awaiting}), self.ITEM_NOUN)} "
                 "in the Review tab",
                 items=tuple(f"{i.item_name}/{i.task_name}" for i in awaiting),
@@ -218,23 +219,85 @@ class BaseTaskManager:
             return ""
         return f"{self.stall_reason} Decide in the Review tab, then Run again."
 
-    def _set_hold(self, hold: Optional[Hold]) -> None:
+    def _set_hold(
+        self,
+        hold: Optional[Hold],
+        note: Optional[str] = None,
+        message: Optional[str] = "",
+    ) -> None:
         """Tell the window who holds the run (None: nobody), and poke the status
         channel so the chrome -- border, attention button, status bar --
-        redraws from it, the way a pending question does."""
+        redraws from it, the way a pending question does. ``note`` is the
+        workflow line; by default, the parked-between-tasks one. ``message``
+        is what is said about the prompt bar: "" takes a stale prompt down,
+        which a park between tasks wants; None says nothing about it, which
+        a hold on a question shown *on* that bar needs."""
         if self.parent_ui is not None:
             self.parent_ui.hold = hold
         if hold is not None:
             n = len(hold.items)
             update_status_ui(
                 self.parent_ui,
-                "",
-                workflow_info=f"Waiting on {n} decision(s) before the next task can run.",
-                status_bar=f"Parked on {n} decision(s): {hold.releases}.",
+                message,
+                workflow_info=note
+                or f"Waiting on {n} decision{'s' if n != 1 else ''} before the "
+                "next task can run.",
+                status_bar=f"Waiting on {n} decision{'s' if n != 1 else ''}: "
+                f"{hold.releases}.",
                 check_abort=False,
             )
         else:
-            update_status_ui(self.parent_ui, "", status_bar="", check_abort=False)
+            update_status_ui(self.parent_ui, message, status_bar="", check_abort=False)
+
+    @contextmanager
+    def holding_a_question(self, item_name: str, task_name: str):
+        """The run is held on a question a task asked mid-run (``ask``): the
+        task is stopped on its next line until the decision lands in the
+        Review tab. The same hold kind as a park between tasks, because it is
+        released the same way and the attention button goes to the same
+        place; the workflow line says which task is stopped and where."""
+        self._set_hold(
+            Hold(
+                kind=HoldKind.decision,
+                releases=f"decide {item_name} in the Review tab",
+                items=(f"{item_name}/{task_name}",),
+            ),
+            note=f"{task_name} is waiting for your decision on {item_name} "
+            "in the Review tab.",
+            message=None,
+        )
+        try:
+            yield
+        finally:
+            self._set_hold(None, message=None)
+
+    def _requirements_of(self, task_name: str) -> List[str]:
+        """The tasks ``task_name`` requires, by this manager's protocol."""
+        raise NotImplementedError
+
+    def _upstream_of(self, task_name: str) -> List[str]:
+        """Every task ``task_name`` requires, directly or through another:
+        Rough Milling requires Mill Fiducial, which requires Setup, and it is
+        Setup's point that Rough Milling mills on."""
+        seen: List[str] = []
+        queue = list(self._requirements_of(task_name))
+        while queue:
+            req = queue.pop(0)
+            if req in seen or req == task_name:
+                continue
+            seen.append(req)
+            queue.extend(self._requirements_of(req))
+        return seen
+
+    def _expire_what_this_consumes(self, item_id: str, task_name: str) -> None:
+        """The task is about to start on the values of the tasks upstream of
+        it: whichever of those are still open are used as they stand, and
+        recorded so. After this a change to them is a re-run, not a
+        correction."""
+        for req in self._upstream_of(task_name):
+            self.experiment.expire_open(
+                item_id, req, f"{task_name} started before anyone looked"
+            )
 
     # --- Deferral: what cannot run yet, and why ---
 
@@ -549,6 +612,11 @@ class TaskManager(BaseTaskManager):
             self._run_items()
         finally:
             self.experiment.decided.disconnect(self._on_decided)
+            # A result nobody looked at is closed; a value stays open for the
+            # task that will use it, whichever run that is.
+            self.experiment.expire_all_open(
+                "the run ended before anyone looked", results_only=True
+            )
 
     def _run_items(self) -> None:
         while not self.is_stopped:
@@ -611,6 +679,8 @@ class TaskManager(BaseTaskManager):
                 self._wait_until_scheduled(scheduled_at, item.task_name, lamella)
                 if self.is_stopped:
                     break
+
+            self._expire_what_this_consumes(lamella.id, item.task_name)
 
             # Emit InProgress status
             self._emit_status(
@@ -845,6 +915,11 @@ class TaskManager(BaseTaskManager):
             # A stranded flag would leave the border reading "nothing is running"
             # for the rest of the run.
             self._set_workflow_pending(False)
+
+    def _requirements_of(self, task_name: str) -> List[str]:
+        return list(
+            self.experiment.task_protocol.workflow_config.requirements(task_name)
+        )
 
     def _defer_reason(self, lamella: "Lamella", task_name: str) -> Optional[str]:
         """Why this task cannot run *yet* -- as opposed to _should_skip, which

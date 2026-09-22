@@ -72,7 +72,7 @@ def experiment(tmp_path) -> Experiment:
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=SETUP, required=True, attention=Attention.review_later
+                    name=SETUP, required=True, attention=Attention.supervised
                 ),
                 AutoLamellaTaskDescription(
                     name=FIDUCIAL, required=True, requires=[SETUP]
@@ -95,15 +95,17 @@ def experiment(tmp_path) -> Experiment:
     )
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
-    lamella.proposals[SETUP] = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(0.0, 0.0)},
-        provenance={
-            "task_id": RUN,
-            "proposer": "centre-of-image",
-            "reference_image": ref + ".tif",
-        },
-    )
+    lamella.proposals[SETUP] = [
+        Proposal(
+            kind=POINT_OF_INTEREST,
+            values={"poi": Point(0.0, 0.0)},
+            provenance={
+                "task_id": RUN,
+                "proposer": "centre-of-image",
+                "reference_image": ref + ".tif",
+            },
+        )
+    ]
     return exp
 
 
@@ -125,6 +127,50 @@ def tab(qapp, experiment, warnings) -> R.ReviewTabWidget:
     widget = R.ReviewTabWidget()
     widget.set_experiment(experiment)
     return widget
+
+
+def test_a_row_names_its_kind_when_it_is_not_the_tasks_result(tab, experiment):
+    """One run of Setup confirms its tilt, then its position, then leaves its
+    point for afterwards: three rows under one task name. The kind is what
+    tells them apart, so the row says it. The task's own result is the plain
+    case and says nothing extra."""
+    from fibsem.applications.autolamella.proposals import (
+        STATE,
+        TASK_RESULT,
+        Decision,
+        DecisionOutcome,
+    )
+
+    lamella = experiment.positions[0]
+    unasked = Decision(
+        outcome=DecisionOutcome.Unreviewed,
+        author="auto:nobody",
+        reason="nobody was asked",
+    )
+    position = Proposal(
+        kind=STATE,
+        values={"stage_position": FibsemStagePosition()},
+        provenance={"task_id": RUN, "message": "Press Continue"},
+    )
+    position.decisions.append(unasked)
+    result = Proposal(kind=TASK_RESULT, values={}, provenance={"task_id": RUN})
+    lamella.proposals[SETUP] = [position, *lamella.proposals[SETUP], result]
+    tab.refresh()
+
+    rows = [t for t in tab.row_summaries() if t.count(" · ") >= 2]
+    assert rows == [
+        f"{lamella.name} · {SETUP} · Point of interest · waiting",
+        f"{lamella.name} · {SETUP} · waiting",
+        f"{lamella.name} · {SETUP} · Position · to check",
+    ], "the point, the result, the position; each kind said where it is not the result"
+    widgets = [tab.list.itemWidget(tab.list.item(i)) for i in range(tab.list.count())]
+    kinds = [w.kind.text() for w in widgets if isinstance(w, R._InboxRow)]
+    assert kinds == ["· Point of interest", "", "· Position"]
+    assert all(
+        w.kind.isVisibleTo(tab) == bool(w.kind.text())
+        for w in widgets
+        if isinstance(w, R._InboxRow)
+    )
 
 
 def test_the_inbox_is_derived_from_the_experiment(tab, experiment):
@@ -156,7 +202,7 @@ def test_confirm_submits_the_marker_and_the_delta_is_computed(tab, experiment, q
     tab.confirm_current()
     qapp.processEvents()
 
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     assert not proposal.pending
     assert proposal.current.outcome is DecisionOutcome.Confirmed
     assert proposal.current.author.kind is AuthorKind.human
@@ -182,14 +228,14 @@ def test_reject_needs_a_reason_and_fails_the_task(tab, experiment, monkeypatch):
         QInputDialog, "getText", staticmethod(lambda *a, **k: ("", True))
     )
     tab.reject_current()
-    assert lamella.proposals[SETUP].pending, "an empty reason is not a reject"
+    assert lamella.proposal(SETUP).pending, "an empty reason is not a reject"
     assert not lamella.is_failure
 
     monkeypatch.setattr(
         QInputDialog, "getText", staticmethod(lambda *a, **k: ("no usable site", True))
     )
     tab.reject_current()
-    assert not lamella.proposals[SETUP].pending
+    assert not lamella.proposal(SETUP).pending
     assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
     assert "no usable site" in lamella.task_history[-1].status_message
     assert not lamella.is_failure, "a failed task is not a defective lamella"
@@ -215,8 +261,13 @@ def test_a_decision_made_elsewhere_refreshes_the_inbox(tab, experiment):
 
 def test_an_unregistered_kind_still_gets_the_two_verbs(tab, experiment, qapp):
     lamella = experiment.positions[0]
-    lamella.proposals["other"] = Proposal(
-        kind="site_pick_v9", values={}, provenance={"task_id": RUN}
+    lamella.proposals["other"] = [
+        Proposal(kind="site_pick_v9", values={}, provenance={"task_id": RUN})
+    ]
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name="other", status=AutoLamellaTaskStatus.AwaitingDecision
+        )
     )
     tab.refresh()
     assert tab.pending_count == 2
@@ -225,7 +276,7 @@ def test_an_unregistered_kind_still_gets_the_two_verbs(tab, experiment, qapp):
     assert isinstance(renderer, R._UnknownKindRenderer)
     assert "no review renderer" in renderer.label.text()
     tab.confirm_current()
-    assert lamella.proposals["other"].current.outcome is DecisionOutcome.Confirmed
+    assert lamella.proposal("other").current.outcome is DecisionOutcome.Confirmed
 
 
 def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
@@ -251,9 +302,9 @@ def test_show_decided_lists_past_decisions_read_only(tab, experiment, qapp):
     assert shown._controller.overlay_points(BeamType.ION, "confirmed"), (
         "the confirmed marker is drawn beside the proposed one"
     )
-    before = lamella.proposals[SETUP].decisions[:]
+    before = lamella.proposal(SETUP).decisions[:]
     tab.confirm_current()
-    assert lamella.proposals[SETUP].decisions == before, "read-only means read-only"
+    assert lamella.proposal(SETUP).decisions == before, "read-only means read-only"
 
     tab.show_decided.setChecked(False)
     assert tab.row_summaries() == ["Nothing waiting"]
@@ -278,7 +329,7 @@ def test_a_proposal_the_producer_applied_is_to_check_not_waiting(tab, experiment
     and a look is owed. It is neither pending (nothing waits on it) nor
     decided (nobody looked), so it has its own group and its own verb."""
     lamella = experiment.positions[0]
-    _auto_confirm(lamella.proposals[SETUP])
+    _auto_confirm(lamella.proposal(SETUP))
     tab.refresh()
     assert tab.pending_count == 0, "nothing is stalled on this"
     assert tab.check_count == 1
@@ -303,7 +354,7 @@ def test_a_proposal_the_producer_applied_is_to_check_not_waiting(tab, experiment
 
 def test_acknowledging_records_a_look_and_writes_nothing(tab, experiment, qapp):
     lamella = experiment.positions[0]
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     _auto_confirm(proposal)
     tab.refresh()
     poi_before = lamella.poi
@@ -343,13 +394,15 @@ def test_acknowledging_records_a_look_and_writes_nothing(tab, experiment, qapp):
 def test_after_an_acknowledgement_the_next_row_is_selected(tab, experiment, qapp):
     """A run of acknowledgements is a run of Returns."""
     lamella = experiment.positions[0]
-    _auto_confirm(lamella.proposals[SETUP])
-    lamella.proposals[FIDUCIAL] = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(0.0, 0.0)},
-        provenance={"task_id": RUN, "proposer": "centre-of-image"},
-    )
-    _auto_confirm(lamella.proposals[FIDUCIAL])
+    _auto_confirm(lamella.proposal(SETUP))
+    lamella.proposals[FIDUCIAL] = [
+        Proposal(
+            kind=POINT_OF_INTEREST,
+            values={"poi": Point(0.0, 0.0)},
+            provenance={"task_id": RUN, "proposer": "centre-of-image"},
+        )
+    ]
+    _auto_confirm(lamella.proposal(FIDUCIAL))
     tab.refresh()
     assert tab.check_count == 2
     tab._select_entry(0)
@@ -368,17 +421,24 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
     """A log that piled up while the tab was hidden clears in one click; what
     is waiting for a real decision is untouched."""
     lamella = experiment.positions[0]
-    _auto_confirm(lamella.proposals[SETUP])
-    lamella.proposals[FIDUCIAL] = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(0.0, 0.0)},
-        provenance={"task_id": RUN},
-    )
-    _auto_confirm(lamella.proposals[FIDUCIAL])
-    lamella.proposals[ROUGH] = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(0.0, 0.0)},
-        provenance={"task_id": RUN},
+    _auto_confirm(lamella.proposal(SETUP))
+    lamella.proposals[FIDUCIAL] = [
+        Proposal(
+            kind=POINT_OF_INTEREST,
+            values={"poi": Point(0.0, 0.0)},
+            provenance={"task_id": RUN},
+        )
+    ]
+    _auto_confirm(lamella.proposal(FIDUCIAL))
+    lamella.proposals[ROUGH] = [
+        Proposal(
+            kind=POINT_OF_INTEREST,
+            values={"poi": Point(0.0, 0.0)},
+            provenance={"task_id": RUN},
+        )
+    ]
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=ROUGH, status=AutoLamellaTaskStatus.AwaitingDecision)
     )
     tab.refresh()
     assert tab.check_count == 2 and tab.pending_count == 1
@@ -393,11 +453,11 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
 
     assert tab.check_count == 0 and tab.pending_count == 1, "waiting is untouched"
     for name in (SETUP, FIDUCIAL):
-        d = lamella.proposals[name].current
+        d = lamella.proposal(name).current
         assert (
             d.author.kind is AuthorKind.human and d.values == {} and d.via == "review"
         )
-    assert lamella.proposals[ROUGH].pending
+    assert lamella.proposal(ROUGH).pending
 
 
 def test_rejecting_a_checked_proposal_leaves_the_finished_task_alone(
@@ -407,7 +467,7 @@ def test_rejecting_a_checked_proposal_leaves_the_finished_task_alone(
     reject is a note on the record, not a change to the outcome."""
     lamella = experiment.positions[0]
     lamella.set_task_status(SETUP, AutoLamellaTaskStatus.Completed)
-    _auto_confirm(lamella.proposals[SETUP])
+    _auto_confirm(lamella.proposal(SETUP))
     tab.refresh()
     from PyQt5.QtWidgets import QInputDialog
 
@@ -417,7 +477,7 @@ def test_rejecting_a_checked_proposal_leaves_the_finished_task_alone(
     tab.reject_current()
     assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Completed
     assert not lamella.is_failure
-    assert not lamella.proposals[SETUP].to_check
+    assert not lamella.proposal(SETUP).to_check
 
 
 def test_go_to_lamella_hands_the_item_over(tab, experiment):
@@ -436,21 +496,26 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     del lamella.proposals[SETUP]
     eb = os.path.join(str(lamella.path), "ref_rough_eb")
     _fib_image().save(eb)
-    lamella.proposals[ROUGH] = Proposal(
-        kind=TASK_RESULT,
-        values={},
-        provenance={
-            "task_id": RUN,
-            "proposer": "task",
-            "task_name": ROUGH,
-            "status": "Completed",
-            "started_at": 1000.0,
-            "ended_at": 1130.0,
-            "reference_image": "ref_setup_ib.tif",
-            "reference_image_eb": "ref_rough_eb.tif",
-            "failure": "",
-        },
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=ROUGH, status=AutoLamellaTaskStatus.AwaitingDecision)
     )
+    lamella.proposals[ROUGH] = [
+        Proposal(
+            kind=TASK_RESULT,
+            values={},
+            provenance={
+                "task_id": RUN,
+                "proposer": "task",
+                "task_name": ROUGH,
+                "status": "Completed",
+                "started_at": 1000.0,
+                "ended_at": 1130.0,
+                "reference_image": "ref_setup_ib.tif",
+                "reference_image_eb": "ref_rough_eb.tif",
+                "failure": "",
+            },
+        )
+    ]
     tab.refresh()
     assert tab.pending_count == 1
     renderer = tab.stack.currentWidget()
@@ -464,23 +529,25 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
 
     tab.confirm_current()
     qapp.processEvents()
-    proposal = lamella.proposals[ROUGH]
+    proposal = lamella.proposal(ROUGH)
     assert proposal.current.outcome is DecisionOutcome.Confirmed
     assert proposal.current.values == {}
     assert R.describe_decision(proposal, experiment).startswith("Confirmed by you")
 
     # a failed run reads as such, and an auto-recorded one is to check
-    lamella.proposals[FIDUCIAL] = Proposal(
-        kind=TASK_RESULT,
-        values={},
-        provenance={
-            "task_id": RUN,
-            "task_name": FIDUCIAL,
-            "status": "Failed",
-            "failure": "drift",
-        },
-    )
-    _auto_confirm(lamella.proposals[FIDUCIAL], proposer="task")
+    lamella.proposals[FIDUCIAL] = [
+        Proposal(
+            kind=TASK_RESULT,
+            values={},
+            provenance={
+                "task_id": RUN,
+                "task_name": FIDUCIAL,
+                "status": "Failed",
+                "failure": "drift",
+            },
+        )
+    ]
+    _auto_confirm(lamella.proposal(FIDUCIAL), proposer="task")
     tab.refresh()
     assert tab.check_count == 1
     renderer = tab.stack.currentWidget()
@@ -529,18 +596,17 @@ def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
     changed = []
     row.attention_changed.connect(changed.append)
     row.btn_attention.click()
-    assert task.attention is Attention.review_later and changed == [task]
-    assert row.btn_attention.text() == "Review later"
-    row.btn_attention.click()
-    assert task.attention is Attention.automated
+    assert task.attention is Attention.automated and changed == [task]
     assert row.btn_attention.text() == "Automated"
+    row.btn_attention.click()
+    assert task.attention is Attention.supervised
 
+    # The preference changes what Supervised does, not what it reads as.
     monkeypatch.setattr(W, "_review_available", lambda: False)
-    task.attention = Attention.review_later
     off = WorkflowTaskRowWidget(task)
-    assert off.btn_attention.text() == "Automated", "runs as what it will run as"
+    assert off.btn_attention.text() == "Supervised"
     off.btn_attention.click()
-    assert task.attention is Attention.supervised, "Review is not offered"
+    assert task.attention is Attention.automated
 
 
 def test_a_decision_on_a_run_replaced_while_shown_is_refused(
@@ -549,17 +615,19 @@ def test_a_decision_on_a_run_replaced_while_shown_is_refused(
     """The tab shows run-1; the task re-runs underneath it. Confirm names the
     run it showed, so it is refused with a warning and nothing is written."""
     lamella = experiment.positions[0]
-    lamella.proposals[SETUP] = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(7e-6, 0.0)},
-        provenance={"task_id": "run-2"},
-    )  # not refreshed: the tab still shows run-1
+    lamella.proposals[SETUP] = [
+        Proposal(
+            kind=POINT_OF_INTEREST,
+            values={"poi": Point(7e-6, 0.0)},
+            provenance={"task_id": "run-2"},
+        )
+    ]  # not refreshed: the tab still shows run-1
 
     tab.confirm_current()
     qapp.processEvents()
 
     assert warnings and "re-run since you looked" in warnings[-1]
-    assert lamella.proposals[SETUP].pending
+    assert lamella.proposal(SETUP).pending
     assert lamella.poi == Point(0.0, 0.0)
 
 
@@ -567,7 +635,7 @@ def test_mark_all_as_checked_acknowledges_only_the_runs_it_listed(
     tab, experiment, qapp
 ):
     lamella = experiment.positions[0]
-    _auto_confirm(lamella.proposals[SETUP])
+    _auto_confirm(lamella.proposal(SETUP))
     tab.refresh()
     assert tab.check_count == 1
     rerun = Proposal(
@@ -576,7 +644,7 @@ def test_mark_all_as_checked_acknowledges_only_the_runs_it_listed(
         provenance={"task_id": "run-2"},
     )
     _auto_confirm(rerun)
-    lamella.proposals[SETUP] = rerun  # re-ran after the list was drawn
+    lamella.proposals[SETUP] = [rerun]  # re-ran after the list was drawn
 
     tab.acknowledge_all()
     qapp.processEvents()
@@ -610,7 +678,7 @@ def _grid_waiting(experiment):
     protocol = experiment.grid_protocol
     protocol.add(
         BeamOverviewGridTaskConfig(
-            task_name="SEM Overview", attention=Attention.review_later
+            task_name="SEM Overview", attention=Attention.supervised
         )
     )
     protocol.add(
@@ -627,10 +695,12 @@ def _grid_waiting(experiment):
             name="SEM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
         )
     )
-    grid.proposals["SEM Overview"] = Proposal(
-        kind=TASK_RESULT,
-        provenance={"task_id": RUN, "reference_image": "SEM Overview/overview.tif"},
-    )
+    grid.proposals["SEM Overview"] = [
+        Proposal(
+            kind=TASK_RESULT,
+            provenance={"task_id": RUN, "reference_image": "SEM Overview/overview.tif"},
+        )
+    ]
     return grid
 
 
@@ -686,14 +756,16 @@ def _positions_waiting(experiment, positions=(), name="Grid-02"):
             name="SEM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
         )
     )
-    grid.proposals["SEM Overview"] = Proposal(
-        kind=OVERVIEW_POSITIONS,
-        values={"positions": list(positions)},
-        provenance={
-            "task_id": f"{RUN}-{name}",
-            "reference_image": "SEM Overview/overview.tif",
-        },
-    )
+    grid.proposals["SEM Overview"] = [
+        Proposal(
+            kind=OVERVIEW_POSITIONS,
+            values={"positions": list(positions)},
+            provenance={
+                "task_id": f"{RUN}-{name}",
+                "reference_image": "SEM Overview/overview.tif",
+            },
+        )
+    ]
     return grid
 
 
@@ -837,7 +909,7 @@ class TestOverviewPositions:
         assert len(renderer.current_values()["positions"]) == 1
 
         # the task runs again: a new proposal, naming a new run
-        grid.proposals["SEM Overview"].provenance["task_id"] = "another-run"
+        grid.proposal("SEM Overview").provenance["task_id"] = "another-run"
         _positions_renderer(tab, grid)
 
         assert renderer.current_values() == {"positions": []}
@@ -940,10 +1012,12 @@ def _fm_grid_proposal(experiment, filename="overview.ome.tiff", write=True):
             name="FM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
         )
     )
-    grid.proposals["FM Overview"] = Proposal(
-        kind=TASK_RESULT,
-        provenance={"task_id": RUN, "reference_image": relative},
-    )
+    grid.proposals["FM Overview"] = [
+        Proposal(
+            kind=TASK_RESULT,
+            provenance={"task_id": RUN, "reference_image": relative},
+        )
+    ]
     return grid, target
 
 
@@ -958,7 +1032,7 @@ def test_a_fluorescence_overview_loads_as_a_fluorescence_image(experiment):
     from fibsem.fm.structures import FluorescenceImage
 
     grid, _ = _fm_grid_proposal(experiment)
-    image = R._load_reference_image(experiment, grid, grid.proposals["FM Overview"])
+    image = R._load_reference_image(experiment, grid, grid.proposal("FM Overview"))
     assert isinstance(image, FluorescenceImage)
     assert image.data.shape[-2:] == (16, 16)
 
@@ -977,7 +1051,7 @@ def test_the_agent_preview_of_a_fluorescence_overview_is_its_composite(experimen
     from fibsem.applications.autolamella.server.prompts import _preview_payload
 
     grid, _ = _fm_grid_proposal(experiment)
-    image = R._load_reference_image(experiment, grid, grid.proposals["FM Overview"])
+    image = R._load_reference_image(experiment, grid, grid.proposal("FM Overview"))
     composite = R.review_preview(image)
     assert composite.shape == (16, 16, 3)
     assert composite.reshape(-1, 3).max() > 0, "both channels' signal, projected"
@@ -1020,8 +1094,8 @@ def test_a_result_with_no_image_recorded_says_so(tab, experiment):
             name="SEM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
         )
     )
-    grid.proposals["SEM Overview"] = Proposal(
-        kind=TASK_RESULT, provenance={"task_id": RUN, "reference_image": ""}
-    )
+    grid.proposals["SEM Overview"] = [
+        Proposal(kind=TASK_RESULT, provenance={"task_id": RUN, "reference_image": ""})
+    ]
     renderer = _select(tab, grid)
     assert renderer.no_image.text() == "No image was recorded for this result."

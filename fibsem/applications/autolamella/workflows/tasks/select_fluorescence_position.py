@@ -7,6 +7,7 @@ from typing import (
     Type,
 )
 
+from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
@@ -24,6 +25,10 @@ class SelectFluorescencePositionConfig(AutoLamellaTaskConfig):
 
 class SelectFluorescencePositionTask(AutoLamellaTask):
     """Task to select fluorescence stage position and objective position."""
+
+    # "Move to the fluorescence position. Press Continue": a confirmation of
+    # the state, on the record with the review preference on.
+    questions = (STATE,)
 
     config: SelectFluorescencePositionConfig
     config_cls: ClassVar[Type[SelectFluorescencePositionConfig]] = (
@@ -98,12 +103,29 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
         # There used to be a bare `acquire_image()` here whose result was discarded. It
         # emits no signal, so nothing reached the canvas; it exposed the camera once and
         # threw the frame away.
-        if self.validate:
-            ask_user(
-                self.parent_ui,
-                msg=f"Move to fluorescence position (stage and objective)for {self.lamella.name}. Press Continue to proceed.",
-                pos="Continue",
+        msg = (
+            f"Move to fluorescence position (stage and objective) for "
+            f"{self.lamella.name}. Press Continue to proceed."
+        )
+        if getattr(self.task_manager, "review_enabled", False):
+            # The position as arrived at is the proposal; the position as it
+            # stands on Continue is the decision, so a move made first is the
+            # delta. The objective is not part of the kind's values: the pose
+            # refreshed below records it.
+            self.ask(
+                STATE,
+                {"stage_position": self.microscope.get_stage_position()},
+                message=msg,
+                decided=lambda: {
+                    "stage_position": self.microscope.get_stage_position()
+                },
             )
+            if self.validate:
+                self.microscope.fm.stop_acquisition()
+        elif self.validate:
+            # The prompt as it has always been, kept as it is while the review
+            # preference is off.
+            ask_user(self.parent_ui, msg=msg, pos="Continue")
             self.microscope.fm.stop_acquisition()
 
         # refresh the recorded fluorescence pose (preserving the configured objective position)

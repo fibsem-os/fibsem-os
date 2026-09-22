@@ -84,7 +84,7 @@ def experiment(tmp_path) -> Experiment:
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=SETUP, required=True, attention=Attention.review_later
+                    name=SETUP, required=True, attention=Attention.supervised
                 ),
                 AutoLamellaTaskDescription(name=ROUGH, required=True, requires=[SETUP]),
             ]
@@ -110,9 +110,9 @@ def experiment(tmp_path) -> Experiment:
                 name=ROUGH, status=AutoLamellaTaskStatus.AwaitingDecision
             )
         )
-        lamella.proposals[ROUGH] = Proposal(
-            kind=TASK_RESULT, provenance={"task_id": RUN}
-        )
+        lamella.proposals[ROUGH] = [
+            Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
+        ]
     # the third is a look, not a decision: it lands in "To check"
     third = exp.positions[2]
     third.task_history.append(
@@ -128,18 +128,18 @@ def experiment(tmp_path) -> Experiment:
             via="workflow",
         )
     )
-    third.proposals[SETUP] = proposal
+    third.proposals[SETUP] = [proposal]
 
     protocol = exp.grid_protocol
     protocol.add(
-        BeamOverviewGridTaskConfig(task_name=SEM, attention=Attention.review_later)
+        BeamOverviewGridTaskConfig(task_name=SEM, attention=Attention.supervised)
     )
     protocol.add(
         BeamOverviewGridTaskConfig(
             task_name=FIB,
             orientation="FIB",
             requires=[SEM],
-            attention=Attention.review_later,
+            attention=Attention.supervised,
         )
     )
     for name, task in (("Grid-01", SEM), ("Grid-02", FIB)):
@@ -152,10 +152,12 @@ def experiment(tmp_path) -> Experiment:
                 name=task, status=AutoLamellaTaskStatus.AwaitingDecision
             )
         )
-        grid.proposals[task] = Proposal(
-            kind=TASK_RESULT,
-            provenance={"task_id": RUN, "reference_image": f"{task}/overview.tif"},
-        )
+        grid.proposals[task] = [
+            Proposal(
+                kind=TASK_RESULT,
+                provenance={"task_id": RUN, "reference_image": f"{task}/overview.tif"},
+            )
+        ]
     return exp
 
 
@@ -261,7 +263,7 @@ def test_held_only_drops_a_result_that_was_already_applied(tab, experiment):
     nothing is held. Requiring alone is not holding."""
     otter = experiment.positions[2]
     assert R.waiting_on(experiment, SETUP, otter) == [ROUGH], "a later task requires it"
-    assert otter.proposals[SETUP].to_check and not otter.proposals[SETUP].pending
+    assert otter.proposal(SETUP).to_check and not otter.proposal(SETUP).pending
 
     tab.filters.held_only.setChecked(True)
     tab.refresh()
@@ -354,8 +356,8 @@ def test_typing_does_not_confirm_or_reject_the_current_proposal(tab, experiment,
     tab._on_reject_shortcut()
     tab._on_confirm_shortcut()
 
-    assert lamella.proposals[ROUGH].pending, "no decision was recorded"
-    assert lamella.proposals[ROUGH].decisions == []
+    assert lamella.proposal(ROUGH).pending, "no decision was recorded"
+    assert lamella.proposal(ROUGH).decisions == []
 
     # and the shortcuts still work when the field does not have the keys
     tab.list.setFocus()

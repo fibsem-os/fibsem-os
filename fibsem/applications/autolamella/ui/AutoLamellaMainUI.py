@@ -43,6 +43,7 @@ from superqt import ensure_main_thread
 
 import fibsem
 import fibsem.config as fibsem_cfg
+from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskStatus,
@@ -427,7 +428,7 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
 
 def _attention_label(hold: Hold) -> str:
     """The attention button's text for a hold the operator can release."""
-    if hold.kind is HoldKind.review_later:
+    if hold.kind is HoldKind.decision:
         return f"Review Required ({len(hold.items)})"
     return "Attention Required"
 
@@ -1589,6 +1590,48 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.stop_task_workflow()
             self._set_border_state("stopping")
 
+    def _listen_for_questions(self, experiment) -> None:
+        """A question a task asks mid-run (``AutoLamellaTask.ask``) is answered
+        in the Review tab, so the tab is fronted when one is recorded. One
+        subscription per experiment; the previous experiment's is dropped."""
+        previous = getattr(self, "_asked_experiment", None)
+        if previous is experiment:
+            return
+        if previous is not None:
+            try:
+                previous.asked.disconnect(self._on_question_asked)
+                previous.decided.disconnect(self._on_question_decided)
+            except Exception:
+                pass
+        self._asked_experiment = experiment
+        if experiment is not None:
+            experiment.asked.connect(self._on_question_asked)
+            experiment.decided.connect(self._on_question_decided)
+
+    def _on_question_asked(self, item_id: str, task_name: str) -> None:
+        """Put a question a task just asked in front of the operator, where
+        its kind is answered: a state on the prompt bar of the Microscope tab
+        (the operator is at the instrument, and confirming needs no image);
+        anything else in the Review tab, which is fronted."""
+        review_tab = getattr(self, "review_tab", None)
+        experiment = getattr(self, "_asked_experiment", None)
+        if review_tab is None or experiment is None:
+            return
+        item = experiment.get_item_by_id(item_id)
+        proposal = item.proposal(task_name) if item is not None else None
+        if proposal is None or not proposal.asking:
+            return
+        if proposal.kind == STATE:
+            self.autolamella_ui.show_state_question(item_id, task_name, proposal)
+            return
+        self.tab_widget.setCurrentWidget(review_tab)
+        review_tab.select(item_id, task_name)
+
+    def _on_question_decided(self, item_id: str, task_name: str) -> None:
+        """However a state question was answered -- the prompt bar, the Review
+        tab, an agent, or withdrawn by Stop -- the prompt comes down."""
+        self.autolamella_ui.clear_state_question(item_id, task_name)
+
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to Microscope tab, or to
         the Review tab when what is waiting is a decision rather than a question.
@@ -1607,7 +1650,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         review_tab = getattr(self, "review_tab", None)
         if (
             hold is not None
-            and hold.kind is HoldKind.review_later
+            and hold.kind is HoldKind.decision
             and review_tab is not None
         ):
             self.tab_widget.setCurrentWidget(review_tab)
@@ -2345,6 +2388,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.review_tab.set_experiment(self.autolamella_ui.experiment)
         self.review_tab.set_microscope(self.autolamella_ui.microscope)
         experiment = self.autolamella_ui.experiment
+        self._listen_for_questions(experiment)
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
             self.lamella_workflow_widget.set_workflow_config(

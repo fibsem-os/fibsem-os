@@ -20,7 +20,12 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
+    AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.attendance import (
+    Attendance,
+    attendance_for,
 )
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.ui import stylesheets
@@ -47,25 +52,22 @@ _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
 # The attention chip: the mode's icon (the same ones the lamella rows and
 # status chips use) and its name, fixed width so the row does not jump
-# between states. "Review later" is the widest it shows. The schedule
+# between states. "Supervised" is the widest it shows. The schedule
 # clock button, which only duplicated the pencil, gave up the width.
 _CHIP_WIDTH = 104
 _CHIP_ICONS = {
     "automated": "mdi:lightning-bolt-circle",
     "supervised": "mdi:account-hard-hat",
     "agent": "mdi:star-four-points",
-    "review_later": "mdi:clipboard-check",
 }
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() + _CHIP_WIDTH + 8  # attention chip + edit + 1 gap
-# Long labels on purpose: the short set (Auto / Superv. / Review) reads badly
-# and the long ones fit at the chip's width. In the order a task is trusted:
-# watched, then checked afterwards, then left to get on with it. "Review
-# later" and not "Review", because the Review tab collects the decisions of
-# every mode; what this one says is *when* the operator decides.
+# Long labels on purpose: the short set (Auto / Superv.) reads badly and the
+# long ones fit at the chip's width. Two modes: a person decides, or nobody
+# is asked. Where the run waits for the person is a property of the task,
+# not a third state.
 ATTENTION_LABELS = {
     "supervised": "Supervised",
     "agent": "Agent",
-    "review_later": "Review later",
     "automated": "Automated",
 }
 
@@ -128,28 +130,37 @@ def attention_state(
     has about a task, *when am I involved?*, read from the task's attention.
 
     A stored ``supervisor: agent`` shows as plain Supervised while the
-    agent-server preference is off, and a stored ``review`` shows as Automated
-    while interactive review is off -- the state it will actually run in, not
-    the one in the file.
+    agent-server preference is off -- the state it will actually run in, not
+    the one in the file. ``review_available`` is accepted and unused: the
+    preference no longer changes what a task's attention reads as.
     """
     if agent_available is None:
         agent_available = _agent_supervision_available()
-    if review_available is None:
-        review_available = _review_available()
     if task.attention is Attention.supervised:
         if getattr(task, "supervisor", "human") == "agent" and agent_available:
             return "agent"
         return "supervised"
-    if task.attention is Attention.review_later and review_available:
-        return "review_later"
     return "automated"
 
 
 def _attention_chip(
-    task: AutoLamellaTaskDescription, has_dependents: bool = True
+    task: AutoLamellaTaskDescription,
+    has_dependents: bool = True,
+    attendance: Optional[Attendance] = None,
 ) -> tuple[str, str, str]:
     """(label, colour, tooltip) for the chip: the word is the state, the
-    colour is the mode's."""
+    colour is the mode's, and the tooltip says what the state means for this
+    task -- whether it needs you there while it runs, and what waits on you
+    afterwards -- when the task's type is known (``attendance``)."""
+    label, colour, tip = _attention_chip_words(task, has_dependents)
+    if attendance is not None:
+        tip = f"{label} — {attendance.line} Click to change."
+    return label, colour, tip
+
+
+def _attention_chip_words(
+    task: AutoLamellaTaskDescription, has_dependents: bool = True
+) -> tuple[str, str, str]:
     state = attention_state(task)
     label = ATTENTION_LABELS[state]
     if state == "agent":
@@ -160,33 +171,20 @@ def _attention_chip(
             "workflow (you can always answer first). Click to change.",
         )
     if state == "supervised":
-        return (
-            label,
-            stylesheets.PRIMARY_COLOR,
-            "Supervised — asks you in the workflow, at the microscope; your "
-            "answer is the decision on the record. Click to change.",
-        )
-    if state == "review_later":
         tip = (
-            "Review later — the task finishes, and the next one waits for your "
-            "decision in the Review tab. Click to change."
+            "Supervised — you decide. A question the task needs answered is "
+            "asked in the workflow, at the microscope; a result it leaves for "
+            "afterwards waits for your decision in the Review tab, and the "
+            "tasks that require it wait with it. Click to change."
+            if _review_available()
+            else "Supervised — asks you in the workflow, at the microscope; your "
+            "answer is the decision on the record. Click to change."
         )
-        if not has_dependents:
-            tip = (
-                "Review later — but nothing requires this task, so nothing waits on "
-                "the decision. Add a requirement to a later task, or click to "
-                "change."
-            )
-        return label, stylesheets.REVIEW_COLOR, tip
+        return label, stylesheets.PRIMARY_COLOR, tip
     tip = (
         "Automated — runs without anyone; what it did is listed in the Review "
         "tab to check. Click to change."
     )
-    if task.attention is Attention.review_later:
-        tip = (
-            "Runs as Automated: the protocol says Review later, but interactive "
-            "review is off in Preferences. Click to change."
-        )
     return label, stylesheets.AUTOMATED_COLOR, tip
 
 
@@ -316,6 +314,7 @@ class WorkflowTaskRowWidget(QWidget):
         layout.addWidget(self.btn_attention)
         self._has_dependents = True
         self._reviewed: set = set()
+        self._attendance: Optional[Attendance] = None
         self._schedule_visible = True
 
         # Edit opens the dialog, which is also where a task is removed: a
@@ -353,6 +352,13 @@ class WorkflowTaskRowWidget(QWidget):
             self._has_dependents = has_dependents
             self.refresh()
 
+    def set_attendance(self, attendance: Optional[Attendance]) -> None:
+        """What this task needs from a person, derived from its type: said on
+        the chip's tooltip and the row's, so the mode reads as what it does."""
+        if attendance != self._attendance:
+            self._attendance = attendance
+            self.refresh()
+
     def set_reviewed(self, reviewed: set) -> None:
         """The tasks set to Review, so a requirement on one reads as the wait
         for a decision it is."""
@@ -373,8 +379,6 @@ class WorkflowTaskRowWidget(QWidget):
         order = ["supervised"]
         if _agent_supervision_available():
             order.append("agent")
-        if _review_available():
-            order.append("review_later")
         order.append("automated")
         current = attention_state(task)
         following = order[(order.index(current) + 1) % len(order)]
@@ -409,35 +413,22 @@ class WorkflowTaskRowWidget(QWidget):
                 + self.task.scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
                 + " (set in the edit dialog)"
             )
+        if self._attendance is not None:
+            tips.append(self._attendance.line)
         self.setToolTip("\n".join(tips))
-        label, colour, tooltip = _attention_chip(self.task, self._has_dependents)
-        # the file says Review later but the preference is off: shown as it will run
-        downgraded = (
-            self.task.attention is Attention.review_later and not _review_available()
+        label, colour, tooltip = _attention_chip(
+            self.task, self._has_dependents, self._attendance
         )
         self.btn_attention.setText(label)
         self.btn_attention.setIcon(
-            fibsem_icon(
-                _CHIP_ICONS[attention_state(self.task)],
-                color=NEUTRAL_700 if downgraded else colour,
-            )
+            fibsem_icon(_CHIP_ICONS[attention_state(self.task)], color=colour)
         )
         self.btn_attention.setToolTip(tooltip)
-        self.btn_attention.setStyleSheet(_chip_style(colour, muted=downgraded))
-        if attention_state(self.task) == "review_later" and not self._has_dependents:
-            # the column keeps the task's own dependency when it has one; the
-            # colour and the chip's tooltip carry the warning
-            if not self.requires_label.text():
-                self.requires_label.setText("nothing waits on this")
-            self.requires_label.setStyleSheet(
-                f"background: transparent; color: {stylesheets.WARN_COLOR}; "
-                f"font-size: {REQUIRES_FONT_PX}px;"
-            )
-        else:
-            self.requires_label.setStyleSheet(
-                f"background: transparent; color: {REQUIRES_COLOUR}; "
-                f"font-size: {REQUIRES_FONT_PX}px;"
-            )
+        self.btn_attention.setStyleSheet(_chip_style(colour))
+        self.requires_label.setStyleSheet(
+            f"background: transparent; color: {REQUIRES_COLOUR}; "
+            f"font-size: {REQUIRES_FONT_PX}px;"
+        )
 
 
 class _WorkflowTaskListHeader(QWidget):
@@ -497,6 +488,9 @@ class WorkflowConfigWidget(QWidget):
             "remove": True,
         }
         self._checked: Dict[int, bool] = {}  # id(task) -> checked
+        # The protocol the tasks belong to, for what each task's type asks:
+        # the workflow config alone names tasks, not their types.
+        self._protocol: Optional[AutoLamellaTaskProtocol] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -564,14 +558,21 @@ class WorkflowConfigWidget(QWidget):
         tasks = self.get_tasks()
         required = {req for task in tasks for req in task.requires}
         reviewed = (
-            {t.name for t in tasks if t.attention is Attention.review_later}
+            {t.name for t in tasks if t.attention is Attention.supervised}
             if _review_available()
             else set()
         )
+        protocol = self._protocol
+        review_on = _review_available()
         for i in range(self._list.count()):
             row = self._row(i)
             row.set_has_dependents(row.task.name in required)
             row.set_reviewed(reviewed)
+            row.set_attendance(
+                attendance_for(protocol, row.task.name, review_on)
+                if protocol is not None
+                else None
+            )
 
     def _connect_row(self, row: WorkflowTaskRowWidget) -> None:
         row.attention_changed.connect(self.attention_changed)
@@ -625,6 +626,12 @@ class WorkflowConfigWidget(QWidget):
             if row.task is task:
                 row.refresh()
                 break
+
+    def set_protocol(self, protocol: Optional[AutoLamellaTaskProtocol]) -> None:
+        """The protocol whose tasks these are, so each row can say what its
+        task needs from a person. None: nothing is said."""
+        self._protocol = protocol
+        self._refresh_dependents()
 
     def refresh_all(self) -> None:
         for i in range(self._list.count()):

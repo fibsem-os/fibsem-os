@@ -122,6 +122,8 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
 class SpotBurnFiducialTask(AutoLamellaTask):
     """Task to mill spot fiducial markers for correlation."""
 
+    sessions = ("the spot burn",)
+
     config: SpotBurnFiducialTaskConfig
     config_cls: ClassVar[Type[SpotBurnFiducialTaskConfig]] = SpotBurnFiducialTaskConfig
 

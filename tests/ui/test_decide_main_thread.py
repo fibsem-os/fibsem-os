@@ -43,11 +43,13 @@ def _experiment(tmp_path) -> Experiment:
         MicroscopeState(stage_position=FibsemStagePosition()),
         EventedDict({SETUP: SelectMillingPositionTaskConfig(task_name=SETUP)}),
     )
-    exp.positions[0].proposals[SETUP] = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(0.0, 0.0)},
-        provenance={"task_id": "run-1"},
-    )
+    exp.positions[0].proposals[SETUP] = [
+        Proposal(
+            kind=POINT_OF_INTEREST,
+            values={"poi": Point(0.0, 0.0)},
+            provenance={"task_id": "run-1"},
+        )
+    ]
     return exp
 
 

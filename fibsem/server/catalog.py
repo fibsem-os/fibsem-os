@@ -198,7 +198,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_protocol",
-        description="The workflow definition with live supervision flags and schedules.",
+        description="The workflow definition with live supervision flags and schedules. Each task carries `attendance`: whether a person must be at the microscope while it runs and what waits for their decision afterwards, under its current attention.",
         method="GET",
         path="/app/protocol",
         scope="read",

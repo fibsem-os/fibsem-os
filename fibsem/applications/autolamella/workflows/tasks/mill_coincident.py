@@ -118,6 +118,8 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
 class MillCoincidentTask(AutoLamellaTask):
     """Task to mill the coincident trench for a lamella."""
 
+    sessions = ("coincidence milling",)
+
     config: MillCoincidentTaskConfig
     config_cls: ClassVar[Type[MillCoincidentTaskConfig]] = MillCoincidentTaskConfig
 

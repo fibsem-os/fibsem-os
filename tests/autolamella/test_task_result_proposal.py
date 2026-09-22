@@ -108,13 +108,13 @@ def _task(microscope, exp: Experiment, body=None) -> MillRoughTask:
 
 
 def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp)
     lamella = exp.positions[0]
 
     task.run()
 
-    proposal = lamella.proposals[ROUGH]
+    proposal = lamella.proposal(ROUGH)
     assert proposal.kind == TASK_RESULT and proposal.pending
     assert proposal.values == {}
     p = proposal.provenance
@@ -132,7 +132,7 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
         Decision(
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
-            task_id=lamella.proposals[ROUGH].task_id,
+            task_id=lamella.proposal(ROUGH).task_id,
         ),
     )
     assert result.applied and result.synced_tasks == []
@@ -156,13 +156,13 @@ def test_the_result_images_mapping_decides_which_roles_the_proposal_points_at(
 
     task.run()
 
-    p = lamella.proposals[ROUGH].provenance
+    p = lamella.proposal(ROUGH).provenance
     assert p["reference_image"] == "tight.tif", "the last file under the role"
     assert "reference_image_eb" not in p, "only the keys the mapping names"
 
 
 def test_a_failed_task_records_its_result_with_the_failure(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
 
     def boom():
@@ -172,7 +172,7 @@ def test_a_failed_task_records_its_result_with_the_failure(microscope, tmp_path)
     with pytest.raises(RuntimeError):
         task.run()
 
-    proposal = lamella.proposals[ROUGH]
+    proposal = lamella.proposal(ROUGH)
     assert proposal.kind == TASK_RESULT and proposal.pending
     assert proposal.provenance["status"] == "Failed"
     assert proposal.provenance["failure"] == "stage timeout"
@@ -187,24 +187,31 @@ def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_pa
 
     task.run()
 
-    proposal = lamella.proposals[ROUGH]
+    proposal = lamella.proposal(ROUGH)
     assert proposal.kind == TASK_RESULT
-    assert proposal.to_check and str(proposal.current.author) == f"auto:{ROUGH}"
+    # Nobody decides it: open, listed to check, and nothing waits on it.
+    assert proposal.pending and not proposal.to_check
     assert task.task_manager._defer_reason(lamella, POLISH) is None
     assert [t for _i, t, _p in exp.proposals_to_check()] == [ROUGH]
+    assert exp.pending_proposals() == []
+    # Its consumer starting closes it as used-unreviewed, by the producer's name.
+    assert exp.expire_open(lamella.id, ROUGH, f"{POLISH} started") == 1
+    assert proposal.unreviewed and proposal.to_check
+    assert str(proposal.current.author) == f"auto:{ROUGH}"
+    assert f"{POLISH} started" in proposal.current.reason
 
 
 def test_without_the_flag_the_result_is_recorded_but_never_gates(microscope, tmp_path):
     """The flag hides the Review surface, not the record."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp)
     task.task_manager.review_enabled = False
     task.run()
     lamella = exp.positions[0]
-    proposal = lamella.proposals[ROUGH]
-    assert proposal.kind == TASK_RESULT and not proposal.pending
-    assert str(proposal.current.author) == f"auto:{ROUGH}"
+    proposal = lamella.proposal(ROUGH)
+    assert proposal.kind == TASK_RESULT and proposal.pending, "open, not decided"
     assert task.task_manager._defer_reason(lamella, POLISH) is None
+    assert not lamella.is_awaiting_decision(ROUGH)
 
 
 def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path):
@@ -225,7 +232,7 @@ def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path
     for cls in (MillFiducialTask, AcquireReferenceImageTask, MillRoughTask):
         assert cls.proposer.kind == TASK_RESULT, "a bad fiducial is gateable"
     assert SelectMillingPositionTask.proposer.kind == POINT_OF_INTEREST
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp)
     type(task).proposer = None
     try:
@@ -269,14 +276,15 @@ def test_a_swapped_proposer_records_its_kind_and_the_base_fills_the_result(
         task.run()
     finally:
         type(task).proposer = TaskResultProposer()
-    proposal = lamella.proposals[ROUGH]
+    proposal = lamella.proposal(ROUGH)
     assert proposal.kind == POINT_OF_INTEREST
     assert proposal.values == {"poi": Point(1e-6, 2e-6)} and proposal.confidence == 0.5
     p = proposal.provenance
     assert p["proposer"] == "site-picker" and p["version"] == 7 and p["model"] == "m"
     assert p["task_name"] == ROUGH and p["status"] == "Completed"
     assert p["reference_image"] == f"ref_{ROUGH}_final_res_01_ib.tif"
-    assert str(proposal.current.author) == "auto:site-picker"
+    assert proposal.pending, "open until something uses it"
+    assert lamella.poi == Point(1e-6, 2e-6), "and live from the moment it was proposed"
 
 
 def test_a_proposer_may_not_carry_a_value_its_kind_does_not_register(
@@ -299,7 +307,7 @@ def test_a_question_answered_during_the_run_is_not_logged_as_a_rerun(
     result, so at the end of the task it goes under the result like anything
     else the slot held. It is kept -- but it is the same run, and a log that
     says "re-run" puts a run in the record that never happened."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
     asked = {}
 
@@ -326,15 +334,15 @@ def test_a_question_answered_during_the_run_is_not_logged_as_a_rerun(
     with caplog.at_level("INFO"):
         _task(microscope, exp, body=ask_and_be_answered).run()
 
-    result = lamella.proposals[ROUGH]
+    result = lamella.proposal(ROUGH)
     assert result.kind == TASK_RESULT and result.pending
-    assert result.superseded == [asked["question"]], "the answer is kept"
+    assert lamella.proposals[ROUGH] == [asked["question"], result], "the answer is kept"
     assert "asked a question during this run" in caplog.text
     assert "re-run" not in caplog.text
 
 
 def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, attention=Attention.review_later)
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
     _task(microscope, exp).run()
     exp.decide(
@@ -343,13 +351,13 @@ def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
         Decision(
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
-            task_id=lamella.proposals[ROUGH].task_id,
+            task_id=lamella.proposal(ROUGH).task_id,
         ),
     )
-    decided = lamella.proposals[ROUGH]
+    decided = lamella.proposal(ROUGH)
 
     _task(microscope, exp).run()
 
-    fresh = lamella.proposals[ROUGH]
+    fresh = lamella.proposal(ROUGH)
     assert fresh is not decided and fresh.pending
-    assert fresh.superseded == [decided]
+    assert lamella.proposals[ROUGH] == [decided, fresh]
