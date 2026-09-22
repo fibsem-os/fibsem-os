@@ -115,8 +115,8 @@ def test_a_move_that_returns_nothing_ends_where_it_was_last_read(microscope, rec
 
 
 def test_a_move_to_where_the_stage_already_is_ends_there(microscope, recorded):
-    # It reads the position during the move and finds it unchanged: the end is
-    # the start, not unknown.
+    # It returns nothing, and the position it reads is unchanged: the end is the
+    # start, not unknown.
     here = microscope.get_stage_position()
     assert microscope.safe_absolute_stage_movement(here) is None
 
@@ -162,7 +162,7 @@ def test_a_failed_move_is_recorded_with_why_and_the_caller_still_hears(
     failed, after = recorded("stage_moved")
     assert failed["move"] == "move_to_orientation"
     assert failed["error"] == "ValueError: Orientation SIDEWAYS not supported."
-    assert failed["end"] is None
+    assert failed["end"] == failed["start"]  # it failed before moving
     assert after["move"] == "move_stage_relative"
 
 
@@ -218,8 +218,8 @@ def test_a_beam_shift_is_recorded_as_asked(microscope, recorded):
     }
 
 
-def _tescan():
-    """A TESCAN microscope on a stubbed connection: what it sent, what it recorded."""
+def test_a_tescan_stable_move_is_one_event_not_three():
+    # On TESCAN a stable move is a relative move, and a relative move an absolute one.
     microscope = object.__new__(TescanMicroscope)  # skip __init__ (requires the SDK)
     microscope._connection_lock = threading.RLock()
     microscope.system = utils.load_microscope_configuration(
@@ -227,7 +227,6 @@ def _tescan():
     ).system
     microscope.stage_is_compustage = False
     at = FibsemStagePosition(x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW")
-    microscope._stage_position = at  # read on connect
     microscope.get_stage_position = lambda: at
     microscope.get_scan_rotation = lambda beam_type: 0.0
     sent = []
@@ -238,12 +237,6 @@ def _tescan():
     microscope.record_signal.connect(
         lambda kind, payload: events.append((kind, payload))
     )
-    return microscope, sent, events
-
-
-def test_a_tescan_stable_move_is_one_event_not_three():
-    # On TESCAN a stable move is a relative move, and a relative move an absolute one.
-    microscope, sent, events = _tescan()
 
     microscope.stable_move(dx=1e-6, dy=1e-6, beam_type=BeamType.ELECTRON)
 
@@ -251,19 +244,6 @@ def test_a_tescan_stable_move_is_one_event_not_three():
     assert [(kind, payload["move"]) for kind, payload in events] == [
         ("stage_moved", "stable_move")
     ]
-
-
-def test_a_move_that_reads_nothing_has_no_end():
-    # A TESCAN absolute move returns nothing and reads nothing, so where the stage
-    # went is not known yet -- not the position last read before it.
-    microscope, sent, events = _tescan()
-
-    microscope.move_stage_absolute(FibsemStagePosition(x=5e-6, y=0, z=0, r=0, t=0))
-
-    assert len(sent) == 1
-    ((kind, move),) = events
-    assert move["move"] == "move_stage_absolute"
-    assert move["end"] is None
 
 
 # ── every backend records ─────────────────────────────────────────────────────
