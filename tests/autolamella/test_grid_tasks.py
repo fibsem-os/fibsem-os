@@ -251,6 +251,7 @@ class TestLifecycle:
         assert step["payload"]["item_type"] == "grid"
         assert step["item"]["name"] == grid.name
         assert step["task"]["name"] == "echo"
+        assert step["actor"] == "task"  # the grid task's own thread says so
 
     def test_output_layout_is_grids_name_task(self, microscope, experiment, tmp_path):
         grid = _grid(experiment, "grid-birch")

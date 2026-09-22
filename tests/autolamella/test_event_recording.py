@@ -216,7 +216,8 @@ def test_each_event_says_where_in_the_run_it_happened(
     assert outside["actor"] is None  # nothing says who: not a guess
     assert inside["item"] == {"id": "L1", "name": "01-lamella"}
     assert inside["task"] == {"id": "T1", "name": "Mill"}
-    assert inside["actor"] == "task"
+    # A task running is not this thread acting for it: only its mark says so.
+    assert inside["actor"] is None
     assert answered["actor"] == "agent"
     assert inside["experiment"] == {"id": "E1", "name": "an-experiment"}
 
@@ -272,6 +273,120 @@ def test_a_task_that_has_finished_still_says_which_task_it_was(tmp_path, microsc
     assert record["task"] == {"id": "T1", "name": "Mill Fiducial"}
     assert record["experiment"] == {"id": "E1", "name": "an-experiment"}
     assert record["actor"] == "task"
+
+
+def test_a_thread_s_mark_says_who_acted_and_unmarked_is_the_default(
+    tmp_path, microscope
+):
+    from fibsem.acting import AGENT, OPERATOR, TASK, acting
+
+    recorder = EventRecorder(
+        microscope, experiment_path=tmp_path, default_actor=OPERATOR
+    )
+    try:
+        with acting(TASK):
+            recorder.buffer.append("by_the_task", {})
+            with acting(AGENT):
+                recorder.buffer.append("by_the_agent", {})
+        recorder.buffer.append("unmarked", {})
+    finally:
+        recorder.close()
+    actors = {r["kind"]: r["actor"] for r in _written(tmp_path / EVENTS_FILENAME)}
+    assert actors == {
+        "by_the_task": "task",
+        "by_the_agent": "agent",
+        "unmarked": "operator",
+    }
+
+
+def test_a_move_made_beside_a_running_task_is_the_operator_s(
+    tmp_path, microscope, monkeypatch
+):
+    """The reason for marking threads: while a task runs, the app-wide record of
+    what is running names it, and a move from the movement widget read it."""
+    from fibsem.acting import OPERATOR
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.applications.autolamella.workflows.tasks.select_position import (
+        SelectMillingPositionTask,
+        SelectMillingPositionTaskConfig,
+    )
+
+    running, done = threading.Event(), threading.Event()
+
+    def _run(self):  # the real task, paused mid-run for a move beside it
+        _move(self.microscope)
+        running.set()
+        assert done.wait(10)
+
+    monkeypatch.setattr(SelectMillingPositionTask, "_run", _run)
+    lamella = Lamella(path=tmp_path / "01-test", number=1, petname="test")
+    lamella.path.mkdir(parents=True)
+    task = SelectMillingPositionTask(
+        microscope=microscope,
+        config=SelectMillingPositionTaskConfig(use_autofocus=False),
+        lamella=lamella,
+    )
+    recorder = EventRecorder(
+        microscope, experiment_path=tmp_path, default_actor=OPERATOR
+    )
+    worker = threading.Thread(target=task.run)
+    try:
+        worker.start()
+        assert running.wait(10)
+        _move(microscope)  # the operator, on another thread
+        done.set()
+        worker.join(10)
+    finally:
+        recorder.close()
+    records = _written(tmp_path / EVENTS_FILENAME)
+    task_move, operator_move = _of_kind(records, "stage_moved")
+    assert task_move["actor"] == "task"
+    assert operator_move["actor"] == "operator"
+    # Both happened during the task's run on its lamella: that is where, not who.
+    assert (
+        task_move["item"]
+        == operator_move["item"]
+        == {
+            "id": lamella.id,
+            "name": lamella.name,
+        }
+    )
+
+
+def test_a_request_to_the_agent_server_is_the_agent_s(tmp_path, microscope):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from fibsem.acting import OPERATOR
+    from fibsem.server import AuthConfig, build_server
+
+    app = build_server(
+        microscope, auth=AuthConfig.generate(arm_hardware=True, token="t")
+    )
+    recorder = EventRecorder(
+        microscope, experiment_path=tmp_path, default_actor=OPERATOR
+    )
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(
+                "/move_stage_relative",
+                headers={"Authorization": "Bearer t"},
+                json={
+                    "position": FibsemStagePosition(
+                        x=1e-6, y=0, z=0, r=0, t=0, coordinate_system="RAW"
+                    ).to_dict()
+                },
+            )
+        assert response.status_code == 200, response.text
+        _move(microscope)  # the app's own, after
+    finally:
+        recorder.close()
+    agent_move, operator_move = _of_kind(
+        _written(tmp_path / EVENTS_FILENAME), "stage_moved"
+    )
+    assert agent_move["actor"] == "agent"
+    assert operator_move["actor"] == "operator"
 
 
 def test_switching_experiment_switches_the_file(tmp_path, microscope):
@@ -405,6 +520,7 @@ def test_a_task_records_its_steps_and_every_image_it_saved(tmp_path, microscope)
         assert step["payload"]["item_type"] == "lamella"
         assert step["item"] == {"id": lamella.id, "name": lamella.name}
         assert step["task"]["name"] == task.task_name
+        assert step["actor"] == "task"  # the task's thread says so; no default here
 
     recorded = {
         r["payload"]["path"]

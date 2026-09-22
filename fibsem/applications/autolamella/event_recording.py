@@ -28,6 +28,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
+from fibsem.acting import TASK, current_actor
 from fibsem.applications.autolamella.server.events import (
     EventBuffer,
     attach_microscope_taps,
@@ -187,7 +188,10 @@ class EventRecorder:
 
     Build it when the microscope connects and :meth:`close` it when it
     disconnects. ``responder`` is the UI's ``QtResponder``, the source of the
-    prompt events; None where there is no UI.
+    prompt events; None where there is no UI. ``default_actor`` is who acted
+    when the thread an event came from carries no mark (``fibsem.acting``):
+    the operator in the app, where tasks and the agent mark theirs and nothing
+    else calls the microscope; None, "not known", anywhere that is not so.
     """
 
     def __init__(
@@ -195,9 +199,11 @@ class EventRecorder:
         microscope,
         responder=None,
         experiment_path: Optional[Path] = None,
+        default_actor: Optional[str] = None,
     ) -> None:
         self.session_id = uuid.uuid4().hex
         self._microscope = microscope
+        self.default_actor = default_actor
         self.buffer = EventBuffer(stamp=self._stamp)
         self.writer = EventFileWriter()
         self._disposers: List[Callable[[], None]] = [
@@ -239,8 +245,15 @@ class EventRecorder:
         lamella or task they belong to -- except for the task lifecycle events,
         which carry their own: ``task_completed`` and ``task_failed`` fire after
         the task has cleared that record, and would otherwise say they belong to
-        nothing. ``actor`` is left None when nothing says who acted: a guess
-        would read exactly like a fact.
+        nothing.
+
+        ``actor`` is who marked the thread the event was emitted on: a task, for
+        everything it does, or the agent, for every request to the agent server.
+        Not whatever task happens to be running -- ``microscope.experiment`` is
+        the app's, not the thread's, so reading it would make a move the operator
+        made during a run the task's. Unmarked, it is ``default_actor``. A task's
+        own lifecycle event is the task's whichever thread fired it (a skip fires
+        from the task manager), and an answer says who answered.
         """
         ref = getattr(self._microscope, "experiment", None)
         if kind in _LIFECYCLE_EVENTS and isinstance(payload, dict):
@@ -255,8 +268,10 @@ class EventRecorder:
                 task = {"id": ref.task_id, "name": ref.task_name}
         if kind == "prompt_answered" and isinstance(payload, dict):
             actor = payload.get("answered_by")
+        elif kind in _LIFECYCLE_EVENTS and task is not None:
+            actor = TASK
         else:
-            actor = "task" if task is not None else None
+            actor = current_actor() or self.default_actor
         return {
             "session": self.session_id,
             "actor": actor,
