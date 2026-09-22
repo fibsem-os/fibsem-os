@@ -484,6 +484,19 @@ def run_auto_focus(
         len(settings.passes),
         len(iterations),
     )
+    microscope.record_event(  # for the experiment's record; it never raises
+        "autofocus",
+        {
+            "beam_type": beam_type.name,
+            "method": settings.method.value,
+            "hfw": hfw,
+            "passes": len(active_passes),
+            "steps": len(iterations),
+            "initial_working_distance": initial_wd,
+            "working_distance": best.working_distance,
+            "focus_score": best.focus_score,
+        },
+    )
 
     return AutoFocusResult(
         image=best.image,

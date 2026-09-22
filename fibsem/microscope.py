@@ -2244,6 +2244,9 @@ class FibsemMicroscope(ABC):
         * ``fm_image_acquired`` -- from ``fm.acquisition``, a z-stack, image or
           stitched overview, with the saved path
         * ``fm_autofocus`` -- from ``run_coarse_fine_autofocus``
+        * ``alignment`` -- from ``multi_step_alignment_v2``, every step's shift
+        * ``coincidence_measured`` -- from ``check_coincidence``
+        * ``autofocus`` -- from ``run_auto_focus``, the working distance it left
         """
         try:
             self.record_signal.emit(kind, payload)
