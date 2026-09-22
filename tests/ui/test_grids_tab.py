@@ -421,3 +421,40 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     assert sample_states() == ["occupied", "loaded"]
     card._action_unload.trigger()
     assert sample_states() == ["occupied", "occupied"]
+
+
+class TestReport:
+    """Writes the grid screening PDF under the experiment and opens it. Tools →
+    Reporting calls this; see test_grid_report_menu.py for the menu."""
+
+    def test_needs_a_record_but_no_hardware(self, qapp, experiment):
+        widget = GridsTabWidget(synchronous=True)
+        widget.set_experiment(experiment)
+        widget.generate_report()
+        assert widget.status_label.text() == "No grids to report. Run inventory first."
+
+    def test_writes_under_the_experiment_and_opens_it(
+        self, tab, experiment, monkeypatch
+    ):
+        pytest.importorskip("reportlab")
+        tab.btn_inventory.click()
+        opened = []
+        monkeypatch.setattr(tab, "open_report", opened.append)
+        tab.generate_report()
+        (path,) = opened
+        assert path == os.path.join(str(experiment.path), "grid-screening-report.pdf")
+        assert os.path.getsize(path) > 0
+        assert tab.status_label.text() == "Report written: grid-screening-report.pdf"
+        assert not tab.busy
+
+    def test_a_missing_reporting_extra_is_said_plainly(self, tab, monkeypatch):
+        import fibsem.applications.autolamella.ui.grids_tab_widget as module
+
+        tab.btn_inventory.click()
+
+        def refuse(*_args, **_kwargs):
+            raise ImportError("No module named 'reportlab'")
+
+        monkeypatch.setattr(module, "generate_grid_report", refuse)
+        tab.generate_report()
+        assert "pip install fibsem-os[reporting]" in tab.status_label.text()

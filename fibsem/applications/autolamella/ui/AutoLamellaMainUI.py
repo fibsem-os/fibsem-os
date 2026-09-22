@@ -666,7 +666,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_generate_overview_plot.triggered.connect(
             self._on_generate_overview_plot
         )
+        # The grid screening report (FIB-1057): shown with the Grids tab, by the
+        # same flag, since it reports what that tab holds.
+        self.action_generate_grid_report = QAction(
+            "Generate Grid Screening Report", self
+        )
+        self.action_generate_grid_report.setToolTip(
+            "Write a PDF of every grid's overviews and verdicts under the "
+            "experiment folder, and open it"
+        )
+        self.action_generate_grid_report.triggered.connect(
+            self._on_generate_grid_report
+        )
         reporting_menu.addAction(self.action_generate_report)
+        reporting_menu.addAction(self.action_generate_grid_report)
         reporting_menu.addAction(self.action_generate_overview_plot)
 
         # user scripts (FIB-338). The menu itself is application-agnostic; this
@@ -1270,6 +1283,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Generate Report action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.action_generate_report()
+
+    def _on_generate_grid_report(self):
+        """Tools → Reporting → Generate Grid Screening Report.
+
+        The Grids tab does the writing and says how it went on its strip, so the
+        window shows that tab first; a refusal that needs no tab is a toast.
+        """
+        tab = getattr(self, "grids_tab", None)
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        if tab is None or experiment is None:
+            self.show_toast("Open an experiment to report on.", "warning")
+            return
+        if not experiment.grids:
+            self.show_toast(
+                "No grids in this experiment. Run inventory on the Grids tab first.",
+                "warning",
+            )
+            return
+        self.tab_widget.setCurrentWidget(tab)
+        tab.generate_report()
 
     def _on_generate_overview_plot(self):
         """Handle Generate Overview Plot action."""
@@ -2876,6 +2909,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         tab = getattr(self, "grids_tab", None)
         if tab is not None:
             self.tab_widget.setTabVisible(self.tab_widget.indexOf(tab), enabled)
+        action = getattr(self, "action_generate_grid_report", None)
+        if action is not None:
+            action.setVisible(enabled)
         left = getattr(self, "workflow_left_tabs", None)
         view = getattr(self, "grid_workflow_widget", None)
         if left is not None and view is not None:
