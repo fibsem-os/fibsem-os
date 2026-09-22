@@ -165,10 +165,10 @@ def test_canvas_delete_in_the_tab_widget_selects_the_neighbour_not_row_1():
         Coordinate(PointXYZ(10 * i, 10 * i, 0), PointType.FIB) for i in range(5)
     ]
     coords = spec.list_widget.coordinates
-    tab._refresh_canvas(spec.adapter)
     spec.list_widget.select_coordinate_silent(coords[3])
 
-    tab._on_canvas_removed(coords[3])  # what the canvas's Delete key reaches
+    # what the canvas's Delete key reaches
+    spec.adapter._surface.picking.points.remove_coordinate(coords[3])
 
     assert spec.list_widget.coordinates == [coords[0], coords[1], coords[2], coords[4]]
     assert spec.list_widget.selected_coordinate is coords[4]

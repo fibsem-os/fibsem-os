@@ -39,6 +39,27 @@ def _coord(x=0.0, y=0.0, z=0.0, pt=PointType.FIB) -> Coordinate:
     return Coordinate(point=PointXYZ(x=x, y=y, z=z), point_type=pt)
 
 
+def _overlay_of(widget, coord):
+    return widget._point_specs[coord.point_type].adapter._surface.picking.points
+
+
+def _drag(widget, coord) -> None:
+    """A finished drag to where *coord* now is, as the canvas reports it: the
+    overlay writes the move to the store, and the tab widget hears of the edit."""
+    overlay = _overlay_of(widget, coord)
+    overlay.point_moved.emit(overlay.index_of(coord), coord.point.x, coord.point.y)
+
+
+def _click(widget, coord) -> None:
+    overlay = _overlay_of(widget, coord)
+    overlay.point_selected.emit(overlay.index_of(coord), coord.point.x, coord.point.y)
+
+
+def _delete_on_canvas(widget, coord) -> None:
+    """What the canvas's Delete key reaches."""
+    _overlay_of(widget, coord).remove_coordinate(coord)
+
+
 def _widget(qapp):
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
@@ -377,7 +398,7 @@ def test_factor_cleared_when_fm_surface_removed(qapp):
 
     # canvas removal
     coord = w._coords_tab.fm_surface_list.coordinates[0]
-    w._on_canvas_removed(coord)
+    _delete_on_canvas(w, coord)
     assert w._ri_pre_correction_factor is None
     assert w.data.ri_pre_correction_factor is None
 
@@ -391,8 +412,7 @@ def test_factor_cleared_when_fm_surface_removed(qapp):
     w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
     w._ri_pre_correction_factor = 1.5
     coord = w._coords_tab.fm_surface_list.coordinates[0]
-    w._coords_tab.fm_surface_list.coordinates = []
-    w._on_list_removed(w._point_specs[PointType.SURFACE_FM], coord)
+    w._coords_tab.fm_surface_list._on_remove(coord)  # the row's trash button
     assert w._ri_pre_correction_factor is None
 
 
@@ -414,17 +434,17 @@ def test_registry_add_select_remove_for_every_type(qapp, point_type):
     assert coord.point_type is point_type
 
     # selecting via the canvas clears every other list's selection
-    w._on_canvas_selected(coord)
+    _click(w, coord)
     for other in w._point_specs.values():
         if other is not spec:
             assert other.list_widget.selected_coordinate is None
 
     # moving routes to the owning list without error
     coord.point.x = 7.0
-    w._on_canvas_moved(coord)
+    _drag(w, coord)
 
     # removal empties the owning list
-    w._on_canvas_removed(coord)
+    _delete_on_canvas(w, coord)
     assert spec.list_widget.coordinates == []
 
 
@@ -481,9 +501,9 @@ def test_on_cleared_fires_only_when_last_point_removed(qapp):
     w._on_canvas_add_requested(2.0, 2.0, PointType.POI)
     first, second = w._point_specs[PointType.POI].list_widget.coordinates
 
-    w._on_canvas_removed(first)
+    _delete_on_canvas(w, first)
     assert fired == []  # one point remains
-    w._on_canvas_removed(second)
+    _delete_on_canvas(w, second)
     assert fired == [True]  # last point gone
 
 
@@ -495,7 +515,7 @@ def test_unregistered_point_type_fails_loudly(qapp):
     with pytest.raises(KeyError):
         w._on_canvas_add_requested(1.0, 2.0, PointType.POI)
     with pytest.raises(KeyError):
-        w._on_canvas_moved(_coord(pt=PointType.POI))
+        w._on_point_removed(_coord(pt=PointType.POI))
 
 
 def test_set_data_does_not_arm_factor_without_fm_surface(qapp):
@@ -1127,7 +1147,7 @@ def test_result_summary_clears_on_edit(qapp):
     assert w._lbl_result.isHidden() is False
 
     # go through the real signal chain rather than calling the handler directly
-    w._on_canvas_moved(_coord())
+    w._on_point_edited()  # what any move, typed value or reorder reaches
     assert w._lbl_result.isHidden() is True
 
 
@@ -1148,7 +1168,7 @@ def test_continue_gated_on_live_result(qapp):
     w._on_result_ready(_result())
     assert w._btn_continue.isEnabled() is True
 
-    w._on_canvas_moved(_coord())
+    w._on_point_edited()  # what any move, typed value or reorder reaches
     assert w._btn_continue.isEnabled() is False
 
 
@@ -1165,7 +1185,7 @@ def test_run_continue_emphasis_follows_result(qapp):
     assert w._btn_continue.styleSheet() == stylesheets.PRIMARY_BUTTON_STYLESHEET
     assert w._btn_run.styleSheet() == stylesheets.SECONDARY_BUTTON_STYLESHEET
 
-    w._on_canvas_moved(_coord())
+    w._on_point_edited()  # what any move, typed value or reorder reaches
     assert w._btn_run.styleSheet() == stylesheets.PRIMARY_BUTTON_STYLESHEET
     assert w._btn_continue.styleSheet() == stylesheets.SECONDARY_BUTTON_STYLESHEET
 
@@ -1561,11 +1581,11 @@ def test_manual_move_clears_fitted_flag(qapp):
     coord.fitted = True
     w._coords_tab.fib_list.add_coordinate(coord)
 
-    w._on_canvas_moved(coord)  # drag
+    _drag(w, coord)  # drag
     assert coord.fitted is False
 
     coord.fitted = True
-    w._on_list_changed(w._point_specs[PointType.FIB], coord, "x", 6.0)  # spinbox
+    w._coords_tab.fib_list._on_row_changed(coord, "x", 6.0)  # spinbox
     assert coord.fitted is False
 
 

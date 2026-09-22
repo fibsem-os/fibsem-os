@@ -686,7 +686,7 @@ class CoordinateListWidget(QWidget):
 
     def _connect_row(self, row_widget: CoordinateRowWidget) -> None:
         row_widget.row_clicked.connect(self._on_row_clicked)
-        row_widget.coordinate_changed.connect(self.coordinate_changed)
+        row_widget.coordinate_changed.connect(self._on_row_changed)
         row_widget.remove_clicked.connect(self._on_remove)
         row_widget.fit_clicked.connect(self.refit_requested)
         row_widget.reset_clicked.connect(self.reset_requested)
@@ -720,6 +720,14 @@ class CoordinateListWidget(QWidget):
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
+
+    def _on_row_changed(self, coord: Coordinate, field: str, value: float) -> None:
+        # Through the store, so that a typed value makes the point the user's
+        # (`placed`) and the canvas moves and restyles it; then announced.
+        if coord not in self._store:
+            return  # a row on its way out; an exception in a slot aborts the app
+        self._store.set_field(coord, field, value)
+        self.coordinate_changed.emit(coord, field, value)
 
     def _on_row_clicked(self, coord: Coordinate) -> None:
         if coord is not self.selected_coordinate:

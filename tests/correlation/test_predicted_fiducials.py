@@ -133,6 +133,27 @@ def loaded(widget, tmp_path):
     return widget
 
 
+def _overlay_of(widget, coord):
+    return widget._point_specs[coord.point_type].adapter._surface.picking.points
+
+
+def _drag(widget, coord) -> None:
+    """A finished drag to where *coord* now is, as the canvas reports it: the
+    overlay writes the move to the store, and the tab widget hears of the edit."""
+    overlay = _overlay_of(widget, coord)
+    overlay.point_moved.emit(overlay.index_of(coord), coord.point.x, coord.point.y)
+
+
+def _click(widget, coord) -> None:
+    overlay = _overlay_of(widget, coord)
+    overlay.point_selected.emit(overlay.index_of(coord), coord.point.x, coord.point.y)
+
+
+def _delete_on_canvas(widget, coord) -> None:
+    """What the canvas's Delete key reaches."""
+    _overlay_of(widget, coord).remove_coordinate(coord)
+
+
 def _fm(widget):
     return widget._coords_tab.fm_list.coordinates
 
@@ -221,6 +242,28 @@ def test_predictions_are_saved_with_their_state(loaded, tmp_path):
 # ── the drop and the re-projection ───────────────────────────────────────
 
 
+def test_a_second_projection_moves_the_rows_and_the_markers_with_the_points(loaded):
+    """Placing predictions moves coordinates in place, outside the point store;
+    the store is told, and the list and the canvas follow (FIB-973)."""
+    loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
+    loaded.project_fm_from_fib()
+    fm = _fm(loaded)
+    i = next(k for k, c in enumerate(fm) if c.suggested)
+    fm[i].point.x += 40.0
+    fm[i].point.y -= 25.0
+    _drag(loaded, fm[i])
+
+    loaded.project_fm_from_fib()  # the rest move by the confirmed pair's offset
+    lw = loaded._point_specs[PointType.FM].list_widget
+    overlay = _overlay_of(loaded, fm[0])
+    for k, coord in enumerate(_fm(loaded)):
+        row = lw._list.itemWidget(lw._list.item(k))
+        drawn = overlay.get_points()[overlay.index_of(coord)]
+        assert drawn == pytest.approx((coord.point.x, coord.point.y))
+        if not row._off_image():  # an off-image row shows its value read-only
+            assert row.x_spin.value() == pytest.approx(coord.point.x, abs=0.06)
+
+
 def test_a_drop_confirms_the_pair_and_the_next_projection_moves_only_the_rest(
     loaded,
 ):
@@ -231,7 +274,7 @@ def test_a_drop_confirms_the_pair_and_the_next_projection_moves_only_the_rest(
     before = np.array([[c.point.x, c.point.y] for c in fm])
     fm[i].point.x += 40.0
     fm[i].point.y -= 25.0
-    loaded._on_canvas_moved(fm[i])
+    _drag(loaded, fm[i])
     assert fm[i].status == PointStatus.PLACED
     assert fm[i].provenance == PointProvenance.PROJECTED  # where it came from
     # the drop alone moves nothing else
@@ -260,7 +303,7 @@ def test_accept_all_keeps_provenance_and_the_status_line_says_so(loaded):
     loaded.project_fm_from_fib()
     fm = _fm(loaded)
     fm[0].point.x += 5.0
-    loaded._on_canvas_moved(fm[0])
+    _drag(loaded, fm[0])
     loaded.accept_all_predictions()
     fm = _fm(loaded)
     assert all(c.status == PointStatus.ACCEPTED for c in fm[1:])
@@ -300,7 +343,7 @@ def test_the_run_gate_counts_confirmed_pairs_only(loaded):
     assert loaded._lbl_status.text().endswith("0 of 4 pairs placed.")
     for c in _fm(loaded)[:4]:
         c.point.x += 1.0
-        loaded._on_canvas_moved(c)
+        _drag(loaded, c)
     assert loaded._can_run()
     assert loaded._lbl_status.text().startswith("Ready to run with 4 pairs.")
 
@@ -348,7 +391,7 @@ def test_a_moved_point_is_placed_whatever_it_was(loaded):
     fib, fm = loaded._coords_tab.fib_list.coordinates, _fm(loaded)
     assert independent_pairs(fib, fm) == []
     fm[0].point.x += 1.0
-    loaded._on_canvas_moved(fm[0])
+    _drag(loaded, fm[0])
     assert fm[0].status == PointStatus.PLACED
     assert fm[0].provenance == PointProvenance.PROJECTED  # where it came from
     assert len(independent_pairs(fib, fm)) == 1
@@ -359,7 +402,7 @@ def test_a_moved_point_is_placed_whatever_it_was(loaded):
     lw.refresh_coordinate(fm[1])
     row = lw._list.itemWidget(lw._list.item(1))
     assert row.state_label.text() == "fitted"
-    loaded._on_list_changed(loaded._point_specs[PointType.FM], fm[1], "z", 5.0)
+    loaded._point_specs[PointType.FM].list_widget._on_row_changed(fm[1], "z", 5.0)
     assert fm[1].status == PointStatus.PLACED and not fm[1].fitted
     assert row.state_label.text() == ""
 
@@ -456,7 +499,7 @@ def test_reject_and_reset_from_the_row_menu_change_the_fit_inputs(loaded):
     fm = _fm(loaded)
     for c in fm[:5]:
         c.point.x += 1.0
-        loaded._on_canvas_moved(c)
+        _drag(loaded, c)
     assert len(loaded.fit_data.fm_coordinates) == 5
     lw = loaded._coords_tab.fm_list
     # reject one placed point: out of the fit, still on screen, header says so
@@ -543,7 +586,7 @@ def test_the_verdict_names_rows_the_fit_skipped_over(loaded):
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
     for c in _fm(loaded):
-        loaded._on_canvas_moved(c)
+        _drag(loaded, c)
     loaded._coords_tab.fib_list.coordinates[1].status = PointStatus.REJECTED
     loaded.data_changed.emit(loaded.data)
     n = len(_fm(loaded))
@@ -585,7 +628,7 @@ def test_a_seeded_run_shows_the_verdict_and_annotates_the_rows(loaded):
     loaded.project_fm_from_fib()
     for c in _fm(loaded):
         c.point.x += 1.0
-        loaded._on_canvas_moved(c)
+        _drag(loaded, c)
     loaded._coords_tab.poi_list.coordinates = [
         Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
     ]
@@ -633,7 +676,7 @@ def test_a_seeded_run_shows_the_verdict_and_annotates_the_rows(loaded):
     assert rt._table.item(0, 2).foreground().color().name() != WARN_COLOR
     # an edit clears the notes: they describe a run that no longer matches
     _fm(loaded)[0].point.x += 1.0
-    loaded._on_canvas_moved(_fm(loaded)[0])
+    _drag(loaded, _fm(loaded)[0])
     assert rows[1].state_label.text() == ""
 
 
@@ -649,7 +692,7 @@ def test_re_run_on_change_waits_for_the_points_to_settle(loaded, monkeypatch):
     loaded.project_fm_from_fib()
     for c in _fm(loaded):
         c.point.x += 1.0
-        loaded._on_canvas_moved(c)
+        _drag(loaded, c)
     loaded._coords_tab.poi_list.coordinates = [
         Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
     ]
@@ -710,7 +753,7 @@ def test_re_run_on_change_leaves_a_run_that_cannot_happen_alone(loaded, monkeypa
     # with a worker in flight the wait is re-armed instead of starting a second
     for c in _fm(loaded):
         c.point.x += 1.0
-        loaded._on_canvas_moved(c)
+        _drag(loaded, c)
     loaded._coords_tab.poi_list.coordinates = [
         Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
     ]
@@ -767,7 +810,7 @@ def test_a_poor_verdict_disables_continue(loaded):
     loaded.project_fm_from_fib()
     for c in _fm(loaded):
         c.point.x += 1.0
-        loaded._on_canvas_moved(c)
+        _drag(loaded, c)
     loaded._coords_tab.poi_list.coordinates = [
         Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
     ]
@@ -875,7 +918,7 @@ def test_ignoring_the_offset_leaves_a_live_result_live(loaded):
     loaded.project_fm_from_fib()
     for c in _fm(loaded):
         c.point.x += 1.0
-        loaded._on_canvas_moved(c)
+        _drag(loaded, c)
     loaded._coords_tab.poi_list.coordinates = [
         Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
     ]
@@ -1053,14 +1096,14 @@ def test_the_status_line_names_the_next_step_and_the_bar_shows_one_primary_butto
     fm = _fm(loaded)
     for c in fm[:3]:
         c.point.x += 1.0
-        loaded._on_canvas_moved(c)
+        _drag(loaded, c)
     assert (
         status.text()
         == "Drag the predicted rings onto their burns: 3 of 4 pairs placed."
     )
     for c in fm[3:]:
         c.point.x += 1.0
-        loaded._on_canvas_moved(c)
+        _drag(loaded, c)
     assert status.text() == "Place the target on the FM image."
     # a pair rejected from the fit is out on both sides: still the target
     fm[1].status = PointStatus.REJECTED
@@ -1089,7 +1132,7 @@ def test_the_status_line_names_the_next_step_and_the_bar_shows_one_primary_butto
     # when the result was adopted, so take the live one)
     fm = _fm(loaded)
     fm[0].point.x += 1.0
-    loaded._on_canvas_moved(fm[0])
+    _drag(loaded, fm[0])
     assert not loaded._btn_continue.isVisibleTo(loaded)
     assert loaded._btn_run.text() == "Run Correlation"
     assert (

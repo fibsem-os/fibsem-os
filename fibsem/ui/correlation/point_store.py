@@ -406,8 +406,10 @@ class CorrelationPointStore(QObject):
     def toggle_rejected(self, coord: Coordinate) -> bool:
         """Leave a point out of the fit, or bring it back. A prediction is not
         in the fit to begin with, so it cannot be rejected. Returns True when
-        the status changed."""
-        self._require_present([coord])
+        the status changed, False too for a point that is not here: this is
+        called from a row's menu, and an exception in a Qt slot aborts the app."""
+        if coord not in self:
+            return False
         if coord.status == PointStatus.REJECTED:
             coord.status = PointStatus.FITTED if coord.fitted else PointStatus.PLACED
         elif coord.status not in PointStatus.TENTATIVE:
@@ -420,9 +422,8 @@ class CorrelationPointStore(QObject):
     def reset_to_predicted(self, coord: Coordinate) -> bool:
         """Make a projected point a guess again. The caller re-projects it and
         then calls ``notify_changed``: the store has no transform. Returns False
-        for a point the projection did not make."""
-        self._require_present([coord])
-        if coord.provenance != PointProvenance.PROJECTED:
+        for a point the projection did not make, or one that is not here."""
+        if coord not in self or coord.provenance != PointProvenance.PROJECTED:
             return False
         coord.status = PointStatus.PREDICTED
         coord.fitted = False

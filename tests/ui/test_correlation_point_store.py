@@ -581,3 +581,16 @@ def test_deselect_leaves_the_rest_of_the_selection():
     assert _same(store.selection, [fm])
     store.deselect(None)
     assert log.names == ["selection"]
+
+
+def test_a_row_menu_transition_on_a_point_that_is_not_here_is_refused_quietly():
+    # these are reached from Qt slots, where an exception aborts the app
+    store, _ = _store(1)
+    log = _Log(store)
+    stranger = _coord(
+        PointType.FM, status=PointStatus.PLACED, provenance=PointProvenance.PROJECTED
+    )
+    assert store.toggle_rejected(stranger) is False
+    assert store.reset_to_predicted(stranger) is False
+    assert stranger.status == PointStatus.PLACED
+    assert log.events == []

@@ -111,8 +111,9 @@ def test_the_lists_and_the_canvases_hold_the_same_store(tab):
     assert all(_overlay(tab, side).store is store for side in ("fib", "fm"))
 
 
-def test_a_load_highlights_on_the_canvas_what_the_list_selected(tab):
-    assert _list(tab, PointType.POI).selected_coordinate is not None
+def test_a_load_selects_nothing(tab):
+    # assigning a list used to select its row 1 as a side effect (FIB-965)
+    assert tab._point_store.selection == ()
     _assert_in_agreement(tab)
 
 
@@ -223,4 +224,124 @@ def test_reassigning_the_same_data_keeps_everything(tab):
     tab.set_data(tab.data)
     after = tab.data
     assert all(a is b for a, b in zip(before.fm_coordinates, after.fm_coordinates))
+    _assert_in_agreement(tab)
+
+
+# ── with the relay gone: what an edit still means to the tab widget ───────
+
+
+def _row(tab, pt, i):
+    lw = _list(tab, pt)
+    return lw._list.itemWidget(lw._list.item(i))
+
+
+def _emits(tab):
+    seen = []
+    tab.data_changed.connect(lambda _data: seen.append(1))
+    return seen
+
+
+def test_a_typed_value_makes_the_point_placed_and_the_canvas_follows(tab):
+    fib = _list(tab, PointType.FIB).coordinates
+    fib[2].status = PointStatus.PREDICTED
+    tab._point_store.notify_changed([fib[2]])
+    overlay = _overlay(tab, "fib")
+    assert overlay._artists[overlay.index_of(fib[2])].get_markerfacecolor() == "none"
+    seen = _emits(tab)
+
+    row = _row(tab, PointType.FIB, 2)
+    row.x_spin.setValue(133.0)
+    row._on_x_changed()  # what editingFinished reaches
+
+    assert fib[2].status == PointStatus.PLACED
+    i = overlay.index_of(fib[2])
+    assert overlay._artists[i].get_markerfacecolor() != "none"
+    assert overlay.get_points()[i][0] == 133.0
+    assert seen == [1]
+
+
+def test_each_gesture_announces_the_edit_once(tab):
+    fib = _list(tab, PointType.FIB).coordinates
+    overlay = _overlay(tab, "fib")
+    seen = _emits(tab)
+
+    overlay._on_press(_mouse(tab, "button_press_event", 120, 50))
+    overlay._on_motion(_mouse(tab, "motion_notify_event", 130, 70))
+    overlay._on_release(_mouse(tab, "button_release_event", 130, 70))
+    assert seen == [1]  # a drag
+
+    tab._on_canvas_add_requested(150.0, 150.0, PointType.FIB)
+    assert seen == [1, 1]  # an add
+
+    fib_list = _list(tab, PointType.FIB)
+    fib_list._on_reordered(list(reversed(fib_list.coordinates)))
+    assert seen == [1, 1, 1]  # a reorder
+
+    fib_list._on_remove(fib[0])
+    assert seen == [1, 1, 1, 1]  # the trash button
+
+    overlay.remove_coordinate(fib[1])
+    assert seen == [1, 1, 1, 1, 1]  # Delete on the canvas
+
+    _click(tab, 160, 50)
+    assert seen == [1, 1, 1, 1, 1]  # a selection is not an edit
+
+
+def test_the_delete_hotkey_removes_the_selected_point_everywhere(tab):
+    fm = _list(tab, PointType.FM).coordinates
+    _list(tab, PointType.FM)._on_row_clicked(fm[0])
+    seen = _emits(tab)
+
+    tab._remove_selected_coordinate()
+    assert all(c is not fm[0] for c in tab._point_store.coordinates)
+    assert seen == [1]
+    _assert_in_agreement(tab)
+
+
+def test_removing_the_fm_surface_point_disarms_the_pre_correction(tab):
+    tab._on_canvas_add_requested(65.0, 22.0, PointType.SURFACE_FM)
+    surface = _list(tab, PointType.SURFACE_FM).coordinates[0]
+
+    tab._ri_pre_correction_factor = 1.4
+    tab._point_store.select(surface)
+    tab._remove_selected_coordinate()
+    assert tab._ri_pre_correction_factor is None
+
+    tab._on_canvas_add_requested(65.0, 22.0, PointType.SURFACE_FM)
+    tab._ri_pre_correction_factor = 1.4
+    tab._on_canvas_add_requested(60.0, 20.0, PointType.SURFACE)  # the other surface
+    assert tab._ri_pre_correction_factor is None
+
+
+def test_any_change_to_the_store_arms_the_save_and_updates_the_counts(tab):
+    tab._save_armed = False
+    tab._point_store.add_many([_coord(200, PointType.FIB)])
+    assert tab._save_armed is True
+    assert "5" in tab._coords_tab._fib_count_label.text()
+
+
+def test_a_z_rescale_reaches_the_rows(tab):
+    fm = _list(tab, PointType.FM).coordinates
+    fm[1].point.z = 4.0
+    tab._rescale_fm_z(2.0)
+    assert fm[1].point.z == 8.0
+    assert _row(tab, PointType.FM, 1).z_spin.value() == 8.0
+
+
+def test_setting_the_same_data_again_redraws_new_values(tab):
+    # what _adopt_interpolated_volume does after the rescale
+    fm = _list(tab, PointType.FM).coordinates
+    fm[1].point.x = 99.0
+    tab.set_data(tab.data)
+    assert _row(tab, PointType.FM, 1).x_spin.value() == 99.0
+    _assert_in_agreement(tab)
+
+
+def test_projected_predictions_appear_without_disturbing_the_selection(tab):
+    fib = _list(tab, PointType.FIB).coordinates
+    tab._point_store.select(fib[0])
+    new = [_coord(222, PointType.FM, status=PointStatus.PREDICTED)]
+    tab._point_store.add_many(new)  # what project_fm_from_fib does with them
+    assert _list(tab, PointType.FM).coordinates[-1] is new[0]
+    assert tab._point_store.current is fib[0]
     _assert_in_agreement(tab)
