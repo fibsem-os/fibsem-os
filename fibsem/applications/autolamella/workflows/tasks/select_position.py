@@ -63,6 +63,24 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
             tooltip="Whether to ask the user to select a point of interest in the FIB image",
         ),
     )
+    confirm_position: bool = field(
+        default=True,
+        metadata=field_meta(
+            label="Confirm Position",
+            tooltip="Ask you to confirm the milling position before the point "
+            "of interest is picked. Off, the position is used as arrived at, "
+            "so it is only as safe as the automatic positioning "
+            "(Auto Coincidence Alignment) that put the stage there.",
+        ),
+    )
+    confirm_tilt: bool = field(
+        default=True,
+        metadata=field_meta(
+            label="Confirm Tilt",
+            tooltip="Ask you before tilting to the milling angle when the "
+            "stage is not already there. Off, the task tilts on its own.",
+        ),
+    )
     sync_fluorescence_pose: bool = field(
         default=False,
         metadata=field_meta(
@@ -117,19 +135,22 @@ class SelectMillingPositionTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
 
     # What needs a person while it runs, when supervised. The position is
-    # confirmed before the point is picked; the coincidence walk asks a
-    # detection when it is on. The point and the alignment area are dragged on
-    # the canvas today (sessions), until they move to ``ask``.
+    # confirmed before the point is picked, and the tilt to the milling angle
+    # before it is made (both ``state``, each with a switch of its own); the
+    # coincidence walk asks a detection when it is on. The point and the
+    # alignment area are dragged on the canvas today (sessions), until they
+    # move to ``ask``.
     questions = (STATE, DETECTION)
     sessions = ("the point of interest", "the alignment area")
 
     @classmethod
     def questions_for(cls, config) -> Tuple[str, ...]:
-        return tuple(
-            k
-            for k in cls.questions
-            if k != DETECTION or getattr(config, "auto_milling_alignment", False)
-        )
+        asked = {
+            STATE: getattr(config, "confirm_position", True)
+            or getattr(config, "confirm_tilt", True),
+            DETECTION: getattr(config, "auto_milling_alignment", False),
+        }
+        return tuple(k for k in cls.questions if asked.get(k, True))
 
     @classmethod
     def sessions_for(cls, config) -> Tuple[str, ...]:
@@ -179,7 +200,28 @@ class SelectMillingPositionTask(AutoLamellaTask):
         if not is_close:
             if self.config.auto_milling_alignment:
                 pass  # tilted coincidently above
-            elif self.validate:
+            elif self._asks_on_the_record:
+                # On the record: the position before the tilt is the proposal,
+                # Continue confirms it and the tilt follows. Stopping the run
+                # is the way not to tilt, as for any question asked this way.
+                current_milling_angle = self.microscope.get_current_milling_angle()
+                self.ask(
+                    STATE,
+                    {"stage_position": self.microscope.get_stage_position()},
+                    image=self._last_fib_image_file(),
+                    message=f"Tilt to the milling angle ({milling_angle:.1f}"
+                    f"{constants.DEGREE_SYMBOL})? The current milling angle is "
+                    f"{current_milling_angle:.1f}{constants.DEGREE_SYMBOL}. "
+                    "Press Continue to tilt.",
+                    decided=self._stage_position_now,
+                    enabled=self.config.confirm_tilt,
+                )
+                self.microscope.move_to_milling_angle(
+                    milling_angle=np.radians(milling_angle)
+                )
+            elif self.validate and self.config.confirm_tilt:
+                # The prompt as it has always been, kept as it is while the
+                # review preference is off.
                 current_milling_angle = self.microscope.get_current_milling_angle()
                 ret = ask_user(
                     parent_ui=self.parent_ui,
@@ -208,13 +250,24 @@ class SelectMillingPositionTask(AutoLamellaTask):
             )
 
         # confirm with user to move to milling position
-        if self.validate:
-            ask_user(
-                parent_ui=self.parent_ui,
-                msg=f"Double click the image to move to the milling position for {self.lamella.name}. "
-                f"Press Continue when done.",
-                pos="Continue",
+        msg = (
+            f"Double click the image to move to the milling position for "
+            f"{self.lamella.name}. Press Continue when done."
+        )
+        if self._asks_on_the_record:
+            # The position as arrived at is the proposal; the position as it
+            # stands when Continue is pressed is the decision, so the move the
+            # operator made is the delta.
+            self.ask(
+                STATE,
+                {"stage_position": self.microscope.get_stage_position()},
+                image=self._last_fib_image_file(),
+                message=msg,
+                decided=self._stage_position_now,
+                enabled=self.config.confirm_position,
             )
+        elif self.validate and self.config.confirm_position:
+            ask_user(parent_ui=self.parent_ui, msg=msg, pos="Continue")
 
         # select point of interest -- under review it is proposed at the end of
         # the task instead, on the final reference image; otherwise the answer
@@ -275,6 +328,23 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # default leaves the pose alone, as the task always has.
         if self.config.sync_fluorescence_pose:
             sync_fluorescence_pose(self.microscope, self.lamella)
+
+    @property
+    def _asks_on_the_record(self) -> bool:
+        """Whether the task's confirmations go through ``ask``: the review
+        preference is on. Off, the prompts run as they always have."""
+        return bool(getattr(self.task_manager, "review_enabled", False))
+
+    def _stage_position_now(self) -> Dict[str, Any]:
+        return {"stage_position": self.microscope.get_stage_position()}
+
+    def _last_fib_image_file(self) -> str:
+        """The last FIB reference image, relative to the lamella's folder, for
+        a question to sit on; empty when none has been saved yet."""
+        image = self._last_fib_image
+        if image is None or image.filepath is None:
+            return ""
+        return os.path.relpath(image.filepath, self.lamella.path)
 
     def _align_coincident_for_milling(
         self, milling_angle: float, is_close: bool

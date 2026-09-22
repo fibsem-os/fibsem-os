@@ -477,6 +477,7 @@ class AutoLamellaTask(ABC):
         provenance: Optional[Dict[str, Any]] = None,
         message: str = "",
         decided: Optional[Callable[[], Dict[str, Any]]] = None,
+        enabled: bool = True,
     ) -> Decision:
         """Ask for ``values`` of ``kind`` and wait for the answer, on the record.
 
@@ -504,6 +505,11 @@ class AutoLamellaTask(ABC):
         values as they stand once the confirmation lands, and they go on the
         decision, so a change the operator made before confirming is the
         delta. Not called for an answer that already carries values.
+
+        ``enabled`` is the ask's own switch in the task's settings
+        (``confirm_position``, say), for a task that asks the same kind more
+        than once: off, this one is recorded and not asked, as a kind
+        ``questions_for`` leaves out is.
         """
         declared = type(self).questions
         if kind not in declared:
@@ -532,7 +538,7 @@ class AutoLamellaTask(ABC):
                 **(provenance or {}),
             },
         )
-        asked_under_config = kind in type(self).questions_for(self.config)
+        asked_under_config = enabled and kind in type(self).questions_for(self.config)
         # A window to answer in is the main window: its Review tab, its prompt
         # bar. The microscope widget on its own has neither.
         window = getattr(self.parent_ui, "parent_widget", None) is not None

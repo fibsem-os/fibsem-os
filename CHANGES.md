@@ -102,6 +102,15 @@ correctness work landed in correlation and in what the experiment record remembe
   its result; it is recorded as yours and the task does not wait again in the
   Review tab. There is no third mode: development builds had one, `review`, and
   it is read as `supervised`.
+- **Setup's confirmations are on the record, and each has a switch.** With the
+  review preference on, the tilt to the milling angle and the move to the milling
+  position are asked on the prompt bar as before, and each Continue is recorded as
+  your decision with the stage position as it stood. Two new task settings,
+  `confirm_tilt` and `confirm_position` (both on), turn either prompt off: the task
+  then tilts, or uses the position as arrived at, and the record says nobody was
+  asked. Off, `confirm_position` is only as safe as the automatic positioning that
+  put the stage there. The Tilt/Skip choice is gone with the preference on:
+  Continue tilts, and Stop is the way not to.
 - **A result an agent looked at is still yours to check.** The Review tab's "to
   check" group clears when a person acknowledges, not when a connected agent does.
 - **For task authors: a task proposes through a `Proposer`.** A task type carries one
