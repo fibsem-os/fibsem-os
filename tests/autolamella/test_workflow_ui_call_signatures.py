@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import os
 from pathlib import Path
 from typing import List, Tuple
 
@@ -146,9 +147,27 @@ def _calls_to(name: str) -> List[Tuple[Path, int]]:
     return calls
 
 
-def test_the_workflow_still_asks_detections_the_way_it_always_has():
-    """The second version is for the harness and the tests for now. Moving a
-    task over to it is a decision to make on purpose -- it changes where an
-    operator answers a detection -- so it should have to change this test."""
-    assert _calls_to("update_detection_ui"), "the walk found no detection at all"
+def test_which_tasks_ask_their_detections_on_the_record():
+    """Moving a task over changes where an operator answers a detection (the
+    Review tab, with the review preference on) so it is a decision made on
+    purpose, and it has to change this test. The undercut has moved: its
+    three detections go through ``AutoLamellaTask.detect``, and the two in
+    ``align_feature_coincident`` through the ``detect`` it is handed. The
+    only direct ``update_detection_ui`` calls left are the fallbacks for the
+    preference being off. ``review_detection_ui`` is the bridge for the
+    responder and has no caller in the workflow."""
+    direct = {
+        os.path.basename(str(path)) for path, _ in _calls_to("update_detection_ui")
+    }
+    assert direct == {"base.py", "core.py"}, direct
     assert _calls_to("review_detection_ui") == []
+    undercut = Path(workflow_ui.__file__).parent / "tasks" / "undercut.py"
+    tree = ast.parse(undercut.read_text(encoding="utf-8"))
+    asks = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "detect"
+    ]
+    assert len(asks) == 2, "the per-undercut detection and the final one"
