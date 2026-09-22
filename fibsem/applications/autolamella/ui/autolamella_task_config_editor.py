@@ -869,6 +869,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 # also add task to each existing lamella
                 for lamella in self.experiment.positions:
                     lamella.task_config[task_name] = copy.deepcopy(new_task_config)
+                    lamella._sync_imaging_paths()
 
                 # Save experiment
                 self._save_experiment()

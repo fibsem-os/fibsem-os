@@ -2873,6 +2873,9 @@ class Experiment:
 
                 lamella.task_config[task_name] = new_config
 
+            # The copies still point their images at the source lamella's
+            # folder, or at none from the protocol.
+            lamella._sync_imaging_paths()
             updated_count += 1
             logging.info(
                 f"Applied config from '{source_display_name}' to '{lamella.name}' "
