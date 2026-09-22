@@ -120,7 +120,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
     """Task to acquire fluorescence image with specified settings."""
 
     # "Run autofocus ... Press Continue when ready": a confirmation of the
-    # state (through ``ask_user`` until it moves to ``ask``).
+    # state before the autofocus, on the record with the review preference on.
     questions = (STATE,)
 
     config: AcquireFluorescenceImageConfig
@@ -212,12 +212,25 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
             f"Running autofocus for {self.lamella.name} using channel '{autofocus_channel.name}' "
             f"with method '{af_settings.method.value}' and {len(af_settings.passes)} pass(es)"
         )
-        if self.validate:
-            ask_user(
-                self.parent_ui,
-                msg=f"Run autofocus for {self.lamella.name} using channel '{autofocus_channel.name}'. Press continue when ready.",
-                pos="Continue",
+        msg = (
+            f"Run autofocus for {self.lamella.name} using channel "
+            f"'{autofocus_channel.name}'. Press continue when ready."
+        )
+        if getattr(self.task_manager, "review_enabled", False):
+            # The position the autofocus will run at is the proposal; Continue
+            # confirms it, and the position as it stands then is the decision.
+            self.ask(
+                STATE,
+                {"stage_position": self.microscope.get_stage_position()},
+                message=msg,
+                decided=lambda: {
+                    "stage_position": self.microscope.get_stage_position()
+                },
             )
+        elif self.validate:
+            # The prompt as it has always been, kept as it is while the review
+            # preference is off.
+            ask_user(self.parent_ui, msg=msg, pos="Continue")
 
         af_display = (
             f"Autofocus: {autofocus_channel.name} "

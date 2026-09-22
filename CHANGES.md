@@ -111,6 +111,12 @@ correctness work landed in correlation and in what the experiment record remembe
   asked. Off, `confirm_position` is only as safe as the automatic positioning that
   put the stage there. The Tilt/Skip choice is gone with the preference on:
   Continue tilts, and Stop is the way not to.
+- **The fluorescence tasks' confirmations are on the record.** With the review
+  preference on, Select Fluorescence Position's "move to the fluorescence
+  position" and Acquire Fluorescence Image's "run autofocus" prompts are asked on
+  the prompt bar as before, and each Continue is recorded as your decision with
+  the stage position as it stood. Automated, the position is used as arrived at
+  and the record says nobody was asked.
 - **The undercut's detections are answered in the Review tab, on the record.**
   With the review preference on, each of Mill Undercut's four detections (two in
   the coincident alignment, one per undercut, one to finish) is a question on the
