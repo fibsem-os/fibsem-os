@@ -20,7 +20,12 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
+    AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.attendance import (
+    Attendance,
+    attendance_for,
 )
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.ui import stylesheets
@@ -139,10 +144,23 @@ def attention_state(
 
 
 def _attention_chip(
-    task: AutoLamellaTaskDescription, has_dependents: bool = True
+    task: AutoLamellaTaskDescription,
+    has_dependents: bool = True,
+    attendance: Optional[Attendance] = None,
 ) -> tuple[str, str, str]:
     """(label, colour, tooltip) for the chip: the word is the state, the
-    colour is the mode's."""
+    colour is the mode's, and the tooltip says what the state means for this
+    task -- whether it needs you there while it runs, and what waits on you
+    afterwards -- when the task's type is known (``attendance``)."""
+    label, colour, tip = _attention_chip_words(task, has_dependents)
+    if attendance is not None:
+        tip = f"{label} — {attendance.line} Click to change."
+    return label, colour, tip
+
+
+def _attention_chip_words(
+    task: AutoLamellaTaskDescription, has_dependents: bool = True
+) -> tuple[str, str, str]:
     state = attention_state(task)
     label = ATTENTION_LABELS[state]
     if state == "agent":
@@ -296,6 +314,7 @@ class WorkflowTaskRowWidget(QWidget):
         layout.addWidget(self.btn_attention)
         self._has_dependents = True
         self._reviewed: set = set()
+        self._attendance: Optional[Attendance] = None
         self._schedule_visible = True
 
         # Edit opens the dialog, which is also where a task is removed: a
@@ -331,6 +350,13 @@ class WorkflowTaskRowWidget(QWidget):
         task nothing requires gates nothing, and the row says so."""
         if has_dependents != self._has_dependents:
             self._has_dependents = has_dependents
+            self.refresh()
+
+    def set_attendance(self, attendance: Optional[Attendance]) -> None:
+        """What this task needs from a person, derived from its type: said on
+        the chip's tooltip and the row's, so the mode reads as what it does."""
+        if attendance != self._attendance:
+            self._attendance = attendance
             self.refresh()
 
     def set_reviewed(self, reviewed: set) -> None:
@@ -387,8 +413,12 @@ class WorkflowTaskRowWidget(QWidget):
                 + self.task.scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
                 + " (set in the edit dialog)"
             )
+        if self._attendance is not None:
+            tips.append(self._attendance.line)
         self.setToolTip("\n".join(tips))
-        label, colour, tooltip = _attention_chip(self.task, self._has_dependents)
+        label, colour, tooltip = _attention_chip(
+            self.task, self._has_dependents, self._attendance
+        )
         self.btn_attention.setText(label)
         self.btn_attention.setIcon(
             fibsem_icon(_CHIP_ICONS[attention_state(self.task)], color=colour)
@@ -458,6 +488,9 @@ class WorkflowConfigWidget(QWidget):
             "remove": True,
         }
         self._checked: Dict[int, bool] = {}  # id(task) -> checked
+        # The protocol the tasks belong to, for what each task's type asks:
+        # the workflow config alone names tasks, not their types.
+        self._protocol: Optional[AutoLamellaTaskProtocol] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -529,10 +562,17 @@ class WorkflowConfigWidget(QWidget):
             if _review_available()
             else set()
         )
+        protocol = self._protocol
+        review_on = _review_available()
         for i in range(self._list.count()):
             row = self._row(i)
             row.set_has_dependents(row.task.name in required)
             row.set_reviewed(reviewed)
+            row.set_attendance(
+                attendance_for(protocol, row.task.name, review_on)
+                if protocol is not None
+                else None
+            )
 
     def _connect_row(self, row: WorkflowTaskRowWidget) -> None:
         row.attention_changed.connect(self.attention_changed)
@@ -586,6 +626,12 @@ class WorkflowConfigWidget(QWidget):
             if row.task is task:
                 row.refresh()
                 break
+
+    def set_protocol(self, protocol: Optional[AutoLamellaTaskProtocol]) -> None:
+        """The protocol whose tasks these are, so each row can say what its
+        task needs from a person. None: nothing is said."""
+        self._protocol = protocol
+        self._refresh_dependents()
 
     def refresh_all(self) -> None:
         for i in range(self._list.count()):

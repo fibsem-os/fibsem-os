@@ -58,6 +58,10 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
 class MillFiducialTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
 
+    # Work at the microscope, then Continue: the mill, and the alignment area
+    # dragged on the canvas after it (a question once FIB-1053 gives it a kind).
+    sessions = ("milling", "the alignment area")
+
     config: MillFiducialTaskConfig
     config_cls: ClassVar[Type[MillFiducialTaskConfig]] = MillFiducialTaskConfig
 

@@ -30,6 +30,7 @@ import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
 
@@ -230,6 +231,23 @@ def _overview_projector(path: str):
     return block, project
 
 
+def _attendance_line(task_protocol: Any, task_name: str) -> str:
+    """One line on what a task needs from a person, or "" when its type is
+    not one this build knows."""
+    from fibsem.applications.autolamella.workflows.tasks.attendance import (
+        attendance_for,
+    )
+
+    try:
+        review_on = bool(
+            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
+        )
+    except Exception:
+        review_on = False
+    att = attendance_for(task_protocol, task_name, review_on)
+    return att.line if att is not None else ""
+
+
 class AgentContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
@@ -342,7 +360,8 @@ class AgentContext:
         return {"available": False, "items": []}
 
     def protocol(self) -> Dict[str, Any]:
-        """The workflow definition with live supervision flags and schedules."""
+        """The workflow definition with live supervision flags, schedules and
+        what each task needs from a person."""
         experiment = self._experiment
         task_protocol = (
             getattr(experiment, "task_protocol", None) if experiment else None
@@ -367,6 +386,10 @@ class AgentContext:
                 {
                     "name": task.name,
                     "attention": task.attention.value,
+                    # what the task needs from a person under that attention:
+                    # whether someone must be at the microscope while it
+                    # runs, and what waits for a decision afterwards
+                    "attendance": _attendance_line(task_protocol, task.name),
                     # the boolean the /supervision verb takes, for the agents
                     # that read it back
                     "supervise": task.attention is Attention.supervised,

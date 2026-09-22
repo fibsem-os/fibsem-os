@@ -3,14 +3,16 @@
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type
 
 import numpy as np
 
 from fibsem import constants
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
 from fibsem.applications.autolamella.proposals import (
+    DETECTION,
     POINT_OF_INTEREST,
+    STATE,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -113,6 +115,29 @@ class CurrentPoiProposer:
 
 class SelectMillingPositionTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
+
+    # What needs a person while it runs, when supervised. The position is
+    # confirmed before the point is picked; the coincidence walk asks a
+    # detection when it is on. The point and the alignment area are dragged on
+    # the canvas today (sessions), until they move to ``ask``.
+    questions = (STATE, DETECTION)
+    sessions = ("the point of interest", "the alignment area")
+
+    @classmethod
+    def questions_for(cls, config) -> Tuple[str, ...]:
+        return tuple(
+            k
+            for k in cls.questions
+            if k != DETECTION or getattr(config, "auto_milling_alignment", False)
+        )
+
+    @classmethod
+    def sessions_for(cls, config) -> Tuple[str, ...]:
+        return tuple(
+            s
+            for s in cls.sessions
+            if s != "the point of interest" or getattr(config, "select_poi", True)
+        )
 
     # the milling position: a value someone may change, so a kind of its own
     proposer = CurrentPoiProposer()

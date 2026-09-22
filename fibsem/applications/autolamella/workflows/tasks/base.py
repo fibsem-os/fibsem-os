@@ -155,6 +155,11 @@ class AutoLamellaTask(ABC):
         off (Setup's ``select_poi``). By default, everything declared."""
         return cls.questions
 
+    @classmethod
+    def sessions_for(cls, config: AutoLamellaTaskConfig) -> Tuple[str, ...]:
+        """The sessions this task runs under ``config``; by default, all."""
+        return cls.sessions
+
     def __init__(
         self,
         microscope: FibsemMicroscope,

@@ -212,3 +212,53 @@ def test_remove_lives_in_the_edit_dialog_not_on_the_row(qapp, monkeypatch):
     dialog.reject()
     widget.deleteLater()
     qapp.processEvents()
+
+
+def test_the_chip_says_what_the_task_needs_from_you(qapp, monkeypatch):
+    """With the protocol known, the chip's tooltip and the row's say whether
+    the operator must be there while the task runs and what waits afterwards,
+    derived from the task's type."""
+    from psygnal.containers import EventedDict
+
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+    from fibsem.applications.autolamella.workflows.tasks.rough import (
+        MillRoughTaskConfig,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.undercut import (
+        MillUndercutTaskConfig,
+    )
+
+    monkeypatch.setattr(module, "_review_available", lambda: True)
+    undercut = AutoLamellaTaskDescription(
+        name="Undercut", required=True, attention=Attention.supervised
+    )
+    rough = AutoLamellaTaskDescription(
+        name="Rough",
+        required=True,
+        attention=Attention.automated,
+        requires=["Undercut"],
+    )
+    protocol = AutoLamellaTaskProtocol(
+        workflow_config=AutoLamellaWorkflowConfig(tasks=[undercut, rough])
+    )
+    protocol.task_config = EventedDict(
+        {
+            "Undercut": MillUndercutTaskConfig(task_name="Undercut"),
+            "Rough": MillRoughTaskConfig(task_name="Rough"),
+        }
+    )
+    widget = module.WorkflowConfigWidget()
+    widget.set_protocol(protocol)
+    widget.set_config(protocol.workflow_config)
+    rows = [widget._row(i) for i in range(2)]
+    tip = rows[0].btn_attention.toolTip()
+    assert tip.startswith("Supervised — Needs you at the microscope while it runs: ")
+    assert "detection and milling" in tip
+    assert "Rough waits for your decision on its result" in tip
+    assert "Needs you at the microscope" in rows[0].toolTip()
+    assert rows[1].btn_attention.toolTip().startswith("Automated — Nobody is asked.")
+    # Without a protocol nothing is claimed.
+    widget.set_protocol(None)
+    assert "Needs you" not in rows[0].btn_attention.toolTip()
+    widget.deleteLater()
+    qapp.processEvents()

@@ -12,6 +12,7 @@ from typing import (
 
 import fibsem.utils as utils
 from fibsem import timing
+from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
@@ -117,6 +118,10 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
 
 class AcquireFluorescenceImageTask(AutoLamellaTask):
     """Task to acquire fluorescence image with specified settings."""
+
+    # "Run autofocus ... Press Continue when ready": a confirmation of the
+    # state (through ``ask_user`` until it moves to ``ask``).
+    questions = (STATE,)
 
     config: AcquireFluorescenceImageConfig
     config_cls: ClassVar[Type[AcquireFluorescenceImageConfig]] = (

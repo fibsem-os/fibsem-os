@@ -75,12 +75,15 @@ def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidg
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(8)
 
-    name = QLabel(f"{task.name}  <span style='color: {TEXT_MUTED};'>×{task.lamella_count}</span>")
+    name = QLabel(
+        f"{task.name}  <span style='color: {TEXT_MUTED};'>×{task.lamella_count}</span>"
+    )
     name.setStyleSheet(_ON_PANEL + f"color: {TEXT}; font-size: 11px;")
     # Task names are user-supplied and can be long. The name is what gives if a row
     # runs out of room -- the duration column is fixed and the chips are the point --
     # so it carries the full name where a clipped one would lose it silently.
-    name.setToolTip(task.name)
+    # The full name, and what the task needs from a person while it runs.
+    name.setToolTip(f"{task.name}\n{task.attendance}" if task.attendance else task.name)
     layout.addWidget(name, stretch=1)
 
     if task.supervised:
@@ -96,7 +99,9 @@ def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidg
     return row
 
 
-def _task_block(tasks: List[TaskEstimate], reference: Optional[datetime] = None) -> QFrame:
+def _task_block(
+    tasks: List[TaskEstimate], reference: Optional[datetime] = None
+) -> QFrame:
     frame = QFrame()
     # Scoped by name: the rows carry chips, and chips are QFrames, so a bare selector
     # would restyle them with this block's fill and border.
@@ -157,9 +162,19 @@ class WorkflowPreflightDialog(QDialog):
         layout.addLayout(chips)
         layout.addWidget(self._lamella_names_label)
 
+        # Whether the operator has to be there: said before the run, from
+        # what each selected task's type asks (attendance.py).
+        self.attendance_label = QLabel(est.attendance_summary)
+        self.attendance_label.setStyleSheet(f"color: {TEXT}; font-size: 11px;")
+        self.attendance_label.setWordWrap(True)
+        self.attendance_label.setVisible(bool(est.attendance_summary))
+        layout.addWidget(self.attendance_label)
+
         metrics = QHBoxLayout()
         metrics.setSpacing(10)
-        metrics.addWidget(_metric("Estimated duration", format_duration(est.work_seconds)))
+        metrics.addWidget(
+            _metric("Estimated duration", format_duration(est.work_seconds))
+        )
         metrics.addWidget(
             _metric("Expected finish", _clock(est.expected_finish, est.started_at))
         )
