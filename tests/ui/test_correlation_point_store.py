@@ -530,3 +530,54 @@ def test_replace_type_refuses_a_point_of_another_type():
     with pytest.raises(ValueError):
         store.replace_type(PointType.FIB, [_coord(PointType.FM)])
     assert _same(store.of_type(PointType.FIB), coords)
+
+
+# --------------------------------------------------------------------------
+# One selected point per canvas: a verdict's pair link selects both partners
+# --------------------------------------------------------------------------
+
+
+def test_a_pair_is_one_selected_point_on_each_canvas():
+    store = CorrelationPointStore()
+    fib, fm = _coord(PointType.FIB), _coord(PointType.FM)
+    store.replace_all([fib, fm])
+    store.select(fm)
+    store.select(fib, extend=True)
+
+    assert _same(store.selection, [fm, fib])
+    assert store.selected_on("fm") is fm
+    assert store.selected_on("fib") is fib
+    assert store.selected_of_type(PointType.FM) is fm
+    assert store.selected_of_type(PointType.POI) is None
+
+
+def test_extending_replaces_the_selection_on_the_same_canvas_only():
+    store = CorrelationPointStore()
+    fib, fm, poi = _coord(PointType.FIB), _coord(PointType.FM), _coord(PointType.POI)
+    store.replace_all([fib, fm, poi])
+    store.select([fib, fm])
+
+    store.select(poi, extend=True)  # POI is drawn on the FM canvas
+    assert _same(store.selection, [fib, poi])
+
+
+def test_a_plain_select_clears_the_other_canvas():
+    store = CorrelationPointStore()
+    fib, fm = _coord(PointType.FIB), _coord(PointType.FM)
+    store.replace_all([fib, fm])
+    store.select([fib, fm])
+    store.select(fm)
+    assert _same(store.selection, [fm])
+
+
+def test_deselect_leaves_the_rest_of_the_selection():
+    store = CorrelationPointStore()
+    fib, fm = _coord(PointType.FIB), _coord(PointType.FM)
+    store.replace_all([fib, fm])
+    store.select([fib, fm])
+    log = _Log(store)
+
+    store.deselect(fib)
+    assert _same(store.selection, [fm])
+    store.deselect(None)
+    assert log.names == ["selection"]

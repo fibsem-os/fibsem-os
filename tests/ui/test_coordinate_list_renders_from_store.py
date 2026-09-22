@@ -222,3 +222,18 @@ def test_assigning_the_same_points_again_redraws_their_rows():
     coords[1].point.z = 9.0
     fm.coordinates = coords
     assert _rows(fm)[1].z_spin.value() == 9.0
+
+
+def test_a_silent_select_sits_beside_the_other_canvass_selection():
+    # a verdict's pair link highlights the FM point and its FIB partner
+    store = CorrelationPointStore()
+    fib = CoordinateListWidget(point_type=PointType.FIB, store=store)
+    fm = CoordinateListWidget(point_type=PointType.FM, store=store)
+    a, b = _coords(PointType.FIB, 1)[0], _coords(PointType.FM, 1)[0]
+    store.add_many([a, b])
+
+    fm.select_coordinate_silent(b)
+    fib.select_coordinate_silent(a)
+    assert fm.selected_coordinate is b
+    assert fib.selected_coordinate is a
+    assert _same(_selected_rows(fm), [b]) and _same(_selected_rows(fib), [a])
