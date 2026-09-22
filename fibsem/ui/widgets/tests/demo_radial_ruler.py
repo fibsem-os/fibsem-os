@@ -33,12 +33,12 @@ from fibsem.ui.widgets.drag_distance import (
     DragDistanceOverlay,
     RectMeasureOverlay,
     _fmt_area,
-    _fmt_distance,
 )
 from fibsem.ui.widgets.hud_ticker import HUDTicker
 from fibsem.ui.widgets.profile_line import ProfileLineOverlay
 from fibsem.ui.widgets.radial_menu import RadialMenuOverlay
 from fibsem.ui.widgets.zoom_loupe import ZoomLoupeOverlay
+from fibsem.utils import format_distance
 
 _TOOL_HINTS = {
     "none": "Right-click = menu  |  P = pin  |  Hold Z = loupe",
@@ -229,11 +229,11 @@ class DemoWidget(QtWidgets.QWidget):
     # ── Result callbacks ──────────────────────────────────────────────
 
     def _on_ruler_result(self, d: float) -> None:
-        self._set_status(f"Distance: {_fmt_distance(d)}    {_TOOL_HINTS['ruler']}")
+        self._set_status(f"Distance: {format_distance(d)}    {_TOOL_HINTS['ruler']}")
 
     def _on_rect_result(self, w: float, h: float, area: float) -> None:
         self._set_status(
-            f"Rectangle: {_fmt_distance(w)} × {_fmt_distance(h)}  "
+            f"Rectangle: {format_distance(w)} × {format_distance(h)}  "
             f"area={_fmt_area(area)}    {_TOOL_HINTS['rect']}"
         )
 
