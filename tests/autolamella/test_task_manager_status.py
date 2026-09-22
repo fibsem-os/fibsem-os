@@ -354,9 +354,9 @@ def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_was_rejected(
     lamella.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    lamella.proposals["Trench"] = Proposal(
-        kind="task_result", provenance={"task_id": "run-2"}
-    )
+    lamella.proposals["Trench"] = [
+        Proposal(kind="task_result", provenance={"task_id": "run-2"})
+    ]
     assert m._defer_reason(lamella, "Undercut") == "awaiting_decision"
 
     m.experiment._decide(
@@ -418,9 +418,9 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(
-        kind="task_result", provenance={"task_id": "run-1"}
-    )
+    l1.proposals["Trench"] = [
+        Proposal(kind="task_result", provenance={"task_id": "run-1"})
+    ]
     experiment.get_lamella_by_name("L2").task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.Completed)
     )
@@ -497,9 +497,9 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(
-        kind="task_result", provenance={"task_id": "run-1"}
-    )
+    l1.proposals["Trench"] = [
+        Proposal(kind="task_result", provenance={"task_id": "run-1"})
+    ]
     experiment.decide(
         l1.id,
         "Trench",
@@ -542,9 +542,9 @@ def _review_manager(tmp_path, review_wait, hook_manager=None):
     l1.task_history.append(
         AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    l1.proposals["Trench"] = Proposal(
-        kind="task_result", provenance={"task_id": "run-1"}
-    )
+    l1.proposals["Trench"] = [
+        Proposal(kind="task_result", provenance={"task_id": "run-1"})
+    ]
     return m, l1
 
 
@@ -563,7 +563,7 @@ def test_a_run_that_drains_on_pending_reviews_is_stalled_not_completed(tmp_path)
     assert [c.event for c in fired] == ["workflow_started", "workflow_stalled"]
     assert fired[-1].decisions_pending == 1
     assert m.queue.has_pending_pair("L1", "Undercut"), "nothing was retired"
-    assert l1.proposals["Trench"].pending
+    assert l1.proposal("Trench").pending
 
 
 def test_a_decision_during_the_wait_wakes_the_run(tmp_path, caplog):

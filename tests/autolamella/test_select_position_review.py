@@ -112,7 +112,7 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
 
     task.run()
 
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     assert proposal.kind == POINT_OF_INTEREST
     assert proposal.pending
     assert proposal.values == {"poi": Point(0.0, 0.0)}
@@ -142,7 +142,7 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
     # The proposal is what the experiment file carries.
     exp.save()
     again = Experiment.load(Path(exp.path) / "experiment.yaml")
-    assert again.positions[0].proposals[SETUP].pending
+    assert again.positions[0].proposal(SETUP).pending
 
 
 def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_path):
@@ -160,7 +160,7 @@ def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_pat
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(3e-6, 0.0)},
-            task_id=lamella.proposals[SETUP].task_id,
+            task_id=lamella.proposal(SETUP).task_id,
         ),
     )
     assert result.applied and result.delta["poi"] == Point(3e-6, 0.0)
@@ -182,7 +182,7 @@ def test_the_proposal_carries_the_point_something_else_already_set(
 
     task.run()
 
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     assert proposal.values == {"poi": Point(4e-6, -2e-6)}
     assert proposal.values["poi"] is not lamella.poi, "a copy, not the live point"
     assert lamella.poi == Point(4e-6, -2e-6), "and nothing was written through"
@@ -203,19 +203,19 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(1e-6, 1e-6)},
-            task_id=lamella.proposals[SETUP].task_id,
+            task_id=lamella.proposal(SETUP).task_id,
         ),
     )
-    decided = lamella.proposals[SETUP]
+    decided = lamella.proposal(SETUP)
 
     _task(microscope, exp, flag=True).run()
 
-    fresh = lamella.proposals[SETUP]
+    fresh = lamella.proposal(SETUP)
     assert fresh is not decided and fresh.pending
     assert fresh.values["poi"] == Point(1e-6, 1e-6), (
         "proposes the point the last decision left on the lamella"
     )
-    assert fresh.superseded == [decided]
+    assert lamella.proposals[SETUP] == [decided, fresh]
     assert decided.current.values["poi"] == Point(1e-6, 1e-6)
     assert lamella.poi == Point(1e-6, 1e-6)
     assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_decision"
@@ -232,7 +232,7 @@ def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
     assert task.review is False, "gate needs the flag"
     task.run()
     lamella = exp.positions[0]
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     assert proposal.kind == POINT_OF_INTEREST and not proposal.pending
     assert str(proposal.current.author) == "auto:current-poi"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
@@ -252,7 +252,7 @@ def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
 
     task.run()
 
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     assert not proposal.pending
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "the proposal is untouched"
     assert proposal.current.outcome is DecisionOutcome.Confirmed
@@ -266,9 +266,9 @@ def test_automated_the_producer_confirms_its_own_proposal(microscope, tmp_path):
 
     # A re-run supersedes the auto-confirmed proposal like a person's.
     _task(microscope, exp, flag=True).run()
-    fresh = lamella.proposals[SETUP]
+    fresh = lamella.proposal(SETUP)
     assert fresh is not proposal and not fresh.pending
-    assert fresh.superseded == [proposal]
+    assert lamella.proposals[SETUP] == [proposal, fresh]
 
 
 def test_supervised_the_inline_answer_is_the_decision(
@@ -287,7 +287,7 @@ def test_supervised_the_inline_answer_is_the_decision(
 
     task.run()
 
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "what the proposer said"
     d = proposal.current
     assert d.outcome is DecisionOutcome.Confirmed and d.via == "workflow"

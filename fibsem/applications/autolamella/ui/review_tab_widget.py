@@ -257,16 +257,19 @@ class ReviewRenderer(QWidget):
 def decided_proposals(experiment: Experiment) -> List[tuple]:
     """Every decided proposal as (item, task_name, proposal, superseded),
     newest decision first: the other half of the inbox, derived the same way.
-    ``superseded`` marks one a re-run replaced. A proposal still to check is
-    not here; it has its own group."""
+    ``superseded`` marks one that is not the task's current proposal: a later
+    one -- a re-run, or the run's own result after a question it asked --
+    replaced it. A current proposal still to check is not here; it has its
+    own group."""
     decided = []
     for item in list(experiment.positions) + list(experiment.grids):
-        for task_name, proposal in item.proposals.items():
-            if not proposal.pending and not proposal.to_check:
-                decided.append((item, task_name, proposal, False))
-            for p in proposal.superseded:
+        for task_name, proposals in item.proposals.items():
+            for p in proposals[:-1]:
                 if not p.pending:
                     decided.append((item, task_name, p, True))
+            proposal = proposals[-1] if proposals else None
+            if proposal is not None and not proposal.pending and not proposal.to_check:
+                decided.append((item, task_name, proposal, False))
     decided.sort(key=lambda e: e[2].current.timestamp, reverse=True)
     return decided
 

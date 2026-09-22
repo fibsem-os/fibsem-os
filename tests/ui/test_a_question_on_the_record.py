@@ -248,7 +248,7 @@ def test_the_question_goes_on_the_items_record(window, qapp):
 
     thread, _ = _ask(window, qapp, _request(window))
 
-    proposal = lamella.proposals[TASK]
+    proposal = lamella.proposal(TASK)
     assert proposal.kind == DETECTION
     assert proposal.asking and proposal.pending
     assert proposal.task_id == RUN
@@ -381,7 +381,7 @@ def test_a_decision_by_the_proposals_own_id_releases_it(window, qapp):
     """What the Review tab and an agent pass: the proposal they were shown."""
     lamella = window.autolamella_ui.experiment.positions[0]
     thread, outcome = _ask(window, qapp, _request(window))
-    proposal = lamella.proposals[TASK]
+    proposal = lamella.proposal(TASK)
 
     result = window.autolamella_ui.experiment.decide(
         lamella.id,
@@ -408,12 +408,12 @@ def test_a_decision_on_another_proposal_in_the_same_slot_does_not_release_it(
     experiment = window.autolamella_ui.experiment
     lamella = experiment.positions[0]
     thread, outcome = _ask(window, qapp, _request(window))
-    ours = lamella.proposals[TASK]
+    ours = lamella.proposal(TASK)
     other = Proposal(kind=DETECTION, provenance={"task_id": RUN})
     other.decisions.append(
         Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id=RUN)
     )
-    lamella.proposals[TASK] = other
+    lamella.proposals[TASK] = [other]
 
     experiment.decided.emit(lamella.id, TASK)
     qapp.processEvents()
@@ -421,7 +421,7 @@ def test_a_decision_on_another_proposal_in_the_same_slot_does_not_release_it(
     assert thread.is_alive() and "answer" not in outcome
     assert window.autolamella_ui.ui_responder.pending_question() is not None
 
-    lamella.proposals[TASK] = ours
+    lamella.proposals[TASK] = [ours]
     _decide(window)
     _finish(qapp, thread)
 
@@ -479,7 +479,7 @@ def test_the_prompt_button_goes_to_the_question_and_answers_nothing(window, qapp
     assert window.tab_widget.currentWidget() is window.review_tab
     assert thread.is_alive() and "answer" not in outcome
     assert ui.ui_responder.pending_question() is not None
-    assert ui.experiment.positions[0].proposals[TASK].pending
+    assert ui.experiment.positions[0].proposal(TASK).pending
 
     _decide(window)
     _finish(qapp, thread)
@@ -495,7 +495,7 @@ def test_an_agent_answering_the_prompt_is_told_to_decide_instead(window, qapp):
     assert ui.ui_responder.recorded_question() == (
         lamella.id,
         TASK,
-        lamella.proposals[TASK].id,
+        lamella.proposal(TASK).id,
     )
 
     answered = ui.ui_responder.submit_answer(True, nonce=nonce)
@@ -526,7 +526,7 @@ def test_the_agent_server_says_how_it_is_answered(window, qapp):
     named = {
         "item_id": lamella.id,
         "task_name": TASK,
-        "proposal_id": lamella.proposals[TASK].id,
+        "proposal_id": lamella.proposal(TASK).id,
     }
     assert pending["decide"] == named, "everything a decision has to name"
 
@@ -560,7 +560,7 @@ def test_the_agent_server_says_how_it_is_answered(window, qapp):
     assert decided["applied"], decided
     _finish(qapp, thread)
     assert outcome["answer"].features[0].px == Point(5, 5)
-    assert lamella.proposals[TASK].current.author.kind.value == "agent"
+    assert lamella.proposal(TASK).current.author.kind.value == "agent"
     assert "answer_via" not in (context.pending_prompt()["pending"] or {})
 
 
@@ -582,7 +582,7 @@ def test_stopping_the_run_takes_the_question_back(window, qapp):
     _finish(qapp, thread)
 
     assert isinstance(outcome["error"], InterruptedError)
-    proposal = lamella.proposals[TASK]
+    proposal = lamella.proposal(TASK)
     assert _pump(qapp, lambda: proposal.withdrawn)
     assert not proposal.asking
     assert _pump(qapp, lambda: ui.hold is None)
@@ -598,7 +598,7 @@ def test_a_decision_after_the_run_stopped_is_refused(window, qapp):
     stop.set()
     _finish(qapp, thread)
     lamella = window.autolamella_ui.experiment.positions[0]
-    assert _pump(qapp, lambda: lamella.proposals[TASK].withdrawn)
+    assert _pump(qapp, lambda: lamella.proposal(TASK).withdrawn)
 
     result = _decide(window)
 
@@ -613,7 +613,7 @@ def test_a_run_that_ends_with_the_question_up_takes_it_back(window, qapp):
     ui.ui_responder.abandon()
     _finish(qapp, thread)
 
-    assert _pump(qapp, lambda: lamella.proposals[TASK].withdrawn)
+    assert _pump(qapp, lambda: lamella.proposal(TASK).withdrawn)
     assert ui.hold is None
 
 

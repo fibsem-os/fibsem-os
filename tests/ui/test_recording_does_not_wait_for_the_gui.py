@@ -81,7 +81,7 @@ def test_recording_a_question_returns_while_the_gui_is_busy(experiment):
     )
 
     assert recorded
-    assert lamella.proposals[TASK].asking
+    assert lamella.proposal(TASK).asking
 
 
 def test_taking_a_question_back_returns_while_the_gui_is_busy(experiment):
@@ -93,7 +93,7 @@ def test_taking_a_question_back_returns_while_the_gui_is_busy(experiment):
     )
 
     assert result.applied, result.reason
-    assert lamella.proposals[TASK].withdrawn
+    assert lamella.proposal(TASK).withdrawn
 
 
 def test_the_gui_still_hears_about_both_on_its_own_thread(experiment, qapp):
