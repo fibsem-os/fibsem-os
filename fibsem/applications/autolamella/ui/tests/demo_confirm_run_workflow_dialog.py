@@ -1,7 +1,7 @@
 """Test script for confirm_run_workflow_dialog.
 
 Run directly:
-    python fibsem/applications/autolamella/ui/tests/test_confirm_run_workflow_dialog.py
+    python fibsem/applications/autolamella/ui/tests/demo_confirm_run_workflow_dialog.py
 """
 
 import sys

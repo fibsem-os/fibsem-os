@@ -1,4 +1,5 @@
 """Test script for LamellaNameListWidget with real experiment data."""
+
 import sys
 from pathlib import Path
 
@@ -40,14 +41,18 @@ def main():
 
     # Connect signals
     widget.lamella_selected.connect(
-        lambda lam: print(f"Selected: {lam.name if lam else None} (index={widget.selected_index})")
+        lambda lam: print(
+            f"Selected: {lam.name if lam else None} (index={widget.selected_index})"
+        )
     )
     widget.add_requested.connect(lambda: print("Add requested"))
     widget.move_to_requested.connect(lambda lam: print(f"Move to: {lam.name}"))
     widget.edit_requested.connect(lambda lam: print(f"Edit: {lam.name}"))
     widget.update_requested.connect(lambda lam: print(f"Update: {lam.name}"))
     widget.remove_requested.connect(lambda lam: print(f"Remove: {lam.name}"))
-    widget.defect_changed.connect(lambda lam: print(f"Defect changed: {lam.name} -> {lam.defect.state}"))
+    widget.defect_changed.connect(
+        lambda lam: print(f"Defect changed: {lam.name} -> {lam.defect.state}")
+    )
 
     layout.addWidget(widget)
 
