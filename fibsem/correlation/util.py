@@ -342,9 +342,8 @@ def scipy_interpolation(
     linear result is identical to zoom's to the last bit. The cubic result is
     too on real data; on synthetic data with exact half-way values it can
     differ by one grey level, because the four taps are summed in a different
-    order and a tie lands on the other side. :func:`scipy_zoom_z` is the
-    reference, kept for the tests to compare against and for a one-line
-    rollback.
+    order and a tie lands on the other side. The tests hold both paths to
+    zoom.
     """
     if method not in INTERPOLATION_METHODS:
         method = "linear"
@@ -352,25 +351,6 @@ def scipy_interpolation(
     if method == "linear":
         return _linear_z_resample(image_3d, new_nz)
     return _cubic_z_resample(image_3d, new_nz)
-
-
-def scipy_zoom_z(
-    image_3d: np.ndarray,
-    original_z_size: float,
-    target_z_size: float,
-    method: str = "linear",
-) -> np.ndarray:
-    """The reference: scipy's ``zoom`` along z only, as the production path was
-    until the slice blends replaced it. Not used by the application; the tests
-    hold the blends to this to the last bit."""
-    order = 1 if method == "linear" else 3
-    return ndimage.zoom(
-        image_3d,
-        (original_z_size / target_z_size, 1, 1),
-        order=order,
-        mode="reflect",
-        prefilter=True,
-    )
 
 
 def _zoom_slice_count(nz: int, scale_factor: float) -> int:
