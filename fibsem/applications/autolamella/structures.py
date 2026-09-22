@@ -38,6 +38,7 @@ from fibsem.applications.autolamella.proposals import (
     DecisionResult,
     Proposal,
     ValueRefused,
+    _encode_values,
     _quietly,
     auto_author,
     current_proposal,
@@ -1774,6 +1775,15 @@ def _call_on_main_thread(func, *args, **kwargs):
     return ensure_main_thread(await_return=True)(func)(*args, **kwargs)
 
 
+def _same_values(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """Whether two value sets say the same thing, compared in their file form
+    so a Point and a re-read Point agree."""
+    try:
+        return _encode_values(a) == _encode_values(b)
+    except Exception:  # noqa: BLE001 - a value that cannot be encoded is a change
+        return False
+
+
 def _kind_carries_values(kind: str) -> bool:
     registered = PROPOSAL_KINDS.get(kind)
     return bool(registered.values) if registered is not None else True
@@ -2043,6 +2053,15 @@ class Experiment:
             # run back to back, so anything stricter refuses the ordinary case
             # (FIB-1008).
             running = item.task_state.status is AutoLamellaTaskStatus.InProgress
+            # An open value was written through when its task ended. Confirming
+            # it as it stands writes nothing again, so it is a look and lands
+            # even while the item is busy with another task; a changed value
+            # is a write and waits.
+            unchanged_open = (
+                self._is_open(item, task_name, proposal)
+                and bool(decision.values)
+                and _same_values(decision.values, proposal.values)
+            )
             # The one case a decision may land on a running task: the task is
             # parked on this very proposal, waiting to be told the answer
             # (FIB-1025). The hazard both refusals below guard against is a
@@ -2066,7 +2085,7 @@ class Experiment:
                         reason=f"{item.name} is running {task_name}; "
                         "stop it rather than deciding under it.",
                     )
-                if decision.values:
+                if decision.values and not unchanged_open:
                     return DecisionResult(
                         applied=False,
                         running=True,
@@ -2148,7 +2167,7 @@ class Experiment:
                         f"To change a value, re-run {task_name}.",
                     )
             apply_values = None
-            if decision.outcome is DecisionOutcome.Confirmed:
+            if decision.outcome is DecisionOutcome.Confirmed and not unchanged_open:
                 # All or nothing: every value is checked and every write planned
                 # before the decision is appended, so a refusal -- or a planning
                 # error -- leaves the record, the item and the task as they were.
