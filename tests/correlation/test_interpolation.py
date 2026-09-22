@@ -48,6 +48,92 @@ def test_interpolate_z_stack_only_scales_z():
     assert out.shape[0] == 20  # z doubled (500 -> 250)
 
 
+_RATIOS = [
+    (500e-9, 250e-9),  # up, 2x: 21 -> 42
+    (500e-9, 130e-9),  # up, non-integer: 21 -> 81
+    (500e-9, 1200e-9),  # down: 21 -> 9
+    (500e-9, 500e-9),  # identity
+]
+
+
+def _volume(dtype, seed=0, shape=(21, 6, 5)):
+    rng = np.random.default_rng(seed)
+    if np.issubdtype(dtype, np.integer):
+        return rng.integers(0, 65535, size=shape, dtype=dtype)
+    return rng.random(shape, dtype=dtype) * 1000
+
+
+@pytest.mark.parametrize("method", ["linear", "cubic"])
+@pytest.mark.parametrize("dtype", [np.uint16, np.float32])
+@pytest.mark.parametrize("pixelsize_in, pixelsize_out", _RATIOS)
+def test_z_resample_is_identical_to_scipy_zoom(
+    method, dtype, pixelsize_in, pixelsize_out
+):
+    """Neither path goes through scipy's zoom any more, which spent 9 s (linear)
+    and 76 s (cubic) per 2048-square channel walking axes that do not change.
+    The slice blends that replaced it must give exactly what zoom gave: the
+    same slice count, the same dtype, and the same values, so an interpolated
+    volume and every FM z rescaled against it are unchanged. Linear integer
+    data is exact to the last bit. Cubic sums its four taps in a different
+    order, so a value that lands exactly half way can round to the other side:
+    one grey level, on about one voxel in a hundred thousand of random noise
+    and on none of a real channel. Float data agrees to float32 rounding."""
+    from fibsem.correlation.util import scipy_zoom_z
+
+    img = _volume(dtype)
+    expected = scipy_zoom_z(img, pixelsize_in, pixelsize_out, method)
+    out = interpolate_z_stack(img, pixelsize_in, pixelsize_out, method=method)
+    assert out.shape == expected.shape
+    assert out.dtype == expected.dtype
+    if not np.issubdtype(dtype, np.integer):
+        np.testing.assert_allclose(out, expected, rtol=0, atol=1e-3)
+    elif method == "linear":
+        np.testing.assert_array_equal(out, expected)
+    else:
+        off = np.abs(out.astype(int) - expected.astype(int))
+        assert off.max() <= 1
+        assert (off > 0).sum() <= off.size // 100
+
+
+def test_cubic_overshoot_is_clamped_to_the_dtype_like_zoom():
+    """A cubic can overshoot a step edge past 0 or 65535; zoom clamps rather
+    than wraps, and so must the blend."""
+    from fibsem.correlation.util import scipy_zoom_z
+
+    img = np.zeros((21, 4, 4), dtype=np.uint16)
+    img[10:] = 65535  # a hard step in z
+    expected = scipy_zoom_z(img, 500e-9, 130e-9, "cubic")
+    out = interpolate_z_stack(img, 500e-9, 130e-9, method="cubic")
+    # the step's midpoint is an exact half-way tie, see the test above
+    assert np.abs(out.astype(int) - expected.astype(int)).max() <= 1
+    assert out.min() == 0 and out.max() == 65535
+
+
+def test_linear_z_resample_leaves_exact_source_slices_untouched():
+    """At 2x, the end output slices are source slices: copied, not re-rounded."""
+    img = _volume(np.uint16, seed=1, shape=(5, 4, 4))
+    out = interpolate_z_stack(img, 500e-9, 250e-9, method="linear")
+    assert out.shape[0] == 10
+    # zoom's grid puts output k at source k * 4 / 9; only k = 0 and k = 9 are exact
+    np.testing.assert_array_equal(out[0], img[0])
+    np.testing.assert_array_equal(out[9], img[4])
+
+
+@pytest.mark.parametrize("method", ["linear", "cubic"])
+def test_multi_channel_output_is_one_volume_of_the_input_dtype_in_channel_order(
+    method,
+):
+    """Channels interpolate on a thread pool; each still lands in its own slot."""
+    img = np.stack([_volume(np.uint16, seed=s, shape=(5, 4, 4)) for s in range(5)])
+    out = multi_channel_interpolation(img, 500e-9, 250e-9, method=method)
+    assert out.shape == (5, 10, 4, 4)
+    assert out.dtype == np.uint16
+    for c in range(5):
+        np.testing.assert_array_equal(
+            out[c], interpolate_z_stack(img[c], 500e-9, 250e-9, method=method)
+        )
+
+
 def test_multi_channel_progress_callback_is_ui_agnostic():
     """The algorithm reports progress through a plain callable, not a Qt object."""
     img = np.random.rand(3, 5, 4, 4).astype(np.float32)
@@ -58,8 +144,24 @@ def test_multi_channel_progress_callback_is_ui_agnostic():
         250e-9,
         progress_callback=lambda done, total: calls.append((done, total)),
     )
-    # one call before the loop, one after each of the 3 channels
+    # one call before the loop, one as each of the 3 channels completes
     assert calls == [(0, 3), (1, 3), (2, 3), (3, 3)]
+
+
+def test_progress_is_reported_on_the_calling_thread():
+    """The GUI relays progress through a Qt signal; the callback must not fire
+    from the pool's threads, which would make that a cross-thread emit."""
+    import threading
+
+    img = np.random.rand(3, 5, 4, 4).astype(np.float32)
+    threads = set()
+    multi_channel_interpolation(
+        img,
+        500e-9,
+        250e-9,
+        progress_callback=lambda *_: threads.add(threading.get_ident()),
+    )
+    assert threads == {threading.get_ident()}
 
 
 def test_multi_channel_runs_without_a_callback():
