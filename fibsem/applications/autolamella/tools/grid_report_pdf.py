@@ -476,8 +476,18 @@ def generate_grid_report(
             ]
             if entry.channels:
                 details.append(("Channels", ", ".join(entry.channels)))
-            if entry.marks:
-                details.append(("Marked", ", ".join(m.name for m in entry.marks)))
+            # A lamella can project to a point off the image: it is placed, but
+            # not in this field. Say which, rather than listing it as marked.
+            in_view, out_of_view = [], []
+            for mark in entry.marks:
+                h, w = entry.shape or (0, 0)
+                (
+                    in_view if 0 <= mark.x < w and 0 <= mark.y < h else out_of_view
+                ).append(mark.name)
+            if in_view:
+                details.append(("Marked", ", ".join(in_view)))
+            if out_of_view:
+                details.append(("Out of view", ", ".join(out_of_view)))
             if entry.unmarked and entry.path is not None:
                 details.append(("Not placed", ", ".join(entry.unmarked)))
             if entry.path is not None:
