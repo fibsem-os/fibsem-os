@@ -84,9 +84,10 @@ class EventKind:
     STAGE = "stage"
     MILLING = "milling"
     ALIGNMENT = "alignment"
+    EDIT = "edit"  # a change to a lamella's plan: recorded by the event stream only
     MESSAGE = "message"
 
-    ALL = (TASK, PROMPT, IMAGE, FLUORESCENCE, STAGE, MILLING, ALIGNMENT, MESSAGE)
+    ALL = (TASK, PROMPT, IMAGE, FLUORESCENCE, STAGE, MILLING, ALIGNMENT, EDIT, MESSAGE)
 
 
 # ── reading the log ──────────────────────────────────────────────────────────
@@ -1102,6 +1103,66 @@ def _alignment_summary(payload: Dict[str, Any]) -> str:
     return text
 
 
+# How many of an edit's changed values its row names; the rest are counted.
+_EDIT_CHANGES_SHOWN = 3
+_ABSENT = object()  # a value one side of an edit does not have
+
+
+def _edit_summary(payload: Dict[str, Any], actor: Any) -> str:
+    """What an edit changed, from what to what, and who made it from where.
+
+    ``before`` and ``after`` are the whole object edited, so the values that
+    differ are found by walking both.
+    """
+    changes = _changed_values(payload.get("before"), payload.get("after"))
+    shown = [
+        f"{path} {_edit_value(old)} → {_edit_value(new)}".lstrip()
+        for path, old, new in changes[:_EDIT_CHANGES_SHOWN]
+    ]
+    if len(changes) > _EDIT_CHANGES_SHOWN:
+        shown.append(f"{len(changes) - _EDIT_CHANGES_SHOWN} more")
+    text = f"{payload.get('target')}: {', '.join(shown) or 'changed'}"
+    if actor:
+        text += f" — by the {actor}"
+    if payload.get("via"):
+        text += f" ({payload['via']})"
+    return text
+
+
+def _changed_values(
+    before: Any, after: Any, path: str = ""
+) -> List[Tuple[str, Any, Any]]:
+    """``(path, before, after)`` for each value that differs, in order."""
+    if isinstance(before, dict) and isinstance(after, dict):
+        keys = list(before) + [k for k in after if k not in before]
+        pairs = [(k, before.get(k, _ABSENT), after.get(k, _ABSENT)) for k in keys]
+    elif isinstance(before, list) and isinstance(after, list):
+        pairs = [
+            (
+                i,
+                before[i] if i < len(before) else _ABSENT,
+                after[i] if i < len(after) else _ABSENT,
+            )
+            for i in range(max(len(before), len(after)))
+        ]
+    else:
+        return [] if before == after else [(path, before, after)]
+    return [
+        change
+        for key, old, new in pairs
+        for change in _changed_values(old, new, f"{path}.{key}" if path else str(key))
+    ]
+
+
+def _edit_value(value: Any) -> str:
+    if value is _ABSENT:
+        return "(none)"
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    text = str(value)
+    return text if len(text) <= 32 else "…" + text[-31:]
+
+
 def _recorded_fluorescence(
     time: datetime, payload: Dict[str, Any], resolver: _ImageResolver
 ) -> ReplayEvent:
@@ -1170,9 +1231,10 @@ def _load_from_events(root: Path) -> ExperimentReplay:
     span the events cover.
 
     A stage move is one row however many moves it was made of, and shows where
-    it ended; a position read is only the stage track. Live view is not
-    recorded. An FM file the stream did not record is found on disk and placed
-    by its own metadata, as the log's reader places every FM image.
+    it ended; a position read is only the stage track. An edit to a lamella's
+    plan is on the lamella and task it edited. Live view is not recorded. An
+    FM file the stream did not record is found on disk and placed by its own
+    metadata, as the log's reader places every FM image.
     """
     path = root / EVENTS_FILENAME
     records = list(read_events(path))
@@ -1314,6 +1376,13 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                     burned = len(burn["coordinates"])
                 events.extend(_spot_events(burn, burned))
                 burn = None
+        elif kind == "edit":
+            # On the lamella and task edited, which need not be the ones a
+            # workflow was running when the edit was made.
+            item = (payload.get("item") or {}).get("name")
+            task, task_id = payload.get("task"), None
+            summary = _edit_summary(payload, record.get("actor"))
+            event = ReplayEvent(time, EventKind.EDIT, summary, data=payload)
         elif kind in ("prompt_raised", "prompt_answered", "prompt_cancelled"):
             prompt = payload.get("type", "Prompt")
             if kind == "prompt_answered":

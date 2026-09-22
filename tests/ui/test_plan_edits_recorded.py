@@ -403,3 +403,59 @@ def test_an_edit_whose_record_cannot_be_taken_is_still_made(
 
     editor.flush_pending_save()
     assert edits() == []  # nothing could be described, and nothing broke
+
+
+# ── the replay ───────────────────────────────────────────────────────────────
+
+
+def test_the_replay_shows_each_edit_on_the_lamella_edited(
+    qapp, window, editor, experiment, tmp_path
+):
+    """From the file the app writes, through the reader, to the replay window."""
+    from fibsem.applications.autolamella.tools.replay import EventKind, load_replay
+    from fibsem.applications.autolamella.ui.experiment_replay_widget import (
+        ExperimentReplayWidget,
+    )
+
+    record = tmp_path / "record"
+    record.mkdir()
+    recorder = EventRecorder(
+        window.autolamella_ui.microscope,
+        experiment_path=record,
+        default_actor=OPERATOR,
+    )
+    first, second = experiment.positions
+    original = first.task_config[TASK].milling[KEY]
+    start = original.stages[0].pattern.depth
+    other_start = second.task_config[TASK].milling[KEY].stages[0].pattern.depth
+    try:
+        for depth in (2e-6, 3e-6):
+            editor._on_milling_task_config_updated(_deeper(original, depth))
+        editor.flush_pending_save()
+        path = f"milling.{KEY}.stages.0.pattern.depth"
+        assert _agent_patch(window, second, {path: 2.5e-6})["applied"] is True
+    finally:
+        recorder.close()
+
+    rows = [e for e in load_replay(record).events if e.kind == EventKind.EDIT]
+    assert [(e.item, e.task) for e in rows] == [
+        (first.name, TASK),
+        (second.name, TASK),
+    ]
+    assert [e.summary for e in rows] == [
+        f"milling.{KEY}: stages.0.pattern.depth {start:.4g} → 3e-06"
+        " — by the operator (lamella editor)",
+        f"task_config: milling.{KEY}.stages.0.pattern.depth {other_start:.4g}"
+        " → 2.5e-06 — by the agent (agent patch)",
+    ]
+
+    widget = ExperimentReplayWidget.from_directory(record)
+    try:
+        assert widget.filter_boxes[EventKind.EDIT].text() == "Edit (2)"
+        row = widget.replay.events.index(rows[0])
+        cells = [widget.table.item(row, col).text() for col in (1, 2)]
+        assert cells == [first.name, "Edit"]
+    finally:
+        widget.close()
+        widget.deleteLater()
+        qapp.processEvents()
