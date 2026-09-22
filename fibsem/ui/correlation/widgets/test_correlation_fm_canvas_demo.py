@@ -28,6 +28,7 @@ What to try
   Toolbar toggle brings it back.
 * **Show result** — the marker groups the tab widget draws after a run.
 """
+
 from __future__ import annotations
 
 import sys
@@ -92,9 +93,14 @@ def _fm_image() -> FluorescenceImage:
         resolution=(_SIZE, _SIZE),
         channels=[
             FluorescenceChannelMetadata(
-                name=name, color=colour, excitation_wavelength=488,
-                emission_wavelength=509, power=1.0, exposure_time=0.1,
-                gain=1.0, offset=0.0,
+                name=name,
+                color=colour,
+                excitation_wavelength=488,
+                emission_wavelength=509,
+                power=1.0,
+                exposure_time=0.1,
+                gain=1.0,
+                offset=0.0,
             )
             for name, colour in _CHANNELS
         ],
@@ -119,8 +125,14 @@ _RESULT_GROUPS = (
     ),
     (
         [(150.0, 150.0)],
-        dict(color="#ff00ff", size=7, alpha=0.7, show_labels=False, hollow=True,
-             legend_label="POI uncorrected"),
+        dict(
+            color="#ff00ff",
+            size=7,
+            alpha=0.7,
+            show_labels=False,
+            hollow=True,
+            legend_label="POI uncorrected",
+        ),
     ),
     (
         [(156.0, 154.0)],
@@ -132,9 +144,7 @@ _RESULT_GROUPS = (
 class DemoWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle(
-            "CorrelationFMCanvasWidget — FM correlation surface"
-        )
+        self.setWindowTitle("CorrelationFMCanvasWidget — FM correlation surface")
         self.resize(1100, 900)
 
         image = _fm_image()
@@ -160,11 +170,16 @@ class DemoWindow(QMainWindow):
             btn.clicked.connect(slot)
             controls.addWidget(btn)
 
-        for label, setter in (("Legend", "set_legend_visible"), ("Labels", "set_labels_visible")):
+        for label, setter in (
+            ("Legend", "set_legend_visible"),
+            ("Labels", "set_labels_visible"),
+        ):
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setChecked(True)
-            btn.toggled.connect(lambda on, s=setter, n=label: self._toggle_both(s, on, n))
+            btn.toggled.connect(
+                lambda on, s=setter, n=label: self._toggle_both(s, on, n)
+            )
             controls.addWidget(btn)
 
         controls.addStretch()
@@ -237,7 +252,9 @@ class DemoWindow(QMainWindow):
         )
 
     def _log(self, message: str, color: str = None) -> None:
-        self.log.append(f"<span style='color:{color}'>{message}</span>" if color else message)
+        self.log.append(
+            f"<span style='color:{color}'>{message}</span>" if color else message
+        )
 
 
 def main() -> None:

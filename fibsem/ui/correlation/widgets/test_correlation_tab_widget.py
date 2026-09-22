@@ -11,6 +11,7 @@ Usage
     # or point at any correlation project directory
     python -m fibsem.ui.correlation.widgets.test_correlation_tab_widget /path/to/project
 """
+
 import sys
 from pprint import pprint
 
