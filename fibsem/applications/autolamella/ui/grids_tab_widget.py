@@ -9,16 +9,20 @@ Microscope → Sample). Slot, present and loaded are read from the stage's
 inventory on every refresh and drawn as chips.
 
 Run inventory, Load and Unload are conveniences over the same ``Stage``
-primitives the Sample view uses, run off the GUI thread. Running tasks is not on
-this tab; that is Workflow → Grids.
+primitives the Sample view uses, run off the GUI thread. ``generate_report``
+writes the grid screening PDF (FIB-1057) under the experiment folder and opens
+it; Tools → Reporting is what calls it, and the outcome is said on this tab's
+strip. Running tasks is not on this tab; that is Workflow → Grids.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from typing import Callable, Dict, Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -33,6 +37,9 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment, GridRecord
+from fibsem.applications.autolamella.tools.grid_report_pdf import (
+    generate_grid_report,
+)
 from fibsem.applications.autolamella.ui.grid_card_widget import GridCardContainer
 from fibsem.applications.autolamella.ui.grid_positions_widget import (
     GridPositionsWidget,
@@ -67,6 +74,7 @@ class GridsTabWidget(QWidget):
         self._busy = False
         self._controls_enabled = True
         self._worker = None
+        self._after: Optional[Callable[[], None]] = None
         self._inventory: Dict[str, GridInventoryEntry] = {}
         self._setup_ui()
         self.refresh()
@@ -434,6 +442,47 @@ class GridsTabWidget(QWidget):
             job, f"Unloading {grid.name}…", f"{grid.name} returned to the magazine."
         )
 
+    # -- the report ---------------------------------------------------------------
+
+    def generate_report(self) -> None:
+        """Write the grid screening PDF under the experiment folder and open it.
+
+        Needs records, not hardware: the report reads the experiment only, so this
+        works with nothing connected. The stage inventory the tab holds, if any,
+        supplies the slot column.
+        """
+        experiment = self._experiment
+        if experiment is None:
+            self._say("No experiment loaded.", error=True)
+            return
+        if not experiment.grids:
+            self._say("No grids to report. Run inventory first.", error=True)
+            return
+        inventory = list(self._inventory.values())
+        written: Dict[str, str] = {}
+
+        def job() -> None:
+            try:
+                written["path"] = generate_grid_report(experiment, inventory=inventory)
+            except ImportError as e:
+                raise RuntimeError(
+                    "Reporting tools are not installed: pip install "
+                    f"fibsem-os[reporting] ({e})"
+                ) from e
+
+        def opened() -> None:
+            path = written.get("path")
+            if path:
+                # The name only: the strip is narrow and the folder is the experiment's.
+                self._say(f"Report written: {os.path.basename(path)}")
+                self.open_report(path)
+
+        self._start(job, "Writing the grid screening report…", "", after=opened)
+
+    def open_report(self, path: str) -> None:
+        """Hand the PDF to the desktop's viewer. Separate so a test can watch it."""
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
     def _confirm(self, title: str, text: str) -> bool:
         if self._synchronous:
             return True
@@ -444,12 +493,21 @@ class GridsTabWidget(QWidget):
             == QMessageBox.Yes
         )
 
-    def _start(self, job: Callable[[], None], doing: str, done: str) -> None:
+    def _start(
+        self,
+        job: Callable[[], None],
+        doing: str,
+        done: str,
+        after: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Run *job* off the GUI thread, saying *doing* meanwhile and *done* when
+        it returns; *after*, if given, runs on the GUI thread after that."""
         if self._busy:
             return
         self._set_busy(True)
         self._say(doing)
         self._done_text = done
+        self._after = after
         if self._synchronous:
             try:
                 job()
@@ -472,6 +530,9 @@ class GridsTabWidget(QWidget):
 
     def _on_returned(self, _result: object = None) -> None:
         self._say(self._done_text)
+        after, self._after = self._after, None
+        if after is not None:
+            after()
 
     def _on_errored(self, error: Exception) -> None:
         logging.warning(f"Grid operation failed: {error}")
