@@ -28,6 +28,7 @@ from fibsem.applications.autolamella.proposals import (
     AuthorKind,
     Decision,
     DecisionOutcome,
+    Standing,
 )
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -36,6 +37,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     GridTaskProtocol,
     Lamella,
+    standing,
 )
 from fibsem.applications.autolamella.task_outputs import latest_grid_output
 from fibsem.applications.autolamella.workflows.tasks.grid import (
@@ -193,7 +195,7 @@ class TestAGridTaskProposes:
         assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
         proposal = grid.proposal(OVERVIEW)
         assert proposal.kind == OVERVIEW_POSITIONS
-        assert proposal.pending and experiment._is_open(grid, OVERVIEW, proposal)
+        assert standing(grid, OVERVIEW, proposal) is Standing.Open
 
     def test_the_proposal_points_at_the_stitched_overview_not_the_thumbnail(
         self, microscope, experiment

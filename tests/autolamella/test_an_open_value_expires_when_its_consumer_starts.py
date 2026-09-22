@@ -19,11 +19,13 @@ from fibsem.applications.autolamella.proposals import (
     Decision,
     DecisionOutcome,
     Proposal,
+    Standing,
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
     AutoLamellaTaskStatus,
     Experiment,
+    standing,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.structures import Point
@@ -214,7 +216,7 @@ def test_when_the_run_ends_a_result_and_a_value_both_stay_open(tmp_path):
     assert result.kind == TASK_RESULT and result.pending, "still open"
     assert point.kind == POINT_OF_INTEREST and point.pending, "still open"
     for proposal in (point, result):
-        assert experiment._is_open(lamella, "Trench", proposal)
+        assert standing(lamella, "Trench", proposal) is Standing.Open
     assert [p for _i, _t, p in experiment.proposals_to_check()] == [point, result]
 
     # A correction now is a plain confirm with values, as during the run.

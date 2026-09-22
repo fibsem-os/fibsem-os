@@ -65,9 +65,15 @@ from fibsem.applications.autolamella.proposals import (
     Decision,
     DecisionOutcome,
     Proposal,
+    Standing,
     kind_label,
 )
-from fibsem.applications.autolamella.structures import Attention, Experiment, GridRecord
+from fibsem.applications.autolamella.structures import (
+    Attention,
+    Experiment,
+    GridRecord,
+    standing,
+)
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, Point
 from fibsem.ui import notification_service, stylesheets
@@ -570,11 +576,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self._item = item
         self._task_name = task_name
         self._proposal = proposal
-        self._open = (
-            proposal.pending
-            and not proposal.asking
-            and not item.is_awaiting_decision(task_name)
-        )
+        self._open = standing(item, task_name, proposal) is Standing.Open
         image = _load_reference_image(experiment, item, proposal)
         self._fluorescence = image if isinstance(image, FluorescenceImage) else None
         self._image = image if isinstance(image, FibsemImage) else None
