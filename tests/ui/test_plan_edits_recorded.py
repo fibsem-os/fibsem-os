@@ -8,6 +8,7 @@ the handler its widget calls, and read back from the recorder's buffer.
 import os
 from concurrent.futures import Future
 from copy import deepcopy
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -279,6 +280,135 @@ def test_a_protocol_edit_and_a_sync_to_the_lamellae(
         )
         assert e["before"]["parameters"]["sync_to_poi"] is True
         assert e["after"]["parameters"]["sync_to_poi"] is False
+
+
+# ── a correlation ────────────────────────────────────────────────────────────
+
+_FIB_PIXEL_SIZE = 20e-9
+
+
+def _correlation_result(poi):
+    """A result as the correlation dialog hands it back: seeded, with the
+    refractive-index correction applied before the fit."""
+    from fibsem.correlation.structures import (
+        CorrelationInputData,
+        CorrelationPointOfInterest,
+        CorrelationResult,
+    )
+
+    return CorrelationResult(
+        poi=[CorrelationPointOfInterest(px_m=poi)],
+        rms_error=1.5,
+        delta_2d=[Point(0.5, -0.5)] * 4,
+        input_data=CorrelationInputData(stored_fib_image_pixel_size=_FIB_PIXEL_SIZE),
+        refractive_index_correction_mode="pre",
+        refractive_index_correction_factor=1.3,
+        seed={"rotation": [0.0, 0.0, 0.0]},
+        diagnostics={
+            "rms_um": 0.03,
+            "pairs": [],
+            "mirror_ratio": 10.0,
+            "depth_span_um": 5.0,
+            "scale_ratio": 1.0,
+            "n_pairs": 4,
+            "n_accepted": 4,  # every fiducial a prediction accepted: "check"
+        },
+    )
+
+
+def _accept_correlation(editor, monkeypatch, result):
+    """Open the editor's correlation dialog and accept *result*; returns the
+    run folder the dialog was given."""
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
+
+    given = {}
+
+    class _Dialog:
+        def __init__(self, parent=None):
+            self.correlation_config = None
+            self.result = result
+
+        def set_project_dir(self, path):
+            given["folder"] = path
+
+        def set_correlation_config(self, config):
+            self.correlation_config = config
+
+        def set_fib_image(self, image):
+            pass
+
+        def set_fm_image(self, image):
+            pass
+
+        def add_lamella_setup(self, **kwargs):
+            return SimpleNamespace(emit_current_seed=lambda: None)
+
+        def set_prior_runs(self, runs):
+            pass
+
+        def exec_(self):
+            return lamella_editor_module.QDialog.Accepted
+
+    monkeypatch.setattr(ctw, "CorrelationTabDialog", _Dialog)
+    editor._open_correlation_dialog()
+    return given["folder"]
+
+
+def test_an_accepted_correlation_is_recorded_with_the_point_it_moved(
+    window, editor, experiment, tmp_path, monkeypatch
+):
+    recorder = EventRecorder(
+        window.autolamella_ui.microscope,
+        experiment_path=tmp_path,
+        default_actor=OPERATOR,
+    )
+    lamella = experiment.positions[0]
+    try:
+        folder = _accept_correlation(
+            editor, monkeypatch, _correlation_result(Point(x=2e-6, y=-3e-6))
+        )
+        editor.flush_pending_save()
+        events = recorder.buffer.events_since(0)["events"]
+    finally:
+        recorder.close()
+
+    assert (lamella.poi.x, lamella.poi.y) == (2e-6, -3e-6)
+    kinds = [e["kind"] for e in events]
+    assert kinds.count("correlation") == 1
+    correlation = events[kinds.index("correlation")]
+    assert correlation["actor"] == "operator"
+    payload = correlation["payload"]
+    assert payload["item"] == {"id": lamella.id, "name": lamella.name}
+    assert (payload["poi"]["x"], payload["poi"]["y"]) == (2e-6, -3e-6)
+    assert payload["rms_px"] == 1.5
+    assert payload["rms_nm"] == pytest.approx(1.5 * _FIB_PIXEL_SIZE * 1e9)
+    assert payload["fiducials"] == 4
+    assert payload["refractive_index"] == {"mode": "pre", "factor": 1.3}
+    assert (payload["verdict"], payload["seeded"]) == ("check", True)
+    assert payload["folder"] == os.path.relpath(folder, str(experiment.path))
+    assert payload["folder"].startswith(os.path.join(lamella.name, "Correlation"))
+
+    # The point it moved, and the patterns that followed, say where they came from.
+    edits = [e for e in events if e["kind"] == "edit"]
+    assert {e["payload"]["target"] for e in edits} >= {"poi", f"milling.{KEY}"}
+    assert {e["payload"]["via"] for e in edits} == {"correlation"}
+    assert all(events.index(e) > events.index(correlation) for e in edits)
+
+
+def test_a_correlation_that_cannot_be_recorded_is_still_applied(
+    editor, experiment, edits, monkeypatch
+):
+    def _broken(*args, **kwargs):
+        raise RuntimeError("cannot describe it")
+
+    monkeypatch.setattr(lamella_editor_module, "correlation_record", _broken)
+    lamella = experiment.positions[0]
+
+    _accept_correlation(editor, monkeypatch, _correlation_result(Point(x=1e-6, y=1e-6)))
+
+    assert (lamella.poi.x, lamella.poi.y) == (1e-6, 1e-6)
+    editor.flush_pending_save()
+    assert "poi" in {e["payload"]["target"] for e in edits()}
 
 
 # ── the agent ────────────────────────────────────────────────────────────────
