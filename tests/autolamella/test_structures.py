@@ -676,6 +676,36 @@ def test_milling_imaging_paths_follow_a_copied_experiment(tmp_path):
         assert str(src) not in str(path)
 
 
+def _milling_image_paths(lamella) -> List[Path]:
+    return [
+        Path(mtc.acquisition.imaging.path)
+        for tc in lamella.task_config.values()
+        for mtc in tc.milling.values()
+    ]
+
+
+def test_an_applied_config_saves_its_milling_images_to_its_own_lamella(tmp_path):
+    """Applying another lamella's config, or the protocol's, copies its milling
+    configs whole, image folder included. A mill that does not set the folder
+    itself (the undercut) then saved into the source lamella's folder or, from
+    the protocol, outside the experiment -- until the experiment was reloaded."""
+    exp = Experiment(path=tmp_path, name="exp")
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    Path(exp.path).mkdir(parents=True, exist_ok=True)
+    exp.task_protocol.task_config["basic"] = _make_task_config()
+    for _ in range(3):
+        exp.add_new_lamella(MicroscopeState(), exp.task_protocol.task_config)
+    source, applied, synced = exp.positions
+
+    exp.apply_lamella_config([applied.name], ["basic"], source.name)  # apply to other
+    exp.apply_lamella_config([synced.name], ["basic"])  # sync from the protocol
+
+    for lamella in exp.positions:
+        paths = _milling_image_paths(lamella)
+        assert paths, "expected the lamella to carry a milling task config"
+        assert all(path == Path(lamella.path) for path in paths), lamella.name
+
+
 # ── Reading an experiment does not write to disk (FIB-420) ───────────────────
 
 
