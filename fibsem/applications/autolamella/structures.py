@@ -40,11 +40,12 @@ from fibsem.applications.autolamella.proposals import (
     ValueRefused,
     _quietly,
     auto_author,
+    current_proposal,
     human_author,
     prepare_values,
     proposals_from_dict,
     proposals_to_dict,
-    supersede,
+    record,
 )
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
@@ -1237,10 +1238,13 @@ class Lamella:
     # back-reference only; grid -> lamella is derived by filtering on it.
     grid_id: Optional[str] = None
     # What tasks proposed for this lamella and what was decided, keyed by the
-    # producing task's name. A proposal with no decisions is pending; the
-    # consumer that requires that task is deferred until one is appended. See
-    # proposals.py and Experiment.decide.
-    proposals: Dict[str, Proposal] = field(default_factory=dict)
+    # producing task's name: every proposal that task made, oldest first (a
+    # question asked mid-run, then the run's result; a re-run after them).
+    # The last one is the current one; ``proposal()`` returns it. A current
+    # proposal with no decisions is pending; the consumer that requires that
+    # task is deferred until one is appended. See proposals.py and
+    # Experiment.decide.
+    proposals: Dict[str, List[Proposal]] = field(default_factory=dict)
 
     def __post_init__(self):
         # Deliberately does not create ``path``. Constructing a Lamella is not a
@@ -1331,6 +1335,17 @@ class Lamella:
     def is_awaiting_decision(self, task_name: str) -> bool:
         """Whether the latest run of ``task_name`` ended waiting on a decision."""
         return _is_awaiting_decision(self.task_history, task_name)
+
+    def proposal(
+        self, task_name: str, kind: Optional[str] = None
+    ) -> Optional[Proposal]:
+        """The current proposal from ``task_name``: the last one it made, or
+        the last of ``kind``. None when it never proposed."""
+        return current_proposal(self.proposals.get(task_name), kind)
+
+    def record_proposal(self, task_name: str, proposal: Proposal) -> Proposal:
+        """Put ``proposal`` on the record as the current one from ``task_name``."""
+        return record(self.proposals.setdefault(task_name, []), proposal)
 
     def latest_run_completed(self, task_name: str) -> bool:
         """Whether the latest run of ``task_name`` completed: what a task that
@@ -1648,7 +1663,7 @@ class GridRecord:
     created_at: float = field(
         default_factory=lambda: datetime.timestamp(datetime.now())
     )
-    proposals: Dict[str, Proposal] = field(default_factory=dict)  # as on Lamella
+    proposals: Dict[str, List[Proposal]] = field(default_factory=dict)  # as on Lamella
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -1663,6 +1678,17 @@ class GridRecord:
     def is_awaiting_decision(self, task_name: str) -> bool:
         """Whether the latest run of ``task_name`` ended waiting on a decision."""
         return _is_awaiting_decision(self.task_history, task_name)
+
+    def proposal(
+        self, task_name: str, kind: Optional[str] = None
+    ) -> Optional[Proposal]:
+        """The current proposal from ``task_name``: the last one it made, or
+        the last of ``kind``. None when it never proposed."""
+        return current_proposal(self.proposals.get(task_name), kind)
+
+    def record_proposal(self, task_name: str, proposal: Proposal) -> Proposal:
+        """Put ``proposal`` on the record as the current one from ``task_name``."""
+        return record(self.proposals.setdefault(task_name, []), proposal)
 
     def latest_run_completed(self, task_name: str) -> bool:
         """Whether the latest run of ``task_name`` completed; see Lamella's."""
@@ -1972,7 +1998,7 @@ class Experiment:
                 return DecisionResult(
                     applied=False, reason=f"No item with id {item_id!r}."
                 )
-            proposal = item.proposals.get(task_name)
+            proposal = item.proposal(task_name)
             if proposal is None:
                 return DecisionResult(
                     applied=False,
@@ -2227,13 +2253,10 @@ class Experiment:
             item = self.get_item_by_id(item_id)
             if item is None:
                 return False
-            # Same rule as a task's own proposal: a decided one is kept on the
-            # record under the new question, a pending one is replaced -- it
+            # Same rule as a task's own proposal: a decided one stays on the
+            # record before the new question, a pending one is replaced -- it
             # was never answered, so there is nothing to keep.
-            previous = item.proposals.get(task_name)
-            if previous is not None and previous.pending:
-                previous = None
-            item.proposals[task_name] = supersede(previous, proposal)
+            item.record_proposal(task_name, proposal)
             proposal.asking = True
         try:
             _emit_on_main_thread(self.asked, item_id, task_name)
@@ -2271,7 +2294,7 @@ class Experiment:
                 return DecisionResult(
                     applied=False, reason=f"No item with id {item_id!r}."
                 )
-            proposal = item.proposals.get(task_name)
+            proposal = item.proposal(task_name)
             if proposal is None:
                 return DecisionResult(
                     applied=False,
@@ -2316,8 +2339,9 @@ class Experiment:
         never stored, so it is the same list from the GUI and the server."""
         pending = []
         for item in list(self.positions) + list(self.grids):
-            for task_name, proposal in item.proposals.items():
-                if proposal.pending:
+            for task_name, proposals in item.proposals.items():
+                proposal = current_proposal(proposals)
+                if proposal is not None and proposal.pending:
                     pending.append((item, task_name, proposal))
         return pending
 
@@ -2328,8 +2352,9 @@ class Experiment:
         has looked at: the inbox's second group. Derived like the first."""
         to_check = []
         for item in list(self.positions) + list(self.grids):
-            for task_name, proposal in item.proposals.items():
-                if proposal.to_check:
+            for task_name, proposals in item.proposals.items():
+                proposal = current_proposal(proposals)
+                if proposal is not None and proposal.to_check:
                     to_check.append((item, task_name, proposal))
         return to_check
 

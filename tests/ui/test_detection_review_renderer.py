@@ -73,21 +73,23 @@ def experiment(tmp_path) -> Experiment:
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
     lamella.task_state.status = AutoLamellaTaskStatus.InProgress
-    lamella.proposals[TASK] = Proposal(
-        kind=DETECTION,
-        values={
-            "features": [
-                {"name": "LamellaCentre", "px": Point(256.0, 256.0)},
-                {"name": "ImageCentre", "px": Point(100.0, 120.0)},
-            ]
-        },
-        provenance={
-            "task_id": RUN,
-            "proposer": "ConfirmDetection",
-            "reference_image": ref + ".tif",
-            "in_run": True,
-        },
-    )
+    lamella.proposals[TASK] = [
+        Proposal(
+            kind=DETECTION,
+            values={
+                "features": [
+                    {"name": "LamellaCentre", "px": Point(256.0, 256.0)},
+                    {"name": "ImageCentre", "px": Point(100.0, 120.0)},
+                ]
+            },
+            provenance={
+                "task_id": RUN,
+                "proposer": "ConfirmDetection",
+                "reference_image": ref + ".tif",
+                "in_run": True,
+            },
+        )
+    ]
     return exp
 
 
@@ -102,7 +104,7 @@ def _renderer(tab):
     renderer = tab._renderer_for(DETECTION)
     experiment = tab._experiment
     lamella = experiment.positions[0]
-    renderer.set_proposal(experiment, lamella, TASK, lamella.proposals[TASK])
+    renderer.set_proposal(experiment, lamella, TASK, lamella.proposal(TASK))
     return renderer
 
 
@@ -216,10 +218,10 @@ def test_a_question_with_no_image_on_disk_still_reads(tab, experiment):
     was saved depends on the task's settings -- so the panel has to hold up
     without one."""
     lamella = experiment.positions[0]
-    lamella.proposals[TASK].provenance["reference_image"] = ""
+    lamella.proposal(TASK).provenance["reference_image"] = ""
     renderer = tab._renderer_for(DETECTION)
 
-    renderer.set_proposal(experiment, lamella, TASK, lamella.proposals[TASK])
+    renderer.set_proposal(experiment, lamella, TASK, lamella.proposal(TASK))
 
     # isHidden rather than isVisible: the renderer has no shown parent here,
     # which makes every child report itself invisible whatever it was set to.
@@ -235,7 +237,7 @@ def test_a_question_with_no_image_on_disk_still_reads(tab, experiment):
 def test_a_question_the_run_is_parked_on_gets_its_own_group(tab, experiment):
     """Everything under Waiting can be left for later. This one cannot: the
     task is stopped until it is answered."""
-    experiment.positions[0].proposals[TASK].asking = True
+    experiment.positions[0].proposal(TASK).asking = True
 
     tab.refresh()
     headers = [h.label.text() for h in tab._headers]
@@ -245,7 +247,7 @@ def test_a_question_the_run_is_parked_on_gets_its_own_group(tab, experiment):
 
 
 def test_it_goes_back_under_waiting_once_nothing_is_parked_on_it(tab, experiment):
-    experiment.positions[0].proposals[TASK].asking = False
+    experiment.positions[0].proposal(TASK).asking = False
 
     tab.refresh()
     headers = [h.label.text() for h in tab._headers]
@@ -257,11 +259,11 @@ def test_it_goes_back_under_waiting_once_nothing_is_parked_on_it(tab, experiment
 def test_the_badge_counts_it_like_any_other_pending_proposal(tab, experiment):
     """Being held is about urgency, not about whether it is pending -- the
     count of what is undecided must not change when it moves group."""
-    experiment.positions[0].proposals[TASK].asking = True
+    experiment.positions[0].proposal(TASK).asking = True
     tab.refresh()
     held = tab._pending
 
-    experiment.positions[0].proposals[TASK].asking = False
+    experiment.positions[0].proposal(TASK).asking = False
     tab.refresh()
 
     assert held == tab._pending == 1
@@ -271,7 +273,7 @@ def test_the_line_says_the_task_is_parked_rather_than_nothing_is_held(tab, exper
     """ "nothing is held" is true of the requires edges and false of the run:
     the task itself is stopped, waiting to be told."""
     lamella = experiment.positions[0]
-    lamella.proposals[TASK].asking = True
+    lamella.proposal(TASK).asking = True
     renderer = _renderer(tab)
 
     line = renderer.line.text()

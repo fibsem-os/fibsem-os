@@ -57,7 +57,8 @@ __all__ = [
     "register_proposal_kind",
     "PreparedWrite",
     "prepare_values",
-    "supersede",
+    "record",
+    "current_proposal",
     "ValueRefused",
 ]
 
@@ -657,13 +658,6 @@ class Proposal:
     created_at: float = field(
         default_factory=lambda: datetime.timestamp(datetime.now())
     )
-    # Earlier proposals for the same item and task, oldest first, each with
-    # its decisions. A deliberate re-run of the producing task supersedes a
-    # decided proposal rather than keeping or overwriting it: the operator
-    # asked for a new answer on a new image, and the old answer -- and its
-    # delta -- stays on the record. The old value is not carried over as the
-    # new default; a stale default is the rubber stamp the delta detects.
-    superseded: List["Proposal"] = field(default_factory=list)
     # Whether the task that made this is parked on it right now, waiting to be
     # told the answer -- an in-run question rather than a result left for
     # later (FIB-1025). It is the one thing that lets a decision land on a
@@ -751,7 +745,6 @@ class Proposal:
             "provenance": dict(self.provenance),
             "decisions": [d.to_dict() for d in self.decisions],
             "created_at": self.created_at,
-            "superseded": [p.to_dict() for p in self.superseded],
             "id": self.id,
         }
 
@@ -767,7 +760,6 @@ class Proposal:
             provenance=dict(data.get("provenance", {})),
             decisions=[Decision.from_dict(d) for d in data.get("decisions", [])],
             created_at=data.get("created_at", 0.0),
-            superseded=[Proposal.from_dict(p) for p in data.get("superseded", [])],
             id=data.get("id") or _id_for_a_record_without_one(data),
         )
 
@@ -833,22 +825,51 @@ class TaskResultProposer:
         return Proposal(kind=self.kind)
 
 
-def supersede(old: Optional[Proposal], new: Proposal) -> Proposal:
-    """``new`` replaces ``old`` for the same item and task, keeping ``old`` and
-    everything before it on the record, oldest first, flat (no nesting)."""
-    if old is not None:
-        history = list(old.superseded)
-        old.superseded = []
-        new.superseded = history + [old]
-    return new
+def record(proposals: List[Proposal], proposal: Proposal) -> Proposal:
+    """Append ``proposal`` to an item's list for one task, and return it.
+
+    The list is the record of everything that task proposed on the item,
+    oldest first: a deliberate re-run leaves the old answer -- and its delta --
+    on the record and puts the new one after it; a question the task asked
+    mid-run sits before the run's own result. The old value is never carried
+    over as the new default; a stale default is the rubber stamp the delta
+    detects. A trailing proposal nobody answered is dropped first: it was
+    never decided, so there is nothing to keep, and two open proposals for one
+    task would be two questions where only one was ever asked.
+    """
+    if proposals and proposals[-1].pending:
+        proposals.pop()
+    proposals.append(proposal)
+    return proposal
 
 
-def proposals_to_dict(proposals: Dict[str, Proposal]) -> Dict[str, dict]:
-    return {name: p.to_dict() for name, p in proposals.items()}
+def current_proposal(
+    proposals: Optional[List[Proposal]], kind: Optional[str] = None
+) -> Optional[Proposal]:
+    """The proposal a decision, the gate and the inbox act on: the last one
+    for the task, or the last of ``kind``. Everything before it is what a
+    later proposal replaced, and is on the record for its decisions and its
+    delta only."""
+    if not proposals:
+        return None
+    if kind is None:
+        return proposals[-1]
+    for p in reversed(proposals):
+        if p.kind == kind:
+            return p
+    return None
 
 
-def proposals_from_dict(data: Optional[Dict[str, dict]]) -> Dict[str, Proposal]:
-    return {name: Proposal.from_dict(p) for name, p in (data or {}).items()}
+def proposals_to_dict(proposals: Dict[str, List[Proposal]]) -> Dict[str, list]:
+    return {name: [p.to_dict() for p in ps] for name, ps in proposals.items()}
+
+
+def proposals_from_dict(
+    data: Optional[Dict[str, list]],
+) -> Dict[str, List[Proposal]]:
+    return {
+        name: [Proposal.from_dict(p) for p in ps] for name, ps in (data or {}).items()
+    }
 
 
 @dataclass

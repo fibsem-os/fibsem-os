@@ -822,7 +822,7 @@ class QtResponder(QObject):
         if (item_id, task_name) != (asked_item, asked_task):
             return
         item = experiment.get_item_by_id(item_id)
-        proposal = item.proposals.get(task_name) if item is not None else None
+        proposal = item.proposal(task_name) if item is not None else None
         if proposal is None or proposal.id != asked_id:
             # A decision on this item and task, but not on the question that
             # is up: the pair is not what names a question, the proposal is.

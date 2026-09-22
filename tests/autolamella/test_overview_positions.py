@@ -74,7 +74,7 @@ def _proposal(values=None) -> Proposal:
 
 
 def _decide(experiment, grid, proposal, values, task_name=OVERVIEW):
-    grid.proposals[task_name] = proposal
+    grid.proposals[task_name] = [proposal]
     return experiment.decide(
         grid.id,
         task_name,
@@ -145,7 +145,7 @@ def test_confirming_with_nothing_placed_is_an_answer(microscope, experiment):
 
     assert result.applied
     assert len(experiment.positions) == before
-    assert grid.proposals[OVERVIEW].current.outcome is DecisionOutcome.Confirmed
+    assert grid.proposal(OVERVIEW).current.outcome is DecisionOutcome.Confirmed
 
 
 def test_the_lamellae_are_created_at_the_poses_in_the_value(microscope, experiment):
@@ -182,7 +182,7 @@ def test_a_value_that_is_not_a_position_is_refused_before_anything_is_made(
 
     assert not result.applied and result.error_type == "invalid_value"
     assert len(experiment.positions) == before, "the good one was not made either"
-    assert grid.proposals[OVERVIEW].pending, "and nothing was decided"
+    assert grid.proposal(OVERVIEW).pending, "and nothing was decided"
 
 
 def test_positions_must_be_a_list(microscope, experiment):
@@ -216,7 +216,7 @@ def test_a_failure_part_way_through_leaves_no_lamellae_and_no_decision(
 
     assert not result.applied
     assert len(experiment.positions) == before, "the first was undone"
-    assert grid.proposals[OVERVIEW].pending, "nothing was decided"
+    assert grid.proposal(OVERVIEW).pending, "nothing was decided"
 
 
 def test_a_confirm_without_a_protocol_is_refused_rather_than_crashing(

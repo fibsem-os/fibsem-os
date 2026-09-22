@@ -114,7 +114,7 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
 
     task.run()
 
-    proposal = lamella.proposals[ROUGH]
+    proposal = lamella.proposal(ROUGH)
     assert proposal.kind == TASK_RESULT and proposal.pending
     assert proposal.values == {}
     p = proposal.provenance
@@ -132,7 +132,7 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
         Decision(
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
-            task_id=lamella.proposals[ROUGH].task_id,
+            task_id=lamella.proposal(ROUGH).task_id,
         ),
     )
     assert result.applied and result.synced_tasks == []
@@ -156,7 +156,7 @@ def test_the_result_images_mapping_decides_which_roles_the_proposal_points_at(
 
     task.run()
 
-    p = lamella.proposals[ROUGH].provenance
+    p = lamella.proposal(ROUGH).provenance
     assert p["reference_image"] == "tight.tif", "the last file under the role"
     assert "reference_image_eb" not in p, "only the keys the mapping names"
 
@@ -172,7 +172,7 @@ def test_a_failed_task_records_its_result_with_the_failure(microscope, tmp_path)
     with pytest.raises(RuntimeError):
         task.run()
 
-    proposal = lamella.proposals[ROUGH]
+    proposal = lamella.proposal(ROUGH)
     assert proposal.kind == TASK_RESULT and proposal.pending
     assert proposal.provenance["status"] == "Failed"
     assert proposal.provenance["failure"] == "stage timeout"
@@ -187,7 +187,7 @@ def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_pa
 
     task.run()
 
-    proposal = lamella.proposals[ROUGH]
+    proposal = lamella.proposal(ROUGH)
     assert proposal.kind == TASK_RESULT
     assert proposal.to_check and str(proposal.current.author) == f"auto:{ROUGH}"
     assert task.task_manager._defer_reason(lamella, POLISH) is None
@@ -201,7 +201,7 @@ def test_without_the_flag_the_result_is_recorded_but_never_gates(microscope, tmp
     task.task_manager.review_enabled = False
     task.run()
     lamella = exp.positions[0]
-    proposal = lamella.proposals[ROUGH]
+    proposal = lamella.proposal(ROUGH)
     assert proposal.kind == TASK_RESULT and not proposal.pending
     assert str(proposal.current.author) == f"auto:{ROUGH}"
     assert task.task_manager._defer_reason(lamella, POLISH) is None
@@ -269,7 +269,7 @@ def test_a_swapped_proposer_records_its_kind_and_the_base_fills_the_result(
         task.run()
     finally:
         type(task).proposer = TaskResultProposer()
-    proposal = lamella.proposals[ROUGH]
+    proposal = lamella.proposal(ROUGH)
     assert proposal.kind == POINT_OF_INTEREST
     assert proposal.values == {"poi": Point(1e-6, 2e-6)} and proposal.confidence == 0.5
     p = proposal.provenance
@@ -326,9 +326,9 @@ def test_a_question_answered_during_the_run_is_not_logged_as_a_rerun(
     with caplog.at_level("INFO"):
         _task(microscope, exp, body=ask_and_be_answered).run()
 
-    result = lamella.proposals[ROUGH]
+    result = lamella.proposal(ROUGH)
     assert result.kind == TASK_RESULT and result.pending
-    assert result.superseded == [asked["question"]], "the answer is kept"
+    assert lamella.proposals[ROUGH] == [asked["question"], result], "the answer is kept"
     assert "asked a question during this run" in caplog.text
     assert "re-run" not in caplog.text
 
@@ -343,13 +343,13 @@ def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
         Decision(
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
-            task_id=lamella.proposals[ROUGH].task_id,
+            task_id=lamella.proposal(ROUGH).task_id,
         ),
     )
-    decided = lamella.proposals[ROUGH]
+    decided = lamella.proposal(ROUGH)
 
     _task(microscope, exp).run()
 
-    fresh = lamella.proposals[ROUGH]
+    fresh = lamella.proposal(ROUGH)
     assert fresh is not decided and fresh.pending
-    assert fresh.superseded == [decided]
+    assert lamella.proposals[ROUGH] == [decided, fresh]

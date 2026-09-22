@@ -185,7 +185,7 @@ class TestAGridTaskProposes:
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
-        proposal = grid.proposals[OVERVIEW]
+        proposal = grid.proposal(OVERVIEW)
         assert proposal.kind == OVERVIEW_POSITIONS
         assert not proposal.pending
         assert proposal.decisions[-1].author.kind is AuthorKind.automated
@@ -196,7 +196,7 @@ class TestAGridTaskProposes:
         _run(microscope, experiment, review_enabled=False)
         grid = experiment.get_grid_by_name(GRID)
 
-        reference = grid.proposals[OVERVIEW].provenance["reference_image"]
+        reference = grid.proposal(OVERVIEW).provenance["reference_image"]
         overview = latest_grid_output(experiment, grid, OVERVIEW)
         assert reference.endswith(".tif") and "thumbnail" not in reference
         path = Path(experiment.item_path(grid)) / reference
@@ -214,9 +214,9 @@ class TestAGridTaskProposes:
 
         assert grid.is_awaiting_decision(OVERVIEW)
         assert grid.task_state.status is AutoLamellaTaskStatus.AwaitingDecision
-        assert grid.proposals[OVERVIEW].pending
+        assert grid.proposal(OVERVIEW).pending
         assert not grid.has_completed_task(OVERVIEW)
-        assert grid.proposals[OVERVIEW].task_id == grid.task_history[-1].task_id
+        assert grid.proposal(OVERVIEW).task_id == grid.task_history[-1].task_id
 
         result = experiment.decide(
             grid.id,
@@ -225,7 +225,7 @@ class TestAGridTaskProposes:
                 outcome=DecisionOutcome.Confirmed,
                 author="human:op",
                 values={"positions": []},
-                task_id=grid.proposals[OVERVIEW].task_id,
+                task_id=grid.proposal(OVERVIEW).task_id,
             ),
         )
         assert result.applied is True
@@ -241,7 +241,7 @@ class TestAGridTaskProposes:
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
-        assert not grid.proposals[OVERVIEW].pending
+        assert not grid.proposal(OVERVIEW).pending
 
     def test_a_failed_task_proposes_its_failure_and_stays_failed(
         self, microscope, experiment
@@ -257,7 +257,7 @@ class TestAGridTaskProposes:
         _run(microscope, experiment, review_enabled=True)
 
         assert grid.task_history[-1].status is AutoLamellaTaskStatus.Failed
-        proposal = grid.proposals[OVERVIEW]
+        proposal = grid.proposal(OVERVIEW)
         assert proposal.provenance["failure"]
         assert proposal.provenance["reference_image"] == ""
         assert not grid.is_awaiting_decision(OVERVIEW), "a failure does not wait"
@@ -322,7 +322,7 @@ def _decide_when(experiment, grid_name, ready, outcome, reason=""):
                 values={"positions": []}
                 if outcome is DecisionOutcome.Confirmed
                 else {},
-                task_id=grid.proposals[OVERVIEW].task_id,
+                task_id=grid.proposal(OVERVIEW).task_id,
             ),
         )
 
@@ -469,7 +469,7 @@ class TestTheGridRunWaitsOnADecision:
 
         assert len(_ran(grid, OVERVIEW)) == runs, "not re-run over the pending look"
         assert not again.queue.has_pending_pair(GRID, OVERVIEW)
-        assert grid.proposals[OVERVIEW].pending
+        assert grid.proposal(OVERVIEW).pending
 
     def test_review_on_a_task_nothing_requires_holds_nothing(
         self, microscope, experiment

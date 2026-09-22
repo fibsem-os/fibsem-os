@@ -62,7 +62,7 @@ def _proposal(lamella, task_name=TASK, task_id="run-1", kind=POINT_OF_INTEREST):
         values={"poi": Point(0.0, 0.0)} if kind is POINT_OF_INTEREST else {},
         provenance={"task_id": task_id, "proposer": "detection"},
     )
-    lamella.proposals[task_name] = proposal
+    lamella.proposals[task_name] = [proposal]
     return proposal
 
 

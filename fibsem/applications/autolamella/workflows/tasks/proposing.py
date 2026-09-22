@@ -22,7 +22,6 @@ from fibsem.applications.autolamella.proposals import (
     Proposer,
     TaskResultProposer,
     auto_author,
-    supersede,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
@@ -87,24 +86,24 @@ def propose(
         "failure": failure,
         **proposal.provenance,
     }
-    decided = item.proposals.get(task.task_name)
+    decided = item.proposal(task.task_name)
     if decided is not None and decided.pending:
-        decided = None  # replaced, not superseded
+        decided = None  # replaced, not kept
     if decided is not None and decided.task_id == state.task_id:
         # Not a re-run: a question this same run asked and had answered
-        # (FIB-1025). It shares the slot with the run's own result, so it goes
-        # under it like anything else the slot held -- but saying "re-run"
-        # here would put a run in the log that never happened.
+        # (FIB-1025). It stays on the record before the run's own result --
+        # but saying "re-run" here would put a run in the log that never
+        # happened.
         logging.info(
             f"{item.name}: {task.task_name} asked a question during this run; "
-            "its answer is kept under the run's result."
+            "its answer is on the record before the run's result."
         )
     elif decided is not None:
         logging.info(
             f"{item.name}: {task.task_name} re-run; the decided "
-            "proposal is superseded and a new one is pending."
+            "proposal stays on the record and a new one is pending."
         )
-    item.proposals[task.task_name] = supersede(decided, proposal)
+    item.record_proposal(task.task_name, proposal)
     logging.info(
         {
             "msg": "proposal_recorded",

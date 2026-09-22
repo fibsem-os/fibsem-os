@@ -112,8 +112,13 @@ def test_a_decision_records_where_it_was_made():
     assert Decision.from_dict({"outcome": "Confirmed", "author": "human:a"}).via == ""
 
 
-def test_a_superseded_proposal_stays_on_the_record_flat_and_oldest_first():
-    from fibsem.applications.autolamella.proposals import supersede
+def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
+    from fibsem.applications.autolamella.proposals import (
+        current_proposal,
+        proposals_from_dict,
+        proposals_to_dict,
+        record,
+    )
 
     first = _proposal(Point(1e-6, 0))
     first.decisions.append(
@@ -124,18 +129,42 @@ def test_a_superseded_proposal_stays_on_the_record_flat_and_oldest_first():
             values={"poi": Point(2e-6, 0)},
         )
     )
-    second = supersede(first, _proposal(Point(0, 0)))
-    third = supersede(second, _proposal(Point(0, 1e-6)))
-    assert third.pending
-    assert [p.values["poi"] for p in third.superseded] == [
+    proposals = []
+    record(proposals, first)
+    second = record(proposals, _proposal(Point(0, 0)))
+    second.decisions.append(
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Rejected,
+            author="human:op",
+            reason="no",
+        )
+    )
+    third = record(proposals, _proposal(Point(0, 1e-6)))
+    assert current_proposal(proposals) is third and third.pending
+    assert [p.values["poi"] for p in proposals] == [
         Point(1e-6, 0),
         Point(0, 0),
+        Point(0, 1e-6),
     ], "oldest first, flat"
-    assert third.superseded[0].current.values["poi"] == Point(2e-6, 0)
-    assert second.superseded == [], "moved, not nested"
-    again = Proposal.from_dict(yaml.safe_load(yaml.safe_dump(third.to_dict())))
-    assert len(again.superseded) == 2
-    assert again.superseded[0].delta()["poi"].x == pytest.approx(1e-6)
+    assert proposals[0].current.values["poi"] == Point(2e-6, 0)
+    again = proposals_from_dict(
+        yaml.safe_load(yaml.safe_dump(proposals_to_dict({"t": proposals})))
+    )["t"]
+    assert len(again) == 3
+    assert again[0].delta()["poi"].x == pytest.approx(1e-6)
+    assert [p.id for p in again] == [p.id for p in proposals]
+
+
+def test_recording_over_an_unanswered_proposal_replaces_it():
+    """Nobody answered it, so there is nothing to keep; two open proposals
+    for one task would be two questions where one was asked."""
+    from fibsem.applications.autolamella.proposals import record
+
+    proposals = []
+    record(proposals, _proposal(Point(1e-6, 0)))
+    latest = record(proposals, _proposal(Point(0, 0)))
+    assert proposals == [latest]
 
 
 def test_delta_is_computed_from_proposed_and_confirmed_never_declared():
@@ -218,17 +247,17 @@ def test_kinds_declare_their_values_in_code():
 def test_items_persist_their_proposals(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = _proposal()
+    lamella.proposals[SETUP] = [_proposal()]
     grid = exp.add_grid(GridRecord(name="Grid-01"))
-    grid.proposals["overview"] = Proposal(
-        kind="site_pick", values={"n": 3}, provenance={"task_id": RUN}
-    )
+    grid.proposals["overview"] = [
+        Proposal(kind="site_pick", values={"n": 3}, provenance={"task_id": RUN})
+    ]
     exp.save()
 
     again = Experiment.load(Path(exp.path) / "experiment.yaml")
-    assert again.positions[0].proposals[SETUP].values["poi"] == Point(1e-6, 2e-6)
-    assert again.positions[0].proposals[SETUP].pending
-    assert again.grids[0].proposals["overview"].values == {"n": 3}
+    assert again.positions[0].proposal(SETUP).values["poi"] == Point(1e-6, 2e-6)
+    assert again.positions[0].proposal(SETUP).pending
+    assert again.grids[0].proposal("overview").values == {"n": 3}
     assert [(item.name, name) for item, name, _p in again.pending_proposals()] == [
         (again.positions[0].name, SETUP),
         ("Grid-01", "overview"),
@@ -250,7 +279,7 @@ def test_old_experiments_load_with_no_proposals(tmp_path):
 def test_confirm_writes_the_value_through_and_syncs_patterns(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = _proposal(Point(0.0, 0.0))
+    lamella.proposals[SETUP] = [_proposal(Point(0.0, 0.0))]
     rough_point_before = (
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
     )
@@ -277,10 +306,10 @@ def test_confirm_writes_the_value_through_and_syncs_patterns(tmp_path):
     )
     assert rough_point_after.x == pytest.approx(rough_point_before.x + 2e-6)
     assert rough_point_after.y == pytest.approx(rough_point_before.y - 1e-6)
-    assert lamella.proposals[SETUP].values["poi"] == Point(0.0, 0.0), (
+    assert lamella.proposal(SETUP).values["poi"] == Point(0.0, 0.0), (
         "confirming must not overwrite the proposal"
     )
-    assert not lamella.proposals[SETUP].pending
+    assert not lamella.proposal(SETUP).pending
     assert heard == [(lamella.id, SETUP)]
     assert not lamella.is_failure
 
@@ -294,7 +323,7 @@ def test_a_decision_finishes_a_task_that_was_awaiting_one(tmp_path):
         name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision
     )
     lamella.task_history.append(deepcopy(lamella.task_state))
-    lamella.proposals[SETUP] = _proposal()
+    lamella.proposals[SETUP] = [_proposal()]
     assert lamella.is_awaiting_decision(SETUP) and not lamella.has_completed_task(SETUP)
 
     exp.decide(
@@ -319,7 +348,7 @@ def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
     lamella.task_history.append(
         AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
     )
-    lamella.proposals[SETUP] = _proposal()
+    lamella.proposals[SETUP] = [_proposal()]
 
     result = exp.decide(
         lamella.id,
@@ -349,7 +378,7 @@ def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):
     lamella.task_history.append(
         AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.Completed)
     )
-    lamella.proposals[SETUP] = _proposal()
+    lamella.proposals[SETUP] = [_proposal()]
 
     exp.decide(
         lamella.id,
@@ -363,16 +392,16 @@ def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):
     )
 
     assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Completed
-    assert not lamella.proposals[SETUP].pending
+    assert not lamella.proposal(SETUP).pending
 
 
 def test_reject_on_a_grid_proposal_creates_nothing_and_retires_nothing(tmp_path):
     exp = _experiment(tmp_path)
     register_proposal_kind(ProposalKind(name="site_pick", values=("sites",)))
     grid = exp.add_grid(GridRecord(name="Grid-01"))
-    grid.proposals["overview"] = Proposal(
-        kind="site_pick", values={"sites": []}, provenance={"task_id": RUN}
-    )
+    grid.proposals["overview"] = [
+        Proposal(kind="site_pick", values={"sites": []}, provenance={"task_id": RUN})
+    ]
 
     result = exp.decide(
         grid.id,
@@ -387,7 +416,7 @@ def test_reject_on_a_grid_proposal_creates_nothing_and_retires_nothing(tmp_path)
 
     assert result.applied is True
     assert grid.quality.verdict is Verdict.UNASSESSED
-    assert not grid.proposals["overview"].pending
+    assert not grid.proposal("overview").pending
     assert len(exp.positions) == 1
 
 
@@ -401,9 +430,9 @@ def _grid_awaiting(exp: Experiment, task_name: str = "Overview") -> GridRecord:
     state.task_id = "run-1"
     state.status = AutoLamellaTaskStatus.AwaitingDecision
     grid.task_history.append(deepcopy(state))
-    grid.proposals[task_name] = Proposal(
-        kind=TASK_RESULT, provenance={"task_id": state.task_id}
-    )
+    grid.proposals[task_name] = [
+        Proposal(kind=TASK_RESULT, provenance={"task_id": state.task_id})
+    ]
     return grid
 
 
@@ -417,7 +446,7 @@ def test_a_decision_finishes_a_grid_task_that_was_awaiting_one(tmp_path):
         grid.id,
         "Overview",
         Decision(
-            task_id=grid.proposals["Overview"].task_id,
+            task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={},
@@ -428,7 +457,7 @@ def test_a_decision_finishes_a_grid_task_that_was_awaiting_one(tmp_path):
     assert grid.has_completed_task("Overview")
     assert grid.task_state.status is AutoLamellaTaskStatus.Completed
     assert not grid.is_awaiting_decision("Overview")
-    assert not grid.proposals["Overview"].pending
+    assert not grid.proposal("Overview").pending
 
 
 def test_reject_fails_the_waiting_grid_task_and_leaves_its_quality_alone(tmp_path):
@@ -439,7 +468,7 @@ def test_reject_fails_the_waiting_grid_task_and_leaves_its_quality_alone(tmp_pat
         grid.id,
         "Overview",
         Decision(
-            task_id=grid.proposals["Overview"].task_id,
+            task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Rejected,
             author="human:op",
             reason="all ice",
@@ -464,7 +493,7 @@ def test_confirming_values_on_a_grid_is_refused_before_anything_is_written(tmp_p
         grid.id,
         "Overview",
         Decision(
-            task_id=grid.proposals["Overview"].task_id,
+            task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={"poi": Point(1e-6, 0)},
@@ -473,7 +502,7 @@ def test_confirming_values_on_a_grid_is_refused_before_anything_is_written(tmp_p
 
     assert result.applied is False
     assert "does not carry ['poi']" in result.reason
-    assert grid.proposals["Overview"].pending
+    assert grid.proposal("Overview").pending
     assert grid.is_awaiting_decision("Overview")
 
 
@@ -486,7 +515,7 @@ def test_a_decision_on_a_finished_grid_task_changes_only_the_record(tmp_path):
         grid.id,
         "Overview",
         Decision(
-            task_id=grid.proposals["Overview"].task_id,
+            task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Rejected,
             author="human:op",
             reason="meh",
@@ -494,7 +523,7 @@ def test_a_decision_on_a_finished_grid_task_changes_only_the_record(tmp_path):
     )
 
     assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
-    assert not grid.proposals["Overview"].pending
+    assert not grid.proposal("Overview").pending
 
 
 def test_a_grid_status_change_leaves_the_live_state_of_a_later_run_alone(tmp_path):
@@ -524,16 +553,16 @@ def test_a_repeated_grid_task_is_decided_on_its_latest_run_only(tmp_path):
     grid.task_state.task_id = "run-2"
     grid.task_state.status = AutoLamellaTaskStatus.AwaitingDecision
     grid.task_history.append(deepcopy(grid.task_state))
-    grid.proposals["Overview"] = Proposal(
-        kind=TASK_RESULT, provenance={"task_id": "run-2"}
-    )
+    grid.proposals["Overview"] = [
+        Proposal(kind=TASK_RESULT, provenance={"task_id": "run-2"})
+    ]
     assert grid.is_awaiting_decision("Overview")
 
     exp.decide(
         grid.id,
         "Overview",
         Decision(
-            task_id=grid.proposals["Overview"].task_id,
+            task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Confirmed,
             author="human:op",
             values={},
@@ -560,7 +589,7 @@ def test_an_earlier_run_awaiting_a_decision_does_not_make_a_later_one_wait(
         grid.id,
         "Overview",
         Decision(
-            task_id=grid.proposals["Overview"].task_id,
+            task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Rejected,
             author="human:op",
             reason="no",
@@ -573,14 +602,14 @@ def test_an_earlier_run_awaiting_a_decision_does_not_make_a_later_one_wait(
 def test_reject_needs_a_reason(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = _proposal()
+    lamella.proposals[SETUP] = [_proposal()]
     result = exp.decide(
         lamella.id,
         SETUP,
         Decision(task_id=RUN, outcome=DecisionOutcome.Rejected, author="human:op"),
     )
     assert result.applied is False
-    assert lamella.proposals[SETUP].pending
+    assert lamella.proposal(SETUP).pending
     assert not lamella.is_failure
 
 
@@ -589,7 +618,7 @@ def test_confirming_a_value_nothing_consumes_is_refused_before_anything_is_writt
 ):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = _proposal()
+    lamella.proposals[SETUP] = [_proposal()]
     result = exp.decide(
         lamella.id,
         SETUP,
@@ -601,7 +630,7 @@ def test_confirming_a_value_nothing_consumes_is_refused_before_anything_is_writt
         ),
     )
     assert result.applied is False and "does not carry ['n']" in result.reason
-    assert lamella.proposals[SETUP].pending, "no half-applied decision was left"
+    assert lamella.proposal(SETUP).pending, "no half-applied decision was left"
 
 
 # ── a refused decision changes nothing (FIB-1003) ────────────────────────────
@@ -617,7 +646,12 @@ def _snapshot(lamella):
             for milling in (config.milling or {}).values()
             for stage in milling.stages
         ],
-        [deepcopy(d) for p in lamella.proposals.values() for d in p.decisions],
+        [
+            deepcopy(d)
+            for ps in lamella.proposals.values()
+            for p in ps
+            for d in p.decisions
+        ],
         [(t.name, t.status, t.status_message) for t in lamella.task_history],
     )
 
@@ -629,7 +663,7 @@ def _awaiting(exp, kind_proposal, task_name=SETUP):
             name=task_name, status=AutoLamellaTaskStatus.AwaitingDecision
         )
     )
-    lamella.proposals[task_name] = kind_proposal
+    lamella.proposals[task_name] = [kind_proposal]
     return lamella
 
 
@@ -664,7 +698,7 @@ def test_a_wrongly_typed_value_is_refused_and_nothing_moves(tmp_path, value):
 
     assert result.applied is False and "poi must" in result.reason
     assert _snapshot(lamella) == before
-    assert lamella.proposals[SETUP].pending
+    assert lamella.proposal(SETUP).pending
     assert lamella.is_awaiting_decision(SETUP)
     assert heard == []
 
@@ -692,13 +726,13 @@ def test_a_value_the_proposals_kind_does_not_carry_is_refused(tmp_path):
     assert result.applied is False
     assert "task_result proposal does not carry ['poi']" in result.reason
     assert _snapshot(lamella) == before
-    assert lamella.proposals[ROUGH].pending
+    assert lamella.proposal(ROUGH).pending
 
 
 def test_an_item_that_cannot_take_the_value_is_refused(tmp_path):
     exp = _experiment(tmp_path)
     grid = exp.add_grid(GridRecord(name="Grid-01"))
-    grid.proposals["overview"] = _proposal()
+    grid.proposals["overview"] = [_proposal()]
 
     result = exp.decide(
         grid.id,
@@ -712,7 +746,7 @@ def test_an_item_that_cannot_take_the_value_is_refused(tmp_path):
     )
 
     assert result.applied is False and "has no poi" in result.reason
-    assert grid.proposals["overview"].pending
+    assert grid.proposal("overview").pending
     assert not hasattr(grid, "poi")
 
 
@@ -771,7 +805,7 @@ def test_a_subscriber_that_raises_on_the_poi_write_undoes_the_decision(tmp_path)
 
     assert result.applied is False and "a subscriber failed" in result.reason
     assert _snapshot(lamella) == before, "poi, patterns, record and task put back"
-    assert lamella.proposals[SETUP].pending
+    assert lamella.proposal(SETUP).pending
     assert lamella.is_awaiting_decision(SETUP)
     assert heard == []
 
@@ -796,7 +830,7 @@ def test_a_failure_moving_the_task_status_undoes_the_values_too(tmp_path):
 
     assert result.applied is False
     assert _snapshot(lamella) == before
-    assert lamella.proposals[SETUP].pending
+    assert lamella.proposal(SETUP).pending
 
 
 def test_a_decided_subscriber_that_raises_does_not_unmake_the_decision(tmp_path):
@@ -818,7 +852,7 @@ def test_a_decided_subscriber_that_raises_does_not_unmake_the_decision(tmp_path)
 
     assert result.applied is True
     assert lamella.poi == Point(2e-6, -1e-6)
-    assert not lamella.proposals[SETUP].pending
+    assert not lamella.proposal(SETUP).pending
     assert lamella.has_completed_task(SETUP)
 
 
@@ -862,8 +896,8 @@ def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
     lamella.task_history.append(
         AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.Completed)
     )
-    lamella.proposals[SETUP] = _proposal()
-    lamella.proposals[SETUP].decisions.append(
+    lamella.proposals[SETUP] = [_proposal()]
+    lamella.proposal(SETUP).decisions.append(
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
@@ -881,7 +915,7 @@ def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
     )
 
     assert result.applied is True and result.running is False
-    assert not lamella.proposals[SETUP].to_check, "the look is recorded"
+    assert not lamella.proposal(SETUP).to_check, "the look is recorded"
     assert _snapshot(lamella)[:2] == before[:2], "poi and patterns untouched"
 
 
@@ -927,7 +961,7 @@ def test_deciding_the_run_that_is_in_progress_is_still_refused(tmp_path):
 
     assert result.applied is False and result.running is True
     assert f"is running {SETUP}" in result.reason
-    assert lamella.proposals[SETUP].pending
+    assert lamella.proposal(SETUP).pending
 
 
 def test_a_rerun_of_the_same_task_does_not_block_looking_at_the_earlier_run(
@@ -961,7 +995,7 @@ def test_decide_refuses_a_value_written_under_any_running_task(tmp_path):
     """Values reach the item a running task is reading: that is a stop."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = _proposal()
+    lamella.proposals[SETUP] = [_proposal()]
     _running(lamella, ROUGH)
 
     result = exp.decide(
@@ -976,7 +1010,7 @@ def test_decide_refuses_a_value_written_under_any_running_task(tmp_path):
     )
     assert result.applied is False
     assert result.running is True
-    assert lamella.proposals[SETUP].pending
+    assert lamella.proposal(SETUP).pending
     assert lamella.poi == Point(0.0, 0.0)
 
 
@@ -986,7 +1020,7 @@ def test_decisions_append_and_the_latest_is_current(tmp_path):
     decision stays the first."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = _proposal(Point(0.0, 0.0))
+    lamella.proposals[SETUP] = [_proposal(Point(0.0, 0.0))]
     first = Decision(
         task_id=RUN,
         outcome=DecisionOutcome.Confirmed,
@@ -996,7 +1030,7 @@ def test_decisions_append_and_the_latest_is_current(tmp_path):
     second = Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:b")
     assert exp.decide(lamella.id, SETUP, first).applied
     assert exp.decide(lamella.id, SETUP, second).applied
-    proposal = lamella.proposals[SETUP]
+    proposal = lamella.proposal(SETUP)
     assert [str(d.author) for d in proposal.decisions] == ["human:a", "human:b"]
     assert proposal.current is second
     assert proposal.applied is first
@@ -1030,12 +1064,14 @@ def test_a_decision_on_a_run_the_task_has_since_replaced_is_refused(tmp_path):
     The decision on run-1 does not land on run-2."""
     exp = _experiment(tmp_path)
     lamella = _awaiting(exp, _proposal())
-    seen = lamella.proposals[SETUP]
-    lamella.proposals[SETUP] = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(7e-6, 0)},
-        provenance={"task_id": "run-2"},
-    )
+    seen = lamella.proposal(SETUP)
+    lamella.proposals[SETUP] = [
+        Proposal(
+            kind=POINT_OF_INTEREST,
+            values={"poi": Point(7e-6, 0)},
+            provenance={"task_id": "run-2"},
+        )
+    ]
     before = _snapshot(lamella)
 
     result = exp.decide(
@@ -1052,7 +1088,7 @@ def test_a_decision_on_a_run_the_task_has_since_replaced_is_refused(tmp_path):
     assert result.applied is False and result.error_type == "stale_review"
     assert "re-run since you looked" in result.reason
     assert _snapshot(lamella) == before
-    assert lamella.proposals[SETUP].pending
+    assert lamella.proposal(SETUP).pending
 
 
 def test_a_proposal_recorded_before_runs_were_named_cannot_be_decided(tmp_path):
@@ -1067,7 +1103,7 @@ def test_a_proposal_recorded_before_runs_were_named_cannot_be_decided(tmp_path):
 
     assert result.applied is False and result.error_type == "stale_review"
     assert "re-run it to decide it" in result.reason
-    assert lamella.proposals[ROUGH].pending
+    assert lamella.proposal(ROUGH).pending
 
 
 def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
@@ -1078,7 +1114,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
     lamella.task_history.append(
         AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.Completed)
     )
-    lamella.proposals[SETUP] = _proposal(Point(1e-6, 0))
+    lamella.proposals[SETUP] = [_proposal(Point(1e-6, 0))]
     assert exp.decide(
         lamella.id,
         SETUP,
@@ -1089,7 +1125,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
             values={"poi": Point(1e-6, 0)},
         ),
     ).applied
-    assert lamella.proposals[SETUP].to_check
+    assert lamella.proposal(SETUP).to_check
     before = _snapshot(lamella)
 
     result = exp.decide(
@@ -1106,7 +1142,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
     assert result.applied is False and result.error_type == "invalid_value"
     assert "already decided" in result.reason
     assert _snapshot(lamella) == before
-    assert lamella.proposals[SETUP].to_check, "the refused look is not a look"
+    assert lamella.proposal(SETUP).to_check, "the refused look is not a look"
 
 
 def test_an_empty_confirm_on_a_pending_proposal_with_values_is_refused(tmp_path):
@@ -1132,8 +1168,8 @@ def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
     applied decision is still the one whose values were written."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = _proposal(Point(0.0, 0.0))
-    proposal = lamella.proposals[SETUP]
+    lamella.proposals[SETUP] = [_proposal(Point(0.0, 0.0))]
+    proposal = lamella.proposal(SETUP)
     assert not proposal.to_check and proposal.applied is None, "pending, not applied"
     auto = Decision(
         task_id=RUN,
@@ -1174,7 +1210,7 @@ def test_decide_and_save_share_the_write_lock(tmp_path):
 
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = _proposal(Point(0.0, 0.0))
+    lamella.proposals[SETUP] = [_proposal(Point(0.0, 0.0))]
     order = []
     holding = threading.Event()
     release = threading.Event()

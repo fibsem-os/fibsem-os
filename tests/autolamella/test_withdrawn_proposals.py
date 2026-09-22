@@ -56,7 +56,7 @@ def _asked(experiment, values=None) -> Proposal:
         values=values if values is not None else {"poi": Point(0.0, 0.0)},
         provenance={"task_id": "run-1", "proposer": "detection"},
     )
-    lamella.proposals[TASK] = proposal
+    lamella.proposals[TASK] = [proposal]
     return proposal
 
 

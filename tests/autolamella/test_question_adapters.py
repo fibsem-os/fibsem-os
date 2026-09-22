@@ -160,7 +160,7 @@ def _pump(predicate, timeout_s=5.0) -> bool:
 def test_a_question_is_recorded_as_a_proposal(experiment):
     _, proposal = _record(experiment, _detection())
 
-    assert experiment.positions[0].proposals[TASK] is proposal
+    assert experiment.positions[0].proposal(TASK) is proposal
     assert proposal.kind == DETECTION
     assert proposal.values["features"] == [
         {"name": "LamellaCentre", "px": Point(10, 20)}
@@ -408,8 +408,8 @@ def test_recording_a_question_says_so(experiment):
 
 
 def test_an_answered_question_is_kept_when_the_next_one_is_asked(experiment):
-    """Same rule as a task's own proposal: a decided one is superseded, so its
-    answer and its delta stay on the record."""
+    """Same rule as a task's own proposal: a decided one stays on the record
+    before the next, so its answer and its delta are kept."""
     lamella = experiment.positions[0]
     _, first = _record(experiment, _detection())
     _confirm(experiment, Point(12, 26))
@@ -417,7 +417,8 @@ def test_an_answered_question_is_kept_when_the_next_one_is_asked(experiment):
 
     _, second = _record(experiment, _detection())
 
-    assert second.superseded == [first], "the answered one is still there"
+    assert lamella.proposals[TASK] == [first, second], "the answered one is still there"
+    assert lamella.proposal(TASK) is second
 
 
 def test_a_withdrawn_question_is_kept_when_the_next_one_is_asked(experiment):
@@ -430,7 +431,7 @@ def test_a_withdrawn_question_is_kept_when_the_next_one_is_asked(experiment):
 
     _, second = _record(experiment, _detection())
 
-    assert second.superseded == [first]
+    assert lamella.proposals[TASK] == [first, second]
 
 
 def test_a_question_left_open_is_replaced_rather_than_kept(experiment):
@@ -440,8 +441,8 @@ def test_a_question_left_open_is_replaced_rather_than_kept(experiment):
 
     _, second = _record(experiment, _detection(30, 40))
 
-    assert second.superseded == []
-    assert experiment.positions[0].proposals[TASK] is second
+    assert experiment.positions[0].proposals[TASK] == [second]
+    assert experiment.positions[0].proposal(TASK) is second
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +464,9 @@ def test_a_task_can_ask_twice_in_one_run(experiment):
     second_answer = answer_from(second_request, second.current.values)
     assert first_answer.features[0].px == Point(11, 21)
     assert second_answer.features[0].px == Point(31, 41)
-    assert second.superseded == [first], "the first is kept under the second"
+    assert experiment.positions[0].proposals[TASK] == [first, second], (
+        "the first is kept before the second"
+    )
 
 
 def test_only_the_open_question_is_in_the_inbox(experiment):
