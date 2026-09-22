@@ -821,6 +821,7 @@ class TescanMicroscope(FibsemMicroscope):
         dy: float,
         dx: float = 0.0,
         beam_type: BeamType = BeamType.ION,
+        relaxation: float = 1.0,
     ) -> FibsemStagePosition:
         """Restore the coincidence point from an offset measured in one beam view.
 
@@ -829,6 +830,8 @@ class TescanMicroscope(FibsemMicroscope):
             dx (float, optional): distance in x-axis (image coordinates)
             beam_type (BeamType, optional): the view the offset was measured in.
                 Defaults to ION.
+            relaxation (float, optional): accepted for interface compatibility with
+                the other backends; not applied on Tescan.
         """
         self._check_vertical_move_supported(beam_type)
         if beam_type is BeamType.ELECTRON:

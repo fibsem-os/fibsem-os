@@ -517,6 +517,23 @@ def test_the_fib_view_is_the_default():
     assert m_default._recorded_moves[0].is_close2(m_ion._recorded_moves[0], tol=1e-12)
 
 
+@pytest.mark.parametrize("beam_type", [BeamType.ION, BeamType.ELECTRON])
+def test_relaxation_is_accepted_but_not_applied(beam_type):
+    """The automated coincidence alignment passes relaxation to every backend.
+    Tescan must accept it rather than raise TypeError; it does not apply it."""
+    dx, dy = 1e-6, 10e-6
+
+    m_default = make_microscope(pretilt_deg=40.0, stage_position=stage_at(20.0))
+    m_default.vertical_move(dy=dy, dx=dx, beam_type=beam_type)
+
+    m_relaxed = make_microscope(pretilt_deg=40.0, stage_position=stage_at(20.0))
+    m_relaxed.vertical_move(dy=dy, dx=dx, beam_type=beam_type, relaxation=0.5)
+
+    (default,) = m_default._recorded_moves
+    (relaxed,) = m_relaxed._recorded_moves
+    assert relaxed.is_close2(default, tol=1e-12)
+
+
 def test_coincident_from_sem_explicit_values_flat():
     """At zero tilt: y = dy, z = dy*cot(55) -- NOT a plain lateral move even flat."""
     m = make_microscope(pretilt_deg=40.0, stage_position=stage_at(0.0))
