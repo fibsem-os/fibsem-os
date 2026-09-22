@@ -2168,7 +2168,13 @@ class Experiment:
                     else ()
                 )
                 missing = [n for n in carried if n not in decision.values]
-                if proposal.pending and missing:
+                # A question the task is parked on may be confirmed with no
+                # values at all: "as it stands". The task, which can read the
+                # instrument, fills the decision in once it is released
+                # (``fill_in_decision``), so nothing here has to be told what
+                # the values are to confirm them.
+                as_it_stands = proposal.asking and not decision.values
+                if proposal.pending and missing and not as_it_stands:
                     return DecisionResult(
                         applied=False,
                         error_type="invalid_value",
@@ -2324,6 +2330,37 @@ class Experiment:
                 "reason": reason,
             }
         )
+        try:
+            _emit_on_main_thread(self.decided, item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to decided raised for {task_name}")
+        return True
+
+    def fill_in_decision(
+        self, item_id: str, task_name: str, proposal_id: str, values: Dict[str, Any]
+    ) -> bool:
+        """Put ``values`` on a confirmation that carried none: what a task
+        read from the instrument once the operator said "as it stands"
+        (``AutoLamellaTask.ask`` with ``decided``). Written by the task on its
+        own thread, under the write lock; only the notification goes to the
+        GUI thread, as ``ask_proposal`` does. False when the proposal is not
+        current, is not confirmed, or already carries values."""
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return False
+            proposal = next(
+                (p for p in item.current_proposals(task_name) if p.id == proposal_id),
+                None,
+            )
+            decision = proposal.current if proposal is not None else None
+            if (
+                decision is None
+                or decision.outcome is not DecisionOutcome.Confirmed
+                or decision.values
+            ):
+                return False
+            decision.values = dict(values)
         try:
             _emit_on_main_thread(self.decided, item_id, task_name)
         except Exception:

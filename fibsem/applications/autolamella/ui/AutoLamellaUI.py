@@ -14,7 +14,7 @@ import os
 import threading
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -265,6 +265,10 @@ class AutoLamellaUI(QMainWindow):
         # gone: every workflow interaction is a typed request on its own future
         # (workflows/interaction.py).
         self.hold: Optional[Hold] = None
+        # A state question a task asked (``AutoLamellaTask.ask`` with the
+        # ``state`` kind), shown on the prompt bar: (item_id, task_name,
+        # proposal_id). Continue decides it; the decision takes it down.
+        self._state_question: Optional[Tuple[str, str, str]] = None
         # A run is active but nothing is executing -- today only during a
         # scheduled-start wait. Set from the worker thread, read by the border.
         self.WORKFLOW_PENDING: bool = False
@@ -2823,10 +2827,75 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_no.setEnabled(False)
 
         clicked_yes = bool(self.sender() == self.pushButton_yes)
-        # The pending question owns this click; with every interaction converted
-        # to the Responder there is no other path. A click with nothing pending
-        # (a stray double-click after the answer landed) means nothing.
-        self.ui_responder.answer_confirm(clicked_yes)
+        # The pending question owns this click. Otherwise a state question on
+        # the record may: its Continue is a decision, not an answer. A click
+        # with neither (a stray double-click after the answer landed) means
+        # nothing.
+        if self.ui_responder.answer_confirm(clicked_yes):
+            return
+        if clicked_yes:
+            self._decide_state_question()
+
+    # -- a state question, on the prompt bar ----------------------------------
+
+    def show_state_question(self, item_id: str, task_name: str, proposal) -> None:
+        """The prompt bar is the renderer for the ``state`` kind: the task's
+        message and one button. Continue records the operator's confirmation
+        through ``Experiment.decide``, the one write path; the task then reads
+        the instrument for the position as confirmed."""
+        from fibsem.applications.autolamella.workflows.tasks.status import (
+            WorkflowStatusEvent,
+        )
+
+        self._state_question = (item_id, task_name, proposal.id)
+        message = str(
+            proposal.provenance.get("message") or "Press Continue when ready."
+        )
+        self.set_instructions_msg(message, "Continue", None)
+        self.workflow_status_signal.emit(WorkflowStatusEvent())
+
+    def clear_state_question(self, item_id: str, task_name: str) -> None:
+        """A decision landed on the item and task; if it is the question up,
+        the prompt comes down (answered here, in the Review tab, by an agent,
+        or withdrawn)."""
+        shown = self._state_question
+        if shown is None or shown[:2] != (item_id, task_name):
+            return
+        from fibsem.applications.autolamella.workflows.tasks.status import (
+            WorkflowStatusEvent,
+        )
+
+        self._state_question = None
+        self.set_instructions_msg("")
+        self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
+
+    def _decide_state_question(self) -> None:
+        shown = self._state_question
+        experiment = self.experiment
+        if shown is None or experiment is None:
+            return
+        item_id, task_name, proposal_id = shown
+        from fibsem.applications.autolamella.proposals import (
+            Decision,
+            DecisionOutcome,
+        )
+
+        result = experiment.decide(
+            item_id,
+            task_name,
+            Decision(
+                outcome=DecisionOutcome.Confirmed,
+                author=experiment.author(),
+                via="workflow",
+                proposal_id=proposal_id,
+            ),
+        )
+        if not result.applied:
+            # Left up: the question is still open, and the reason is logged.
+            logging.warning(
+                f"{task_name}: could not confirm the state: {result.reason}"
+            )
+            self.pushButton_yes.setEnabled(True)
 
     def handle_acquisition_update(self, ddict: dict) -> None:
         if ddict.get("finished", False):

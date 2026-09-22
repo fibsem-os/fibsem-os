@@ -219,25 +219,33 @@ class BaseTaskManager:
             return ""
         return f"{self.stall_reason} Decide in the Review tab, then Run again."
 
-    def _set_hold(self, hold: Optional[Hold], note: Optional[str] = None) -> None:
+    def _set_hold(
+        self,
+        hold: Optional[Hold],
+        note: Optional[str] = None,
+        message: Optional[str] = "",
+    ) -> None:
         """Tell the window who holds the run (None: nobody), and poke the status
         channel so the chrome -- border, attention button, status bar --
         redraws from it, the way a pending question does. ``note`` is the
-        workflow line; by default, the parked-between-tasks one."""
+        workflow line; by default, the parked-between-tasks one. ``message``
+        is what is said about the prompt bar: "" takes a stale prompt down,
+        which a park between tasks wants; None says nothing about it, which
+        a hold on a question shown *on* that bar needs."""
         if self.parent_ui is not None:
             self.parent_ui.hold = hold
         if hold is not None:
             n = len(hold.items)
             update_status_ui(
                 self.parent_ui,
-                "",
+                message,
                 workflow_info=note
                 or f"Waiting on {n} decision(s) before the next task can run.",
                 status_bar=f"Parked on {n} decision(s): {hold.releases}.",
                 check_abort=False,
             )
         else:
-            update_status_ui(self.parent_ui, "", status_bar="", check_abort=False)
+            update_status_ui(self.parent_ui, message, status_bar="", check_abort=False)
 
     @contextmanager
     def holding_a_question(self, item_name: str, task_name: str):
@@ -254,11 +262,12 @@ class BaseTaskManager:
             ),
             note=f"{task_name} is waiting for your decision on {item_name} "
             "in the Review tab.",
+            message=None,
         )
         try:
             yield
         finally:
-            self._set_hold(None)
+            self._set_hold(None, message=None)
 
     # --- Deferral: what cannot run yet, and why ---
 
