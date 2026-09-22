@@ -7,6 +7,7 @@ from typing import (
     Type,
 )
 
+from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
@@ -24,6 +25,10 @@ class SelectFluorescencePositionConfig(AutoLamellaTaskConfig):
 
 class SelectFluorescencePositionTask(AutoLamellaTask):
     """Task to select fluorescence stage position and objective position."""
+
+    # "Move to the fluorescence position. Press Continue": a confirmation of
+    # the state (through ``ask_user`` until it moves to ``ask``).
+    questions = (STATE,)
 
     config: SelectFluorescencePositionConfig
     config_cls: ClassVar[Type[SelectFluorescencePositionConfig]] = (

@@ -8,6 +8,7 @@ import numpy as np
 
 from fibsem import config as fcfg
 from fibsem import constants
+from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.applications.autolamella.protocol.constants import UNDERCUT_KEY
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
@@ -51,6 +52,12 @@ class MillUndercutTaskConfig(AutoLamellaTaskConfig):
 
 class MillUndercutTask(AutoLamellaTask):
     """Task to mill the undercut for a lamella."""
+
+    # Asked while it runs: the detections the stage moves follow (through
+    # ``update_detection_ui`` until FIB-1051 moves them to ``ask``); then the
+    # milling session.
+    questions = (DETECTION,)
+    sessions = ("milling",)
 
     config: MillUndercutTaskConfig
     config_cls: ClassVar[Type[MillUndercutTaskConfig]] = MillUndercutTaskConfig
