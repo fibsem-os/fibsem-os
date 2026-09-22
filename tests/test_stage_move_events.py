@@ -295,3 +295,14 @@ def test_every_backend_records_its_moves_and_beam_shifts(backend):
             getattr(ThermoMicroscope, name), _records_stage_move
         )
         assert _records(method, _records_stage_move) or hands_on, name
+
+
+@pytest.mark.parametrize("backend", BACKENDS, ids=lambda cls: cls.__name__)
+def test_every_backend_declares_its_moves_return_the_position(backend):
+    # The contract `stage_moved` relies on for where a move ended, and the HTTP
+    # server for its answer. Declared is not returned -- the drivers without a
+    # simulator are held to it in test_stage_moves_return_position.py -- but a new
+    # driver that declares otherwise, or nothing, fails here.
+    for name in ("move_stage_absolute", "move_stage_relative"):
+        returns = inspect.signature(getattr(backend, name)).return_annotation
+        assert returns in (FibsemStagePosition, "FibsemStagePosition"), name
