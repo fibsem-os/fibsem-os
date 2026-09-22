@@ -15,6 +15,7 @@ widget drives in place of the private members it used to reach into
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/applications/autolamella/ui/tests/test_coincidence_viewer_canvas.py
 """
+
 from __future__ import annotations
 
 import os
@@ -40,7 +41,9 @@ _HFW = 80e-6
 
 
 def _fib_image() -> FibsemImage:
-    return FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW, random=True)
+    return FibsemImage.generate_blank_image(
+        resolution=_RESOLUTION, hfw=_HFW, random=True
+    )
 
 
 class _FakeFmMetadata:
@@ -56,7 +59,9 @@ class _FakeFmImage:
         self.metadata = _FakeFmMetadata(pixel_size_x)
 
 
-def _fm_stack(channels: int = 2, z: int = 3, h: int = 512, w: int = 768) -> _FakeFmImage:
+def _fm_stack(
+    channels: int = 2, z: int = 3, h: int = 512, w: int = 768
+) -> _FakeFmImage:
     rng = np.random.default_rng(0)
     return _FakeFmImage((rng.random((channels, z, h, w)) * 4095).astype(np.uint16))
 
@@ -120,7 +125,9 @@ def test_quadrants_add_no_toolbar_buttons_of_their_own():
             f"{name} canvas has {len(buttons)} toolbar buttons, expected the bare "
             f"canvas' {expected}: {[b.toolTip() for b in buttons]}"
         )
-        assert widget.canvas.btn_contrast in buttons, f"{name}: lost the contrast button"
+        assert widget.canvas.btn_contrast in buttons, (
+            f"{name}: lost the contrast button"
+        )
         # and it still opens the built-in popover. isHidden(), not isVisible() — the
         # latter is False for any child of a parent that was never shown.
         widget.canvas.btn_contrast.setChecked(True)
@@ -159,7 +166,10 @@ def test_contrast_changes_the_displayed_array():
 def test_both_quadrants_build_on_the_new_canvas():
     for widget in (_FibImageCanvas(), _FmImageCanvas()):
         assert isinstance(widget.canvas, FibsemImageCanvas)
-        assert widget.canvas.__class__.__module__ == "fibsem.ui.widgets.canvas.image_canvas"
+        assert (
+            widget.canvas.__class__.__module__
+            == "fibsem.ui.widgets.canvas.image_canvas"
+        )
         assert isinstance(widget.rect_overlay, RectOverlay)
 
 
@@ -196,7 +206,9 @@ def test_fm_set_image_renders_and_sets_the_scalebar():
     assert widget.canvas._img_w == 768 and widget.canvas._img_h == 512
     # pixel_size comes from metadata.pixel_size_x, which the FibsemImage path can't source
     assert widget.canvas.pixel_size == 1.0e-7
-    assert widget.canvas._title_artist in widget.canvas._ax.texts, "z-slice title not drawn"
+    assert widget.canvas._title_artist in widget.canvas._ax.texts, (
+        "z-slice title not drawn"
+    )
     assert "FM  z=0/2" in widget.canvas._title_artist.get_text()
 
 
@@ -300,7 +312,9 @@ def test_scrubbing_to_a_dim_timelapse_frame_rescales():
     """
     widget = _FmImageCanvas()
     rng = np.random.default_rng(0)
-    widget.set_image(_FakeFmImage((rng.random((1, 1, 512, 512)) * 4000).astype(np.uint16)))
+    widget.set_image(
+        _FakeFmImage((rng.random((1, 1, 512, 512)) * 4000).astype(np.uint16))
+    )
 
     dim = (rng.random((512, 512)) * 400).astype(np.float32)  # a 10x drop
     widget.display_timelapse_frame(dim, idx=1, total=5, ts=0.0)
@@ -362,11 +376,15 @@ def test_the_viewer_builds_and_its_milling_widget_draws_nothing_itself():
         "the milling widget grew a viewer back — napari.current_viewer() latches the "
         "minimap's viewer when one is open"
     )
-    assert milling._controller is None, "coincidence viewer must not attach a controller"
+    assert milling._controller is None, (
+        "coincidence viewer must not attach a controller"
+    )
 
     image = _fib_image()
     widget.set_fib_image(image)
-    assert milling._fib_image is image, "the widget lost the frame patterns are placed against"
+    assert milling._fib_image is image, (
+        "the widget lost the frame patterns are placed against"
+    )
 
     # Reaches here through a QTimer.singleShot in the app, where a raise would escape the
     # Qt event loop and abort the process under PyQt5 (FIB-329) rather than fail a test.
@@ -408,7 +426,9 @@ def test_dragging_the_fib_rect_still_repositions_the_pattern():
     widget.set_fib_image(_fib_image())
 
     overlay = widget.fib_canvas.rect_overlay
-    assert overlay.receivers(overlay.rect_changed), "the rect drag is not wired to anything"
+    assert overlay.receivers(overlay.rect_changed), (
+        "the rect drag is not wired to anything"
+    )
 
     stages = milling.config_widget.milling_stages_widget.get_enabled_stages()
     assert stages, "no enabled milling stage to reposition"
@@ -416,19 +436,27 @@ def test_dragging_the_fib_rect_still_repositions_the_pattern():
     # Both positions keep the 48x77px pattern well inside the 768x512 frame:
     # _move_patterns rejects the whole move if the pattern would fall outside it.
     first_rect = _drag_fib_rect_to(overlay, cx=300.0, cy=300.0)
-    before = milling.config_widget.milling_stages_widget.get_enabled_stages()[0].pattern.point
+    before = milling.config_widget.milling_stages_widget.get_enabled_stages()[
+        0
+    ].pattern.point
 
     second_rect = _drag_fib_rect_to(overlay, cx=500.0, cy=180.0)
 
-    after = milling.config_widget.milling_stages_widget.get_enabled_stages()[0].pattern.point
+    after = milling.config_widget.milling_stages_widget.get_enabled_stages()[
+        0
+    ].pattern.point
     assert (after.x, after.y) != (before.x, before.y), (
         "dragging the FIB rect no longer moves the milling pattern"
     )
     # ...and it tracked the rect, rather than landing somewhere of its own: the same
     # displacement in metres, with Y inverted (image Y grows downward, stage Y upward).
     pixel_size = widget.fib_canvas.canvas.pixel_size
-    assert np.isclose(after.x - before.x, (second_rect["cx"] - first_rect["cx"]) * pixel_size)
-    assert np.isclose(after.y - before.y, -(second_rect["cy"] - first_rect["cy"]) * pixel_size)
+    assert np.isclose(
+        after.x - before.x, (second_rect["cx"] - first_rect["cx"]) * pixel_size
+    )
+    assert np.isclose(
+        after.y - before.y, -(second_rect["cy"] - first_rect["cy"]) * pixel_size
+    )
 
 
 def _main() -> int:

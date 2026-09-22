@@ -11,6 +11,7 @@ Verifies the two-way sync between the spinboxes and the canvas overlays:
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/applications/autolamella/ui/tests/test_lamella_default_config_widget.py
 """
+
 from __future__ import annotations
 
 import sys
@@ -55,6 +56,7 @@ _TPL = LamellaDefaultConfig(
 
 # ── transforms ─────────────────────────────────────────────────────────────
 
+
 def test_poi_pixel_roundtrip():
     p = Point(x=7.5e-6, y=-4.2e-6)
     px, py = _poi_to_pixel(p)
@@ -69,6 +71,7 @@ def test_poi_centre_maps_to_image_centre():
 
 # ── set_template → overlays ──────────────────────────────────────────────────
 
+
 def test_set_template_positions_overlays():
     w = _widget(_TPL)
     area = w._aa_overlay.get_area()
@@ -76,7 +79,9 @@ def test_set_template_positions_overlays():
     assert _close(area.left, 0.2, 0.005) and _close(area.top, 0.3, 0.005)
     assert _close(area.width, 0.4, 0.005) and _close(area.height, 0.5, 0.005)
     pt = w._poi_overlay.get_points()[0]
-    assert _close(pt[0], _poi_to_pixel(_TPL.poi)[0]) and _close(pt[1], _poi_to_pixel(_TPL.poi)[1])
+    assert _close(pt[0], _poi_to_pixel(_TPL.poi)[0]) and _close(
+        pt[1], _poi_to_pixel(_TPL.poi)[1]
+    )
 
 
 def test_set_template_is_silent():
@@ -95,6 +100,7 @@ def test_name_hint_follows_petname():
 
 
 # ── overlay drag → spinbox + emit ────────────────────────────────────────────
+
 
 def test_alignment_drag_updates_spinboxes_and_emits():
     w = _widget(_TPL)
@@ -118,7 +124,9 @@ def test_poi_move_updates_spinboxes_and_emits():
     assert _close(w.poi_x.value(), expected.x * 1e6, 0.01)  # spinbox rounds to 2 dp
     assert _close(w.poi_y.value(), expected.y * 1e6, 0.01)
     assert len(seen) == 1
-    assert _close(seen[0].poi.x, w.poi_x.value() * 1e-6, 1e-12)  # emit matches spinbox exactly
+    assert _close(
+        seen[0].poi.x, w.poi_x.value() * 1e-6, 1e-12
+    )  # emit matches spinbox exactly
 
 
 def test_poi_dragging_updates_spinboxes_without_emit():
@@ -133,6 +141,7 @@ def test_poi_dragging_updates_spinboxes_without_emit():
 
 
 # ── spinbox → overlay ────────────────────────────────────────────────────────
+
 
 def test_spinbox_edit_repositions_alignment_overlay():
     w = _widget(_TPL)
@@ -152,6 +161,7 @@ def test_spinbox_edit_repositions_poi_overlay():
 
 # ── round-trip + validation + invariants ─────────────────────────────────────
 
+
 def test_get_template_roundtrips():
     w = _widget(_TPL)
     t = w.get_template()
@@ -164,7 +174,9 @@ def test_is_valid_tracks_alignment_area():
     w = _widget(_TPL)
     assert w.is_valid() is True
     w.set_template(
-        LamellaDefaultConfig(alignment_area=FibsemRectangle(left=0.8, top=0.0, width=0.5, height=0.5))
+        LamellaDefaultConfig(
+            alignment_area=FibsemRectangle(left=0.8, top=0.0, width=0.5, height=0.5)
+        )
     )
     assert w.is_valid() is False  # left + width = 1.3 > 1
 
@@ -177,19 +189,20 @@ def test_poi_attached_before_alignment_for_press_precedence():
 
 # ── POI style + legend ───────────────────────────────────────────────────────
 
+
 def test_poi_marker_is_thin_cross():
     w = _widget()
-    assert w._poi_overlay._marker == "+"       # thin cross, not a filled marker
-    assert w._poi_overlay._edge_width == 1.2    # thin lines
+    assert w._poi_overlay._marker == "+"  # thin cross, not a filled marker
+    assert w._poi_overlay._edge_width == 1.2  # thin lines
 
 
 def test_toolbar_shows_only_view_scalebar_crosshair():
     w = _widget()
-    assert w.canvas.btn_reset_view.isHidden() is False       # fit to view
-    assert w.canvas.btn_toggle_scalebar.isHidden() is False   # scalebar toggle
+    assert w.canvas.btn_reset_view.isHidden() is False  # fit to view
+    assert w.canvas.btn_toggle_scalebar.isHidden() is False  # scalebar toggle
     assert w.canvas.btn_toggle_crosshair.isHidden() is False  # crosshair toggle
-    assert w.canvas.btn_contrast.isHidden() is True           # dropped
-    assert w.canvas.btn_toggle_ruler.isHidden() is True       # dropped
+    assert w.canvas.btn_contrast.isHidden() is True  # dropped
+    assert w.canvas.btn_toggle_ruler.isHidden() is True  # dropped
 
 
 def test_legend_entries_markers_and_patch():
@@ -199,7 +212,9 @@ def test_legend_entries_markers_and_patch():
     leg = w.canvas._legend_artist
     assert leg is not None
     # Image centre + POI render as "+" markers; Alignment area is a filled swatch.
-    assert len(leg.get_lines()) == 2 and all(ln.get_marker() == "+" for ln in leg.get_lines())
+    assert len(leg.get_lines()) == 2 and all(
+        ln.get_marker() == "+" for ln in leg.get_lines()
+    )
     assert len(leg.get_patches()) == 1
 
 
@@ -215,6 +230,7 @@ def test_legend_survives_image_change_and_clears():
 
 
 # ── POI limits: every accepted value must be representable on the preview ──
+
 
 def test_poi_limits_match_the_preview_frame():
     """The spinbox bounds are exactly half the frame, so no accepted value is clamped."""
@@ -242,7 +258,9 @@ def test_out_of_frame_poi_is_clamped_but_reported():
     """A legacy protocol POI beyond the frame is clamped — and the user is told."""
     w = _widget()
     w.set_template(LamellaDefaultConfig(poi=Point(x=500e-6, y=-400e-6)))
-    assert not w.poi_clamped_lbl.isHidden()  # isVisible() is False while the parent is unshown
+    assert (
+        not w.poi_clamped_lbl.isHidden()
+    )  # isVisible() is False while the parent is unshown
     msg = w.poi_clamped_lbl.text()
     assert "500.00" in msg and "-400.00" in msg  # the original values are named
     t = w.get_template()
@@ -260,7 +278,9 @@ def test_clamp_warning_clears_when_a_valid_template_is_loaded():
     """The warning must not persist across loads."""
     w = _widget()
     w.set_template(LamellaDefaultConfig(poi=Point(x=500e-6, y=0)))
-    assert not w.poi_clamped_lbl.isHidden()  # isVisible() is False while the parent is unshown
+    assert (
+        not w.poi_clamped_lbl.isHidden()
+    )  # isVisible() is False while the parent is unshown
     w.set_template(LamellaDefaultConfig(poi=Point(x=1e-6, y=0)))
     assert w.poi_clamped_lbl.isHidden()
 
