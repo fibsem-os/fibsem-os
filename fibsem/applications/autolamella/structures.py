@@ -100,28 +100,23 @@ class AutoLamellaTaskStatus(Enum):
 
 
 class Attention(str, Enum):
-    """How far a task is trusted: who decides its record, and when. A property
-    of the producing task. What waits on the decision follows from the
-    ``requires`` graph, not from a switch of its own.
+    """Whether a person (or an agent) decides this task's answers. A property
+    of the producing task, set by the protocol author.
 
-    The three are rungs of one ladder, the way work is handed to a student:
-    watch everything they do, then check their work afterwards, then let them
-    get on with it. A task moves down as its record earns it.
+    supervised -- a person decides. A question the task needs answered before
+                  it can carry on is asked in the workflow and holds the run;
+                  a value another task consumes -- the task's result, a point
+                  of interest -- ends the task AwaitingDecision, and what
+                  requires it waits for the decision in the Review tab while
+                  the run carries on with other work. Which of the two a task
+                  has is a property of the task, not a setting.
+    automated  -- nobody is asked; the record is made and listed to check.
 
-    supervised   -- the operator decides now, in the task's own question; the
-                    run is held there.
-    review_later -- the operator decides afterwards, in the Review tab; the
-                    task ends AwaitingDecision and what requires it waits.
-                    Read as automated while the review preference is off.
-    automated    -- the producer confirms its own record after the task; the
-                    run continues, and what it did is listed to check.
-
-    The name says when the operator decides, not where: the Review tab
-    collects the decisions of every rung.
+    Where the run waits is not a third setting: a "Review later" mode existed
+    on development builds before 0.6.0 and is read as supervised.
     """
 
     supervised = "supervised"
-    review_later = "review_later"
     automated = "automated"
 
 
@@ -354,10 +349,12 @@ def attention_from(value: Any, where: str = "") -> Attention:
     """
     if isinstance(value, bool):
         return Attention.supervised if value else Attention.automated
-    if value == "review":
-        # What review_later was called on main before 0.6.0. It never shipped,
-        # but protocols and experiments saved from those builds carry it.
-        return Attention.review_later
+    if value in ("review", "review_later"):
+        # A third mode, the operator deciding afterwards in the Review tab,
+        # existed on development builds before 0.6.0 and never shipped. It
+        # was Supervised with the wait in a different place, and is read as
+        # Supervised: the task's own shape says where the run waits.
+        return Attention.supervised
     try:
         return Attention(value)
     except ValueError:

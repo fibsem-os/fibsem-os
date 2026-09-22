@@ -203,18 +203,17 @@ def waiting_on(experiment: Experiment, task_name: str, item: Any = None) -> List
 
 
 def is_gated(experiment: Experiment, task_name: str, item: Any = None) -> bool:
-    """Whether ``task_name`` is set to Review for this kind of item: the grid
-    task's attention for a grid, the workflow's for a lamella."""
+    """Whether a person decides ``task_name`` for this kind of item (it is
+    Supervised): the grid task's attention for a grid, the workflow's for a
+    lamella."""
     if isinstance(item, GridRecord):
         try:
             config = experiment.grid_protocol.task_config.get(task_name)
         except ValueError:
             return False
-        return config is not None and config.attention is Attention.review_later
+        return config is not None and config.attention is Attention.supervised
     protocol = getattr(experiment, "task_protocol", None)
-    return (
-        bool(protocol) and protocol.get_attention(task_name) is Attention.review_later
-    )
+    return bool(protocol) and protocol.get_attention(task_name) is Attention.supervised
 
 
 # ---------------------------------------------------------------------------

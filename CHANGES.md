@@ -89,10 +89,17 @@ correctness work landed in correlation and in what the experiment record remembe
   A task waiting there is not finished: it shows as awaiting a decision, confirming
   completes it, and rejecting fails it (the lamella is not marked defective).
 - **One `attention` per task in the protocol.** A workflow task says `attention:
-  automated`, `supervised` or `review` in place of the `supervise` and `review`
-  flags; protocols saved with the flags still load and are written back in the new
-  form. A task that requires a reviewed task says so in its row: "after review of
-  Setup Lamella Position".
+  automated` or `supervised` in place of the `supervise` and `review` flags;
+  protocols saved with the flags still load and are written back in the new form.
+  Supervised means you decide: a question the task needs answered is asked in the
+  workflow, at the microscope; a result it leaves for afterwards (the point of
+  interest, a task's result) waits for your decision in the Review tab while the
+  run carries on, and the tasks that require it wait with it. A task that requires
+  a supervised task says so in its row: "after review of Setup Lamella Position".
+  A milling task's Continue, after you have watched the mill, is your decision on
+  its result; it is recorded as yours and the task does not wait again in the
+  Review tab. There is no third mode: development builds had one, `review`, and
+  it is read as `supervised`.
 - **A result an agent looked at is still yours to check.** The Review tab's "to
   check" group clears when a person acknowledges, not when a connected agent does.
 - **For task authors: a task proposes through a `Proposer`.** A task type carries one

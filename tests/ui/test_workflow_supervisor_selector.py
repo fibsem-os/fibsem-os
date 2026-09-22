@@ -65,18 +65,6 @@ def test_with_the_agent_feature_the_cycle_gains_the_agent_step(row, monkeypatch)
     assert row.btn_attention.text() == "Automated"
 
 
-def test_with_interactive_review_the_cycle_ends_in_review(row, monkeypatch):
-    monkeypatch.setattr(module, "_agent_supervision_available", lambda: False)
-    monkeypatch.setattr(module, "_review_available", lambda: True)
-    row._on_attention_clicked()
-    assert _fields(row.task) == (A.supervised, "human")
-    row._on_attention_clicked()
-    assert _fields(row.task) == (A.review_later, "human"), "it clears supervise"
-    assert row.btn_attention.text() == "Review later"
-    row._on_attention_clicked()
-    assert _fields(row.task) == (A.automated, "human")
-
-
 def test_a_designated_task_displays_as_supervised_when_the_feature_is_off(
     row, monkeypatch
 ):
@@ -90,18 +78,6 @@ def test_a_designated_task_displays_as_supervised_when_the_feature_is_off(
     assert _fields(row.task) == (A.automated, "human")
 
 
-def test_a_gated_task_displays_as_automated_when_interactive_review_is_off(
-    row, monkeypatch
-):
-    row.task.attention = Attention.review_later
-    row.refresh()
-    assert row.btn_attention.text() == "Automated"
-    assert "interactive review is off" in row.btn_attention.toolTip()
-    # the click writes what is displayed, then moves on: nothing hidden survives
-    row._on_attention_clicked()
-    assert _fields(row.task) == (A.supervised, "human")
-
-
 def test_each_click_announces_only_what_changed(row, monkeypatch):
     monkeypatch.setattr(module, "_agent_supervision_available", lambda: True)
     monkeypatch.setattr(module, "_review_available", lambda: True)
@@ -112,35 +88,33 @@ def test_each_click_announces_only_what_changed(row, monkeypatch):
     assert seen == [
         (A.supervised, "human"),  # Automated -> Supervised
         (A.supervised, "agent"),  # Supervised -> Agent
-        (A.review_later, "human"),  # Agent -> Review later: the designation resets
-        (A.automated, "human"),  # Review later -> Automated
+        (A.automated, "human"),  # Agent -> Automated: the designation resets
+        (A.supervised, "human"),  # Automated -> Supervised
     ]
 
 
-def test_a_review_task_nothing_requires_says_so(qapp, monkeypatch):
+def test_a_requirement_on_a_supervised_task_reads_as_the_wait_it_is(qapp, monkeypatch):
+    """With the review preference on, a supervised task's result waits for a
+    decision, so a task that requires it says so where the wait is felt."""
     monkeypatch.setattr(module, "_review_available", lambda: True)
     setup = AutoLamellaTaskDescription(
-        name="Setup", required=True, attention=Attention.review_later
+        name="Setup", required=True, attention=Attention.supervised
     )
     rough = AutoLamellaTaskDescription(
-        name="Rough", required=True, attention=Attention.review_later
+        name="Rough", required=True, attention=Attention.supervised
     )
     widget = module.WorkflowConfigWidget()
     widget.set_config(AutoLamellaWorkflowConfig(tasks=[setup, rough]))
     rows = [widget._row(i) for i in range(2)]
-    assert rows[0].requires_label.text() == "nothing waits on this"
-    assert rows[1].requires_label.text() == "nothing waits on this"
+    assert rows[0].requires_label.text() == ""
+    assert rows[1].requires_label.text() == ""
     rough.requires = ["Setup"]
     widget.refresh_all()
-    assert rows[0].requires_label.text() == ""
-    assert "nothing waits" not in rows[0].btn_attention.toolTip()
     assert rows[1].requires_label.text() == "after review of Setup", (
         "the wait is said where it is felt"
     )
     assert rows[1].toolTip().startswith("Requires: review of Setup")
-    assert module.stylesheets.WARN_COLOR in rows[1].requires_label.styleSheet()
-    assert "nothing waits" in rows[1].btn_attention.toolTip()
-    # Setup back to Automated: Rough's row stops saying it waits for a review
+    # Setup to Automated: Rough's row stops saying it waits for a review
     rows[0]._on_attention_clicked()
     assert rows[1].requires_label.text() == "after Setup"
     widget.deleteLater()
