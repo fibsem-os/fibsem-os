@@ -730,7 +730,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
                 # The run is stopped on this one, which is a stronger thing
                 # than the requires edges below: those defer tasks, this is
                 # the task itself waiting to be told.
-                text = f"{self._task_name} is parked on this · nothing else is running"
+                text = f"{self._task_name} is waiting on this · nothing else is running"
                 tip.append(
                     f"{self._task_name} asked this mid-run and is waiting for the "
                     "answer. Confirm hands it back and the task carries on."
@@ -1847,7 +1847,7 @@ class ReviewTabWidget(QWidget):
                         ORANGE_COLOR, item.name, task_name, "asking now", kind=kind
                     ),
                     entry=(item, task_name, proposal, "waiting"),
-                    tooltip=f"{task_name} is parked on this answer; "
+                    tooltip=f"{task_name} is waiting on this answer; "
                     "nothing else runs until you give it.",
                 )
             waiting = self._shown(all_waiting)
