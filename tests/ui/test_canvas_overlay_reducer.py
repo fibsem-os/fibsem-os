@@ -1,7 +1,7 @@
 """Headless tests for the canvas-state reducer on MicroscopeViewController.
 
 Run directly (headless):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_canvas_overlay_reducer.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_canvas_overlay_reducer.py
 
 Or via pytest. Covers the milling slice (MillingSpec -> MillingPatternOverlay) and
 the alignment slice (one AlignmentSpec; edit > display; the input round-trip).
@@ -14,6 +14,10 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+import pytest
+
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.milling.base import FibsemMillingStage

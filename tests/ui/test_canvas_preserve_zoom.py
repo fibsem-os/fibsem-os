@@ -5,12 +5,16 @@ bug this guards against. Auto-fit still fires on the first image, on a resolutio
 and on the explicit reset_view() (fit-to-view) button.
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_canvas_preserve_zoom.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_canvas_preserve_zoom.py
 """
 
 import sys
 
 import numpy as np
+import pytest
+
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas

@@ -6,7 +6,7 @@ displayed 2-D plane is asserted on each channel's ``FMLayer.data`` (independent 
 RGB composite).
 
 Run directly (headless):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_fm_z_slider.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_fm_z_slider.py
 """
 
 from __future__ import annotations
@@ -17,6 +17,10 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+import pytest
+
+pytest.importorskip("PyQt5")
+
 from PyQt5 import QtWidgets
 
 _QAPP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])

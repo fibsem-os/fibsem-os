@@ -7,7 +7,7 @@ the config bridge the protocol editor's dialog relies on:
     widget.get_settings() --> SpotBurnSettings --apply_settings()--> config
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_spot_burn_coordinates_widget.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_spot_burn_coordinates_widget.py
 """
 
 from __future__ import annotations
@@ -16,6 +16,10 @@ import os
 import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest
+
+pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 

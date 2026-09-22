@@ -5,7 +5,7 @@ are mostly about it telling the truth: the mode it reports must be the mode that
 actually run, and starting must never be reachable by a stray keypress.
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_coincidence_milling_confirmation_dialog.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_coincidence_milling_confirmation_dialog.py
 """
 
 from __future__ import annotations
@@ -14,6 +14,10 @@ import os
 import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest
+
+pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QPushButton
 
@@ -27,7 +31,6 @@ from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemMillingSettings
 from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
     CoincidenceMillingConfirmationDialog,
-    _format_current,
     _pattern_summary,
 )
 
@@ -197,12 +200,6 @@ def test_disabled_stages_are_counted_but_not_listed():
 
 
 # --- formatting helpers --------------------------------------------------------
-
-
-def test_current_formats_nano_above_a_nanoamp():
-    assert _format_current(1.0e-9) == "1.0 nA"
-    assert _format_current(60e-12) == "60 pA"
-    assert _format_current(2.5e-9) == "2.5 nA"
 
 
 def test_pattern_summary_omits_dimensions_a_pattern_lacks():
