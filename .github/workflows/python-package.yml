@@ -90,9 +90,9 @@ jobs:
     # files guard on PyQt5 too, and until this job listed them nothing ran them:
     # a test there stayed broken for two weeks after #812 while CI stayed green.
     # The whole directories are listed, not the 21 files, so a Qt test added there
-    # later is not missed the same way. Their non-Qt tests also run in the matrix;
-    # repeating them here costs minutes, and this job still finishes before the
-    # slowest matrix leg.
+    # later is not missed the same way. The price is that their non-Qt tests,
+    # which the matrix already runs, run here too: about nine more minutes, which
+    # leaves this job level with the slowest matrix leg (16 minutes each).
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7

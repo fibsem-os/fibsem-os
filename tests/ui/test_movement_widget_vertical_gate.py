@@ -22,20 +22,12 @@ from unittest.mock import Mock
 
 import pytest
 
-try:
-    from fibsem.ui import notification_service
-    from fibsem.ui.widgets.stage_control_widget import StageControlWidget
-
-    _MISSING_UI_DEPS = None
-except ImportError as e:  # pragma: no cover - exercised only on UI-less CI
-    _MISSING_UI_DEPS = str(e)
+pytest.importorskip("PyQt5")
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
-
-pytestmark = pytest.mark.skipif(
-    bool(_MISSING_UI_DEPS), reason=f"UI dependencies not installed: {_MISSING_UI_DEPS}"
-)
+from fibsem.ui import notification_service
+from fibsem.ui.widgets.stage_control_widget import StageControlWidget
 
 
 class RecordingMicroscope:
