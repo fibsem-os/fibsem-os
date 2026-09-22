@@ -305,6 +305,25 @@ class TestMarks:
         assert failed.marks == [] and failed.unmarked == []
 
 
+class TestWithoutAProtocol:
+    def test_an_experiment_loaded_without_its_protocol_still_reports(self, screened):
+        bare = Experiment.load(os.path.join(screened.path, "experiment.yaml"))
+        bare.task_protocol = None
+        report = collect_grid_report(bare)
+        assert report.protocol == []
+        aspen, birch, _ = report.sections
+        # what the history recorded is still read; only the protocol's facts go
+        assert [o.role for o in aspen.overviews] == [
+            "overview_sem",
+            "overview_fib",
+            "overview_fm",
+        ]
+        assert aspen.overviews[0].tiles is None
+        # a failed run recorded nothing, so without the protocol it has no role
+        assert [o.task_name for o in birch.overviews] == ["overview_sem"]
+        assert report.outcomes["grid-aspen"] == {}
+
+
 class TestOutcomes:
     def test_latest_status_and_run_count_per_task(self, report):
         aspen = report.outcomes["grid-aspen"]

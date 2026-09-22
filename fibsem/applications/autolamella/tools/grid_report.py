@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from math import degrees
 from types import SimpleNamespace
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import tifffile as tff
 
@@ -276,15 +276,14 @@ def _recorded_image(root: str, state: AutoLamellaTaskState, role: str) -> Option
     return None
 
 
-def _role_of(
-    state: AutoLamellaTaskState, protocol_roles: Dict[str, str]
-) -> Optional[str]:
+def _role_of(state: AutoLamellaTaskState, configs: Dict[str, Any]) -> Optional[str]:
     """Which overview role a history entry is: from what it recorded, else from
     the protocol's config for its task (a failed run recorded nothing)."""
     for role in OVERVIEW_ROLES:
         if role in state.outputs:
             return role
-    return protocol_roles.get(state.name)
+    role = getattr(configs.get(state.name), "role", None)
+    return role if role in OVERVIEW_ROLES else None
 
 
 def _tiles_of(config) -> Optional[Tuple[int, int]]:
@@ -302,14 +301,18 @@ def overview_entry(
     grid: GridRecord,
     state: AutoLamellaTaskState,
     lamellae: Sequence[Lamella],
-    protocol_roles: Dict[str, str],
+    configs: Dict[str, Any],
 ) -> Optional[OverviewEntry]:
-    """The report's row for one history entry, or None if it is not an overview."""
-    role = _role_of(state, protocol_roles)
+    """The report's row for one history entry, or None if it is not an overview.
+
+    `configs` is the grid protocol's `task_config`, for the role of a run that
+    recorded nothing and for the tile count.
+    """
+    role = _role_of(state, configs)
     if role is None:
         return None
     modality = _MODALITY[role]
-    config = experiment.grid_protocol.task_config.get(state.name)
+    config = configs.get(state.name)
     entry = OverviewEntry(
         task_name=state.name,
         role=role,
@@ -434,12 +437,13 @@ def collect_grid_report(
         if entry.name:
             slots[entry.name] = entry.slot_name
 
-    protocol = list(experiment.grid_protocol.order)
-    protocol_roles = {
-        name: config.role
-        for name, config in experiment.grid_protocol.task_config.items()
-        if getattr(config, "role", None) in OVERVIEW_ROLES
-    }
+    # An experiment loaded without its protocol still reports what its history
+    # holds; only the tile counts and a failed run's modality come from the protocol.
+    protocol: List[str] = []
+    configs: Dict[str, Any] = {}
+    if experiment.task_protocol is not None:
+        protocol = list(experiment.grid_protocol.order)
+        configs = dict(experiment.grid_protocol.task_config)
 
     sections: List[GridSection] = []
     outcomes: Dict[str, Dict[str, TaskOutcome]] = {}
@@ -448,9 +452,7 @@ def collect_grid_report(
         overviews = [
             entry
             for state in grid.task_history
-            for entry in [
-                overview_entry(experiment, grid, state, lamellae, protocol_roles)
-            ]
+            for entry in [overview_entry(experiment, grid, state, lamellae, configs)]
             if entry is not None
         ]
         sections.append(
