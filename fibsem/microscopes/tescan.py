@@ -12,7 +12,11 @@ import numpy as np
 
 import fibsem.constants as constants
 from fibsem import manufacturers
-from fibsem.microscope import FibsemMicroscope
+from fibsem.microscope import (
+    FibsemMicroscope,
+    _records_beam_shift,
+    _records_stage_move,
+)
 
 TESCAN_API_AVAILABLE = False
 # Read through this rather than importing tescanautomation yourself: the guarded
@@ -661,6 +665,7 @@ class TescanMicroscope(FibsemMicroscope):
             beam.AutoWDFine(self._active_detector[beam_type])
         return
 
+    @_records_beam_shift
     def beam_shift(
         self, dx: float, dy: float, beam_type: BeamType = BeamType.ION
     ) -> None:
@@ -683,6 +688,7 @@ class TescanMicroscope(FibsemMicroscope):
             {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
         )
 
+    @_records_stage_move
     def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
         # Inert until Tescan has a fluorescence microscope at all -- `self.fm` is set
         # to None unconditionally here (FIB-836) -- but the guard belongs on every
@@ -722,6 +728,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         return new_position
 
+    @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition):
         """
         Move the stage to the specified coordinates.
@@ -744,6 +751,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
+    @_records_stage_move
     def move_stage_relative(
         self,
         position: FibsemStagePosition,
@@ -763,6 +771,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         return self.get_stage_position()
 
+    @_records_stage_move
     def stable_move(
         self,
         dx: float,
@@ -816,6 +825,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         return self.get_stage_position()
 
+    @_records_stage_move
     def vertical_move(
         self,
         dy: float,

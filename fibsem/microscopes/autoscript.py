@@ -23,7 +23,11 @@ from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 from skimage import transform
 
-from fibsem.microscope import FibsemMicroscope
+from fibsem.microscope import (
+    FibsemMicroscope,
+    _records_beam_shift,
+    _records_stage_move,
+)
 from fibsem.microscopes._stage import (
     GridExchangeError,
     GridSlot,
@@ -1516,6 +1520,7 @@ class ThermoMicroscope(FibsemMicroscope):
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
 
+    @_records_beam_shift
     def beam_shift(
         self, dx: float, dy: float, beam_type: BeamType = BeamType.ION
     ) -> Point:
@@ -1556,6 +1561,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return self.get_beam_shift(beam_type=beam_type)
 
+    @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """
         Move the stage to the specified coordinates.
@@ -1592,6 +1598,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return self.get_stage_position()
 
+    @_records_stage_move
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """
         Move the stage by the specified relative move.
@@ -1615,6 +1622,7 @@ class ThermoMicroscope(FibsemMicroscope):
         return self.get_stage_position()
 
     # TODO: migrate from stable_move vocab to sample_stage
+    @_records_stage_move
     def stable_move(
         self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
     ) -> FibsemStagePosition:
@@ -1671,6 +1679,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return self.get_stage_position()
 
+    @_records_stage_move
     def vertical_move(
         self,
         dy: float,
@@ -1927,6 +1936,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return
 
+    @_records_stage_move
     def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
         """Move the stage to the desired position in a safe manner, using compucentric rotation.
         Supports movements in the stage_position coordinate system

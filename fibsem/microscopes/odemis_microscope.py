@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 from psygnal import Signal
 
-from fibsem.microscope import FibsemMicroscope
+from fibsem.microscope import (
+    FibsemMicroscope,
+    _records_beam_shift,
+    _records_stage_move,
+)
 from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.milling.progress import MillingProgress
@@ -429,6 +433,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     ) -> None:
         self.connection.run_auto_focus(beam_type_to_odemis[beam_type])
 
+    @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
         """Move the beam shift by dx and dy in meters (relative movement).
         Args:
@@ -837,12 +842,14 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def retract_manipulator(self) -> None:
         pass
 
+    @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition) -> None:
         pdict = stage_position_to_odemis_dict(position)
         f = self.stage.moveAbs(pdict)
         f.result()
         # TODO: implement compucentric rotation
 
+    @_records_stage_move
     def move_stage_relative(self, position: FibsemStagePosition) -> None:
         pdict = stage_position_to_odemis_dict(position)
         f = self.stage.moveRel(pdict)

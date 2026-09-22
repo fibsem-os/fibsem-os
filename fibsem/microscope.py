@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import functools
+import inspect
 import logging
 import threading
 import time
 import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -65,6 +68,90 @@ if TYPE_CHECKING:
 # ever been applied on any instrument -- so `get_target_position` carries a position
 # into this device's frame before re-posing it, and back out afterwards.
 ROTATION_FRAME_DEVICE = "FIBSEM"
+
+
+# Whether a stage move is being recorded on this thread. A move is often made of
+# moves: a stable move is a relative move, and a safe absolute move is up to three
+# absolute ones. Only the outermost is recorded, so one operation is one event.
+_recording_stage_move = threading.local()
+
+
+def _call_arguments(
+    signature: inspect.Signature, args: tuple, kwargs: dict
+) -> Dict[str, Any]:
+    """The arguments a method was called with, by name, its defaults included."""
+    bound = signature.bind(None, *args, **kwargs)  # None for self
+    bound.apply_defaults()
+    arguments = list(bound.arguments.items())[1:]
+    return {name: _plain_argument(value) for name, value in arguments}
+
+
+def _plain_argument(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return value.name
+    if hasattr(value, "to_dict"):  # a position, a point
+        return value.to_dict()
+    return value
+
+
+def _records_stage_move(method):
+    """Record each call as one ``stage_moved`` event, unless it is a step of
+    another stage move on the same thread, which records the whole.
+
+    For a backend's stage moves. See ``FibsemMicroscope._record_stage_move``.
+    """
+    signature = inspect.signature(method)
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if getattr(_recording_stage_move, "active", False):
+            return method(self, *args, **kwargs)
+        _recording_stage_move.active = True
+        start = self._stage_position
+        began = time.monotonic()
+        result: Any = None
+        error: Optional[BaseException] = None
+        try:
+            result = method(self, *args, **kwargs)
+            return result
+        except BaseException as e:
+            error = e
+            raise
+        finally:
+            _recording_stage_move.active = False
+            self._record_stage_move(
+                method.__name__,
+                (signature, args, kwargs),
+                start,
+                result,
+                error,
+                time.monotonic() - began,
+            )
+
+    return wrapper
+
+
+def _records_beam_shift(method):
+    """Record each call as one ``beam_shifted`` event.
+
+    For a backend's ``beam_shift``. See ``FibsemMicroscope._record_beam_shift``.
+    """
+    signature = inspect.signature(method)
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        result: Any = None
+        error: Optional[BaseException] = None
+        try:
+            result = method(self, *args, **kwargs)
+            return result
+        except BaseException as e:
+            error = e
+            raise
+        finally:
+            self._record_beam_shift((signature, args, kwargs), result, error)
+
+    return wrapper
 
 
 class FibsemMicroscope(ABC):
@@ -519,6 +606,7 @@ class FibsemMicroscope(ABC):
             "or ask move_to_device for the pose and let it order the legs."
         )
 
+    @_records_stage_move
     def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
         """Move the stage to the given named orientation (e.g. 'SEM', 'FIB', 'MILLING').
         Args:
@@ -1954,6 +2042,7 @@ class FibsemMicroscope(ABC):
 
         return bool(np.isclose(current_milling_angle, milling_angle, atol=atol))
 
+    @_records_stage_move
     def move_to_milling_angle(
         self, milling_angle: float, rotation: Optional[float] = None
     ) -> bool:
@@ -2241,6 +2330,8 @@ class FibsemMicroscope(ABC):
         * ``task_step`` -- from the AutoLamella task bases
         * ``milling_stage_started`` -- from ``FibsemMillingTask``, with the stage
         * ``spot_burn_started`` -- from ``run_spot_burn``, with the field of view
+        * ``stage_moved`` -- from each backend's stage moves, the outermost only
+        * ``beam_shifted`` -- from each backend's ``beam_shift``
         * ``fm_image_acquired`` -- from ``fm.acquisition``, a z-stack, image or
           stitched overview, with the saved path
         * ``fm_autofocus`` -- from ``run_coarse_fine_autofocus``
@@ -2285,6 +2376,67 @@ class FibsemMicroscope(ABC):
                 "dropped": dropped,
             },
         )
+
+    def _record_stage_move(
+        self,
+        move: str,
+        call: Tuple[inspect.Signature, tuple, dict],
+        start: Optional[FibsemStagePosition],
+        result: Any,
+        error: Optional[BaseException],
+        duration: float,
+    ) -> None:
+        """Record a stage move once it has finished or failed. Never raises.
+
+        ``move`` is the method, ``request`` its arguments. ``start`` is the
+        position last read before the move, not a new read: that would be a
+        hardware call the move did not make. ``end`` is the position the move
+        returned, or else the one read during it. A move that returns none and
+        reads none, such as a TESCAN absolute move, has no ``end``; the next read
+        is on ``stage_position_changed``.
+        """
+        try:
+            if isinstance(result, FibsemStagePosition):
+                end = result
+            elif self._stage_position is not start:  # read, and found it moved
+                end = self._stage_position
+            else:
+                end = None
+            payload = {
+                "move": move,
+                "request": _call_arguments(*call),
+                "start": None if start is None else start.to_dict(),
+                "end": None if end is None else end.to_dict(),
+                "duration": duration,
+                "error": None if error is None else f"{type(error).__name__}: {error}",
+            }
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug(f"could not record a {move} stage move", exc_info=True)
+            return
+        self.record_event("stage_moved", payload)
+
+    def _record_beam_shift(
+        self,
+        call: Tuple[inspect.Signature, tuple, dict],
+        result: Any,
+        error: Optional[BaseException],
+    ) -> None:
+        """Record a beam shift once it has been applied or failed. Never raises.
+
+        ``dx`` and ``dy`` are as asked, in the frame the caller measured them in.
+        ``shift`` is the beam's shift afterwards, where the backend returns it:
+        clipped to the beam's limits, it can differ from what was asked.
+        """
+        try:
+            payload = _call_arguments(*call)
+            payload["shift"] = result.to_dict() if isinstance(result, Point) else None
+            payload["error"] = (
+                None if error is None else f"{type(error).__name__}: {error}"
+            )
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug("could not record a beam shift", exc_info=True)
+            return
+        self.record_event("beam_shifted", payload)
 
     def _set_additional_metadata(self, image: FibsemImage) -> None:
         """Stamp who, which run, which instrument and how it is arranged onto an image.
@@ -2664,6 +2816,7 @@ class FibsemMicroscope(ABC):
             target_device=device,
         )
 
+    @_records_stage_move
     def move_to_device(self, device: str, orientation: Optional[str] = None) -> None:
         """Travel to `device`, re-posing on the way when the pose has to change.
 
