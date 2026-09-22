@@ -710,12 +710,15 @@ class AutoLamellaUI(QMainWindow):
                 host.stop()
             self._stop_event_recorder()
         try:
+            from fibsem.acting import OPERATOR
             from fibsem.applications.autolamella.event_recording import EventRecorder
 
             self._event_recorder = EventRecorder(
                 self.microscope,
                 responder=getattr(self, "ui_responder", None),
                 experiment_path=self.experiment.path if self.experiment else None,
+                # tasks and the agent mark their own calls; the rest are the UI's
+                default_actor=OPERATOR,
             )
         except Exception:
             logging.exception("event stream failed to start; continuing without it")

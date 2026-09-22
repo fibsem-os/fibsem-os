@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
+from fibsem.acting import TASK, acting
 from fibsem.applications.autolamella.proposals import AuthorKind, DecisionOutcome
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
@@ -144,12 +145,18 @@ class QtResponder(QObject):
         return dispose
 
     def _emit_question_event(self, kind: str, payload: Dict) -> None:
-        """Tell every observer, each on its own; failures are logged, never raised."""
-        for observer in list(self._question_observers):
-            try:
-                observer(kind, payload)
-            except Exception:  # noqa: BLE001 - observers are not allowed to matter
-                logging.exception("question-event observer failed; continuing")
+        """Tell every observer, each on its own; failures are logged, never raised.
+
+        On the GUI thread, but every question is a task's: it is raised and
+        withdrawn on the task's behalf, so it is marked as the task's for the
+        experiment's record (FIB-1062). An answer says who answered.
+        """
+        with acting(TASK):
+            for observer in list(self._question_observers):
+                try:
+                    observer(kind, payload)
+                except Exception:  # noqa: BLE001 - observers are not allowed to matter
+                    logging.exception("question-event observer failed; continuing")
 
     def submit(self, request: "Request", future: "Future") -> None:
         """Hand ``request`` to the GUI thread; never blocks. Any thread."""
@@ -674,7 +681,9 @@ class QtResponder(QObject):
         )
         # None: the widget builds the config from the editor, so the operator's
         # edits are what actually runs — as the old start_milling_signal path did.
-        self._milling_widget().milling_widget.run_milling(None)
+        # The task's mill, run on its behalf: the widget's worker carries the mark.
+        with acting(TASK):
+            self._milling_widget().milling_widget.run_milling(None)
 
     def _on_milling_finished(self) -> None:
         """GUI thread, from finished_milling_signal — success and failure alike."""
@@ -934,7 +943,8 @@ class QtResponder(QObject):
             WorkflowStatusEvent(message="Running Spot Burn...")
         )
         widget = self._ui.spot_burn_widget
-        widget.run_spot_burn_worker()
+        with acting(TASK):  # the task's burn, run on its behalf
+            widget.run_spot_burn_worker()
         if not widget.is_burning:
             # Refused — no in-bounds points — so no finished signal will come.
             # The old is_milling-style poll fell straight through and re-asked;

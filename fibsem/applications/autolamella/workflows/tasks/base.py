@@ -28,6 +28,7 @@ import numpy as np
 
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
+from fibsem.acting import TASK, acting
 from fibsem.applications.autolamella.proposals import (
     TASK_RESULT,
     Decision,
@@ -205,6 +206,8 @@ class AutoLamellaTask(ABC):
             failure=failure,
         )
 
+    # Everything the task does, on its own thread, is the task's (FIB-1062).
+    @acting(TASK)
     def run(self) -> None:
         self.pre_task()
         self._fire_hook("task_started")

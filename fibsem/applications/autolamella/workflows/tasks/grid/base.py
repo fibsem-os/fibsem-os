@@ -31,6 +31,7 @@ from typing import (
     get_type_hints,
 )
 
+from fibsem.acting import TASK, acting
 from fibsem.applications.autolamella.proposals import Proposer, TaskResultProposer
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -255,6 +256,8 @@ class GridTask(ABC):
 
     # -- lifecycle -------------------------------------------------------------
 
+    # Everything the task does, on its own thread, is the task's (FIB-1062).
+    @acting(TASK)
     def run(self) -> None:
         self.pre_task()
         self._fire_hook("task_started")

@@ -155,6 +155,8 @@ def test_the_event_stream_runs_without_the_agent_server(ui, monkeypatch):
     assert recorder is not None and ui._agent_server_host is None
     assert recorder.lifecycle_hook in ui.setup_hooks()._hooks
     assert recorder.buffer.append in ui.ui_responder._question_observers
+    # In the app, a call no task or agent marked is the operator's (FIB-1062).
+    assert recorder.default_actor == "operator"
 
     ui.disconnect_from_microscope()
     assert ui._event_recorder is None
