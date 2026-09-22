@@ -84,7 +84,7 @@ def experiment(tmp_path) -> Experiment:
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
                 AutoLamellaTaskDescription(
-                    name=SETUP, required=True, attention=Attention.review_later
+                    name=SETUP, required=True, attention=Attention.supervised
                 ),
                 AutoLamellaTaskDescription(name=ROUGH, required=True, requires=[SETUP]),
             ]
@@ -132,14 +132,14 @@ def experiment(tmp_path) -> Experiment:
 
     protocol = exp.grid_protocol
     protocol.add(
-        BeamOverviewGridTaskConfig(task_name=SEM, attention=Attention.review_later)
+        BeamOverviewGridTaskConfig(task_name=SEM, attention=Attention.supervised)
     )
     protocol.add(
         BeamOverviewGridTaskConfig(
             task_name=FIB,
             orientation="FIB",
             requires=[SEM],
-            attention=Attention.review_later,
+            attention=Attention.supervised,
         )
     )
     for name, task in (("Grid-01", SEM), ("Grid-02", FIB)):

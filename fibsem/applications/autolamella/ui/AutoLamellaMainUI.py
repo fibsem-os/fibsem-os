@@ -427,7 +427,7 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
 
 def _attention_label(hold: Hold) -> str:
     """The attention button's text for a hold the operator can release."""
-    if hold.kind is HoldKind.review_later:
+    if hold.kind is HoldKind.decision:
         return f"Review Required ({len(hold.items)})"
     return "Attention Required"
 
@@ -1574,7 +1574,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         review_tab = getattr(self, "review_tab", None)
         if (
             hold is not None
-            and hold.kind is HoldKind.review_later
+            and hold.kind is HoldKind.decision
             and review_tab is not None
         ):
             self.tab_widget.setCurrentWidget(review_tab)

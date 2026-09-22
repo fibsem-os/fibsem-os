@@ -229,12 +229,12 @@ class TestAttentionChip:
         row.btn_attention.click()
 
         config = experiment.grid_protocol.task_config["overview_sem"]
-        assert config.attention is Attention.review_later
-        assert row.btn_attention.text() == "Review later"
+        assert config.attention is Attention.supervised
+        assert row.btn_attention.text() == "Supervised"
         assert changed == [True]
         again = Experiment.load(Path(experiment.path) / "experiment.yaml")
         assert again.grid_protocol.task_config["overview_sem"].attention is (
-            Attention.review_later
+            Attention.supervised
         )
 
         row.btn_attention.click()
@@ -251,7 +251,7 @@ def test_review_on_a_task_nothing_requires_says_nothing_waits(
     monkeypatch.setattr(module, "_review_available", lambda: True)
     experiment.grid_protocol.task_config[
         "overview_sem"
-    ].attention = Attention.review_later
+    ].attention = Attention.supervised
     widget = GridWorkflowWidget()
     widget.set_microscope(arctis)
     widget.set_experiment(experiment)

@@ -66,10 +66,10 @@ class GridTaskConfig(ABC):
     display_name: ClassVar[str]
     task_name: str = ""  # unique within a protocol; the key the workflow uses
     # Who decides the task's record: automated (the task confirms its own) or
-    # review (the task ends AwaitingDecision and the Review tab decides). One
-    # per task name, shared by every grid like the rest of the config; read as
-    # automated while the review preference is off. A grid task asks nothing
-    # while it runs, so supervised reads as automated too.
+    # supervised (the task ends AwaitingDecision and the Review tab decides;
+    # a grid task asks nothing while it runs, so that is the whole of it).
+    # One per task name, shared by every grid like the rest of the config;
+    # read as automated while the review preference is off.
     attention: Attention = Attention.automated
     # The tasks, by name, whose result this one uses, as on the lamella
     # workflow: it waits while one of them awaits a decision or is still queued
@@ -220,7 +220,7 @@ class GridTask(ABC):
         manager = self.task_manager
         if manager is None or not getattr(manager, "review_enabled", False):
             return False
-        return self.config.attention is Attention.review_later
+        return self.config.attention is Attention.supervised
 
     @property
     def result_images(self) -> Dict[str, str]:

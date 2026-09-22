@@ -47,25 +47,22 @@ _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
 # The attention chip: the mode's icon (the same ones the lamella rows and
 # status chips use) and its name, fixed width so the row does not jump
-# between states. "Review later" is the widest it shows. The schedule
+# between states. "Supervised" is the widest it shows. The schedule
 # clock button, which only duplicated the pencil, gave up the width.
 _CHIP_WIDTH = 104
 _CHIP_ICONS = {
     "automated": "mdi:lightning-bolt-circle",
     "supervised": "mdi:account-hard-hat",
     "agent": "mdi:star-four-points",
-    "review_later": "mdi:clipboard-check",
 }
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() + _CHIP_WIDTH + 8  # attention chip + edit + 1 gap
-# Long labels on purpose: the short set (Auto / Superv. / Review) reads badly
-# and the long ones fit at the chip's width. In the order a task is trusted:
-# watched, then checked afterwards, then left to get on with it. "Review
-# later" and not "Review", because the Review tab collects the decisions of
-# every mode; what this one says is *when* the operator decides.
+# Long labels on purpose: the short set (Auto / Superv.) reads badly and the
+# long ones fit at the chip's width. Two modes: a person decides, or nobody
+# is asked. Where the run waits for the person is a property of the task,
+# not a third state.
 ATTENTION_LABELS = {
     "supervised": "Supervised",
     "agent": "Agent",
-    "review_later": "Review later",
     "automated": "Automated",
 }
 
@@ -128,20 +125,16 @@ def attention_state(
     has about a task, *when am I involved?*, read from the task's attention.
 
     A stored ``supervisor: agent`` shows as plain Supervised while the
-    agent-server preference is off, and a stored ``review`` shows as Automated
-    while interactive review is off -- the state it will actually run in, not
-    the one in the file.
+    agent-server preference is off -- the state it will actually run in, not
+    the one in the file. ``review_available`` is accepted and unused: the
+    preference no longer changes what a task's attention reads as.
     """
     if agent_available is None:
         agent_available = _agent_supervision_available()
-    if review_available is None:
-        review_available = _review_available()
     if task.attention is Attention.supervised:
         if getattr(task, "supervisor", "human") == "agent" and agent_available:
             return "agent"
         return "supervised"
-    if task.attention is Attention.review_later and review_available:
-        return "review_later"
     return "automated"
 
 
@@ -160,33 +153,20 @@ def _attention_chip(
             "workflow (you can always answer first). Click to change.",
         )
     if state == "supervised":
-        return (
-            label,
-            stylesheets.PRIMARY_COLOR,
-            "Supervised — asks you in the workflow, at the microscope; your "
-            "answer is the decision on the record. Click to change.",
-        )
-    if state == "review_later":
         tip = (
-            "Review later — the task finishes, and the next one waits for your "
-            "decision in the Review tab. Click to change."
+            "Supervised — you decide. A question the task needs answered is "
+            "asked in the workflow, at the microscope; a result it leaves for "
+            "afterwards waits for your decision in the Review tab, and the "
+            "tasks that require it wait with it. Click to change."
+            if _review_available()
+            else "Supervised — asks you in the workflow, at the microscope; your "
+            "answer is the decision on the record. Click to change."
         )
-        if not has_dependents:
-            tip = (
-                "Review later — but nothing requires this task, so nothing waits on "
-                "the decision. Add a requirement to a later task, or click to "
-                "change."
-            )
-        return label, stylesheets.REVIEW_COLOR, tip
+        return label, stylesheets.PRIMARY_COLOR, tip
     tip = (
         "Automated — runs without anyone; what it did is listed in the Review "
         "tab to check. Click to change."
     )
-    if task.attention is Attention.review_later:
-        tip = (
-            "Runs as Automated: the protocol says Review later, but interactive "
-            "review is off in Preferences. Click to change."
-        )
     return label, stylesheets.AUTOMATED_COLOR, tip
 
 
@@ -373,8 +353,6 @@ class WorkflowTaskRowWidget(QWidget):
         order = ["supervised"]
         if _agent_supervision_available():
             order.append("agent")
-        if _review_available():
-            order.append("review_later")
         order.append("automated")
         current = attention_state(task)
         following = order[(order.index(current) + 1) % len(order)]
@@ -411,33 +389,16 @@ class WorkflowTaskRowWidget(QWidget):
             )
         self.setToolTip("\n".join(tips))
         label, colour, tooltip = _attention_chip(self.task, self._has_dependents)
-        # the file says Review later but the preference is off: shown as it will run
-        downgraded = (
-            self.task.attention is Attention.review_later and not _review_available()
-        )
         self.btn_attention.setText(label)
         self.btn_attention.setIcon(
-            fibsem_icon(
-                _CHIP_ICONS[attention_state(self.task)],
-                color=NEUTRAL_700 if downgraded else colour,
-            )
+            fibsem_icon(_CHIP_ICONS[attention_state(self.task)], color=colour)
         )
         self.btn_attention.setToolTip(tooltip)
-        self.btn_attention.setStyleSheet(_chip_style(colour, muted=downgraded))
-        if attention_state(self.task) == "review_later" and not self._has_dependents:
-            # the column keeps the task's own dependency when it has one; the
-            # colour and the chip's tooltip carry the warning
-            if not self.requires_label.text():
-                self.requires_label.setText("nothing waits on this")
-            self.requires_label.setStyleSheet(
-                f"background: transparent; color: {stylesheets.WARN_COLOR}; "
-                f"font-size: {REQUIRES_FONT_PX}px;"
-            )
-        else:
-            self.requires_label.setStyleSheet(
-                f"background: transparent; color: {REQUIRES_COLOUR}; "
-                f"font-size: {REQUIRES_FONT_PX}px;"
-            )
+        self.btn_attention.setStyleSheet(_chip_style(colour))
+        self.requires_label.setStyleSheet(
+            f"background: transparent; color: {REQUIRES_COLOUR}; "
+            f"font-size: {REQUIRES_FONT_PX}px;"
+        )
 
 
 class _WorkflowTaskListHeader(QWidget):
@@ -564,7 +525,7 @@ class WorkflowConfigWidget(QWidget):
         tasks = self.get_tasks()
         required = {req for task in tasks for req in task.requires}
         reviewed = (
-            {t.name for t in tasks if t.attention is Attention.review_later}
+            {t.name for t in tasks if t.attention is Attention.supervised}
             if _review_available()
             else set()
         )

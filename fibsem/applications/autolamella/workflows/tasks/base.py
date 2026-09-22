@@ -31,8 +31,10 @@ from fibsem import config as fcfg
 from fibsem.applications.autolamella.proposals import (
     TASK_RESULT,
     Decision,
+    DecisionOutcome,
     Proposer,
     TaskResultProposer,
+    human_author,
 )
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
@@ -175,21 +177,22 @@ class AutoLamellaTask(ABC):
 
     @property
     def review(self) -> bool:
-        """Whether this task ends waiting on a decision in the Review tab: the
-        protocol's ``review`` on this task, and the feature flag (read once
-        per run by the manager, through it rather than the UI so a headless
-        run behaves the same). Under review the task exits AwaitingDecision
-        and the decision finishes it; otherwise the record is decided in the
-        workflow, by the operator's inline answer or by the producer itself.
-        The record is made either way: the flag hides the Review surface, not
-        the record."""
+        """Whether a person decides this task's record: the task is Supervised
+        and the review preference is on (read once per run by the manager,
+        through it rather than the UI so a headless run behaves the same).
+        Then a result the operator did not decide in the workflow -- a
+        milling session's Continue, Setup's point -- leaves the task
+        AwaitingDecision, and the decision in the Review tab finishes it.
+        Otherwise the producer decides its own record. The record is made
+        either way: the preference hides the Review surface, not the
+        record."""
         manager = self.task_manager
         if manager is None or not getattr(manager, "review_enabled", False):
             return False
         protocol = getattr(manager.experiment, "task_protocol", None)
         if protocol is None:
             return False
-        return protocol.get_attention(self.task_name) is Attention.review_later
+        return protocol.get_attention(self.task_name) is Attention.supervised
 
     def _settle(self, failure: str = "") -> None:
         """Propose this run's result on the lamella and decide it; see
@@ -486,7 +489,7 @@ class AutoLamellaTask(ABC):
                 return milling_task.config
             return milling_config
 
-        return ask(
+        config = ask(
             self.parent_ui.ui_responder,
             RunMillingTask(
                 # deepcopy kept from the signal days: the editor's copy must be
@@ -501,6 +504,20 @@ class AutoLamellaTask(ABC):
             ),
             abort=lambda: _abort_requested(self.parent_ui),
         )
+        if milling_enabled and self.validate:
+            # The operator watched the mill and pressed Continue: that is the
+            # decision on this run's result, recorded as theirs rather than
+            # the producer's own, and the task does not wait a second time in
+            # the Review tab for a look it already had.
+            experiment = getattr(self.task_manager, "experiment", None)
+            self.inline_decision = Decision(
+                outcome=DecisionOutcome.Confirmed,
+                author=experiment.author()
+                if experiment is not None
+                else human_author(""),
+                via="workflow",
+            )
+        return config
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""
