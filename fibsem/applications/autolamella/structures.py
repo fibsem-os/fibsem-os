@@ -2396,7 +2396,10 @@ class Experiment:
         Marks the proposal as the one being waited on, so a decision may land
         on it while its task runs (FIB-1025), and fires ``asked`` so the inbox
         re-derives -- nothing else would, since the tab refreshes when a task
-        *finishes* and this one is only halfway through.
+        *finishes* and this one is only halfway through. ``asking`` is the
+        live flag and is not saved; ``provenance["asked"]`` is the fact, and
+        is, so a load can tell a question the task was waiting on from a
+        value left open (FIB-1046).
 
         Unlike ``decide`` this does **not** run on the main thread. It is
         called from the workflow thread by a responder whose contract is not to
@@ -2413,6 +2416,7 @@ class Experiment:
             # Same rule as a task's own proposal: a decided one stays on the
             # record before the new question, a pending one is replaced -- it
             # was never answered, so there is nothing to keep.
+            proposal.provenance["asked"] = True
             item.record_proposal(task_name, proposal)
             proposal.asking = True
         try:
@@ -2631,6 +2635,43 @@ class Experiment:
             logging.exception(f"a subscriber to decided raised for {task_name}")
         return True
 
+    def withdraw_what_was_asked(self, reason: str) -> int:
+        """Close every question a task was waiting on that is still pending:
+        nothing is waiting on it any more. A question exists only while its
+        task waits; Stop and a failing task withdraw it, but a process that
+        ends without unwinding leaves it on disk as pending, and on the next
+        load it would read as a value to decide (FIB-1046). Called by
+        ``load``; the second load finds nothing pending and appends nothing.
+        Returns how many."""
+        withdrawn = 0
+        with EXPERIMENT_WRITE_LOCK:
+            for item in list(self.positions) + list(self.grids):
+                for task_name, proposals in item.proposals.items():
+                    for proposal in proposals:
+                        if not proposal.pending or not proposal.provenance.get("asked"):
+                            continue
+                        proposal.asking = False
+                        proposal.decisions.append(
+                            Decision(
+                                outcome=DecisionOutcome.Withdrawn,
+                                author=auto_author("workflow"),
+                                reason=reason,
+                                via="workflow",
+                                task_id=proposal.task_id,
+                                proposal_id=proposal.id,
+                            )
+                        )
+                        withdrawn += 1
+                        logging.info(
+                            {
+                                "msg": "proposal_withdrawn",
+                                "item": item.name,
+                                "task_name": task_name,
+                                "reason": reason,
+                            }
+                        )
+        return withdrawn
+
     def withdraw_proposal(
         self, item_id: str, task_name: str, reason: str
     ) -> DecisionResult:
@@ -2848,6 +2889,9 @@ class Experiment:
         # create experiment from dict
         experiment = Experiment.from_dict(ddict)
         experiment.path = os.path.dirname(fname)
+        # a question the task was waiting on when the app closed: nothing is
+        # waiting on it now
+        experiment.withdraw_what_was_asked("the app closed before it was answered")
 
         # lamella paths are stored as-created, so re-point them at wherever the
         # experiment actually is now. otherwise a moved or copied experiment

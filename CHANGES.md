@@ -133,6 +133,10 @@ correctness work landed in correlation and in what the experiment record remembe
   tab prompt asks exactly as before.
 - **A result an agent looked at is still yours to check.** The Review tab's "to
   check" group clears when a person acknowledges, not when a connected agent does.
+- **A question the app closed on is withdrawn when the experiment loads.** A
+  detection or a position confirmation a task was waiting on when the app closed or
+  crashed used to reappear as a decision to make; nothing is waiting on it, so it now
+  loads as withdrawn and lists under Decided.
 - **A run's end closes nothing in the Review tab.** An automated task's result used
   to be recorded as unreviewed when the run ended; now it stays open in "to check"
   until you look, the same as its value does until a later task uses it.

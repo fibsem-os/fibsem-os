@@ -88,7 +88,7 @@ def experiment(tmp_path) -> Experiment:
                 "task_id": RUN,
                 "proposer": "ConfirmDetection",
                 "reference_image": ref + ".tif",
-                "in_run": True,
+                "asked": True,
             },
         )
     ]

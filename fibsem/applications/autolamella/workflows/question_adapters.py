@@ -278,7 +278,6 @@ def proposal_for(
             "task_id": item.task_state.task_id,
             "proposer": type(request).__name__,
             **adapter.to_provenance(request),
-            "in_run": True,
         },
     )
     proposal.provenance["reference_image"] = reference_image
