@@ -1,8 +1,7 @@
 """Tools → Reporting → Generate Grid Screening Report (FIB-1057).
 
-The action lives with the lamella report, shows with the Grids tab by the same
-flag, and hands the work to that tab, which does the writing and says how it
-went on its strip.
+The action lives with the lamella report and hands the work to the Grids tab,
+which does the writing and says how it went on its strip.
 """
 
 import os
@@ -24,8 +23,6 @@ from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 @pytest.fixture
 def window(qapp):
     window = module.AutoLamellaSingleWindowUI()
-    window._preferences.features.grid_workflow = True
-    window._apply_grid_workflow_visibility()
     ui = window.autolamella_ui
     ui.system_widget.connect_to_microscope()
     yield window
@@ -62,12 +59,6 @@ def test_it_sits_with_the_lamella_report(window):
         "Generate Grid Screening Report",
         "Generate Overview Plot",
     ]
-
-
-def test_it_follows_the_grid_workflow_flag(window):
-    window._preferences.features.grid_workflow = False
-    window._apply_grid_workflow_visibility()
-    assert "Generate Grid Screening Report" not in _reporting_actions(window)
 
 
 def test_it_refuses_with_nothing_to_report(window, experiment, monkeypatch):

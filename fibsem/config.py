@@ -399,6 +399,11 @@ class FeatureFlags:
     # still names it loads fine; unknown keys are ignored.
     # `bug_report_enabled` and `scripts_enabled` retired 2026-09-08: Help -> Report an
     # Issue and Tools -> Scripts are shown to everyone. Same load rule as above.
+    # `grid_workflow` retired after the bench sessions on the Arctis and a fixed
+    # holder (FIB-1074): the Grids tab, the Workflow tab's Grids view, the
+    # Protocol tab's Grid page and the grid screening report are shown to everyone.
+    # Removed rather than defaulted on, since a changed default reaches only fresh
+    # installs; same load rule as above.
     # The embedded agent server (FIB-845): an HTTP API over the running session that
     # agents reach through the fibsem-mcp sidecar. Off by default and fail-closed like
     # scripts: enabling starts a localhost-only, token-authenticated, READ-ONLY server
@@ -416,17 +421,6 @@ class FeatureFlags:
     # A staging flag, and it goes the same way `napari_overview_tab` did: deleted
     # when the chip replaces the tab, not kept as a preference.
     connection_chip: bool = False
-    # The grid screening workflow (FIB-892): the Grids tab and the Workflow tab's
-    # Grids view. Off until the flow has run on the Arctis and on a fixed holder.
-    # The backend beneath it -- inventory, grid records, grid tasks, the grid run
-    # loop -- is not gated and is exercised headless either way. The hardware view,
-    # Microscope -> Sample, is not gated either: a holder reads as uncalibrated
-    # until the wizard has run, which is the safe thing for it to say.
-    #
-    # Off by default. Turning it on for everyone later is a new default, and a
-    # changed default reaches only fresh installs; the release that flips it needs
-    # a note, or a migration, not just this line.
-    grid_workflow: bool = False
     # Propose and review (FIB-946..950): a task completes and leaves a proposal
     # -- a point of interest, to start with -- for the operator to confirm or
     # reject later in a Review tab, off the beam, instead of answering inline

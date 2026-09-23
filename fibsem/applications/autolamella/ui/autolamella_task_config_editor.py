@@ -395,7 +395,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.grid_protocol.set_experiment(self.experiment)
         self.grid_protocol.set_microscope(self.microscope)
         self.grid_protocol.protocol_changed.connect(self.grid_protocol_changed)
-        self._grid_protocol_visible = getattr(self, "_grid_protocol_visible", False)
 
         # Task parameters (Column 2)
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(
@@ -484,8 +483,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.protocol_tabs.currentChanged.connect(
             lambda _i: self._on_protocol_kind_changed()
         )
-        self.protocol_tabs.setTabVisible(1, self._grid_protocol_visible)
-        self.protocol_tabs.tabBar().setVisible(self._grid_protocol_visible)
 
         # --- Column 1: Protocol info + task selector ---
         col1_content = QWidget()
@@ -1034,18 +1031,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 logging.info(f"Updated protocol {field}: {value}")
         self._save_experiment()
         self.protocol_header.update_from_protocol(protocol)
-
-    def set_grid_protocol_visible(self, visible: bool) -> None:
-        """The Grid page of the selector follows the grid_workflow feature flag.
-        Remembered when called before the editor is built."""
-        self._grid_protocol_visible = visible
-        tabs = getattr(self, "protocol_tabs", None)
-        if tabs is not None:
-            tabs.setTabVisible(1, visible)
-            # One page with the flag off: no tab bar over the task list, as before.
-            tabs.tabBar().setVisible(visible)
-            if not visible and tabs.currentIndex() == 1:
-                tabs.setCurrentIndex(0)
 
     @property
     def grid_protocol_active(self) -> bool:

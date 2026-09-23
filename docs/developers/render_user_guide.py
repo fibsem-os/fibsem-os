@@ -1984,8 +1984,7 @@ def render_workflows(h: Harness) -> None:
 def render_grid_workflow(h: Harness) -> None:
     """Grid screening on the simulated Arctis: the grid tasks on the Protocol
     tab, the inventory on the Grids tab, a run over two grids from the
-    Workflow tab's Grids view, and the results. Behind the grid_workflow
-    flag, which the harness turns on for the page and off again after."""
+    Workflow tab's Grids view, and the results."""
     from PyQt5.QtWidgets import QDialog
 
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
@@ -2014,12 +2013,6 @@ def render_grid_workflow(h: Harness) -> None:
     iw = h.ui.image_widget
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
-
-    # the flag: the Grids tab, the Workflow tab's Grids view and the Protocol
-    # tab's Grid page appear
-    h.window._preferences.features.grid_workflow = True
-    h.window._apply_grid_workflow_visibility()
-    h.pump(300)
 
     # -- the grid tasks, on the Protocol tab's Grid page --------------------
     h.show_main_tab("Protocol")
@@ -2218,12 +2211,10 @@ def render_grid_workflow(h: Harness) -> None:
     dialog.close()
     h.pump(300)
 
-    # the flag off again: the next page sees the app as shipped
+    # back to the lamella pages, so the next page starts where it expects
     h.show_main_tab("Workflow")
     left.setCurrentIndex(0)
     editor.protocol_tabs.setCurrentIndex(0)
-    h.window._preferences.features.grid_workflow = False
-    h.window._apply_grid_workflow_visibility()
     h.pump(300)
 
 

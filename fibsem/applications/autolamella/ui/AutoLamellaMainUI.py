@@ -667,8 +667,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_generate_overview_plot.triggered.connect(
             self._on_generate_overview_plot
         )
-        # The grid screening report (FIB-1057): shown with the Grids tab, by the
-        # same flag, since it reports what that tab holds.
+        # The grid screening report (FIB-1057): what the Grids tab holds, as a PDF.
         self.action_generate_grid_report = QAction(
             "Generate Grid Screening Report", self
         )
@@ -1001,10 +1000,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         coincidence_enabled = self._preferences.features.coincidence_milling_enabled
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
-        # Which of the grid-workflow surfaces are shown follows its flag. The Overview
-        # tab is not here: it ships to everyone, and which of its modalities can be
-        # reached follows the instrument rather than a flag.
-        self._apply_grid_workflow_visibility()
         self._apply_review_visibility()
         # Same rule as the rest of the agent chrome: invisible unless enabled.
         self.action_agent_server.setVisible(
@@ -2366,7 +2361,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.add_grids_tab()
         self.add_workflow_tab()
         self.add_review_tab()
-        self._apply_grid_workflow_visibility()
 
         # add notification button to tab bar
         self.create_notification_button()
@@ -2747,11 +2741,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._on_lamella_card_selected(None)
 
     def add_grids_tab(self):
-        """The Grids tab, between Lamella and Workflow: the experiment's grid records.
-
-        Behind `features.grid_workflow` (visibility only, like the old Minimap tab)
-        until the screening flow has run on the Arctis and a fixed holder.
-        """
+        """The Grids tab, between Lamella and Workflow: the experiment's grid records."""
         self.grids_tab = GridsTabWidget()
         # The Positions view makes lamellae through the application widget, the
         # one path every lamella is made by.
@@ -2767,7 +2757,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             "Grids",
         )
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(self.grids_tab), False)
-        self._apply_grid_workflow_visibility()
 
     def add_review_tab(self):
         """The Review tab: every proposal waiting for a decision (FIB-950).
@@ -2943,33 +2932,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if tab is not None and hasattr(tab, "reset_context_overlay_defaults"):
                 tab.reset_context_overlay_defaults()
 
-    def _apply_grid_workflow_visibility(self) -> None:
-        """`features.grid_workflow` shows or hides the Grids tab.
-
-        Read straight off `self._preferences`, like the Minimap flag: a method on
-        the window that owns them needs no module global.
-        """
-        enabled = self._preferences.features.grid_workflow
-        tab = getattr(self, "grids_tab", None)
-        if tab is not None:
-            self.tab_widget.setTabVisible(self.tab_widget.indexOf(tab), enabled)
-        action = getattr(self, "action_generate_grid_report", None)
-        if action is not None:
-            action.setVisible(enabled)
-        left = getattr(self, "workflow_left_tabs", None)
-        view = getattr(self, "grid_workflow_widget", None)
-        if left is not None and view is not None:
-            left.setTabVisible(left.indexOf(view), enabled)
-            # With the flag off the selector has one page; a tab bar with a lone
-            # "Lamella" tab is chrome the lamella workflow never had.
-            left.tabBar().setVisible(enabled)
-            # And with it showing, the list's own "Lamella" title says the same
-            # thing twice.
-            self.lamella_workflow_widget.set_section_title_visible(not enabled)
-        editor = getattr(self, "task_widget", None)
-        if editor is not None:
-            editor.set_grid_protocol_visible(enabled)
-
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""
         container = QWidget()
@@ -3056,6 +3018,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._refresh_grid_protocol_editor
         )
         self.workflow_left_tabs.addTab(self.grid_workflow_widget, "Grids")
+        # The selector's tab already says which list this is; the list's own
+        # "Lamella" title would say it twice.
+        self.lamella_workflow_widget.set_section_title_visible(False)
         # An inventory, a rename, a manual load on the Grids tab: the run view's
         # rows and chips follow. Built after the Grids tab, so the signal exists.
         self.grids_tab.experiment_changed.connect(self.grid_workflow_widget.refresh)
