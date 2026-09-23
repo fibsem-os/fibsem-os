@@ -28,6 +28,7 @@ class AlignedImagePanel(QWidget):
     selected = pyqtSignal(str)  # key, "" for none
     align_toggled = pyqtSignal(bool)
     reset_requested = pyqtSignal(str)  # key
+    fit_requested = pyqtSignal(str)  # key: pick point pairs and fit
     opacity_changed = pyqtSignal(str, float)  # key, 0..1
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -68,6 +69,16 @@ class AlignedImagePanel(QWidget):
         buttons.addWidget(self.btn_align)
         buttons.addWidget(self.btn_reset)
         layout.addRow(buttons)
+        # The way users prefer: three matching points rather than a drag.
+        self.btn_fit = QPushButton("Fit from points…")
+        self.btn_fit.setToolTip(
+            "Click matching features on the overview and on the image; "
+            "the fit places the image"
+        )
+        self.btn_fit.clicked.connect(
+            lambda: self.fit_requested.emit(self.current_key or "")
+        )
+        layout.addRow(self.btn_fit)
 
         self.slider_opacity = QSlider(Qt.Horizontal)
         self.slider_opacity.setRange(0, 100)
@@ -112,6 +123,7 @@ class AlignedImagePanel(QWidget):
             self.btn_remove,
             self.btn_align,
             self.btn_reset,
+            self.btn_fit,
             self.slider_opacity,
         ):
             widget.setEnabled(has)

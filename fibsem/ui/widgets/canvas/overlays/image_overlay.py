@@ -87,6 +87,12 @@ class ImageOverlay(TransformGestureOverlay):
             raise ValueError(
                 f"expected an (H, W, 3|4) RGB(A) image, got shape {data.shape}"
             )
+        if data.shape[2] == 3:
+            # Always with an alpha channel: a turned image is resampled into an
+            # axis-aligned buffer, and without alpha matplotlib fills the corners
+            # outside the footprint with opaque black. With it they are clear.
+            opaque = 255 if data.dtype == np.uint8 else 1.0
+            data = np.dstack([data, np.full(data.shape[:2], opaque, dtype=data.dtype)])
         self._data = data
         self._width = float(width)
         self._height = float(height)

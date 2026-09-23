@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import numpy as np
 from PyQt5.QtCore import QObject, pyqtSignal
 
+from fibsem.correlation.similarity import SimilarityFit, fit_similarity
 from fibsem.fm.preview import composite_projection
 from fibsem.imaging.reduce import downsample
 from fibsem.projection import FMStageProjection
@@ -120,6 +121,10 @@ class AlignedImage:
     channels: List[str] = field(default_factory=list)
     # The id of the record a host keeps this placement under, once it has one.
     record_id: Optional[str] = None
+    # How the placement was last fitted from point pairs, for the record: the pairs
+    # (image pixel x, y, reference canvas x, y), the residual per pair and the RMS,
+    # in canvas units. Empty for a placement made by hand.
+    fit: Dict[str, object] = field(default_factory=dict)
 
     @property
     def placement(self) -> Tuple[float, float, float, float]:
@@ -166,7 +171,19 @@ class AlignedImages(QObject):
         base = getattr(image.metadata, "stage_position", None)
         pixel_size = getattr(image.metadata, "pixel_size_x", None)
         if projection is None or base is None or not pixel_size:
-            logger.warning("A fluorescence image with no geometry cannot be placed.")
+            missing = [
+                name
+                for name, value in (
+                    ("camera geometry", projection),
+                    ("stage position", base),
+                    ("pixel size", pixel_size),
+                )
+                if not value
+            ]
+            logger.warning(
+                f"{label or path or 'A fluorescence image'} cannot be placed: "
+                f"no {' or '.join(missing)} in its metadata."
+            )
             return None
         if rgb is None:
             rgb = composite_projection(image)
@@ -228,6 +245,9 @@ class AlignedImages(QObject):
 
     def reset(self, key: str) -> None:
         self.set_placement(key, 0.0, 0.0, 0.0, 1.0)
+        record = self._images.get(key)
+        if record is not None:
+            record.fit = {}
         self.placement_changed.emit(key)
 
     def set_opacity(self, key: str, opacity: float) -> None:
@@ -276,6 +296,83 @@ class AlignedImages(QObject):
         )
         record.overlay.set_visible(True)
 
+    # ── placed from point pairs ───────────────────────────────────────────
+
+    def pixel_to_canvas(self, key: str, x: float, y: float) -> Tuple[float, float]:
+        """Where a pixel of the image's display composite falls on the canvas now.
+
+        Through the overlay's own map, so the answer is the placement as drawn --
+        the geometry's part and the user's part together.
+        """
+        record = self._images[key]
+        height, width = record.rgb.shape[:2]
+        fw, fh = record.overlay.footprint
+        u = ((x + 0.5) / width - 0.5) * fw
+        v = ((y + 0.5) / height - 0.5) * fh
+        return record.overlay.to_canvas(u, v)
+
+    def fit_to_points(
+        self,
+        key: str,
+        image_pixels,
+        reference_points,
+        fix_scale: bool = False,
+    ) -> SimilarityFit:
+        """Place the image so its *image_pixels* land on *reference_points*.
+
+        *image_pixels* are (x, y) in the display composite; *reference_points* are
+        canvas coordinates, where the same features are in the picture underneath. The
+        fit is a similarity on the *sample* -- both sets are unsquashed by the view's
+        foreshortening first -- so a fit made in a tilted view asks for the same
+        correction as one made looking straight down. What comes out replaces the
+        user's part: the image's centre goes where the fit sends it, its turn and
+        scale take the fit's on top of what they were. The pairs and residuals are
+        kept on the record. Announces, as a drag does.
+        """
+        record = self._images[key]
+        pixels = np.asarray(image_pixels, dtype=float).reshape(-1, 2)
+        targets = np.asarray(reference_points, dtype=float).reshape(-1, 2)
+        placed = np.array([self.pixel_to_canvas(key, x, y) for x, y in pixels])
+        squash = record.squash or 1.0
+        ay = record.anchor[1]
+
+        def unsquash(points):
+            out = points.copy()
+            out[:, 1] = ay + (out[:, 1] - ay) / squash
+            return out
+
+        fit = fit_similarity(
+            unsquash(placed), unsquash(targets), fix_scale=fix_scale, scale=1.0
+        )
+        # The composed map is still a similarity, and the placement is about the
+        # image's centre: send the centre through the fit, add the turn and scale.
+        centre = np.array(record.overlay.centre, dtype=float)
+        new_centre = fit.apply(unsquash(centre.reshape(1, 2)))[0]
+        record.dx = float((new_centre[0] - record.anchor[0]) / record.per_metre)
+        record.dy = float((new_centre[1] - ay) / record.per_metre)
+        record.rotation = float(record.rotation + fit.rotation)
+        record.scale = float(record.scale * fit.scale)
+        record.fit = {
+            "pairs": [
+                [float(px), float(py), float(rx), float(ry)]
+                for (px, py), (rx, ry) in zip(pixels, targets)
+            ],
+            "residuals": [float(r) for r in fit.residuals],
+            "rms": float(fit.rms),
+            "scale": float(fit.scale),
+            "fix_scale": bool(fix_scale),
+        }
+        self._place(record)
+        logger.info(
+            f"Fitted {record.label} from {len(pixels)} pairs: RMS {fit.rms:.2f} canvas px,"
+            f" turn {fit.rotation:+.2f} deg, scale x{fit.scale:.4f}"
+            f"{' (locked)' if fix_scale else ''}; placement now dx={record.dx:.3e} m"
+            f" dy={record.dy:.3e} m rotation={record.rotation:.2f} deg"
+            f" scale={record.scale:.4f}"
+        )
+        self.placement_changed.emit(key)
+        return fit
+
     # ── what the overlays emit, taken back apart ───────────────────────────
 
     def _on_moved(self, key: str, cx: float, cy: float) -> None:
@@ -288,6 +385,7 @@ class AlignedImages(QObject):
         record.dy = float(
             (cy - record.anchor[1]) / record.per_metre / (record.squash or 1.0)
         )
+        record.fit = {}
         self._place(record)
 
     def _on_rotated(self, key: str, rotation: float) -> None:
@@ -295,6 +393,7 @@ class AlignedImages(QObject):
         if record is None:
             return
         record.rotation = float(rotation - record.base_rotation)
+        record.fit = {}
         self._place(record)
 
 

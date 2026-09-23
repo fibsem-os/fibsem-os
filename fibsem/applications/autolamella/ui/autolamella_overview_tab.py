@@ -209,6 +209,7 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
             dy=dy,
             rotation=rotation,
             scale=scale,
+            fit=dict(aligned.fit),
         )
         if aligned.record_id:
             record.id = aligned.record_id
@@ -218,6 +219,12 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
             self.experiment.save()
         except Exception as e:  # noqa: BLE001 - the placement is on screen either way
             logger.error(f"Could not save the image placement: {e}")
+            return
+        logger.info(
+            f"Kept {aligned.label} on grid {grid.name}: dx={dx:.3e} m dy={dy:.3e} m"
+            f" rotation={rotation:.2f} deg scale={scale:.4f}"
+            f"{' (from a fit)' if aligned.fit else ''}; source {source}"
+        )
 
     def _forget_image(self, _key: str, record_id: str) -> None:
         grid = self.current_grid
