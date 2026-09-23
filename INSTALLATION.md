@@ -93,9 +93,8 @@ on Linux and a `.command` file on macOS.
 
 From now on, double-click the shortcut to start fibsemOS.
 
-The menu item is newer than v0.5.2, and no v0.5.x release has it. On v0.5.2
-or earlier, make the shortcut by hand as described in
-[Manual shortcut](#manual-shortcut).
+The menu item is newer than v0.5.2. On v0.5.2 or earlier, make the shortcut
+by hand as described in [Manual shortcut](#manual-shortcut).
 
 ## 5. Microscope software
 
