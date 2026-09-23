@@ -62,7 +62,7 @@ sim:
     fib: null # "/path/to/fib/image/data"                   
     use_cycle: true
     sample:                                                 # synthetic cryo-grid both beams (and the FM) image through their projections (FIB-874); on for development
-        grids_from_holder: false                          # grids at the holder's calibrated, occupied slots (content seeded by grid name; the holder file is shared by every configuration here); off: one grid at the boot position
+        grids_from_holder: true                           # the grid in the working slot, its content seeded by its name, so each grid the autoloader brings in looks different; the compustage holder is built in code, not read from the shared holder file. off: one grid at the boot position, whatever is loaded
         enabled: true
         coincidence_offset: 10.0e-6                        # height error at boot (m) - what the coincidence alignment corrects
         tilt_axis_offset: 0.0                              # surface height above the tilt axis (m); >0 makes the stage non-eucentric
@@ -88,3 +88,4 @@ sim:
         capacity: 12
         occupied: [1, 2, 3]                               # 1-based slot numbers holding a grid
         names: {}                                         # slot number -> grid name; unnamed slots read as Grid-NN
+        exchange_delay: 5.0                               # seconds each load and each unload takes (a real Arctis is nearer two minutes); skipped under FIBSEM_SIM_NO_DELAY=1, as the tests run

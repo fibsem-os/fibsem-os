@@ -364,6 +364,33 @@ class TestStopAndStatus:
         # Cancelled is not "could not be loaded": nothing refused the grid.
         assert "Grid-02" not in manager._not_loaded
 
+    def test_stop_during_the_load_lets_the_grid_in_and_runs_nothing_on_it(
+        self, manager, experiment, microscope
+    ):
+        """The autoloader's load blocks and cannot be interrupted, so a Stop that
+        lands during it is honoured once the grid is in: the load is recorded as
+        it happened, and the run ends before any task starts on that grid."""
+        stage = microscope._stage
+        loader = stage.loader
+        real_load = loader._do_load
+
+        def load_then_stop(slot):
+            real_load(slot)
+            manager.stop()  # the click lands while the grid is travelling
+
+        loader._do_load = load_then_stop
+        executed = run_with_stub(manager, ["overview_sem"], ["Grid-02"])
+
+        assert executed == []
+        assert [g.name for g in stage.loaded_grids] == ["Grid-02"]
+        (entry,) = load_entries(experiment.get_grid_by_name("Grid-02"))
+        assert entry.status is Status.Completed
+        assert entry.status_message == "Loaded into Slot-01."
+        load_item, task_item = manager.queue.items
+        assert load_item.status is Status.Completed
+        assert task_item.status is Status.NotStarted
+        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled by user."
+
     def test_stop_before_the_exchange_loads_nothing(
         self, manager, experiment, microscope
     ):
