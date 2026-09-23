@@ -657,8 +657,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         # set milling task config
         if task_config.milling:
             self._current_milling_key = next(iter(task_config.milling))
+            # A copy, as the lamella editor's: the viewer edits the stages it is
+            # given in place, so the protocol would change before the handler.
             self.milling_task_editor.set_config(
-                task_config.milling[self._current_milling_key]
+                copy.deepcopy(task_config.milling[self._current_milling_key])
             )
             self.milling_task_editor.setVisible(True)
         else:
@@ -692,9 +694,16 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         selected_task_name = self.task_list_widget.selected_task
         key = self._current_milling_key
         if key and selected_task_name in self.experiment.task_protocol.task_config:
-            self.experiment.task_protocol.task_config[selected_task_name].milling[
-                key
-            ] = config
+            milling = self.experiment.task_protocol.task_config[
+                selected_task_name
+            ].milling
+            self._edits.touch(
+                None,
+                selected_task_name,
+                f"protocol.milling.{key}",
+                lambda: milling.get(key),
+            )
+            milling[key] = config
             logging.info(f"Updated {selected_task_name} Task, milling key '{key}'")
 
         # save the experiment
@@ -833,6 +842,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             if dialog.exec_() == QDialog.Accepted:
                 # apply onto the stored config rather than replacing it, so the task's
                 # other fields (milling, reference imaging, autofocus) survive the edit
+                self._touch_protocol(task_name)
                 config.apply_settings(coord_widget.get_settings())
                 self._set_protocol_dirty(True)
                 logging.info(
@@ -845,6 +855,14 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             # exec_ returns and every open would strand another canvas + controller for
             # the session. Delete after reading the settings, never before.
             dialog.deleteLater()
+
+    def _touch_protocol(self, task_name: str, via: Optional[str] = None) -> None:
+        """Before the protocol's config for *task_name* is replaced, added or
+        removed: for the experiment's record (FIB-1034)."""
+        configs = self.experiment.task_protocol.task_config
+        self._edits.touch(
+            None, task_name, "protocol.task_config", lambda: configs.get(task_name), via
+        )
 
     def _save_experiment(self):
         """Save the experiment if available."""
@@ -862,6 +880,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 new_task_config = task_cls.config_cls()  # type: ignore
                 new_task_config.task_name = task_name
 
+                via = "add task"
+                self._touch_protocol(task_name, via)
+                self._edits.touch_task_configs(
+                    self.experiment.positions, [task_name], via
+                )
                 # Add to experiment
                 self.experiment.task_protocol.task_config[task_name] = new_task_config
                 self.experiment.task_protocol.workflow_config.add_task(new_task_config)
@@ -901,6 +924,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         if reply == QMessageBox.Yes:
             # Remove from experiment
             if selected_task_name in self.experiment.task_protocol.task_config:
+                self._touch_protocol(selected_task_name, "remove task")
                 del self.experiment.task_protocol.task_config[selected_task_name]
 
                 # Save experiment
@@ -919,13 +943,21 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         dialog = AutoLamellaGlobalTaskEditDialog(self.experiment, parent=self)
 
         if dialog.exec_() == QDialog.Accepted:
+            via = "global edit"
+            update_lamella = dialog.checkbox_update_existing.isChecked()
+            selected_task_names = dialog.get_selected_tasks()
+            for task_name in selected_task_names:
+                self._touch_protocol(task_name, via)
+            if update_lamella:
+                self._edits.touch_task_configs(
+                    self.experiment.positions, selected_task_names, via
+                )
+
             # Apply changes to all tasks
             updated_count = dialog.apply_changes()
 
             # apply to existing lamella if selected
-            update_lamella = dialog.checkbox_update_existing.isChecked()
             if update_lamella:
-                selected_task_names = dialog.get_selected_tasks()
                 all_lamella_names = [p.name for p in self.experiment.positions]
                 self.experiment.apply_lamella_config(
                     lamella_names=all_lamella_names,

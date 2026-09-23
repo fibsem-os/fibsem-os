@@ -35,10 +35,14 @@ from fibsem.applications.autolamella.ui.edit_recording import SETTLE_MS  # noqa:
 from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E402
     MillRoughTaskConfig,
 )
+from fibsem.applications.autolamella.workflows.tasks.tasks import (  # noqa: E402
+    SpotBurnFiducialTaskConfig,
+)
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
 
 TASK = "Rough Milling"
 KEY = "mill_rough"
+SPOT = "Spot Burn Fiducial"
 
 
 @pytest.fixture(scope="module")
@@ -236,7 +240,42 @@ def test_applying_to_other_lamellae_records_what_each_was_and_became(
     assert _depth(payload["after"]["milling"][KEY]) == 5e-6
 
 
+def test_adding_a_spot_burn_point_records_the_points(editor, experiment, edits):
+    lamella = experiment.positions[0]
+    lamella.task_config[SPOT] = SpotBurnFiducialTaskConfig(task_name=SPOT)
+    editor.listWidget_selected_task.set_tasks([TASK, SPOT])
+    editor.listWidget_selected_task.select(SPOT)
+    assert editor.listWidget_selected_task.selected_task == SPOT
+
+    editor.spot_burn_coordinates_widget._add_coordinate()  # as its Add button does
+    editor.flush_pending_save()
+
+    ((event),) = edits()
+    payload = event["payload"]
+    assert payload["item"]["name"] == lamella.name
+    assert (payload["task"], payload["target"], payload["via"]) == (
+        SPOT,
+        "parameters.coordinates",
+        "lamella editor",
+    )
+    assert payload["before"] == []
+    assert payload["after"] == [
+        p.to_dict() for p in lamella.task_config[SPOT].coordinates
+    ]
+    assert len(payload["after"]) == 1
+
+
 # ── the protocol editor ──────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def protocol_editor(window, experiment):
+    editor = window.task_widget
+    editor.set_experiment(experiment)
+    editor.task_list_widget.select(TASK)
+    assert editor.task_list_widget.selected_task == TASK
+    QTest.qWait(50)  # the stage list selects its first stage on the next tick
+    return editor
 
 
 def test_a_protocol_edit_and_a_sync_to_the_lamellae(
@@ -280,6 +319,161 @@ def test_a_protocol_edit_and_a_sync_to_the_lamellae(
         )
         assert e["before"]["parameters"]["sync_to_poi"] is True
         assert e["after"]["parameters"]["sync_to_poi"] is False
+
+
+def test_a_protocol_pattern_edit_is_recorded_from_what_it_was(
+    protocol_editor, experiment, edits
+):
+    stage = experiment.task_protocol.task_config[TASK].milling[KEY].stages[0]
+    start = stage.pattern.depth
+    deeper = deepcopy(stage.pattern)
+    deeper.depth = 2 * start
+
+    # The pattern panel's own signal, as its depth box sends it. The panel sets
+    # the pattern on the stage it was given before the editor hears of it.
+    stages = protocol_editor.milling_task_editor.config_widget.milling_stages_widget
+    stages._pattern_widget.pattern_changed.emit(deeper)
+    QTest.qWait(SETTLE_MS + 250)
+
+    ((event),) = edits()
+    payload = event["payload"]
+    assert (payload["item"], payload["task"]) == (None, TASK)
+    assert (payload["target"], payload["via"]) == (
+        f"protocol.milling.{KEY}",
+        "protocol editor",
+    )
+    assert _depth(payload["before"]) == start
+    assert _depth(payload["after"]) == 2 * start
+    assert (
+        experiment.task_protocol.task_config[TASK].milling[KEY].stages[0].pattern.depth
+        == 2 * start
+    )
+
+
+def test_a_global_edit_records_the_protocol_and_each_lamella(
+    protocol_editor, experiment, edits, monkeypatch
+):
+    def accept(dialog):  # every task, a wider milling field of view, lamellae too
+        dialog._select_all_tasks()
+        dialog.spinbox_milling_fov.setValue(dialog.spinbox_milling_fov.value() + 10)
+        dialog.checkbox_update_existing.setChecked(True)
+        return protocol_editor_module.QDialog.Accepted
+
+    monkeypatch.setattr(
+        protocol_editor_module.AutoLamellaGlobalTaskEditDialog, "exec_", accept
+    )
+    monkeypatch.setattr(
+        protocol_editor_module.QMessageBox, "information", lambda *a, **k: None
+    )
+    fov = experiment.task_protocol.task_config[TASK].milling[KEY].field_of_view
+
+    protocol_editor._on_global_edit_clicked()
+    QTest.qWait(SETTLE_MS + 250)
+
+    protocol, *lamellae = (e["payload"] for e in edits())
+    assert (protocol["item"], protocol["task"], protocol["target"]) == (
+        None,
+        TASK,
+        "protocol.task_config",
+    )
+    assert sorted(e["item"]["name"] for e in lamellae) == sorted(
+        p.name for p in experiment.positions
+    )
+    for e in (protocol, *lamellae):
+        assert e["via"] == "global edit"
+        assert e["before"]["milling"][KEY]["field_of_view"] == fov
+        assert e["after"]["milling"][KEY]["field_of_view"] == pytest.approx(fov + 10e-6)
+
+
+def test_adding_a_task_records_it_on_the_protocol_and_each_lamella(
+    protocol_editor, experiment, edits, monkeypatch
+):
+    def accept(dialog):
+        dialog.comboBox_task_type.setCurrentIndex(
+            dialog.comboBox_task_type.findData("MILL_ROUGH")
+        )
+        dialog.lineEdit_task_name.setText("Extra Rough")
+        return protocol_editor_module.QDialog.Accepted
+
+    monkeypatch.setattr(protocol_editor_module.AddTaskDialog, "exec_", accept)
+
+    protocol_editor._on_add_task_clicked()
+    QTest.qWait(SETTLE_MS + 250)
+
+    protocol, *lamellae = (e["payload"] for e in edits())
+    assert (protocol["item"], protocol["target"]) == (None, "protocol.task_config")
+    assert protocol["after"] == (
+        experiment.task_protocol.task_config["Extra Rough"].to_dict()
+    )
+    for e in (protocol, *lamellae):
+        assert (e["task"], e["via"], e["before"]) == ("Extra Rough", "add task", None)
+    added = {
+        p.name: p.task_config["Extra Rough"].to_dict() for p in experiment.positions
+    }
+    assert {e["item"]["name"]: e["after"] for e in lamellae} == added
+
+
+def test_removing_a_task_records_what_the_protocol_had(
+    protocol_editor, experiment, edits, monkeypatch
+):
+    monkeypatch.setattr(
+        protocol_editor_module.QMessageBox,
+        "question",
+        lambda *a, **k: protocol_editor_module.QMessageBox.Yes,
+    )
+    had = experiment.task_protocol.task_config[TASK].to_dict()
+
+    protocol_editor._on_remove_task_clicked()
+    QTest.qWait(SETTLE_MS + 250)
+
+    ((event),) = edits()
+    payload = event["payload"]
+    assert (payload["item"], payload["task"], payload["target"]) == (
+        None,
+        TASK,
+        "protocol.task_config",
+    )
+    assert (payload["via"], payload["before"], payload["after"]) == (
+        "remove task",
+        had,
+        None,
+    )
+
+
+def test_the_protocol_s_spot_burn_points_are_recorded(
+    window, experiment, edits, monkeypatch
+):
+    from fibsem.ui.widgets.spot_burn_coordinates_widget import (
+        SpotBurnCoordinatesWidget,
+    )
+
+    config = SpotBurnFiducialTaskConfig(task_name=SPOT)
+    experiment.task_protocol.task_config[SPOT] = config
+    had = config.to_dict()
+    editor = window.task_widget
+    editor.set_experiment(experiment)
+    editor.task_list_widget.select(SPOT)
+    assert editor.task_list_widget.selected_task == SPOT
+
+    def accept(dialog):  # a point added, then OK
+        dialog.findChild(SpotBurnCoordinatesWidget)._add_coordinate()
+        return protocol_editor_module.QDialog.Accepted
+
+    monkeypatch.setattr(protocol_editor_module.QDialog, "exec_", accept)
+
+    editor._on_spot_burn_coordinates_clicked()
+    QTest.qWait(SETTLE_MS + 250)
+
+    ((event),) = edits()
+    payload = event["payload"]
+    assert (payload["item"], payload["task"], payload["target"]) == (
+        None,
+        SPOT,
+        "protocol.task_config",
+    )
+    assert (payload["via"], payload["before"]) == ("protocol editor", had)
+    assert payload["after"] == config.to_dict()
+    assert len(config.coordinates) == 1
 
 
 # ── a correlation ────────────────────────────────────────────────────────────
