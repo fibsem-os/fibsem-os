@@ -137,6 +137,10 @@ correctness work landed in correlation and in what the experiment record remembe
   detection or a position confirmation a task was waiting on when the app closed or
   crashed used to reappear as a decision to make; nothing is waiting on it, so it now
   loads as withdrawn and lists under Decided.
+- **A detection review draws the correction as you make it.** The model's points
+  stay on the image in orange while you drag a marker, a line under the image says
+  how far each feature has moved ("LamellaCentre moved 1.3 µm"), and clicking a
+  marker turns Put them back into putting back that one.
 - **A run's end closes nothing in the Review tab.** An automated task's result used
   to be recorded as unreviewed when the run ended; now it stays open in "to check"
   until you look, the same as its value does until a later task uses it.
