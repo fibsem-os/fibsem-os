@@ -1017,3 +1017,55 @@ class TestAnAlignedImageIsKeptOnTheGrid:
         finally:
             tab.experiment.save = real
             stage.unload()
+
+    def test_how_it_is_shown_is_kept_and_laid_back(self, tab, microscope, tmp_path):
+        """Opacity, signal only and a channel's colour go on the record once an
+        edit settles, and come back with the image -- without being written back."""
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            overview = tab.overview
+            key = overview.load_aligned_image(elsewhere)
+            overview.aligned_image_panel.check_signal_only.setChecked(False)
+            overview.aligned_image_panel.slider_opacity.setValue(35)
+            overview.aligned_images.get(key).layers[0].color = "magenta"
+            overview._channels_key = key
+            overview._recomposite_shown_channels()
+            overview._flush_display_changes()  # as the settle timer would
+
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert record.display["signal_only"] is False
+            assert record.display["opacity"] == pytest.approx(0.35)
+            assert [c["color"] for c in record.display["channels"]] == ["magenta"]
+            # Kept without a drag, so the file came in with it.
+            assert record.source == os.path.join(
+                "Aligned Images", "fm-overview.ome.tiff"
+            )
+
+            reopened = Experiment.load(
+                os.path.join(str(tab.experiment.path), "experiment.yaml")
+            )
+            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again.refresh_microscope()
+            saves = []
+            real = reopened.save
+            reopened.save = lambda *a, **k: saves.append(True) or real(*a, **k)
+            try:
+                self._show(again, microscope)
+                (back_key,) = again.overview.aligned_images.keys()
+                back = again.overview.aligned_images.get(back_key)
+                assert not back.signal_only
+                assert back.overlay.opacity == pytest.approx(0.35)
+                assert back.layers[0].color == "magenta"
+                panel = again.overview.aligned_image_panel
+                assert panel.slider_opacity.value() == 35
+                assert not panel.check_signal_only.isChecked()
+                again.overview._flush_display_changes()
+                assert saves == []
+            finally:
+                reopened.save = real
+                again._drop_overview()
+        finally:
+            stage.unload()

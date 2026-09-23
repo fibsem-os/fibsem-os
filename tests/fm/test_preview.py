@@ -3,7 +3,13 @@
 import numpy as np
 import pytest
 
-from fibsem.fm.preview import is_fluorescence_image, load_projection
+from fibsem.fm.composite import composite_fm_layers
+from fibsem.fm.preview import (
+    composite_projection,
+    is_fluorescence_image,
+    load_projection,
+    projection_layers,
+)
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
@@ -131,3 +137,31 @@ def test_a_stack_with_no_channels_raises(stack_on_disk):
 
     with pytest.raises(ValueError, match="no displayable channels"):
         load_projection(stack_on_disk(image))
+
+
+# projection_layers
+
+
+def test_each_channel_is_its_own_projected_layer():
+    """What the composite is blended from, kept apart so it can be re-blended:
+    one layer per channel, projected over z, in the metadata's colour."""
+    data = np.zeros((2, 3, 8, 8), dtype=np.uint16)
+    data[0, 2, 1, 1] = 900
+    data[1, 0, 5, 5] = 700
+    layers = projection_layers(_stack(data, ["red", "cyan"]))
+
+    assert [(layer.name, layer.color) for layer in layers] == [
+        ("Channel-00", "red"),
+        ("Channel-01", "cyan"),
+    ]
+    assert layers[0].data.shape == (8, 8)
+    assert layers[0].data[1, 1] == 900 and layers[1].data[5, 5] == 700
+
+
+def test_the_composite_is_the_blend_of_the_layers():
+    rng = np.random.default_rng(0)
+    data = (rng.random((2, 2, 8, 8)) * 4000).astype(np.uint16)
+    image = _stack(data, ["green", "magenta"])
+    assert np.array_equal(
+        composite_projection(image), composite_fm_layers(projection_layers(image))
+    )

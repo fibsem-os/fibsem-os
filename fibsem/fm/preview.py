@@ -7,7 +7,7 @@ anything reaching through `fibsem.ui` is skipped there for lack of napari/PyQt5.
 from __future__ import annotations
 
 import os
-from typing import Tuple
+from typing import List, Tuple
 
 import numpy as np
 
@@ -20,11 +20,11 @@ def is_fluorescence_image(filepath: str) -> bool:
     return os.fspath(filepath).lower().endswith((".ome.tiff", ".ome.tif"))
 
 
-def composite_projection(image: FluorescenceImage) -> np.ndarray:
-    """Max-project each channel over z, tint by its colour, blend: an (H, W, 3) RGB.
+def projection_layers(image: FluorescenceImage) -> List[FMLayer]:
+    """One layer per channel: its max projection over z, named and coloured.
 
-    The same composite the FM canvas shows, from an image in hand -- a mosaic just
-    stitched, say -- so a thumbnail need not re-read a file that was just written.
+    What :func:`composite_projection` blends, kept apart so a caller that lets the
+    user recolour or hide a channel can re-blend without re-reading or re-projecting.
     """
     data = np.asarray(image.data)
     if data.ndim == 5:  # TCZYX: one time point
@@ -46,8 +46,16 @@ def composite_projection(image: FluorescenceImage) -> np.ndarray:
             name = f"Channel-{index + 1:02d}"
             color = AVAILABLE_COLORS[index % len(AVAILABLE_COLORS)]
         layers.append(FMLayer(name=name, data=plane, color=color))
+    return layers
 
-    rgb = composite_fm_layers(layers)
+
+def composite_projection(image: FluorescenceImage) -> np.ndarray:
+    """Max-project each channel over z, tint by its colour, blend: an (H, W, 3) RGB.
+
+    The same composite the FM canvas shows, from an image in hand -- a mosaic just
+    stitched, say -- so a thumbnail need not re-read a file that was just written.
+    """
+    rgb = composite_fm_layers(projection_layers(image))
     if rgb is None:
         raise ValueError("fluorescence image has no displayable channels")
     return rgb

@@ -1,7 +1,7 @@
 """The controls for images aligned by hand over the Overview canvas (FIB-1030).
 
-Which image, load and remove, Align and Reset, opacity, and a readout of where it has
-been put. Emits; the host owns the images (`AlignedImages`) and the canvas's overlay
+Which image, load and remove, Align and Reset, how it is shown (opacity, signal only,
+its channels), and a readout of where it has been put. Emits; the host owns the images (`AlignedImages`) and the canvas's overlay
 mode, so this panel says nothing about geometry and holds no state a record does not.
 """
 
@@ -11,6 +11,7 @@ from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QHBoxLayout,
@@ -30,6 +31,8 @@ class AlignedImagePanel(QWidget):
     reset_requested = pyqtSignal(str)  # key
     fit_requested = pyqtSignal(str)  # key: pick point pairs and fit
     opacity_changed = pyqtSignal(str, float)  # key, 0..1
+    signal_only_changed = pyqtSignal(str, bool)  # key, dark drawn clear
+    channels_requested = pyqtSignal(str)  # key: open its channel controls
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -87,6 +90,26 @@ class AlignedImagePanel(QWidget):
             lambda v: self.opacity_changed.emit(self.current_key or "", v / 100.0)
         )
         layout.addRow("Opacity", self.slider_opacity)
+        self.check_signal_only = QCheckBox("Signal only")
+        self.check_signal_only.setChecked(True)
+        self.check_signal_only.setToolTip(
+            "Draw dark areas clear, so the overview shows through where the image "
+            "holds no signal"
+        )
+        self.check_signal_only.toggled.connect(
+            lambda on: self.signal_only_changed.emit(self.current_key or "", on)
+        )
+        self.btn_channels = QPushButton("Channels…")
+        self.btn_channels.setToolTip("Colour, hide or re-contrast the image's channels")
+        self.btn_channels.clicked.connect(
+            lambda: self.channels_requested.emit(self.current_key or "")
+        )
+        display = QHBoxLayout()
+        display.setContentsMargins(0, 0, 0, 0)
+        display.addWidget(self.check_signal_only)
+        display.addStretch(1)
+        display.addWidget(self.btn_channels)
+        layout.addRow(display)
 
         self.label_placement = panel_hint()
         layout.addRow(self.label_placement)
@@ -113,6 +136,15 @@ class AlignedImagePanel(QWidget):
     def set_placement_text(self, text: str) -> None:
         self.label_placement.setText(text)
 
+    def set_display(self, opacity: float, signal_only: bool) -> None:
+        """Show the selected image's opacity and signal-only setting, silently."""
+        for widget in (self.slider_opacity, self.check_signal_only):
+            widget.blockSignals(True)
+        self.slider_opacity.setValue(int(round(float(opacity) * 100)))
+        self.check_signal_only.setChecked(bool(signal_only))
+        for widget in (self.slider_opacity, self.check_signal_only):
+            widget.blockSignals(False)
+
     def _on_index_changed(self, _index: int) -> None:
         self.selected.emit(self.current_key or "")
         self._refresh_enabled()
@@ -125,6 +157,8 @@ class AlignedImagePanel(QWidget):
             self.btn_reset,
             self.btn_fit,
             self.slider_opacity,
+            self.check_signal_only,
+            self.btn_channels,
         ):
             widget.setEnabled(has)
         if not has:
