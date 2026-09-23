@@ -141,7 +141,13 @@ _IMAGE_CACHE_SIZE = 24
 _FM_CACHE_SIZE = 3  # a z-stack is ~100 MB
 
 # Columns of the event table. The task is in the header and the row's tooltip.
-_COL_TIME, _COL_ITEM, _COL_KIND, _COL_SUMMARY = range(4)
+_COL_TIME, _COL_ITEM, _COL_KIND, _COL_BY, _COL_SUMMARY = range(5)
+# Who acted, as the event stream records it. A person or an agent stands out;
+# the task, which does most of a run, does not.
+_ACTOR_LABEL = {"operator": "Operator", "agent": "Agent", "task": "Task"}
+_ACTOR_COLOUR = {"operator": TEXT_STRONG_COLOR, "agent": TEXT_STRONG_COLOR}
+_ANYONE = "Anyone"
+_NOT_RECORDED = "Not recorded"
 
 _TABLE_STYLE = f"""
 QTableWidget {{
@@ -505,9 +511,22 @@ class ExperimentReplayWidget(QWidget):
         if any(e.item is None for e in self.replay.events):
             self.item_combo.addItem(_NO_ITEM, _NO_ITEM)
         self.item_combo.currentIndexChanged.connect(self._on_filter_changed)
+        # Who acted: the ones this run has, in a fixed order.
+        self.actor_combo = QComboBox()
+        self.actor_combo.setStyleSheet(CONTROL_STYLE)
+        self.actor_combo.setToolTip("Only what one of them did")
+        self.actor_combo.addItem(_ANYONE, None)
+        actors = {e.actor for e in self.replay.events}
+        for actor, label in _ACTOR_LABEL.items():
+            if actor in actors:
+                self.actor_combo.addItem(label, actor)
+        if None in actors and len(actors) > 1:
+            self.actor_combo.addItem(_NOT_RECORDED, _NOT_RECORDED)
+        self.actor_combo.currentIndexChanged.connect(self._on_filter_changed)
         show_row = QHBoxLayout()
         show_row.addWidget(caption)
         show_row.addWidget(self.item_combo)
+        show_row.addWidget(self.actor_combo)
         show_row.addStretch(1)
 
         filters = QGridLayout()
@@ -522,8 +541,8 @@ class ExperimentReplayWidget(QWidget):
             self.filter_boxes[kind] = box
             filters.addWidget(box, n // 4, n % 4)
 
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Time", "Item", "Kind", "Action"])
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Time", "Item", "Kind", "By", "Action"])
         self.table.setStyleSheet(_TABLE_STYLE)
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
@@ -534,7 +553,12 @@ class ExperimentReplayWidget(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         head = self.table.horizontalHeader()
-        for col, width in ((_COL_TIME, 78), (_COL_ITEM, 110), (_COL_KIND, 80)):
+        for col, width in (
+            (_COL_TIME, 78),
+            (_COL_ITEM, 110),
+            (_COL_KIND, 80),
+            (_COL_BY, 70),
+        ):
             head.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
             self.table.setColumnWidth(col, width)
         head.setSectionResizeMode(_COL_SUMMARY, QHeaderView.ResizeMode.Stretch)
@@ -611,6 +635,7 @@ class ExperimentReplayWidget(QWidget):
                 e.time.strftime("%H:%M:%S"),
                 e.item or "",
                 _KIND_LABEL.get(e.kind, e.kind),
+                _ACTOR_LABEL.get(e.actor, e.actor or ""),
                 e.summary,
             )
             for col, text in enumerate(cells):
@@ -618,6 +643,10 @@ class ExperimentReplayWidget(QWidget):
                 if col == _COL_KIND:
                     item.setForeground(
                         QColor(_KIND_COLOUR.get(e.kind, TEXT_MUTED_COLOR))
+                    )
+                if col == _COL_BY:
+                    item.setForeground(
+                        QColor(_ACTOR_COLOUR.get(e.actor, TEXT_MUTED_COLOR))
                     )
                 if e.kind == EventKind.MESSAGE and e.data.get("level") in (
                     "ERROR",
@@ -726,6 +755,14 @@ class ExperimentReplayWidget(QWidget):
         else:
             self.seek(self._index)  # the panes follow the item, too
 
+    def _of_selected_actor(self, event: ReplayEvent) -> bool:
+        selected = self.actor_combo.currentData()
+        if selected is None:
+            return True
+        if selected == _NOT_RECORDED:
+            return event.actor is None
+        return event.actor == selected
+
     def _of_selected_item(self, event: ReplayEvent) -> bool:
         selected = self.item_combo.currentData()
         if selected is None:
@@ -735,23 +772,26 @@ class ExperimentReplayWidget(QWidget):
         return event.item == selected
 
     def _apply_filter(self) -> None:
-        """Show the chosen lamella's actions of the chosen kinds.
+        """Show the chosen lamella's actions of the chosen kinds, by whoever
+        was chosen.
 
         With an item chosen, the panes show only its images too (see
         ``ExperimentReplay.scene``); otherwise a lamella's first steps would
-        show the frame the previous lamella left on screen.
+        show the frame the previous lamella left on screen. Who acted scopes
+        only the list: the instrument is the same whoever drove it.
         """
         kinds = {k for k, box in self.filter_boxes.items() if box.isChecked()}
-        of_item = [self._of_selected_item(e) for e in self.replay.events]
+        shown = [
+            self._of_selected_item(e) and self._of_selected_actor(e)
+            for e in self.replay.events
+        ]
         self._visible = [
-            i
-            for i, e in enumerate(self.replay.events)
-            if of_item[i] and e.kind in kinds
+            i for i, e in enumerate(self.replay.events) if shown[i] and e.kind in kinds
         ]
         for row, e in enumerate(self.replay.events):
-            self.table.setRowHidden(row, not (of_item[row] and e.kind in kinds))
+            self.table.setRowHidden(row, not (shown[row] and e.kind in kinds))
         counts = {k: 0 for k in EventKind.ALL}
-        for e, keep in zip(self.replay.events, of_item):
+        for e, keep in zip(self.replay.events, shown):
             if keep:
                 counts[e.kind] = counts.get(e.kind, 0) + 1
         for kind, box in self.filter_boxes.items():
@@ -823,6 +863,13 @@ class ExperimentReplayWidget(QWidget):
                 _KIND_COLOUR.get(e.kind, TEXT_MUTED_COLOR),
             )
         )
+        if e.actor:
+            self.event_kind_chip.addWidget(
+                chip(
+                    _ACTOR_LABEL.get(e.actor, e.actor),
+                    _ACTOR_COLOUR.get(e.actor, TEXT_MUTED_COLOR),
+                )
+            )
         self.event_label.setText(e.summary)
 
     def _show_image(
