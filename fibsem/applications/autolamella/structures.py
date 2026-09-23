@@ -1642,6 +1642,23 @@ class Lamella:
         return synced_tasks, moves
 
 
+def _plain(value: Any) -> Any:
+    """*value* with every numpy scalar and array made a plain Python one, all the
+    way down: the YAML writer cannot represent numpy types, and a record carries
+    dicts filled from a canvas and a composite."""
+    import numpy as np  # this module imports numpy for annotations only
+
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return _plain(value.tolist())
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
 @evented
 @dataclass
 class OverlayRecord:
@@ -1673,6 +1690,9 @@ class OverlayRecord:
     view: Optional[str] = None
     # How it was placed by a fit, when it was: the point pairs and the residual.
     fit: Dict[str, Any] = field(default_factory=dict)
+    # An image: how it is shown -- opacity, signal only, and per channel its colour,
+    # visibility, opacity, gamma and contrast. Empty means as loaded.
+    display: Dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: float = field(
         default_factory=lambda: datetime.timestamp(datetime.now())
@@ -1693,7 +1713,8 @@ class OverlayRecord:
             "source": self.source,
             "reference": self.reference,
             "view": self.view,
-            "fit": dict(self.fit),
+            "fit": _plain(self.fit),
+            "display": _plain(self.display),
             "id": self.id,
             "created_at": self.created_at,
         }
@@ -1712,6 +1733,7 @@ class OverlayRecord:
             reference=data.get("reference"),
             view=data.get("view"),
             fit=dict(data.get("fit") or {}),
+            display=dict(data.get("display") or {}),
             id=data.get("id") or str(uuid.uuid4()),
             created_at=data.get("created_at", datetime.timestamp(datetime.now())),
         )

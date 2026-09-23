@@ -143,6 +143,34 @@ class TestTheImageIsDrawnThroughTheBodyMap:
         row, col = int(fig.bbox.height - corner[1]), int(corner[0])
         assert buffer[row, col, :3].min() > 200, buffer[row, col]
 
+    @pytest.mark.parametrize("opacity", [1.0, 0.6])
+    def test_a_clear_pixel_stays_clear_at_any_opacity(self, qapp, opacity):
+        """The opacity multiplies an RGBA image's own alpha rather than replacing
+        it -- what lets a fluorescence image be drawn signal only, dark as clear."""
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        overlay = build(active=False)
+        data = np.zeros((10, 20, 4), dtype=np.uint8)
+        data[:5, :, 1] = 255  # the top half green and solid
+        data[:5, :, 3] = 255  # the bottom half clear
+        overlay.set_image(data, W, H)
+        overlay.set_opacity(opacity)
+        fig = overlay._ax.figure
+        fig.patch.set_facecolor("white")
+        overlay._ax.set_facecolor("white")
+        agg = FigureCanvasAgg(fig)
+        agg.draw()
+        buffer = np.asarray(agg.buffer_rgba())
+
+        def pixel(x, y):
+            px, py = overlay._ax.transData.transform((x, y))
+            return buffer[int(fig.bbox.height - py), int(px)]
+
+        assert pixel(400.0, 430.0)[:3].min() == 255  # clear: the white axes
+        green = pixel(400.0, 370.0)
+        assert green[1] == 255
+        assert green[0] == pytest.approx(255 * (1 - opacity), abs=2)
+
     def test_the_drawn_corners_are_the_corners_the_overlay_reports(self, qapp):
         overlay = build(rotation=33.0, squash=0.7)
         drawn = [

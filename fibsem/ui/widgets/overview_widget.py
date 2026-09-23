@@ -43,7 +43,7 @@ from functools import partial
 from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 import numpy as np
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -150,6 +150,9 @@ from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 
 logger = logging.getLogger(__name__)
+
+# How long a display edit to an aligned image must settle before the host hears of it.
+DISPLAY_SETTLE_MS = 400
 
 # The canvas key the in-progress mosaic is drawn under. Its own, so a run that dies
 # leaves no half-filled overview behind pretending to be a finished one.
@@ -556,6 +559,10 @@ class FibsemOverviewWidget(QWidget):
     # An aligned image was taken off the canvas by the user: its key, and the id of
     # the record it was kept under (empty if it had none).
     image_removed = pyqtSignal(str, str)
+    # The user changed how an aligned image is shown -- opacity, signal only, a
+    # channel's colour or contrast: its key. Once the edit settles, not per slider
+    # step, and never from `set_aligned_image_display`.
+    image_display_changed = pyqtSignal(str)
 
     # Internal hops from a worker thread to the GUI thread. `tiled_acquisition_signal`
     # and `stage_position_changed` are psygnals, which call their callbacks
@@ -746,9 +753,29 @@ class FibsemOverviewWidget(QWidget):
         self.aligned_image_panel.align_toggled.connect(self._on_align_image_toggled)
         self.aligned_image_panel.reset_requested.connect(self.aligned_images.reset)
         self.aligned_image_panel.fit_requested.connect(self._fit_aligned_image)
-        self.aligned_image_panel.opacity_changed.connect(
-            self.aligned_images.set_opacity
+        self.aligned_image_panel.opacity_changed.connect(self._on_image_opacity_changed)
+        self.aligned_image_panel.signal_only_changed.connect(
+            self._on_image_signal_only_changed
         )
+        self.aligned_image_panel.channels_requested.connect(self._toggle_image_channels)
+        # A display edit arrives many times a second while a slider moves; the host
+        # is told once it settles, so a record is written once and not per step.
+        self._display_pending: set = set()
+        self._display_timer = QTimer(self)
+        self._display_timer.setSingleShot(True)
+        self._display_timer.setInterval(DISPLAY_SETTLE_MS)
+        self._display_timer.timeout.connect(self._flush_display_changes)
+        # The FM canvas's own channel controls, opened for one aligned image at a
+        # time: built on first use, `_channels_key` naming whose layers it holds.
+        self._channels_panel = None
+        self._channels_key: Optional[str] = None
+        # A re-blend of a large image takes ~150 ms, and a slider drag asks for one
+        # per step. Edits that queue up while one runs are coalesced into the next,
+        # so the slider keeps up and the image shows the latest value.
+        self._recomposite_timer = QTimer(self)
+        self._recomposite_timer.setSingleShot(True)
+        self._recomposite_timer.setInterval(0)
+        self._recomposite_timer.timeout.connect(self._recomposite_shown_channels)
 
         # What the next run would acquire, tile by tile. Clickable: a tile toggles in
         # or out, an edge resizes the grid, the interior drags it somewhere else.
@@ -1546,6 +1573,7 @@ class FibsemOverviewWidget(QWidget):
             return None
         self.aligned_image_panel.add_image(key, label)
         self._refresh_aligned_readout()
+        self._sync_aligned_display()
         return key
 
     def remove_aligned_image(self, key: str, announce: bool = True) -> None:
@@ -1554,6 +1582,8 @@ class FibsemOverviewWidget(QWidget):
             return
         if self.canvas._mode_overlay is record.overlay:
             self.aligned_image_panel.btn_align.setChecked(False)
+        # The channel controls follow the selection off it, as the flush skips
+        # it: neither needs telling here.
         self.aligned_images.remove(key)
         self.aligned_image_panel.remove_image(key)
         self._refresh_aligned_readout()
@@ -1578,6 +1608,13 @@ class FibsemOverviewWidget(QWidget):
         if self.aligned_image_panel.btn_align.isChecked():
             self._on_align_image_toggled(True)
         self._refresh_aligned_readout()
+        self._sync_aligned_display()
+        # The channel controls follow the selection, as the Align mode does.
+        if self._channels_key is not None:
+            if self.aligned_images.get(key) is not None:
+                self._show_image_channels(key)
+            else:
+                self._close_image_channels()
 
     def _on_align_image_toggled(self, checked: bool) -> None:
         overlay = self._selected_image_overlay()
@@ -1588,6 +1625,103 @@ class FibsemOverviewWidget(QWidget):
             )
         else:
             self.canvas.exit_overlay_mode()
+
+    # ── how an aligned image is shown ────────────────────────────────────
+
+    def set_aligned_image_display(self, key: str, state: dict) -> None:
+        """Show an image the way a record says, without announcing."""
+        self.aligned_images.set_display_state(key, state)
+        if key == self.aligned_image_panel.current_key:
+            self._sync_aligned_display()
+        if key == self._channels_key and self._channels_panel is not None:
+            self._channels_panel.set_layers(self.aligned_images.get(key).layers)
+
+    def _sync_aligned_display(self) -> None:
+        key = self.aligned_image_panel.current_key
+        record = self.aligned_images.get(key) if key else None
+        if record is not None:
+            self.aligned_image_panel.set_display(
+                record.overlay.opacity, record.signal_only
+            )
+
+    def _on_image_opacity_changed(self, key: str, opacity: float) -> None:
+        self.aligned_images.set_opacity(key, opacity)
+        self._display_edited(key)
+
+    def _on_image_signal_only_changed(self, key: str, on: bool) -> None:
+        self.aligned_images.set_signal_only(key, on)
+        self._display_edited(key)
+
+    def _display_edited(self, key: str) -> None:
+        if key and self.aligned_images.get(key) is not None:
+            self._display_pending.add(key)
+            self._display_timer.start()
+
+    def _flush_display_changes(self) -> None:
+        pending, self._display_pending = self._display_pending, set()
+        for key in sorted(pending):
+            if self.aligned_images.get(key) is not None:
+                self.image_display_changed.emit(key)
+
+    def _toggle_image_channels(self, key: str) -> None:
+        panel = self._channels_panel
+        if panel is not None and panel.isVisible() and self._channels_key == key:
+            self._close_image_channels()
+        elif self.aligned_images.get(key) is not None:
+            self._show_image_channels(key)
+
+    def _show_image_channels(self, key: str) -> None:
+        """The FM canvas's channel controls, for this image's layers, beside the
+        Align panel. Edits change the layers in place; each one re-blends."""
+        from fibsem.ui.widgets.canvas.fm_canvas import FMLayersPanel, _clamp_to_screen
+
+        record = self.aligned_images.get(key)
+        if record is None:
+            return
+        if self._channels_panel is None:
+            # A top-level tool window, as on the FM canvas: as a child its sliders
+            # repaint with every canvas redraw. So it is hidden by hand with this.
+            self._channels_panel = FMLayersPanel(self)
+            self._channels_panel.changed.connect(self._on_image_channels_edited)
+            self._channels_panel.close_requested.connect(self._close_image_channels)
+        panel = self._channels_panel
+        was_open = panel.isVisible()
+        self._channels_key = key
+        panel.set_layers(record.layers)
+        if not was_open:
+            panel.adjustSize()
+            beside = self.align_popover if self.align_popover.isVisible() else self
+            anchor = beside.mapToGlobal(QPoint(beside.width() + 8, 0))
+            panel.move(_clamp_to_screen(anchor, panel.size(), anchor))
+        panel.show()
+        panel.raise_()
+
+    def _on_image_channels_edited(self) -> None:
+        self._recomposite_timer.start()
+
+    def _recomposite_shown_channels(self) -> None:
+        key = self._channels_key
+        if key is None or self.aligned_images.get(key) is None:
+            return
+        self.aligned_images.recomposite(key)
+        self._display_edited(key)
+
+    def _close_image_channels(self) -> None:
+        self._channels_key = None
+        if self._channels_panel is not None:
+            self._channels_panel.hide()
+
+    def hideEvent(self, event) -> None:
+        # The channel controls are a top-level window, so they do not go with this
+        # widget on their own (FIB-962). Reached from C++ during teardown too, where
+        # raising is fatal under PyQt5, so looked up tolerantly and never raises.
+        super().hideEvent(event)
+        panel = self.__dict__.get("_channels_panel")
+        try:
+            if panel is not None:
+                panel.hide()
+        except RuntimeError:  # wrapped C/C++ object already deleted
+            pass
 
     # ── placed from point pairs ──────────────────────────────────────────
 

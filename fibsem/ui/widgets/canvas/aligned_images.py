@@ -16,6 +16,13 @@ survive a change of view:
 `AlignedImages` holds one `ImageOverlay` per image on a canvas, re-places them all for
 a frame on request, and turns what the overlays emit (a canvas centre, a canvas
 rotation) back into the user's part.
+
+How an image looks is kept apart from where it is. Each channel's max projection is
+held at display size as an `FMLayer`, so a colour, a hidden channel or a contrast
+change re-blends what is in hand without touching the file or the placement. And by
+default an image is drawn *signal only*: brightness becomes coverage (`to_rgba`), so
+where a fluorescence map holds nothing the overview beneath shows through rather than
+a dimmed black rectangle.
 """
 
 from __future__ import annotations
@@ -29,7 +36,8 @@ import numpy as np
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.correlation.similarity import SimilarityFit, fit_similarity
-from fibsem.fm.preview import composite_projection
+from fibsem.fm.composite import FMLayer, composite_fm_layers, to_rgba
+from fibsem.fm.preview import projection_layers
 from fibsem.imaging.reduce import downsample
 from fibsem.projection import FMStageProjection
 from fibsem.ui.widgets.canvas.overlays.image_overlay import ImageOverlay
@@ -100,7 +108,7 @@ class AlignedImage:
 
     key: str
     label: str
-    rgb: np.ndarray  # the display composite, (H, W, 3)
+    rgb: np.ndarray  # the display composite, (H, W, 3), uint8
     shape: Tuple[int, int]  # the image's own (height, width), pixels
     pixel_size: float  # metres
     projection: FMStageProjection
@@ -118,17 +126,28 @@ class AlignedImage:
     base_rotation: float = 0.0
     squash: float = 1.0
     per_metre: float = 1.0  # canvas units per metre, at the last placement
-    channels: List[str] = field(default_factory=list)
+    # Each channel's max projection at display size, and how it is shown: what the
+    # composite in `rgb` is blended from, and what a colour edit changes.
+    layers: List[FMLayer] = field(default_factory=list)
+    # Brightness as coverage: dark is clear, so the overview shows through.
+    signal_only: bool = True
     # The id of the record a host keeps this placement under, once it has one.
     record_id: Optional[str] = None
     # How the placement was last fitted from point pairs, for the record: the pairs
     # (image pixel x, y, reference canvas x, y), the residual per pair and the RMS,
     # in canvas units. Empty for a placement made by hand.
     fit: Dict[str, object] = field(default_factory=dict)
+    # What is drawn: `rgb` with an alpha channel, made once per composite rather
+    # than on every drag frame. None until asked for.
+    drawn: Optional[np.ndarray] = field(default=None, repr=False)
 
     @property
     def placement(self) -> Tuple[float, float, float, float]:
         return self.dx, self.dy, self.rotation, self.scale
+
+    @property
+    def channels(self) -> List[str]:
+        return [layer.name for layer in self.layers]
 
 
 class AlignedImages(QObject):
@@ -159,13 +178,11 @@ class AlignedImages(QObject):
         image: "FluorescenceImage",
         label: Optional[str] = None,
         path: Optional[str] = None,
-        rgb: Optional[np.ndarray] = None,
     ) -> Optional[str]:
         """Place a fluorescence image from its own metadata. None if it cannot be.
 
-        `rgb` lets a caller hand in a composite it already holds; otherwise the
-        channels are max-projected and tinted here. Either way the display copy is
-        capped at `DISPLAY_MAX_PX`.
+        Each channel is max-projected over z and reduced to `DISPLAY_MAX_PX` once,
+        here; the composite is blended from those, in each channel's own colour.
         """
         projection = FMStageProjection.from_image(image)
         base = getattr(image.metadata, "stage_position", None)
@@ -185,10 +202,16 @@ class AlignedImages(QObject):
                 f"no {' or '.join(missing)} in its metadata."
             )
             return None
+        layers = projection_layers(image)
+        for layer in layers:
+            if max(layer.data.shape[:2]) > DISPLAY_MAX_PX:
+                layer.data = downsample(layer.data, max_px=DISPLAY_MAX_PX)
+        rgb = composite_fm_layers(layers)
         if rgb is None:
-            rgb = composite_projection(image)
-        if max(rgb.shape[:2]) > DISPLAY_MAX_PX:
-            rgb = downsample(rgb, max_px=DISPLAY_MAX_PX)
+            logger.warning(
+                f"{label or path or 'A fluorescence image'} has no channels to show."
+            )
+            return None
         self._count += 1
         key = f"aligned-{self._count}"
         overlay = ImageOverlay()
@@ -206,7 +229,7 @@ class AlignedImages(QObject):
             base=base,
             overlay=overlay,
             path=path,
-            channels=[c.name for c in getattr(image.metadata, "channels", [])],
+            layers=layers,
         )
         self._images[key] = record
         overlay.set_visible(True)
@@ -260,6 +283,92 @@ class AlignedImages(QObject):
         if record is not None:
             record.overlay.set_visible(visible)
 
+    # ── how it looks ──────────────────────────────────────────────────────
+
+    def recomposite(self, key: str) -> None:
+        """Re-blend an image from its layers -- a channel was recoloured, hidden or
+        re-contrasted -- and redraw it where it is."""
+        record = self._images.get(key)
+        if record is None:
+            return
+        rgb = composite_fm_layers(record.layers, shape=record.rgb.shape[:2])
+        record.rgb = np.ascontiguousarray(rgb)
+        record.drawn = None
+        self._place(record)
+
+    def set_signal_only(self, key: str, on: bool) -> None:
+        """Draw dark as clear (the overview shows through), or the whole frame."""
+        record = self._images.get(key)
+        if record is None or record.signal_only == bool(on):
+            return
+        record.signal_only = bool(on)
+        record.drawn = None
+        self._place(record)
+
+    def display_state(self, key: str) -> Dict[str, object]:
+        """How an image is shown, as plain values a record can keep."""
+        record = self._images[key]
+        return {
+            "opacity": float(record.overlay.opacity),
+            "signal_only": bool(record.signal_only),
+            "channels": [
+                {
+                    "name": str(layer.name),
+                    "color": str(layer.color),
+                    "visible": bool(layer.visible),
+                    "opacity": float(layer.opacity),
+                    "gamma": float(layer.gamma),
+                    "autocontrast": bool(layer.autocontrast),
+                    "clim": None
+                    if layer.autocontrast or layer.clim is None
+                    else [float(layer.clim[0]), float(layer.clim[1])],
+                }
+                for layer in record.layers
+            ],
+        }
+
+    def set_display_state(self, key: str, state: Dict[str, object]) -> None:
+        """Show an image the way *state* says -- what :meth:`display_state` gave.
+
+        Channels are matched by name, else by position when the counts agree; a
+        channel the state does not mention keeps its own colour. Does not announce.
+        """
+        record = self._images.get(key)
+        if record is None or not state:
+            return
+        if state.get("opacity") is not None:
+            record.overlay.set_opacity(float(state["opacity"]))
+        if state.get("signal_only") is not None:
+            record.signal_only = bool(state["signal_only"])
+        saved = list(state.get("channels") or [])
+        by_name = {str(c.get("name")): c for c in saved if isinstance(c, dict)}
+        for index, layer in enumerate(record.layers):
+            entry = by_name.get(layer.name)
+            if entry is None and len(saved) == len(record.layers):
+                entry = saved[index] if isinstance(saved[index], dict) else None
+            if entry is None:
+                continue
+            layer.color = str(entry.get("color") or layer.color)
+            layer.visible = bool(entry.get("visible", True))
+            layer.opacity = float(entry.get("opacity", 1.0))
+            layer.gamma = float(entry.get("gamma", 1.0))
+            clim = entry.get("clim")
+            layer.autocontrast = bool(entry.get("autocontrast", True)) or not clim
+            layer.manual = not layer.autocontrast
+            layer.clim = (
+                None if layer.autocontrast else (float(clim[0]), float(clim[1]))
+            )
+        self.recomposite(key)
+
+    def _drawn(self, record: AlignedImage) -> np.ndarray:
+        if record.drawn is None:
+            if record.signal_only:
+                record.drawn = to_rgba(record.rgb)
+            else:
+                opaque = np.full(record.rgb.shape[:2], 255, dtype=np.uint8)
+                record.drawn = np.dstack([record.rgb, opaque])
+        return record.drawn
+
     def _place(self, record: AlignedImage) -> None:
         frame = self._frame
         if frame is None:
@@ -283,7 +392,7 @@ class AlignedImages(QObject):
         height, width = record.shape
         size = record.pixel_size * base_scale * record.scale
         record.overlay.set_image(
-            record.rgb,
+            self._drawn(record),
             frame.length(width * size),
             frame.length(height * size),
             centre=(
