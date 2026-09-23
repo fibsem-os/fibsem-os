@@ -4616,14 +4616,41 @@ class TestTheOverlaySwitchesAreOnTheCanvas:
         assert isinstance(widget.overlay_popover, QFrame)
         assert widget.overlay_popover.styleSheet() == CANVAS_POPOVER_STYLE
 
-    def test_the_pitch_controls_moved_with_their_switch(self, widget):
-        """They mean nothing while the lattice is off, so several panels away from the
-        checkbox that draws it is the one place they should not be."""
-        popover = widget.overlay_popover
-        assert widget.spin_gridbar_spacing.isAncestorOf is not None
+    def test_the_pitch_controls_live_in_the_align_panel(self, widget):
+        """They are placement controls, and mean nothing while the lattice is off --
+        which is why they are disabled with its switch. The overlays popover is a
+        list of switches and nothing else; everything you *place* by hand -- the
+        bars, an aligned image -- is under its own Align button, like the tile grid."""
         for spin in (widget.spin_gridbar_spacing, widget.spin_gridbar_width):
-            assert popover.isAncestorOf(spin), "a pitch control was left in the column"
-        assert popover.isAncestorOf(widget.overlay_controls)
+            assert widget.align_popover.isAncestorOf(spin), "a pitch control strayed"
+            assert not widget.overlay_popover.isAncestorOf(spin)
+        assert widget.align_popover.isAncestorOf(widget.btn_align_gridbars)
+        assert widget.align_popover.isAncestorOf(widget.aligned_image_panel)
+        assert widget.overlay_popover.isAncestorOf(widget.overlay_controls)
+
+    def test_the_align_button_opens_and_closes_its_popover(self, widget):
+        assert not widget.align_popover.isVisibleTo(widget.canvas)
+        widget.btn_align.setChecked(True)
+        widget._toggle_align()
+        assert widget.align_popover.isVisibleTo(widget.canvas)
+        widget.btn_align.setChecked(False)
+        widget._toggle_align()
+        assert not widget.align_popover.isVisibleTo(widget.canvas)
+
+    def test_every_canvas_panel_wears_the_one_style(self, widget):
+        """Contrast, overlays, align and the tile grid are the same kind of thing in
+        the same corner; they looked alike only by coincidence while each carried
+        its own greys."""
+        from fibsem.ui.stylesheets import CANVAS_PANEL_STYLE
+
+        for panel in (
+            widget.overlay_popover,
+            widget.align_popover,
+            widget.contrast_control,
+            widget.tile_grid_panel,
+        ):
+            assert panel.styleSheet() == CANVAS_PANEL_STYLE
+            assert panel.objectName() == "canvasPanel"
 
     def test_the_display_section_goes_when_it_has_nothing_to_say(self, widget):
         """With the switches moved out it holds only the view note, which is empty
