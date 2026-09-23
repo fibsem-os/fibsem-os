@@ -348,3 +348,107 @@ def test_an_answer_made_by_dragging_can_be_saved(tab, experiment):
 
     assert result.applied, result.reason
     experiment.save()
+
+
+# ---------------------------------------------------------------------------
+# The correction is drawn while it is made (FIB-1047)
+# ---------------------------------------------------------------------------
+
+
+def _move_first_marker(renderer, to=(300.0, 280.0)):
+    from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
+    renderer._controller.set_overlay(
+        BeamType.ION,
+        PointsSpec(id=renderer.OVERLAY, points=[to, (100.0, 120.0)], marker="+"),
+    )
+    renderer._controller.overlay_edited.emit(BeamType.ION, renderer.OVERLAY, None)
+
+
+def test_while_editing_the_proposal_stays_under_the_markers_in_orange(tab):
+    renderer = _renderer(tab)
+
+    assert renderer._controller.overlay_points(BeamType.ION, renderer.PROPOSED) == [
+        (256.0, 256.0),
+        (100.0, 120.0),
+    ]
+    assert renderer._controller.overlay_points(BeamType.ION, renderer.OVERLAY) == [
+        (256.0, 256.0),
+        (100.0, 120.0),
+    ]
+
+
+def test_nothing_is_said_about_distance_until_a_marker_moves(tab):
+    renderer = _renderer(tab)
+
+    assert renderer.moved.text() == "" and renderer.moved.isHidden()
+
+
+def test_the_distance_is_said_as_a_marker_moves(tab):
+    renderer = _renderer(tab)
+
+    _move_first_marker(renderer)  # 44 px right, 24 px up at 25 nm/px
+
+    assert (
+        renderer.moved.text() == "LamellaCentre moved 1.3 µm · ImageCentre as proposed"
+    )
+    assert not renderer.moved.isHidden()
+
+
+def test_put_them_back_puts_every_marker_back(tab):
+    renderer = _renderer(tab)
+    _move_first_marker(renderer)
+
+    renderer.btn_put_back.click()
+
+    assert renderer._controller.overlay_points(BeamType.ION, renderer.OVERLAY) == [
+        (256.0, 256.0),
+        (100.0, 120.0),
+    ]
+    assert renderer.moved.text() == ""
+
+
+def test_a_selected_marker_is_put_back_on_its_own(tab):
+    renderer = _renderer(tab)
+    from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
+    renderer._controller.set_overlay(
+        BeamType.ION,
+        PointsSpec(
+            id=renderer.OVERLAY, points=[(300.0, 280.0), (120.0, 120.0)], marker="+"
+        ),
+    )
+    renderer._controller.overlay_point_selected.emit(BeamType.ION, renderer.OVERLAY, 1)
+    assert renderer.btn_put_back.text() == "Put ImageCentre back"
+
+    renderer.btn_put_back.click()
+
+    assert renderer._controller.overlay_points(BeamType.ION, renderer.OVERLAY) == [
+        (300.0, 280.0),
+        (100.0, 120.0),
+    ], "the other stays where it was dragged"
+    assert (
+        renderer.moved.text() == "LamellaCentre moved 1.3 µm · ImageCentre as proposed"
+    )
+
+
+def test_once_decided_the_distance_is_the_decision_s(tab):
+    renderer = _renderer(tab)
+    decision = Decision(
+        outcome=DecisionOutcome.Confirmed,
+        author="human:op",
+        values={
+            "features": [
+                {"name": "LamellaCentre", "px": Point(256.0, 256.0)},
+                {"name": "ImageCentre", "px": Point(100.0, 160.0)},
+            ]
+        },
+        task_id=RUN,
+    )
+
+    renderer.set_read_only(decision)
+
+    assert (
+        renderer.moved.text() == "LamellaCentre as proposed · ImageCentre moved 1.0 µm"
+    )
+    assert renderer.btn_put_back.isHidden()

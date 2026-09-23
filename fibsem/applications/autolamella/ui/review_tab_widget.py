@@ -927,17 +927,30 @@ class DetectionReviewRenderer(TaskResultReviewRenderer):
     PENDING_HINT = "Enter — these are right; drag a marker to correct one first"
     CONFIRM_LABEL = "Confirm"
     OVERLAY = "features"
+    PROPOSED = "proposed"
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self._selected: Optional[int] = None
         self.btn_put_back = QPushButton("Put them back")
         self.btn_put_back.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_put_back.setToolTip("Move every feature back where the model put it")
-        self.btn_put_back.clicked.connect(self._draw_values)
+        self.btn_put_back.clicked.connect(self._put_back)
         # Beside the verbs, because it undoes an edit rather than deciding.
         self._actions.insertWidget(
             self._actions.indexOf(self.btn_confirm), self.btn_put_back
         )
+        # How far each feature has been moved, said while it is being moved:
+        # the size of a correction is the thing worth seeing while making it
+        # (FIB-1047). Under the state line.
+        self.moved = QLabel()
+        self.moved.setWordWrap(True)
+        self.moved.setStyleSheet(_MUTED_STYLE)
+        self.moved.hide()
+        layout = self.layout()
+        layout.insertWidget(layout.indexOf(self.line) + 1, self.moved)
+        self._controller.overlay_edited.connect(self._on_overlay_edited)
+        self._controller.overlay_point_selected.connect(self._on_point_selected)
+        self._say_put_back()
 
     def _state_words(self) -> tuple:
         return "Applied", self._task_name
@@ -1010,7 +1023,9 @@ class DetectionReviewRenderer(TaskResultReviewRenderer):
             self._draw_values()
 
     def _draw_values(self) -> None:
-        """Every feature where the model put it, in its own colour, labelled.
+        """Every feature where the model put it, in its own colour, labelled,
+        over a copy in orange that stays put: drag a marker and the orange one
+        shows where it started, so the correction is drawn, not only recorded.
 
         A feature's point is already in image pixels -- it is where the model
         put it on this image -- so unlike a point of interest there is nothing
@@ -1018,6 +1033,7 @@ class DetectionReviewRenderer(TaskResultReviewRenderer):
         """
         if self._image is None:
             return
+        self._points(self.PROPOSED, self._features(), colour=ORANGE_COLOR)
         self._points(self.OVERLAY, self._features())
         editable = self._decided is None and self._applied is None
         self.btn_put_back.setVisible(editable)
@@ -1027,6 +1043,9 @@ class DetectionReviewRenderer(TaskResultReviewRenderer):
             label="Features",
             icon="mdi:map-marker",
         )
+        self._selected = None
+        self._say_put_back()
+        self._say_moved()
 
     def _draw_confirmed(self, decision: Decision) -> None:
         """What was decided in each feature's colour; what the model proposed
@@ -1034,12 +1053,108 @@ class DetectionReviewRenderer(TaskResultReviewRenderer):
         recorded."""
         if self._image is None:
             return
-        self._points("proposed", self._features(), colour=ORANGE_COLOR)
+        self._points(self.PROPOSED, self._features(), colour=ORANGE_COLOR)
         decided = [
             f for f in decision.values.get("features") or [] if isinstance(f, dict)
         ]
         self._points(self.OVERLAY, decided or self._features())
         self.btn_put_back.setVisible(False)
+        self._say_moved(decided or None)
+
+    # -- the correction, while it is made ------------------------------------
+
+    def _on_overlay_edited(self, beam: Any, overlay_id: str, value: Any) -> None:
+        if overlay_id == self.OVERLAY:
+            self._say_moved()
+
+    def _on_point_selected(self, beam: Any, overlay_id: str, index: int) -> None:
+        if overlay_id != self.OVERLAY:
+            return
+        self._selected = index if 0 <= index < len(self._features()) else None
+        self._say_put_back()
+
+    def _say_put_back(self) -> None:
+        """One feature's name on the button when one is selected, else all."""
+        features = self._features()
+        if self._selected is not None and self._selected < len(features):
+            name = str(features[self._selected].get("name") or "feature")
+            self.btn_put_back.setText(f"Put {name} back")
+            self.btn_put_back.setToolTip(f"Move {name} back where the model put it")
+        else:
+            self.btn_put_back.setText("Put them back")
+            self.btn_put_back.setToolTip(
+                "Move every feature back where the model put it; click a marker "
+                "first to put back only that one"
+            )
+
+    def _put_back(self) -> None:
+        """The selected feature back where the model put it, the others left
+        where they are; every feature when none is selected."""
+        if self._selected is None or self._image is None:
+            self._draw_values()
+            return
+        features = self._features()
+        points = self._controller.overlay_points(self._beam(), self.OVERLAY)
+        if len(points) != len(features):
+            self._draw_values()
+            return
+        restored = []
+        for index, (feature, (col, row)) in enumerate(zip(features, points)):
+            px = feature.get("px") if index == self._selected else Point(col, row)
+            restored.append({"name": feature.get("name"), "px": px})
+        self._points(self.OVERLAY, restored)
+        self._say_moved()
+
+    def _pixel_size(self) -> Optional[float]:
+        metadata = getattr(self._image, "metadata", None)
+        pixel_size = getattr(metadata, "pixel_size", None)
+        size = getattr(pixel_size, "x", None)
+        return float(size) if size else None
+
+    def _moved_by(self, decided: Optional[List[Dict[str, Any]]] = None) -> List[tuple]:
+        """(name, distance in metres or None) per feature, against where the
+        marker is now -- or, once decided, against the decision."""
+        features = self._features()
+        if decided is not None:
+            now = [
+                (f.get("px").x, f.get("px").y)
+                for f in decided
+                if isinstance(f.get("px"), Point)
+            ]
+        elif self._image is not None:
+            now = self._controller.overlay_points(self._beam(), self.OVERLAY)
+        else:
+            now = []
+        if len(now) != len(features):
+            return []
+        size = self._pixel_size()
+        moved = []
+        for feature, (col, row) in zip(features, now):
+            px = feature.get("px")
+            name = str(feature.get("name") or "?")
+            if not isinstance(px, Point) or size is None:
+                moved.append((name, None))
+                continue
+            distance = ((col - px.x) ** 2 + (row - px.y) ** 2) ** 0.5 * size
+            moved.append((name, distance))
+        return moved
+
+    def _say_moved(self, decided: Optional[List[Dict[str, Any]]] = None) -> None:
+        """ "LamellaCentre moved 1.9 µm · ImageCentre as proposed", or nothing
+        while nothing has moved."""
+        parts = []
+        any_moved = False
+        for name, distance in self._moved_by(decided):
+            if distance is None:
+                continue
+            if distance < 1e-9:
+                parts.append(f"{name} as proposed")
+            else:
+                any_moved = True
+                parts.append(f"{name} moved {distance * 1e6:.1f} µm")
+        text = " · ".join(parts) if any_moved else ""
+        self.moved.setText(text)
+        self.moved.setVisible(bool(text))
 
     def current_values(self) -> Dict[str, Any]:
         """Wherever the markers have been left. Every feature is answered, moved
