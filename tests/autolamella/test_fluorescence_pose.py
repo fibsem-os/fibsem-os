@@ -21,6 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
     MillCoincidentTask,
     MillCoincidentTaskConfig,
 )
+from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition, MicroscopeState
 
@@ -57,7 +58,10 @@ def _make_lamella(tmp_path: Path, objective_position, with_fluorescence_pose: bo
 
 def _acquire_task(microscope: FibsemMicroscope, lamella: Lamella) -> AcquireFluorescenceImageTask:
     return AcquireFluorescenceImageTask(
-        microscope=microscope, config=AcquireFluorescenceImageConfig(), lamella=lamella
+        microscope=microscope,
+        # one channel: the task refuses to run without any (FIB-1067)
+        config=AcquireFluorescenceImageConfig(channel_settings=[ChannelSettings(name="GFP")]),
+        lamella=lamella,
     )
 
 

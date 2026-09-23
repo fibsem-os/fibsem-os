@@ -139,8 +139,9 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         # and would fail with an IndexError that names nothing (FIB-1067).
         if not self.config.channel_settings:
             raise ValueError(
-                f"No fluorescence channels configured for {self.task_name} on "
-                f"{self.lamella.name}. Add a channel before acquiring fluorescence images."
+                "No fluorescence channels configured for "
+                f"{self.task_name or self.display_name} on {self.lamella.name}. "
+                "Add a channel before acquiring fluorescence images."
             )
         if (
             self.lamella.fluorescence_pose is None
