@@ -435,6 +435,11 @@ class FeatureFlags:
     # before a run reports itself stalled, and the tab. Off, every task behaves
     # exactly as before. Off by default while it is a proof of concept.
     proposer_reviewer_workflow_enabled: bool = False
+    # Hidden extras for the long waits while a run mills: click the Microscope tab's
+    # empty view and type "snake". Off, that view behaves exactly as it always has --
+    # it does not even take the keyboard. Read when the view is clicked, so changing
+    # it needs no restart; an unreadable preference counts as off.
+    easter_eggs_enabled: bool = False
 
 
 @dataclass
