@@ -636,8 +636,8 @@ def test_the_replay_shows_a_correlation_before_the_point_it_moved(
     assert correlation.summary == (
         "Correlation: point of interest x=2.0 µm, y=-3.0 µm — RMS 30 nm over 4"
         " fiducials, check fit, refractive index ×1.30 before the fit"
-        " — by the operator"
     )
+    assert correlation.actor == "operator"
     assert edits
     assert {(e.kind, e.item, e.data["via"]) for e in edits} == {
         (EventKind.EDIT, lamella.name, "correlation")
@@ -817,11 +817,11 @@ def test_the_replay_shows_each_edit_on_the_lamella_edited(
         (second.name, TASK),
     ]
     assert [e.summary for e in rows] == [
-        f"milling.{KEY}: stages.0.pattern.depth {start:.4g} → 3e-06"
-        " — by the operator (lamella editor)",
+        f"milling.{KEY}: stages.0.pattern.depth {start:.4g} → 3e-06 (lamella editor)",
         f"task_config: milling.{KEY}.stages.0.pattern.depth {other_start:.4g}"
-        " → 2.5e-06 — by the agent (agent patch)",
+        " → 2.5e-06 (agent patch)",
     ]
+    assert [e.actor for e in rows] == ["operator", "agent"]
 
     widget = ExperimentReplayWidget.from_directory(record)
     try:

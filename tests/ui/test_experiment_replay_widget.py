@@ -223,6 +223,93 @@ def test_a_decided_alignment_area_is_drawn_as_a_rectangle(qapp, tmp_path):
         qapp.processEvents()
 
 
+def _by_whom(qapp, tmp_path):
+    """A run the task, the operator and an agent each acted in, with one action
+    the stream could not attribute."""
+    import json
+
+    from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+
+    def record(t, kind, actor, payload):
+        return {
+            "t": f"2026-09-23T14:00:0{t}.000+10:00",
+            "kind": kind,
+            "actor": actor,
+            "item": {"id": "L1", "name": "01"},
+            "payload": payload,
+        }
+
+    move = {"move": "move_stage_relative", "end": {"x": 0.0, "y": 0.0}}
+    records = [
+        record(0, "task_step", "task", {"step": "MOVE_TO_POSITION"}),
+        record(1, "stage_moved", "operator", move),
+        record(2, "stage_moved", "agent", move),
+        record(3, "stage_moved", None, move),
+        record(4, "stage_moved", "task", move),
+    ]
+    (tmp_path / EVENTS_FILENAME).write_text(
+        "".join(json.dumps(r) + "\n" for r in records), encoding="utf-8"
+    )
+    w = ExperimentReplayWidget.from_directory(tmp_path)
+    w.show()
+    qapp.processEvents()
+    return w
+
+
+def _column(widget, col):
+    return [
+        widget.table.item(row, col).text() for row in range(widget.table.rowCount())
+    ]
+
+
+def test_each_action_says_who_acted(qapp, tmp_path):
+    w = _by_whom(qapp, tmp_path)
+    try:
+        by = [
+            w.table.horizontalHeaderItem(c).text() for c in range(w.table.columnCount())
+        ].index("By")
+        assert _column(w, by) == ["Task", "Operator", "Agent", "", "Task"]
+        w.seek(1)  # the operator's move: its author beside its kind
+        chips = [
+            w.event_kind_chip.itemAt(i).widget().text()
+            for i in range(w.event_kind_chip.count())
+        ]
+        assert chips == ["Stage", "Operator"]
+    finally:
+        w.close()
+        w.deleteLater()
+        qapp.processEvents()
+
+
+def test_the_list_can_show_what_one_of_them_did(qapp, tmp_path):
+    w = _by_whom(qapp, tmp_path)
+    try:
+        combo = w.actor_combo
+        assert [combo.itemText(i) for i in range(combo.count())] == [
+            "Anyone",
+            "Operator",
+            "Agent",
+            "Task",
+            "Not recorded",
+        ]
+        visible = lambda: [  # noqa: E731
+            row for row in range(w.table.rowCount()) if not w.table.isRowHidden(row)
+        ]
+        combo.setCurrentIndex(combo.findText("Agent"))
+        assert visible() == [2] and w._visible == [2]
+        assert w.filter_boxes["stage"].text() == "Stage (1)"
+        combo.setCurrentIndex(combo.findText("Task"))
+        assert visible() == [0, 4]
+        combo.setCurrentIndex(combo.findText("Not recorded"))
+        assert visible() == [3]
+        combo.setCurrentIndex(combo.findText("Anyone"))
+        assert visible() == [0, 1, 2, 3, 4]
+    finally:
+        w.close()
+        w.deleteLater()
+        qapp.processEvents()
+
+
 def test_the_fm_z_stack_is_shown_in_the_fm_pane(widget):
     assert widget.fm_widget.layers == []  # nothing acquired yet at the start
     widget.seek(_first(widget, EventKind.FLUORESCENCE))

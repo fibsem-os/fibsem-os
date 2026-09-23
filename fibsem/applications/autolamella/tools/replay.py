@@ -286,6 +286,10 @@ class ReplayEvent:
     item_type: Optional[str] = None  # "lamella" or "grid"
     # A question or a decision: the acquisition of the image its values sit on
     shown_on: Optional["ReplayEvent"] = None
+    # Who acted: "task", "agent" or "operator", as the event stream records
+    # every action; None when it did not know, and for the log, which records
+    # only who answered a prompt.
+    actor: Optional[str] = None
 
     @property
     def image_on_disk(self) -> bool:
@@ -689,9 +693,10 @@ def _spot_event(record: LogRecord) -> Optional[ReplayEvent]:
     )
 
 
-def _answer_summary(kind: Any, response: Any, by: Any, adjusted: bool) -> str:
+def _answer_summary(kind: Any, response: Any, adjusted: bool) -> str:
+    """A prompt's answer. Who answered is the event's actor, not the text."""
     answer = {True: "Yes", False: "No"}.get(response, response)
-    summary = f"{kind} answered {answer} by the {by}"
+    summary = f"{kind} answered {answer}"
     if adjusted:
         summary += ", after adjusting it"
     return summary
@@ -703,7 +708,7 @@ def _task_summary(task: Any, step: Any) -> str:
 
 def _prompt_event(record: LogRecord, m: "re.Match", item, task, step) -> ReplayEvent:
     kind, response, by, adjusted = m.groups()
-    summary = _answer_summary(kind, response == "True", by, adjusted == "True")
+    summary = _answer_summary(kind, response == "True", adjusted == "True")
     return ReplayEvent(
         record.time,
         EventKind.PROMPT,
@@ -717,6 +722,7 @@ def _prompt_event(record: LogRecord, m: "re.Match", item, task, step) -> ReplayE
             "answered_by": by,
             "adjusted": adjusted == "True",
         },
+        actor=by,  # the one thing the log says about who acted
     )
 
 
@@ -1139,8 +1145,9 @@ _EDIT_VALUE_CHARS = 32
 _ABSENT = object()  # a value one side of an edit does not have
 
 
-def _edit_summary(payload: Dict[str, Any], actor: Any) -> str:
-    """What an edit changed, from what to what, and who made it from where.
+def _edit_summary(payload: Dict[str, Any]) -> str:
+    """What an edit changed, from what to what, and from where. Who made it is
+    the event's actor.
 
     ``before`` and ``after`` are the whole object edited, so the values that
     differ are found by walking both.
@@ -1151,8 +1158,6 @@ def _edit_summary(payload: Dict[str, Any], actor: Any) -> str:
         shown.append(f"{len(changes) - _EDIT_CHANGES_SHOWN} more")
     # Recorded, so something differs: a float a widget's units round-tripped.
     text = f"{payload.get('target')}: {', '.join(shown) or 'rounding only'}"
-    if actor:
-        text += f" — by the {actor}"
     if payload.get("via"):
         text += f" ({payload['via']})"
     return text
@@ -1204,10 +1209,11 @@ def _asked_summary(payload: Dict[str, Any]) -> str:
     return f"{label} asked: {message}" if message else f"{label} asked"
 
 
-def _decision_summary(payload: Dict[str, Any], actor: Any) -> str:
+def _decision_summary(payload: Dict[str, Any]) -> str:
     """A decision on a proposal: what it was, what the decider changed, and
-    who decided it from where. A confirmation that carries no values -- a look,
-    or one still to be filled in -- says only that it was confirmed."""
+    where it was decided; who decided it is the event's actor. A confirmation
+    that carries no values -- a look, or one still to be filled in -- says only
+    that it was confirmed."""
     label = kind_label(str(payload.get("kind") or ""))
     outcome = str(payload.get("outcome") or "")
     text = f"{label} {_OUTCOME_WORDS.get(outcome, outcome.lower() or 'decided')}"
@@ -1217,8 +1223,6 @@ def _decision_summary(payload: Dict[str, Any], actor: Any) -> str:
         text += f": {changes}" if changes else ", as proposed"
     elif outcome != "Confirmed" and payload.get("reason"):
         text += f": {payload['reason']}"
-    if actor:
-        text += f" — by the {actor}"
     if payload.get("via"):
         text += f" ({payload['via']})"
     return text
@@ -1316,7 +1320,7 @@ def _moved(old: Any, new: Any) -> Optional[str]:
     return ", ".join(parts)
 
 
-def _correlation_summary(payload: Dict[str, Any], actor: Any) -> str:
+def _correlation_summary(payload: Dict[str, Any]) -> str:
     """An accepted correlation: the point of interest it gave, and how well it fits."""
     poi = payload.get("poi") or {}
     text = (
@@ -1344,8 +1348,6 @@ def _correlation_summary(payload: Dict[str, Any], actor: Any) -> str:
         fit.append(f"refractive index ×{factor} {when} the fit")
     if fit:
         text += " — " + ", ".join(fit)
-    if actor:
-        text += f" — by the {actor}"
     return text
 
 
@@ -1453,6 +1455,7 @@ def _spot_events(burn: Dict[str, Any], burned: int) -> List[ReplayEvent]:
                     "milling_current": current,
                 },
                 duration=exposure,
+                actor=burn.get("actor"),
             )
         )
     return events
@@ -1557,6 +1560,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
         elif kind == "fm_image_acquired":
             fm = _recorded_fluorescence(time, payload, resolver)
             fm.item, fm.task = item, task
+            fm.actor = record.get("actor")
             fm.step = steps.get(task_id) if task_id is not None else None
             recorded_fm.append(fm)
         elif kind == "fm_autofocus":
@@ -1606,6 +1610,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                 "field_of_view": payload.get("field_of_view"),
                 "exposure_time": payload.get("exposure_time"),
                 "milling_current": payload.get("milling_current"),
+                "actor": record.get("actor"),
             }
             burned = 0
         elif kind == "spot_burn_progress" and burn is not None:
@@ -1622,12 +1627,11 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             # ones a workflow was running when it was made.
             item = (payload.get("item") or {}).get("name")
             task, task_id = payload.get("task"), None
-            actor = record.get("actor")
             if kind == "edit":
-                summary = _edit_summary(payload, actor)
+                summary = _edit_summary(payload)
                 event = ReplayEvent(time, EventKind.EDIT, summary, data=payload)
             else:
-                summary = _correlation_summary(payload, actor)
+                summary = _correlation_summary(payload)
                 event = ReplayEvent(time, EventKind.CORRELATION, summary, data=payload)
         elif kind in ("proposal_asked", "proposal_decided"):
             # On the item and task it was about, as an edit is.
@@ -1638,7 +1642,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                 event = ReplayEvent(time, EventKind.PROMPT, summary, data=payload)
             else:
                 key = (payload.get("proposal_id"), payload.get("decision"))
-                summary = _decision_summary(payload, record.get("actor"))
+                summary = _decision_summary(payload)
                 earlier = decisions.get(key)
                 if payload.get("filled_in") and earlier is not None:
                     # The same decision, now with the values it was confirmed
@@ -1651,10 +1655,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             prompt = payload.get("type", "Prompt")
             if kind == "prompt_answered":
                 summary = _answer_summary(
-                    prompt,
-                    payload.get("response"),
-                    payload.get("answered_by"),
-                    bool(payload.get("adjusted")),
+                    prompt, payload.get("response"), bool(payload.get("adjusted"))
                 )
             elif kind == "prompt_raised":
                 message = payload.get("message")
@@ -1666,6 +1667,10 @@ def _load_from_events(root: Path) -> ExperimentReplay:
         if event is not None:
             event.item, event.task = item, task
             event.step = steps.get(task_id) if task_id is not None else None
+            # A file from before actors were recorded still says who answered.
+            event.actor = record.get("actor") or (
+                payload.get("answered_by") if kind == "prompt_answered" else None
+            )
             events.append(event)
         if kind in _TASK_END_STEPS:
             steps.pop(task_id, None)
