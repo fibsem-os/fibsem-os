@@ -455,3 +455,85 @@ class TestTheOverviewUnderTheImage:
 
     def test_with_nothing_placed_there_is_no_reference(self, widget, microscope):
         assert widget._reference_tile_for_fit("no-such-key") is None
+
+
+class TestTargetingThroughTheAlignedImage:
+    """The alignment is a targeting input, not a picture (FIB-1030): a double-click on
+    a fluorescent spot moves the stage to where that spot is on the sample, and a
+    right-click there offers a lamella. Nothing new is wired for it -- clicks resolve
+    through the view's frame and the overlay takes none outside Align mode -- so this
+    pins that it stays true."""
+
+    def _spot(self, widget, microscope, dx=0.0, dy=0.0, rotation=0.0):
+        _show(widget, SQUARE)
+        position = _fm_at(microscope, dx=40e-6, dy=-25e-6)
+        image = _fm_image(microscope, position, size=64, pixel_size=1e-6)
+        key = widget.add_aligned_image(image, "fm")
+        widget.aligned_images.set_placement(key, dx, dy, rotation)
+        pixel = (50.0, 12.0)
+        canvas_xy = widget.aligned_images.pixel_to_canvas(key, *pixel)
+        return image, key, pixel, canvas_xy
+
+    def test_a_double_click_on_the_image_names_the_spots_own_stage_position(
+        self, widget, microscope
+    ):
+        """With no correction the image sits where its metadata says, so the stage
+        position a click resolves to is the one the FM image's own projection gives
+        for that pixel -- the two answers come from different code and must agree."""
+        from fibsem.projection import FMStageProjection
+
+        image, key, (px, py), (x, y) = self._spot(widget, microscope)
+
+        target = widget._stage_position_at(x, y)
+        assert target is not None, "the click was refused"
+
+        projection = FMStageProjection.from_image(image)
+        height, width = 64, 64
+        own = projection.from_plane(
+            (px + 0.5 - width / 2) * 1e-6,
+            (py + 0.5 - height / 2) * 1e-6,
+            image.metadata.stage_position,
+        )
+        assert (target.x, target.y) == pytest.approx((own.x, own.y), abs=2e-7)
+
+    def test_a_correction_moves_the_target_with_the_image(self, widget, microscope):
+        """Drag the image 10 um along the surface and a click on the same spot names a
+        stage position 10 um over -- the correction is what a click acts on."""
+        image, key, pixel, before = self._spot(widget, microscope)
+        first = widget._stage_position_at(*before)
+        widget.aligned_images.set_placement(key, 10e-6, 0.0, 0.0)
+        after = widget.aligned_images.pixel_to_canvas(key, *pixel)
+
+        second = widget._stage_position_at(*after)
+
+        assert second.x - first.x == pytest.approx(10e-6, abs=2e-7)
+        assert second.y - first.y == pytest.approx(0.0, abs=2e-7)
+
+    def test_a_right_click_on_the_image_offers_a_lamella_there(
+        self, widget, microscope
+    ):
+        image, key, pixel, (x, y) = self._spot(widget, microscope)
+        target = widget._stage_position_at(x, y)
+
+        menu = widget._position_menu(x, y)
+
+        assert menu is not None
+        labels = [action.label for action in menu.actions]
+        assert "Add New Position Here" in labels
+        requested = []
+        widget.position_add_requested.connect(lambda pos, rec: requested.append(pos))
+        menu.actions[labels.index("Add New Position Here")].callback()
+        assert requested and (requested[0].x, requested[0].y) == pytest.approx(
+            (target.x, target.y), abs=1e-9
+        )
+
+    def test_in_align_mode_a_click_belongs_to_the_image_not_the_stage(
+        self, widget, microscope
+    ):
+        """Align hands the canvas to the overlay: the canvas's own click signals stand
+        down, so dragging the image cannot also drive the stage."""
+        self._spot(widget, microscope)
+        widget.aligned_image_panel.btn_align.setChecked(True)
+        assert widget.canvas.active_overlay is not None
+        assert not widget.canvas._overlay_input_allowed(None)
+        widget.aligned_image_panel.btn_align.setChecked(False)
