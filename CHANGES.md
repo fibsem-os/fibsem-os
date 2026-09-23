@@ -239,6 +239,8 @@ through that migration; napari is still a dependency.
 
 - The FM Overview tab, its overviews landing on disk, and lamella positions markable and
   savable from it.
+- Acquire Fluorescence Image with no channels configured now fails up front saying so,
+  instead of with an IndexError from the autofocus.
 - The shared imaging channel is held across view-dependent operations, beam grabs,
   autofocus sweeps and z-stacks — the FM and the beams share one active view.
 - The objective moved off the GUI thread and is guarded from two hands; objective
