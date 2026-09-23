@@ -641,6 +641,15 @@ def compute_delta(proposed: Any, confirmed: Any) -> Any:
         return confirmed - proposed
     if isinstance(proposed, (int, float)) and isinstance(confirmed, (int, float)):
         return confirmed - proposed
+    if isinstance(proposed, FibsemRectangle) and isinstance(confirmed, FibsemRectangle):
+        # per edge, in fractions of the frame: how far it was dragged and by
+        # how much it was resized, not one number for both
+        return FibsemRectangle(
+            left=confirmed.left - proposed.left,
+            top=confirmed.top - proposed.top,
+            width=confirmed.width - proposed.width,
+            height=confirmed.height - proposed.height,
+        )
     if isinstance(proposed, (list, tuple)) and isinstance(confirmed, (list, tuple)):
         # A named set -- a detection's features -- so the delta is per name and
         # not one number for the lot: which feature the model got wrong is the

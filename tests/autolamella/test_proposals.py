@@ -366,6 +366,13 @@ def test_an_alignment_area_is_a_kind_with_a_rectangle_that_round_trips(tmp_path)
     with pytest.raises(ValueRefused, match="must be a rectangle"):
         prepare_values(exp, lamella, ALIGNMENT_AREA, {"alignment_area": "x"})
 
+    moved = FibsemRectangle(left=0.25, top=0.35, width=0.4, height=0.2)
+    delta = compute_delta(rect, moved)
+    assert isinstance(delta, FibsemRectangle)
+    assert (delta.left, delta.top, delta.width, delta.height) == pytest.approx(
+        (0.05, 0.05, 0.0, -0.1)
+    ), "per edge: how far it was dragged, by how much it was resized"
+
 
 def test_to_check_clears_only_when_a_person_looked():
     p = Proposal(
