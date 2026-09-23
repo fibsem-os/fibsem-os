@@ -91,7 +91,7 @@ def test_projects_over_z_not_over_channels(stack_on_disk):
 
     assert rgb.shape == (8, 8, 3)
     assert rgb[..., 0].max() == 255  # red channel survived the projection
-    assert rgb[..., 1].max() == 0    # the dark channel contributes nothing
+    assert rgb[..., 1].max() == 0  # the dark channel contributes nothing
 
 
 def test_returns_uint8_rgb_and_the_pixel_size(stack_on_disk):
@@ -114,11 +114,11 @@ def test_a_channel_missing_from_metadata_is_still_shown(stack_on_disk):
     data[0, 0] = ramp
     data[1, 0] = ramp
 
-    image = _stack(data, ["red"])           # metadata describes one of two planes
+    image = _stack(data, ["red"])  # metadata describes one of two planes
     rgb, _ = load_projection(stack_on_disk(image))
 
-    assert rgb[..., 0].max() == 255          # the described channel is red
-    assert rgb.sum(axis=2).max() > 255       # the undescribed one still contributes
+    assert rgb[..., 0].max() == 255  # the described channel is red
+    assert rgb.sum(axis=2).max() > 255  # the undescribed one still contributes
 
 
 def test_a_stack_with_no_channels_raises(stack_on_disk):
