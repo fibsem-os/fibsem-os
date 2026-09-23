@@ -533,16 +533,45 @@ STOP_WORKFLOW_BUTTON_STYLESHEET = DANGER_BUTTON_STYLESHEET
 
 
 # A small panel floating over a canvas, opened from a toolbar button. Shared so the
-# canvas's popovers cannot drift apart -- contrast and the overlay switches are the same
-# kind of thing in the same corner, and looked it only by coincidence while each carried
-# its own copy of these greys.
-CANVAS_POPOVER_STYLE = (
-    "QFrame { background: rgba(30,33,36,230); border: 1px solid #555;"
-    " border-radius: 4px; }"
-    "QLabel { color: #d1d2d4; font-size: 10px; background: transparent; border: none; }"
-    "QCheckBox { color: #d1d2d4; font-size: 10px; background: transparent;"
-    " border: none; }"
-    "QPushButton { background: rgba(60,63,70,200); border: 1px solid #666;"
-    " border-radius: 3px; color: #d1d2d4; font-size: 10px; padding: 2px 8px; }"
-    "QPushButton:hover { background: rgba(80,83,90,220); }"
-)
+# canvas's panels cannot drift apart -- contrast, the overlay switches, the tile grid
+# and the align controls are the same kind of thing in the same corner. One frame
+# style, one label scale, one button, one slider; a panel opts in by naming its frame
+# `canvasPanel`, and marks its title, section headings and hints by object name.
+CANVAS_PANEL_STYLE = f"""
+QFrame#canvasPanel {{ background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR}; border-radius: 6px; }}
+QLabel {{ color: {TEXT_COLOR}; font-size: 11px; background: transparent; border: none; }}
+QLabel#panelTitle {{ color: {TEXT_MUTED_COLOR}; font-size: 10px; font-weight: 600; letter-spacing: 1px; }}
+QLabel#panelSection {{ color: {TEXT_MUTED_COLOR}; font-size: 10px; font-weight: 600; letter-spacing: 1px; padding-top: 2px; }}
+QLabel#panelHint {{ color: {TEXT_MUTED_COLOR}; font-size: 10px; font-style: italic; }}
+QCheckBox {{ color: {TEXT_COLOR}; font-size: 11px; background: transparent; border: none; spacing: 6px; }}
+QPushButton {{
+    background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 4px 8px;
+}}
+QPushButton:hover:enabled {{ background: #333744; }}
+QPushButton:checked {{ background: {ACCENT_COLOR}; color: {GRAY_TEXT_COLOR}; border-color: {ACCENT_COLOR}; }}
+QPushButton:disabled {{ color: {DISABLED_TEXT_COLOR}; border-color: {DISABLED_BG_COLOR}; }}
+QComboBox {{
+    background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 3px 6px;
+}}
+QComboBox QAbstractItemView {{ background: {PANEL_COLOR}; color: {TEXT_COLOR}; selection-background-color: {ACCENT_COLOR}; }}
+QLineEdit {{
+    background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 3px 6px;
+}}
+QAbstractSpinBox {{
+    background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 2px 4px;
+}}
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{
+    width: 14px; background: transparent; border: none;
+}}
+QAbstractSpinBox::up-arrow, QAbstractSpinBox::down-arrow {{ width: 8px; height: 8px; }}
+QSlider::groove:horizontal {{ height: 4px; background: {BORDER_COLOR}; border-radius: 2px; }}
+QSlider::sub-page:horizontal {{ background: {ACCENT_COLOR}; border-radius: 2px; }}
+QSlider::handle:horizontal {{ width: 12px; margin: -5px 0; background: {TEXT_COLOR}; border-radius: 6px; }}
+QFrame#panelSeparator {{ background: {BORDER_COLOR}; border: none; max-height: 1px; min-height: 1px; }}
+"""
+# The older name, kept for its callers.
+CANVAS_POPOVER_STYLE = CANVAS_PANEL_STYLE

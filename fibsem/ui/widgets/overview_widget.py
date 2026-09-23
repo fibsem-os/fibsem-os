@@ -106,6 +106,10 @@ from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
 from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasOverlayControls,
     CanvasPopover,
+    panel_header,
+    panel_hint,
+    panel_section,
+    panel_separator,
 )
 from fibsem.ui.widgets.canvas.overlays import stage_context
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
@@ -920,8 +924,7 @@ class FibsemOverviewWidget(QWidget):
         self.btn_reset_gridbars = QPushButton("Reset")
         self.btn_reset_gridbars.setToolTip("Put the bars back where the holder says")
         self.btn_reset_gridbars.clicked.connect(self._reset_gridbar_placement)
-        self.label_gridbar_placement = QLabel("")
-        self.label_gridbar_placement.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
+        self.label_gridbar_placement = panel_hint()
         for _button in (self.btn_align_gridbars, self.btn_reset_gridbars):
             _button.setEnabled(self.overlay_controls.is_visible(_OVERLAY_GRIDBARS))
         # The canvas's toggle flips between the lattice and Move without tearing the
@@ -943,6 +946,17 @@ class FibsemOverviewWidget(QWidget):
             checkable=True,
         )
         self.overlay_popover = CanvasPopover(self._overlay_panel(), parent=self.canvas)
+        # Placing things by hand -- the grid bars, an aligned image -- is the other
+        # thing you *edit* on this canvas, and it carries more controls than a switch
+        # row holds: its own button and panel, like the tile grid, so the overlays
+        # popover stays a list of switches.
+        self.btn_align = self.canvas.add_toolbar_button(
+            "mdi:crop-rotate",
+            "Align",
+            self._toggle_align,
+            checkable=True,
+        )
+        self.align_popover = CanvasPopover(self._align_panel(), parent=self.canvas)
 
         # The planned tileset gets its own button rather than a switch among the others,
         # matching the fluorescence tab: it is the one overlay you *edit* -- drag it,
@@ -1101,30 +1115,51 @@ class FibsemOverviewWidget(QWidget):
         return panel
 
     def _overlay_panel(self) -> QWidget:
-        """What the overlays button opens: the switches, then the bars\' own pitch.
+        """What the overlays button opens: the switches, and nothing else."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(panel_header("mdi:eye-outline", "Overlays"))
+        layout.addWidget(self.overlay_controls)
+        return panel
 
-        The pitch controls follow the switch that draws them rather than staying in the
-        column. They mean nothing while the lattice is off -- which is why they are
-        disabled with it -- so several panels away from their checkbox is the one place
-        they should not be.
+    def _align_panel(self) -> QWidget:
+        """What the Align button opens: the grid bars, then the aligned image.
+
+        The bars' pitch controls live here rather than beside their switch: they mean
+        nothing while the lattice is off -- which is why they are disabled with it --
+        and they are placement controls, which is what this panel is for.
         """
         panel = QWidget()
-        layout = QFormLayout(panel)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addRow(self.overlay_controls)
-        layout.addRow("Bar spacing", self.spin_gridbar_spacing)
-        layout.addRow("Bar width", self.spin_gridbar_width)
+        panel.setFixedWidth(260)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(panel_header("mdi:crop-rotate", "Align"))
+
+        layout.addWidget(panel_section("Grid bars"))
+        bars = QFormLayout()
+        bars.setContentsMargins(0, 0, 0, 0)
+        bars.setSpacing(6)
+        bars.addRow("Bar spacing", self.spin_gridbar_spacing)
+        bars.addRow("Bar width", self.spin_gridbar_width)
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
         buttons.addWidget(self.btn_align_gridbars)
         buttons.addWidget(self.btn_reset_gridbars)
-        layout.addRow(buttons)
-        layout.addRow(self.label_gridbar_placement)
-        heading = QLabel("Aligned image")
-        heading.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
-        layout.addRow(heading)
-        layout.addRow(self.aligned_image_panel)
+        bars.addRow(buttons)
+        bars.addRow(self.label_gridbar_placement)
+        layout.addLayout(bars)
+
+        layout.addWidget(panel_separator())
+        layout.addWidget(panel_section("Image"))
+        layout.addWidget(self.aligned_image_panel)
         return panel
+
+    def _toggle_align(self) -> None:
+        """Show or hide the align popover, anchored under its button."""
+        self.align_popover.set_open(self.btn_align.isChecked(), self.btn_align)
 
     def _toggle_tile_grid_panel(self) -> None:
         """Show or hide the tile grid panel, in the canvas's top-right corner.

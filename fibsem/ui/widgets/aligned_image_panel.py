@@ -14,13 +14,12 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QSlider,
     QWidget,
 )
 
-from fibsem.ui import stylesheets
+from fibsem.ui.widgets.canvas.overlay_controls import panel_hint
 
 
 class AlignedImagePanel(QWidget):
@@ -35,6 +34,7 @@ class AlignedImagePanel(QWidget):
         super().__init__(parent)
         layout = QFormLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
 
         self.combo = QComboBox()
         self.combo.currentIndexChanged.connect(self._on_index_changed)
@@ -45,12 +45,12 @@ class AlignedImagePanel(QWidget):
         self.btn_remove.clicked.connect(
             lambda: self.remove_requested.emit(self.current_key or "")
         )
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(self.combo, 1)
-        row.addWidget(self.btn_load)
-        row.addWidget(self.btn_remove)
-        layout.addRow("Image", row)
+        layout.addRow("Image", self.combo)
+        files = QHBoxLayout()
+        files.setContentsMargins(0, 0, 0, 0)
+        files.addWidget(self.btn_load)
+        files.addWidget(self.btn_remove)
+        layout.addRow(files)
 
         self.btn_align = QPushButton("Align image")
         self.btn_align.setCheckable(True)
@@ -77,9 +77,7 @@ class AlignedImagePanel(QWidget):
         )
         layout.addRow("Opacity", self.slider_opacity)
 
-        self.label_placement = QLabel("")
-        self.label_placement.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
-        self.label_placement.setWordWrap(True)
+        self.label_placement = panel_hint()
         layout.addRow(self.label_placement)
         self._refresh_enabled()
 
