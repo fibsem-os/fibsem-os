@@ -100,10 +100,16 @@ from fibsem.ui.tokens import (
     SLOT_COLOUR,
     STAGE_LIMITS_COLOUR,
 )
+from fibsem.ui.widgets.aligned_image_panel import AlignedImagePanel
+from fibsem.ui.widgets.canvas.aligned_images import AlignedImages
 from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
 from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasOverlayControls,
     CanvasPopover,
+    panel_header,
+    panel_hint,
+    panel_section,
+    panel_separator,
 )
 from fibsem.ui.widgets.canvas.overlays import stage_context
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
@@ -544,6 +550,12 @@ class FibsemOverviewWidget(QWidget):
     # was edited. Not emitted when a host restores a placement, so a host that
     # persists on this cannot be made to write back what it just read.
     gridbar_placement_changed = pyqtSignal()
+    # The user placed an aligned image (a drag ended, or Reset): its key. Same
+    # rule as the bars -- never emitted by the setters a host restores through.
+    image_placement_changed = pyqtSignal(str)
+    # An aligned image was taken off the canvas by the user: its key, and the id of
+    # the record it was kept under (empty if it had none).
+    image_removed = pyqtSignal(str, str)
 
     # Internal hops from a worker thread to the GUI thread. `tiled_acquisition_signal`
     # and `stage_position_changed` are psygnals, which call their callbacks
@@ -723,6 +735,20 @@ class FibsemOverviewWidget(QWidget):
         self.gridbar_overlay.drag_finished.connect(self._refresh_gridbar_placement)
         self.gridbar_overlay.drag_finished.connect(self.gridbar_placement_changed)
 
+        # Images laid over the overview and aligned by hand -- a fluorescence
+        # overview, placed from its metadata and corrected by dragging (FIB-1030).
+        self.aligned_images = AlignedImages(self.canvas, parent=self)
+        self.aligned_images.placement_changed.connect(self._on_image_placement_changed)
+        self.aligned_image_panel = AlignedImagePanel()
+        self.aligned_image_panel.load_requested.connect(self._prompt_for_aligned_image)
+        self.aligned_image_panel.remove_requested.connect(self.remove_aligned_image)
+        self.aligned_image_panel.selected.connect(self._on_aligned_image_selected)
+        self.aligned_image_panel.align_toggled.connect(self._on_align_image_toggled)
+        self.aligned_image_panel.reset_requested.connect(self.aligned_images.reset)
+        self.aligned_image_panel.opacity_changed.connect(
+            self.aligned_images.set_opacity
+        )
+
         # What the next run would acquire, tile by tile. Clickable: a tile toggles in
         # or out, an edge resizes the grid, the interior drags it somewhere else.
         self.tile_grid_overlay = TileGridOverlay()
@@ -898,8 +924,7 @@ class FibsemOverviewWidget(QWidget):
         self.btn_reset_gridbars = QPushButton("Reset")
         self.btn_reset_gridbars.setToolTip("Put the bars back where the holder says")
         self.btn_reset_gridbars.clicked.connect(self._reset_gridbar_placement)
-        self.label_gridbar_placement = QLabel("")
-        self.label_gridbar_placement.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
+        self.label_gridbar_placement = panel_hint()
         for _button in (self.btn_align_gridbars, self.btn_reset_gridbars):
             _button.setEnabled(self.overlay_controls.is_visible(_OVERLAY_GRIDBARS))
         # The canvas's toggle flips between the lattice and Move without tearing the
@@ -921,6 +946,17 @@ class FibsemOverviewWidget(QWidget):
             checkable=True,
         )
         self.overlay_popover = CanvasPopover(self._overlay_panel(), parent=self.canvas)
+        # Placing things by hand -- the grid bars, an aligned image -- is the other
+        # thing you *edit* on this canvas, and it carries more controls than a switch
+        # row holds: its own button and panel, like the tile grid, so the overlays
+        # popover stays a list of switches.
+        self.btn_align = self.canvas.add_toolbar_button(
+            "mdi:crop-rotate",
+            "Align",
+            self._toggle_align,
+            checkable=True,
+        )
+        self.align_popover = CanvasPopover(self._align_panel(), parent=self.canvas)
 
         # The planned tileset gets its own button rather than a switch among the others,
         # matching the fluorescence tab: it is the one overlay you *edit* -- drag it,
@@ -1079,26 +1115,51 @@ class FibsemOverviewWidget(QWidget):
         return panel
 
     def _overlay_panel(self) -> QWidget:
-        """What the overlays button opens: the switches, then the bars\' own pitch.
+        """What the overlays button opens: the switches, and nothing else."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(panel_header("mdi:eye-outline", "Overlays"))
+        layout.addWidget(self.overlay_controls)
+        return panel
 
-        The pitch controls follow the switch that draws them rather than staying in the
-        column. They mean nothing while the lattice is off -- which is why they are
-        disabled with it -- so several panels away from their checkbox is the one place
-        they should not be.
+    def _align_panel(self) -> QWidget:
+        """What the Align button opens: the grid bars, then the aligned image.
+
+        The bars' pitch controls live here rather than beside their switch: they mean
+        nothing while the lattice is off -- which is why they are disabled with it --
+        and they are placement controls, which is what this panel is for.
         """
         panel = QWidget()
-        layout = QFormLayout(panel)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addRow(self.overlay_controls)
-        layout.addRow("Bar spacing", self.spin_gridbar_spacing)
-        layout.addRow("Bar width", self.spin_gridbar_width)
+        panel.setFixedWidth(260)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(panel_header("mdi:crop-rotate", "Align"))
+
+        layout.addWidget(panel_section("Grid bars"))
+        bars = QFormLayout()
+        bars.setContentsMargins(0, 0, 0, 0)
+        bars.setSpacing(6)
+        bars.addRow("Bar spacing", self.spin_gridbar_spacing)
+        bars.addRow("Bar width", self.spin_gridbar_width)
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
         buttons.addWidget(self.btn_align_gridbars)
         buttons.addWidget(self.btn_reset_gridbars)
-        layout.addRow(buttons)
-        layout.addRow(self.label_gridbar_placement)
+        bars.addRow(buttons)
+        bars.addRow(self.label_gridbar_placement)
+        layout.addLayout(bars)
+
+        layout.addWidget(panel_separator())
+        layout.addWidget(panel_section("Image"))
+        layout.addWidget(self.aligned_image_panel)
         return panel
+
+    def _toggle_align(self) -> None:
+        """Show or hide the align popover, anchored under its button."""
+        self.align_popover.set_open(self.btn_align.isChecked(), self.btn_align)
 
     def _toggle_tile_grid_panel(self) -> None:
         """Show or hide the tile grid panel, in the canvas's top-right corner.
@@ -1375,7 +1436,12 @@ class FibsemOverviewWidget(QWidget):
         except Exception as e:
             logger.debug(f"Could not read the dragged grid bars: {e}")
             return
-        self._gridbar_offset = (here[0] - there[0], (here[1] - there[1]) / squash)
+        # Plain floats: the frame's numbers arrive as numpy scalars, and a record
+        # holding one cannot be written to the experiment file.
+        self._gridbar_offset = (
+            float(here[0] - there[0]),
+            float((here[1] - there[1]) / squash),
+        )
         self._refresh_gridbars()
 
     def _on_gridbars_rotated(self, rotation: float) -> None:
@@ -1420,6 +1486,8 @@ class FibsemOverviewWidget(QWidget):
 
     def _on_align_gridbars_toggled(self, checked: bool) -> None:
         if checked:
+            # One thing owns the canvas at a time.
+            self.aligned_image_panel.btn_align.setChecked(False)
             self.canvas.enter_overlay_mode(
                 self.gridbar_overlay, "Align bars", icon="mdi:cursor-move"
             )
@@ -1427,8 +1495,117 @@ class FibsemOverviewWidget(QWidget):
             self.canvas.exit_overlay_mode(self.gridbar_overlay)
 
     def _on_canvas_mode_toggled(self, checked: bool) -> None:
-        if not checked and self.canvas._mode_overlay is self.gridbar_overlay:
+        if checked:
+            return
+        mode = self.canvas._mode_overlay
+        if mode is self.gridbar_overlay:
             self.btn_align_gridbars.setChecked(False)
+        elif mode is not None and mode is self._selected_image_overlay():
+            self.aligned_image_panel.btn_align.setChecked(False)
+
+    # ── images aligned by hand ───────────────────────────────────────────
+
+    def _selected_image_overlay(self):
+        key = self.aligned_image_panel.current_key
+        record = self.aligned_images.get(key) if key else None
+        return record.overlay if record is not None else None
+
+    def _prompt_for_aligned_image(self) -> None:
+        path = ui_utils.open_existing_file_dialog(
+            msg="Select a fluorescence image to lay over the overview",
+            path=str(self._save_directory or os.getcwd()),
+            _filter="Fluorescence images (*.ome.tiff *.ome.tif *.tiff *.tif)",
+            parent=self,
+        )
+        if not path:
+            return
+        self.load_aligned_image(path)
+
+    def load_aligned_image(self, path: str) -> Optional[str]:
+        """Lay a fluorescence image from disk over the overview. Returns its key."""
+        from fibsem.fm.structures import FluorescenceImage
+
+        try:
+            image = FluorescenceImage.load(path)
+        except Exception as e:  # noqa: BLE001 - said, not fatal
+            logger.error(f"Could not load {path}: {e}")
+            notification_service.show_toast(
+                f"Could not load {os.path.basename(path)}.", "error"
+            )
+            return None
+        return self.add_aligned_image(image, label=os.path.basename(path), path=path)
+
+    def add_aligned_image(self, image, label: str, path: Optional[str] = None):
+        """Lay a fluorescence image over the overview, placed from its metadata."""
+        key = self.aligned_images.add(image, label=label, path=path)
+        if key is None:
+            notification_service.show_toast(
+                f"{label} says nothing about where it was taken; not shown.", "warning"
+            )
+            return None
+        self.aligned_image_panel.add_image(key, label)
+        self._refresh_aligned_readout()
+        return key
+
+    def remove_aligned_image(self, key: str, announce: bool = True) -> None:
+        record = self.aligned_images.get(key)
+        if record is None:
+            return
+        if self.canvas._mode_overlay is record.overlay:
+            self.aligned_image_panel.btn_align.setChecked(False)
+        self.aligned_images.remove(key)
+        self.aligned_image_panel.remove_image(key)
+        self._refresh_aligned_readout()
+        if announce:
+            self.image_removed.emit(key, record.record_id or "")
+
+    def clear_aligned_images(self) -> None:
+        """Take every aligned image off the canvas, without announcing: a host
+        switching grids, not a user removing anything."""
+        for key in self.aligned_images.keys():
+            self.remove_aligned_image(key, announce=False)
+
+    def aligned_image_for_record(self, record_id: str):
+        """The aligned image kept under *record_id*, or None."""
+        for key in self.aligned_images.keys():
+            record = self.aligned_images.get(key)
+            if record is not None and record.record_id == record_id:
+                return record
+        return None
+
+    def _on_aligned_image_selected(self, key: str) -> None:
+        if self.aligned_image_panel.btn_align.isChecked():
+            self._on_align_image_toggled(True)
+        self._refresh_aligned_readout()
+
+    def _on_align_image_toggled(self, checked: bool) -> None:
+        overlay = self._selected_image_overlay()
+        if checked and overlay is not None:
+            self.btn_align_gridbars.setChecked(False)
+            self.canvas.enter_overlay_mode(
+                overlay, "Align image", icon="mdi:cursor-move"
+            )
+        else:
+            self.canvas.exit_overlay_mode()
+
+    def _on_image_placement_changed(self, key: str) -> None:
+        self._refresh_aligned_readout()
+        self.image_placement_changed.emit(key)
+
+    def _refresh_aligned_readout(self) -> None:
+        key = self.aligned_image_panel.current_key
+        record = self.aligned_images.get(key) if key else None
+        if record is None:
+            self.aligned_image_panel.set_placement_text("")
+            return
+        dx, dy, rotation, scale = record.placement
+        if dx == 0.0 and dy == 0.0 and rotation == 0.0 and scale == 1.0:
+            self.aligned_image_panel.set_placement_text("Placed from its metadata")
+            return
+        self.aligned_image_panel.set_placement_text(
+            f"Moved {dx * constants.SI_TO_MICRO:+.1f}, {dy * constants.SI_TO_MICRO:+.1f} um"
+            f" from its metadata, turned {rotation:+.1f}°"
+        )
 
     # ── state ────────────────────────────────────────────────────────────
 
@@ -2302,6 +2479,7 @@ class FibsemOverviewWidget(QWidget):
         frame = self._frame()
         if frame is None:
             self.context_overlay.set_shapes([])
+            self.aligned_images.refresh(None)
             return
 
         self.context_overlay.set_shapes(
@@ -2318,6 +2496,7 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_stage_info()
         self._refresh_position_markers()
         self._refresh_gridbars()
+        self.aligned_images.refresh(frame)
         # The selector, not just the note: the list includes the view the next run
         # would land in, and that changes when the stage re-poses -- which does not
         # change the *displayed* view, so nothing else here would refresh it.

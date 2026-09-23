@@ -30,17 +30,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
-    BORDER_COLOR,
-    DISABLED_BG_COLOR,
-    GRAY_PRIMARY_COLOR,
-    PANEL_COLOR,
-    ROW_ALT_COLOR,
-    TEXT_COLOR,
-    TEXT_MUTED_COLOR,
-    WHITE_ICON_COLOR,
-)
+from fibsem.ui.stylesheets import CANVAS_PANEL_STYLE
+from fibsem.ui.tokens import WHITE_ICON_COLOR
+from fibsem.ui.widgets.canvas.overlay_controls import panel_header, panel_hint
 
 # Ordered by how often an FM sample makes them useless: magenta first, because
 # fluorescence channels are usually cyan/green/blue and rarely magenta.
@@ -52,26 +44,12 @@ GRID_COLORS = [
     ("White", WHITE_ICON_COLOR),
 ]
 
+
 def _color_icon(color: str, size: int = 12) -> QIcon:
     """A filled swatch for a combo entry, so the colour is picked by eye not by name."""
     pixmap = QPixmap(size, size)
     pixmap.fill(QColor(color))
     return QIcon(pixmap)
-
-
-_PANEL_QSS = f"""
-QFrame#tileGridPanel {{ background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR}; border-radius: 6px; }}
-QLabel {{ color: {TEXT_COLOR}; font-size: 11px; background: transparent; }}
-QLabel#panelTitle {{ color: #9aa0a6; font-size: 10px; font-weight: 600; letter-spacing: 1px; }}
-QCheckBox {{ color: {TEXT_COLOR}; font-size: 11px; background: transparent; }}
-QLabel#gridSummary {{ color: {TEXT_MUTED_COLOR}; font-size: 10px; background: transparent; }}
-QPushButton#centreButton {{
-    background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
-    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 4px 8px;
-}}
-QPushButton#centreButton:hover:enabled {{ background: #333744; }}
-QPushButton#centreButton:disabled {{ color: {GRAY_PRIMARY_COLOR}; border-color: {DISABLED_BG_COLOR}; }}
-"""
 
 
 class TileGridOptionsPanel(QFrame):
@@ -86,31 +64,20 @@ class TileGridOptionsPanel(QFrame):
         super().__init__(parent)
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setObjectName("tileGridPanel")
-        self.setStyleSheet(_PANEL_QSS)
+        self.setObjectName("canvasPanel")
+        self.setStyleSheet(CANVAS_PANEL_STYLE)
         self.setFixedWidth(196)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
-        header = QHBoxLayout()
-        header.setSpacing(8)
-        icon = QLabel()
-        icon.setPixmap(fibsem_icon("mdi:grid", color="#9aa0a6").pixmap(QSize(14, 14)))
-        title = QLabel("TILE GRID")
-        title.setObjectName("panelTitle")
-        header.addWidget(icon)
-        header.addWidget(title)
-        header.addStretch()
-        root.addLayout(header)
+        root.addWidget(panel_header("mdi:grid", "Tile grid"))
 
         # Read-only. This panel does not change what gets acquired -- the grid's
         # parameters are owned by the settings column -- but when you are zoomed into
         # the canvas it is the obvious place to ask what you are looking at.
-        self.label_summary = QLabel()
-        self.label_summary.setObjectName("gridSummary")
-        self.label_summary.setWordWrap(True)
+        self.label_summary = panel_hint()
         root.addWidget(self.label_summary)
 
         # The way back from dragging the grid. Directly under the summary, which is
@@ -118,7 +85,9 @@ class TileGridOptionsPanel(QFrame):
         # neither invites a click that does nothing nor strands the state a drag set.
         self.button_centre = QPushButton("Centre on stage")
         self.button_centre.setObjectName("centreButton")
-        self.button_centre.setToolTip("Plan the overview around the stage position again")
+        self.button_centre.setToolTip(
+            "Plan the overview around the stage position again"
+        )
         self.button_centre.setEnabled(False)
         self.button_centre.clicked.connect(self.centre_requested)
         root.addWidget(self.button_centre)

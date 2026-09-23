@@ -8,6 +8,10 @@ job.
 
 import os
 
+import numpy as np
+import pytest
+import yaml
+
 from fibsem.applications.autolamella.structures import (
     Experiment,
     GridRecord,
@@ -94,3 +98,32 @@ class TestTheExperimentCarriesIt:
         assert back is not None
         assert (back.dx, back.dy, back.rotation) == (12.5e-6, -8e-6, -7.25)
         assert (back.pitch, back.bar_width) == (1e-4, 2e-5)
+
+    def test_a_numpy_scalar_in_the_record_still_writes(self):
+        """A frame's numbers arrive as numpy scalars; the YAML writer cannot
+        represent one, and a save that raised half-way emptied the file."""
+        record = _bars(dx=np.float64(1e-6), dy=np.float32(2e-6), rotation=np.float64(3))
+        text = yaml.safe_dump(record.to_dict())
+        assert "1e-06" in text or "1.0e-06" in text
+        assert all(
+            type(v) is float
+            for v in yaml.safe_load(text).values()
+            if v is not None and not isinstance(v, (str, dict))
+        )
+
+    def test_a_save_that_cannot_be_written_leaves_the_file_intact(self, tmp_path):
+        experiment = Experiment(path=tmp_path, name="overlay-record-test")
+        os.makedirs(str(experiment.path), exist_ok=True)
+        grid = experiment.add_grid(GridRecord(name="grid-oak"))
+        grid.set_overlay(_bars())
+        experiment.save()
+        path = os.path.join(str(experiment.path), "experiment.yaml")
+        with open(path) as f:
+            before = f.read()
+
+        grid.overlays[0].fit = {"pairs": object()}  # nothing can write this
+        with pytest.raises(Exception):
+            experiment.save()
+
+        with open(path) as f:
+            assert f.read() == before

@@ -42,6 +42,8 @@ class ContrastGammaControl(QFrame):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("canvasPanel")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(_PANEL_STYLE)
         self.setFixedWidth(220)
         self.setVisible(False)
