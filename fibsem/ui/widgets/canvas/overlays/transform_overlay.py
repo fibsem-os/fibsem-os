@@ -75,6 +75,10 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         self._centre: Optional[Tuple[float, float]] = None
         self._rotation: float = 0.0  # degrees, clockwise on screen
         self._squash: float = 1.0  # canvas y per body y, the view's foreshortening
+        # Whether the body is seen from behind. A view from the other side of the
+        # grid mirrors everything on it, and a mirror is not a rotation: the known
+        # geometry supplies it, the user never drags it.
+        self._mirror: bool = False
 
         # A press inside the body, held until it travels far enough to be a move:
         # (press_px_x, press_px_y, press_x, press_y, centre_x, centre_y).
@@ -132,16 +136,23 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
     # ── placement ─────────────────────────────────────────────────────────
 
     def set_placement(
-        self, centre: Tuple[float, float], rotation: float = 0.0, squash: float = 1.0
+        self,
+        centre: Tuple[float, float],
+        rotation: float = 0.0,
+        squash: float = 1.0,
+        mirror: bool = False,
     ) -> None:
         """Where the body sits, in canvas coordinates, and how the view squashes it.
 
         `rotation` is degrees, clockwise on screen. `squash` is canvas y per body y:
         the view's surface foreshortening, 1.0 for a beam looking straight down.
+        `mirror` flips the body's own x before it is turned: the view sees it from
+        the other side of the sample.
         """
         self._centre = (float(centre[0]), float(centre[1]))
         self._rotation = float(rotation)
         self._squash = float(squash) if squash else 1.0
+        self._mirror = bool(mirror)
         self._redraw()
 
     def set_visible(self, visible: bool) -> None:
@@ -169,6 +180,10 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         return self._squash
 
     @property
+    def mirror(self) -> bool:
+        return self._mirror
+
+    @property
     def is_dragging(self) -> bool:
         """True while a move or a rotate is in flight."""
         return self._move_active or self._rotate_active
@@ -187,8 +202,10 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
     # ── the body's frame ──────────────────────────────────────────────────
 
     def to_canvas(self, u: float, v: float) -> Tuple[float, float]:
-        """A point in the body's frame, on the canvas: rotate, squash, offset."""
+        """A point in the body's frame, on the canvas: mirror, rotate, squash, offset."""
         cx, cy = self._centre if self._centre is not None else (0.0, 0.0)
+        if self._mirror:
+            u = -u
         c, s = self._cos_sin()
         x = c * u - s * v
         y = s * u + c * v
@@ -199,7 +216,26 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         cx, cy = self._centre if self._centre is not None else (0.0, 0.0)
         dx, dy = x - cx, (y - cy) / self._squash
         c, s = self._cos_sin()
-        return c * dx + s * dy, -s * dx + c * dy
+        u, v = c * dx + s * dy, -s * dx + c * dy
+        return (-u if self._mirror else u), v
+
+    def body_transform(self):
+        """The body's frame onto the canvas, as a matplotlib transform.
+
+        The same map as :meth:`to_canvas`, for artists that carry a transform rather
+        than points -- an image drawn on the unit square, say. Composed in the order
+        the points go through: mirror, rotate, squash, offset.
+        """
+        from matplotlib.transforms import Affine2D
+
+        cx, cy = self._centre if self._centre is not None else (0.0, 0.0)
+        return (
+            Affine2D()
+            .scale(-1.0 if self._mirror else 1.0, 1.0)
+            .rotate_deg(self._rotation)
+            .scale(1.0, self._squash)
+            .translate(cx, cy)
+        )
 
     def _cos_sin(self) -> Tuple[float, float]:
         angle = math.radians(self._rotation)
@@ -212,6 +248,8 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         width scaled by the stretch of its normal -- one lying along the squashed
         direction is drawn thinner, as the view really shows it.
         """
+        if self._mirror:
+            u = -u
         c, s = self._cos_sin()
         x = c * u - s * v
         y = (s * u + c * v) * self._squash
