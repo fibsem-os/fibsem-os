@@ -32,7 +32,12 @@ from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
 from fibsem.applications.autolamella.poses import LamellaPoses
-from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.structures import (
+    FibsemRectangle,
+    FibsemStagePosition,
+    MicroscopeState,
+    Point,
+)
 
 __all__ = [
     "Alternative",
@@ -45,6 +50,7 @@ __all__ = [
     "DecisionResult",
     "DETECTION",
     "STATE",
+    "ALIGNMENT_AREA",
     "PROPOSAL_KINDS",
     "OVERVIEW_POSITIONS",
     "POINT_OF_INTEREST",
@@ -83,6 +89,11 @@ DETECTION = "detection"
 # so a move the operator made first is the delta. Asked mid-task, so its
 # value is written nowhere: the task is what uses it.
 STATE = "state"
+# The reduced area the alignment reference is taken in: a rectangle in
+# fractions of the FIB frame, dragged on the last FIB image. Asked mid-task,
+# right before that reference is acquired, so it is written nowhere: the
+# task acquires with the area it is handed (FIB-1053).
+ALIGNMENT_AREA = "alignment_area"
 # What a task did, for someone to look at: no values, the final reference
 # images in provenance. Recorded by the base task class for any task whose
 # review is on and that did not propose a kind of its own.
@@ -234,6 +245,11 @@ register_proposal_kind(
 register_proposal_kind(
     ProposalKind(name=STATE, values=("stage_position",), label="Position")
 )
+register_proposal_kind(
+    ProposalKind(
+        name=ALIGNMENT_AREA, values=("alignment_area",), label="Alignment area"
+    )
+)
 register_proposal_kind(ProposalKind(name=TASK_RESULT, values=(), label="Result"))
 
 
@@ -332,6 +348,10 @@ _VALUE_CODECS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
     "stage_position": (
         lambda p: p.to_dict() if isinstance(p, FibsemStagePosition) else p,
         lambda d: FibsemStagePosition.from_dict(d) if isinstance(d, dict) else d,
+    ),
+    "alignment_area": (
+        lambda r: r.to_dict() if isinstance(r, FibsemRectangle) else r,
+        lambda d: FibsemRectangle.from_dict(d) if isinstance(d, dict) else d,
     ),
 }
 
@@ -535,11 +555,28 @@ def _prepare_stage_position(experiment: Any, item: Any, value: Any) -> PreparedW
     return PreparedWrite.nothing()
 
 
+def _prepare_alignment_area(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """Checked, and written nowhere, for the reason ``_prepare_features``
+    gives: the task acquires its alignment reference with the area it is
+    handed. A rectangle that is not a valid reduced area is refused here,
+    before the run is released on it."""
+    if not isinstance(value, FibsemRectangle):
+        raise ValueRefused(
+            f"alignment_area must be a rectangle, not {type(value).__name__}."
+        )
+    if not value.is_valid_reduced_area:
+        raise ValueRefused(
+            f"alignment_area {value.pretty_string} is not inside the frame."
+        )
+    return PreparedWrite.nothing()
+
+
 _VALUE_WRITERS: Dict[str, Callable[[Any, Any, Any], PreparedWrite]] = {
     "poi": _prepare_poi,
     "positions": _prepare_positions,
     "features": _prepare_features,
     "stage_position": _prepare_stage_position,
+    "alignment_area": _prepare_alignment_area,
 }
 
 

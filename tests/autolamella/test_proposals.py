@@ -14,6 +14,7 @@ import yaml
 from psygnal.containers import EventedDict
 
 from fibsem.applications.autolamella.proposals import (
+    ALIGNMENT_AREA,
     POINT_OF_INTEREST,
     PROPOSAL_KINDS,
     TASK_RESULT,
@@ -25,8 +26,10 @@ from fibsem.applications.autolamella.proposals import (
     Proposal,
     ProposalKind,
     Standing,
+    ValueRefused,
     auto_author,
     compute_delta,
+    prepare_values,
     register_proposal_kind,
 )
 from fibsem.applications.autolamella.structures import (
@@ -42,7 +45,12 @@ from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskC
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
-from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.structures import (
+    FibsemRectangle,
+    FibsemStagePosition,
+    MicroscopeState,
+    Point,
+)
 
 SETUP = "Setup Lamella Position"
 # the run a proposal is from, and that a decision names
@@ -328,6 +336,35 @@ def test_standing_is_one_lifecycle_read_off_the_item(tmp_path):
     assert standing(lamella, SETUP, withdrawn) is Standing.Closed, (
         "taken back: nothing for anyone to do"
     )
+
+
+def test_an_alignment_area_is_a_kind_with_a_rectangle_that_round_trips(tmp_path):
+    """FIB-1053: asked mid-task, written nowhere; a rectangle outside the
+    frame is refused before the run is released on it."""
+    assert PROPOSAL_KINDS[ALIGNMENT_AREA].values == ("alignment_area",)
+    assert PROPOSAL_KINDS[ALIGNMENT_AREA].label == "Alignment area"
+    rect = FibsemRectangle(left=0.2, top=0.3, width=0.4, height=0.3)
+    p = Proposal(kind=ALIGNMENT_AREA, values={"alignment_area": rect})
+    back = Proposal.from_dict(p.to_dict())
+    assert back.values["alignment_area"] == rect
+
+    exp = _experiment(tmp_path)
+    lamella = exp.positions[0]
+    writes = prepare_values(exp, lamella, ALIGNMENT_AREA, {"alignment_area": rect})
+    assert writes.apply() == [], "written nowhere"
+    with pytest.raises(ValueRefused, match="not inside the frame"):
+        prepare_values(
+            exp,
+            lamella,
+            ALIGNMENT_AREA,
+            {
+                "alignment_area": FibsemRectangle(
+                    left=0.9, top=0.0, width=0.5, height=0.5
+                )
+            },
+        )
+    with pytest.raises(ValueRefused, match="must be a rectangle"):
+        prepare_values(exp, lamella, ALIGNMENT_AREA, {"alignment_area": "x"})
 
 
 def test_to_check_clears_only_when_a_person_looked():
