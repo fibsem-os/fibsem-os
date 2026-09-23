@@ -241,6 +241,19 @@ class TestADragIsKeptOnTheSample:
         assert record.dy == pytest.approx(10.0 * ref / squash)
         assert record.overlay.centre == pytest.approx((cx, cy + 10.0))
 
+    def test_what_is_kept_is_a_plain_float(self, widget, microscope):
+        """The canvas answers in numpy scalars; the record has to hold floats, or
+        the experiment file cannot be written (and was emptied trying)."""
+        _show(widget, SQUARE)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        record = widget.aligned_images.get(key)
+        cx, cy = record.overlay.centre
+
+        record.overlay.moved.emit(np.float64(cx + 3.0), np.float64(cy + 2.0))
+        record.overlay.rotated.emit(np.float64(record.base_rotation + 1.0))
+
+        assert all(type(v) is float for v in record.placement)
+
     def test_a_turn_is_kept_on_top_of_the_geometrys_turn(self, widget, microscope):
         """A camera transform that flips both axes is a half turn in the view: the
         geometry's part. What the user turns on top is what is kept."""
