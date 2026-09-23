@@ -34,6 +34,7 @@ from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
 from fibsem.acting import TASK, acting
 from fibsem.applications.autolamella.proposals import (
+    ALIGNMENT_AREA,
     DETECTION,
     PROPOSAL_KINDS,
     TASK_RESULT,
@@ -569,9 +570,16 @@ class AutoLamellaTask(ABC):
         answered = threading.Event()
 
         def _on_decided(item_id: str, task_name: str) -> None:
+            # This question, and decided: ``decided`` also fires for the
+            # previous question's fill-in, which can land after this one was
+            # recorded when the task asks twice in a row (FIB-1053).
             if (item_id, task_name) == (item.id, self.task_name):
                 current = item.proposal(task_name)
-                if current is not None and current.id == proposal.id:
+                if (
+                    current is not None
+                    and current.id == proposal.id
+                    and current.current is not None
+                ):
                     answered.set()
 
         experiment.decided.connect(_on_decided)
@@ -1094,16 +1102,73 @@ class AutoLamellaTask(ABC):
 
         return fib_image
 
-    def _validate_alignment_area(self) -> None:
-        """Validate the alignment area with the user."""
+    @property
+    def _asks_on_the_record(self) -> bool:
+        """Whether the task's confirmations go through ``ask``: the review
+        preference is on. Off, the prompts run as they always have."""
+        return bool(getattr(self.task_manager, "review_enabled", False))
+
+    def _last_fib_image_file(self) -> str:
+        """The last FIB reference image, relative to the lamella's folder, for
+        a question to sit on; empty when none has been saved yet."""
+        image = self._last_fib_image
+        if image is None or image.filepath is None:
+            return ""
+        return os.path.relpath(image.filepath, self.lamella.path)
+
+    def _milling_result_image_file(self, config: FibsemMillingTaskConfig) -> str:
+        """The FIB image a milling session left behind (the ``finished``
+        acquisition it saves in the lamella's folder, when its config
+        acquires one), relative to that folder; empty when it saved none."""
+        imaging = getattr(getattr(config, "acquisition", None), "imaging", None)
+        filename = str(getattr(imaging, "filename", "") or "")
+        if filename:
+            for candidate in sorted(
+                glob.glob(os.path.join(str(self.lamella.path), f"{filename}*_ib.tif"))
+            ):
+                return os.path.relpath(candidate, self.lamella.path)
+        return ""
+
+    def _validate_alignment_area(
+        self, *, image: str = "", enabled: bool = True
+    ) -> None:
+        """Check the alignment area with the operator before the alignment
+        reference is taken in it.
+
+        On the record (the review preference on): an ``alignment_area``
+        question on ``image`` -- the last FIB reference image unless the
+        caller names the frame -- answered by dragging the rectangle in the
+        Review tab; the decided area is what the task acquires with. A
+        rejection fails the task, as Reject in the Review tab says. Otherwise
+        the prompt as it has always been, the rectangle dragged on the
+        Microscope tab's canvas. ``enabled`` is the task's own switch.
+        """
         self.log_status_message(
             "VALIDATE_ALIGNMENT_AREA", "Validating Alignment Image..."
         )
+        if self._asks_on_the_record:
+            decision = self.ask(
+                ALIGNMENT_AREA,
+                {"alignment_area": deepcopy(self.lamella.alignment_area)},
+                image=image or self._last_fib_image_file(),
+                message="Check the alignment area: the reference for later "
+                "alignments is taken in it. Drag it to correct it.",
+                enabled=enabled,
+            )
+            if decision.outcome is DecisionOutcome.Rejected:
+                raise RuntimeError(
+                    f"{self.task_name} was rejected: "
+                    f"{decision.reason or 'no reason given'}"
+                )
+            area = decision.values.get("alignment_area")
+            if isinstance(area, FibsemRectangle):
+                self.lamella.alignment_area = area
+            return
         self.lamella.alignment_area = update_alignment_area_ui(
             alignment_area=self.lamella.alignment_area,
             parent_ui=self.parent_ui,
             msg="Drag to edit the Alignment Area. Press Continue when done.",
-            validate=self.validate,
+            validate=self.validate and enabled,
         )
 
     def set_fluorescence_channels_ui(

@@ -3,8 +3,9 @@
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, Optional, Type
+from typing import ClassVar, Optional, Tuple, Type
 
+from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -40,6 +41,15 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
             tooltip="Align to the reference image before milling fiducial (if available)"
         ),
     )
+    confirm_alignment_area: bool = field(
+        default=True,
+        metadata=field_meta(
+            label="Confirm Alignment Area",
+            tooltip="Ask you to check the alignment area around the milled "
+            "fiducial before the alignment reference is taken in it. Off, the "
+            "area is used as it stands.",
+        ),
+    )
     task_type: ClassVar[str] = "MILL_FIDUCIAL"
     display_name: ClassVar[str] = "Mill Fiducial"
 
@@ -58,9 +68,16 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
 class MillFiducialTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
 
-    # Work at the microscope, then Continue: the mill, and the alignment area
-    # dragged on the canvas after it (a question once FIB-1053 gives it a kind).
-    sessions = ("milling", "the alignment area")
+    # Work at the microscope, then Continue: the mill. Then the alignment
+    # area around the milled fiducial, asked on the post-mill image.
+    questions = (ALIGNMENT_AREA,)
+    sessions = ("milling",)
+
+    @classmethod
+    def questions_for(cls, config) -> Tuple[str, ...]:
+        if not getattr(config, "confirm_alignment_area", True):
+            return ()
+        return cls.questions
 
     config: MillFiducialTaskConfig
     config_cls: ClassVar[Type[MillFiducialTaskConfig]] = MillFiducialTaskConfig
@@ -110,8 +127,29 @@ class MillFiducialTask(AutoLamellaTask):
                 f"Invalid alignment area: {self.lamella.alignment_area}, check the field of view for the fiducial milling pattern."
             )
 
-        # validate alignment area
-        self._validate_alignment_area()
+        # validate alignment area, on the image the mill left behind: the
+        # session's finished acquisition when it saved one (off by default),
+        # else one FIB frame taken now. A question on the record needs the
+        # frame it is about, and the pre-mill reference does not show the
+        # fiducial; the old prompt sat on the display, which had the mill's
+        # own unsaved post-mill image.
+        image = self._milling_result_image_file(milling_task_config)
+        if (
+            not image
+            and self._asks_on_the_record
+            and self.config.confirm_alignment_area
+        ):
+            self._acquire_channels(
+                image_settings,
+                filename=f"ref_{self.task_name}_post_mill",
+                field_of_view=alignment_hfw,
+                acquire_sem=False,
+                acquire_fib=True,
+            )
+            image = self._last_fib_image_file()
+        self._validate_alignment_area(
+            image=image, enabled=self.config.confirm_alignment_area
+        )
 
         # # acquire alignment reference image
         self._acquire_alignment_reference_image(

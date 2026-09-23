@@ -141,6 +141,13 @@ correctness work landed in correlation and in what the experiment record remembe
   stay on the image in orange while you drag a marker, a line under the image says
   how far each feature has moved ("LamellaCentre moved 1.3 µm"), and clicking a
   marker turns Put them back into putting back that one.
+- **The alignment area is checked on the record.** With the review preference on,
+  Setup and Mill Fiducial ask you to check the alignment area in the Review tab, as a
+  rectangle on the last FIB image (for the fiducial, the image the mill left behind),
+  before the alignment reference is taken in it; the answer, and how far you moved
+  it, are on the lamella's record. Each task has a Confirm Alignment Area setting;
+  off, the area is used as it stands and still recorded. With the preference off the
+  prompt is as it has always been.
 - **A run's end closes nothing in the Review tab.** An automated task's result used
   to be recorded as unreviewed when the run ended; now it stays open in "to check"
   until you look, the same as its value does until a later task uses it.
