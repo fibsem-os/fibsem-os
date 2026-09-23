@@ -135,6 +135,13 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
             raise ValueError(
                 "Fluorescence microscope not initialized in the FibsemMicroscope instance"
             )
+        # Said here, up front: the autofocus falls back to the first channel
+        # and would fail with an IndexError that names nothing (FIB-1067).
+        if not self.config.channel_settings:
+            raise ValueError(
+                f"No fluorescence channels configured for {self.task_name} on "
+                f"{self.lamella.name}. Add a channel before acquiring fluorescence images."
+            )
         if (
             self.lamella.fluorescence_pose is None
             or self.lamella.fluorescence_pose.objective_position is None
