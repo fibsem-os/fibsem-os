@@ -914,8 +914,11 @@ class TestProjectFmStableMove:
         """
         scope = request.getfixturevalue(mount)
         scope.fm.set_image_transform(transform)
+        # In the pose the stage is in: the move is made from there, and the projection
+        # follows the pose of the base it is given, so "the same place" means both.
+        here = scope.get_stage_position()
         base = FibsemStagePosition(
-            x=1e-3, y=-2e-3, z=5e-4, r=0, t=0, coordinate_system="RAW"
+            x=1e-3, y=-2e-3, z=5e-4, r=here.r, t=here.t, coordinate_system="RAW"
         )
 
         moved = []
