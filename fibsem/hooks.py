@@ -598,6 +598,10 @@ class HookManager:
         self._apply_notifier(hook)
         self._hooks.append(hook)
 
+    def unregister(self, hook: Hook) -> None:
+        """Remove *hook*, if registered; the same object, not an equal one."""
+        self._hooks = [h for h in self._hooks if h is not hook]
+
     def fire(self, context: HookContext) -> None:
         for hook in self._hooks:
             if not hook.enabled:

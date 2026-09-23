@@ -13,6 +13,10 @@ any server runs, and owns:
 * an :class:`EventFileWriter` recording every event to ``events.jsonl`` beside
   the experiment's ``logfile.log``.
 
+A workflow run records through the same recorder: the task manager finds the
+microscope's with :func:`recorder_for`, or makes one for the run when nothing
+keeps one -- a run without the GUI (FIB-1044).
+
 The agent server, when it runs, reads the same buffer.
 
 Events while no experiment is loaded stay in the buffer but are not written:
@@ -26,6 +30,7 @@ import logging
 import queue
 import threading
 import uuid
+import weakref
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
@@ -45,6 +50,24 @@ _QUEUE_LIMIT = 50_000
 _CLOSE_TIMEOUT_S = 2.0
 
 _PATH, _RECORD, _STOP = "path", "record", "stop"
+
+# The open recorder for each microscope, by id: the one a workflow run records
+# through. A second recorder on the same microscope would tap the same signals
+# and write every event twice. Weak: whatever made a recorder keeps it (the app
+# its window, a run its own), and the registry must not keep it, or the window
+# its disposers reach, alive after that is gone.
+_RECORDERS: "weakref.WeakValueDictionary[int, EventRecorder]" = (
+    weakref.WeakValueDictionary()
+)
+
+
+def recorder_for(microscope: Any) -> Optional["EventRecorder"]:
+    """The open recorder for *microscope*, if something keeps one: the app does,
+    from the moment a microscope connects."""
+    recorder = _RECORDERS.get(id(microscope))
+    return (
+        recorder if recorder is not None and recorder.microscope is microscope else None
+    )
 
 
 class EventFileWriter:
@@ -213,13 +236,24 @@ class EventRecorder:
         self._disposers: List[Callable[[], None]] = [
             self.buffer.subscribe(self.writer.write)
         ]
-        self._disposers += attach_microscope_taps(self.buffer, microscope)
-        if responder is not None:
-            self._disposers.append(responder.add_question_observer(self.buffer.append))
-        # Registered by setup_hooks on every run: the app rebuilds its hook set
-        # per run, so this object is handed over again each time.
-        self.lifecycle_hook = make_lifecycle_hook(self.buffer)
-        self.set_experiment(experiment_path, experiment)
+        try:
+            self._disposers += attach_microscope_taps(self.buffer, microscope)
+            if responder is not None:
+                self._disposers.append(
+                    responder.add_question_observer(self.buffer.append)
+                )
+            # Registered for each run by the task manager that runs it
+            # (FIB-1044), so this object is handed over again every time.
+            self.lifecycle_hook = make_lifecycle_hook(self.buffer)
+            self.set_experiment(experiment_path, experiment)
+        except BaseException:
+            # A recorder that could not be made must not leave its writer
+            # running: nothing holds it to close it.
+            self.close()
+            raise
+        # The first one open for a microscope is the one a run finds.
+        if recorder_for(microscope) is None:
+            _RECORDERS[id(microscope)] = self
 
     @property
     def microscope(self):
@@ -246,6 +280,8 @@ class EventRecorder:
 
     def close(self) -> None:
         """Detach every tap, write what is queued, and stop the writer."""
+        if _RECORDERS.get(id(self._microscope)) is self:
+            del _RECORDERS[id(self._microscope)]
         if self._proposals is not None:
             self._proposals.dispose()
             self._proposals = None

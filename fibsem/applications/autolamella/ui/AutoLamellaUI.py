@@ -2069,14 +2069,11 @@ class AutoLamellaUI(QMainWindow):
         preferences = fibsem_cfg.load_user_preferences()
         manager = build_hook_manager(preferences.hooks)
 
-        # The event stream's lifecycle feed. Registered here, per run, because this
-        # manager is rebuilt each run — a once-at-startup registration would go
-        # silently deaf after the first workflow (the trap events.py documents).
-        # The agent server shares the recorder's hook; one of its own (a host
-        # started without a recorder) is registered as before, never both.
+        # The event stream's lifecycle feed is registered by the task manager for
+        # its run, the same path a run without the GUI takes (FIB-1044). The agent
+        # server shares the recorder's hook; one of its own (a host started
+        # without a recorder) is registered here, per run, as before.
         recorder = self._event_recorder
-        if recorder is not None:
-            manager.register(recorder.lifecycle_hook)
         host = self._agent_server_host
         if (
             host is not None
