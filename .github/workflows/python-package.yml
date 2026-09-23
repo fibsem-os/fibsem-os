@@ -15,10 +15,15 @@ on:
   # stacked PR -- one based on another feature branch -- no checks at all.
   pull_request:
 
-# Cancel superseded PR runs, but not `push` runs: each of those is the record of one
-# commit on main, and two quick merges would leave the first permanently untested.
+# A PR's runs share one group, and a new push to the PR cancels the run in progress:
+# only its latest commit matters. A `push` run is the record of one commit on main or a
+# release branch, so its group is keyed on the commit, not the branch, and nothing
+# cancels it. Keying on the branch was not enough even with cancel-in-progress off: a
+# group holds one running and one *pending* run, and each newly queued run cancels the
+# pending one -- so a merge that queued behind a running one was dropped whenever
+# another merge followed before it could start (7 of main's 12 push runs, 2026-09-22).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
