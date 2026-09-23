@@ -127,10 +127,28 @@ class MillFiducialTask(AutoLamellaTask):
                 f"Invalid alignment area: {self.lamella.alignment_area}, check the field of view for the fiducial milling pattern."
             )
 
-        # validate alignment area, on the image the mill left behind
+        # validate alignment area, on the image the mill left behind: the
+        # session's finished acquisition when it saved one (off by default),
+        # else one FIB frame taken now. A question on the record needs the
+        # frame it is about, and the pre-mill reference does not show the
+        # fiducial; the old prompt sat on the display, which had the mill's
+        # own unsaved post-mill image.
+        image = self._milling_result_image_file(milling_task_config)
+        if (
+            not image
+            and self._asks_on_the_record
+            and self.config.confirm_alignment_area
+        ):
+            self._acquire_channels(
+                image_settings,
+                filename=f"ref_{self.task_name}_post_mill",
+                field_of_view=alignment_hfw,
+                acquire_sem=False,
+                acquire_fib=True,
+            )
+            image = self._last_fib_image_file()
         self._validate_alignment_area(
-            image=self._milling_result_image_file(milling_task_config),
-            enabled=self.config.confirm_alignment_area,
+            image=image, enabled=self.config.confirm_alignment_area
         )
 
         # # acquire alignment reference image

@@ -1118,8 +1118,8 @@ class AutoLamellaTask(ABC):
 
     def _milling_result_image_file(self, config: FibsemMillingTaskConfig) -> str:
         """The FIB image a milling session left behind (the ``finished``
-        acquisition it saves in the lamella's folder), relative to that
-        folder; the last reference image when it saved none."""
+        acquisition it saves in the lamella's folder, when its config
+        acquires one), relative to that folder; empty when it saved none."""
         imaging = getattr(getattr(config, "acquisition", None), "imaging", None)
         filename = str(getattr(imaging, "filename", "") or "")
         if filename:
@@ -1127,7 +1127,7 @@ class AutoLamellaTask(ABC):
                 glob.glob(os.path.join(str(self.lamella.path), f"{filename}*_ib.tif"))
             ):
                 return os.path.relpath(candidate, self.lamella.path)
-        return self._last_fib_image_file()
+        return ""
 
     def _validate_alignment_area(
         self, *, image: str = "", enabled: bool = True
