@@ -950,6 +950,38 @@ class TestAnAlignedImageIsKeptOnTheGrid:
         finally:
             stage.unload()
 
+    def test_a_fit_is_kept_on_the_record(self, tab, microscope, tmp_path):
+        """How the image was placed is part of the record: the pairs and the RMS
+        go with the placement, and a later hand drag clears them."""
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            key = tab.overview.load_aligned_image(elsewhere)
+            images = tab.overview.aligned_images
+            pixels = [(4.0, 4.0), (20.0, 5.0), (10.0, 24.0)]
+            images.set_placement(key, 3e-6, 2e-6, 4.0)
+            targets = [images.pixel_to_canvas(key, *p) for p in pixels]
+            images.set_placement(key, 0.0, 0.0, 0.0)
+
+            images.fit_to_points(key, pixels, targets)
+
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert len(record.fit["pairs"]) == 3
+            assert record.fit["rms"] == pytest.approx(0.0, abs=1e-6)
+            assert (record.dx, record.dy, record.rotation) == pytest.approx(
+                (3e-6, 2e-6, 4.0), rel=1e-6
+            )
+
+            aligned = images.get(key)
+            aligned.overlay.moved.emit(*aligned.overlay.centre)
+            aligned.overlay.drag_finished.emit()
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert record.fit == {}
+        finally:
+            stage.unload()
+
     def test_removing_the_image_forgets_its_record(self, tab, microscope, tmp_path):
         stage = microscope._stage
         grid = self._load_a_grid(tab, microscope)

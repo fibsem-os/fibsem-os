@@ -745,6 +745,7 @@ class FibsemOverviewWidget(QWidget):
         self.aligned_image_panel.selected.connect(self._on_aligned_image_selected)
         self.aligned_image_panel.align_toggled.connect(self._on_align_image_toggled)
         self.aligned_image_panel.reset_requested.connect(self.aligned_images.reset)
+        self.aligned_image_panel.fit_requested.connect(self._fit_aligned_image)
         self.aligned_image_panel.opacity_changed.connect(
             self.aligned_images.set_opacity
         )
@@ -1587,6 +1588,99 @@ class FibsemOverviewWidget(QWidget):
             )
         else:
             self.canvas.exit_overlay_mode()
+
+    # ── placed from point pairs ──────────────────────────────────────────
+
+    def _reference_tile_for_fit(self, key: str):
+        """The overview under the image, as (canvas key, placed tile): the visible
+        record in this view whose footprint holds the image's centre, else the first
+        visible one. None when nothing is placed to fit against."""
+        record = self.aligned_images.get(key)
+        centre = record.overlay.centre if record is not None else None
+        first = None
+        for overview in self._records.values():
+            if not overview.visible or overview.view != self._current_view:
+                continue
+            for canvas_key, tile in zip(overview.keys, overview.images):
+                extent = self._extents.get(canvas_key)
+                if extent is None:
+                    continue
+                if first is None:
+                    first = (canvas_key, tile)
+                if centre is None:
+                    continue
+                (cx, cy), (w, h) = extent
+                x0, y0 = self.canvas.metres_to_canvas(cx - w / 2, cy - h / 2)
+                x1, y1 = self.canvas.metres_to_canvas(cx + w / 2, cy + h / 2)
+                if x0 <= centre[0] <= x1 and y0 <= centre[1] <= y1:
+                    return canvas_key, tile
+        return first
+
+    def _tile_pixel_to_canvas(self, canvas_key: str, tile, x: float, y: float):
+        """Where a pixel of a placed tile's stored array falls on the canvas."""
+        (cx, cy), (w, h) = self._extents[canvas_key]
+        height, width = tile.grey.shape[:2]
+        return self.canvas.metres_to_canvas(
+            cx - w / 2 + (x + 0.5) / width * w, cy - h / 2 + (y + 0.5) / height * h
+        )
+
+    def _fit_aligned_image(self, key: str) -> None:
+        """Pick matching points on the overview and the image, then fit the image."""
+        from fibsem.ui.widgets.image_fit_dialog import ImageFitDialog
+
+        record = self.aligned_images.get(key)
+        reference = self._reference_tile_for_fit(key)
+        if record is None or reference is None:
+            notification_service.show_toast(
+                "Nothing is placed in this view to fit the image against.", "warning"
+            )
+            return
+        canvas_key, tile = reference
+
+        def to_canvas(pairs):
+            image_pixels = [(px, py) for px, py, _, _ in pairs]
+            targets = [
+                self._tile_pixel_to_canvas(canvas_key, tile, rx, ry)
+                for _, _, rx, ry in pairs
+            ]
+            return image_pixels, targets
+
+        def preview(pairs, fix_scale):
+            from fibsem.correlation.similarity import fit_similarity
+
+            image_pixels, targets = to_canvas(pairs)
+            placed = [
+                self.aligned_images.pixel_to_canvas(key, *p) for p in image_pixels
+            ]
+            return fit_similarity(placed, targets, fix_scale=fix_scale, scale=1.0)
+
+        per_px = (self.canvas.reference_pixel_size or 0.0) * constants.SI_TO_MICRO
+        dialog = ImageFitDialog(
+            reference=tile.grey,
+            image=record.rgb,
+            preview=preview,
+            rms_text=lambda rms: f"RMS {rms * per_px:.2f} um",
+            reference_label=self._current_view.label
+            if self._current_view is not None
+            else "Overview",
+            image_label=record.label,
+            parent=self,
+        )
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        image_pixels, targets = to_canvas(dialog.pairs())
+        try:
+            fit = self.aligned_images.fit_to_points(
+                key, image_pixels, targets, fix_scale=dialog.fix_scale
+            )
+        except ValueError as e:
+            notification_service.show_toast(f"Could not fit the image: {e}", "error")
+            return
+        notification_service.show_toast(
+            f"Fitted {record.label} from {len(image_pixels)} pairs: "
+            f"RMS {fit.rms * (self.canvas.reference_pixel_size or 0) * constants.SI_TO_MICRO:.2f} um.",
+            "info",
+        )
 
     def _on_image_placement_changed(self, key: str) -> None:
         self._refresh_aligned_readout()

@@ -355,3 +355,103 @@ class TestTheControls:
         )
         record.overlay.drag_finished.emit()
         assert "Moved" in widget.aligned_image_panel.label_placement.text()
+
+
+class TestFitFromPoints:
+    """Three pairs place the image (FIB-1030). Ground truth comes from the placement
+    itself: put the image somewhere by `set_placement`, read where three of its
+    pixels land, put it back, and the fit from those pairs must find the same four
+    numbers -- in a tilted view as well as looking straight down."""
+
+    PIXELS = [(10.0, 10.0), (50.0, 12.0), (30.0, 55.0)]
+
+    def _targets_for(self, widget, key, dx, dy, rotation, scale=1.0):
+        widget.aligned_images.set_placement(key, dx, dy, rotation, scale)
+        targets = [widget.aligned_images.pixel_to_canvas(key, *p) for p in self.PIXELS]
+        widget.aligned_images.set_placement(key, 0.0, 0.0, 0.0, 1.0)
+        return targets
+
+    def test_the_fit_recovers_a_known_placement(self, widget, microscope):
+        _show(widget, SQUARE)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        targets = self._targets_for(widget, key, 20e-6, -15e-6, 12.0, 1.1)
+        seen = []
+        widget.image_placement_changed.connect(seen.append)
+
+        fit = widget.aligned_images.fit_to_points(key, self.PIXELS, targets)
+
+        record = widget.aligned_images.get(key)
+        assert record.placement == pytest.approx((20e-6, -15e-6, 12.0, 1.1), rel=1e-6)
+        assert fit.rms == pytest.approx(0.0, abs=1e-6)
+        for pixel, target in zip(self.PIXELS, targets):
+            assert widget.aligned_images.pixel_to_canvas(key, *pixel) == pytest.approx(
+                target, abs=1e-6
+            )
+        assert seen == [key]
+        assert len(record.fit["pairs"]) == 3 and record.fit["rms"] == pytest.approx(0.0)
+
+    def test_in_a_tilted_view_the_fit_is_made_on_the_sample(self, widget, microscope):
+        """The pairs are clicked on a squashed canvas; a similarity there is not a
+        similarity on the sample. Unsquashed first, the fit asks for the same
+        correction it would looking straight down."""
+        _show(widget, FORESHORTENED)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        targets = self._targets_for(widget, key, 20e-6, 30e-6, 15.0)
+
+        widget.aligned_images.fit_to_points(key, self.PIXELS, targets)
+
+        record = widget.aligned_images.get(key)
+        assert record.placement == pytest.approx((20e-6, 30e-6, 15.0, 1.0), rel=1e-6)
+        for pixel, target in zip(self.PIXELS, targets):
+            assert widget.aligned_images.pixel_to_canvas(key, *pixel) == pytest.approx(
+                target, abs=1e-6
+            )
+
+    def test_a_locked_scale_stays_at_one(self, widget, microscope):
+        _show(widget, SQUARE)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        targets = self._targets_for(widget, key, 5e-6, 5e-6, 3.0, 1.2)
+
+        fit = widget.aligned_images.fit_to_points(
+            key, self.PIXELS, targets, fix_scale=True
+        )
+
+        assert fit.scale == 1.0
+        assert widget.aligned_images.get(key).scale == 1.0
+        assert widget.aligned_images.get(key).fit["fix_scale"] is True
+
+    def test_a_drag_afterwards_forgets_the_fit(self, widget, microscope):
+        _show(widget, SQUARE)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        targets = self._targets_for(widget, key, 5e-6, 5e-6, 3.0)
+        widget.aligned_images.fit_to_points(key, self.PIXELS, targets)
+        record = widget.aligned_images.get(key)
+        assert record.fit
+
+        cx, cy = record.overlay.centre
+        record.overlay.moved.emit(cx + 1.0, cy)
+
+        assert record.fit == {}
+
+
+class TestTheOverviewUnderTheImage:
+    def test_the_reference_is_the_overview_holding_the_images_centre(
+        self, widget, microscope
+    ):
+        _show(widget, SQUARE)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        reference = widget._reference_tile_for_fit(key)
+        assert reference is not None
+        canvas_key, tile = reference
+        # Its corners are the placed extent's corners.
+        (cx, cy), (w, h) = widget._extents[canvas_key]
+        top_left = widget.canvas.metres_to_canvas(cx - w / 2, cy - h / 2)
+        got = widget._tile_pixel_to_canvas(canvas_key, tile, -0.5, -0.5)
+        assert got == pytest.approx(top_left, abs=1e-6)
+        height, width = tile.grey.shape[:2]
+        bottom_right = widget.canvas.metres_to_canvas(cx + w / 2, cy + h / 2)
+        got = widget._tile_pixel_to_canvas(canvas_key, tile, width - 0.5, height - 0.5)
+        assert got == pytest.approx(bottom_right, abs=1e-6)
+
+    def test_with_nothing_placed_there_is_no_reference(self, widget, microscope):
+        assert widget._reference_tile_for_fit("no-such-key") is None

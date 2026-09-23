@@ -122,6 +122,27 @@ class TestTheImageIsDrawnThroughTheBodyMap:
         top_row = fig.bbox.height - overlay._ax.transData.transform((400.0, 350.0))[1]
         assert abs(rows.mean() - top_row) < abs(rows.mean() - centre_row)
 
+    def test_a_turned_image_has_clear_corners(self, qapp):
+        """Rotated, the image is resampled into an axis-aligned buffer; without an
+        alpha channel matplotlib painted the corners outside the footprint black."""
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        overlay = build(rotation=30.0, active=False)
+        overlay.set_opacity(1.0)
+        fig = overlay._ax.figure
+        fig.patch.set_facecolor("white")
+        overlay._ax.set_facecolor("white")
+        agg = FigureCanvasAgg(fig)
+        agg.draw()
+        buffer = np.asarray(agg.buffer_rgba())
+        # The top-left corner of the footprint's *bounding box* lies outside the
+        # turned footprint: it must show the white axes, not black.
+        xs = [c[0] for c in overlay.corners()]
+        ys = [c[1] for c in overlay.corners()]
+        corner = overlay._ax.transData.transform((min(xs) + 2.0, min(ys) + 2.0))
+        row, col = int(fig.bbox.height - corner[1]), int(corner[0])
+        assert buffer[row, col, :3].min() > 200, buffer[row, col]
+
     def test_the_drawn_corners_are_the_corners_the_overlay_reports(self, qapp):
         overlay = build(rotation=33.0, squash=0.7)
         drawn = [
