@@ -953,16 +953,12 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                     self.experiment.positions, selected_task_names, via
                 )
 
-            # Apply changes to all tasks
-            updated_count = dialog.apply_changes()
-
-            # apply to existing lamella if selected
-            if update_lamella:
-                all_lamella_names = [p.name for p in self.experiment.positions]
-                self.experiment.apply_lamella_config(
-                    lamella_names=all_lamella_names,
-                    task_names=selected_task_names,
-                )
+            # The same two settings on each lamella, when asked: not the
+            # protocol's whole config, which would reset everything else a
+            # lamella was tuned to (FIB-1071).
+            updated_count = dialog.apply_changes(
+                self.experiment.positions if update_lamella else ()
+            )
 
             # Save the experiment
             self._save_experiment()

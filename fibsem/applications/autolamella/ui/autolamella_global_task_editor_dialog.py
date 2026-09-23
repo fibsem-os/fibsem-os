@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional, Sequence
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -310,8 +310,12 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         self.label_info.setStyleSheet("color: gray; font-style: italic;")
         self.pushButton_apply.setEnabled(True)
 
-    def apply_changes(self):
-        """Apply the changes to selected milling task configs."""
+    def apply_changes(self, lamellae: Sequence[Any] = ()) -> int:
+        """Set the reference imaging and milling field of view on the selected
+        tasks: the protocol's, and those of each of *lamellae* that has the
+        task. Only these two settings: a lamella keeps everything else it was
+        tuned to (FIB-1071). Returns how many of the protocol's selected tasks
+        have milling."""
         # Get selected tasks
         selected_tasks = self.get_selected_tasks()
 
@@ -331,15 +335,12 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
             task_config = self.experiment.task_protocol.task_config.get(task_name)
             if not task_config:
                 continue
-
-            # Update reference imaging for selected tasks
-            task_config.reference_imaging = copy.deepcopy(new_ref_imaging)
-
-            # Update milling FoV if task has milling
-            if task_config.milling:
-                for milling_config in task_config.milling.values():
-                    milling_config.field_of_view = new_milling_fov
+            if _set_imaging(task_config, new_ref_imaging, new_milling_fov):
                 updated_count += 1
+            for lamella in lamellae:
+                lamella_config = lamella.task_config.get(task_name)
+                if lamella_config is not None:
+                    _set_imaging(lamella_config, new_ref_imaging, new_milling_fov)
 
         return updated_count
 
@@ -351,3 +352,14 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
             event.ignore()
         else:
             super().keyPressEvent(event)
+
+
+def _set_imaging(
+    task_config: Any, reference_imaging: ReferenceImageParameters, milling_fov: float
+) -> bool:
+    """Set a task's reference imaging, and each milling config's field of view;
+    whether it has milling."""
+    task_config.reference_imaging = copy.deepcopy(reference_imaging)
+    for milling_config in (task_config.milling or {}).values():
+        milling_config.field_of_view = milling_fov
+    return bool(task_config.milling)
