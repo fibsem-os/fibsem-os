@@ -96,6 +96,8 @@ class AutoLamellaOverviewTabBase(QWidget):
         # Set while this tab is the one driving a selection, so the highlight it gets
         # back does not re-enter the list and fight whatever the user just clicked.
         self._syncing_selection = False
+        # Which grid's placed overlays the canvas is showing; see `_restore_overlays`.
+        self._overlays_grid_id = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -155,6 +157,18 @@ class AutoLamellaOverviewTabBase(QWidget):
         """A user dragged a marked lamella to a new point. See the module docstring for
         why this one is not shared."""
         raise NotImplementedError
+
+    def _restore_overlays(self) -> None:
+        """Put back whatever the experiment records as placed over this tab's canvas.
+
+        Nothing by default: only the beam tab keeps a placement today (the grid
+        bars, on the grid's record). Called from `refresh_positions`, which the
+        window drives on every load, unload and exchange as well as on every
+        change to the lamellae -- so a grid loaded after the experiment was opened
+        still brings its placement with it. A subclass restores only when the grid
+        under the stage has *changed* (`_overlays_grid_id`), so the many other
+        refreshes cannot put a placement being dragged back to what was saved.
+        """
 
     # ── what the window asks ─────────────────────────────────────────────
 
@@ -268,6 +282,9 @@ class AutoLamellaOverviewTabBase(QWidget):
         self.overview.set_save_directory(
             str(experiment.path) if experiment is not None else None
         )
+        # A different experiment can carry a different placement for the same
+        # grid, so forget which one is showing and let the refresh below restore.
+        self._overlays_grid_id = None
         self.refresh_positions()
 
     def refresh_positions(self) -> None:
@@ -314,6 +331,7 @@ class AutoLamellaOverviewTabBase(QWidget):
             positions.append(position)
 
         self._show_positions(positions, lamellae)
+        self._restore_overlays()
         if unplaceable:
             logger.info(
                 f"{len(unplaceable)} lamella(e) have no {self.POSE_NOUN} and are not "

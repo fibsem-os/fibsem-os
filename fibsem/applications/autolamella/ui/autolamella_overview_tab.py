@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Optional
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
-from fibsem.applications.autolamella.structures import DefectType
+from fibsem.applications.autolamella.structures import DefectType, OverlayRecord
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
 )
@@ -78,7 +78,9 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
     # ── what makes this the beam side ────────────────────────────────────
 
     def _build_overview(self, microscope) -> QWidget:
-        return FibsemOverviewWidget(microscope)
+        overview = FibsemOverviewWidget(microscope)
+        overview.gridbar_placement_changed.connect(self._save_gridbar_placement)
+        return overview
 
     def _can_build(self, microscope) -> bool:
         return self._enabled
@@ -109,6 +111,77 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
             if lamella.defect.state in FLAGGED_DEFECT_STATES
         ]
         self.overview.set_positions(positions, flagged=flagged)
+
+    # ── the grid under the stage, and what was placed over it ────────────
+
+    @property
+    def current_grid(self):
+        """The experiment's record for the grid the stage is over, or None.
+
+        The holder says which grid is in the slot the stage is at, from its cached
+        position -- no hardware read, this is asked from paint paths. A holder with a
+        single grid loaded answers that grid even before the stage has been read, which
+        is every Arctis. None when nothing is loaded, or the experiment has no record
+        of the grid that is.
+        """
+        experiment = self.experiment
+        stage = getattr(self.microscope, "_stage", None)
+        if experiment is None or stage is None:
+            return None
+        try:
+            grid = stage.current_grid
+            if grid is None:
+                loaded = stage.loaded_grids
+                grid = loaded[0] if len(loaded) == 1 else None
+        except Exception as e:  # noqa: BLE001 - a stage that cannot say has no grid
+            logger.debug(f"Could not read the grid under the stage: {e}")
+            return None
+        return experiment.get_grid_by_name(grid.name) if grid is not None else None
+
+    def _save_gridbar_placement(self) -> None:
+        """The user placed the grid bars: keep it on the grid they are over."""
+        grid = self.current_grid
+        if grid is None or self.overview is None:
+            logger.debug("No grid under the stage to keep the grid bar placement on.")
+            return
+        dx, dy, rotation = self.overview.gridbar_placement
+        spacing, bar_width = self.overview.gridbar_pitch
+        grid.set_overlay(
+            OverlayRecord(
+                kind="gridbar",
+                dx=dx,
+                dy=dy,
+                rotation=rotation,
+                pitch=spacing,
+                bar_width=bar_width,
+            )
+        )
+        try:
+            self.experiment.save()
+        except Exception as e:  # noqa: BLE001 - the placement is on screen either way
+            logger.error(f"Could not save the grid bar placement: {e}")
+
+    def _restore_overlays(self) -> None:
+        """Put the grid bars where this grid's record says, and show them if it does.
+
+        Through the widget's setters, which do not announce, so restoring never
+        writes back what was just read.
+        """
+        if self.overview is None:
+            return
+        grid = self.current_grid
+        grid_id = grid.id if grid is not None else None
+        if grid_id == self._overlays_grid_id:
+            return
+        self._overlays_grid_id = grid_id
+        record = grid.overlay_of("gridbar") if grid is not None else None
+        if record is None:
+            self.overview.set_gridbar_placement(0.0, 0.0, 0.0)
+            return
+        if record.pitch and record.bar_width:
+            self.overview.set_gridbar_pitch(record.pitch, record.bar_width)
+        self.overview.set_gridbar_placement(record.dx, record.dy, record.rotation)
+        self.overview.overlay_controls.set_visible("gridbars", True)
 
     # ── what the window asks ─────────────────────────────────────────────
 

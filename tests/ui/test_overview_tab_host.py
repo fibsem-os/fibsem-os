@@ -33,6 +33,7 @@ from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     DefectType,
     Experiment,
+    OverlayRecord,
 )
 from fibsem.applications.autolamella.ui.autolamella_overview_tab import (  # noqa: E402
     AutoLamellaOverviewTab,
@@ -663,3 +664,161 @@ class TestItMarksOnlyWhatIsOnTheStage:
         finally:
             if stage.loaded_grids:
                 stage.unload()
+
+
+class TestTheGridBarPlacementIsKeptOnTheGrid:
+    """Dragged bars are a fact about a grid, and a fact about a grid belongs in its
+    record: placed once, they are where they were left when the experiment is
+    opened again, and they go with the grid (FIB-1030)."""
+
+    @staticmethod
+    def _load_a_grid(tab, microscope):
+        stage = microscope._stage
+        tab.experiment.sync_grids_from_inventory(stage)
+        stage.ensure_loaded("Grid-02")
+        return tab.experiment.get_grid_by_name("Grid-02")
+
+    def test_the_tab_knows_the_grid_under_the_stage(self, tab, microscope):
+        stage = microscope._stage
+        assert tab.current_grid is None, "nothing is loaded yet"
+        grid = self._load_a_grid(tab, microscope)
+        try:
+            assert tab.current_grid is grid
+        finally:
+            stage.unload()
+
+    def test_a_drag_writes_the_placement_to_the_grid_and_to_disk(self, tab, microscope):
+        import yaml
+
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        try:
+            tab.overview.overlay_controls.set_visible("gridbars", True)
+            tab.overview.set_gridbar_pitch(1.3e-4, 2.5e-5)
+            tab.overview.set_gridbar_placement(3e-6, -4e-6, 12.0)
+
+            tab.overview.gridbar_overlay.drag_finished.emit()
+
+            record = grid.overlay_of("gridbar")
+            assert record is not None
+            assert (record.dx, record.dy, record.rotation) == (3e-6, -4e-6, 12.0)
+            assert (record.pitch, record.bar_width) == (
+                pytest.approx(1.3e-4),
+                pytest.approx(2.5e-5),
+            )
+            with open(os.path.join(str(tab.experiment.path), "experiment.yaml")) as f:
+                on_disk = yaml.safe_load(f)
+            saved = next(g for g in on_disk["grids"] if g["name"] == "Grid-02")
+            assert saved["overlays"][0]["rotation"] == 12.0
+        finally:
+            stage.unload()
+
+    def test_reset_and_an_edited_pitch_are_kept_too(self, tab, microscope):
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        try:
+            tab.overview.overlay_controls.set_visible("gridbars", True)
+            tab.overview.set_gridbar_placement(3e-6, -4e-6, 12.0)
+            tab.overview.btn_reset_gridbars.click()
+            record = grid.overlay_of("gridbar")
+            assert (record.dx, record.dy, record.rotation) == (0.0, 0.0, 0.0)
+
+            tab.overview.spin_gridbar_spacing.setValue(90.0)
+            tab.overview.spin_gridbar_spacing.editingFinished.emit()
+            assert grid.overlay_of("gridbar").pitch == pytest.approx(90e-6)
+        finally:
+            stage.unload()
+
+    def test_opening_the_experiment_again_puts_the_bars_back(
+        self, tab, microscope, tmp_path
+    ):
+        stage = microscope._stage
+        self._load_a_grid(tab, microscope)
+        try:
+            tab.overview.overlay_controls.set_visible("gridbars", True)
+            tab.overview.set_gridbar_pitch(1.3e-4, 2.5e-5)
+            tab.overview.set_gridbar_placement(3e-6, -4e-6, 12.0)
+            tab.overview.gridbar_overlay.drag_finished.emit()
+
+            reopened = Experiment.load(
+                os.path.join(str(tab.experiment.path), "experiment.yaml")
+            )
+            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again.refresh_microscope()
+            try:
+                assert again.overview.gridbar_placement == (3e-6, -4e-6, 12.0)
+                assert again.overview.gridbar_pitch == (
+                    pytest.approx(1.3e-4),
+                    pytest.approx(2.5e-5),
+                )
+                assert again.overview.overlay_controls.is_visible("gridbars")
+            finally:
+                again._drop_overview()
+        finally:
+            stage.unload()
+
+    def test_restoring_does_not_write_back(self, tab, microscope):
+        """The widget's setters do not announce, so a restore is a read: an
+        experiment opened and closed is byte-for-byte what it was."""
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        try:
+            grid.set_overlay(
+                OverlayRecord(kind="gridbar", dx=1e-6, dy=2e-6, rotation=3.0)
+            )
+            saves = []
+            real = tab.experiment.save
+            tab.experiment.save = lambda *a, **k: saves.append(True) or real(*a, **k)
+
+            tab.refresh_experiment()
+
+            assert tab.overview.gridbar_placement == (1e-6, 2e-6, 3.0)
+            assert saves == []
+        finally:
+            tab.experiment.save = real
+            stage.unload()
+
+    def test_loading_the_grid_after_opening_still_brings_its_bars(
+        self, tab, microscope
+    ):
+        """The slot is empty when the experiment is opened -- a relaunch, or a
+        loader that brings the grid in afterwards -- and the window refreshes
+        the tab's positions on every load. That refresh restores."""
+        stage = microscope._stage
+        tab.experiment.sync_grids_from_inventory(stage)
+        grid = tab.experiment.get_grid_by_name("Grid-02")
+        grid.set_overlay(OverlayRecord(kind="gridbar", dx=1e-6, dy=2e-6, rotation=3.0))
+        try:
+            tab.refresh_experiment()
+            assert tab.overview.gridbar_placement == (0.0, 0.0, 0.0)
+
+            stage.ensure_loaded("Grid-02")
+            tab.refresh_positions()
+
+            assert tab.overview.gridbar_placement == (1e-6, 2e-6, 3.0)
+        finally:
+            stage.unload()
+
+    def test_a_refresh_with_the_same_grid_leaves_a_hand_placement_alone(
+        self, tab, microscope
+    ):
+        """Positions refresh on every lamella change; that must not put bars being
+        dragged back to what was saved."""
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        grid.set_overlay(OverlayRecord(kind="gridbar", dx=1e-6, dy=2e-6, rotation=3.0))
+        try:
+            tab.refresh_experiment()
+            tab.overview.set_gridbar_placement(9e-6, 8e-6, 7.0)
+
+            tab.refresh_positions()
+
+            assert tab.overview.gridbar_placement == (9e-6, 8e-6, 7.0)
+        finally:
+            stage.unload()
+
+    def test_with_no_grid_under_the_stage_a_drag_is_not_kept(self, tab, microscope):
+        assert microscope._stage.loaded_grids == []
+        tab.overview.set_gridbar_placement(3e-6, -4e-6, 12.0)
+        tab.overview.gridbar_overlay.drag_finished.emit()  # must not raise
+        assert all(not g.overlays for g in tab.experiment.grids)
