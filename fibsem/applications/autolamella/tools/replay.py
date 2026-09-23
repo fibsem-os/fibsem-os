@@ -1117,6 +1117,8 @@ def _alignment_summary(payload: Dict[str, Any]) -> str:
 
 # How many of an edit's changed values its row names; the rest are counted.
 _EDIT_CHANGES_SHOWN = 3
+# The longest value a row shows whole; a longer one keeps its end.
+_EDIT_VALUE_CHARS = 32
 _ABSENT = object()  # a value one side of an edit does not have
 
 
@@ -1127,13 +1129,11 @@ def _edit_summary(payload: Dict[str, Any], actor: Any) -> str:
     differ are found by walking both.
     """
     changes = _changed_values(payload.get("before"), payload.get("after"))
-    shown = [
-        f"{path} {_edit_value(old)} → {_edit_value(new)}".lstrip()
-        for path, old, new in changes[:_EDIT_CHANGES_SHOWN]
-    ]
+    shown = [_edit_change(*change) for change in changes[:_EDIT_CHANGES_SHOWN]]
     if len(changes) > _EDIT_CHANGES_SHOWN:
         shown.append(f"{len(changes) - _EDIT_CHANGES_SHOWN} more")
-    text = f"{payload.get('target')}: {', '.join(shown) or 'changed'}"
+    # Recorded, so something differs: a float a widget's units round-tripped.
+    text = f"{payload.get('target')}: {', '.join(shown) or 'rounding only'}"
     if actor:
         text += f" — by the {actor}"
     if payload.get("via"):
@@ -1158,7 +1158,7 @@ def _changed_values(
             for i in range(max(len(before), len(after)))
         ]
     else:
-        return [] if before == after else [(path, before, after)]
+        return [] if _same_value(before, after) else [(path, before, after)]
     return [
         change
         for key, old, new in pairs
@@ -1206,13 +1206,47 @@ def _number(value: Any, spec: str) -> Optional[str]:
         return None
 
 
+def _same_value(a: Any, b: Any) -> bool:
+    """Equal, or floats that differ only by rounding: a field of view shown in
+    µm and read back in metres is not the value it was, to the last bit."""
+    if (
+        _is_number(a)
+        and _is_number(b)
+        and (isinstance(a, float) or isinstance(b, float))
+    ):
+        return math.isclose(a, b, rel_tol=1e-9)
+    return a == b
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _edit_change(path: str, old: Any, new: Any) -> str:
+    """One changed value as its row names it. A whole object added or removed,
+    such as a task's config, is named so rather than printed."""
+    for gone, value, word in ((old, new, "added"), (new, old, "removed")):
+        if (
+            (gone is _ABSENT or gone is None)
+            and isinstance(value, (dict, list))
+            and len(str(value)) > _EDIT_VALUE_CHARS
+        ):
+            return f"{path} {word}".lstrip()
+    old_text, new_text = _edit_value(old), _edit_value(new)
+    if old_text == new_text and isinstance(old, float) and isinstance(new, float):
+        old_text, new_text = f"{old:.10g}", f"{new:.10g}"  # finer than .4g shows
+    return f"{path} {old_text} → {new_text}".lstrip()
+
+
 def _edit_value(value: Any) -> str:
     if value is _ABSENT:
         return "(none)"
     if isinstance(value, float):
         return f"{value:.4g}"
     text = str(value)
-    return text if len(text) <= 32 else "…" + text[-31:]
+    if len(text) <= _EDIT_VALUE_CHARS:
+        return text
+    return "…" + text[-(_EDIT_VALUE_CHARS - 1) :]
 
 
 def _recorded_fluorescence(
