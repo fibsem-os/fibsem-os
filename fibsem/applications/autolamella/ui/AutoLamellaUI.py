@@ -665,7 +665,7 @@ class AutoLamellaUI(QMainWindow):
         # getattr: the adoption tests drive this method on a stand-in window.
         recorder = getattr(self, "_event_recorder", None)
         if recorder is not None:
-            recorder.set_experiment(experiment.path)
+            recorder.set_experiment(experiment.path, experiment)
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
@@ -723,6 +723,7 @@ class AutoLamellaUI(QMainWindow):
                 experiment_path=self.experiment.path if self.experiment else None,
                 # tasks and the agent mark their own calls; the rest are the UI's
                 default_actor=OPERATOR,
+                experiment=self.experiment,
             )
         except Exception:
             logging.exception("event stream failed to start; continuing without it")
