@@ -2,8 +2,16 @@
 
 ## v0.5.3 (unreleased)
 
-A patch release: fixes only, cut from the v0.5.2 release branch. Nothing here changes how
-a workflow is set up or run.
+A patch release, cut from the v0.5.2 release branch: fixes, and one addition to
+installation. Nothing here changes how a workflow is set up or run.
+
+### Installation
+
+- **Tools → Create Desktop Shortcut...** makes a shortcut that starts AutoLamella from
+  the environment it is installed in, in a folder you choose (the Desktop is offered): a
+  `.lnk` on Windows, a `.desktop` file on Linux and a `.command` file on macOS. It asks
+  before replacing an existing shortcut. The script-and-shortcut steps in the install
+  guide remain for anyone who prefers them.
 
 ### Bug fixes
 
