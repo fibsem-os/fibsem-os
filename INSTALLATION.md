@@ -93,6 +93,10 @@ on Linux and a `.command` file on macOS.
 
 From now on, double-click the shortcut to start fibsemOS.
 
+The menu item is newer than v0.5.2, and no v0.5.x release has it. On v0.5.2
+or earlier, make the shortcut by hand as described in
+[Manual shortcut](#manual-shortcut).
+
 ## 5. Microscope software
 
 fibsemOS talks to a real instrument through the manufacturer's own control
@@ -240,8 +244,9 @@ configuration is needed.
 
 ### Manual shortcut
 
-If the Tools menu is not an option, make a script that runs the entry point
-and put a shortcut to it on the desktop. With the environment active:
+If the Tools menu is not an option (v0.5.2 and earlier do not have the menu
+item), make a script that runs the entry point and put a shortcut to it on the
+desktop. With the environment active:
 
 ```cmd
 :: Windows: creates AutoLamella.bat
