@@ -20,7 +20,7 @@ import math
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, Generic, List, Optional, TypeVar
+from typing import Callable, Dict, Generic, List, Optional, Tuple, TypeVar
 
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QKeySequence
@@ -45,6 +45,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem import conversions
 from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
 from fibsem.applications.autolamella.tools.replay import (
     EventKind,
@@ -52,10 +53,11 @@ from fibsem.applications.autolamella.tools.replay import (
     ReplayEvent,
     ReplayScene,
     load_replay,
+    proposal_marks,
 )
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.structures import FibsemImage, FibsemStagePosition
+from fibsem.structures import FibsemImage, FibsemStagePosition, Point
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -86,6 +88,10 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays.milling_overlay import MillingPatternOverlay
+from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+    MinimapShapesOverlay,
+    ShapeSpec,
+)
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip
 from fibsem.ui.widgets.stored_overview_canvas import StoredOverviewCanvas
@@ -200,6 +206,37 @@ def _stage_position(pos: Optional[dict]) -> Optional[FibsemStagePosition]:
         )
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _pixel(
+    unit: str, point: Tuple[float, ...], image: FibsemImage
+) -> Optional[Tuple[float, float]]:
+    """A question's or decision's point as the pixel it falls on (see
+    ``proposal_marks`` for the units). A point in metres is placed as the
+    Review tab places the point of interest; None without a pixel size."""
+    if unit != "m":
+        return (point[0], point[1])
+    pixel_size = _pixel_size(image)
+    if not pixel_size:
+        return None
+    px = conversions.microscope_image_to_image_coordinates(
+        Point(*point), image.data.shape[:2], pixel_size
+    )
+    return (px.x, px.y)
+
+
+def _area(rect: Tuple[float, ...], image: FibsemImage, colour: str) -> ShapeSpec:
+    """An alignment area, fractions of the image, as its rectangle in pixels."""
+    height, width = image.data.shape[:2]
+    left, top, w, h = rect
+    return ShapeSpec(
+        "rect",
+        (left + w / 2) * width,
+        (top + h / 2) * height,
+        colour,
+        width=w * width,
+        height=h * height,
+    )
 
 
 def _pixel_size(image: Optional[FibsemImage]) -> Optional[float]:
@@ -351,6 +388,21 @@ class ExperimentReplayWidget(QWidget):
         self.fib_canvas.add_overlay(self.milling_overlay)
         self.spot_overlay = PointsOverlay(color=ORANGE_COLOR, marker="o", size=6)
         self.fib_canvas.add_overlay(self.spot_overlay)
+        # A question's or decision's values, on whichever image they sit on:
+        # proposed in orange, decided in magenta, as the Review tab draws them.
+        # Points are markers of a fixed size on screen, an x for the proposed
+        # one so it shows over the canvas's own centre cross; an alignment area
+        # is its rectangle.
+        self.proposal_overlays = {}
+        for key, canvas in (("sem", self.sem_canvas), ("fib", self.fib_canvas)):
+            overlays = (
+                PointsOverlay(color=ORANGE_COLOR, marker="x", size=12),
+                PointsOverlay(color=DRAFT_POSITION_COLOUR, marker="+", size=16),
+                MinimapShapesOverlay(),
+            )
+            for overlay in overlays:
+                canvas.add_overlay(overlay)
+            self.proposal_overlays[key] = overlays
         self.fm_widget = FMCanvasWidget()
 
         self.stage_view = StoredOverviewCanvas()
@@ -726,6 +778,7 @@ class ExperimentReplayWidget(QWidget):
         )
         self._show_fm(scene.fm, item)
         self._show_milling(scene)
+        self._show_proposal(scene)
         self._show_stage(scene)
         self._flash(scene.event)
         self._sync_transport()
@@ -882,6 +935,32 @@ class ExperimentReplayWidget(QWidget):
             )
         else:
             self.spot_overlay.set_points([])
+
+    def _show_proposal(self, scene: ReplayScene) -> None:
+        """The proposed and decided values of the question or decision shown, on
+        the image they sit on: a crosshair for a point, a rectangle for an
+        alignment area. Nothing is drawn for a kind with nothing to draw, or
+        when that image cannot be read."""
+        shown_on = scene.proposal.shown_on if scene.proposal is not None else None
+        marks = proposal_marks(scene.proposal.data) if shown_on is not None else None
+        image = self._images.get(shown_on.image_path) if marks else None
+        drawn = {key: ([], [], []) for key in self.proposal_overlays}
+        if image is not None:
+            unit, proposed, decided = marks
+            points, points_decided, areas = drawn[
+                "sem" if shown_on.beam == "ELECTRON" else "fib"
+            ]
+            if unit == "rect":
+                areas.extend(_area(r, image, ORANGE_COLOR) for r in proposed)
+                areas.extend(_area(r, image, DRAFT_POSITION_COLOUR) for r in decided)
+            else:
+                points.extend(_pixel(unit, p, image) for p in proposed)
+                points_decided.extend(_pixel(unit, p, image) for p in decided)
+        for key, (proposed, decided, areas) in self.proposal_overlays.items():
+            points, points_decided, shapes = drawn[key]
+            proposed.set_points([p for p in points if p is not None])
+            decided.set_points([p for p in points_decided if p is not None])
+            areas.set_shapes(shapes)
 
     def _milling_stages(self, scene: ReplayScene) -> List[FibsemMillingStage]:
         key = scene.milling.data.get("milling_task_id") if scene.milling else None

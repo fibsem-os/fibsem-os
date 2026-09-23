@@ -284,6 +284,8 @@ class ReplayEvent:
     # STAGE, and IMAGE (where the stage was when it was taken)
     position: Optional[Dict[str, Any]] = None
     item_type: Optional[str] = None  # "lamella" or "grid"
+    # A question or a decision: the acquisition of the image its values sit on
+    shown_on: Optional["ReplayEvent"] = None
 
     @property
     def image_on_disk(self) -> bool:
@@ -342,6 +344,10 @@ class ReplayScene:
     # centre of the field (+y down), so they land right on an image taken at
     # another field width. Empty when that frame's field width is unknown.
     spots: List[Tuple[float, float]] = field(default_factory=list)
+    # The question or decision shown, when its values sit on a saved image:
+    # ``sem`` or ``fib`` is then that image, whenever it was taken, so its
+    # proposed and decided points (``proposal_marks``) land on it.
+    proposal: Optional[ReplayEvent] = None
 
 
 @dataclass
@@ -485,6 +491,13 @@ class ExperimentReplay:
                     spots.append(((spot[0] - 0.5) * w, (spot[1] - 0.5) * h))
 
         fib = at("fib_full") if (milling is not None or spots) else at("fib")
+        sem = at("sem")
+        proposal = event if event.shown_on is not None else None
+        if proposal is not None:
+            if proposal.shown_on.beam == "ELECTRON":
+                sem = proposal.shown_on
+            else:
+                fib = proposal.shown_on
 
         if event.kind == EventKind.STAGE and event.position is not None:
             position = event.position
@@ -493,7 +506,7 @@ class ExperimentReplay:
         return ReplayScene(
             index=index,
             event=event,
-            sem=at("sem"),
+            sem=sem,
             fib=fib,
             fm=at("fm"),
             sem_unsaved_since=idx["sem_n"][index],
@@ -502,6 +515,7 @@ class ExperimentReplay:
             milling=milling,
             milling_stages=stages,
             spots=spots,
+            proposal=proposal,
         )
 
     def counts(self) -> Dict[str, int]:
@@ -1169,6 +1183,8 @@ def _changed_values(
     ]
 
 
+# The rows a question or decision is shown as.
+_PROPOSAL_KINDS = (EventKind.PROMPT, EventKind.DECISION)
 # What each outcome is called on a row. Unreviewed is never agreement: the
 # value was used because nobody looked in time, or nobody was asked.
 _OUTCOME_WORDS = {
@@ -1206,6 +1222,54 @@ def _decision_summary(payload: Dict[str, Any], actor: Any) -> str:
     if payload.get("via"):
         text += f" ({payload['via']})"
     return text
+
+
+def proposal_marks(
+    data: Dict[str, Any],
+) -> Optional[Tuple[str, List[Tuple[float, ...]], List[Tuple[float, ...]]]]:
+    """Where a question's or decision's values sit on its image, as
+    ``(unit, proposed, decided)``:
+
+    * ``"m"``: a point of interest, ``(x, y)`` in metres from the image centre
+      with +y up (microscope image coordinates)
+    * ``"px"``: detected features, ``(x, y)`` in pixels
+    * ``"rect"``: an alignment area, ``(left, top, width, height)`` as fractions
+      of the image
+
+    ``decided`` is empty until there are decided values. None for a kind with
+    nothing to draw."""
+    proposed, decided = data.get("proposed") or {}, data.get("decided") or {}
+    if "poi" in proposed or "poi" in decided:
+        return "m", _points([proposed.get("poi")]), _points([decided.get("poi")])
+    if "features" in proposed or "features" in decided:
+        return (
+            "px",
+            _points(f.get("px") for f in proposed.get("features") or []),
+            _points(f.get("px") for f in decided.get("features") or []),
+        )
+    if "alignment_area" in proposed or "alignment_area" in decided:
+        return (
+            "rect",
+            _rects([proposed.get("alignment_area")]),
+            _rects([decided.get("alignment_area")]),
+        )
+    return None
+
+
+def _points(values: Any) -> List[Tuple[float, ...]]:
+    return _numbers(values, ("x", "y"))
+
+
+def _rects(values: Any) -> List[Tuple[float, ...]]:
+    return _numbers(values, ("left", "top", "width", "height"))
+
+
+def _numbers(values: Any, keys: Tuple[str, ...]) -> List[Tuple[float, ...]]:
+    return [
+        tuple(float(v[k]) for k in keys)
+        for v in values
+        if isinstance(v, dict) and all(_is_number(v.get(k)) for k in keys)
+    ]
 
 
 def _decision_changes(proposed: Dict[str, Any], decided: Dict[str, Any]) -> str:
@@ -1648,6 +1712,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             e.item_type = item_types.get(e.item)
     track.sort(key=lambda p: p[0])
     _attach_images(events, resolver)
+    _attach_proposal_images(events, resolver)
     return ExperimentReplay(
         root,
         events,
@@ -1656,3 +1721,23 @@ def _load_from_events(root: Path) -> ExperimentReplay:
         records_unreadable=lines - len(records),
         source=EVENTS_FILENAME,
     )
+
+
+def _attach_proposal_images(
+    events: List[ReplayEvent], resolver: _ImageResolver
+) -> None:
+    """Point each question and decision at the acquisition of the image its
+    values sit on, recorded relative to its item's folder (the item's name
+    under the experiment): its scene shows that image, not whatever was taken
+    last."""
+    acquired = {
+        e.image_path.resolve(): e
+        for e in events
+        if e.kind == EventKind.IMAGE and e.image_path is not None
+    }
+    for e in events:
+        image = e.data.get("image") if e.kind in _PROPOSAL_KINDS else None
+        if not image or not e.item:
+            continue
+        path = resolver.root / e.item / str(image)
+        e.shown_on = acquired.get(path.resolve()) if path.is_file() else None
