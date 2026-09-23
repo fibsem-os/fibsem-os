@@ -540,6 +540,10 @@ class FibsemOverviewWidget(QWidget):
     position_move_requested = pyqtSignal(str, object)  # name, FibsemStagePosition
     # A marked position was clicked, by the name it was marked under.
     position_selected = pyqtSignal(str)
+    # The user placed the grid bars: a drag ended, Reset was pressed, or the pitch
+    # was edited. Not emitted when a host restores a placement, so a host that
+    # persists on this cannot be made to write back what it just read.
+    gridbar_placement_changed = pyqtSignal()
 
     # Internal hops from a worker thread to the GUI thread. `tiled_acquisition_signal`
     # and `stage_position_changed` are psygnals, which call their callbacks
@@ -717,6 +721,7 @@ class FibsemOverviewWidget(QWidget):
         self.gridbar_overlay.moved.connect(self._on_gridbars_moved)
         self.gridbar_overlay.rotated.connect(self._on_gridbars_rotated)
         self.gridbar_overlay.drag_finished.connect(self._refresh_gridbar_placement)
+        self.gridbar_overlay.drag_finished.connect(self.gridbar_placement_changed)
 
         # What the next run would acquire, tile by tile. Clickable: a tile toggles in
         # or out, an edge resizes the grid, the interior drags it somewhere else.
@@ -875,6 +880,7 @@ class FibsemOverviewWidget(QWidget):
         self.spin_gridbar_width.setValue(DEFAULT_GRIDBAR_WIDTH_UM)
         for _spin in (self.spin_gridbar_spacing, self.spin_gridbar_width):
             _spin.valueChanged.connect(self._refresh_gridbars)
+            _spin.editingFinished.connect(self.gridbar_placement_changed)
             # Matched to the checkbox at construction, not only when it is toggled. The
             # handler had never run by this point, so the pitch controls started live
             # over a lattice that was not drawn -- inviting an adjustment that appeared
@@ -1378,6 +1384,28 @@ class FibsemOverviewWidget(QWidget):
 
     def _reset_gridbar_placement(self) -> None:
         self.set_gridbar_placement(0.0, 0.0, 0.0)
+        self.gridbar_placement_changed.emit()
+
+    @property
+    def gridbar_pitch(self) -> Tuple[float, float]:
+        """The bar spacing and bar width, in metres."""
+        return (
+            self.spin_gridbar_spacing.value() * constants.MICRO_TO_SI,
+            self.spin_gridbar_width.value() * constants.MICRO_TO_SI,
+        )
+
+    def set_gridbar_pitch(self, spacing: float, bar_width: float) -> None:
+        """Set the bar spacing and bar width, in metres, without announcing it."""
+        for spin, value in (
+            (self.spin_gridbar_spacing, spacing),
+            (self.spin_gridbar_width, bar_width),
+        ):
+            spin.blockSignals(True)
+            try:
+                spin.setValue(float(value) * constants.SI_TO_MICRO)
+            finally:
+                spin.blockSignals(False)
+        self._refresh_gridbars()
 
     def _refresh_gridbar_placement(self) -> None:
         dx, dy = self._gridbar_offset

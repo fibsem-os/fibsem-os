@@ -1644,6 +1644,77 @@ class Lamella:
 
 @evented
 @dataclass
+class OverlayRecord:
+    """Something placed by hand over a grid's overview, and where it was put.
+
+    The grid bars today; a fluorescence overview next (FIB-1030). What is stored is a
+    placement on the *sample*: an offset in metres along its surface and a turn in
+    degrees, relative to `reference` -- the grid centre when there is none -- so the
+    same record draws in every view, squashed by whatever that view's foreshortening
+    is. The view does not belong in here.
+
+    One record per placed thing, on the grid rather than the experiment: a placement is
+    about one grid, and switching grids should swap it with them.
+    """
+
+    kind: str  # "gridbar" | "image"
+    dx: float = 0.0  # metres along the sample surface from the reference
+    dy: float = 0.0
+    rotation: float = 0.0  # degrees, clockwise on screen
+    scale: float = 1.0
+    # Grid bars: the lattice's pitch and bar width, in metres.
+    pitch: Optional[float] = None
+    bar_width: Optional[float] = None
+    # An image: its file, relative to the grid's folder.
+    source: Optional[str] = None
+    # What it was aligned against: an overview's file, relative to the grid's folder,
+    # and the view it was shown in. None means the grid centre.
+    reference: Optional[str] = None
+    view: Optional[str] = None
+    # How it was placed by a fit, when it was: the point pairs and the residual.
+    fit: Dict[str, Any] = field(default_factory=dict)
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: float = field(
+        default_factory=lambda: datetime.timestamp(datetime.now())
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "kind": self.kind,
+            "dx": self.dx,
+            "dy": self.dy,
+            "rotation": self.rotation,
+            "scale": self.scale,
+            "pitch": self.pitch,
+            "bar_width": self.bar_width,
+            "source": self.source,
+            "reference": self.reference,
+            "view": self.view,
+            "fit": dict(self.fit),
+            "id": self.id,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "OverlayRecord":
+        return cls(
+            kind=str(data.get("kind", "")),
+            dx=float(data.get("dx", 0.0) or 0.0),
+            dy=float(data.get("dy", 0.0) or 0.0),
+            rotation=float(data.get("rotation", 0.0) or 0.0),
+            scale=float(data.get("scale", 1.0) or 1.0),
+            pitch=data.get("pitch"),
+            bar_width=data.get("bar_width"),
+            source=data.get("source"),
+            reference=data.get("reference"),
+            view=data.get("view"),
+            fit=dict(data.get("fit") or {}),
+            id=data.get("id") or str(uuid.uuid4()),
+            created_at=data.get("created_at", datetime.timestamp(datetime.now())),
+        )
+
+
+@dataclass
 class GridRecord:
     """A grid as the workflow knows it, distinct from the hardware's `SampleGrid`.
 
@@ -1668,10 +1739,35 @@ class GridRecord:
         default_factory=lambda: datetime.timestamp(datetime.now())
     )
     proposals: Dict[str, List[Proposal]] = field(default_factory=dict)  # as on Lamella
+    # What has been placed by hand over this grid's overviews; see `OverlayRecord`.
+    overlays: List[OverlayRecord] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.id:
             self.id = str(uuid.uuid4())
+
+    def overlay_of(self, kind: str) -> Optional[OverlayRecord]:
+        """The one record of *kind* that has no source -- the grid bars, say."""
+        return next(
+            (o for o in self.overlays if o.kind == kind and o.source is None), None
+        )
+
+    def set_overlay(self, record: OverlayRecord) -> None:
+        """Keep *record*, replacing the one it stands in for.
+
+        By id when the record has been seen before, otherwise by kind for a
+        source-less record: there is one lattice of grid bars per grid.
+        """
+        for index, existing in enumerate(self.overlays):
+            same = existing.id == record.id or (
+                record.source is None
+                and existing.source is None
+                and existing.kind == record.kind
+            )
+            if same:
+                self.overlays[index] = record
+                return
+        self.overlays.append(record)
 
     def has_completed_task(self, task_name: str) -> bool:
         return any(
@@ -1729,6 +1825,7 @@ class GridRecord:
             "task_history": [t.to_dict() for t in self.task_history],
             "created_at": self.created_at,
             "proposals": proposals_to_dict(self.proposals),
+            "overlays": [o.to_dict() for o in self.overlays],
         }
 
     @classmethod
@@ -1744,6 +1841,7 @@ class GridRecord:
             ],
             created_at=data.get("created_at", datetime.timestamp(datetime.now())),
             proposals=proposals_from_dict(data.get("proposals")),
+            overlays=[OverlayRecord.from_dict(o) for o in data.get("overlays", [])],
         )
 
     def __repr__(self) -> str:
