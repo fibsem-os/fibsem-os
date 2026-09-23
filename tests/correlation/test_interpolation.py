@@ -56,6 +56,20 @@ _RATIOS = [
 ]
 
 
+def _scipy_zoom_z(img, pixelsize_in, pixelsize_out, method):
+    """The reference: scipy's zoom along z only, which the production path was
+    until the slice blends replaced it (#1020)."""
+    from scipy import ndimage
+
+    return ndimage.zoom(
+        img,
+        (pixelsize_in / pixelsize_out, 1, 1),
+        order=1 if method == "linear" else 3,
+        mode="reflect",
+        prefilter=True,
+    )
+
+
 def _volume(dtype, seed=0, shape=(21, 6, 5)):
     rng = np.random.default_rng(seed)
     if np.issubdtype(dtype, np.integer):
@@ -78,10 +92,8 @@ def test_z_resample_is_identical_to_scipy_zoom(
     order, so a value that lands exactly half way can round to the other side:
     one grey level, on about one voxel in a hundred thousand of random noise
     and on none of a real channel. Float data agrees to float32 rounding."""
-    from fibsem.correlation.util import scipy_zoom_z
-
     img = _volume(dtype)
-    expected = scipy_zoom_z(img, pixelsize_in, pixelsize_out, method)
+    expected = _scipy_zoom_z(img, pixelsize_in, pixelsize_out, method)
     out = interpolate_z_stack(img, pixelsize_in, pixelsize_out, method=method)
     assert out.shape == expected.shape
     assert out.dtype == expected.dtype
@@ -98,11 +110,9 @@ def test_z_resample_is_identical_to_scipy_zoom(
 def test_cubic_overshoot_is_clamped_to_the_dtype_like_zoom():
     """A cubic can overshoot a step edge past 0 or 65535; zoom clamps rather
     than wraps, and so must the blend."""
-    from fibsem.correlation.util import scipy_zoom_z
-
     img = np.zeros((21, 4, 4), dtype=np.uint16)
     img[10:] = 65535  # a hard step in z
-    expected = scipy_zoom_z(img, 500e-9, 130e-9, "cubic")
+    expected = _scipy_zoom_z(img, 500e-9, 130e-9, "cubic")
     out = interpolate_z_stack(img, 500e-9, 130e-9, method="cubic")
     # the step's midpoint is an exact half-way tie, see the test above
     assert np.abs(out.astype(int) - expected.astype(int)).max() <= 1
