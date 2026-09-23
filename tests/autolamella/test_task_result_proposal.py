@@ -315,7 +315,7 @@ def test_a_question_answered_during_the_run_is_not_logged_as_a_rerun(
         question = Proposal(
             kind=DETECTION,
             values={"features": [{"name": "LamellaCentre", "px": Point(10, 20)}]},
-            provenance={"task_id": lamella.task_state.task_id, "in_run": True},
+            provenance={"task_id": lamella.task_state.task_id},
         )
         assert exp.ask_proposal(lamella.id, ROUGH, question)
         result = exp.decide(
