@@ -189,3 +189,25 @@ def test_a_run_on_a_microscope_that_cannot_be_recorded_leaves_nothing_running(
     with manager._recording():
         pass
     assert _writers() == before
+
+
+def test_the_registry_does_not_keep_a_recorder_alive():
+    """Whatever made a recorder keeps it: the app its window, a run its own.
+    Held by the registry as well, a recorder the app never closed kept its
+    microscope and its window alive -- the window through its responder's
+    observer -- and tests' windows piled up until restyling them all crashed
+    the process."""
+    import gc
+    import weakref
+
+    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
+    recorder = EventRecorder(microscope)
+    writer, gone = recorder.writer, weakref.ref(recorder)
+    assert recorder_for(microscope) is recorder
+    microscope.disconnect()
+    del recorder, microscope
+    gc.collect()
+    try:
+        assert gone() is None, "still held"
+    finally:
+        writer.close()  # its thread is still the writer's to stop

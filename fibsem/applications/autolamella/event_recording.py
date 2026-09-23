@@ -30,6 +30,7 @@ import logging
 import queue
 import threading
 import uuid
+import weakref
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
@@ -52,8 +53,12 @@ _PATH, _RECORD, _STOP = "path", "record", "stop"
 
 # The open recorder for each microscope, by id: the one a workflow run records
 # through. A second recorder on the same microscope would tap the same signals
-# and write every event twice.
-_RECORDERS: Dict[int, "EventRecorder"] = {}
+# and write every event twice. Weak: whatever made a recorder keeps it (the app
+# its window, a run its own), and the registry must not keep it, or the window
+# its disposers reach, alive after that is gone.
+_RECORDERS: "weakref.WeakValueDictionary[int, EventRecorder]" = (
+    weakref.WeakValueDictionary()
+)
 
 
 def recorder_for(microscope: Any) -> Optional["EventRecorder"]:
