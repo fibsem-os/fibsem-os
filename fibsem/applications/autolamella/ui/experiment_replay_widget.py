@@ -64,6 +64,7 @@ from fibsem.ui.tokens import (
     BORDER_COLOR,
     CAPTION_STYLE,
     CONTROL_STYLE,
+    CURRENT_POSITION_COLOUR,
     DRAFT_POSITION_COLOUR,
     ERROR_COLOR,
     NUMBER_STYLE,
@@ -102,6 +103,7 @@ _MAX_STEP_MS = 1500
 _KIND_LABEL = {
     EventKind.TASK: "Task",
     EventKind.PROMPT: "Prompt",
+    EventKind.DECISION: "Decision",
     EventKind.IMAGE: "Image",
     EventKind.FLUORESCENCE: "FM",
     EventKind.STAGE: "Stage",
@@ -114,6 +116,7 @@ _KIND_LABEL = {
 _KIND_COLOUR = {
     EventKind.TASK: ACCENT_COLOR,
     EventKind.PROMPT: DRAFT_POSITION_COLOUR,
+    EventKind.DECISION: CURRENT_POSITION_COLOUR,
     EventKind.IMAGE: OK_COLOR,
     EventKind.FLUORESCENCE: SAVED_POSITION_COLOUR,
     EventKind.STAGE: WARN_COLOR,

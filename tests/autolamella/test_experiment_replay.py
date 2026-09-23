@@ -7,6 +7,7 @@ what it refuses to evaluate, how it finds an image in a copied experiment,
 what it does when a later image overwrote an earlier one.
 """
 
+import math
 from datetime import datetime, timedelta
 
 import pytest
@@ -1014,6 +1015,147 @@ def test_an_edit_leaves_out_rounding_and_names_a_config_added_or_removed(tmp_pat
         "task_config: added — by the operator (add task)",
         "protocol.task_config: removed — by the operator (remove task)",
     ]
+
+
+def _proposal(t, event, actor, proposal, **payload):
+    """A question or a decision, as the recorder writes it: on lamella 01's
+    Setup, which need not be where the run is."""
+    record = _record(
+        _at(t),
+        event,
+        {
+            "item": {"id": "L1", "name": "01"},
+            "task": "Setup Lamella Position",
+            "proposal_id": proposal,
+            **payload,
+        },
+        item="02",
+        task="Rough Milling",
+    )
+    record["actor"] = actor
+    return record
+
+
+def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path):
+    """A confirmation "as it stands" is one row, with the move the operator
+    made before it once the task fills that in. A point or a position moved is
+    a move in µm and degrees."""
+    here = {"x": 1e-3, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.2, "name": "p"}
+    moved = dict(here, x=1.002e-3, t=0.2 + math.radians(1.0))
+    poi = {"x": 0.0, "y": 0.0}
+    state = {"kind": "state", "proposed": {"stage_position": here}}
+    confirmed = {"outcome": "Confirmed", "author": "human:op", "via": "workflow"}
+    _write_events(
+        tmp_path,
+        _proposal(0, "proposal_asked", "task", "P1", **state, message="Tilt"),
+        _proposal(
+            1,
+            "proposal_decided",
+            "operator",
+            "P1",
+            **state,
+            **confirmed,
+            decision=0,
+            decided={},
+        ),
+        _proposal(
+            2,
+            "proposal_decided",
+            "operator",
+            "P1",
+            **state,
+            **confirmed,
+            decision=0,
+            decided={"stage_position": moved},
+            filled_in=True,
+        ),
+        _proposal(
+            3,
+            "proposal_decided",
+            "operator",
+            "P2",
+            kind="point_of_interest",
+            proposed={"poi": poi},
+            outcome="Confirmed",
+            author="human:op",
+            via="review",
+            decision=0,
+            decided={"poi": {"x": 2e-6, "y": -1e-6}},
+        ),
+        _proposal(
+            4,
+            "proposal_decided",
+            "agent",
+            "P3",
+            kind="point_of_interest",
+            proposed={"poi": poi},
+            outcome="Confirmed",
+            author="agent:m",
+            via="server",
+            decision=0,
+            decided={"poi": poi},
+        ),
+        _proposal(
+            5,
+            "proposal_decided",
+            "task",
+            "P4",
+            kind="point_of_interest",
+            proposed={"poi": poi},
+            outcome="Unreviewed",
+            author="auto:poi",
+            via="workflow",
+            reason="Rough Milling started",
+            decision=0,
+            decided={"poi": poi},
+        ),
+        _proposal(
+            6,
+            "proposal_decided",
+            "task",
+            "P5",
+            kind="state",
+            proposed={},
+            outcome="Withdrawn",
+            author="auto:workflow",
+            via="workflow",
+            reason="the run stopped",
+            decision=0,
+            decided={},
+        ),
+        _proposal(
+            7,
+            "proposal_decided",
+            "operator",
+            "P6",
+            kind="task_result",
+            proposed={},
+            outcome="Confirmed",
+            author="human:op",
+            via="review",
+            decision=1,
+            decided={},
+        ),
+    )
+    events = load_replay(tmp_path).events
+    assert [(e.kind, e.item, e.task) for e in events] == [
+        (EventKind.PROMPT, "01", "Setup Lamella Position")
+    ] + [(EventKind.DECISION, "01", "Setup Lamella Position")] * 6
+    assert [e.summary for e in events] == [
+        "Position asked: Tilt",
+        "Position confirmed: moved x +2.0 µm, t +1.0° — by the operator (workflow)",
+        "Point of interest confirmed: moved x +2.0 µm, y -1.0 µm"
+        " — by the operator (review)",
+        "Point of interest confirmed, as proposed — by the agent (server)",
+        "Point of interest used as proposed, unreviewed: Rough Milling started"
+        " — by the task (workflow)",
+        "Position withdrawn: the run stopped — by the task (workflow)",
+        "Result confirmed — by the operator (review)",
+    ]
+    assert events[1].time == events[0].time + timedelta(seconds=1), (
+        "the row is when it was confirmed, not when the position was read"
+    )
+    assert events[1].data["filled_in"] is True
 
 
 def test_a_correlation_says_where_it_put_the_point_and_how_well_it_fits(tmp_path):

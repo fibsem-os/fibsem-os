@@ -39,6 +39,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
+from fibsem.applications.autolamella.proposals import kind_label
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ class EventKind:
 
     TASK = "task"
     PROMPT = "prompt"
+    DECISION = "decision"  # a decision on a proposal: event stream only
     IMAGE = "image"
     FLUORESCENCE = "fluorescence"
     STAGE = "stage"
@@ -91,6 +93,7 @@ class EventKind:
     ALL = (
         TASK,
         PROMPT,
+        DECISION,
         IMAGE,
         FLUORESCENCE,
         STAGE,
@@ -1166,6 +1169,89 @@ def _changed_values(
     ]
 
 
+# What each outcome is called on a row. Unreviewed is never agreement: the
+# value was used because nobody looked in time, or nobody was asked.
+_OUTCOME_WORDS = {
+    "Confirmed": "confirmed",
+    "Rejected": "rejected",
+    "Withdrawn": "withdrawn",
+    "Unreviewed": "used as proposed, unreviewed",
+}
+# The axes a position moves along, and how a move along each reads.
+_LENGTH_AXES, _ANGLE_AXES = ("x", "y", "z"), ("r", "t")
+
+
+def _asked_summary(payload: Dict[str, Any]) -> str:
+    """A question a run parked on, as a prompt row reads."""
+    label = kind_label(str(payload.get("kind") or ""))
+    message = payload.get("message")
+    return f"{label} asked: {message}" if message else f"{label} asked"
+
+
+def _decision_summary(payload: Dict[str, Any], actor: Any) -> str:
+    """A decision on a proposal: what it was, what the decider changed, and
+    who decided it from where. A confirmation that carries no values -- a look,
+    or one still to be filled in -- says only that it was confirmed."""
+    label = kind_label(str(payload.get("kind") or ""))
+    outcome = str(payload.get("outcome") or "")
+    text = f"{label} {_OUTCOME_WORDS.get(outcome, outcome.lower() or 'decided')}"
+    decided = payload.get("decided") or {}
+    if outcome == "Confirmed" and decided:
+        changes = _decision_changes(payload.get("proposed") or {}, decided)
+        text += f": {changes}" if changes else ", as proposed"
+    elif outcome != "Confirmed" and payload.get("reason"):
+        text += f": {payload['reason']}"
+    if actor:
+        text += f" — by the {actor}"
+    if payload.get("via"):
+        text += f" ({payload['via']})"
+    return text
+
+
+def _decision_changes(proposed: Dict[str, Any], decided: Dict[str, Any]) -> str:
+    """How the decided values differ from the proposed ones. A position or a
+    point is a move, in µm and degrees; anything else is its changed values,
+    as an edit row names them. A kind carries one value, so its name is left
+    out when it is the only one."""
+    parts = []
+    for name, new in decided.items():
+        old = proposed.get(name, _ABSENT)
+        prefix = f"{name} " if len(decided) > 1 else ""
+        moved = _moved(old, new)
+        if moved is not None:
+            if moved:
+                parts.append(f"{prefix}moved {moved}")
+            continue
+        changes = _changed_values(old, new, name if len(decided) > 1 else "")
+        shown = [_edit_change(*c) for c in changes[:_EDIT_CHANGES_SHOWN]]
+        if len(changes) > _EDIT_CHANGES_SHOWN:
+            shown.append(f"{len(changes) - _EDIT_CHANGES_SHOWN} more")
+        parts.extend(shown)
+    return ", ".join(parts)
+
+
+def _moved(old: Any, new: Any) -> Optional[str]:
+    """How far a point or a position moved ("x +2.0 µm, t -1.0°"); "" when it
+    did not. None when the two are not points or positions."""
+    if not (isinstance(old, dict) and isinstance(new, dict)):
+        return None
+    axes = [a for a in _LENGTH_AXES + _ANGLE_AXES if a in old and a in new]
+    if "x" not in axes or "y" not in axes:
+        return None
+    parts = []
+    for axis in axes:
+        if not (_is_number(old[axis]) and _is_number(new[axis])):
+            return None
+        if _same_value(old[axis], new[axis]):
+            continue
+        change = new[axis] - old[axis]
+        if axis in _LENGTH_AXES:
+            parts.append(f"{axis} {change * 1e6:+.1f} µm")
+        else:
+            parts.append(f"{axis} {math.degrees(change):+.1f}°")
+    return ", ".join(parts)
+
+
 def _correlation_summary(payload: Dict[str, Any], actor: Any) -> str:
     """An accepted correlation: the point of interest it gave, and how well it fits."""
     poi = payload.get("poi") or {}
@@ -1318,8 +1404,9 @@ def _load_from_events(root: Path) -> ExperimentReplay:
 
     A stage move is one row however many moves it was made of, and shows where
     it ended; a position read is only the stage track. An edit to a lamella's
-    plan, and an accepted correlation, are on the lamella and task they were
-    about. Live view is not recorded. An
+    plan, an accepted correlation, and a question and its decision are on the
+    lamella and task they were about; a confirmation filled in afterwards is
+    its decision's row. Live view is not recorded. An
     FM file the stream did not record is found on disk and placed by its own
     metadata, as the log's reader places every FM image.
     """
@@ -1339,6 +1426,9 @@ def _load_from_events(root: Path) -> ExperimentReplay:
     recorded_fm: List[ReplayEvent] = []
     burn: Optional[Dict[str, Any]] = None
     burned = 0
+    # (proposal id, decision index) -> its row, for the values a confirmation
+    # "as it stands" is filled in with afterwards
+    decisions: Dict[Tuple[Any, Any], ReplayEvent] = {}
 
     for record in records:
         time = _record_time(record)
@@ -1475,6 +1565,24 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             else:
                 summary = _correlation_summary(payload, actor)
                 event = ReplayEvent(time, EventKind.CORRELATION, summary, data=payload)
+        elif kind in ("proposal_asked", "proposal_decided"):
+            # On the item and task it was about, as an edit is.
+            item = (payload.get("item") or {}).get("name")
+            task, task_id = payload.get("task"), None
+            if kind == "proposal_asked":
+                summary = _asked_summary(payload)
+                event = ReplayEvent(time, EventKind.PROMPT, summary, data=payload)
+            else:
+                key = (payload.get("proposal_id"), payload.get("decision"))
+                summary = _decision_summary(payload, record.get("actor"))
+                earlier = decisions.get(key)
+                if payload.get("filled_in") and earlier is not None:
+                    # The same decision, now with the values it was confirmed
+                    # at: its row says so, rather than a second row.
+                    earlier.summary, earlier.data = summary, payload
+                else:
+                    event = ReplayEvent(time, EventKind.DECISION, summary, data=payload)
+                    decisions[key] = event
         elif kind in ("prompt_raised", "prompt_answered", "prompt_cancelled"):
             prompt = payload.get("type", "Prompt")
             if kind == "prompt_answered":
