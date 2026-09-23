@@ -331,6 +331,22 @@ class ZParameters:
         return f"Z-Stack: {num_planes} planes ({self.zmin * 1e6:.1f}μm to {self.zmax * 1e6:.1f}μm, step {self.zstep * 1e6:.1f}μm, {order_str})"
 
 
+def open_tiff(filename: str) -> "tff.TiffFile":
+    """A TiffFile that reads an ImageJ file as ImageJ.
+
+    A METEOR ImageJ export carries OME text in its ImageJ description that is not
+    valid OME. tifffile flags such a file as OME too, tries that first, and logs an
+    ERROR before falling back to ImageJ -- on every open, for a file that reads
+    correctly. So a file that is both is opened with OME off: the ImageJ series is
+    the one tifffile would have used.
+    """
+    tif = tff.TiffFile(filename)
+    if tif.is_imagej and tif.is_ome:
+        tif.close()
+        tif = tff.TiffFile(filename, is_ome=False)
+    return tif
+
+
 # tifffile's names for an axis it cannot place: a page sequence, or unknown.
 _UNKNOWN_AXES = "IQ"
 
@@ -667,7 +683,7 @@ class FluorescenceImage:
         sizes against the metadata: that comparison cannot tell channels from z-slices
         when there are as many of one as the other, and swapped them (FIB-279).
         """
-        with tff.TiffFile(filename) as tif:
+        with open_tiff(filename) as tif:
             series = tif.series[0]
             data = series.asarray()
             axes = series.axes

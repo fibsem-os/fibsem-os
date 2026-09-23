@@ -214,6 +214,52 @@ def test_an_imagej_hyperstack_loads_channels_first(tmp_path, axes, nc, nz):
     np.testing.assert_array_equal(FluorescenceImage.load(path).data, data)
 
 
+def _meteor_like(path, data):
+    """An ImageJ hyperstack whose description also carries OME text that is not
+    valid OME, as a METEOR `.ij.tiff` export does. Stored z outside channels."""
+    nc, nz, height, width = data.shape
+    description = (
+        f"ImageJ=1.11a\nimages={nc * nz}\nchannels={nc}\nslices={nz}\nframes=1\n"
+        "hyperstack=true\nmode=grayscale\nunit=micron\n"
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        f'<Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYZTC" '
+        f'Type="uint16" SizeX="{width}" SizeY="{height}" SizeZ="{nz}" '
+        f'SizeC="{nc}" SizeT="1"/></Image></OME>\n'
+    )
+    with tifffile.TiffWriter(path) as writer:
+        for z in range(nz):
+            for c in range(nc):
+                writer.write(
+                    data[c, z],
+                    photometric="minisblack",
+                    description=description if (z, c) == (0, 0) else None,
+                    metadata=None,
+                    contiguous=False,
+                )
+
+
+def test_a_meteor_imagej_export_loads_without_an_error_in_the_log(tmp_path, caplog):
+    """Read as OME first, such a file makes tifffile log an ERROR on every open
+    before it falls back to ImageJ. It is read as ImageJ, and the log stays quiet."""
+    import logging
+
+    data = planes(2, 3)
+    path = str(tmp_path / "feature.ij.tiff")
+    _meteor_like(path, data)
+    with caplog.at_level(logging.ERROR, logger="tifffile"):
+        with tifffile.TiffFile(path) as tif:
+            tif.series[0].asarray()  # guard: the plain open does log it
+    assert any(r.name == "tifffile" for r in caplog.records)
+    caplog.clear()
+
+    with caplog.at_level(logging.ERROR, logger="tifffile"):
+        back = FluorescenceImage.load(path)
+
+    np.testing.assert_array_equal(back.data, data)
+    assert [r.getMessage() for r in caplog.records if r.name == "tifffile"] == []
+
+
 def test_an_imagej_z_stack_is_one_channel(tmp_path):
     data = planes(1, 5)
     path = str(tmp_path / "zstack.tif")
