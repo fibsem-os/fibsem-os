@@ -964,6 +964,58 @@ def test_an_edit_says_what_changed_who_made_it_and_from_where(tmp_path):
     ]
 
 
+def test_an_edit_leaves_out_rounding_and_names_a_config_added_or_removed(tmp_path):
+    """A field of view a widget showed in µm comes back in metres a bit off:
+    not a change. A whole task config added or removed is named, not printed."""
+    fov = 80 * 1e-6  # 80 µm, as a spin box hands it back
+    assert fov != 8e-05
+    config = {
+        "parameters": {"sync_to_poi": True, "acquire_image1": True},
+        "milling": {"mill_rough": {"field_of_view": 8e-05}},
+    }
+
+    def edit(t, target, before, after, via, item=None):
+        payload = {"item": item, "task": "Rough Milling", "target": target}
+        payload.update(before=before, after=after, via=via)
+        return _edit(_at(t), payload, "operator")
+
+    _write_events(
+        tmp_path,
+        edit(
+            0,
+            "protocol.milling.mill_rough",
+            {"field_of_view": 8e-05, "stages": [{"pattern": {"depth": 6.5e-07}}]},
+            {"field_of_view": fov, "stages": [{"pattern": {"depth": 1.3e-06}}]},
+            "protocol editor",
+        ),
+        edit(
+            1,
+            "protocol.milling.mill_rough",
+            {"field_of_view": 8e-05},
+            {"field_of_view": fov},
+            "protocol editor",
+        ),
+        edit(
+            2,
+            "protocol.milling.mill_rough",
+            {"field_of_view": 1.00001e-4},
+            {"field_of_view": 1.00002e-4},
+            "protocol editor",
+        ),
+        edit(3, "task_config", None, config, "add task", {"id": "L1", "name": "01"}),
+        edit(4, "protocol.task_config", config, None, "remove task"),
+    )
+    assert [e.summary for e in load_replay(tmp_path).events] == [
+        "protocol.milling.mill_rough: stages.0.pattern.depth 6.5e-07 → 1.3e-06"
+        " — by the operator (protocol editor)",
+        "protocol.milling.mill_rough: rounding only — by the operator (protocol editor)",
+        "protocol.milling.mill_rough: field_of_view 0.000100001 → 0.000100002"
+        " — by the operator (protocol editor)",
+        "task_config: added — by the operator (add task)",
+        "protocol.task_config: removed — by the operator (remove task)",
+    ]
+
+
 def test_a_correlation_says_where_it_put_the_point_and_how_well_it_fits(tmp_path):
     """On the lamella it was for, not the one the run was on."""
     records = [
