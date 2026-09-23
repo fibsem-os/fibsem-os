@@ -1679,14 +1679,17 @@ class OverlayRecord:
     )
 
     def to_dict(self) -> dict:
+        # Plain floats throughout: a numpy scalar that slipped in from a canvas
+        # cannot be represented by the YAML writer, and a save that raises half-way
+        # is worse than a wrong number.
         return {
             "kind": self.kind,
-            "dx": self.dx,
-            "dy": self.dy,
-            "rotation": self.rotation,
-            "scale": self.scale,
-            "pitch": self.pitch,
-            "bar_width": self.bar_width,
+            "dx": float(self.dx),
+            "dy": float(self.dy),
+            "rotation": float(self.rotation),
+            "scale": float(self.scale),
+            "pitch": None if self.pitch is None else float(self.pitch),
+            "bar_width": None if self.bar_width is None else float(self.bar_width),
             "source": self.source,
             "reference": self.reference,
             "view": self.view,
@@ -2859,8 +2862,12 @@ class Experiment:
 
         with EXPERIMENT_WRITE_LOCK:
             data = self.to_dict()
+        # Serialised in full before the file is opened: dumping straight into it
+        # left a zero-byte experiment.yaml behind the moment the writer met a value
+        # it could not represent, and nothing then loaded.
+        text = yaml.safe_dump(data, indent=4)
         with open(os.path.join(self.path, "experiment.yaml"), "w") as f:
-            yaml.safe_dump(data, f, indent=4)
+            f.write(text)
         if save_protocol:
             self.save_protocol()
 
