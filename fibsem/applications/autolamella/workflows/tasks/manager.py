@@ -126,6 +126,43 @@ class BaseTaskManager:
     def _on_decided(self, item_id: str, task_name: str) -> None:
         self._decision_event.set()
 
+    @contextmanager
+    def _recording(self):
+        """The event stream for this run (FIB-1044), the same with or without the
+        GUI: the microscope's own recorder when something keeps one -- the app
+        does, from connecting -- else one made for the run, recording to the
+        experiment, and closed after it however the run ends. Its lifecycle hook
+        is on this run's hook manager for the run, once. Recording never costs
+        the run: a recorder that cannot be made is a run without one."""
+        from fibsem.applications.autolamella.event_recording import (
+            EventRecorder,
+            recorder_for,
+        )
+
+        recorder = recorder_for(self.microscope)
+        made = None
+        if recorder is None:
+            try:
+                made = recorder = EventRecorder(
+                    self.microscope,
+                    experiment_path=self.experiment.path,
+                    experiment=self.experiment,
+                )
+            except Exception:  # noqa: BLE001 - recording must not cost the run
+                logging.warning("This run's events are not recorded.", exc_info=True)
+        hook = recorder.lifecycle_hook if recorder is not None else None
+        if hook is not None:
+            if self.hook_manager is None:
+                self.hook_manager = HookManager()
+            self.hook_manager.register(hook)
+        try:
+            yield
+        finally:
+            if hook is not None:
+                self.hook_manager.unregister(hook)
+            if made is not None:
+                made.close()
+
     def _review_wait(self) -> Optional[float]:
         protocol = self.experiment.task_protocol
         options = getattr(protocol, "options", None)
@@ -624,12 +661,13 @@ class TaskManager(BaseTaskManager):
     def _run_queue(self) -> None:
         """Process queue items until empty or stopped."""
         self._snapshot_completion()
-        self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
-        self.experiment.decided.connect(self._on_decided)
-        try:
-            self._run_items()
-        finally:
-            self.experiment.decided.disconnect(self._on_decided)
+        with self._recording():
+            self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
+            self.experiment.decided.connect(self._on_decided)
+            try:
+                self._run_items()
+            finally:
+                self.experiment.decided.disconnect(self._on_decided)
 
     def _run_items(self) -> None:
         while not self.is_stopped:

@@ -245,12 +245,13 @@ class GridTaskManager(BaseTaskManager):
         ]
 
     def _run_queue(self) -> None:
-        self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
-        self.experiment.decided.connect(self._on_decided)
-        try:
-            self._run_items()
-        finally:
-            self.experiment.decided.disconnect(self._on_decided)
+        with self._recording():
+            self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
+            self.experiment.decided.connect(self._on_decided)
+            try:
+                self._run_items()
+            finally:
+                self.experiment.decided.disconnect(self._on_decided)
 
     def _requirements_of(self, task_name: str) -> List[str]:
         return self._requirements(task_name)
