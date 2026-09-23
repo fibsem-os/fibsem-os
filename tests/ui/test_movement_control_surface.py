@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 
 import numpy as np
 import pytest
@@ -100,6 +101,21 @@ def _settle(qapp, seen, tries: int = 40):
         qapp.processEvents()
         if seen:
             return
+
+
+def _spin_until(qapp, predicate, timeout_s: float = 15.0) -> bool:
+    """Pump the event loop until *predicate* holds or *timeout_s* has passed.
+
+    A time budget rather than a count of spins: one spin takes microseconds, so a count
+    says nothing about how long the worker thread was actually given.
+    """
+    deadline = time.monotonic() + timeout_s
+    while not predicate():
+        if time.monotonic() > deadline:
+            return False
+        qapp.processEvents()
+        time.sleep(0.01)
+    return True
 
 
 # --- move_to_position: the surface six call sites use ------------------------
@@ -299,10 +315,21 @@ def test_a_move_leaves_the_form_showing_where_the_stage_went(qapp, movement):
     stage never leaves the origin and this would compare zero against zero.
     """
     movement.move_to_position(ASKED)
-    for _ in range(60):
-        qapp.processEvents()
-        if movement.pushButton_move.isEnabled():
-            break
+
+    def _landed() -> bool:
+        shown = movement.get_position_from_ui()
+        return (
+            movement.pushButton_move.isEnabled()
+            and abs(shown.x - ASKED.x) < 1e-8
+            and abs(shown.z - ASKED.z) < 1e-8
+        )
+
+    # With the default preferences the form is refreshed only once the reference images
+    # retaken after the move have landed: about a second on the Demo microscope, longer
+    # on a loaded machine. Neither half can hold before the move -- the button goes down
+    # on dispatch and the form starts at the origin. If the form never gets there, the
+    # assertions below report what it shows instead.
+    _spin_until(qapp, _landed)
 
     stage = movement.microscope.get_stage_position()
     shown = movement.get_position_from_ui()

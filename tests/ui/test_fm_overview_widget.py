@@ -2121,6 +2121,9 @@ class _StubHost:
     _overviews_allowed = _Real._overviews_allowed
     _rebuild_lamella_list = _Real._rebuild_lamella_list
     _wire_position_events = _Real._wire_position_events
+    # The rebuild pushes the grid context to the lamella displays first.
+    _grid_context = _Real._grid_context
+    _refresh_grid_context = _Real._refresh_grid_context
 
     def __init__(self, microscope=None, experiment=None):
         from PyQt5.QtWidgets import QTabWidget
@@ -3652,6 +3655,15 @@ class _ListStub:
     def add_lamella(self, lamella):
         self.lamellae.append(lamella)
 
+    def set_lamellae(self, lamellae):
+        self.lamellae[:] = list(lamellae)
+
+    def select_lamella(self, name):
+        pass
+
+    def set_grid_context(self, context):
+        self.grid_context = context
+
 
 def _list_host(qapp, tmp_path, experiment=None):
     """A `_StubHost` that can run the real `_rebuild_lamella_list`."""
@@ -3747,6 +3759,53 @@ def test_closing_an_experiment_clears_the_canvas(qapp, tmp_path):
 
     assert host.fm_overview_widget._positions == []
 
+    host._teardown_fm_overview_widget()
+
+
+def test_a_rebuild_keeps_the_ticks_and_the_selected_card(qapp, tmp_path):
+    """FIB-966: the rebuild runs on every insert, and the ticks are the run selection.
+
+    Real list and card widgets here rather than the stubs, because the claim is about
+    what they hold across the clear-and-re-add, not about what the canvas draws.
+    """
+    from fibsem.applications.autolamella.ui.lamella_card_widget import (
+        LamellaCardContainer,
+    )
+    from fibsem.applications.autolamella.ui.lamella_list_widget import (
+        LamellaListWidget,
+    )
+
+    experiment = _real_experiment(tmp_path)
+    host = _list_host(qapp, tmp_path, experiment)
+    host.lamella_list_widget = LamellaListWidget()
+    host.lamella_card_container = LamellaCardContainer(columns=1)
+    reselected = []
+    host._on_lamella_card_selected = reselected.append
+    microscope = host.autolamella_ui.microscope
+    first = _real_lamella("Lamella-01", microscope, tmp_path)
+    second = _real_lamella("Lamella-02", microscope, tmp_path)
+    experiment.positions.extend([first, second])
+    host._rebuild_lamella_list()
+    host.lamella_list_widget._row(1).checkbox.setChecked(True)
+    host.lamella_card_container.select_lamella(second.name)
+    host._selected_card_lamella = second
+
+    experiment.positions.append(_real_lamella("Lamella-03", microscope, tmp_path))
+    host._rebuild_lamella_list()
+
+    assert host.lamella_list_widget.get_selected() == [second]
+    assert host.lamella_card_container._selected_id == second.id
+    assert reselected[-1] is second
+
+    experiment.positions.remove(second)
+    host._rebuild_lamella_list()
+
+    assert host.lamella_list_widget.get_selected() == []
+    assert host.lamella_card_container._selected_id is None
+    assert reselected[-1] is None
+
+    host.lamella_list_widget.close()
+    host.lamella_card_container.close()
     host._teardown_fm_overview_widget()
 
 

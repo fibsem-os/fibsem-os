@@ -50,6 +50,7 @@ from PyQt5.QtGui import QPixmap  # noqa: E402
 from PyQt5.QtWidgets import QLabel  # noqa: E402
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
@@ -106,7 +107,9 @@ def _coordinate_row():
 
 def _workflow_row():
     return WorkflowTaskRowWidget(
-        AutoLamellaTaskDescription(name="Mill Rough", supervise=True, required=True)
+        AutoLamellaTaskDescription(
+            name="Mill Rough", attention=Attention.supervised, required=True
+        )
     )
 
 
@@ -137,10 +140,7 @@ def captured_qt_messages():
 
 def _workflow_config() -> AutoLamellaWorkflowConfig:
     return AutoLamellaWorkflowConfig(
-        tasks=[
-            AutoLamellaTaskDescription(name=name, supervise=False, required=False)
-            for name in TASKS
-        ]
+        tasks=[AutoLamellaTaskDescription(name=name, required=False) for name in TASKS]
     )
 
 

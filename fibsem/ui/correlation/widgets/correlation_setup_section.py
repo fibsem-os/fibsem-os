@@ -18,6 +18,7 @@ Deliberately not here, because the widget already provides it:
 * fit / refractive-index settings → their own tabs (summarised read-only here)
 * interpolation                   → the Images tab's *Interpolate…* action
 """
+
 from __future__ import annotations
 
 import datetime
@@ -26,6 +27,7 @@ from typing import Callable, List, Optional
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QRadioButton,
@@ -37,6 +39,7 @@ from fibsem import constants
 from fibsem.correlation.config import CorrelationConfig
 from fibsem.correlation.history import CorrelationRun, LamellaCorrelation
 from fibsem.structures import Point
+from fibsem.ui.tokens import CAPTION_STYLE, CONTROL_STYLE
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
 
 # Starting-coordinates sources (mutually exclusive; see the design doc).
@@ -44,10 +47,9 @@ SEED_NONE = "none"
 SEED_SPOT_BURNS = "spot_burns"
 SEED_PREVIOUS = "previous"
 
-_MUTED = "#9aa0a6"
 # The panels around this section run at 11-12px; controls left at the default app
 # font render noticeably larger than the labels and values they sit among.
-_CONTROL_STYLE = "font-size: 12px;"
+_CONTROL_STYLE = CONTROL_STYLE
 
 
 def format_run_timestamp(name: str) -> str:
@@ -80,7 +82,7 @@ def format_run_label(run: CorrelationRun) -> str:
 
 def _caption(text: str, indent: int = 0) -> QLabel:
     lbl = QLabel(text)
-    style = f"color:{_MUTED};font-size:11px;"
+    style = CAPTION_STYLE
     if indent:
         style += f"margin-left:{indent}px;"
     lbl.setStyleSheet(style)
@@ -134,16 +136,20 @@ class CorrelationSetupSection(QWidget):
                 collapsible=False,
             )
         )
-        layout.addWidget(
-            TitledPanel(
-                "Inherited Settings",
-                content=self._build_inherited_body(),
-                collapsible=False,
-            )
+        # Kept as an attribute: the host places it after its Method panel, so
+        # the Setup tab reads what to start from, how it fits, then what the
+        # experiment already decided.
+        self.inherited_panel = TitledPanel(
+            "Inherited Settings",
+            content=self._build_inherited_body(),
+            collapsible=False,
         )
+        layout.addWidget(self.inherited_panel)
 
         self._apply_burn_availability()
         self.rb_prev.setEnabled(bool(self._prev_runs))
+        # no runs, no list: an empty dropdown draws as a live control
+        self.run_combo.setVisible(bool(self._prev_runs))
         # Default: previous run if one exists, else spot burns, else nothing —
         # the same precedence the editor applied implicitly before this section.
         # load_spot_burns gates the *default*, not the choice: before this section
@@ -185,39 +191,38 @@ class CorrelationSetupSection(QWidget):
         run_row = QWidget()
         run_layout = QHBoxLayout(run_row)
         run_layout.setContentsMargins(20, 0, 0, 0)
-        self.run_combo = ValueComboBox(
-            [format_run_label(r) for r in self._prev_runs]
-        )
+        self.run_combo = ValueComboBox([format_run_label(r) for r in self._prev_runs])
         self.run_combo.setStyleSheet(_CONTROL_STYLE)
-        run_layout.addWidget(self.run_combo, 1)
+        # Run names are short; sized to them like the Method panel's combos,
+        # not stretched like the image pickers that hold paths.
+        self.run_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.run_combo.setMinimumContentsLength(10)
+        self.run_combo.setMinimumWidth(150)
+        run_layout.addWidget(self.run_combo)
+        run_layout.addStretch(1)
         col.addWidget(run_row)
 
         self._prev_caption = _caption(
             "Carries the FM POI + fiducials from that run forward.", indent=20
         )
         col.addWidget(self._prev_caption)
-        col.addWidget(_caption("Seeded points are placed as-is — refine them on the canvas."))
         return body
 
     def _build_inherited_body(self) -> QWidget:
-        fit, ri = self._config.fit, self._config.ri
+        ri = self._config.ri
         body = QWidget()
         col = QVBoxLayout(body)
         col.setContentsMargins(8, 4, 8, 4)
         col.setSpacing(2)
-        col.addWidget(
-            _caption(
-                f"Fit — FIB {fit.fib_method} · FM POI {fit.fm_poi_method} · "
-                f"POI channel {fit.fm_poi_channel or '—'}"
-            )
-        )
+        # The fit settings are the Method panel's own combos, editable there;
+        # only the refractive-index values are not otherwise on the tab.
         col.addWidget(
             _caption(
                 f"RI — n₂ {ri.n2:.2f} · NA {ri.na:.2f} · "
-                f"λ {ri.wavelength_um * 1000:.0f} nm  (from FM metadata)"
+                f"λ {ri.wavelength_um * 1000:.0f} nm, from FM metadata · "
+                "edit on the RI tab"
             )
         )
-        col.addWidget(_caption("Experiment defaults; edit them on their own tabs."))
         return body
 
     # ---- state --------------------------------------------------------------
@@ -270,9 +275,13 @@ class CorrelationSetupSection(QWidget):
         label = f"Spot-burn fiducials · {len(self._spot_burns)} found"
         if self._spot_burns and not self._burns_available:
             label += "  (needs the FIB image)"
-        elif not self._prev_runs:
-            label += "  (first)"
         self.rb_burns.setText(label)
+        self.rb_burns.setToolTip(
+            "The milled spot pattern as FIB fiducials: the starting point for a "
+            "first correlation of this lamella."
+            if not self._prev_runs
+            else "The milled spot pattern as FIB fiducials."
+        )
 
     def set_spot_burns_available(self, available: bool) -> None:
         """Track whether a FIB image is loaded: opening without one and browsing

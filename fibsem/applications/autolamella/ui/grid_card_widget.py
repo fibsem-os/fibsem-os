@@ -30,8 +30,8 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Experiment,
-    GridQuality,
     GridRecord,
+    Verdict,
 )
 from fibsem.applications.autolamella.task_outputs import latest_grid_output
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
@@ -97,9 +97,10 @@ QToolButton::menu-indicator { image: none; }
 """
 
 _QUALITY_ICON = {
-    GridQuality.UNASSESSED: ("mdi:help-circle-outline", NEUTRAL_550, "Unassessed"),
-    GridQuality.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
-    GridQuality.POOR: ("mdi:close-circle", stylesheets.DEFECT_RED_COLOR, "Poor"),
+    Verdict.UNASSESSED: ("mdi:help-circle-outline", NEUTRAL_550, "Unassessed"),
+    Verdict.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
+    Verdict.REWORK: ("mdi:wrench", stylesheets.ORANGE_COLOR, "Rework"),
+    Verdict.FAILED: ("mdi:close-circle", stylesheets.DEFECT_RED_COLOR, "Failed"),
 }
 
 
@@ -116,6 +117,21 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     history = grid.task_history
     if not history:
         return "Not run", NEUTRAL_550
+    # A task waiting on a decision is the grid's news whichever run it came
+    # from: a run that moved on and came back loads the grid again, and the
+    # waiting task sits before that load. Named, since there is one thing to do.
+    waiting = [
+        name
+        for name in dict.fromkeys(t.name for t in history)
+        if name != _LOAD_ENTRY_NAME and grid.is_awaiting_decision(name)
+    ]
+    if waiting:
+        return (
+            f"{waiting[0]} awaits a decision"
+            if len(waiting) == 1
+            else f"{len(waiting)} tasks await a decision",
+            stylesheets.DEFECT_ORANGE_COLOR,
+        )
     start = 0
     for i in range(len(history) - 1, -1, -1):
         if history[i].name == _LOAD_ENTRY_NAME:
@@ -424,7 +440,7 @@ class GridCardWidget(QWidget):
         slot = f"slot {self._entry.index + 1:02d}" if present else "not in the holder"
         self._status_label.setToolTip(f"{text} · {slot}")
 
-        icon, icon_colour, verdict = _QUALITY_ICON[grid.quality]
+        icon, icon_colour, verdict = _QUALITY_ICON[grid.quality.verdict]
         self._btn_quality.setIcon(fibsem_icon(icon, color=icon_colour))
         self._btn_quality.setToolTip(
             f"Quality: {verdict}. A person's verdict; no task sets it."
@@ -442,7 +458,7 @@ class GridCardWidget(QWidget):
             self._thumb_label.setPixmap(QPixmap())
             self._thumb_label.setText("")
 
-        # Load brings a grid into the beam; only with a loader, and only for a grid
+        # Load brings a grid onto the stage; only with a loader, and only for a grid
         # that is present and not already there. Unload for the one that is.
         can = self._controls_enabled
         self._action_load.setVisible(self._has_loader and not self.loaded)
@@ -475,10 +491,10 @@ class GridCardWidget(QWidget):
         if chosen in actions:
             self.set_quality(actions[chosen])
 
-    def set_quality(self, quality: GridQuality) -> None:
-        if quality is self.grid.quality:
+    def set_quality(self, verdict: Verdict) -> None:
+        if verdict is self.grid.quality.verdict:
             return
-        self.grid.quality = quality
+        self.grid.quality.set_defect(state=verdict)
         self.refresh()
         self.quality_changed.emit(self.grid)
 

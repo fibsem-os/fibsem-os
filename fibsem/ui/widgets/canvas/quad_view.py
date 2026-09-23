@@ -319,9 +319,10 @@ class LamellaEditorView(QWidget):
 
         self._sem_panel = _titled("SEM", self.sem_canvas)
         self._sem_panel.setVisible(False)  # shown on demand via set_sem_visible()
-        self._beams_page = _splitter(
-            Qt.Horizontal, _titled("FIB", self.fib_canvas), self._sem_panel
-        )
+        # SEM on the left, FIB on the right: the same order as the Microscope
+        # tab's quad view, so a side-by-side pair reads the same everywhere.
+        self._fib_panel = _titled("FIB", self.fib_canvas)
+        self._beams_page = _splitter(Qt.Horizontal, self._sem_panel, self._fib_panel)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._beams_page)  # index 0: beams
@@ -342,6 +343,10 @@ class LamellaEditorView(QWidget):
     def set_sem_visible(self, visible: bool) -> None:
         """Show/hide the SEM canvas beside FIB on the beams page."""
         self._sem_panel.setVisible(visible)
+
+    def set_fib_visible(self, visible: bool) -> None:
+        """Show/hide the FIB canvas: hidden when there is only an SEM image."""
+        self._fib_panel.setVisible(visible)
 
 
 class MicroscopeViewController(QObject):

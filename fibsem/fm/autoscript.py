@@ -1,9 +1,10 @@
 import logging
 import threading
 from contextlib import contextmanager
-from typing import Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Literal, Optional, Tuple, Union
 
 import numpy as np
+from autoscript_sdb_microscope_client import SdbMicroscopeClient
 from autoscript_sdb_microscope_client.enumerations import (
     CameraEmissionType,
     CameraFilterType,
@@ -21,7 +22,10 @@ from fibsem.fm.microscope import (
     LightSource,
     ObjectiveLens,
 )
-from fibsem.microscope import SdbMicroscopeClient
+
+if TYPE_CHECKING:
+    from fibsem.fm.structures import CameraSettings
+    from fibsem.microscope import FibsemMicroscope
 
 COLOR_TO_WAVELENGTH = {
     CameraEmissionType.BLUE: 365,

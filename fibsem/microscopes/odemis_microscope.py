@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 from psygnal import Signal
 
-from fibsem.microscope import FibsemMicroscope
+from fibsem.microscope import (
+    FibsemMicroscope,
+    _records_beam_shift,
+    _records_stage_move,
+)
 from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.milling.progress import MillingProgress
@@ -439,6 +443,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     ) -> None:
         self.connection.run_auto_focus(beam_type_to_odemis[beam_type])
 
+    @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
         """Move the beam shift by dx and dy in meters (relative movement).
         Args:
@@ -841,16 +846,20 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def retract_manipulator(self) -> None:
         pass
 
-    def move_stage_absolute(self, position: FibsemStagePosition) -> None:
+    @_records_stage_move
+    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         pdict = stage_position_to_odemis_dict(position)
         f = self.stage.moveAbs(pdict)
         f.result()
         # TODO: implement compucentric rotation
+        return self.get_stage_position()
 
-    def move_stage_relative(self, position: FibsemStagePosition) -> None:
+    @_records_stage_move
+    def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         pdict = stage_position_to_odemis_dict(position)
         f = self.stage.moveRel(pdict)
         f.result()
+        return self.get_stage_position()
 
     def stable_move(
         self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
@@ -860,18 +869,28 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         )
 
     def vertical_move(
-        self, dy: float, dx: float = 0.0, beam_type: BeamType = BeamType.ION
+        self,
+        dy: float,
+        dx: float = 0.0,
+        beam_type: BeamType = BeamType.ION,
+        relaxation: float = 1.0,
     ) -> FibsemStagePosition:
         """Restore the coincidence point from an offset measured in one beam view."""
-        return ThermoMicroscope.vertical_move(self, dy=dy, dx=dx, beam_type=beam_type)
+        return ThermoMicroscope.vertical_move(self, dy, dx, beam_type, relaxation)
 
     def _vertical_move_from_fib(
-        self, dy: float, dx: float = 0.0
+        self, dy: float, dx: float = 0.0, relaxation: float = 1.0
     ) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_fib(self, dy=dy, dx=dx)
+        return ThermoMicroscope._vertical_move_from_fib(
+            self, dy=dy, dx=dx, relaxation=relaxation
+        )
 
-    def _vertical_move_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_sem(self, dx=dx, dy=dy)
+    def _vertical_move_from_sem(
+        self, dx: float, dy: float, relaxation: float = 1.0
+    ) -> FibsemStagePosition:
+        return ThermoMicroscope._vertical_move_from_sem(
+            self, dx=dx, dy=dy, relaxation=relaxation
+        )
 
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.

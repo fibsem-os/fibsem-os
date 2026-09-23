@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import uuid
 from abc import ABC
 from copy import deepcopy
@@ -9,16 +10,46 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 import pandas as pd
 import petname
 import yaml
-from psygnal import evented
+from psygnal import Signal, evented
 from psygnal.containers import EventedDict, EventedList
 
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.proposals import (
+    PROPOSAL_KINDS,
+    Author,
+    Decision,
+    DecisionOutcome,
+    DecisionResult,
+    Proposal,
+    Standing,
+    ValueRefused,
+    _encode_values,
+    _quietly,
+    auto_author,
+    current_proposal,
+    current_proposals,
+    human_author,
+    prepare_values,
+    proposals_from_dict,
+    proposals_to_dict,
+    record,
+)
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -49,17 +80,47 @@ from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
 
 if TYPE_CHECKING:
+    import numpy as np
+
+    from fibsem.applications.autolamella.workflows.tasks.grid.base import (
+        GridTaskConfig,
+    )
     from fibsem.microscope import FibsemMicroscope
 
 
 class AutoLamellaTaskStatus(Enum):
     NotStarted = auto()
     InProgress = auto()
+    # The microscope work is done and the task's record waits on a decision in
+    # the Review tab. Not finished: nothing that requires this task runs until
+    # a decision moves it to Completed (confirmed) or Failed (rejected).
+    AwaitingDecision = auto()
     Completed = auto()
     Failed = auto()
     Skipped = auto()
     Cancelled = auto()  # aborted by the user (Stop), distinct from a genuine Failure
     Removed = auto()  # pulled from the queue by the user before it ran
+
+
+class Attention(str, Enum):
+    """Whether a person (or an agent) decides this task's answers. A property
+    of the producing task, set by the protocol author.
+
+    supervised -- a person decides. A question the task needs answered before
+                  it can carry on is asked in the workflow and holds the run;
+                  a value another task consumes -- the task's result, a point
+                  of interest -- ends the task AwaitingDecision, and what
+                  requires it waits for the decision in the Review tab while
+                  the run carries on with other work. Which of the two a task
+                  has is a property of the task, not a setting.
+    automated  -- nobody is asked; the record is made and listed to check.
+
+    Where the run waits is not a third setting: a "Review later" mode existed
+    on development builds before 0.6.0 and is read as supervised.
+    """
+
+    supervised = "supervised"
+    automated = "automated"
 
 
 # AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
@@ -278,12 +339,42 @@ class AutoLamellaTaskConfig(ABC):
         self.reference_imaging.imaging = value
 
 
+def attention_from(value: Any, where: str = "") -> Attention:
+    """A stored value as an ``Attention``, for the loaders.
+
+    Takes what a record can hold: an attention's own value, or the boolean
+    supervise flag that stood in its place before it -- v0.5.2's task
+    descriptions, and the per-stage supervision of the protocol before them.
+    A value this build does not know reads as automated with a warning
+    naming ``where``, because one unreadable field must not drop the whole
+    task. For loaders: ``Attention(x)`` still raises on a bad literal in
+    code, which is where it should.
+    """
+    if isinstance(value, bool):
+        return Attention.supervised if value else Attention.automated
+    if value in ("review", "review_later"):
+        # A third mode, the operator deciding afterwards in the Review tab,
+        # existed on development builds before 0.6.0 and never shipped. It
+        # was Supervised with the wait in a different place, and is read as
+        # Supervised: the task's own shape says where the run waits.
+        return Attention.supervised
+    try:
+        return Attention(value)
+    except ValueError:
+        on = f" on {where}" if where else ""
+        logging.warning(f"Unknown attention {value!r}{on}; read as automated.")
+        return Attention.automated
+
+
 @evented
 @dataclass
 class AutoLamellaTaskDescription:
     name: str  # unique_name
-    supervise: bool
-    required: bool
+    required: bool = True
+    # Whose decision this task's record carries, and when (see Attention).
+    # Whether a task records a proposal at all is a property of the task kind,
+    # in code; it records in every mode.
+    attention: Attention = Attention.automated
     requires: List[str] = field(default_factory=list)
     scheduled_at: Optional[datetime] = None
     # Who a supervised task's questions are addressed to: "human" (the
@@ -292,8 +383,12 @@ class AutoLamellaTaskDescription:
     # semantics only — prompts are raised identically either way.
     supervisor: str = "human"
 
+    def __post_init__(self) -> None:
+        self.attention = Attention(self.attention)
+
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
+        d["attention"] = self.attention.value
         if d.get("scheduled_at") is not None:
             d["scheduled_at"] = self.scheduled_at.isoformat()
         return d
@@ -301,7 +396,20 @@ class AutoLamellaTaskDescription:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AutoLamellaTaskDescription":
         if data is None:
-            return cls(name="", supervise=False, required=False, requires=[])
+            return cls(name="", required=False)
+        data = dict(data)
+        if "attention" not in data:
+            # v0.5.2 and earlier wrote a supervise flag in place of attention,
+            # and every protocol and experiment saved by one of them still
+            # carries it. That form shipped, so this mapping stays; the review
+            # flag and the interim mode strings beside it never did.
+            data["attention"] = attention_from(bool(data.pop("supervise", False)))
+        else:
+            # Through the one reader, so a stored value this build spells
+            # differently -- or does not know -- loads instead of raising.
+            data["attention"] = attention_from(
+                data["attention"], f"task {data.get('name', '')!r}"
+            )
         # Known fields only: a protocol written by a newer version (with fields
         # this one does not know) must load, not crash on an unexpected kwarg.
         known = {f.name for f in fields(cls)}
@@ -385,12 +493,13 @@ class AutoLamellaWorkflowConfig:
                 return False
         return True
 
-    def get_supervision(self, task_name: str) -> bool:
-        """Check if a task requires supervision."""
+    def get_attention(self, task_name: str) -> Attention:
+        """Who decides the task's record, and when; automated for a task the
+        workflow does not list."""
         for task in self.tasks:
             if task.name == task_name:
-                return task.supervise
-        return False
+                return task.attention
+        return Attention.automated
 
     def get_supervisor(self, task_name: str) -> str:
         """Who a supervised task's questions are addressed to: human or agent."""
@@ -410,7 +519,7 @@ class AutoLamellaWorkflowConfig:
         """Add a task to the workflow configuration."""
         self.tasks.append(
             AutoLamellaTaskDescription(
-                name=task.task_name, supervise=True, required=True, requires=[]
+                name=task.task_name, required=True, attention=Attention.supervised
             )
         )
 
@@ -439,6 +548,13 @@ class AutoLamellaWorkflowConfig:
 @dataclass
 class AutoLamellaWorkflowOptions:
     turn_beams_off: bool = False
+    # How long a run whose remaining work all waits on a review keeps waiting for
+    # one, in seconds of *inactivity* -- every decision resets the clock, so a
+    # slow reviewer mid-sitting is never cut off, only an absent one. 0 exits at
+    # once (the old behaviour); None waits until stopped, for an unattended run
+    # with an agent deciding. Separate from any per-proposal deadline: this is
+    # whether the workflow thread stays parked, not who may decide.
+    review_wait: Optional[float] = 1800.0
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -513,6 +629,12 @@ class GridTaskProtocol:
         self.task_config.pop(task_name, None)
         if task_name in self.order:
             self.order.remove(task_name)
+
+    def requirements(self, task_name: str) -> List[str]:
+        """The tasks ``task_name`` requires on the same grid; none for a task
+        the protocol does not have."""
+        config = self.task_config.get(task_name)
+        return list(config.requires) if config is not None else []
 
     @property
     def ordered_task_names(self) -> List[str]:
@@ -627,9 +749,8 @@ class AutoLamellaTaskProtocol:
                 sort_keys=False,
             )
 
-    def get_supervision(self, task_name: str) -> bool:
-        """Check if a task requires supervision."""
-        return self.workflow_config.get_supervision(task_name)
+    def get_attention(self, task_name: str) -> Attention:
+        return self.workflow_config.get_attention(task_name)
 
     def get_supervisor(self, task_name: str) -> str:
         """Who a supervised task's questions are addressed to: human or agent."""
@@ -737,23 +858,31 @@ class AutoLamellaTaskProtocol:
             workflow_config.tasks = [
                 AutoLamellaTaskDescription(
                     name=SETUP_LAMELLA_POSITION_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.SetupLamella],
+                    attention=attention_from(
+                        protocol.supervision[AutoLamellaStage.SetupLamella]
+                    ),
                     required=True,
                 ),
                 AutoLamellaTaskDescription(
                     name=MILL_FIDUCIAL_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.SetupLamella],
+                    attention=attention_from(
+                        protocol.supervision[AutoLamellaStage.SetupLamella]
+                    ),
                     required=True,
                 ),
                 AutoLamellaTaskDescription(
                     name=ROUGH_MILLING_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.MillRough],
+                    attention=attention_from(
+                        protocol.supervision[AutoLamellaStage.MillRough]
+                    ),
                     required=True,
                     requires=[MILL_FIDUCIAL_TASK_NAME],
                 ),
                 AutoLamellaTaskDescription(
                     name=POLISHING_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.MillPolishing],
+                    attention=attention_from(
+                        protocol.supervision[AutoLamellaStage.MillPolishing]
+                    ),
                     required=True,
                     requires=[ROUGH_MILLING_TASK_NAME],
                 ),
@@ -774,7 +903,9 @@ class AutoLamellaTaskProtocol:
                 0,
                 AutoLamellaTaskDescription(
                     name=TRENCH_MILLING_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.MillTrench],
+                    attention=attention_from(
+                        protocol.supervision[AutoLamellaStage.MillTrench]
+                    ),
                     required=True,
                 ),
             )
@@ -794,7 +925,9 @@ class AutoLamellaTaskProtocol:
                 1,
                 AutoLamellaTaskDescription(
                     name=UNDERCUT_TASK_NAME,
-                    supervise=protocol.supervision[AutoLamellaStage.MillUndercut],
+                    attention=attention_from(
+                        protocol.supervision[AutoLamellaStage.MillUndercut]
+                    ),
                     required=True,
                     requires=[TRENCH_MILLING_TASK_NAME],
                 ),
@@ -830,65 +963,173 @@ class AutoLamellaTaskProtocol:
         return task_configs
 
 
-class DefectType(Enum):
-    NONE = auto()
-    FAILURE = auto()
+class Verdict(Enum):
+    """A judgement about a lamella or a grid, made by a person (or a reviewer
+    acting for one) and never by a task.
+
+    ``UNASSESSED`` and ``GOOD`` are different answers: nobody has looked, versus
+    somebody looked and it was fine. The old ``DefectType.NONE`` meant both.
+    """
+
+    UNASSESSED = auto()
+    GOOD = auto()
     REWORK = auto()
+    FAILED = auto()
+
+    # Aliases for the names the old enums used. ``Verdict["NONE"]`` resolves,
+    # ``Verdict.NONE is Verdict.UNASSESSED``, and iteration skips them.
+    NONE = UNASSESSED
+    FAILURE = FAILED
+    POOR = FAILED
 
 
 @evented
 @dataclass
-class DefectState:
-    state: DefectType = field(default=DefectType.NONE)
-    last_completed_task: str = ""
-    description: str = ""
+class QualityRecord:
+    """The current human verdict on an item, attributed.
+
+    One type for lamellae and grids, replacing ``DefectState`` (lamella) and the
+    bare ``GridQuality`` enum (grid), which were the same idea under two names
+    with neither recording who set it. Holds the *current* verdict only; the
+    full trail of what was proposed and decided lives on the item's proposals,
+    and ``decision_id`` points at the decision that set this verdict when a
+    review did.
+    """
+
+    verdict: Verdict = field(default=Verdict.UNASSESSED)
+    author: str = ""  # "human:<name>" | "agent:<model>"; "" when unrecorded
+    reason: str = ""
+    at_task: str = ""  # the task the item was judged at
     updated_at: Optional[float] = None
+    decision_id: Optional[Tuple[str, str]] = None  # (item_id, task_name)
+
+    # -- names the old DefectState API used; kept so callers migrate one at a time
+    @property
+    def state(self) -> Verdict:
+        return self.verdict
+
+    @state.setter
+    def state(self, value: Verdict) -> None:
+        self.verdict = value
+
+    @property
+    def description(self) -> str:
+        return self.reason
+
+    @description.setter
+    def description(self, value: str) -> None:
+        self.reason = value
+
+    @property
+    def last_completed_task(self) -> str:
+        return self.at_task
+
+    @last_completed_task.setter
+    def last_completed_task(self, value: str) -> None:
+        self.at_task = value
 
     def to_dict(self) -> dict:
         return {
-            "state": self.state.name,
-            "last_completed_task": self.last_completed_task,
-            "description": self.description,
+            "verdict": self.verdict.name,
+            "author": self.author,
+            "reason": self.reason,
+            "at_task": self.at_task,
             "updated_at": self.updated_at,
+            "decision_id": list(self.decision_id) if self.decision_id else None,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DefectState":
+    def from_dict(cls, data: Union[dict, str, None]) -> "QualityRecord":
+        """Read the current shape, the ``DefectState`` shape (``state`` /
+        ``description`` / ``last_completed_task``), the pre-``DefectState``
+        ``has_defect`` / ``requires_rework`` bools, and the bare name string
+        ``GridRecord`` used to write. Unknown names read as ``UNASSESSED``."""
         if not data:
             return cls()
-        # Backwards compatibility: old format used has_defect / requires_rework bools
+        if isinstance(data, str):
+            return cls(verdict=_verdict_by_name(data))
         if "has_defect" in data:
             if data.get("has_defect"):
-                state = (
-                    DefectType.REWORK
-                    if data.get("requires_rework")
-                    else DefectType.FAILURE
+                verdict = (
+                    Verdict.REWORK if data.get("requires_rework") else Verdict.FAILED
                 )
             else:
-                state = DefectType.NONE
+                verdict = Verdict.UNASSESSED
             return cls(
-                state=state,
-                description=data.get("description", ""),
+                verdict=verdict,
+                reason=data.get("description", ""),
                 updated_at=data.get("updated_at", None),
             )
-        state = DefectType[data.get("state", "NONE")]
+        decision_id = data.get("decision_id")
         return cls(
-            state=state,
-            last_completed_task=data.get("last_completed_task", ""),
-            description=data.get("description", ""),
+            verdict=_verdict_by_name(data.get("verdict", data.get("state", ""))),
+            author=data.get("author", ""),
+            reason=data.get("reason", data.get("description", "")),
+            at_task=data.get("at_task", data.get("last_completed_task", "")),
             updated_at=data.get("updated_at", None),
+            decision_id=tuple(decision_id) if decision_id else None,
         )
 
     def clear(self):
-        self.state = DefectType.NONE
-        self.last_completed_task = ""
-        self.description = ""
+        self.verdict = Verdict.UNASSESSED
+        self.author = ""
+        self.reason = ""
+        self.at_task = ""
         self.updated_at = None
+        self.decision_id = None
 
-    def set_defect(self, description: str = "", state: DefectType = DefectType.FAILURE):
-        self.state = state
-        self.description = description
+    def set_defect(
+        self,
+        description: str = "",
+        state: Verdict = Verdict.FAILED,
+        author: str = "",
+    ):
+        self.verdict = state
+        self.reason = description
+        self.author = str(author)  # an Author or its kind:name form
         self.updated_at = datetime.timestamp(datetime.now())
+
+
+_quality_record_init = QualityRecord.__init__
+
+
+def _quality_record_init_with_old_names(
+    self,
+    *args,
+    state: Optional[Verdict] = None,
+    description: Optional[str] = None,
+    last_completed_task: Optional[str] = None,
+    **kwargs,
+):
+    """``DefectState(state=..., description=..., last_completed_task=...)`` keeps
+    constructing. The dataclass ``__init__`` only knows the new field names, so
+    the old keywords are mapped here; a caller passing both forms gets the new
+    one."""
+    if state is not None:
+        kwargs.setdefault("verdict", state)
+    if description is not None:
+        kwargs.setdefault("reason", description)
+    if last_completed_task is not None:
+        kwargs.setdefault("at_task", last_completed_task)
+    _quality_record_init(self, *args, **kwargs)
+
+
+QualityRecord.__init__ = _quality_record_init_with_old_names  # type: ignore[method-assign]
+
+
+def _verdict_by_name(name: str) -> Verdict:
+    try:
+        return Verdict[name]
+    except KeyError:
+        return Verdict.UNASSESSED
+
+
+# The names this type and its enum had before they were one thing. Every reader
+# of ``DefectState`` / ``DefectType`` / ``GridQuality`` keeps working; new code
+# says ``QualityRecord`` / ``Verdict``.
+DefectState = QualityRecord
+DefectType = Verdict
+GridQuality = Verdict
 
 
 # The thumbnail is only ever displayed, and its largest reader is the cozy lamella
@@ -926,6 +1167,50 @@ def _make_thumbnail_placeholder():
 _THUMBNAIL_PLACEHOLDER = None
 
 
+def _latest_status(
+    task_history: List[AutoLamellaTaskState], task_name: str
+) -> Optional[AutoLamellaTaskStatus]:
+    """How the latest run of ``task_name`` ended; None if it never ran."""
+    for task in reversed(task_history):
+        if task.name == task_name:
+            return task.status
+    return None
+
+
+def _is_awaiting_decision(
+    task_history: List[AutoLamellaTaskState], task_name: str
+) -> bool:
+    """Whether the latest run of ``task_name`` ended waiting on a decision. The
+    same rule for a lamella and a grid record."""
+    return (
+        _latest_status(task_history, task_name)
+        is AutoLamellaTaskStatus.AwaitingDecision
+    )
+
+
+def _set_task_status(
+    task_history: List[AutoLamellaTaskState],
+    task_state: Optional[AutoLamellaTaskState],
+    task_name: str,
+    status: AutoLamellaTaskStatus,
+    message: str = "",
+) -> None:
+    """Move the latest run of ``task_name`` to ``status``, in the history and
+    on the live task_state when that is the same run. The two are separate
+    objects (task_history holds a copy frozen at the end of the run), so a
+    status that changes after the run -- a decision landing on a task that
+    was awaiting one -- has to be written to both. The same rule for a lamella
+    and a grid record."""
+    for task in reversed(task_history):
+        if task.name == task_name:
+            task.status = status
+            task.status_message = message
+            if task_state is not None and task_state.task_id == task.task_id:
+                task_state.status = status
+                task_state.status_message = message
+            return
+
+
 @evented
 @dataclass
 class Lamella:
@@ -952,6 +1237,14 @@ class Lamella:
     # does not track grids (every experiment before grid records existed). A
     # back-reference only; grid -> lamella is derived by filtering on it.
     grid_id: Optional[str] = None
+    # What tasks proposed for this lamella and what was decided, keyed by the
+    # producing task's name: every proposal that task made, oldest first (a
+    # question asked mid-run, then the run's result; a re-run after them).
+    # The last one is the current one; ``proposal()`` returns it. A current
+    # proposal with no decisions is pending; the consumer that requires that
+    # task is deferred until one is appended. See proposals.py and
+    # Experiment.decide.
+    proposals: Dict[str, List[Proposal]] = field(default_factory=dict)
 
     def __post_init__(self):
         # Deliberately does not create ``path``. Constructing a Lamella is not a
@@ -1013,7 +1306,19 @@ class Lamella:
         answered by completed_tasks -- which filters on task status, so a failed
         prerequisite does not license the task that requires it. See FIB-490.
         """
-        return self.defect.state is DefectType.FAILURE
+        return self.defect.verdict is Verdict.FAILED
+
+    @property
+    def quality(self) -> QualityRecord:
+        """The same record as ``defect`` under the name ``GridRecord`` uses, so
+        code that judges an item need not know which kind it has. The field is
+        still ``defect`` because its evented signal is what the lamella widgets
+        subscribe to; renaming it is a separate, mechanical change."""
+        return self.defect
+
+    @quality.setter
+    def quality(self, value: QualityRecord) -> None:
+        self.defect = value
 
     @property
     def stage_position(self) -> FibsemStagePosition:
@@ -1026,6 +1331,41 @@ class Lamella:
     def has_completed_task(self, task_name: str) -> bool:
         """Check if the lamella has completed a specific task."""
         return task_name in self.completed_tasks
+
+    def is_awaiting_decision(self, task_name: str) -> bool:
+        """Whether the latest run of ``task_name`` ended waiting on a decision."""
+        return _is_awaiting_decision(self.task_history, task_name)
+
+    def proposal(
+        self, task_name: str, kind: Optional[str] = None
+    ) -> Optional[Proposal]:
+        """The current proposal from ``task_name``: the last one it made, or
+        the last of ``kind``. None when it never proposed."""
+        return current_proposal(self.proposals.get(task_name), kind)
+
+    def current_proposals(self, task_name: str) -> List[Proposal]:
+        """Every current proposal from ``task_name``: the last of each kind."""
+        return current_proposals(self.proposals.get(task_name))
+
+    def record_proposal(self, task_name: str, proposal: Proposal) -> Proposal:
+        """Put ``proposal`` on the record as the current one from ``task_name``."""
+        return record(self.proposals.setdefault(task_name, []), proposal)
+
+    def latest_run_completed(self, task_name: str) -> bool:
+        """Whether the latest run of ``task_name`` completed: what a task that
+        requires it needs. Not ``has_completed_task``, which an old success
+        satisfies after a rerun failed or was rejected."""
+        return (
+            _latest_status(self.task_history, task_name)
+            is AutoLamellaTaskStatus.Completed
+        )
+
+    def set_task_status(
+        self, task_name: str, status: AutoLamellaTaskStatus, message: str = ""
+    ) -> None:
+        """Move the latest run of ``task_name`` to ``status``; see
+        ``_set_task_status``."""
+        _set_task_status(self.task_history, self.task_state, task_name, status, message)
 
     @property
     def completed_tasks(self) -> List[str]:
@@ -1137,6 +1477,7 @@ class Lamella:
             "poi": self.poi.to_dict(),
             "description": self.description,
             "grid_id": self.grid_id,
+            "proposals": proposals_to_dict(self.proposals),
         }
 
     @property
@@ -1193,6 +1534,7 @@ class Lamella:
             poi=Point.from_dict(data.get("poi", {"x": 0, "y": 0})),
             description=data.get("description", ""),
             grid_id=data.get("grid_id"),
+            proposals=proposals_from_dict(data.get("proposals")),
         )
 
     def load_reference_image(self, fname) -> FibsemImage:
@@ -1269,12 +1611,18 @@ class Lamella:
 
     def sync_tasks_to_poi(self, point: Optional[Point] = None) -> list[str]:
         """Sync the milling patterns to point of interest"""
+        synced_tasks, moves = self.poi_sync_plan(self.poi if point is None else point)
+        for pattern, moved in moves:
+            pattern.point = moved
+        return synced_tasks
 
-        if point is None:
-            point = self.poi
-
-        synced_tasks = []
-
+    def poi_sync_plan(self, point: Point) -> Tuple[List[str], List[Tuple[Any, Point]]]:
+        """What syncing the patterns to ``point`` would do, without doing it:
+        the task names that follow the point, and each pattern with the point
+        it would move to. Computed in full first, so a caller can refuse
+        before anything moves (a decision is all or nothing)."""
+        synced_tasks: List[str] = []
+        moves: List[Tuple[Any, Point]] = []
         for task_name, task_config in self.task_config.items():
             # check if task has sync_to_poi enabled
             if not getattr(task_config, "sync_to_poi", False):
@@ -1288,26 +1636,109 @@ class Lamella:
                 # calculate offset from the first stage's pattern point
                 diff = point - milling_config.stages[0].pattern.point
                 for stage in milling_config.stages:
-                    stage.pattern.point = stage.pattern.point + diff
+                    moves.append((stage.pattern, stage.pattern.point + diff))
 
             synced_tasks.append(task_name)
-        return synced_tasks
+        return synced_tasks, moves
 
 
-class GridQuality(Enum):
-    """A human's verdict on a grid, set by hand and never by automation.
+def _plain(value: Any) -> Any:
+    """*value* with every numpy scalar and array made a plain Python one, all the
+    way down: the YAML writer cannot represent numpy types, and a record carries
+    dicts filled from a canvas and a composite."""
+    import numpy as np  # this module imports numpy for annotations only
 
-    Kept apart from task status on purpose: a task that failed on a grid says
-    nothing about whether the grid is any good, and a good grid can have a failed
-    overview. Same discipline as a lamella's defect state.
-    """
-
-    UNASSESSED = auto()
-    GOOD = auto()
-    POOR = auto()
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return _plain(value.tolist())
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
 
 
 @evented
+@dataclass
+class OverlayRecord:
+    """Something placed by hand over a grid's overview, and where it was put.
+
+    The grid bars today; a fluorescence overview next (FIB-1030). What is stored is a
+    placement on the *sample*: an offset in metres along its surface and a turn in
+    degrees, relative to `reference` -- the grid centre when there is none -- so the
+    same record draws in every view, squashed by whatever that view's foreshortening
+    is. The view does not belong in here.
+
+    One record per placed thing, on the grid rather than the experiment: a placement is
+    about one grid, and switching grids should swap it with them.
+    """
+
+    kind: str  # "gridbar" | "image"
+    dx: float = 0.0  # metres along the sample surface from the reference
+    dy: float = 0.0
+    rotation: float = 0.0  # degrees, clockwise on screen
+    scale: float = 1.0
+    # Grid bars: the lattice's pitch and bar width, in metres.
+    pitch: Optional[float] = None
+    bar_width: Optional[float] = None
+    # An image: its file, relative to the grid's folder.
+    source: Optional[str] = None
+    # What it was aligned against: an overview's file, relative to the grid's folder,
+    # and the view it was shown in. None means the grid centre.
+    reference: Optional[str] = None
+    view: Optional[str] = None
+    # How it was placed by a fit, when it was: the point pairs and the residual.
+    fit: Dict[str, Any] = field(default_factory=dict)
+    # An image: how it is shown -- opacity, signal only, and per channel its colour,
+    # visibility, opacity, gamma and contrast. Empty means as loaded.
+    display: Dict[str, Any] = field(default_factory=dict)
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: float = field(
+        default_factory=lambda: datetime.timestamp(datetime.now())
+    )
+
+    def to_dict(self) -> dict:
+        # Plain floats throughout: a numpy scalar that slipped in from a canvas
+        # cannot be represented by the YAML writer, and a save that raises half-way
+        # is worse than a wrong number.
+        return {
+            "kind": self.kind,
+            "dx": float(self.dx),
+            "dy": float(self.dy),
+            "rotation": float(self.rotation),
+            "scale": float(self.scale),
+            "pitch": None if self.pitch is None else float(self.pitch),
+            "bar_width": None if self.bar_width is None else float(self.bar_width),
+            "source": self.source,
+            "reference": self.reference,
+            "view": self.view,
+            "fit": _plain(self.fit),
+            "display": _plain(self.display),
+            "id": self.id,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "OverlayRecord":
+        return cls(
+            kind=str(data.get("kind", "")),
+            dx=float(data.get("dx", 0.0) or 0.0),
+            dy=float(data.get("dy", 0.0) or 0.0),
+            rotation=float(data.get("rotation", 0.0) or 0.0),
+            scale=float(data.get("scale", 1.0) or 1.0),
+            pitch=data.get("pitch"),
+            bar_width=data.get("bar_width"),
+            source=data.get("source"),
+            reference=data.get("reference"),
+            view=data.get("view"),
+            fit=dict(data.get("fit") or {}),
+            display=dict(data.get("display") or {}),
+            id=data.get("id") or str(uuid.uuid4()),
+            created_at=data.get("created_at", datetime.timestamp(datetime.now())),
+        )
+
+
 @dataclass
 class GridRecord:
     """A grid as the workflow knows it, distinct from the hardware's `SampleGrid`.
@@ -1326,16 +1757,42 @@ class GridRecord:
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""
-    quality: GridQuality = GridQuality.UNASSESSED
+    quality: QualityRecord = field(default_factory=QualityRecord)
     task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
     task_history: List[AutoLamellaTaskState] = field(default_factory=list)
     created_at: float = field(
         default_factory=lambda: datetime.timestamp(datetime.now())
     )
+    proposals: Dict[str, List[Proposal]] = field(default_factory=dict)  # as on Lamella
+    # What has been placed by hand over this grid's overviews; see `OverlayRecord`.
+    overlays: List[OverlayRecord] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.id:
             self.id = str(uuid.uuid4())
+
+    def overlay_of(self, kind: str) -> Optional[OverlayRecord]:
+        """The one record of *kind* that has no source -- the grid bars, say."""
+        return next(
+            (o for o in self.overlays if o.kind == kind and o.source is None), None
+        )
+
+    def set_overlay(self, record: OverlayRecord) -> None:
+        """Keep *record*, replacing the one it stands in for.
+
+        By id when the record has been seen before, otherwise by kind for a
+        source-less record: there is one lattice of grid bars per grid.
+        """
+        for index, existing in enumerate(self.overlays):
+            same = existing.id == record.id or (
+                record.source is None
+                and existing.source is None
+                and existing.kind == record.kind
+            )
+            if same:
+                self.overlays[index] = record
+                return
+        self.overlays.append(record)
 
     def has_completed_task(self, task_name: str) -> bool:
         return any(
@@ -1343,10 +1800,44 @@ class GridRecord:
             for t in self.task_history
         )
 
+    def is_awaiting_decision(self, task_name: str) -> bool:
+        """Whether the latest run of ``task_name`` ended waiting on a decision."""
+        return _is_awaiting_decision(self.task_history, task_name)
+
+    def proposal(
+        self, task_name: str, kind: Optional[str] = None
+    ) -> Optional[Proposal]:
+        """The current proposal from ``task_name``: the last one it made, or
+        the last of ``kind``. None when it never proposed."""
+        return current_proposal(self.proposals.get(task_name), kind)
+
+    def current_proposals(self, task_name: str) -> List[Proposal]:
+        """Every current proposal from ``task_name``: the last of each kind."""
+        return current_proposals(self.proposals.get(task_name))
+
+    def record_proposal(self, task_name: str, proposal: Proposal) -> Proposal:
+        """Put ``proposal`` on the record as the current one from ``task_name``."""
+        return record(self.proposals.setdefault(task_name, []), proposal)
+
+    def latest_run_completed(self, task_name: str) -> bool:
+        """Whether the latest run of ``task_name`` completed; see Lamella's."""
+        return (
+            _latest_status(self.task_history, task_name)
+            is AutoLamellaTaskStatus.Completed
+        )
+
+    def set_task_status(
+        self, task_name: str, status: AutoLamellaTaskStatus, message: str = ""
+    ) -> None:
+        """Move the latest run of ``task_name`` to ``status``; see
+        ``_set_task_status``."""
+        _set_task_status(self.task_history, self.task_state, task_name, status, message)
+
     @property
     def is_failure(self) -> bool:
         """Whether the latest run on this grid ended in failure. Not a verdict on
-        the grid -- see `quality` for that."""
+        the grid -- see `quality` for that, which a person sets and a task never
+        does, same as a lamella."""
         return self.task_state.status is AutoLamellaTaskStatus.Failed
 
     def to_dict(self) -> dict:
@@ -1354,33 +1845,102 @@ class GridRecord:
             "name": self.name,
             "_id": self.id,
             "description": self.description,
-            "quality": self.quality.name,
+            "quality": self.quality.to_dict(),
             "task_state": self.task_state.to_dict(),
             "task_history": [t.to_dict() for t in self.task_history],
             "created_at": self.created_at,
+            "proposals": proposals_to_dict(self.proposals),
+            "overlays": [o.to_dict() for o in self.overlays],
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "GridRecord":
-        quality = data.get("quality", GridQuality.UNASSESSED.name)
-        try:
-            quality = GridQuality[quality]
-        except KeyError:
-            quality = GridQuality.UNASSESSED
         return cls(
             name=data["name"],
             id=data.get("_id") or str(uuid.uuid4()),
             description=data.get("description", ""),
-            quality=quality,
+            quality=QualityRecord.from_dict(data.get("quality")),
             task_state=AutoLamellaTaskState.from_dict(data.get("task_state", {})),
             task_history=[
                 AutoLamellaTaskState.from_dict(t) for t in data.get("task_history", [])
             ],
             created_at=data.get("created_at", datetime.timestamp(datetime.now())),
+            proposals=proposals_from_dict(data.get("proposals")),
+            overlays=[OverlayRecord.from_dict(o) for o in data.get("overlays", [])],
         )
 
     def __repr__(self) -> str:
-        return f"GridRecord(name={self.name!r}, quality={self.quality.name}, tasks={len(self.task_history)})"
+        return f"GridRecord(name={self.name!r}, quality={self.quality.verdict.name}, tasks={len(self.task_history)})"
+
+
+# One process, one open experiment: a single lock serialises the writers that
+# can run on different threads at once -- the workflow thread saving after a
+# task, and a review confirming from the GUI thread or the agent server. Held
+# briefly by both, so neither serialises a half-applied write of the other.
+EXPERIMENT_WRITE_LOCK = threading.RLock()
+
+
+def _call_on_main_thread(func, *args, **kwargs):
+    """Run ``func`` on the Qt main thread and wait for its result, when there
+    is a Qt application to have one. Without one (a script, a headless
+    review, the test job that installs no Qt) it is a plain call.
+
+    Lazy on purpose: superqt and PyQt are in the ``ui`` extra, and this module
+    is imported everywhere.
+    """
+    try:
+        from PyQt5.QtCore import QCoreApplication, QThread
+        from superqt import ensure_main_thread
+    except ImportError:
+        return func(*args, **kwargs)
+    app = QCoreApplication.instance()
+    if app is None or QThread.currentThread() is app.thread():
+        return func(*args, **kwargs)
+    return ensure_main_thread(await_return=True)(func)(*args, **kwargs)
+
+
+def _same_values(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """Whether two value sets say the same thing, compared in their file form
+    so a Point and a re-read Point agree."""
+    try:
+        return _encode_values(a) == _encode_values(b)
+    except Exception:  # noqa: BLE001 - a value that cannot be encoded is a change
+        return False
+
+
+def standing(item: Any, task_name: str, proposal: Proposal) -> Standing:
+    """The one lifecycle, read off the item: see ``Standing``. Pending is
+    one of three by who waits; a task's own question and a supervised task's
+    held result are on the proposal and the item, and a pending proposal
+    with neither is open. Decided is unchecked until a person looks."""
+    if proposal.pending:
+        if proposal.asking:
+            return Standing.Asking
+        if item.is_awaiting_decision(task_name):
+            return Standing.Awaiting
+        return Standing.Open
+    return Standing.Unchecked if proposal.to_check else Standing.Closed
+
+
+def _emit_on_main_thread(signal, *args) -> None:
+    """Deliver ``signal`` on the Qt main thread without waiting for it.
+
+    The waiting is the difference from ``_call_on_main_thread``. A caller that
+    needs the result has to block; one that is only telling the GUI something
+    happened must not, because it may be the workflow thread about to park on
+    an answer -- and the main thread is not always free to run the call back.
+    """
+    try:
+        from PyQt5.QtCore import QCoreApplication, QThread
+        from superqt import ensure_main_thread
+    except ImportError:
+        signal.emit(*args)
+        return
+    app = QCoreApplication.instance()
+    if app is None or QThread.currentThread() is app.thread():
+        signal.emit(*args)
+        return
+    ensure_main_thread(await_return=False)(signal.emit)(*args)
 
 
 @evented
@@ -1526,6 +2086,714 @@ class Experiment:
         """Set the organisation name in metadata."""
         self.metadata["organisation"] = value
 
+    # Fired after a decision is applied, with (item_id, task_name), on the thread
+    # decide() ran on. The work queue listens so a stalled run wakes and rescans.
+    decided = Signal(str, str)
+    # Fired after a question is recorded mid-task, with (item_id, task_name),
+    # on the main thread. The Review tab listens: the inbox otherwise only
+    # re-derives when a task *finishes*, which an in-run question never does.
+    asked = Signal(str, str)
+
+    def get_lamella_by_id(self, lamella_id: str) -> Optional["Lamella"]:
+        for lamella in self.positions:
+            if lamella.id == lamella_id:
+                return lamella
+        return None
+
+    def get_item_by_id(self, item_id: str) -> Optional[Union["Lamella", GridRecord]]:
+        """A lamella or a grid: the two kinds of item a task runs on, and the
+        two things a proposal can sit on. By id -- names change."""
+        return self.get_lamella_by_id(item_id) or self.get_grid_by_id(item_id)
+
+    def author(self) -> Author:
+        """Who is deciding, as a proposal decision records it, from the operator
+        named on the experiment (or the OS account when nobody was)."""
+        user = self._declared_user() or FibsemUser.from_environment()
+        return human_author(user.name)
+
+    def decide(
+        self, item_id: str, task_name: str, decision: Decision
+    ) -> DecisionResult:
+        """The one way a decision reaches the experiment.
+
+        Runs on the Qt main thread when there is one and blocks the caller until
+        it has: the Review tab and the agent server are the same client of this
+        function, and a confirm can end in Qt work (a generative review adds
+        lamellae, whose list rebuild must not fire off the GUI thread). Takes
+        the same lock as ``save`` so a save never serialises a half-applied
+        decision.
+
+        Confirmed: the decision is appended and each decided value is written
+        through to the item (``poi`` moves the point and syncs the patterns
+        that follow it). No value is written through to a grid; a confirm
+        carrying values on one is refused. The proposed values are left as they were, so the
+        delta survives. A task that ended AwaitingDecision is finished by the
+        decision: Completed on confirm, Failed on reject, so what requires it
+        runs or does not by the ordinary prerequisite rule. The same for a
+        lamella and a grid. A decision on a
+        task that already finished (a result someone checks) changes nothing
+        but the record.
+
+        Refused, without a write, when there is no such proposal; when the run
+        being decided is the run in progress (a decision then is a stop, not a
+        decision); or when a decision carrying values arrives while any task
+        runs on the item. Looking at what an earlier run did, while a later one
+        runs, is not refused: it writes nothing -- including an earlier run of
+        the task that is running now.
+        """
+        return _call_on_main_thread(self._decide, item_id, task_name, decision)
+
+    def _decide(
+        self, item_id: str, task_name: str, decision: Decision
+    ) -> DecisionResult:
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return DecisionResult(
+                    applied=False, reason=f"No item with id {item_id!r}."
+                )
+            proposal = item.proposal(task_name)
+            if proposal is None:
+                return DecisionResult(
+                    applied=False,
+                    reason=f"{item.name} has no proposal from {task_name!r}.",
+                )
+            if decision.proposal_id and decision.proposal_id != proposal.id:
+                # The task made more than one kind of proposal -- a question it
+                # asked, then its result -- and the decider named the other
+                # one. Any current proposal can be decided; a replaced one is
+                # refused further down as stale.
+                for other in item.current_proposals(task_name):
+                    if other.id == decision.proposal_id:
+                        proposal = other
+                        break
+            if proposal.withdrawn:
+                # The question was taken back because whatever asked it is
+                # gone. There is nothing left to answer, and an answer now
+                # would be written against a run that is over.
+                return DecisionResult(
+                    applied=False,
+                    error_type="stale_review",
+                    reason=f"{task_name} on {item.name} was withdrawn before it "
+                    f"was answered; re-run {task_name} to be asked again.",
+                )
+            # A decision while something runs on the item is refused only where
+            # it could reach that run: the proposal is from the run in progress
+            # (the answer there is Stop, not a decision), or the decision writes
+            # values the running task may be reading. The run, not the task
+            # name -- a task that has re-run is still running when its earlier
+            # result is looked at, and that look writes nothing. A grid's tasks
+            # run back to back, so anything stricter refuses the ordinary case
+            # (FIB-1008).
+            running = item.task_state.status is AutoLamellaTaskStatus.InProgress
+            # An open value was written through when its task ended. Confirming
+            # it as it stands writes nothing again, so it is a look and lands
+            # even while the item is busy with another task; a changed value
+            # is a write and waits.
+            unchanged_open = (
+                standing(item, task_name, proposal) is Standing.Open
+                and bool(decision.values)
+                and _same_values(decision.values, proposal.values)
+            )
+            # The one case a decision may land on a running task: the task is
+            # parked on this very proposal, waiting to be told the answer
+            # (FIB-1025). The hazard both refusals below guard against is a
+            # decision arriving *unasked* while a task may be reading those
+            # values -- and a task stopped on a future is not reading, it is
+            # waiting. Phrased about the waiting rather than about the values,
+            # so a question that carries none is allowed on the same grounds.
+            # Per proposal, not per item: another proposal on this item is not
+            # what the task is waiting for, and the task will resume and may
+            # read it, so it stays refused.
+            answering_the_run = (
+                running
+                and proposal.asking
+                and proposal.task_id == item.task_state.task_id
+            )
+            if running and not answering_the_run:
+                if proposal.task_id == item.task_state.task_id:
+                    return DecisionResult(
+                        applied=False,
+                        running=True,
+                        reason=f"{item.name} is running {task_name}; "
+                        "stop it rather than deciding under it.",
+                    )
+                if decision.values and not unchanged_open:
+                    return DecisionResult(
+                        applied=False,
+                        running=True,
+                        reason=f"{item.name} is running {item.task_state.name}; "
+                        f"stop it before writing {sorted(decision.values)} through.",
+                    )
+            if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
+                return DecisionResult(applied=False, reason="A reject needs a reason.")
+            if decision.outcome in (
+                DecisionOutcome.Withdrawn,
+                DecisionOutcome.Unreviewed,
+            ):
+                # Not something a decider says. Withdrawn is what the record
+                # shows when whatever asked is gone; Unreviewed, when nobody
+                # was asked. Only the record writes either.
+                return DecisionResult(
+                    applied=False,
+                    error_type="invalid_value",
+                    reason=f"{decision.outcome.name} is not a decision: confirm "
+                    "or reject. It is what the record says when nobody did.",
+                )
+            # The decision is on the result the decider saw. Named by the
+            # proposal when the decider can: a task may ask several questions
+            # in one run, they share its task_id, and only the proposal's own
+            # id tells the one that was shown from the one that replaced it.
+            if decision.proposal_id:
+                if decision.proposal_id != proposal.id:
+                    # Which of the two it was, when the decider also said what
+                    # run it saw: a different run is a re-run, the same one is
+                    # a task that has asked again since.
+                    what = f"{task_name} on {item.name}"
+                    if not decision.task_id:
+                        changed = f"{what} is not what you looked at any more"
+                    elif decision.task_id != proposal.task_id:
+                        changed = f"{what} has re-run since you looked"
+                    else:
+                        changed = f"{what} has asked again since you looked"
+                    return DecisionResult(
+                        applied=False,
+                        error_type="stale_review",
+                        reason=f"{changed}; look at the current one and decide that.",
+                    )
+                if not decision.task_id:
+                    # The run is still worth having on the decision, as a fact
+                    # about where the proposal came from.
+                    decision.task_id = proposal.task_id
+            # By the run otherwise, as every caller did before proposals had
+            # ids: the run it names must be the run the proposal is from.
+            elif not decision.task_id:
+                return DecisionResult(
+                    applied=False,
+                    error_type="missing_field",
+                    reason="A decision names what it decides: pass the "
+                    "proposal_id of the proposal you looked at.",
+                )
+            elif decision.task_id != proposal.task_id:
+                return DecisionResult(
+                    applied=False,
+                    error_type="stale_review",
+                    reason=(
+                        f"{task_name} on {item.name} has re-run since you looked; "
+                        "look at the current result and decide that."
+                        if proposal.task_id
+                        else f"{task_name} on {item.name} was proposed before runs "
+                        "were named; re-run it to decide it."
+                    ),
+                )
+            # An acknowledgement cannot become an edit: a proposal that already
+            # has a decision is looked at, not changed (changing a value is a
+            # re-run). A pending proposal is confirmed with its values, as
+            # proposed or adjusted, never with none.
+            if decision.outcome is DecisionOutcome.Confirmed:
+                if not proposal.pending and decision.values:
+                    return DecisionResult(
+                        applied=False,
+                        error_type="invalid_value",
+                        reason=f"{task_name} on {item.name} is already decided; "
+                        "confirming it again records a look and carries no values. "
+                        f"To change a value, re-run {task_name}.",
+                    )
+            apply_values = None
+            if decision.outcome is DecisionOutcome.Confirmed and not unchanged_open:
+                # All or nothing: every value is checked and every write planned
+                # before the decision is appended, so a refusal -- or a planning
+                # error -- leaves the record, the item and the task as they were.
+                try:
+                    apply_values = prepare_values(
+                        self, item, proposal.kind, decision.values
+                    )
+                except ValueRefused as e:
+                    return DecisionResult(
+                        applied=False, error_type="invalid_value", reason=str(e)
+                    )
+                except Exception as e:
+                    logging.exception(
+                        f"{item.name}: could not plan the decision on {task_name}"
+                    )
+                    return DecisionResult(
+                        applied=False, reason=f"Could not apply the values: {e}"
+                    )
+                carried = (
+                    PROPOSAL_KINDS[proposal.kind].values
+                    if proposal.kind in PROPOSAL_KINDS
+                    else ()
+                )
+                missing = [n for n in carried if n not in decision.values]
+                # A question the task is parked on may be confirmed with no
+                # values at all: "as it stands". The task, which can read the
+                # instrument, fills the decision in once it is released
+                # (``fill_in_decision``), so nothing here has to be told what
+                # the values are to confirm them.
+                as_it_stands = proposal.asking and not decision.values
+                if proposal.pending and missing and not as_it_stands:
+                    return DecisionResult(
+                        applied=False,
+                        error_type="invalid_value",
+                        reason=f"Confirming a pending {proposal.kind} proposal "
+                        f"needs its values {missing}, as proposed or adjusted.",
+                    )
+
+            # Apply, then commit. The writes and the status move are assignments
+            # on evented records, whose subscribers can raise; if anything does,
+            # every one is undone and the decision is not appended, so a failed
+            # decision leaves the item, the task and the record as they were.
+            result = DecisionResult(applied=True)
+            statuses = [
+                (state, state.status, state.status_message)
+                for state in (
+                    next(
+                        (t for t in reversed(item.task_history) if t.name == task_name),
+                        None,
+                    ),
+                    item.task_state,
+                )
+                if state is not None
+            ]
+            try:
+                if apply_values is not None:
+                    result.synced_tasks.extend(apply_values.apply())
+                if item.is_awaiting_decision(task_name):
+                    if decision.outcome is DecisionOutcome.Confirmed:
+                        item.set_task_status(task_name, AutoLamellaTaskStatus.Completed)
+                    else:
+                        item.set_task_status(
+                            task_name,
+                            AutoLamellaTaskStatus.Failed,
+                            f"Rejected by {decision.author.label}: {decision.reason}",
+                        )
+            except Exception as e:
+                logging.exception(
+                    f"{item.name}: applying the decision on {task_name} failed; "
+                    "undoing it."
+                )
+                try:
+                    if apply_values is not None:
+                        apply_values.undo()
+                    for state, status, message in statuses:
+                        with _quietly(state):
+                            state.status = status
+                            state.status_message = message
+                except Exception:
+                    logging.exception(
+                        f"{item.name}: could not undo the decision on {task_name}"
+                    )
+                return DecisionResult(
+                    applied=False, reason=f"Could not apply the decision: {e}"
+                )
+            proposal.decisions.append(decision)
+            # Answered: nothing is waiting on it any more, so it stops being
+            # the exception that lets a decision land on a running task. The
+            # asker clears this too on its way out; here it is closed the
+            # instant the answer lands, leaving no window in between.
+            proposal.asking = False
+            if apply_values is not None:
+                result.delta = proposal.delta(decision)
+            logging.info(
+                {
+                    "msg": "proposal_decided",
+                    "item": item.name,
+                    "task_name": task_name,
+                    "outcome": decision.outcome.name,
+                    "author": str(decision.author),
+                    "delta": {
+                        k: getattr(v, "to_dict", lambda: v)()
+                        for k, v in result.delta.items()
+                    },
+                }
+            )
+        # Committed: a subscriber that raises is logged, and does not turn a
+        # decision that landed into an error for the decider.
+        try:
+            self.decided.emit(item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to decided raised for {task_name}")
+        return result
+
+    def ask_proposal(self, item_id: str, task_name: str, proposal: Proposal) -> bool:
+        """Record a question the task is about to park on, and say so.
+
+        Marks the proposal as the one being waited on, so a decision may land
+        on it while its task runs (FIB-1025), and fires ``asked`` so the inbox
+        re-derives -- nothing else would, since the tab refreshes when a task
+        *finishes* and this one is only halfway through. ``asking`` is the
+        live flag and is not saved; ``provenance["asked"]`` is the fact, and
+        is, so a load can tell a question the task was waiting on from a
+        value left open (FIB-1046).
+
+        Unlike ``decide`` this does **not** run on the main thread. It is
+        called from the workflow thread by a responder whose contract is not to
+        block, with the task about to park on a future; waiting for the main
+        thread there is a deadlock whenever that thread is not free to run the
+        call back. It does not need to: ``proposals`` is a plain dict with no
+        listeners, so the write is safe under the lock that guards every other
+        write, and only the notification is handed to the GUI thread.
+        """
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return False
+            # Same rule as a task's own proposal: a decided one stays on the
+            # record before the new question, a pending one is replaced -- it
+            # was never answered, so there is nothing to keep.
+            proposal.provenance["asked"] = True
+            item.record_proposal(task_name, proposal)
+            proposal.asking = True
+        try:
+            _emit_on_main_thread(self.asked, item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to asked raised for {task_name}")
+        return True
+
+    def apply_proposed(
+        self, item_id: str, task_name: str, proposal_id: str
+    ) -> DecisionResult:
+        """Write a proposal's values through as they stand, with no decision:
+        what an automated task's value being live from the moment it is
+        proposed means. On the main thread, through the same planned writes a
+        decision uses; nothing is appended to the record, so the proposal
+        stays open to correct until its consumer starts."""
+        return _call_on_main_thread(
+            self._apply_proposed, item_id, task_name, proposal_id
+        )
+
+    def _apply_proposed(
+        self, item_id: str, task_name: str, proposal_id: str
+    ) -> DecisionResult:
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return DecisionResult(
+                    applied=False, reason=f"No item with id {item_id!r}."
+                )
+            proposal = next(
+                (p for p in item.current_proposals(task_name) if p.id == proposal_id),
+                None,
+            )
+            if proposal is None:
+                return DecisionResult(
+                    applied=False, reason=f"{item.name} has no such proposal."
+                )
+            if not proposal.values:
+                return DecisionResult(applied=True)
+            try:
+                writes = prepare_values(self, item, proposal.kind, proposal.values)
+            except ValueRefused as e:
+                return DecisionResult(
+                    applied=False, error_type="invalid_value", reason=str(e)
+                )
+            except Exception as e:
+                logging.exception(
+                    f"{item.name}: could not plan the proposed {task_name} values"
+                )
+                return DecisionResult(
+                    applied=False, reason=f"Could not apply the values: {e}"
+                )
+            result = DecisionResult(applied=True)
+            try:
+                result.synced_tasks.extend(writes.apply())
+            except Exception as e:
+                logging.exception(
+                    f"{item.name}: applying the proposed {task_name} values failed; "
+                    "undoing."
+                )
+                try:
+                    writes.undo()
+                except Exception:
+                    logging.exception(f"{item.name}: could not undo {task_name}")
+                return DecisionResult(
+                    applied=False, reason=f"Could not apply the values: {e}"
+                )
+            logging.info(
+                {
+                    "msg": "proposal_applied_as_proposed",
+                    "item": item.name,
+                    "task_name": task_name,
+                    "kind": proposal.kind,
+                    "proposal_id": proposal.id,
+                    "synced_tasks": list(result.synced_tasks),
+                }
+            )
+            self.save()
+        return result
+
+    def expire_open(self, item_id: str, task_name: str, reason: str) -> int:
+        """Close every open proposal from ``task_name`` on the item as
+        ``Unreviewed``, carrying the values as proposed: the task that
+        consumes them has started before anyone looked, or the task re-ran.
+        Under the write lock, so a decision landing at the same moment either
+        got there first or is refused as a late edit. Returns how many.
+
+        Only those two moments close an open proposal. A run's end does not:
+        a value is for the task that uses it, whichever run that is, and a
+        result is consumed by nothing, so it stays open until a person looks.
+        """
+        expired = 0
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return 0
+            for proposal in item.current_proposals(task_name):
+                if standing(item, task_name, proposal) is not Standing.Open:
+                    continue
+                proposal.decisions.append(
+                    Decision(
+                        outcome=DecisionOutcome.Unreviewed,
+                        author=auto_author(
+                            str(proposal.provenance.get("proposer") or task_name)
+                        ),
+                        values=dict(proposal.values),
+                        reason=reason,
+                        via="workflow",
+                        task_id=proposal.task_id,
+                        proposal_id=proposal.id,
+                    )
+                )
+                expired += 1
+                logging.info(
+                    {
+                        "msg": "proposal_unreviewed",
+                        "item": item.name,
+                        "task_name": task_name,
+                        "kind": proposal.kind,
+                        "proposal_id": proposal.id,
+                        "reason": reason,
+                    }
+                )
+        if expired:
+            try:
+                _emit_on_main_thread(self.decided, item_id, task_name)
+            except Exception:
+                logging.exception(f"a subscriber to decided raised for {task_name}")
+        return expired
+
+    def expire_all_open(self, reason: str) -> int:
+        """Close every open proposal on every item. A supervised task's
+        result the run is holding for is not open, and is left for the
+        decision it waits on."""
+        expired = 0
+        for item in list(self.positions) + list(self.grids):
+            for task_name in list(item.proposals):
+                expired += self.expire_open(item.id, task_name, reason)
+        return expired
+
+    def record_unasked(
+        self, item_id: str, task_name: str, proposal: Proposal, reason: str
+    ) -> bool:
+        """Put a question nobody was asked on the record: the proposal, and an
+        ``Unreviewed`` decision on it carrying the values the task went on
+        to use. What an automated task leaves behind for someone to check.
+
+        Written by the task, on its own thread, the way ``ask_proposal`` is:
+        the write is under the lock every writer takes, and only the
+        notification goes to the GUI thread. Not through ``decide``, which
+        refuses ``Unreviewed`` from a decider and would write the values
+        through, when the task applies them itself.
+        """
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return False
+            item.record_proposal(task_name, proposal)
+            proposal.decisions.append(
+                Decision(
+                    outcome=DecisionOutcome.Unreviewed,
+                    author=auto_author(
+                        str(proposal.provenance.get("proposer") or task_name)
+                    ),
+                    values=dict(proposal.values),
+                    reason=reason,
+                    via="workflow",
+                    task_id=proposal.task_id,
+                    proposal_id=proposal.id,
+                )
+            )
+        logging.info(
+            {
+                "msg": "proposal_unreviewed",
+                "lamella": item.name,
+                "task_name": task_name,
+                "kind": proposal.kind,
+                "proposal_id": proposal.id,
+                "reason": reason,
+            }
+        )
+        try:
+            _emit_on_main_thread(self.decided, item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to decided raised for {task_name}")
+        return True
+
+    def fill_in_decision(
+        self, item_id: str, task_name: str, proposal_id: str, values: Dict[str, Any]
+    ) -> bool:
+        """Put ``values`` on a confirmation that carried none: what a task
+        read from the instrument once the operator said "as it stands"
+        (``AutoLamellaTask.ask`` with ``decided``). Written by the task on its
+        own thread, under the write lock; only the notification goes to the
+        GUI thread, as ``ask_proposal`` does. False when the proposal is not
+        current, is not confirmed, or already carries values."""
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return False
+            proposal = next(
+                (p for p in item.current_proposals(task_name) if p.id == proposal_id),
+                None,
+            )
+            decision = proposal.current if proposal is not None else None
+            if (
+                decision is None
+                or decision.outcome is not DecisionOutcome.Confirmed
+                or decision.values
+            ):
+                return False
+            decision.values = dict(values)
+        try:
+            _emit_on_main_thread(self.decided, item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to decided raised for {task_name}")
+        return True
+
+    def withdraw_what_was_asked(self, reason: str) -> int:
+        """Close every question a task was waiting on that is still pending:
+        nothing is waiting on it any more. A question exists only while its
+        task waits; Stop and a failing task withdraw it, but a process that
+        ends without unwinding leaves it on disk as pending, and on the next
+        load it would read as a value to decide (FIB-1046). Called by
+        ``load``; the second load finds nothing pending and appends nothing.
+        Returns how many."""
+        withdrawn = 0
+        with EXPERIMENT_WRITE_LOCK:
+            for item in list(self.positions) + list(self.grids):
+                for task_name, proposals in item.proposals.items():
+                    for proposal in proposals:
+                        if not proposal.pending or not proposal.provenance.get("asked"):
+                            continue
+                        proposal.asking = False
+                        proposal.decisions.append(
+                            Decision(
+                                outcome=DecisionOutcome.Withdrawn,
+                                author=auto_author("workflow"),
+                                reason=reason,
+                                via="workflow",
+                                task_id=proposal.task_id,
+                                proposal_id=proposal.id,
+                            )
+                        )
+                        withdrawn += 1
+                        logging.info(
+                            {
+                                "msg": "proposal_withdrawn",
+                                "item": item.name,
+                                "task_name": task_name,
+                                "reason": reason,
+                            }
+                        )
+        return withdrawn
+
+    def withdraw_proposal(
+        self, item_id: str, task_name: str, reason: str
+    ) -> DecisionResult:
+        """Close a proposal nobody answered, because whatever asked it is gone.
+
+        Not a decision, and deliberately not routed through ``decide``: a
+        question is withdrawn exactly when its task is failing or the run is
+        stopping, which is the state ``decide`` refuses a decision in. The
+        record shape is shared -- a ``Decision`` with outcome ``Withdrawn``,
+        authored automatically -- because the fact that a question was raised
+        and abandoned belongs in the same log as the answers.
+
+        It never touches a task's status. The task has its own ending, and the
+        withdrawal is a consequence of it rather than a cause: what requires
+        that task is gated on the task, not on this.
+
+        Like ``ask_proposal`` and unlike ``decide``, this does **not** run on
+        the main thread. It is called while a run is unwinding -- an abort, a
+        failing task -- which is exactly when the main thread may be waiting
+        on the workflow thread. Waiting for it here stalls for the marshal's
+        timeout and then raises out of the abort path, while the queued call
+        still lands later. The write is an append to a plain list under the
+        write lock; only the notification is handed to the GUI thread.
+        """
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            if item is None:
+                return DecisionResult(
+                    applied=False, reason=f"No item with id {item_id!r}."
+                )
+            proposal = item.proposal(task_name)
+            if proposal is None:
+                return DecisionResult(
+                    applied=False,
+                    reason=f"{item.name} has no proposal from {task_name!r}.",
+                )
+            if not proposal.pending:
+                # Answered, or already withdrawn. Either way there is nothing
+                # open to take back, and appending would bury the answer.
+                return DecisionResult(
+                    applied=False,
+                    reason=f"{task_name} on {item.name} is already decided.",
+                )
+            proposal.asking = False
+            proposal.decisions.append(
+                Decision(
+                    outcome=DecisionOutcome.Withdrawn,
+                    author=auto_author("workflow"),
+                    reason=reason,
+                    via="workflow",
+                    task_id=proposal.task_id,
+                    proposal_id=proposal.id,
+                )
+            )
+            logging.info(
+                {
+                    "msg": "proposal_withdrawn",
+                    "item": item.name,
+                    "task_name": task_name,
+                    "reason": reason,
+                }
+            )
+        try:
+            _emit_on_main_thread(self.decided, item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to decided raised for {task_name}")
+        return DecisionResult(applied=True)
+
+    def pending_proposals(
+        self,
+    ) -> List[Tuple[Union["Lamella", GridRecord], str, Proposal]]:
+        """Every proposal something waits on -- the task asking it, or the
+        consumers of a held result -- in item order: the review inbox.
+        Derived, never stored, so it is the same list from the GUI and the
+        server."""
+        return self._with_standing(Standing.Asking, Standing.Awaiting)
+
+    def proposals_to_check(
+        self,
+    ) -> List[Tuple[Union["Lamella", GridRecord], str, Proposal]]:
+        """Every proposal nobody was asked about and nobody has looked at: an
+        automated task's value or result, open to correct until its consumer
+        starts and unchecked after; a decision an agent made. The inbox's
+        second group. Derived like the first."""
+        return self._with_standing(Standing.Open, Standing.Unchecked)
+
+    def _with_standing(
+        self, *standings: Standing
+    ) -> List[Tuple[Union["Lamella", GridRecord], str, Proposal]]:
+        listed = []
+        for item in list(self.positions) + list(self.grids):
+            for task_name, proposals in item.proposals.items():
+                for proposal in current_proposals(proposals):
+                    if standing(item, task_name, proposal) in standings:
+                        listed.append((item, task_name, proposal))
+        return listed
+
     def get_lamella_by_name(self, name: str) -> Optional["Lamella"]:
         """Return the Lamella with the given name, or None if not found."""
         return next((p for p in self.positions if p.name == name), None)
@@ -1596,6 +2864,14 @@ class Experiment:
         """
         return Path(self.path) / "grids" / grid.name
 
+    def item_path(self, item: Union["Lamella", GridRecord]) -> Path:
+        """The directory an item's recorded outputs are relative to: a lamella's
+        own ``path``, a grid's ``grid_path``. Derived for a grid rather than
+        stored on its record, which is renamed in place."""
+        if isinstance(item, GridRecord):
+            return self.grid_path(item)
+        return Path(item.path)
+
     def get_lamellae_for_grid(self, grid: GridRecord) -> List["Lamella"]:
         """Derived from `Lamella.grid_id`; nothing stores the reverse."""
         return [p for p in self.positions if p.grid_id == grid.id]
@@ -1606,8 +2882,14 @@ class Experiment:
     def save(self, save_protocol: bool = False) -> None:
         """Save the sample data to yaml file"""
 
+        with EXPERIMENT_WRITE_LOCK:
+            data = self.to_dict()
+        # Serialised in full before the file is opened: dumping straight into it
+        # left a zero-byte experiment.yaml behind the moment the writer met a value
+        # it could not represent, and nothing then loaded.
+        text = yaml.safe_dump(data, indent=4)
         with open(os.path.join(self.path, "experiment.yaml"), "w") as f:
-            yaml.safe_dump(self.to_dict(), f, indent=4)
+            f.write(text)
         if save_protocol:
             self.save_protocol()
 
@@ -1636,6 +2918,9 @@ class Experiment:
         # create experiment from dict
         experiment = Experiment.from_dict(ddict)
         experiment.path = os.path.dirname(fname)
+        # a question the task was waiting on when the app closed: nothing is
+        # waiting on it now
+        experiment.withdraw_what_was_asked("the app closed before it was answered")
 
         # lamella paths are stored as-created, so re-point them at wherever the
         # experiment actually is now. otherwise a moved or copied experiment
@@ -1745,6 +3030,9 @@ class Experiment:
 
                 lamella.task_config[task_name] = new_config
 
+            # The copies still point their images at the source lamella's
+            # folder, or at none from the protocol.
+            lamella._sync_imaging_paths()
             updated_count += 1
             logging.info(
                 f"Applied config from '{source_display_name}' to '{lamella.name}' "
@@ -1929,6 +3217,7 @@ class Experiment:
         task_config: EventedDict[str, AutoLamellaTaskConfig],
         name: Optional[str] = None,
         fluorescence_pose: Optional[MicroscopeState] = None,
+        grid_id: Optional[str] = None,
     ) -> None:
         """Create a new lamella and add it to the experiment.
 
@@ -1941,6 +3230,11 @@ class Experiment:
                 lamella has none. That is not hypothetical: it left each newly marked
                 lamella missing from the FM overview until something else forced a
                 refresh.
+            grid_id: the `GridRecord.id` of the grid this lamella is on, when the
+                caller knows it. On the constructor for the same reason as the
+                pose: anything grouping lamellae by grid reads it on `inserted`.
+                None is "no grid known", which every lamella made before grids
+                existed also carries.
         """
         template = self.task_protocol.lamella_defaults
         number = max((pos.number for pos in self.positions), default=0) + 1
@@ -1954,7 +3248,11 @@ class Experiment:
 
         # create the lamella
         lamella = Lamella(
-            petname=name, path=path, number=number, task_config=deepcopy(task_config)
+            petname=name,
+            path=path,
+            number=number,
+            task_config=deepcopy(task_config),
+            grid_id=grid_id,
         )
         if template.alignment_area is not None:
             lamella.alignment_area = deepcopy(template.alignment_area)
@@ -2034,7 +3332,7 @@ class Experiment:
                 "order": i,
                 "task_name": t.name,
                 "required": t.required,
-                "supervised": t.supervise,
+                "attention": t.attention.value,
             }
             wlist.append(deepcopy(ddict))
 

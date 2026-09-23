@@ -1,7 +1,7 @@
 import logging
 import os
 import threading
-from typing import List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
@@ -53,6 +53,10 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueComboBox,
 )
+
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.fm.progress import FluorescenceAcquisitionProgress
 
 
 class FMControlWidget(QWidget):

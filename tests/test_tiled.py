@@ -546,6 +546,94 @@ def test_no_centre_means_wherever_the_stage_is(tmp_path):
     assert runner._tile_stage_positions[0].x == pytest.approx(here.x, abs=1e-9)
 
 
+def _contrast_calls(tmp_path, mode, centre=None):
+    """Run a 2 x 2 on the simulator and record every autocontrast: beam, area,
+    where the stage was, and how many tiles had been acquired by then."""
+    from fibsem import utils
+    from fibsem.structures import BeamType
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    calls, acquired = [], []
+    original_acquire = microscope.acquire_image
+
+    def record(beam_type, reduced_area=None):
+        calls.append(
+            (beam_type, reduced_area, microscope.get_stage_position(), len(acquired))
+        )
+
+    def acquire(*args, **kwargs):
+        image = original_acquire(*args, **kwargs)
+        acquired.append(image)
+        return image
+
+    microscope.autocontrast = record
+    microscope.acquire_image = acquire
+    settings = _make_settings(2, 2, resolution=(128, 128))
+    settings.autocontrast_mode = mode
+    settings.image_settings.autocontrast = True  # the flag is not the switch
+    settings.image_settings.beam_type = BeamType.ION
+    settings.image_settings.path = str(tmp_path)
+    settings.image_settings.filename = "overview-image"
+    TiledAcquisitionRunner(microscope, settings, centre_position=centre).run()
+    return calls, settings
+
+
+def test_auto_contrast_once_is_set_at_the_grid_centre_before_the_tiles(tmp_path):
+    """ONCE: one detector setting for the whole mosaic, at the centre (a
+    typewriter order starts in a corner), on the centred half-frame, before any
+    tile. The per-image flag is driven by the mode, not the other way round."""
+    from fibsem.structures import AutoContrastMode, BeamType
+
+    centre = FibsemStagePosition(x=1e-3, y=-2e-3, z=4e-3, r=0.0, t=0.0)
+    calls, settings = _contrast_calls(tmp_path, AutoContrastMode.ONCE, centre)
+    assert len(calls) == 1
+    beam, area, where, acquired_before = calls[0]
+    assert beam is BeamType.ION and acquired_before == 0
+    assert (area.left, area.top, area.width, area.height) == (0.25, 0.25, 0.5, 0.5)
+    assert where.x == pytest.approx(centre.x, abs=1e-6)
+    assert where.y == pytest.approx(centre.y, abs=1e-6)
+    assert settings.image_settings.autocontrast is False
+
+
+def test_auto_contrast_each_tile_is_what_the_flag_means_for_any_image(tmp_path):
+    from fibsem.structures import AutoContrastMode, BeamType
+
+    calls, settings = _contrast_calls(tmp_path, AutoContrastMode.EACH_TILE)
+    assert [c[0] for c in calls] == [BeamType.ION] * 4
+    assert [c[3] for c in calls] == [0, 1, 2, 3]  # one before each tile
+    assert settings.image_settings.autocontrast is True
+
+
+def test_auto_contrast_none_sets_nothing_whatever_the_flag_says(tmp_path):
+    from fibsem.structures import AutoContrastMode
+
+    calls, settings = _contrast_calls(tmp_path, AutoContrastMode.NONE)
+    assert calls == [] and settings.image_settings.autocontrast is False
+
+
+def test_an_old_file_that_ticked_auto_contrast_reads_as_once():
+    """Before the mode, the overview settings carried only the per-image flag,
+    and the runner ignored it. A ticked box meant the mosaic: ONCE."""
+    from fibsem.structures import AutoContrastMode
+
+    old = _make_settings(2, 2).to_dict()
+    old.pop("autocontrast_mode")
+    old["image_settings"]["autocontrast"] = True
+    assert (
+        OverviewAcquisitionSettings.from_dict(old).autocontrast_mode
+        is AutoContrastMode.ONCE
+    )
+    old["image_settings"]["autocontrast"] = False
+    assert (
+        OverviewAcquisitionSettings.from_dict(old).autocontrast_mode
+        is AutoContrastMode.NONE
+    )
+    s = _make_settings(2, 2)
+    s.autocontrast_mode = AutoContrastMode.EACH_TILE
+    restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
+    assert restored.autocontrast_mode is AutoContrastMode.EACH_TILE
+
+
 def test_a_run_with_no_tiles_is_refused_before_it_starts(tmp_path):
     """Left to run it walked zero tiles, emitted a *successful* terminal payload,
     restored the stage, and only then died in `_stitch` with "No tiles were acquired"
@@ -800,6 +888,29 @@ def _autofocus_runner(mode, settings=None, af_result="sentinel"):
         return af_result
 
     return runner, calls, _fake_run_auto_focus
+
+
+def test_the_sweep_scores_the_centred_half_frame_unless_told_otherwise(tmp_path):
+    """The Image tab's Auto Focus scores the middle half of the frame; the overview's
+    sweep scored the whole tile, seams and all, and read as soft tiles. The default
+    is filled on the runner's copy: the caller's settings stay as they were, and an
+    area the settings do name is kept."""
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+    from fibsem.structures import AutoFocusMode, FibsemRectangle
+
+    settings = _make_settings(1, 1)
+    settings.autofocus_mode = AutoFocusMode.ONCE
+    runner, _ = _demo_runner(settings, tmp_path)
+    area = runner._af_settings.reduced_area
+    assert (area.left, area.top, area.width, area.height) == (0.25, 0.25, 0.5, 0.5)
+    assert settings.autofocus_settings.reduced_area is None
+    assert runner._af_settings.passes == settings.autofocus_settings.passes
+
+    named = FibsemRectangle(left=0.1, top=0.1, width=0.3, height=0.3)
+    settings = _make_settings(1, 1)
+    settings.autofocus_settings = AutoFocusSettings(reduced_area=named)
+    runner, _ = _demo_runner(settings, tmp_path)
+    assert runner._af_settings.reduced_area is named
 
 
 def test_the_sweep_is_given_the_tiles_own_field_of_view(monkeypatch):

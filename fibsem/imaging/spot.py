@@ -26,7 +26,7 @@ class SpotBurnSettings:
     """
 
     coordinates: List[Point] = field(default_factory=list)
-    milling_current: float = 60e-12  # amperes
+    milling_current: float = 100e-12  # amperes
     exposure_time: float = 10.0  # seconds
 
     def to_dict(self) -> dict:
@@ -40,7 +40,7 @@ class SpotBurnSettings:
     def from_dict(cls, ddict: dict) -> "SpotBurnSettings":
         return cls(
             coordinates=[Point.from_dict(pt) for pt in ddict.get("coordinates", [])],
-            milling_current=ddict.get("milling_current", 60e-12),
+            milling_current=ddict.get("milling_current", 100e-12),
             exposure_time=ddict.get("exposure_time", 10.0),
         )
 

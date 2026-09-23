@@ -375,6 +375,7 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
     from psygnal.containers import EventedDict
 
     from fibsem.applications.autolamella.structures import (
+        Attention,
         AutoLamellaTaskDescription,
         AutoLamellaTaskProtocol,
         Experiment,
@@ -384,7 +385,9 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
     experiment = Experiment(path="/tmp/agent-start", name="agent-start")
     experiment.task_protocol = AutoLamellaTaskProtocol()
     experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name="Mill Fiducial", supervise=True, required=True)
+        AutoLamellaTaskDescription(
+            name="Mill Fiducial", attention=Attention.supervised, required=True
+        )
     )
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
     ui.experiment = experiment

@@ -20,6 +20,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence
 
+from fibsem.applications.autolamella.structures import Attention
+from fibsem.applications.autolamella.workflows.tasks.attendance import (
+    attendance_for,
+    run_attendance,
+)
+
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
@@ -35,6 +41,9 @@ class TaskEstimate:
     supervised: bool
     scheduled_at: Optional[datetime] = None
     hold_seconds: float = 0.0
+    # what the task needs from a person, said in a line (attendance.py); ""
+    # when its type is not known to this build
+    attendance: str = ""
     """How long the workflow waits before this task, for its own schedule.
 
     Per task rather than only in the total: with two scheduled tasks, quoting the
@@ -58,6 +67,8 @@ class WorkflowEstimate:
     hold_seconds: float = 0.0
     started_at: Optional[datetime] = None
     expected_finish: Optional[datetime] = None
+    # the pre-run sentence: which tasks need a person present
+    attendance_summary: str = ""
 
     @property
     def supervised_tasks(self) -> List[TaskEstimate]:
@@ -77,6 +88,19 @@ class WorkflowEstimate:
     @property
     def waits_for_a_human(self) -> bool:
         return any(t.supervised for t in self.tasks)
+
+
+def _review_on() -> bool:
+    """Whether the Review workflow is on: with it off nothing waits on a
+    decision afterwards, and the attendance lines say so."""
+    import fibsem.config as fibsem_cfg
+
+    try:
+        return bool(
+            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
+        )
+    except Exception:
+        return False
 
 
 def _as_naive_local(when: Optional[datetime]) -> Optional[datetime]:
@@ -120,6 +144,7 @@ def estimate_workflow(
     started_at = clock
 
     workflow_config = experiment.task_protocol.workflow_config
+    review_on = _review_on()
     lamellae = [lam for lam in experiment.positions if lam.name in set(lamella_names)]
 
     rows: List[TaskEstimate] = []
@@ -145,14 +170,18 @@ def estimate_workflow(
         clock += timedelta(seconds=seconds)
         work_seconds += seconds
 
+        att = attendance_for(experiment.task_protocol, task_name, review_on)
         rows.append(
             TaskEstimate(
                 name=task_name,
                 lamella_count=count,
                 seconds=seconds,
-                supervised=workflow_config.get_supervision(task_name),
+                supervised=(
+                    workflow_config.get_attention(task_name) is Attention.supervised
+                ),
                 scheduled_at=scheduled_at,
                 hold_seconds=held,
+                attendance=att.line if att is not None else "",
             )
         )
 
@@ -161,6 +190,9 @@ def estimate_workflow(
         lamella_names=list(lamella_names),
         work_seconds=work_seconds,
         hold_seconds=hold_seconds,
+        attendance_summary=run_attendance(
+            experiment.task_protocol, list(task_names), review_on
+        ),
         started_at=started_at,
         expected_finish=clock,
     )

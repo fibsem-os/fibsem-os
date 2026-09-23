@@ -4,6 +4,7 @@ Shared formatting helpers for task summary / task history tables.
 Used by both TaskHistoryTableWidget (full experiment history) and
 WorkflowSummaryDialog (per-run summary) so the two stay visually consistent.
 """
+
 from typing import Callable, List, Optional
 
 import pandas as pd
@@ -12,6 +13,7 @@ from fibsem.ui.tokens import (
     ACCENT_COLOR,
     ERROR_COLOR,
     OK_COLOR,
+    ORANGE_COLOR,
     TEXT_MUTED_COLOR,
     WARN_COLOR,
 )
@@ -42,7 +44,19 @@ STATUS_COLORS = {
     "Skipped": "gray",
     "InProgress": "cyan",
     "Cancelled": "orange",
+    "AwaitingDecision": "orange",
 }
+
+# How a status name reads to a person; anything not listed reads as its name.
+STATUS_LABELS = {
+    "InProgress": "in progress",
+    "AwaitingDecision": "awaiting decision",
+}
+
+
+def status_label(status: str) -> str:
+    return STATUS_LABELS.get(status, status.lower())
+
 
 # Semantic badge colours (matching the fibsem.ui.stylesheets palette) used by
 # the workflow summary dialog: status -> (dot/strong colour, muted text colour).
@@ -52,6 +66,9 @@ STATUS_BADGE_COLORS = {
     "Skipped": (TEXT_MUTED_COLOR, "#aeb4b9"),
     "InProgress": (ACCENT_COLOR, "#9cc7f5"),
     "Cancelled": (WARN_COLOR, "#e8c37f"),  # amber: user-aborted, not an error
+    # orange: the border's colour for "waiting on you" -- the run is over, the
+    # task is not finished until someone decides in the Review tab
+    "AwaitingDecision": (ORANGE_COLOR, "#f2b56b"),
 }
 
 # Status order for count chips (these three are always shown, even at zero)
@@ -71,8 +88,9 @@ def format_duration_short(seconds) -> str:
         return str(seconds)
 
 
-def prepare_summary_dataframe(df: Optional[pd.DataFrame],
-                              columns: Optional[List[str]] = None) -> Optional[pd.DataFrame]:
+def prepare_summary_dataframe(
+    df: Optional[pd.DataFrame], columns: Optional[List[str]] = None
+) -> Optional[pd.DataFrame]:
     """Select summary columns, format the duration column, and rename to display titles.
 
     Args:
@@ -103,6 +121,7 @@ def make_status_cell_formatter(df: pd.DataFrame) -> Callable[[int, int, object],
     The dataframe passed here must already use display titles (i.e. have a
     'Status' column), as produced by prepare_summary_dataframe.
     """
+
     def format_cell(row_idx: int, col_idx: int, value) -> dict:
         format_dict: dict = {}
         if "Status" in df.columns:

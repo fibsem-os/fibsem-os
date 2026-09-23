@@ -174,3 +174,95 @@ def test_scrub_text_redacts_other_user_paths(text):
     for name in ("bob", "alice", "carol"):
         assert name not in scrubbed
     assert "<user>" in scrubbed
+
+
+# --- submitting: URL budgets and honest failure reporting ---------------
+
+
+def _body_of(url):
+    """The decoded ``body`` parameter of a prefilled issue URL."""
+    from urllib.parse import parse_qs, urlparse
+
+    return parse_qs(urlparse(url).query)["body"][0]
+
+
+def _capture_url(monkeypatch, opened=True):
+    """Record the URL handed to the browser, and control whether it 'opened'."""
+    seen = {}
+
+    def fake_open(url, *args, **kwargs):
+        seen["url"] = url
+        return opened
+
+    monkeypatch.setattr(bug_report.webbrowser, "open", fake_open)
+    return seen
+
+
+def _crash_content():
+    """A crash report: the description carries a full traceback."""
+    traceback_text = "\n".join(
+        f'  File "/opt/fibsem/module_{i}.py", line {i}, in some_function_name_{i}'
+        for i in range(200)
+    )
+    return BugReportContent(
+        title="Milling crashed part-way through a trench",
+        description=f"An unexpected error occurred:\n\n{traceback_text}",
+        steps="1. start a run\n2. wait",
+        severity="Crash",
+        system_context={"fibsem_version": "0.6.0", "platform": "Windows-10"},
+    )
+
+
+def test_github_url_stays_within_budget(monkeypatch):
+    seen = _capture_url(monkeypatch)
+
+    result = bug_report.open_github_issue(_crash_content())
+
+    assert len(seen["url"]) <= bug_report.GITHUB_MAX_URL_LENGTH
+    assert result.truncated
+    # the untrimmed body is handed back for the clipboard
+    assert len(result.full_text) > len(seen["url"])
+
+
+def test_short_reports_are_not_truncated(monkeypatch):
+    seen = _capture_url(monkeypatch)
+    content = BugReportContent(title="t", description="it broke", severity="Normal")
+
+    result = bug_report.open_github_issue(content)
+
+    assert not result.truncated
+    assert "it broke" in _body_of(seen["url"])
+
+
+def test_github_reports_a_false_return(monkeypatch):
+    """A browser that declines to open is not a submitted report."""
+    _capture_url(monkeypatch, opened=False)
+    result = bug_report.open_github_issue(BugReportContent(title="t", description="d"))
+    assert result.opened is False
+
+
+def test_github_reports_when_no_browser_opened(monkeypatch):
+    monkeypatch.setattr(
+        bug_report.webbrowser, "open", lambda *a, **k: (_ for _ in ()).throw(OSError())
+    )
+    result = bug_report.open_github_issue(BugReportContent(title="t", description="d"))
+    assert result.opened is False
+    assert "Steps to reproduce" in result.full_text
+
+
+def test_clip_at_line_prefers_a_line_boundary():
+    text = "aaaa\nbbbb\ncccc\ndddd"
+    assert bug_report._clip_at_line(text, 12) == "aaaa\nbbbb"
+    # a single long line has no boundary to fall back to: hard cut, not empty
+    assert bug_report._clip_at_line("x" * 100, 10) == "x" * 10
+
+
+def test_a_runaway_title_still_leaves_room_for_the_body(monkeypatch):
+    """A pasted traceback in the title must not starve the report body."""
+    seen = _capture_url(monkeypatch)
+    content = BugReportContent(title="T" * 5000, description="the trench collapsed")
+
+    bug_report.open_github_issue(content)
+
+    assert len(seen["url"]) <= bug_report.GITHUB_MAX_URL_LENGTH
+    assert "the trench collapsed" in _body_of(seen["url"])

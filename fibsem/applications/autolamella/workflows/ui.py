@@ -11,6 +11,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     ConfirmDetection,
     EditAlignmentArea,
     PickPOI,
+    ReviewDetection,
     SetImages,
     ask,
 )
@@ -101,6 +102,52 @@ def update_detection_ui(
     return det
 
 
+def review_detection_ui(
+    microscope: FibsemMicroscope,
+    image_settings: ImageSettings,
+    checkpoint: str,
+    features: Sequence[Feature],
+    item_id: str,
+    task_name: str,
+    parent_ui: Optional["AutoLamellaUI"] = None,
+    validate: bool = True,
+    msg: str = "Lamella",
+    position: Optional[FibsemStagePosition] = None,
+) -> DetectedFeatures:
+    """``update_detection_ui``, asked so that it can go on the item's record.
+
+    The second version, beside the first rather than in place of it: nothing in
+    the workflow calls this yet. It differs in one thing -- it says which item
+    and task are asking (``ReviewDetection``), so that with interactive review
+    on the question is recorded as a proposal, holds the run, and is corrected
+    and confirmed in the Review tab (FIB-1025). Wherever it cannot be recorded
+    it is the same Detection tab prompt ``update_detection_ui`` puts up, and
+    unsupervised it does exactly what that does.
+    """
+    feat_str = ", ".join([f.name for f in features])
+    if len(feat_str) > 15:
+        feat_str = feat_str[:15] + "..."
+    update_status_ui(parent_ui, f"{msg}: Detecting Features ({feat_str})...")
+
+    det = detection.take_image_and_detect_features(
+        microscope=microscope,
+        image_settings=image_settings,
+        features=features,
+        point=position,
+        checkpoint=checkpoint,
+    )
+
+    if validate and parent_ui is not None:
+        det = ask(
+            parent_ui.ui_responder,
+            ReviewDetection(detection=det, item_id=item_id, task_name=task_name),
+            abort=lambda: _abort_requested(parent_ui),
+        )
+    else:
+        det_utils.save_ml_feature_data(det)
+    return det
+
+
 def set_images_ui(
     parent_ui: Optional["AutoLamellaUI"],
     eb_image: Optional[FibsemImage] = None,
@@ -131,7 +178,7 @@ def set_images_ui(
 
 def update_status_ui(
     parent_ui: Optional["AutoLamellaUI"],
-    msg: str,
+    msg: Optional[str],
     workflow_info: Optional[str] = None,
     status_bar: Optional[str] = None,
     check_abort: bool = True,
@@ -165,7 +212,7 @@ def update_status_ui(
 
 def ask_user(
     parent_ui: Optional["AutoLamellaUI"],
-    msg: str,
+    msg: Optional[str],
     pos: str,
     neg: Optional[str] = None,
 ) -> bool:

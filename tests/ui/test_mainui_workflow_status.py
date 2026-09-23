@@ -32,6 +32,8 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.status import (
+    Hold,
+    HoldKind,
     WorkflowStatusUpdate,
 )
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
@@ -151,13 +153,49 @@ def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
         WorkflowStatusEvent,
     )
 
-    main_ui.autolamella_ui.WAITING_FOR_USER_INTERACTION = True
+    main_ui.autolamella_ui.hold = Hold(
+        HoldKind.question, "answer the question on the Microscope tab"
+    )
     main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
     assert main_ui.user_attention_btn.isVisibleTo(main_ui)
 
-    main_ui.autolamella_ui.WAITING_FOR_USER_INTERACTION = False
+    main_ui.autolamella_ui.hold = None
     main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
     assert not main_ui.user_attention_btn.isVisibleTo(main_ui)
+
+
+def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
+    main_ui,
+):
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
+
+    ui = main_ui.autolamella_ui
+    ui.hold = Hold(
+        HoldKind.decision,
+        "decide 01-a and 02-b in the Review tab",
+        ("01-a/Setup", "02-b/Setup"),
+    )
+    ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert main_ui.user_attention_btn.isVisibleTo(main_ui)
+    assert main_ui.user_attention_btn.text() == "Review Required (2)"
+    assert "decide 01-a and 02-b" in main_ui.user_attention_btn.toolTip()
+    assert main_ui._border_state == "waiting"
+    main_ui.user_attention_btn.click()
+    assert main_ui.tab_widget.currentWidget() is main_ui.review_tab
+
+    ui.hold = None
+    ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert not main_ui.user_attention_btn.isVisibleTo(main_ui)
+
+    # a question at the beam has its own destination
+    ui.hold = Hold(HoldKind.question, "answer the question on the Microscope tab")
+    ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert main_ui.user_attention_btn.text() == "Attention Required"
+    main_ui.user_attention_btn.click()
+    assert main_ui.tab_widget.currentIndex() == 0
+    ui.hold = None
 
 
 # --- spot burn progress ----------------------------------------------------
@@ -215,3 +253,80 @@ def test_an_event_without_status_bar_text_leaves_the_bar_alone(main_ui):
     )
 
     assert main_ui.status_bar.currentMessage() == "previous message"
+
+
+def test_the_review_badge_counts_to_check_apart_from_waiting(main_ui):
+    """Only waiting means the run is stalled on someone; a pile of things to
+    check is a different number, and the border does not follow it."""
+    tab_widget = main_ui.tab_widget
+    index = tab_widget.indexOf(main_ui.review_tab)
+    main_ui.review_tab.counts_changed.emit(3, 2)
+    assert tab_widget.tabText(index) == "Review (3 · 2 to check)"
+    main_ui.review_tab.counts_changed.emit(0, 2)
+    assert tab_widget.tabText(index) == "Review (2 to check)"
+    assert main_ui._border_state != "waiting"
+    main_ui.review_tab.counts_changed.emit(1, 0)
+    assert tab_widget.tabText(index) == "Review (1)"
+    main_ui.review_tab.counts_changed.emit(0, 0)
+    assert tab_widget.tabText(index) == "Review"
+
+
+def test_go_to_lamella_selects_it_where_it_is_edited(main_ui, tmp_path):
+    """Editing is not a review action: the Review tab hands the lamella over
+    to the tab where its settings live, selected."""
+    from psygnal.containers import EventedDict
+
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskProtocol,
+        Experiment,
+    )
+    from fibsem.structures import MicroscopeState
+
+    ui = main_ui.autolamella_ui
+    exp = Experiment(path=tmp_path, name="goto-exp")
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    exp.add_new_lamella(MicroscopeState(), EventedDict({}))
+    ui.experiment = exp
+    main_ui._rebuild_lamella_list()
+    lamella = exp.positions[0]
+    main_ui.review_tab.open_item_requested.emit(lamella)
+    assert main_ui.tab_widget.currentWidget() is main_ui._lamella_tab_container
+    assert main_ui.lamella_card_container._selected_id == lamella.id
+
+
+def test_go_to_grid_selects_it_on_the_grids_tab(main_ui, tmp_path):
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskProtocol,
+        Experiment,
+        GridRecord,
+    )
+
+    ui = main_ui.autolamella_ui
+    exp = Experiment(path=tmp_path, name="goto-grid-exp")
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    grid = exp.add_grid(GridRecord(name="Grid-01"))
+    ui.experiment = exp
+    main_ui._on_experiment_update()
+    heard = []
+    main_ui.grids_tab.grid_selected.connect(heard.append)
+
+    main_ui.review_tab.open_item_requested.emit(grid)
+
+    assert main_ui.tab_widget.currentWidget() is main_ui.grids_tab
+    assert main_ui.grids_tab.selected_grid is grid
+    assert heard == [grid], "Results and the host follow, as on a click"
+
+
+def test_the_lamella_sub_tab_is_called_history_not_review(main_ui):
+    """One thing in the window is called Review: the main tab where decisions
+    are made. The lamella's per-task record is History, beside Protocol."""
+    container = main_ui._lamella_tab_container
+    from PyQt5.QtWidgets import QTabWidget
+
+    tabs = container.findChild(QTabWidget)
+    labels = [tabs.tabText(i) for i in range(tabs.count())]
+    assert labels == ["Protocol", "History"]
+    main_labels = [
+        main_ui.tab_widget.tabText(i) for i in range(main_ui.tab_widget.count())
+    ]
+    assert main_labels.count("Review") == 1

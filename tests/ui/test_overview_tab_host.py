@@ -33,11 +33,12 @@ from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     DefectType,
     Experiment,
+    OverlayRecord,
 )
 from fibsem.applications.autolamella.ui.autolamella_overview_tab import (  # noqa: E402
     AutoLamellaOverviewTab,
 )
-from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -80,10 +81,12 @@ class _StubWindow:
         self.microscope = microscope
         self.experiment = experiment
         self.added = []
+        self.kwargs = []
 
     def add_new_lamella(self, stage_position=None, **kwargs):
         """A real `Lamella` with real poses, so the property setters behave as they do
         live -- `stage_position` is a property over the milling pose, not a field."""
+        self.kwargs.append(dict(kwargs))
         from fibsem.applications.autolamella.poses import (
             MILLING_ORIENTATION,
             build_lamella_poses,
@@ -596,3 +599,473 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         assert beam.overview._may_move() is False
         fluorescence._drop_overview()
         assert beam.overview._may_move() is True
+
+
+class TestALamellaMarkedOnAGridOverviewBelongsToThatGrid:
+    def _grid_overview(self, microscope, grid):
+        from fibsem.structures import ImageSettings
+
+        image = FibsemImage.generate_blank_image(resolution=(64, 64), hfw=100e-6)
+        state = microscope.get_microscope_state(beam_type=BeamType.ELECTRON)
+        state.stage_position = microscope.get_stage_position()
+        image.metadata.image_settings = ImageSettings(
+            hfw=100e-6, beam_type=BeamType.ELECTRON
+        )
+        image.metadata.microscope_state = state
+        image.metadata.system_info = microscope.system.info
+        image.metadata.hardware_geometry = microscope.hardware_geometry()
+        image.metadata.experiment.item_id = grid.id
+        image.metadata.experiment.item_name = grid.name
+        return image
+
+    def test_the_overview_grid_is_passed_and_bare_canvas_is_not(self, tab, microscope):
+        from fibsem.applications.autolamella.structures import GridRecord
+
+        experiment = tab.experiment
+        birch = experiment.add_grid(GridRecord(name="grid-birch"))
+        record_id = tab.overview.set_image(self._grid_overview(microscope, birch))
+        position = microscope.get_stage_position()
+        tab._on_add_requested(position, record_id)
+        tab._on_add_requested(position, None)
+        tab._on_add_requested(position, "no-such-record")
+        host = tab.autolamella_ui
+        assert [k.get("grid_id") for k in host.kwargs] == [birch.id, None, None]
+
+
+class TestItMarksOnlyWhatIsOnTheStage:
+    """This canvas is the stage. A lamella whose grid is in the magazine is not
+    on it, so its marker is withheld until the grid is loaded (FIB-71). An
+    unlinked lamella is drawn as ever; the list still names them all."""
+
+    def test_a_lamella_on_a_grid_in_the_magazine_is_not_marked(self, tab, microscope):
+        stage = microscope._stage
+        experiment = tab.experiment
+        experiment.sync_grids_from_inventory(stage)
+        two = experiment.get_grid_by_name("Grid-02")
+        assert stage.loaded_grids == []
+
+        on_two = _lamella(tab, microscope, dx=50e-6)
+        on_two.grid_id = two.id
+        free = _lamella(tab, microscope, dx=-50e-6)
+        try:
+            tab.refresh_positions()
+            assert [p.name for p in tab.overview._positions] == [free.name]
+            assert tab.lamella_list._list.count() == 2
+
+            stage.ensure_loaded("Grid-02")
+            tab.refresh_positions()
+            assert sorted(p.name for p in tab.overview._positions) == sorted(
+                [on_two.name, free.name]
+            )
+
+            stage.unload()
+            tab.refresh_positions()
+            assert [p.name for p in tab.overview._positions] == [free.name]
+        finally:
+            if stage.loaded_grids:
+                stage.unload()
+
+
+class TestTheGridBarPlacementIsKeptOnTheGrid:
+    """Dragged bars are a fact about a grid, and a fact about a grid belongs in its
+    record: placed once, they are where they were left when the experiment is
+    opened again, and they go with the grid (FIB-1030)."""
+
+    @staticmethod
+    def _load_a_grid(tab, microscope):
+        stage = microscope._stage
+        tab.experiment.sync_grids_from_inventory(stage)
+        stage.ensure_loaded("Grid-02")
+        return tab.experiment.get_grid_by_name("Grid-02")
+
+    def test_the_tab_knows_the_grid_under_the_stage(self, tab, microscope):
+        stage = microscope._stage
+        assert tab.current_grid is None, "nothing is loaded yet"
+        grid = self._load_a_grid(tab, microscope)
+        try:
+            assert tab.current_grid is grid
+        finally:
+            stage.unload()
+
+    def test_a_drag_writes_the_placement_to_the_grid_and_to_disk(self, tab, microscope):
+        import yaml
+
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        try:
+            tab.overview.overlay_controls.set_visible("gridbars", True)
+            tab.overview.set_gridbar_pitch(1.3e-4, 2.5e-5)
+            tab.overview.set_gridbar_placement(3e-6, -4e-6, 12.0)
+
+            tab.overview.gridbar_overlay.drag_finished.emit()
+
+            record = grid.overlay_of("gridbar")
+            assert record is not None
+            assert (record.dx, record.dy, record.rotation) == (3e-6, -4e-6, 12.0)
+            assert (record.pitch, record.bar_width) == (
+                pytest.approx(1.3e-4),
+                pytest.approx(2.5e-5),
+            )
+            with open(os.path.join(str(tab.experiment.path), "experiment.yaml")) as f:
+                on_disk = yaml.safe_load(f)
+            saved = next(g for g in on_disk["grids"] if g["name"] == "Grid-02")
+            assert saved["overlays"][0]["rotation"] == 12.0
+        finally:
+            stage.unload()
+
+    def test_reset_and_an_edited_pitch_are_kept_too(self, tab, microscope):
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        try:
+            tab.overview.overlay_controls.set_visible("gridbars", True)
+            tab.overview.set_gridbar_placement(3e-6, -4e-6, 12.0)
+            tab.overview.btn_reset_gridbars.click()
+            record = grid.overlay_of("gridbar")
+            assert (record.dx, record.dy, record.rotation) == (0.0, 0.0, 0.0)
+
+            tab.overview.spin_gridbar_spacing.setValue(90.0)
+            tab.overview.spin_gridbar_spacing.editingFinished.emit()
+            assert grid.overlay_of("gridbar").pitch == pytest.approx(90e-6)
+        finally:
+            stage.unload()
+
+    def test_opening_the_experiment_again_puts_the_bars_back(
+        self, tab, microscope, tmp_path
+    ):
+        stage = microscope._stage
+        self._load_a_grid(tab, microscope)
+        try:
+            tab.overview.overlay_controls.set_visible("gridbars", True)
+            tab.overview.set_gridbar_pitch(1.3e-4, 2.5e-5)
+            tab.overview.set_gridbar_placement(3e-6, -4e-6, 12.0)
+            tab.overview.gridbar_overlay.drag_finished.emit()
+
+            reopened = Experiment.load(
+                os.path.join(str(tab.experiment.path), "experiment.yaml")
+            )
+            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again.refresh_microscope()
+            try:
+                assert again.overview.gridbar_placement == (3e-6, -4e-6, 12.0)
+                assert again.overview.gridbar_pitch == (
+                    pytest.approx(1.3e-4),
+                    pytest.approx(2.5e-5),
+                )
+                assert again.overview.overlay_controls.is_visible("gridbars")
+            finally:
+                again._drop_overview()
+        finally:
+            stage.unload()
+
+    def test_restoring_does_not_write_back(self, tab, microscope):
+        """The widget's setters do not announce, so a restore is a read: an
+        experiment opened and closed is byte-for-byte what it was."""
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        try:
+            grid.set_overlay(
+                OverlayRecord(kind="gridbar", dx=1e-6, dy=2e-6, rotation=3.0)
+            )
+            saves = []
+            real = tab.experiment.save
+            tab.experiment.save = lambda *a, **k: saves.append(True) or real(*a, **k)
+
+            tab.refresh_experiment()
+
+            assert tab.overview.gridbar_placement == (1e-6, 2e-6, 3.0)
+            assert saves == []
+        finally:
+            tab.experiment.save = real
+            stage.unload()
+
+    def test_loading_the_grid_after_opening_still_brings_its_bars(
+        self, tab, microscope
+    ):
+        """The slot is empty when the experiment is opened -- a relaunch, or a
+        loader that brings the grid in afterwards -- and the window refreshes
+        the tab's positions on every load. That refresh restores."""
+        stage = microscope._stage
+        tab.experiment.sync_grids_from_inventory(stage)
+        grid = tab.experiment.get_grid_by_name("Grid-02")
+        grid.set_overlay(OverlayRecord(kind="gridbar", dx=1e-6, dy=2e-6, rotation=3.0))
+        try:
+            tab.refresh_experiment()
+            assert tab.overview.gridbar_placement == (0.0, 0.0, 0.0)
+
+            stage.ensure_loaded("Grid-02")
+            tab.refresh_positions()
+
+            assert tab.overview.gridbar_placement == (1e-6, 2e-6, 3.0)
+        finally:
+            stage.unload()
+
+    def test_a_refresh_with_the_same_grid_leaves_a_hand_placement_alone(
+        self, tab, microscope
+    ):
+        """Positions refresh on every lamella change; that must not put bars being
+        dragged back to what was saved."""
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        grid.set_overlay(OverlayRecord(kind="gridbar", dx=1e-6, dy=2e-6, rotation=3.0))
+        try:
+            tab.refresh_experiment()
+            tab.overview.set_gridbar_placement(9e-6, 8e-6, 7.0)
+
+            tab.refresh_positions()
+
+            assert tab.overview.gridbar_placement == (9e-6, 8e-6, 7.0)
+        finally:
+            stage.unload()
+
+    def test_with_no_grid_under_the_stage_a_drag_is_not_kept(self, tab, microscope):
+        assert microscope._stage.loaded_grids == []
+        tab.overview.set_gridbar_placement(3e-6, -4e-6, 12.0)
+        tab.overview.gridbar_overlay.drag_finished.emit()  # must not raise
+        assert all(not g.overlays for g in tab.experiment.grids)
+
+
+class TestAnAlignedImageIsKeptOnTheGrid:
+    """A fluorescence image aligned over a grid's overview is a fact about that grid:
+    its file is copied into the grid's folder, its placement recorded, and both come
+    back when the experiment is opened again (FIB-1030)."""
+
+    @staticmethod
+    def _load_a_grid(tab, microscope):
+        stage = microscope._stage
+        tab.experiment.sync_grids_from_inventory(stage)
+        stage.ensure_loaded("Grid-02")
+        return tab.experiment.get_grid_by_name("Grid-02")
+
+    @staticmethod
+    def _fm_file(microscope, folder):
+        import numpy as np
+
+        from fibsem.fm.structures import (
+            FluorescenceChannelMetadata,
+            FluorescenceImage,
+            FluorescenceImageMetadata,
+        )
+
+        pose = microscope.get_orientation("FM")
+        image = FluorescenceImage(
+            data=(np.random.default_rng(3).random((1, 1, 32, 32)) * 4000).astype(
+                np.uint16
+            ),
+            metadata=FluorescenceImageMetadata(
+                acquisition_date="2026-09-23T10:00:00",
+                pixel_size_x=1e-6,
+                pixel_size_y=1e-6,
+                stage_position=FibsemStagePosition(
+                    x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t
+                ),
+                channels=[
+                    FluorescenceChannelMetadata(
+                        name="GFP",
+                        excitation_wavelength=488.0,
+                        power=0.5,
+                        exposure_time=0.1,
+                        gain=1.0,
+                        offset=0.0,
+                        color="cyan",
+                    )
+                ],
+            ),
+        )
+        image.metadata.geometry = microscope.fm_image_geometry()
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "fm-overview.ome.tiff")
+        image.save(path)
+        return path
+
+    def _show(self, tab, microscope):
+        from fibsem.structures import ImageSettings
+
+        image = FibsemImage.generate_blank_image(resolution=(64, 64), hfw=100e-6)
+        state = microscope.get_microscope_state(beam_type=BeamType.ELECTRON)
+        state.stage_position = microscope.get_stage_position()
+        image.metadata.image_settings = ImageSettings(
+            hfw=100e-6, beam_type=BeamType.ELECTRON
+        )
+        image.metadata.microscope_state = state
+        image.metadata.system_info = microscope.system.info
+        image.metadata.hardware_geometry = microscope.hardware_geometry()
+        tab.overview.set_image(image)
+
+    def test_a_drag_copies_the_file_in_and_records_the_placement(
+        self, tab, microscope, tmp_path
+    ):
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            key = tab.overview.load_aligned_image(elsewhere)
+            aligned = tab.overview.aligned_images.get(key)
+            tab.overview.aligned_images.set_placement(key, 5e-6, -6e-6, 4.0)
+
+            aligned.overlay.drag_finished.emit()
+
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert record.source == os.path.join(
+                "Aligned Images", "fm-overview.ome.tiff"
+            )
+            assert os.path.isfile(
+                os.path.join(str(tab.experiment.grid_path(grid)), record.source)
+            )
+            assert (record.dx, record.dy, record.rotation) == (5e-6, -6e-6, 4.0)
+            assert aligned.record_id == record.id
+            # A second drag updates the same record rather than adding another.
+            tab.overview.aligned_images.set_placement(key, 1e-6, 0.0, 0.0)
+            aligned.overlay.drag_finished.emit()
+            assert [o.dx for o in grid.overlays if o.kind == "image"] == [1e-6]
+        finally:
+            stage.unload()
+
+    def test_opening_the_experiment_again_lays_the_image_back(
+        self, tab, microscope, tmp_path
+    ):
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            key = tab.overview.load_aligned_image(elsewhere)
+            tab.overview.aligned_images.set_placement(key, 5e-6, -6e-6, 4.0)
+            tab.overview.aligned_images.get(key).overlay.drag_finished.emit()
+
+            reopened = Experiment.load(
+                os.path.join(str(tab.experiment.path), "experiment.yaml")
+            )
+            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again.refresh_microscope()
+            try:
+                self._show(again, microscope)
+                keys = again.overview.aligned_images.keys()
+                assert len(keys) == 1
+                back = again.overview.aligned_images.get(keys[0])
+                assert back.placement == (5e-6, -6e-6, 4.0, 1.0)
+                assert back.record_id == grid.overlays[0].id
+            finally:
+                again._drop_overview()
+        finally:
+            stage.unload()
+
+    def test_a_fit_is_kept_on_the_record(self, tab, microscope, tmp_path):
+        """How the image was placed is part of the record: the pairs and the RMS
+        go with the placement, and a later hand drag clears them."""
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            key = tab.overview.load_aligned_image(elsewhere)
+            images = tab.overview.aligned_images
+            pixels = [(4.0, 4.0), (20.0, 5.0), (10.0, 24.0)]
+            images.set_placement(key, 3e-6, 2e-6, 4.0)
+            targets = [images.pixel_to_canvas(key, *p) for p in pixels]
+            images.set_placement(key, 0.0, 0.0, 0.0)
+
+            images.fit_to_points(key, pixels, targets)
+
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert len(record.fit["pairs"]) == 3
+            assert record.fit["rms"] == pytest.approx(0.0, abs=1e-6)
+            assert (record.dx, record.dy, record.rotation) == pytest.approx(
+                (3e-6, 2e-6, 4.0), rel=1e-6
+            )
+
+            aligned = images.get(key)
+            aligned.overlay.moved.emit(*aligned.overlay.centre)
+            aligned.overlay.drag_finished.emit()
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert record.fit == {}
+        finally:
+            stage.unload()
+
+    def test_removing_the_image_forgets_its_record(self, tab, microscope, tmp_path):
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            key = tab.overview.load_aligned_image(elsewhere)
+            tab.overview.aligned_images.get(key).overlay.drag_finished.emit()
+            assert any(o.kind == "image" for o in grid.overlays)
+
+            tab.overview.aligned_image_panel.btn_remove.click()
+
+            assert not any(o.kind == "image" for o in grid.overlays)
+        finally:
+            stage.unload()
+
+    def test_restoring_does_not_write_back(self, tab, microscope, tmp_path):
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            key = tab.overview.load_aligned_image(elsewhere)
+            tab.overview.aligned_images.get(key).overlay.drag_finished.emit()
+            saves = []
+            real = tab.experiment.save
+            tab.experiment.save = lambda *a, **k: saves.append(True) or real(*a, **k)
+
+            tab.refresh_experiment()
+
+            assert len(tab.overview.aligned_images.keys()) == 1
+            assert saves == []
+        finally:
+            tab.experiment.save = real
+            stage.unload()
+
+    def test_how_it_is_shown_is_kept_and_laid_back(self, tab, microscope, tmp_path):
+        """Opacity, signal only and a channel's colour go on the record once an
+        edit settles, and come back with the image -- without being written back."""
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            overview = tab.overview
+            key = overview.load_aligned_image(elsewhere)
+            overview.aligned_image_panel.check_signal_only.setChecked(False)
+            overview.aligned_image_panel.slider_opacity.setValue(35)
+            overview.aligned_images.get(key).layers[0].color = "magenta"
+            overview._channels_key = key
+            overview._recomposite_shown_channels()
+            overview._flush_display_changes()  # as the settle timer would
+
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert record.display["signal_only"] is False
+            assert record.display["opacity"] == pytest.approx(0.35)
+            assert [c["color"] for c in record.display["channels"]] == ["magenta"]
+            # Kept without a drag, so the file came in with it.
+            assert record.source == os.path.join(
+                "Aligned Images", "fm-overview.ome.tiff"
+            )
+
+            reopened = Experiment.load(
+                os.path.join(str(tab.experiment.path), "experiment.yaml")
+            )
+            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again.refresh_microscope()
+            saves = []
+            real = reopened.save
+            reopened.save = lambda *a, **k: saves.append(True) or real(*a, **k)
+            try:
+                self._show(again, microscope)
+                (back_key,) = again.overview.aligned_images.keys()
+                back = again.overview.aligned_images.get(back_key)
+                assert not back.signal_only
+                assert back.overlay.opacity == pytest.approx(0.35)
+                assert back.layers[0].color == "magenta"
+                panel = again.overview.aligned_image_panel
+                assert panel.slider_opacity.value() == 35
+                assert not panel.check_signal_only.isChecked()
+                again.overview._flush_display_changes()
+                assert saves == []
+            finally:
+                reopened.save = real
+                again._drop_overview()
+        finally:
+            stage.unload()

@@ -139,3 +139,19 @@ def test_the_grids_tab_follows_card_selection(qapp, experiment, grid):
     assert tab.results_widget.grid is grid
     tab.cards._on_card_clicked(grid)
     assert tab.results_widget.grid is None
+
+
+def test_a_row_with_an_image_offers_to_mark_positions_on_it(qapp, experiment, grid):
+    """The hand-off from screening to milling: the row's marker button names the
+    overview to open on the Positions view. An entry with no image offers nothing."""
+    root = experiment.grid_path(grid)
+    widget = GridResultsWidget()
+    widget.set_experiment(experiment)
+    widget.set_grid(grid)
+    rows = {r.state.name + ("" if r.image else "-none"): r for r in widget.rows}
+    assert rows[LOAD_ENTRY_NAME + "-none"].btn_mark is None
+    assert rows["overview_fm-none"].btn_mark is None  # the failed one recorded nothing
+    seen = []
+    widget.mark_requested.connect(lambda g, path: seen.append((g, path)))
+    rows["overview_sem"].btn_mark.click()
+    assert seen == [(grid, str(root / "overview_sem" / "overview.tif"))]

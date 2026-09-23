@@ -37,6 +37,10 @@ class MillPerforationTaskConfig(AutoLamellaTaskConfig):
 class MillPerforationTask(AutoLamellaTask):
     """A milling task that creates perforations in the lamella."""
 
+    # Work at the microscope with the tools, then Continue: the milling
+    # session. What needs a person present when the task is supervised.
+    sessions = ("milling",)
+
     config: MillPerforationTaskConfig
     config_cls: ClassVar[Type[MillPerforationTaskConfig]] = MillPerforationTaskConfig
 

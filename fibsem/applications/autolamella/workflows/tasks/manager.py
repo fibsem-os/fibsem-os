@@ -3,14 +3,18 @@
 import logging
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
+from fibsem import config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue, WorkItem
 from fibsem.applications.autolamella.workflows.tasks.status import (
+    Hold,
+    HoldKind,
     WorkflowStatusEvent,
     WorkflowStatusUpdate,
 )
@@ -19,7 +23,7 @@ from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
-from fibsem.utils import format_time_remaining
+from fibsem.utils import format_duration, format_time_remaining
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -57,6 +61,17 @@ def run_task(
     task.run()
 
 
+def review_enabled() -> bool:
+    """The propose-and-review feature flag, fail-closed: unreadable preferences
+    mean off."""
+    try:
+        return bool(
+            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
+        )
+    except Exception:
+        return False
+
+
 class BaseTaskManager:
     """What running a queue of (item, task) work needs, whatever the item is.
 
@@ -87,6 +102,18 @@ class BaseTaskManager:
         # Built once: the token's identity is captured by every task at construction.
         self._abort_token = AnyStopEvent(self._stop_event, self._task_stop_event)
         self.queue = TaskQueue()
+        # Propose-and-review is a feature flag. Read once per run, here, so a
+        # preference change takes effect on the next Run and never mid-run.
+        # Off: nothing is ever deferred and every task behaves as before.
+        self.review_enabled = review_enabled()
+        # Set by Experiment.decide (via _on_decided) so a run parked on a review
+        # wakes and rescans; cleared at the top of every scan.
+        self._decision_event = threading.Event()
+        # The third way a run ends: not completed, not cancelled -- drained with
+        # work still waiting on a decision, and the wait ran out. Read after the
+        # run by whoever launched it.
+        self.stalled = False
+        self.stall_reason = ""
 
         # Stamp the experiment onto the images this run acquires. Done here rather
         # than only in the UI so a headless run through run_tasks() records it too;
@@ -95,6 +122,283 @@ class BaseTaskManager:
         self.experiment.register_metadata(self.microscope)
 
     # --- Public API ---
+
+    def _on_decided(self, item_id: str, task_name: str) -> None:
+        self._decision_event.set()
+
+    @contextmanager
+    def _recording(self):
+        """The event stream for this run (FIB-1044), the same with or without the
+        GUI: the microscope's own recorder when something keeps one -- the app
+        does, from connecting -- else one made for the run, recording to the
+        experiment, and closed after it however the run ends. Its lifecycle hook
+        is on this run's hook manager for the run, once. Recording never costs
+        the run: a recorder that cannot be made is a run without one."""
+        from fibsem.applications.autolamella.event_recording import (
+            EventRecorder,
+            recorder_for,
+        )
+
+        recorder = recorder_for(self.microscope)
+        made = None
+        if recorder is None:
+            try:
+                made = recorder = EventRecorder(
+                    self.microscope,
+                    experiment_path=self.experiment.path,
+                    experiment=self.experiment,
+                )
+            except Exception:  # noqa: BLE001 - recording must not cost the run
+                logging.warning("This run's events are not recorded.", exc_info=True)
+        hook = recorder.lifecycle_hook if recorder is not None else None
+        if hook is not None:
+            if self.hook_manager is None:
+                self.hook_manager = HookManager()
+            self.hook_manager.register(hook)
+        try:
+            yield
+        finally:
+            if hook is not None:
+                self.hook_manager.unregister(hook)
+            if made is not None:
+                made.close()
+
+    def _review_wait(self) -> Optional[float]:
+        protocol = self.experiment.task_protocol
+        options = getattr(protocol, "options", None)
+        if options is None:
+            return 1800.0
+        return options.review_wait
+
+    def _wait_for_a_decision(self) -> bool:
+        """Nothing is runnable now. Wait for a decision that would change that,
+        or give up.
+
+        True: a decision landed, rescan. False: stop rescanning -- the run was
+        stopped, the wait ran out (``stalled``), or nothing left could ever be
+        unblocked by a decision, which is a bug in the plan rather than a stall
+        and is reported as one.
+        """
+        deferred = self.deferred_items()
+        awaiting = [i for i, reason in deferred if reason == "awaiting_decision"]
+        if not awaiting:
+            self.stalled = True
+            self.stall_reason = (
+                f"{len(deferred)} task(s) cannot run and no decision would change "
+                "that: "
+                + ", ".join(f"{i.item_name}/{i.task_name}" for i, _ in deferred)
+            )
+            logging.error(self.stall_reason)
+            return False
+
+        review_wait = self._review_wait()
+        n = len({i.item_name for i in awaiting})
+        self._set_hold(
+            Hold(
+                kind=HoldKind.decision,
+                releases=f"decide {_named(sorted({i.item_name for i in awaiting}), self.ITEM_NOUN)} "
+                "in the Review tab",
+                items=tuple(f"{i.item_name}/{i.task_name}" for i in awaiting),
+            )
+        )
+        # The one place where "why is nothing happening" is a fair question:
+        # say so, once on the way in and once on the way out.
+        held = ", ".join(f"{i.item_name}/{i.task_name}" for i in awaiting)
+        started = time.monotonic()
+        try:
+            if review_wait is not None and review_wait <= 0:
+                self.stalled = True
+                self.stall_reason = (
+                    f"{n} decision(s) pending; not waiting (review_wait=0)."
+                )
+                logging.info(self.stall_reason)
+                return False
+
+            logging.info(
+                f"Parked: {len(awaiting)} task(s) wait on {n} decision(s) in the "
+                f"Review tab ({held}); "
+                + (
+                    "waiting until one is made."
+                    if review_wait is None
+                    else f"giving up after {format_duration(review_wait)} without one."
+                )
+            )
+            deadline = None if review_wait is None else time.monotonic() + review_wait
+            while not self.is_stopped:
+                timeout = 1.0
+                if deadline is not None:
+                    timeout = min(1.0, deadline - time.monotonic())
+                    if timeout <= 0:
+                        self.stalled = True
+                        self.stall_reason = (
+                            f"Timed out after {format_duration(review_wait)} "
+                            f"waiting for a review: {n} decision(s) still pending."
+                        )
+                        logging.warning(self.stall_reason)
+                        return False
+                if self._decision_event.wait(timeout):
+                    logging.info(
+                        "A decision landed after "
+                        f"{format_duration(time.monotonic() - started)} parked; "
+                        "rescanning the queue."
+                    )
+                    return True
+            logging.info("Stopped while parked on a decision.")
+            return False
+        finally:
+            self._set_hold(None)
+
+    def closing_note(self) -> str:
+        """Why the run ended short of done, and what to do: shown on the
+        workflow label, the status bar and the run summary's headline, so a
+        run that gave up waiting never reads as a finish. Empty otherwise."""
+        if not self.stalled:
+            return ""
+        return f"{self.stall_reason} Decide in the Review tab, then Run again."
+
+    def _set_hold(
+        self,
+        hold: Optional[Hold],
+        note: Optional[str] = None,
+        message: Optional[str] = "",
+    ) -> None:
+        """Tell the window who holds the run (None: nobody), and poke the status
+        channel so the chrome -- border, attention button, status bar --
+        redraws from it, the way a pending question does. ``note`` is the
+        workflow line; by default, the parked-between-tasks one. ``message``
+        is what is said about the prompt bar: "" takes a stale prompt down,
+        which a park between tasks wants; None says nothing about it, which
+        a hold on a question shown *on* that bar needs."""
+        if self.parent_ui is not None:
+            self.parent_ui.hold = hold
+        if hold is not None:
+            n = len(hold.items)
+            update_status_ui(
+                self.parent_ui,
+                message,
+                workflow_info=note
+                or f"Waiting on {n} decision{'s' if n != 1 else ''} before the "
+                "next task can run.",
+                status_bar=f"Waiting on {n} decision{'s' if n != 1 else ''}: "
+                f"{hold.releases}.",
+                check_abort=False,
+            )
+        else:
+            update_status_ui(self.parent_ui, message, status_bar="", check_abort=False)
+
+    @contextmanager
+    def holding_a_question(self, item_name: str, task_name: str):
+        """The run is held on a question a task asked mid-run (``ask``): the
+        task is stopped on its next line until the decision lands in the
+        Review tab. The same hold kind as a park between tasks, because it is
+        released the same way and the attention button goes to the same
+        place; the workflow line says which task is stopped and where.
+
+        Said on the record too (``question_asked`` / ``question_released``):
+        a question asked this way raises no prompt, so nothing else in the
+        event stream tells a watcher that the run has stopped to be told
+        something (FIB-1050)."""
+        self._set_hold(
+            Hold(
+                kind=HoldKind.decision,
+                releases=f"decide {item_name} in the Review tab",
+                items=(f"{item_name}/{task_name}",),
+            ),
+            note=f"{task_name} is waiting for your decision on {item_name} "
+            "in the Review tab.",
+            message=None,
+        )
+        self._record_event(
+            "question_asked", {"item_name": item_name, "task_name": task_name}
+        )
+        try:
+            yield
+        finally:
+            self._set_hold(None, message=None)
+            self._record_event(
+                "question_released", {"item_name": item_name, "task_name": task_name}
+            )
+
+    def _record_event(self, kind: str, payload: Dict[str, Any]) -> None:
+        """A fact for the experiment's record, through the microscope's
+        ``record_event`` (which never raises); nothing without one."""
+        record = getattr(self.microscope, "record_event", None)
+        if callable(record):
+            record(kind, payload)
+
+    def _requirements_of(self, task_name: str) -> List[str]:
+        """The tasks ``task_name`` requires, by this manager's protocol."""
+        raise NotImplementedError
+
+    def _upstream_of(self, task_name: str) -> List[str]:
+        """Every task ``task_name`` requires, directly or through another:
+        Rough Milling requires Mill Fiducial, which requires Setup, and it is
+        Setup's point that Rough Milling mills on."""
+        seen: List[str] = []
+        queue = list(self._requirements_of(task_name))
+        while queue:
+            req = queue.pop(0)
+            if req in seen or req == task_name:
+                continue
+            seen.append(req)
+            queue.extend(self._requirements_of(req))
+        return seen
+
+    def _expire_what_this_consumes(self, item_id: str, task_name: str) -> None:
+        """The task is about to start on the values of the tasks upstream of
+        it: whichever of those are still open are used as they stand, and
+        recorded so. After this a change to them is a re-run, not a
+        correction."""
+        for req in self._upstream_of(task_name):
+            self.experiment.expire_open(
+                item_id, req, f"{task_name} started before anyone looked"
+            )
+
+    # --- Deferral: what cannot run yet, and why ---
+
+    # How many of the items a hold names read, past three: "4 lamellae".
+    ITEM_NOUN = "lamellae"
+
+    def _item_defer_reason(self, item: WorkItem) -> Optional[str]:
+        """Why this pending item cannot run *yet*, or None. Each manager says
+        what defers its items; the base waits on it the same way for both."""
+        return None
+
+    def _is_deferred(self, item: WorkItem) -> bool:
+        """The queue's skip predicate: pass over, do not retire."""
+        return self._item_defer_reason(item) is not None
+
+    def deferred_items(self) -> List[Tuple[WorkItem, str]]:
+        """Every pending item that cannot run now, with why. What a stalled run
+        reports, and what the UI can label; derived here, never stored."""
+        deferred = []
+        for item in self.queue.pending:
+            reason = self._item_defer_reason(item)
+            if reason is not None:
+                deferred.append((item, reason))
+        return deferred
+
+    def _report_stall(self) -> None:
+        """The run drained with work waiting on decisions and gave up: the
+        WORKFLOW_STALLED hook, the log, and the closing note on the label and
+        the status bar."""
+        pending = sum(
+            1 for _i, reason in self.deferred_items() if reason == "awaiting_decision"
+        )
+        fire_event(
+            self.hook_manager,
+            HookEvent.WORKFLOW_STALLED,
+            decisions_pending=pending,
+            **self.hook_run_context(),
+        )
+        logging.warning(f"Workflow stalled: {self.stall_reason}")
+        update_status_ui(
+            self.parent_ui,
+            "",
+            workflow_info=f"Workflow stalled: {self.closing_note()}",
+            status_bar=f"Workflow stalled: {self.closing_note()}",
+            check_abort=False,
+        )
 
     def stop(self) -> None:
         """Signal the manager to stop after current task completes."""
@@ -219,8 +523,7 @@ class BaseTaskManager:
 
         Read by the workflow border, which would otherwise show the running
         colour throughout a scheduled wait that can last hours. Set on the worker
-        thread and read on the GUI thread, the same way WAITING_FOR_USER_INTERACTION
-        already is.
+        thread and read on the GUI thread, the same way ``hold`` is.
         """
         if self.parent_ui is not None:
             self.parent_ui.WORKFLOW_PENDING = pending
@@ -287,6 +590,15 @@ class BaseTaskManager:
         )
 
 
+def _named(names: List[str], noun: str = "lamellae") -> str:
+    """'01-a', '01-a and 02-b', '01-a, 02-b and 03-c', '4 lamellae'."""
+    if len(names) > 3:
+        return f"{len(names)} {noun}"
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
 class TaskManager(BaseTaskManager):
     """Manages execution of autolamella tasks across lamellas."""
 
@@ -304,26 +616,70 @@ class TaskManager(BaseTaskManager):
         self._experiment_was_complete = False
 
     def run(
-        self, task_names: List[str], required_lamella: Optional[List[str]] = None
+        self,
+        task_names: List[str],
+        required_lamella: Optional[List[str]] = None,
     ) -> None:
         """Run the specified tasks for all lamellas in the experiment.
         Args:
             task_names: List of task names to run.
             required_lamella: List of lamella names to run tasks on. If None, all lamellas are processed.
+
+        Every selected (lamella, task) pair runs, completed ones included:
+        that is how a task is re-run. The one exception is a task that is
+        AwaitingDecision -- its run is over and its record waits in the Review
+        tab -- which is left out: running it again would re-move the stage
+        and supersede the proposal someone is about to decide, or just did.
+        Re-running it is a deliberate act on that task, not a side effect of
+        pressing Run. With the Review surface off there is no way to decide,
+        so the exception is not made: Run re-runs it and the producer confirms
+        its own record, as it does for every task with the flag off.
         """
         if required_lamella is None:
             required_lamella = [p.name for p in self.experiment.positions]
-
-        self.queue.build_from_matrix(task_names, required_lamella)
+        pairs = [
+            (name, task)
+            for task in task_names
+            for name in required_lamella
+            if not (self.review_enabled and self._awaiting_decision(name, task))
+        ]
+        self.queue.build_from_pairs(
+            pairs, task_names=task_names, item_names=required_lamella
+        )
         self._run_queue()
+
+    def _awaiting_decision(self, lamella_name: str, task_name: str) -> bool:
+        lamella = self.experiment.get_lamella_by_name(lamella_name)
+        return lamella is not None and lamella.is_awaiting_decision(task_name)
+
+    def _item_defer_reason(self, item: WorkItem) -> Optional[str]:
+        lamella = self.experiment.get_lamella_by_name(item.item_name)
+        if lamella is None or lamella.is_failure:
+            return None  # let the loop retire it with a reason
+        return self._defer_reason(lamella, item.task_name)
 
     def _run_queue(self) -> None:
         """Process queue items until empty or stopped."""
         self._snapshot_completion()
-        self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
+        with self._recording():
+            self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
+            self.experiment.decided.connect(self._on_decided)
+            try:
+                self._run_items()
+            finally:
+                self.experiment.decided.disconnect(self._on_decided)
+
+    def _run_items(self) -> None:
         while not self.is_stopped:
-            item = self.queue.next()
+            # Cleared before the scan, so a decision that lands between a scan
+            # finding nothing and the wait starting is not lost.
+            self._decision_event.clear()
+            item = self.queue.next(skip=self._is_deferred)
             if item is None:
+                if self.queue.is_empty:
+                    break
+                if self._wait_for_a_decision():
+                    continue
                 break
 
             # A stop_task click that landed between two tasks was aimed at the one
@@ -375,6 +731,8 @@ class TaskManager(BaseTaskManager):
                 if self.is_stopped:
                     break
 
+            self._expire_what_this_consumes(lamella.id, item.task_name)
+
             # Emit InProgress status
             self._emit_status(
                 item=item,
@@ -423,6 +781,12 @@ class TaskManager(BaseTaskManager):
                 workflow_info="Workflow cancelled by user.",
                 check_abort=False,
             )
+        elif self.stalled:
+            # Drained but not done. Not completed -- work remains -- and not
+            # cancelled -- nobody pressed Stop. The experiment is not finishable
+            # from here either. Items that never ran stay NotStarted; the tasks
+            # awaiting a decision stay so; the next Run picks up from there.
+            self._report_stall()
         else:
             self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
             update_status_ui(
@@ -603,8 +967,44 @@ class TaskManager(BaseTaskManager):
             # for the rest of the run.
             self._set_workflow_pending(False)
 
+    def _requirements_of(self, task_name: str) -> List[str]:
+        return list(
+            self.experiment.task_protocol.workflow_config.requirements(task_name)
+        )
+
+    def _defer_reason(self, lamella: "Lamella", task_name: str) -> Optional[str]:
+        """Why this task cannot run *yet* -- as opposed to _should_skip, which
+        says why it never will this run.
+
+        The prerequisite check used to be terminal: unmet meant Skipped, done for
+        the run. That was right only because ordering guaranteed the prerequisite
+        had already had its turn. Two things break the guarantee, and both are
+        answered by looking at the queue and the item rather than at history:
+
+        - ``awaiting_decision``: a required task ran and is not finished: its
+          record waits in the Review tab. The decision makes this runnable.
+        - ``prereq_pending``: a required task is still in the queue ahead or
+          behind (a re-run, a mid-run insertion). It will get its turn.
+
+        Deferred items stay pending and are offered again on the next scan.
+        Nothing is logged per scan: a long stall would flood the log with one
+        line per pass.
+        """
+        for req in self.experiment.task_protocol.workflow_config.requirements(
+            task_name
+        ):
+            # a rerun still queued is the attempt that counts, whatever an
+            # earlier run of it did (FIB-1006)
+            if self.queue.has_pending_pair(lamella.name, req):
+                return "prereq_pending"
+            if lamella.is_awaiting_decision(req):
+                return "awaiting_decision"
+        return None
+
     def _should_skip(self, lamella: "Lamella", task_name: str) -> Optional[str]:
-        """Return skip reason string, or None if task should run.
+        """Return skip reason string, or None if task should run. Terminal: a
+        reason here means Skipped, finished for the run. "Not yet" is
+        _defer_reason's answer and is asked first, by the queue scan.
 
         Deliberately does not re-check the run's lamella selection: that filter
         is applied when the queue is built, so anything that reaches here is
@@ -620,8 +1020,10 @@ class TaskManager(BaseTaskManager):
         task_requirements = self.experiment.task_protocol.workflow_config.requirements(
             task_name
         )
+        # the latest run of each requirement, not any past success: a rerun that
+        # failed or was rejected is the answer (FIB-1006)
         if task_requirements and not all(
-            lamella.has_completed_task(req) for req in task_requirements
+            lamella.latest_run_completed(req) for req in task_requirements
         ):
             logging.info(
                 f"Skipping lamella {lamella.name} for task {task_name}. Required tasks {task_requirements} not completed."

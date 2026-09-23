@@ -14,7 +14,7 @@ import os
 import threading
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -82,6 +82,7 @@ from fibsem.applications.autolamella.poses import (
     sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
     AutoLamellaWorkflowOptions,
@@ -112,6 +113,7 @@ if TYPE_CHECKING:
         AutoLamellaSingleWindowUI,
     )
     from fibsem.applications.autolamella.workflows.tasks.status import (
+        Hold,
         WorkflowStatusEvent,
     )
 
@@ -254,13 +256,19 @@ class AutoLamellaUI(QMainWindow):
         if not self._connection_chip_enabled:
             self.tabWidget.insertTab(0, self.system_widget, "Connection")
 
-        # Display state, not a handshake: a question is up and waiting for a
-        # click. QtResponder is the only setter; the attention button, border
-        # and timeline pause read it. The cross-thread flag-poll it used to be
-        # -- and USER_RESPONSE and WAITING_FOR_UI_UPDATE alongside it -- is
+        # Display state, not a handshake: the run is held -- a question is up
+        # for a click, or the run is parked on decisions -- and by whom. Set by
+        # whoever takes the hold (the responder, the task manager, the main
+        # window handing an agent's question over); the attention button,
+        # border, status bar and timeline pause read it. The cross-thread
+        # flag-poll it used to be -- USER_RESPONSE, WAITING_FOR_UI_UPDATE -- is
         # gone: every workflow interaction is a typed request on its own future
         # (workflows/interaction.py).
-        self.WAITING_FOR_USER_INTERACTION: bool = False
+        self.hold: Optional[Hold] = None
+        # A state question a task asked (``AutoLamellaTask.ask`` with the
+        # ``state`` kind), shown on the prompt bar: (item_id, task_name,
+        # proposal_id). Continue decides it; the decision takes it down.
+        self._state_question: Optional[Tuple[str, str, str]] = None
         # A run is active but nothing is executing -- today only during a
         # scheduled-start wait. Set from the worker thread, read by the border.
         self.WORKFLOW_PENDING: bool = False
@@ -270,7 +278,15 @@ class AutoLamellaUI(QMainWindow):
         # The embedded agent server (FIB-845): built on microscope connect when the
         # agent_server_enabled preference is on; None means the feature is off.
         self._agent_server_host = None
+        # The app's event stream (FIB-1031): built on microscope connect, always,
+        # and recorded to events.jsonl in the experiment directory. The agent
+        # server reads it when it runs; None only while disconnected.
+        self._event_recorder = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
+        # Why the last run ended short of done, for the summary dialog's
+        # headline: a run that gave up waiting for a review must not read as
+        # a finish. Empty when it finished or was stopped.
+        self._last_run_note: str = ""
         # The summary the dialog has already shown (by identity): the dialog is
         # once-per-run, while _last_run_summary itself must survive as the
         # record remote readers see.
@@ -646,6 +662,10 @@ class AutoLamellaUI(QMainWindow):
 
         experiment.configure_logging()
         logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
+        # getattr: the adoption tests drive this method on a stand-in window.
+        recorder = getattr(self, "_event_recorder", None)
+        if recorder is not None:
+            recorder.set_experiment(experiment.path, experiment)
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
@@ -666,7 +686,53 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is not None:
             self._disconnect_experiment_events()
             self._setup_experiment_connections()
+        self._start_event_recorder()
         self._start_agent_server()
+
+    def _start_event_recorder(self) -> None:
+        """Start recording events for this microscope connection, whatever else runs.
+
+        Never raises: the recording is a record of the connection, and failing to
+        keep one must not stop the connection being used.
+
+        This is the slot for the system widget's ``connected_signal``, which fires
+        whenever that widget refreshes while connected -- not once per connection
+        -- so it can run again for a microscope that already has a stream, and
+        that microscope keeps it. A different microscope (the connection dialog can
+        hand one back) gets a new stream, and a running agent server is stopped so
+        it restarts on the new buffer: left alone it would serve a closed one.
+        """
+        recorder = self._event_recorder
+        if recorder is not None and recorder.microscope is self.microscope:
+            return
+        if self.microscope is None:
+            self._stop_event_recorder()
+            return
+        if recorder is not None:
+            host = self._agent_server_host
+            if host is not None and host.running:
+                host.stop()
+            self._stop_event_recorder()
+        try:
+            from fibsem.acting import OPERATOR
+            from fibsem.applications.autolamella.event_recording import EventRecorder
+
+            self._event_recorder = EventRecorder(
+                self.microscope,
+                responder=getattr(self, "ui_responder", None),
+                experiment_path=self.experiment.path if self.experiment else None,
+                # tasks and the agent mark their own calls; the rest are the UI's
+                default_actor=OPERATOR,
+                experiment=self.experiment,
+            )
+        except Exception:
+            logging.exception("event stream failed to start; continuing without it")
+            self._event_recorder = None
+
+    def _stop_event_recorder(self) -> None:
+        if self._event_recorder is not None:
+            self._event_recorder.close()
+            self._event_recorder = None
 
     def _start_agent_server(self) -> None:
         """Host the agent server over this session, if the preference asks for it.
@@ -679,7 +745,14 @@ class AutoLamellaUI(QMainWindow):
 
             if self._agent_server_host is None:
                 self._agent_server_host = AgentServerHost(self)
-            self._agent_server_host.start(self.microscope)
+            recorder = self._event_recorder
+            self._agent_server_host.start(
+                self.microscope,
+                event_buffer=recorder.buffer if recorder is not None else None,
+                lifecycle_hook=recorder.lifecycle_hook
+                if recorder is not None
+                else None,
+            )
 
     def sync_agent_server_with_preference(self) -> None:
         """Start or stop the embedded server to match the saved preference.
@@ -699,6 +772,7 @@ class AutoLamellaUI(QMainWindow):
     def disconnect_from_microscope(self):
         if self._agent_server_host is not None:
             self._agent_server_host.stop()
+        self._stop_event_recorder()
         self.microscope = None
         self.settings = None
         self.update_microscope_ui()
@@ -716,7 +790,24 @@ class AutoLamellaUI(QMainWindow):
         while candidate is not None and self.tabWidget.indexOf(candidate) == -1:
             candidate = candidate.parentWidget()
         if candidate is not None:
+            # A hidden tab cannot be fronted: Detection is hidden until it is
+            # asked for, so bringing it forward has to un-hide it first or the
+            # call is a second silent no-op.
+            self.tabWidget.setTabVisible(self.tabWidget.indexOf(candidate), True)
             self.tabWidget.setCurrentWidget(candidate)
+
+    def front_question(self) -> None:
+        """Bring forward the tab the question now up is asked on, if it has one.
+
+        A question on its own tab is gone from view the moment the operator
+        looks elsewhere, and the attention button is how they get back to it --
+        so the button cannot just go to the Microscope tab and call it done.
+        Does nothing when no question is up, or when its prompt is the shared
+        one the Microscope tab already shows.
+        """
+        widget = self.ui_responder.question_host()
+        if widget is not None:
+            self.front_tab(widget)
 
     def update_microscope_ui(self):
         """Update the ui based on the current state of the microscope."""
@@ -1177,6 +1268,7 @@ class AutoLamellaUI(QMainWindow):
                 except Exception as e:
                     logging.warning(f"Failed to build grid run summary: {e}")
                     self._last_run_summary = None
+                self._last_run_note = self._task_manager.closing_note()
             self._task_manager = None
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
@@ -1254,7 +1346,9 @@ class AutoLamellaUI(QMainWindow):
         started = self.is_workflow_running
         if started and parent is not None:
             try:
-                supervised = protocol.get_supervision(task_names[0])
+                supervised = (
+                    protocol.get_attention(task_names[0]) is Attention.supervised
+                )
                 parent._set_border_state("supervised" if supervised else "automated")
                 # Show the Stop button immediately — a remotely started run
                 # must be just as cancellable as a clicked one.
@@ -1477,13 +1571,28 @@ class AutoLamellaUI(QMainWindow):
         outcome: "Future",
     ) -> None:
         """GUI thread. Complete ``outcome`` with the patch result."""
-        try:
-            result = self._apply_task_config_patch_for_agent(
-                level, item_name, task_name, patch, version
+        from fibsem.acting import AGENT, acting
+        from fibsem.applications.autolamella.ui.edit_recording import (
+            PendingEdits,
+            touch_agent_patch,
+        )
+
+        # The agent's edit, applied here on its behalf: the record says who
+        # (FIB-1062) and what changed, before and after (FIB-1034).
+        edits = PendingEdits(lambda: self.microscope, via="agent patch")
+        with acting(AGENT):
+            touch_agent_patch(
+                edits, self.experiment, level, item_name, task_name, patch
             )
-        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-            outcome.set_exception(exc)
-            return
+            try:
+                result = self._apply_task_config_patch_for_agent(
+                    level, item_name, task_name, patch, version
+                )
+            except Exception as exc:  # noqa: BLE001 - the requester owns the failure
+                outcome.set_exception(exc)
+                return
+            finally:
+                edits.flush()
         outcome.set_result(result)
 
     def _apply_task_config_patch_for_agent(
@@ -1908,7 +2017,8 @@ class AutoLamellaUI(QMainWindow):
             if self._workflow_stop_event.is_set():
                 self._task_manager.stop()
             self._task_manager.run(
-                task_names=task_names, required_lamella=lamella_names
+                task_names=task_names,
+                required_lamella=lamella_names,
             )
         except (InterruptedError, OperationCancelledError) as e:
             # A user Stop, not a failure: both cancellation types unwind through
@@ -1930,6 +2040,7 @@ class AutoLamellaUI(QMainWindow):
                 except Exception as e:
                     logging.warning(f"Failed to build workflow run summary: {e}")
                     self._last_run_summary = None
+                self._last_run_note = self._task_manager.closing_note()
             self._task_manager = None
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
@@ -1958,11 +2069,18 @@ class AutoLamellaUI(QMainWindow):
         preferences = fibsem_cfg.load_user_preferences()
         manager = build_hook_manager(preferences.hooks)
 
-        # The agent server's lifecycle feed. Registered here, per run, because this
-        # manager is rebuilt each run — a once-at-startup registration would go
-        # silently deaf after the first workflow (the trap events.py documents).
+        # The event stream's lifecycle feed is registered by the task manager for
+        # its run, the same path a run without the GUI takes (FIB-1044). The agent
+        # server shares the recorder's hook; one of its own (a host started
+        # without a recorder) is registered here, per run, as before.
+        recorder = self._event_recorder
         host = self._agent_server_host
-        if host is not None and host.running and host.lifecycle_hook is not None:
+        if (
+            host is not None
+            and host.running
+            and host.lifecycle_hook is not None
+            and (recorder is None or host.lifecycle_hook is not recorder.lifecycle_hook)
+        ):
             manager.register(host.lifecycle_hook)
 
         # Deliberately not registered yet. The trigger is proven end to end and the
@@ -2169,12 +2287,43 @@ class AutoLamellaUI(QMainWindow):
         for pos in stage_positions:
             self.add_new_lamella(pos)
 
+    def _grid_id_for_new_lamella(
+        self, position: Optional[FibsemStagePosition]
+    ) -> Optional[str]:
+        """The record id of the grid a lamella at *position* is on, or None.
+
+        Resolved the way the rest of the system finds a grid, by name: with a
+        loader the one grid on the stage, on a fixed holder the calibrated slot
+        the position falls in. Then the experiment's record of that name. None
+        whenever any step has no answer: nothing loaded, an uncalibrated slot, a
+        grid on the hardware with no record. Never a guess, and never a record
+        created as a side effect of marking a lamella.
+        """
+        experiment = self.experiment
+        stage = getattr(self.microscope, "_stage", None)
+        if experiment is None or stage is None:
+            return None
+        try:
+            if stage.loader is not None:
+                loaded = stage.loaded_grids
+                grid = loaded[0] if len(loaded) == 1 else None
+            else:
+                grid = stage.grid_at_position(position)
+        except Exception as e:  # noqa: BLE001 - a lamella is never refused for this
+            logging.debug(f"Could not resolve the grid for a new lamella: {e}")
+            return None
+        if grid is None:
+            return None
+        record = experiment.get_grid_by_name(grid.name)
+        return record.id if record is not None else None
+
     def add_new_lamella(
         self,
         stage_position: Optional[FibsemStagePosition] = None,
         name: Optional[str] = None,
         objective_position: Optional[float] = None,
         marked_at: Optional[str] = None,
+        grid_id: Optional[str] = None,
     ) -> Lamella:
         """Add a lamella to the experiment.
 
@@ -2188,6 +2337,9 @@ class AutoLamellaUI(QMainWindow):
             marked_at: The orientation *stage_position* is in, for a caller that knows.
                 Left alone it is read off the position, which is right on a compustage
                 and cannot be on an offset mount -- see `build_lamella_poses`.
+            grid_id: The grid this lamella is on, for a caller that knows -- one
+                marked on a grid's overview belongs to that grid whether or not it
+                is on the stage. Left alone it is resolved from the stage.
         Returns:
             lamella: The created lamella.
         """
@@ -2216,6 +2368,11 @@ class AutoLamellaUI(QMainWindow):
             task_config=self.experiment.task_protocol.task_config,
             name=name,
             fluorescence_pose=poses.fluorescence,
+            grid_id=(
+                grid_id
+                if grid_id is not None
+                else self._grid_id_for_new_lamella(poses.milling.stage_position)
+            ),
         )
         lamella = self.experiment.positions[-1]
 
@@ -2686,10 +2843,75 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_no.setEnabled(False)
 
         clicked_yes = bool(self.sender() == self.pushButton_yes)
-        # The pending question owns this click; with every interaction converted
-        # to the Responder there is no other path. A click with nothing pending
-        # (a stray double-click after the answer landed) means nothing.
-        self.ui_responder.answer_confirm(clicked_yes)
+        # The pending question owns this click. Otherwise a state question on
+        # the record may: its Continue is a decision, not an answer. A click
+        # with neither (a stray double-click after the answer landed) means
+        # nothing.
+        if self.ui_responder.answer_confirm(clicked_yes):
+            return
+        if clicked_yes:
+            self._decide_state_question()
+
+    # -- a state question, on the prompt bar ----------------------------------
+
+    def show_state_question(self, item_id: str, task_name: str, proposal) -> None:
+        """The prompt bar is the renderer for the ``state`` kind: the task's
+        message and one button. Continue records the operator's confirmation
+        through ``Experiment.decide``, the one write path; the task then reads
+        the instrument for the position as confirmed."""
+        from fibsem.applications.autolamella.workflows.tasks.status import (
+            WorkflowStatusEvent,
+        )
+
+        self._state_question = (item_id, task_name, proposal.id)
+        message = str(
+            proposal.provenance.get("message") or "Press Continue when ready."
+        )
+        self.set_instructions_msg(message, "Continue", None)
+        self.workflow_status_signal.emit(WorkflowStatusEvent())
+
+    def clear_state_question(self, item_id: str, task_name: str) -> None:
+        """A decision landed on the item and task; if it is the question up,
+        the prompt comes down (answered here, in the Review tab, by an agent,
+        or withdrawn)."""
+        shown = self._state_question
+        if shown is None or shown[:2] != (item_id, task_name):
+            return
+        from fibsem.applications.autolamella.workflows.tasks.status import (
+            WorkflowStatusEvent,
+        )
+
+        self._state_question = None
+        self.set_instructions_msg("")
+        self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
+
+    def _decide_state_question(self) -> None:
+        shown = self._state_question
+        experiment = self.experiment
+        if shown is None or experiment is None:
+            return
+        item_id, task_name, proposal_id = shown
+        from fibsem.applications.autolamella.proposals import (
+            Decision,
+            DecisionOutcome,
+        )
+
+        result = experiment.decide(
+            item_id,
+            task_name,
+            Decision(
+                outcome=DecisionOutcome.Confirmed,
+                author=experiment.author(),
+                via="workflow",
+                proposal_id=proposal_id,
+            ),
+        )
+        if not result.applied:
+            # Left up: the question is still open, and the reason is logged.
+            logging.warning(
+                f"{task_name}: could not confirm the state: {result.reason}"
+            )
+            self.pushButton_yes.setEnabled(True)
 
     def handle_acquisition_update(self, ddict: dict) -> None:
         if ddict.get("finished", False):
@@ -2737,7 +2959,7 @@ class AutoLamellaUI(QMainWindow):
         self._workflow_stop_event.clear()
         self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
 
-        self.WAITING_FOR_USER_INTERACTION = False
+        self.hold = None
         self.WORKFLOW_PENDING = False
 
         # clear milling task config
@@ -2791,7 +3013,9 @@ class AutoLamellaUI(QMainWindow):
         if summary.empty:
             return
         try:
-            dialog = WorkflowSummaryDialog(summary, parent=self)
+            dialog = WorkflowSummaryDialog(
+                summary, note=self._last_run_note, parent=self
+            )
             dialog.exec_()
         except Exception as e:
             logging.warning(f"Failed to show workflow summary dialog: {e}")

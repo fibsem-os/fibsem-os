@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 from copy import deepcopy
+from dataclasses import replace
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -49,9 +50,11 @@ from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
+    AutoContrastMode,
     AutoFocusMode,
     FibsemImage,
     FibsemImageMetadata,
+    FibsemRectangle,
     FibsemStagePosition,
     OverviewAcquisitionSettings,
     Point,
@@ -60,6 +63,15 @@ from fibsem.structures import (
 from fibsem.utils import current_timestamp_v3
 
 ##### TILE GRID
+
+
+def centred_half_frame() -> FibsemRectangle:
+    """The middle half of the frame, each way: the area the Image tab's Auto Focus
+    and Auto Contrast buttons score. An overview tile's edges are the mosaic's seams,
+    grid bars and the neighbour's overlap, and scoring the whole frame lets them
+    drag the result; the centre is the tile's own picture. A new one each call:
+    a shared rectangle would be one edit away from moving every caller."""
+    return FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5)
 
 
 def _check_cancelled(stop_event: Optional[threading.Event]) -> None:
@@ -149,6 +161,7 @@ class TiledAcquisitionRunner:
         self._compute_grid()
         status, error = TiledStatus.FINISHED, None
         try:
+            self._autocontrast_at_centre()
             self._autofocus_if_mode(AutoFocusMode.ONCE)
             self._run_tile_loop()
         except OperationCancelledError:
@@ -202,7 +215,14 @@ class TiledAcquisitionRunner:
         image_settings = self.settings.image_settings
         self._focus_stack_settings = self.settings.focus_stack_settings
         self._af_mode = self.settings.autofocus_mode
-        self._af_settings = self.settings.autofocus_settings
+        # The sweep scores the centred half-frame unless the settings name an area,
+        # as the Image tab's Auto Focus button does. Focusing on the full tile
+        # frame scored the seams as much as the picture, and read as soft tiles.
+        # A copy: the caller's settings are not rewritten with the default.
+        af_settings = self.settings.autofocus_settings
+        if af_settings.reduced_area is None:
+            af_settings = replace(af_settings, reduced_area=centred_half_frame())
+        self._af_settings = af_settings
         # Once a working distance turns out not to be settable, say so once rather than
         # per tile: on a 5 x 5 at EACH_TILE the per-tile version is 25 identical lines.
         self._af_unavailable_logged = False
@@ -217,7 +237,15 @@ class TiledAcquisitionRunner:
                 f"disabled, so there is nothing to focus with."
             )
 
-        image_settings.autocontrast = False
+        # The mode drives the per-image flag. ONCE is one detector setting for
+        # the whole mosaic, set at the grid centre before the first tile;
+        # EACH_TILE is what the flag means for any single image, and
+        # `acquire_image` honours it per tile. The flag was forced off here for
+        # years, so the box on the overview settings read one thing and the run
+        # did another.
+        mode = self.settings.autocontrast_mode
+        self._autocontrast_once = mode is AutoContrastMode.ONCE
+        image_settings.autocontrast = mode is AutoContrastMode.EACH_TILE
         image_settings.save = True
         image_settings.reduced_area = None
 
@@ -356,13 +384,23 @@ class TiledAcquisitionRunner:
         image_settings.resolution = (full_w, full_h)
 
         pixel_size = self._image_settings.hfw / self._image_settings.resolution[0]
-        return FibsemImageMetadata(
+        metadata = FibsemImageMetadata(
             image_settings=image_settings,
             pixel_size=Point(x=pixel_size, y=pixel_size),
             microscope_state=state,
             system_info=deepcopy(self.microscope.system.info),
             hardware_geometry=deepcopy(self.microscope.hardware_geometry()),
         )
+        # Who and which run, as `_set_additional_metadata` stamps on every single
+        # image. The mosaic is built here rather than acquired through that path,
+        # and without these a saved overview could not say which grid it is of.
+        user = getattr(self.microscope, "user", None)
+        if user is not None:
+            metadata.user = deepcopy(user)
+        experiment = getattr(self.microscope, "experiment", None)
+        if experiment is not None:
+            metadata.experiment = deepcopy(experiment)
+        return metadata
 
     def _correct_metadata_from(self, image: FibsemImage) -> None:
         """Take the pixel size the instrument actually delivered, once one exists.
@@ -548,6 +586,28 @@ class TiledAcquisitionRunner:
 
     # ── helpers ──────────────────────────────────────────────────────────
 
+    def _autocontrast_at_centre(self) -> None:
+        """ONCE: one contrast for the whole mosaic, set at its centre before the tiles.
+
+        The centre rather than the first tile: a typewriter order starts in a
+        corner, which on a grid is as likely to be a bar or the edge of the hole as
+        the picture. Scored on the centred half-frame, as the Image tab's Auto
+        Contrast button is.
+        """
+        # getattr, as `_emit_terminal` reads its count: a runner built around
+        # `_setup` (the signal tests) has no flag, and no request.
+        if not getattr(self, "_autocontrast_once", False):
+            return
+        _check_cancelled(self.stop_event)
+        logging.info(
+            f"Auto contrast at the grid centre: {self._centre_position.pretty}"
+        )
+        self.microscope.safe_absolute_stage_movement(self._centre_position)
+        _check_cancelled(self.stop_event)
+        self.microscope.autocontrast(
+            self._image_settings.beam_type, reduced_area=centred_half_frame()
+        )
+
     def _autofocus_if_mode(self, mode: AutoFocusMode) -> None:
         """Run the configured focus sweep, if the current af_mode matches.
 
@@ -562,10 +622,9 @@ class TiledAcquisitionRunner:
         probe images have to frame what the tile frames, or the sweep scores a different
         picture from the one being focused.
 
-        `reduced_area` comes from the sweep settings and defaults to None, which is what
-        the vendor call was passed anyway -- `_setup` clears `image_settings.reduced_area`
-        before every run, so nothing changes here yet. A centred half-frame is the thing
-        to try if tile edges turn out to drag the score around.
+        `reduced_area` comes from the sweep settings; `_setup` fills it with the centred
+        half-frame when the settings leave it None, so the sweep scores the middle of
+        the tile rather than its seams.
         """
         if self._af_mode is not mode:
             return

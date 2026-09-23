@@ -7,6 +7,8 @@ independent noise). The measurement must recover the known offset, and refuse
 on scenes or conditions it cannot trust.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 from scipy import ndimage as ndi
@@ -17,6 +19,9 @@ from fibsem.alignment.coincidence import (
     CoincidenceMeasurement,
     measure_coincidence,
 )
+
+if TYPE_CHECKING:
+    from fibsem.structures import FibsemImage
 
 PIXEL_SIZE = 65e-9  # ~100 um hfw at 1536 px, typical reference imaging
 # arbitrary test geometry: the synthetic FIB view is built with the same
@@ -314,3 +319,27 @@ def test_a_single_structure_has_no_serious_rival():
 
     assert m.is_reliable, m.refusal_reason
     assert m.rival_ratio < 0.9
+
+
+# ── FIB-987: the alignment frames carry signal; the coarse gate fits its job ──
+
+
+def test_default_alignment_frames_use_a_one_microsecond_dwell():
+    """0.2 us left the SEM frame on an Arctis as noise and every measurement of
+    a session refused; 1 us is what the same session's usable references used."""
+    from fibsem.alignment.coincidence import _default_image_settings
+
+    assert _default_image_settings().dwell_time == pytest.approx(1.0e-6)
+
+
+def test_coarse_agreement_tolerance_is_a_fraction_of_the_fine_capture_range():
+    """The coarse pass only has to land inside the fine pass's capture range."""
+    from fibsem.alignment.coincidence import (
+        DEFAULT_AGREEMENT_TOLERANCE,
+        DEFAULT_CAPTURE_RANGE,
+        DEFAULT_COARSE_AGREEMENT_TOLERANCE,
+    )
+
+    assert DEFAULT_COARSE_AGREEMENT_TOLERANCE == pytest.approx(8e-6)
+    assert DEFAULT_AGREEMENT_TOLERANCE < DEFAULT_COARSE_AGREEMENT_TOLERANCE
+    assert DEFAULT_COARSE_AGREEMENT_TOLERANCE <= DEFAULT_CAPTURE_RANGE / 2

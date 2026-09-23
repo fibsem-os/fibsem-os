@@ -66,6 +66,7 @@ __all__ = [
     "Request",
     "Confirm",
     "ConfirmDetection",
+    "ReviewDetection",
     "EditAlignmentArea",
     "PickPOI",
     "RunMillingTask",
@@ -123,6 +124,27 @@ class ConfirmDetection(Request["DetectedFeatures"]):
     """Show detected features for correction; answer with the (possibly moved) set."""
 
     detection: "DetectedFeatures"
+
+
+@dataclass(frozen=True)
+class ReviewDetection(ConfirmDetection):
+    """The same question, from an asker that says who it is -- so it can go on
+    that item's record and be answered in the Review tab (FIB-1025).
+
+    A type of its own rather than two optional fields on ``ConfirmDetection``:
+    that request, the prompt it puts up and the helper that asks it are used as
+    they are, in this repository and outside it, and stay exactly that. Asking
+    this one instead is a choice a caller makes.
+
+    ``item_id`` and ``task_name`` are the item the detection was made for and
+    the task that made it. A responder has no other honest way to learn them:
+    "whatever is running" is a guess about the screen, not something the
+    request said. A responder that cannot record the question asks it as the
+    ``ConfirmDetection`` it also is.
+    """
+
+    item_id: str = ""
+    task_name: str = ""
 
 
 @dataclass(frozen=True)

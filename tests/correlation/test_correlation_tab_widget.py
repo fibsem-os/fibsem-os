@@ -3,6 +3,7 @@
 Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency),
 matching tests/fm/test_autofocus_widget.py.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -23,6 +24,7 @@ from fibsem.correlation.structures import (
     PointXYZ,
 )
 from fibsem.structures import Point
+from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +37,27 @@ def _no_lut_download(monkeypatch):
 
 def _coord(x=0.0, y=0.0, z=0.0, pt=PointType.FIB) -> Coordinate:
     return Coordinate(point=PointXYZ(x=x, y=y, z=z), point_type=pt)
+
+
+def _overlay_of(widget, coord):
+    return widget._point_specs[coord.point_type].adapter._surface.picking.points
+
+
+def _drag(widget, coord) -> None:
+    """A finished drag to where *coord* now is, as the canvas reports it: the
+    overlay writes the move to the store, and the tab widget hears of the edit."""
+    overlay = _overlay_of(widget, coord)
+    overlay.point_moved.emit(overlay.index_of(coord), coord.point.x, coord.point.y)
+
+
+def _click(widget, coord) -> None:
+    overlay = _overlay_of(widget, coord)
+    overlay.point_selected.emit(overlay.index_of(coord), coord.point.x, coord.point.y)
+
+
+def _delete_on_canvas(widget, coord) -> None:
+    """What the canvas's Delete key reaches."""
+    _overlay_of(widget, coord).remove_coordinate(coord)
 
 
 def _widget(qapp):
@@ -349,7 +372,7 @@ def test_apply_post_blocked_when_already_corrected(qapp):
     assert result.refractive_index_correction_factor == pytest.approx(1.4)
     assert "already applied" in w._ri_tab._lbl_warning.text()
     # guard message renders in the error style, not the leftover green
-    assert "#e07b39" in w._ri_tab._lbl_warning.styleSheet()
+    assert ERROR_COLOR in w._ri_tab._lbl_warning.styleSheet()
 
 
 def test_apply_post_without_input_data_shows_warning(qapp):
@@ -375,7 +398,7 @@ def test_factor_cleared_when_fm_surface_removed(qapp):
 
     # canvas removal
     coord = w._coords_tab.fm_surface_list.coordinates[0]
-    w._on_canvas_removed(coord)
+    _delete_on_canvas(w, coord)
     assert w._ri_pre_correction_factor is None
     assert w.data.ri_pre_correction_factor is None
 
@@ -389,8 +412,7 @@ def test_factor_cleared_when_fm_surface_removed(qapp):
     w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
     w._ri_pre_correction_factor = 1.5
     coord = w._coords_tab.fm_surface_list.coordinates[0]
-    w._coords_tab.fm_surface_list.coordinates = []
-    w._on_list_removed(w._point_specs[PointType.SURFACE_FM], coord)
+    w._coords_tab.fm_surface_list._on_remove(coord)  # the row's trash button
     assert w._ri_pre_correction_factor is None
 
 
@@ -412,17 +434,17 @@ def test_registry_add_select_remove_for_every_type(qapp, point_type):
     assert coord.point_type is point_type
 
     # selecting via the canvas clears every other list's selection
-    w._on_canvas_selected(coord)
+    _click(w, coord)
     for other in w._point_specs.values():
         if other is not spec:
             assert other.list_widget.selected_coordinate is None
 
     # moving routes to the owning list without error
     coord.point.x = 7.0
-    w._on_canvas_moved(coord)
+    _drag(w, coord)
 
     # removal empties the owning list
-    w._on_canvas_removed(coord)
+    _delete_on_canvas(w, coord)
     assert spec.list_widget.coordinates == []
 
 
@@ -479,9 +501,9 @@ def test_on_cleared_fires_only_when_last_point_removed(qapp):
     w._on_canvas_add_requested(2.0, 2.0, PointType.POI)
     first, second = w._point_specs[PointType.POI].list_widget.coordinates
 
-    w._on_canvas_removed(first)
+    _delete_on_canvas(w, first)
     assert fired == []  # one point remains
-    w._on_canvas_removed(second)
+    _delete_on_canvas(w, second)
     assert fired == [True]  # last point gone
 
 
@@ -493,7 +515,7 @@ def test_unregistered_point_type_fails_loudly(qapp):
     with pytest.raises(KeyError):
         w._on_canvas_add_requested(1.0, 2.0, PointType.POI)
     with pytest.raises(KeyError):
-        w._on_canvas_moved(_coord(pt=PointType.POI))
+        w._on_point_removed(_coord(pt=PointType.POI))
 
 
 def test_set_data_does_not_arm_factor_without_fm_surface(qapp):
@@ -826,8 +848,14 @@ def _wheel(canvas, *, angle=(0, 0), pixel=(0, 0), shift=True):
     QApplication.sendEvent(
         canvas,
         QWheelEvent(
-            pos, pos, QPoint(*pixel), QPoint(*angle), Qt.NoButton,
-            Qt.ShiftModifier if shift else Qt.NoModifier, Qt.NoScrollPhase, False,
+            pos,
+            pos,
+            QPoint(*pixel),
+            QPoint(*angle),
+            Qt.NoButton,
+            Qt.ShiftModifier if shift else Qt.NoModifier,
+            Qt.NoScrollPhase,
+            False,
         ),
     )
 
@@ -908,6 +936,48 @@ def test_discover_correlation_files(tmp_path):
     assert os.path.basename(found["result"]) == "correlation_result.json"
 
 
+def test_a_run_folder_takes_its_images_from_the_lamella_above(tmp_path):
+    """A run folder holds only the JSON; the images are one level up. The
+    launcher walks up for them, preferring the post-burn reference the
+    fiducials were picked on over the lamella's other references."""
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
+        _discover_correlation_files,
+        _images_beside_a_run,
+    )
+
+    lamella = tmp_path / "02-pro-moose"
+    run = lamella / "Correlation" / "2026-09-13_20-56-15"
+    run.mkdir(parents=True)
+    (tmp_path / "experiment.yaml").write_text("{}")
+    for name in (
+        "ref_Mill Fiducial_final_res_01_ib.tif",
+        "ref_Spot Burn Fiducial_final_res_01_ib.tif",
+        "ref_Spot Burn Fiducial_final_res_02_ib.tif",
+        "ref_Spot Burn Fiducial_start_ib.tif",
+        "02-pro-moose-zstack.ome.tiff",
+    ):
+        (lamella / name).write_bytes(b"")
+    (run / "correlation.json").write_text("{}")
+
+    # the run folder alone offers no images
+    assert _discover_correlation_files(str(run))["fib"] is None
+    assert _discover_correlation_files(str(run))["fm"] is None
+
+    found = _images_beside_a_run(str(lamella))
+    # the spot-burn task's final reference, not the alphabetically first _ib
+    assert os.path.basename(found["fib"]) == (
+        "ref_Spot Burn Fiducial_final_res_02_ib.tif"
+    )
+    assert os.path.basename(found["fm"]) == "02-pro-moose-zstack.ome.tiff"
+
+    # with no spot-burn reference it falls back to whatever ion-beam image is there
+    (lamella / "ref_Spot Burn Fiducial_final_res_01_ib.tif").unlink()
+    (lamella / "ref_Spot Burn Fiducial_final_res_02_ib.tif").unlink()
+    assert os.path.basename(_images_beside_a_run(str(lamella))["fib"]).endswith(
+        "_ib.tif"
+    )
+
+
 def test_discover_fib_falls_back_to_non_ome_tif(tmp_path):
     """With no *_ib.tif, the FIB is the first TIFF that isn't the OME-TIFF."""
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
@@ -968,7 +1038,9 @@ def test_rms_never_certifies_a_good_fit():
     from fibsem.ui.correlation.widgets.correlation_tab_widget import _rms_concern
 
     color, reason = _rms_concern(20.0, 8, 1.1)  # about as clean as it gets
-    assert color == "#9aa0a6" and reason is None  # neutral, no verdict either way
+    assert (
+        color == TEXT_MUTED_COLOR and reason is None
+    )  # neutral, no verdict either way
 
 
 def test_rms_flags_detectable_problems():
@@ -976,15 +1048,15 @@ def test_rms_flags_detectable_problems():
 
     # A minimum-pair fit: residual is small by construction, not by agreement.
     color, reason = _rms_concern(20.0, 4, 1.1)
-    assert color == "#ffb300" and "no redundancy" in reason
+    assert color == WARN_COLOR and "no redundancy" in reason
 
     # One correspondence dominating the error — the case an average hides.
     color, reason = _rms_concern(20.0, 8, 3.4)
-    assert color == "#ffb300" and "3.4× the RMS" in reason
+    assert color == WARN_COLOR and "3.4× the RMS" in reason
 
     # Far enough out to be breakage rather than a judgement call.
     color, reason = _rms_concern(1500.0, 8, 1.1)
-    assert color == "#e53935" and "not converged" in reason
+    assert color == ERROR_COLOR and "not converged" in reason
 
 
 def test_rms_relative_checks_survive_a_missing_pixel_size():
@@ -993,10 +1065,10 @@ def test_rms_relative_checks_survive_a_missing_pixel_size():
     from fibsem.ui.correlation.widgets.correlation_tab_widget import _rms_concern
 
     color, reason = _rms_concern(None, 4, 3.4)
-    assert color == "#ffb300"
+    assert color == WARN_COLOR
     assert "no redundancy" in reason and "3.4× the RMS" in reason
 
-    assert _rms_concern(None, 8, 1.1) == ("#9aa0a6", None)
+    assert _rms_concern(None, 8, 1.1) == (TEXT_MUTED_COLOR, None)
 
 
 def test_rms_badge_reports_physical_distance(qapp):
@@ -1008,7 +1080,9 @@ def test_rms_badge_reports_physical_distance(qapp):
 
     # 1.82 px x 52.1 nm/px = 95 nm
     assert "95 nm" in w._lbl_result.text()
-    assert "#9aa0a6" in w._lbl_result.text()  # nothing wrong detected → no verdict
+    assert (
+        TEXT_MUTED_COLOR in w._lbl_result.text()
+    )  # nothing wrong detected → no verdict
 
 
 def test_rms_badge_falls_back_to_px_without_pixel_size(qapp):
@@ -1018,7 +1092,7 @@ def test_rms_badge_falls_back_to_px_without_pixel_size(qapp):
     w._on_result_ready(_result_fit(rms=1.82))
 
     assert "1.82 px" in w._lbl_result.text()
-    assert "#9aa0a6" in w._lbl_result.text()
+    assert TEXT_MUTED_COLOR in w._lbl_result.text()
     assert "pixel size unknown" in w._lbl_result.toolTip().lower()
 
 
@@ -1073,7 +1147,7 @@ def test_result_summary_clears_on_edit(qapp):
     assert w._lbl_result.isHidden() is False
 
     # go through the real signal chain rather than calling the handler directly
-    w._on_canvas_moved(_coord())
+    w._on_point_edited()  # what any move, typed value or reorder reaches
     assert w._lbl_result.isHidden() is True
 
 
@@ -1094,7 +1168,7 @@ def test_continue_gated_on_live_result(qapp):
     w._on_result_ready(_result())
     assert w._btn_continue.isEnabled() is True
 
-    w._on_canvas_moved(_coord())
+    w._on_point_edited()  # what any move, typed value or reorder reaches
     assert w._btn_continue.isEnabled() is False
 
 
@@ -1111,7 +1185,7 @@ def test_run_continue_emphasis_follows_result(qapp):
     assert w._btn_continue.styleSheet() == stylesheets.PRIMARY_BUTTON_STYLESHEET
     assert w._btn_run.styleSheet() == stylesheets.SECONDARY_BUTTON_STYLESHEET
 
-    w._on_canvas_moved(_coord())
+    w._on_point_edited()  # what any move, typed value or reorder reaches
     assert w._btn_run.styleSheet() == stylesheets.PRIMARY_BUTTON_STYLESHEET
     assert w._btn_continue.styleSheet() == stylesheets.SECONDARY_BUTTON_STYLESHEET
 
@@ -1187,13 +1261,81 @@ def test_z_slider_advertises_shift_scroll(qapp):
     assert "Shift" in tip and "scroll" in tip.lower()
 
 
+def test_the_results_tab_reports_the_transform_a_person_can_check(qapp):
+    """The fitted map is the answer the correlation produced, so it is on the
+    tab in quantities that can be checked against the instrument: tilt, the
+    in-plane turn, scale, the depth gain the RI correction rides on, and the
+    translation. The raw matrix is there too, folded away (FIB-1021)."""
+    import numpy as np
+
+    from fibsem.correlation.structures import CorrelationResult
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _ResultsTab
+
+    tilt = np.radians(75.0)
+    rot = [
+        [1.0, 0.0, 0.0],
+        [0.0, float(np.cos(tilt)), float(-np.sin(tilt))],
+        [0.0, float(np.sin(tilt)), float(np.cos(tilt))],
+    ]
+    result = CorrelationResult(
+        scale=2.0,
+        rotation_quaternion=rot,
+        rotation_eulers=[180.0, 75.0, -180.0],
+        translation=[-100.0, 50.0, 0.0],
+        fm_z_scale=10.0,
+        branch_check={"angle_to_nominal_deg": 1.5},
+    )
+
+    tab = _ResultsTab()
+    tab.set_result(result, fib_pixel_size_m=65e-9)
+
+    assert tab._lbl_tilt.text().startswith("75.0°")
+    assert "1.5° from the geometry's" in tab._lbl_tilt.text()
+    assert tab._lbl_inplane.text() == "+0.0°"
+    assert tab._lbl_fitted_scale.text() == "2.00×"
+    # depth gain = scale * |z column| * fm_z_scale = 2 * sin(75) * 10
+    expected = 2.0 * float(np.sin(tilt)) * 10.0
+    assert tab._lbl_depth_gain.text() == f"{expected:.1f} px per slice"
+    assert "(-100.0, +50.0) px" in tab._lbl_translation.text()
+
+    # the raw numbers are written but folded away until asked for
+    assert not tab._txt_raw.isVisible()
+    assert (
+        "eulers" in tab._txt_raw.text() and "fm z scale: 10.0000" in tab._txt_raw.text()
+    )
+    # a disclosure: the chevron carries the state, the label stays put
+    assert tab._btn_raw.text() == "Raw numbers"
+    collapsed = tab._btn_raw.icon().cacheKey()
+    tab._btn_raw.setChecked(True)
+    assert tab._btn_raw.text() == "Raw numbers"
+    assert tab._btn_raw.icon().cacheKey() != collapsed
+
+    tab.clear()
+    assert tab._lbl_tilt.text() == "—" and tab._txt_raw.text() == ""
+    tab.close()
+
+
+def test_the_transform_panel_survives_a_result_with_no_rotation(qapp):
+    """A result restored from JSON can be missing pieces; a readout must not
+    take the tab down."""
+    from fibsem.correlation.structures import CorrelationResult
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _ResultsTab
+
+    tab = _ResultsTab()
+    tab.set_result(CorrelationResult(), fib_pixel_size_m=None)
+    assert tab._lbl_tilt.text() == "—"
+    assert tab._lbl_depth_gain.text() == "—"
+    tab.close()
+
+
 def test_advanced_panels_start_collapsed(qapp):
     cl = _widget(qapp)._coords_tab
     # Advanced / set-once panels collapse by default...
     assert cl._surface_panel._btn_collapse.isChecked() is False
     assert cl._fm_surface_panel._btn_collapse.isChecked() is False
-    assert cl._fit_panel._btn_collapse.isChecked() is False
-    # ...while the everyday fiducial/POI panels stay expanded.
+    # ...while the everyday fiducial/POI panels stay expanded, and so does
+    # Method, which on the Setup tab carries the Projection row.
+    assert cl._fit_panel._btn_collapse.isChecked() is True
     assert cl._fib_panel._btn_collapse.isChecked() is True
     assert cl._fm_panel._btn_collapse.isChecked() is True
     assert cl._poi_panel._btn_collapse.isChecked() is True
@@ -1294,7 +1436,9 @@ def test_load_result_rejects_a_coordinates_file(qapp, tmp_path):
     assert "Load Coordinates" in str(exc.value)
 
 
-def test_menu_load_correlation_accepts_a_legacy_result_file(qapp, tmp_path, monkeypatch):
+def test_menu_load_correlation_accepts_a_legacy_result_file(
+    qapp, tmp_path, monkeypatch
+):
     """FIB-264: the single Load action dispatches on shape, so selecting the
     legacy result file — the exact FIB-263 misclick — now just loads it."""
     from PyQt5.QtWidgets import QFileDialog, QMessageBox
@@ -1361,19 +1505,27 @@ def test_point_fit_result_classify_and_delta():
     i = PointXYZ(100.0, 100.0, 5.0)
     assert PointFitResult.classify(i, PointXYZ(103.0, 104.0, 5.0)) is FitStatus.OK
     # exact fallback (fit returned the input) → no change
-    assert PointFitResult.classify(i, PointXYZ(100.0, 100.0, 5.0)) is FitStatus.UNCHANGED
+    assert (
+        PointFitResult.classify(i, PointXYZ(100.0, 100.0, 5.0)) is FitStatus.UNCHANGED
+    )
     # a 0.1 px refinement is a real move, not "no change"
     assert PointFitResult.classify(i, PointXYZ(100.1, 100.0, 5.0)) is FitStatus.OK
-    assert PointFitResult.classify(i, PointXYZ(100.0, 100.0, 7.0)) is FitStatus.OK  # z move
+    assert (
+        PointFitResult.classify(i, PointXYZ(100.0, 100.0, 7.0)) is FitStatus.OK
+    )  # z move
     assert PointFitResult.classify(i, None, error="boom") is FitStatus.ERROR
     assert PointFitResult.classify(i, None) is FitStatus.ERROR
 
     r = PointFitResult(
-        coordinate=_coord(), method="Hole", channel=None,
-        initial=i, fitted=PointXYZ(103.0, 104.0, 5.0), status=FitStatus.OK,
+        coordinate=_coord(),
+        method="Hole",
+        channel=None,
+        initial=i,
+        fitted=PointXYZ(103.0, 104.0, 5.0),
+        status=FitStatus.OK,
     )
     assert round(r.delta_px, 1) == 5.0  # 3-4-5 triangle
-    assert r.delta == (3.0, 4.0, 0.0)   # per-axis (dx, dy, dz)
+    assert r.delta == (3.0, 4.0, 0.0)  # per-axis (dx, dy, dz)
 
 
 def test_subpixel_change_is_visible_and_flagged():
@@ -1407,8 +1559,11 @@ def test_apply_fit_result_moves_and_flags(qapp):
     coord = _coord(10.0, 20.0, 0.0, PointType.FIB)
     w._coords_tab.fib_list.add_coordinate(coord)
     result = PointFitResult(
-        coordinate=coord, method="Hole", channel=None,
-        initial=PointXYZ(10.0, 20.0, 0.0), fitted=PointXYZ(13.0, 24.0, 0.0),
+        coordinate=coord,
+        method="Hole",
+        channel=None,
+        initial=PointXYZ(10.0, 20.0, 0.0),
+        fitted=PointXYZ(13.0, 24.0, 0.0),
         status=FitStatus.OK,
     )
     emitted = []
@@ -1426,11 +1581,11 @@ def test_manual_move_clears_fitted_flag(qapp):
     coord.fitted = True
     w._coords_tab.fib_list.add_coordinate(coord)
 
-    w._on_canvas_moved(coord)              # drag
+    _drag(w, coord)  # drag
     assert coord.fitted is False
 
     coord.fitted = True
-    w._on_list_changed(w._point_specs[PointType.FIB], coord, "x", 6.0)  # spinbox
+    w._coords_tab.fib_list._on_row_changed(coord, "x", 6.0)  # spinbox
     assert coord.fitted is False
 
 
@@ -1442,16 +1597,23 @@ def test_fit_confirmation_dialog_constructs(qapp):
     )
 
     ok = PointFitResult(
-        coordinate=_coord(pt=PointType.FIB), method="Hole", channel=None,
-        initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(2.0, 2.0, 0.0),
+        coordinate=_coord(pt=PointType.FIB),
+        method="Hole",
+        channel=None,
+        initial=PointXYZ(0.0, 0.0, 0.0),
+        fitted=PointXYZ(2.0, 2.0, 0.0),
         status=FitStatus.OK,
     )
     assert FitConfirmationDialog(ok, show_figure=False) is not None
 
     err = PointFitResult(
-        coordinate=_coord(pt=PointType.FIB), method="Hole", channel=None,
-        initial=PointXYZ(0.0, 0.0, 0.0), fitted=None,
-        status=FitStatus.ERROR, message="boom",
+        coordinate=_coord(pt=PointType.FIB),
+        method="Hole",
+        channel=None,
+        initial=PointXYZ(0.0, 0.0, 0.0),
+        fitted=None,
+        status=FitStatus.ERROR,
+        message="boom",
     )
     assert FitConfirmationDialog(err, show_figure=False) is not None
 
@@ -1469,21 +1631,30 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
 
     # a z + XY diagnostic renders wide (9x4.5), like the FM fits
     diag = FitDiagnostic(
-        title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0),
-        z_axis=np.arange(5), z_signal=np.arange(5.0), z_fit=np.arange(5.0),
-        z_input=2.0, z_fitted=2.5,
+        title="t",
+        roi_xy=np.zeros((10, 10)),
+        input_xy=(5.0, 5.0),
+        z_axis=np.arange(5),
+        z_signal=np.arange(5.0),
+        z_fit=np.arange(5.0),
+        z_input=2.0,
+        z_fitted=2.5,
     )
     r = PointFitResult(
-        coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
-        initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(2.0, 2.0, 3.0),
-        status=FitStatus.OK, diagnostic=diag,
+        coordinate=_coord(pt=PointType.FM),
+        method="Hole",
+        channel=0,
+        initial=PointXYZ(0.0, 0.0, 0.0),
+        fitted=PointXYZ(2.0, 2.0, 3.0),
+        status=FitStatus.OK,
+        diagnostic=diag,
     )
     dialog = FitConfirmationDialog(r, show_figure=True)
     canvases = dialog.findChildren(FigureCanvasQTAgg)
     assert canvases, "diagnostic figure should be embedded"
     canvas = canvases[0]
     assert canvas.minimumWidth() > canvas.minimumHeight()  # wide, not squished
-    assert canvas.minimumWidth() <= 900                     # capped
+    assert canvas.minimumWidth() <= 900  # capped
 
 
 def test_humanize_fit_error_maps_known_modes():
@@ -1491,10 +1662,12 @@ def test_humanize_fit_error_maps_known_modes():
         humanize_fit_error,
     )
 
-    conv = humanize_fit_error(RuntimeError(
-        "Optimal parameters not found: Number of calls to function has reached "
-        "maxfev = 800."
-    ))
+    conv = humanize_fit_error(
+        RuntimeError(
+            "Optimal parameters not found: Number of calls to function has reached "
+            "maxfev = 800."
+        )
+    )
     assert "converge" in conv and "maxfev" not in conv  # jargon dropped
 
     edge = humanize_fit_error(IndexError("index 70 is out of bounds"))
@@ -1517,17 +1690,23 @@ def test_fit_dialog_shows_channel_for_fm_only(qapp):
         return {lbl.text() for lbl in dialog.findChildren(QLabel)}
 
     fm = PointFitResult(
-        coordinate=_coord(pt=PointType.FM), method="Hole", channel=1,
+        coordinate=_coord(pt=PointType.FM),
+        method="Hole",
+        channel=1,
         channel_name="reflection",
-        initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(2.0, 2.0, 3.0),
+        initial=PointXYZ(0.0, 0.0, 0.0),
+        fitted=PointXYZ(2.0, 2.0, 3.0),
         status=FitStatus.OK,
     )
     fm_labels = _labels(FitConfirmationDialog(fm, show_figure=False))
     assert "channel" in fm_labels and "reflection" in fm_labels
 
     fib = PointFitResult(
-        coordinate=_coord(pt=PointType.FIB), method="Hole", channel=None,
-        initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(2.0, 2.0, 0.0),
+        coordinate=_coord(pt=PointType.FIB),
+        method="Hole",
+        channel=None,
+        initial=PointXYZ(0.0, 0.0, 0.0),
+        fitted=PointXYZ(2.0, 2.0, 0.0),
         status=FitStatus.OK,
     )
     assert "channel" not in _labels(FitConfirmationDialog(fib, show_figure=False))
@@ -1548,10 +1727,15 @@ def test_error_dialog_splits_title_and_wrapped_reason(qapp):
         "channel / method."
     )
     r = PointFitResult(
-        coordinate=_coord(pt=PointType.FM), method="Hole", channel=2,
+        coordinate=_coord(pt=PointType.FM),
+        method="Hole",
+        channel=2,
         channel_name="Feature-2-Active-Reflection",
-        initial=PointXYZ(0.0, 0.0, 0.0), fitted=None,
-        status=FitStatus.ERROR, message=reason, detail="maxfev = 800",
+        initial=PointXYZ(0.0, 0.0, 0.0),
+        fitted=None,
+        status=FitStatus.ERROR,
+        message=reason,
+        detail="maxfev = 800",
     )
     dlg = FitConfirmationDialog(r, show_figure=False)
     labels = dlg.findChildren(QLabel)
@@ -1578,9 +1762,13 @@ def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
     def _result():
         diag = FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
         return PointFitResult(
-            coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
-            initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(1.0, 1.0, 1.0),
-            status=FitStatus.OK, diagnostic=diag,
+            coordinate=_coord(pt=PointType.FM),
+            method="Hole",
+            channel=0,
+            initial=PointXYZ(0.0, 0.0, 0.0),
+            fitted=PointXYZ(1.0, 1.0, 1.0),
+            status=FitStatus.OK,
+            diagnostic=diag,
         )
 
     # Checkbox unchecked -> figure is still embedded, just hidden; the button
@@ -1617,36 +1805,75 @@ def test_accept_is_default_button_not_the_toggle(qapp):
 
     diag = FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
     result = PointFitResult(
-        coordinate=_coord(pt=PointType.FM), method="Hole", channel=0,
-        initial=PointXYZ(0.0, 0.0, 0.0), fitted=PointXYZ(1.0, 1.0, 1.0),
-        status=FitStatus.OK, diagnostic=diag,
+        coordinate=_coord(pt=PointType.FM),
+        method="Hole",
+        channel=0,
+        initial=PointXYZ(0.0, 0.0, 0.0),
+        fitted=PointXYZ(1.0, 1.0, 1.0),
+        status=FitStatus.OK,
+        diagnostic=diag,
     )
     dlg = FitConfirmationDialog(result, show_figure=True)
     buttons = {b.text(): b for b in dlg.findChildren(QPushButton)}
 
-    assert buttons["Accept"].isDefault()          # Enter accepts the fit...
-    assert not dlg._toggle_btn.isDefault()         # ...not toggles the diagnostic
+    assert buttons["Accept"].isDefault()  # Enter accepts the fit...
+    assert not dlg._toggle_btn.isDefault()  # ...not toggles the diagnostic
     assert not dlg._toggle_btn.autoDefault()
 
 
-def test_fitted_icon_reflects_state(qapp):
+def test_row_state_word_is_empty_for_a_placed_point_and_names_the_rest(qapp):
+    from fibsem.correlation.structures import PointProvenance, PointStatus
     from fibsem.ui.correlation.widgets.coordinate_list_widget import (
+        CoordinateRowWidget,
+        state_text,
+    )
+
+    coord = _coord(pt=PointType.FM)
+    row = CoordinateRowWidget(coord, "FM 1")
+    assert row.state_label.text() == ""  # placed: no chrome
+    coord.status = PointStatus.FITTED
+    row.refresh()
+    assert row.state_label.text() == "fitted"
+    coord.status = PointStatus.PREDICTED
+    coord.provenance = PointProvenance.PROJECTED
+    row.refresh()
+    assert row.state_label.text() == "predicted"
+    coord.suggested = True
+    row.refresh()
+    assert "start here" in row.state_label.text()
+    coord.status = PointStatus.REJECTED
+    row.refresh()
+    assert row.state_label.text() == "removed from fit"
+    assert row.name_label.font().strikeOut()
+    # the legacy flag alone still reads as fitted
+    legacy = _coord(pt=PointType.FIB)
+    legacy.fitted = True
+    assert state_text(legacy) == "fitted"
+
+
+def test_row_actions_show_only_on_the_selected_row(qapp):
+    from fibsem.ui.correlation.widgets.coordinate_list_widget import (
+        CoordinateListWidget,
         CoordinateRowWidget,
     )
 
-    coord = _coord(pt=PointType.FIB)
-    coord.fitted = True
-    row = CoordinateRowWidget(coord, "FIB-0")
-    # Always visible (an aligned status column); state is encoded by colour.
-    assert not row.fitted_icon.isHidden()
-    assert "confirmed" in row.fitted_icon.toolTip()
-    fitted_key = row.fitted_icon.pixmap().cacheKey()
-
-    coord.fitted = False  # a manual edit supersedes the fit
-    row.refresh()
-    assert not row.fitted_icon.isHidden()          # still shown...
-    assert "Manually" in row.fitted_icon.toolTip()  # ...but recoloured
-    assert row.fitted_icon.pixmap().cacheKey() != fitted_key
+    lw = CoordinateListWidget(point_type=PointType.FIB)
+    lw.coordinates = [_coord(x=1.0), _coord(x=2.0), _coord(x=3.0)]
+    rows = [
+        lw._list.itemWidget(lw._list.item(i))
+        for i in range(lw._list.count())
+        if isinstance(lw._list.itemWidget(lw._list.item(i)), CoordinateRowWidget)
+    ]
+    assert len(rows) == 3
+    # the setter selects the first row
+    assert [r.actions.isVisibleTo(r) for r in rows] == [True, False, False]
+    lw.select_coordinate_silent(lw.coordinates[2])
+    assert [r.actions.isVisibleTo(r) for r in rows] == [False, False, True]
+    # the row buttons carry the list's signals
+    got = []
+    lw.refit_requested.connect(got.append)
+    rows[2].btn_fit.click()
+    assert got == [lw.coordinates[2]]
 
 
 def test_tooltip_labels_have_no_unscoped_background(qapp):
@@ -1658,9 +1885,9 @@ def test_tooltip_labels_have_no_unscoped_background(qapp):
     )
 
     row = CoordinateRowWidget(_coord(pt=PointType.FIB), "FIB-0")
-    assert row.fitted_icon.toolTip()               # it does have a tooltip
-    assert "background" not in row.fitted_icon.styleSheet()
+    assert row.name_label.toolTip()  # it does have a tooltip
     assert "background" not in row.name_label.styleSheet()
+    assert "background" not in row.state_label.styleSheet()
 
 
 def test_name_col_width_is_compact_for_short_types(qapp):
@@ -1726,14 +1953,16 @@ def _fit_result(status, dx=0.0, dy=0.0, dz=0.0, diagnostic=None):
 
     initial = PointXYZ(100.0, 100.0, 10.0)
     fitted = (
-        None
-        if status.name == "ERROR"
-        else PointXYZ(100.0 + dx, 100.0 + dy, 10.0 + dz)
+        None if status.name == "ERROR" else PointXYZ(100.0 + dx, 100.0 + dy, 10.0 + dz)
     )
     return PointFitResult(
         coordinate=_coord(100.0, 100.0, 10.0, PointType.FM),
-        method="Hole", channel=0, initial=initial, fitted=fitted,
-        status=status, diagnostic=diagnostic,
+        method="Hole",
+        channel=0,
+        initial=initial,
+        fitted=fitted,
+        status=status,
+        diagnostic=diagnostic,
     )
 
 
@@ -1746,12 +1975,12 @@ def test_auto_accept_gating(qapp):
     far = _fit_result(FitStatus.OK, dx=100.0)  # surprising jump
 
     w._coords_tab._auto_accept_check.setChecked(False)
-    assert not w._should_auto_accept(ok)   # off -> always confirm
+    assert not w._should_auto_accept(ok)  # off -> always confirm
 
     w._coords_tab._auto_accept_check.setChecked(True)
-    assert w._should_auto_accept(ok)        # good, small fit -> apply
-    assert not w._should_auto_accept(err)   # failures always surface
-    assert not w._should_auto_accept(far)   # outliers fall back to the dialog
+    assert w._should_auto_accept(ok)  # good, small fit -> apply
+    assert not w._should_auto_accept(err)  # failures always surface
+    assert not w._should_auto_accept(far)  # outliers fall back to the dialog
 
 
 def test_auto_accept_applies_without_dialog(qapp, monkeypatch):
@@ -1845,13 +2074,17 @@ def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
     w._coords_tab.fib_list.add_coordinate(coord)
 
     # Reject → coordinate unchanged.
-    monkeypatch.setattr(ctw.FitConfirmationDialog, "exec_", lambda self: QDialog.Rejected)
+    monkeypatch.setattr(
+        ctw.FitConfirmationDialog, "exec_", lambda self: QDialog.Rejected
+    )
     w._on_refit_requested(coord)
     assert (coord.point.x, coord.point.y) == (20.0, 20.0)
     assert coord.fitted is False
 
     # Accept → coordinate moved and flagged.
-    monkeypatch.setattr(ctw.FitConfirmationDialog, "exec_", lambda self: QDialog.Accepted)
+    monkeypatch.setattr(
+        ctw.FitConfirmationDialog, "exec_", lambda self: QDialog.Accepted
+    )
     w._on_refit_requested(coord)
     assert (coord.point.x, coord.point.y) == (23.0, 24.0)
     assert coord.fitted is True
@@ -2000,9 +2233,7 @@ def test_load_project_prefers_the_data_file_over_the_result_snapshot(qapp, tmp_p
     """End-to-end of the reported path: edit after a run, reopen, keep the edit."""
     from fibsem.ui.correlation.widgets.correlation_tab_widget import load_project
 
-    _result_from(_input(fib=(1.0, 2.0))).save(
-        str(tmp_path / "correlation_result.json")
-    )
+    _result_from(_input(fib=(1.0, 2.0))).save(str(tmp_path / "correlation_result.json"))
     _input(fib=(5.0, 5.0)).save(str(tmp_path / "correlation_data.json"))
 
     w = _widget(qapp)
@@ -2017,9 +2248,7 @@ def test_load_project_adopts_the_snapshot_when_there_is_no_data_file(qapp, tmp_p
     """With no data file the result's snapshot is the only record of the points."""
     from fibsem.ui.correlation.widgets.correlation_tab_widget import load_project
 
-    _result_from(_input(fib=(1.0, 2.0))).save(
-        str(tmp_path / "correlation_result.json")
-    )
+    _result_from(_input(fib=(1.0, 2.0))).save(str(tmp_path / "correlation_result.json"))
 
     w = _widget(qapp)
     load_project(w, str(tmp_path))
@@ -2084,7 +2313,9 @@ def test_load_correlation_round_trips_a_consolidated_file(qapp, tmp_path):
 
     fresh = _widget(qapp)
     fresh.load_correlation(str(tmp_path / "correlation.json"))
-    assert [(c.point.x, c.point.y) for c in fresh._coords_tab.fib_list.coordinates] == [(5.0, 5.0)]
+    assert [(c.point.x, c.point.y) for c in fresh._coords_tab.fib_list.coordinates] == [
+        (5.0, 5.0)
+    ]
     assert fresh._btn_continue.isEnabled() is True  # consistent -> usable
 
 
@@ -2098,7 +2329,7 @@ def test_load_correlation_flags_a_stale_consolidated_file(qapp, tmp_path):
     w.set_data(_input(fib=(1.0, 2.0)))
     w._on_result_ready(_result_from(_input(fib=(1.0, 2.0))))  # result fitted here
     w.set_data(_input(fib=(9.0, 9.0)))  # ...then the points move
-    w.data_changed.emit(w.data)         # rewrite: new points, stale result
+    w.data_changed.emit(w.data)  # rewrite: new points, stale result
 
     raw = json.loads((tmp_path / "correlation.json").read_text(encoding="utf-8"))
     assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 9.0
@@ -2106,7 +2337,9 @@ def test_load_correlation_flags_a_stale_consolidated_file(qapp, tmp_path):
 
     fresh = _widget(qapp)
     fresh.load_correlation(str(tmp_path / "correlation.json"))
-    assert [(c.point.x, c.point.y) for c in fresh._coords_tab.fib_list.coordinates] == [(9.0, 9.0)]
+    assert [(c.point.x, c.point.y) for c in fresh._coords_tab.fib_list.coordinates] == [
+        (9.0, 9.0)
+    ]
     assert fresh._btn_continue.isEnabled() is False  # stale result not armed
 
 
@@ -2123,7 +2356,9 @@ def test_load_project_prefers_the_consolidated_file(qapp, tmp_path):
 
     w = _widget(qapp)
     load_project(w, str(tmp_path))
-    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [(5.0, 5.0)]
+    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [
+        (5.0, 5.0)
+    ]
 
 
 def test_load_project_falls_back_to_legacy_when_no_consolidated_file(qapp, tmp_path):
@@ -2133,7 +2368,9 @@ def test_load_project_falls_back_to_legacy_when_no_consolidated_file(qapp, tmp_p
 
     w = _widget(qapp)
     load_project(w, str(tmp_path))
-    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [(7.0, 7.0)]
+    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [
+        (7.0, 7.0)
+    ]
 
 
 def test_load_correlation_reads_a_legacy_data_file(qapp, tmp_path):
@@ -2143,7 +2380,9 @@ def test_load_correlation_reads_a_legacy_data_file(qapp, tmp_path):
 
     w = _widget(qapp)
     w.load_correlation(str(p))
-    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [(7.0, 8.0)]
+    assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [
+        (7.0, 8.0)
+    ]
     assert w._result is None  # a bare data file carries no result
 
 
@@ -2216,9 +2455,9 @@ def test_widget_config_round_trips(qapp):
 
     out = w.correlation_config
     assert out.fit.fib_method == "None"
-    assert out.fit.reflection_cutout == 4      # UI-less field carried through
+    assert out.fit.reflection_cutout == 4  # UI-less field carried through
     assert out.ri.na == pytest.approx(0.9)
-    assert out.load_spot_burns is False        # UI-less field carried through
+    assert out.load_spot_burns is False  # UI-less field carried through
 
 
 def test_widget_config_reflects_a_combo_edit(qapp):
@@ -2234,8 +2473,11 @@ def test_config_default_matches_current_behaviour(qapp):
     """A widget that was never given a config reports today's defaults."""
     w = _widget(qapp)
     fit = w.correlation_config.fit
-    assert (fit.fib_method, fit.fm_fiducial_method, fit.fm_poi_method) == \
-        ("Hole", "None", "Gaussian")
+    assert (fit.fib_method, fit.fm_fiducial_method, fit.fm_poi_method) == (
+        "Hole",
+        "None",
+        "Gaussian",
+    )
 
 
 def test_channel_by_name_lands_once_the_channel_exists(qapp):
@@ -2245,9 +2487,7 @@ def test_channel_by_name_lands_once_the_channel_exists(qapp):
 
     w = _widget(qapp)
     # config set before any FM image: channel combo is still empty, no-op
-    w.set_correlation_config(
-        CorrelationConfig(fit=FitSettings(fm_poi_channel="CH1"))
-    )
+    w.set_correlation_config(CorrelationConfig(fit=FitSettings(fm_poi_channel="CH1")))
     assert w._coords_tab._fm_poi_ch_combo.currentText() == ""
 
     # channels populate; re-apply lands the named selection (as set_fm_image does)
@@ -2264,8 +2504,9 @@ def _fake_fm_with_optics(names=("Reflection", "GFP"), wl_nm=(488, 520), na=0.85)
     import numpy as np
 
     chans = [
-        SimpleNamespace(name=n, color=None, excitation_wavelength=w,
-                        objective_numerical_aperture=na)
+        SimpleNamespace(
+            name=n, color=None, excitation_wavelength=w, objective_numerical_aperture=na
+        )
         for n, w in zip(names, wl_nm)
     ]
     return SimpleNamespace(
@@ -2289,7 +2530,7 @@ def test_ri_seeds_wavelength_and_na_from_poi_channel(qapp):
     w._seed_ri_from_fm_metadata(fm)
 
     p = w._ri_tab._ri_widget.get_params()
-    assert p.wavelength_um == pytest.approx(0.520)   # GFP, not Reflection
+    assert p.wavelength_um == pytest.approx(0.520)  # GFP, not Reflection
     assert p.NA == pytest.approx(0.85)
 
 
@@ -2298,7 +2539,7 @@ def test_ri_seed_respects_a_manual_edit(qapp):
     w = _widget(qapp)
     ri = w._ri_tab._ri_widget
     ri._spin_wl.setValue(600.0)
-    ri._spin_wl.editingFinished.emit()   # marks it user-edited
+    ri._spin_wl.editingFinished.emit()  # marks it user-edited
 
     w._seed_ri_from_fm_metadata(_fake_fm_with_optics(wl_nm=(488, 520)))
     assert ri.get_params().wavelength_um == pytest.approx(0.600)  # kept
@@ -2346,15 +2587,15 @@ def test_seed_rescales_fm_z_across_a_different_zstep(qapp):
     """A seed picked at 500 nm/slice, reloaded into a 100 nm/slice (interpolated)
     volume, must land at the same physical depth — index 10 -> 50."""
     w = _widget(qapp)
-    w._fm_image = _fm_at_zstep(100e-9, n_z=105)   # current volume, interpolated
+    w._fm_image = _fm_at_zstep(100e-9, n_z=105)  # current volume, interpolated
     source = CorrelationInputData(
         fm_coordinates=[_coord(2.0, 2.0, z=10.0, pt=PointType.FM)],
-        stored_fm_pixel_size_z=500e-9,            # source volume z-step
+        stored_fm_pixel_size_z=500e-9,  # source volume z-step
     )
     w.seed_coordinates(source)
 
     assert w._coords_tab.fm_list.coordinates[0].point.z == pytest.approx(50.0)
-    assert w._result is None                      # previous result not carried in
+    assert w._result is None  # previous result not carried in
 
 
 def test_seed_is_a_noop_when_the_zstep_matches(qapp):

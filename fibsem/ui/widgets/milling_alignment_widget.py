@@ -1,20 +1,30 @@
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QSpinBox, QWidget
 
 from fibsem.structures import MillingAlignment
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
+    align_form,
 )
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
-    "enabled": {"default": True, "label": "Enable Initial Alignment",
-                "tooltip": "Align between imaging and milling current before starting milling"},
-    "use_contrast": {"default": True, "label": "Use Auto Contrast",
-                     "tooltip": "Autocontrast before acquiring alignment image"},
-    "use_autofocus": {"default": False, "label": "Use Auto Focus",
-                      "tooltip": "Autofocus before acquiring alignment image"},
+    "enabled": {
+        "default": True,
+        "label": "Enable Initial Alignment",
+        "tooltip": "Align between imaging and milling current before starting milling",
+    },
+    "use_contrast": {
+        "default": True,
+        "label": "Use Auto Contrast",
+        "tooltip": "Autocontrast before acquiring alignment image",
+    },
+    "use_autofocus": {
+        "default": False,
+        "label": "Use Auto Focus",
+        "tooltip": "Autofocus before acquiring alignment image",
+    },
     "steps": {"range": (1, 9), "default": 3},
 }
 
@@ -52,36 +62,48 @@ class FibsemMillingAlignmentWidget(QWidget):
         and alignment imaging settings widget.
         """
         layout = QGridLayout()
+        layout.setContentsMargins(4, 4, 4, 4)  # as the other forms in the column
         self.setLayout(layout)
+        align_form(layout)
 
         # Enabled checkbox
         enabled_config = WIDGET_CONFIG["enabled"]
-        self.enabled_checkbox = QCheckBox(enabled_config["label"])
+        # Each switch is a form row -- label, then a bare checkbox in the field
+        # column -- the shape every other boolean in the editor has.
+        self.enabled_checkbox = QCheckBox()
         self.enabled_checkbox.setChecked(enabled_config["default"])
         self.enabled_checkbox.setToolTip(enabled_config["tooltip"])
-        layout.addWidget(self.enabled_checkbox, 0, 0, 1, 2)
+        enabled_label = QLabel(enabled_config["label"])
+        enabled_label.setToolTip(enabled_config["tooltip"])
+        layout.addWidget(enabled_label, 0, 0)
+        layout.addWidget(self.enabled_checkbox, 0, 1, alignment=Qt.AlignLeft)
 
-        # use autocontrast and use autofocus on the same row
         use_contrast_config = WIDGET_CONFIG["use_contrast"]
-        self.autocontrast_checkbox = QCheckBox(use_contrast_config["label"])
+        self.autocontrast_checkbox = QCheckBox()
         self.autocontrast_checkbox.setChecked(use_contrast_config["default"])
         self.autocontrast_checkbox.setToolTip(use_contrast_config["tooltip"])
-        layout.addWidget(self.autocontrast_checkbox, 1, 0, 1, 1)
+        contrast_label = QLabel(use_contrast_config["label"])
+        contrast_label.setToolTip(use_contrast_config["tooltip"])
+        layout.addWidget(contrast_label, 1, 0)
+        layout.addWidget(self.autocontrast_checkbox, 1, 1, alignment=Qt.AlignLeft)
 
         use_autofocus_config = WIDGET_CONFIG["use_autofocus"]
-        self.autofocus_checkbox = QCheckBox(use_autofocus_config["label"])
+        self.autofocus_checkbox = QCheckBox()
         self.autofocus_checkbox.setChecked(use_autofocus_config["default"])
         self.autofocus_checkbox.setToolTip(use_autofocus_config["tooltip"])
-        layout.addWidget(self.autofocus_checkbox, 1, 1, 1, 1)
+        focus_label = QLabel(use_autofocus_config["label"])
+        focus_label.setToolTip(use_autofocus_config["tooltip"])
+        layout.addWidget(focus_label, 2, 0)
+        layout.addWidget(self.autofocus_checkbox, 2, 1, alignment=Qt.AlignLeft)
 
         # Alignment steps
         self.steps_label = QLabel("Alignment Steps")
-        layout.addWidget(self.steps_label, 2, 0)
+        layout.addWidget(self.steps_label, 3, 0)
         self.steps_spinbox = IntegerValueSpinBox()
         steps_config = WIDGET_CONFIG["steps"]
         self.steps_spinbox.setRange(*steps_config["range"])
         self.steps_spinbox.setValue(steps_config["default"])
-        layout.addWidget(self.steps_spinbox, 2, 1)
+        layout.addWidget(self.steps_spinbox, 3, 1)
 
         # Image settings widget
         self.image_settings_widget = ImageSettingsWidget(show_advanced=False)
@@ -89,7 +111,7 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.image_settings_widget.show_field_of_view(False)
         self.image_settings_widget.set_show_autocontrast(False)
         self.image_settings_widget.drift_correction_check.setVisible(False)
-        layout.addWidget(self.image_settings_widget, 3, 0, 1, 2)
+        layout.addWidget(self.image_settings_widget, 4, 0, 1, 2)
 
     def _connect_signals(self):
         """Connect widget signals to their respective handlers.
@@ -127,7 +149,7 @@ class FibsemMillingAlignmentWidget(QWidget):
 
     def _emit_settings_changed(self):
         """Emit the settings_changed signal with current settings.
-        
+
         Called whenever any control value changes to notify listeners
         of the updated MillingAlignment settings.
         """
@@ -187,7 +209,7 @@ class FibsemMillingAlignmentWidget(QWidget):
 
     def set_show_advanced(self, show_advanced: bool):
         """Set the visibility of advanced settings.
-        
+
         Args:
             show_advanced: True to show advanced settings, False to hide them
         """
@@ -196,14 +218,14 @@ class FibsemMillingAlignmentWidget(QWidget):
 
     def toggle_advanced(self):
         """Toggle the visibility of advanced settings.
-        
+
         Switches between showing and hiding the advanced controls.
         """
         self.set_show_advanced(not self._show_advanced)
 
     def get_show_advanced(self) -> bool:
         """Get the current advanced settings visibility state.
-        
+
         Returns:
             True if advanced settings are currently visible, False otherwise
         """

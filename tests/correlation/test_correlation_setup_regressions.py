@@ -15,6 +15,7 @@ into a section inside the correlation window. Things lost or invented on the way
 
 Headless PyQt5, offscreen.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -129,7 +130,9 @@ def test_a_surface_point_is_something_to_lose(qapp, monkeypatch):
     section = _seed_burns(w)
 
     w._coords_tab.fm_surface_list.add_coordinate(
-        Coordinate(point=PointXYZ(x=10.0, y=20.0, z=3.0), point_type=PointType.SURFACE_FM)
+        Coordinate(
+            point=PointXYZ(x=10.0, y=20.0, z=3.0), point_type=PointType.SURFACE_FM
+        )
     )
     assert w._has_manual_edits()
 
@@ -274,16 +277,25 @@ def _editor_stub(lamella_path, fib_filename, image):
 
     A real QWidget, not a namespace: it is passed as the dialog's parent, so the
     end-to-end variant of this harness needs it to survive PyQt's type check.
+
+    The picker is filled by the editor's own helper: the filename rides as item
+    data under a "Task · stage" label, and the editor reads the data.
     """
     from PyQt5.QtWidgets import QComboBox, QWidget
 
     from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget as Editor,
     )
+    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
+        _fill_picker,
+        reference_image_label,
+    )
 
     fib_combo = QComboBox()
     if fib_filename:
-        fib_combo.addItem(fib_filename)
+        _fill_picker(
+            fib_combo, [fib_filename], [reference_image_label(fib_filename, [])]
+        )
     stub = QWidget()
     stub._selected_lamella = types.SimpleNamespace(path=lamella_path, task_config={})
     stub.parent_widget = None

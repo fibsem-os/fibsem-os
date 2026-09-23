@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from skimage.transform import resize
@@ -44,6 +44,16 @@ from fibsem.structures import (
 )
 
 # colour wheel
+# Shared by the napari shapes layer and by the bitmap converter below, which is
+# why it lives here rather than in `fibsem.ui.napari.patterns`: that module needs
+# napari, this one must not. `patterns.py` re-exports it (FIB-1027).
+SHAPES_LAYER_PROPERTIES = {
+    "edge_width": 0.5,
+    "opacity": 0.5,
+    "blending": "translucent",
+    "image_edge_width": 1,
+}
+
 COLOURS = [
     "yellow",
     "cyan",

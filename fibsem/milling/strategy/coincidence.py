@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 from psygnal import Signal
 
-from fibsem import constants
+from fibsem import acquire, constants
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
@@ -31,6 +31,8 @@ from fibsem.structures import (
 from fibsem.utils import save_json
 
 if TYPE_CHECKING:
+    import threading
+
     from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
 
@@ -270,8 +272,11 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
         # acquire pre-task fib image
         if self.config.acquire_fib_image:
-            image = microscope.acquire_image(beam_type=BeamType.ION)
-            image.save(os.path.join(self.path, "pre-milling-fib-image.tif"))
+            image = acquire.acquire_current_image(
+                microscope,
+                BeamType.ION,
+                path=os.path.join(self.path, "pre-milling-fib-image.tif"),
+            )
             self.pre_fib_acq = image
             self.microscope.fib_acquisition_signal.emit(image)
 
@@ -301,8 +306,11 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
         # acquire a fibsem image
         if self.config.acquire_fib_image:
-            image = self.microscope.acquire_image(beam_type=BeamType.ION)
-            image.save(os.path.join(self.path, "post-milling-fib-image.tif"))
+            image = acquire.acquire_current_image(
+                self.microscope,
+                BeamType.ION,
+                path=os.path.join(self.path, "post-milling-fib-image.tif"),
+            )
             self.post_fib_acq = image
             self.microscope.fib_acquisition_signal.emit(image)
 

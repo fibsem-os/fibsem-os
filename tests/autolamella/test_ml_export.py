@@ -5,6 +5,7 @@ Milling Position task, labelled with the point of interest the operator picked.
 
 Headless: no Qt, no microscope, no napari.
 """
+
 import json
 import os
 from pathlib import Path
@@ -188,7 +189,9 @@ def test_find_final_fib_image_fallback_order_is_earliest_first(tmp_path):
     """Given only fiducial and rough images, the fiducial one wins."""
     exp = _make_experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.task_config["Rough Milling"] = MillRoughTaskConfig(task_name="Rough Milling")
+    lamella.task_config["Rough Milling"] = MillRoughTaskConfig(
+        task_name="Rough Milling"
+    )
     _save_reference_image(lamella, task_name="Rough Milling")
     lamella.task_config["Mill Fiducial"] = MillFiducialTaskConfig(
         task_name="Mill Fiducial"
@@ -201,7 +204,9 @@ def test_find_final_fib_image_fallback_order_is_earliest_first(tmp_path):
 def test_export_records_which_task_the_image_came_from(tmp_path):
     exp = _make_experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.task_config["Rough Milling"] = MillRoughTaskConfig(task_name="Rough Milling")
+    lamella.task_config["Rough Milling"] = MillRoughTaskConfig(
+        task_name="Rough Milling"
+    )
     _save_reference_image(lamella, task_name="Rough Milling")
     output = str(tmp_path / "out")
 
@@ -229,13 +234,17 @@ def test_poi_at_origin_is_image_centre(tmp_path):
 
 def test_poi_x_is_not_flipped(tmp_path):
     exp = _make_experiment(tmp_path, poi=Point(1e-6, 0.0))  # +10 px
-    assert ml_export.poi_to_pixels(exp.positions[0], _make_fib_image()).x == pytest.approx(266.0)
+    assert ml_export.poi_to_pixels(
+        exp.positions[0], _make_fib_image()
+    ).x == pytest.approx(266.0)
 
 
 def test_poi_y_is_flipped(tmp_path):
     """+y in milling coordinates is *up*, which is -y in pixels."""
     exp = _make_experiment(tmp_path, poi=Point(0.0, 1e-6))  # -10 px
-    assert ml_export.poi_to_pixels(exp.positions[0], _make_fib_image()).y == pytest.approx(246.0)
+    assert ml_export.poi_to_pixels(
+        exp.positions[0], _make_fib_image()
+    ).y == pytest.approx(246.0)
 
 
 def test_poi_conversion_is_independent_of_field_of_view(tmp_path):
@@ -285,7 +294,7 @@ def test_collect_sample_carries_provenance(tmp_path):
     _save_reference_image(lamella)
 
     sample = ml_export.collect_sample(lamella, "0001")
-    assert sample.defect == "FAILURE"
+    assert sample.defect == "FAILED"
     assert sample.milling_angle == pytest.approx(0.3)
     assert sample.lamella_id == lamella.id
     assert sample.petname == lamella.name
@@ -431,7 +440,9 @@ def test_export_label_disc_lands_on_sidecar_coordinates(tmp_path):
         data = json.load(f)
     label = tifffile.imread(os.path.join(output, "labels", "0001.tif"))
 
-    assert label[round(data["pixel_y"]), round(data["pixel_x"])] == ml_export.LABEL_VALUE
+    assert (
+        label[round(data["pixel_y"]), round(data["pixel_x"])] == ml_export.LABEL_VALUE
+    )
 
 
 def test_export_writes_manifest_indexing_samples(tmp_path):

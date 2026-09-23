@@ -12,7 +12,11 @@ import numpy as np
 
 import fibsem.constants as constants
 from fibsem import manufacturers
-from fibsem.microscope import FibsemMicroscope
+from fibsem.microscope import (
+    FibsemMicroscope,
+    _records_beam_shift,
+    _records_stage_move,
+)
 
 TESCAN_API_AVAILABLE = False
 # Read through this rather than importing tescanautomation yourself: the guarded
@@ -661,6 +665,7 @@ class TescanMicroscope(FibsemMicroscope):
             beam.AutoWDFine(self._active_detector[beam_type])
         return
 
+    @_records_beam_shift
     def beam_shift(
         self, dx: float, dy: float, beam_type: BeamType = BeamType.ION
     ) -> None:
@@ -683,6 +688,7 @@ class TescanMicroscope(FibsemMicroscope):
             {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
         )
 
+    @_records_stage_move
     def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
         # Inert until Tescan has a fluorescence microscope at all -- `self.fm` is set
         # to None unconditionally here (FIB-836) -- but the guard belongs on every
@@ -722,19 +728,16 @@ class TescanMicroscope(FibsemMicroscope):
 
         return new_position
 
-    def move_stage_absolute(self, position: FibsemStagePosition):
+    @_records_stage_move
+    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """
         Move the stage to the specified coordinates.
 
         Args:
-            x (float): The x-coordinate to move to (in meters).
-            y (float): The y-coordinate to move to (in meters).
-            z (float): The z-coordinate to move to (in meters).
-            r (float): The rotation to apply (in radians).
-            tx (float): The x-axis tilt to apply (in radians).
+            position: The raw stage position to move to (metres, radians).
 
         Returns:
-            None
+            FibsemStagePosition: The stage position after the move.
         """
         logging.info(f"Moving stage to {position}.")
         # convert to tescan position
@@ -744,6 +747,9 @@ class TescanMicroscope(FibsemMicroscope):
 
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
+        return self.get_stage_position()
+
+    @_records_stage_move
     def move_stage_relative(
         self,
         position: FibsemStagePosition,
@@ -756,13 +762,14 @@ class TescanMicroscope(FibsemMicroscope):
 
         abs_position = current_position + position
         logging.debug(f"Moving stage to {abs_position}")
-        self.move_stage_absolute(abs_position)
+        moved = self.move_stage_absolute(abs_position)  # reads where it ended
 
         # move stage
         logging.debug({"msg": "move_stage_relative", "position": position.to_dict()})
 
-        return self.get_stage_position()
+        return moved
 
+    @_records_stage_move
     def stable_move(
         self,
         dx: float,
@@ -816,11 +823,13 @@ class TescanMicroscope(FibsemMicroscope):
 
         return self.get_stage_position()
 
+    @_records_stage_move
     def vertical_move(
         self,
         dy: float,
         dx: float = 0.0,
         beam_type: BeamType = BeamType.ION,
+        relaxation: float = 1.0,
     ) -> FibsemStagePosition:
         """Restore the coincidence point from an offset measured in one beam view.
 
@@ -829,6 +838,8 @@ class TescanMicroscope(FibsemMicroscope):
             dx (float, optional): distance in x-axis (image coordinates)
             beam_type (BeamType, optional): the view the offset was measured in.
                 Defaults to ION.
+            relaxation (float, optional): accepted for interface compatibility with
+                the other backends; not applied on Tescan.
         """
         self._check_vertical_move_supported(beam_type)
         if beam_type is BeamType.ELECTRON:
@@ -1712,6 +1723,10 @@ class TescanMicroscope(FibsemMicroscope):
 
         hfw = self.get("hfw", beam_type)
         resolution = self.get("resolution", beam_type)
+        # milling_current None: TESCAN burns at SPOT_BURN_PRESET, not the request
+        self._record_spot_burn_started(
+            coordinates, beam_type, exposure_time, None, len(dropped), field_of_view=hfw
+        )
         layer = self._create_spot_burn_layer(
             coordinates=coordinates,
             exposure_time=exposure_time,

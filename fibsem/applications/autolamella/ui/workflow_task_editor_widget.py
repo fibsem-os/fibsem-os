@@ -61,7 +61,9 @@ class _BoundedDateTimeEdit(QDateTimeEdit):
 class _RequirementRowWidget(QWidget):
     """Simple checkbox row for a single available task."""
 
-    def __init__(self, task_name: str, checked: bool = False, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, task_name: str, checked: bool = False, parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -91,8 +93,12 @@ class WorkflowTaskEditorWidget(QWidget):
     cancel_clicked : emits when the user clicks Cancel.
     """
 
-    apply_clicked = pyqtSignal(object)   # AutoLamellaTaskDescription
+    apply_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
     cancel_clicked = pyqtSignal()
+    # The user wants this task out of the workflow. The editor only asks; the
+    # dialog that owns the task confirms and removes, so the editor can be
+    # embedded anywhere without a removal path of its own.
+    remove_clicked = pyqtSignal()
 
     def __init__(
         self,
@@ -117,7 +123,9 @@ class WorkflowTaskEditorWidget(QWidget):
         header_row.addWidget(icon_lbl)
 
         title = QLabel("Edit task")
-        title.setStyleSheet("font-size: 12px; font-weight: bold; color: #c8c8c8; background: transparent;")
+        title.setStyleSheet(
+            "font-size: 12px; font-weight: bold; color: #c8c8c8; background: transparent;"
+        )
         header_row.addWidget(title)
         header_row.addStretch(1)
 
@@ -185,7 +193,9 @@ class WorkflowTaskEditorWidget(QWidget):
         self._dt_edit.dateTimeChanged.connect(self._refresh_schedule_hint)
         self._refresh_schedule_hint()
 
-        self._props_panel = TitledPanel("Properties", content=props_content, collapsible=False)
+        self._props_panel = TitledPanel(
+            "Properties", content=props_content, collapsible=False
+        )
         root.addWidget(self._props_panel)
 
         # ── Requirements panel ───────────────────────────────────────────
@@ -193,12 +203,15 @@ class WorkflowTaskEditorWidget(QWidget):
         self._req_list.setSpacing(0)
         self._req_list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._req_list.setAlternatingRowColors(False)
-        self._req_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._req_list.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self._req_list.setFocusPolicy(Qt.NoFocus)
         # height is sized to the row count (capped, then scrolls) by
         # _resize_req_list so the panel hugs its content.
-        self._req_list.setSizePolicy(self._req_list.sizePolicy().horizontalPolicy(),
-                                     QSizePolicy.Fixed)
+        self._req_list.setSizePolicy(
+            self._req_list.sizePolicy().horizontalPolicy(), QSizePolicy.Fixed
+        )
 
         req_content = QWidget()
         req_content.setStyleSheet("background: transparent;")
@@ -209,7 +222,9 @@ class WorkflowTaskEditorWidget(QWidget):
         self._req_rows: List[_RequirementRowWidget] = []
         self._populate_requirements(task)
 
-        self._req_panel = TitledPanel("Requirements", content=req_content, collapsible=False)
+        self._req_panel = TitledPanel(
+            "Requirements", content=req_content, collapsible=False
+        )
         root.addWidget(self._req_panel)
 
         req_hint = QLabel(
@@ -224,6 +239,12 @@ class WorkflowTaskEditorWidget(QWidget):
 
         # ── buttons ─────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
+        # Remove lives here, on the left, away from Apply: rare, destructive,
+        # and no longer a button on every row of the list.
+        self._remove_btn = QPushButton("Remove task…")
+        self._remove_btn.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self._remove_btn.setToolTip("Remove this task from the workflow")
+        btn_row.addWidget(self._remove_btn)
         btn_row.addStretch(1)
 
         self._cancel_btn = QPushButton("Cancel")
@@ -238,6 +259,12 @@ class WorkflowTaskEditorWidget(QWidget):
 
         self._apply_btn.clicked.connect(self._on_apply)
         self._cancel_btn.clicked.connect(self.cancel_clicked)
+        self._remove_btn.clicked.connect(self.remove_clicked)
+
+    def set_remove_allowed(self, allowed: bool) -> None:
+        """Whether the editor offers Remove: a host that never removes tasks
+        (a read-only protocol view) hides it."""
+        self._remove_btn.setVisible(allowed)
 
     # ------------------------------------------------------------------
     # Public API
@@ -277,8 +304,10 @@ class WorkflowTaskEditorWidget(QWidget):
     def _refresh_schedule_hint(self) -> None:
         """Show how far ahead the selected time is, or a cap reminder when off."""
         if self._schedule_cb.isChecked():
-            text = (f"Starts {self._offset_from_now()} from now · up to "
-                    f"{_MAX_SCHEDULE_DAYS_AHEAD} days ahead.")
+            text = (
+                f"Starts {self._offset_from_now()} from now · up to "
+                f"{_MAX_SCHEDULE_DAYS_AHEAD} days ahead."
+            )
         else:
             text = f"Up to {_MAX_SCHEDULE_DAYS_AHEAD} days ahead."
         self._sched_hint.setText(text)
@@ -349,14 +378,14 @@ class WorkflowTaskEditorWidget(QWidget):
     def _resize_req_list(self) -> None:
         """Size the list to its rows (capped at _MAX_VISIBLE_REQS, then scrolls)."""
         visible = min(max(self._req_list.count(), 1), _MAX_VISIBLE_REQS)
-        self._req_list.setFixedHeight(visible * _ROW_HEIGHT + 2 * self._req_list.frameWidth())
+        self._req_list.setFixedHeight(
+            visible * _ROW_HEIGHT + 2 * self._req_list.frameWidth()
+        )
 
     def _on_apply(self) -> None:
         self._task.required = not self._optional_cb.isChecked()
         self._task.requires = [
-            row.name_label.text()
-            for row in self._req_rows
-            if row.checkbox.isChecked()
+            row.name_label.text() for row in self._req_rows if row.checkbox.isChecked()
         ]
         if self._schedule_cb.isChecked():
             self._task.scheduled_at = (

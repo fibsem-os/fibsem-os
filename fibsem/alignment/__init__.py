@@ -517,6 +517,33 @@ def multi_step_alignment_v2(
     )
 
     save_path: str = path if path is not None else _alignment_save_path(ref_image)[0]
-    run.save(save_path, plot_title=run_name)
+    run_dir = run.save(save_path, plot_title=run_name)
+    _record_alignment(microscope, run, steps, aborted, run_dir)
 
     return run
+
+
+def _record_alignment(
+    microscope: FibsemMicroscope,
+    run: AlignmentResult,
+    steps: int,
+    aborted: bool,
+    path: str,
+) -> None:
+    """Record an alignment run: one event, with every step's measured shift.
+
+    The corrections are recorded by the microscope, as beam shifts or stage
+    moves. Never raises: an alignment that cannot be described still aligned.
+    """
+    try:
+        payload = {
+            **run.to_dict(),
+            "beam_type": run.reference_image.metadata.beam_type.name,
+            "steps": steps,
+            "aborted": aborted,
+            "path": path,
+        }
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug("could not record an alignment", exc_info=True)
+        return
+    microscope.record_event("alignment", payload)

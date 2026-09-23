@@ -11,14 +11,18 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import cycle
-from typing import Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
 from fibsem.fm.microscope import Camera, FluorescenceMicroscope
-from fibsem.microscope import FibsemMicroscope
+from fibsem.microscope import (
+    FibsemMicroscope,
+    _records_beam_shift,
+    _records_stage_move,
+)
 from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.microscopes.sim_scene import fm_channel_weights
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -51,6 +55,9 @@ from fibsem.structures import (
     SystemSettings,
 )
 from fibsem.util.draw_numbers import draw_text
+
+if TYPE_CHECKING:
+    from fibsem.microscopes._stage import DemoSampleLoader
 
 ######################## SIMULATOR ########################
 
@@ -696,6 +703,12 @@ class DemoMicroscope(FibsemMicroscope):
 
         logging.info(f"acquiring new {effective_beam_type.name} image.")
 
+        # set the imaging hfw, as the hardware drivers do: an acquisition leaves
+        # the beam at the field it imaged, so anything that follows in image
+        # coordinates - a spot burn parked at a normalised point - lands where
+        # the reference image says (FIB-954)
+        self.set("hfw", effective_image_settings.hfw, effective_beam_type)
+
         # get state for image metadata
         microscope_state = self.get_microscope_state(beam_type=effective_beam_type)
 
@@ -1091,6 +1104,7 @@ class DemoMicroscope(FibsemMicroscope):
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
 
+    @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
 
         logging.debug(
@@ -1162,6 +1176,7 @@ class DemoMicroscope(FibsemMicroscope):
             exchange_delay=float(cfg.get("exchange_delay", 0.0)),
         )
 
+    @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to the specified position."""
         # Before the position is assigned, not after: a stage that is moving has not
@@ -1186,6 +1201,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         return self.get_stage_position()
 
+    @_records_stage_move
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage by the specified amount."""
         sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)  # see `move_stage_absolute`
@@ -1471,6 +1487,16 @@ class DemoMicroscope(FibsemMicroscope):
         dx = (float(point.x) - 0.5) * hfw
         dy = (0.5 - float(point.y)) * hfw * (height / width)
         shift = self.get_beam_shift(beam_type)
+        logging.info(
+            {
+                "msg": "sim_spot_burn",
+                "point": (float(point.x), float(point.y)),
+                "hfw": hfw,
+                "resolution": (width, height),
+                "view_offset_m": (dx, dy),
+                "beam_shift": (float(shift.x), float(shift.y)),
+            }
+        )
         scene.burn(
             [(dx, dy)],
             beam_type,

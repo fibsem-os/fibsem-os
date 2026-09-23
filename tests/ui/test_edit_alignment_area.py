@@ -24,6 +24,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.applications.autolamella.workflows.ui import update_alignment_area_ui
 from fibsem.structures import FibsemRectangle
 
@@ -96,7 +97,7 @@ def test_the_click_answers_with_the_area_from_the_widget(ui, qapp):
     # message, and the waiting display state is on.
     shown = ui.image_widget.get_alignment_area()
     assert shown is not None
-    assert ui.WAITING_FOR_USER_INTERACTION is True
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)
@@ -105,7 +106,7 @@ def test_the_click_answers_with_the_area_from_the_widget(ui, qapp):
     assert isinstance(area, FibsemRectangle)
     assert area.width == pytest.approx(INITIAL.width)
     assert area.height == pytest.approx(INITIAL.height)
-    assert ui.WAITING_FOR_USER_INTERACTION is False
+    assert ui.hold is None
 
 
 def test_the_second_handshake_is_gone(ui, qapp):

@@ -138,7 +138,10 @@ def test_preset_activation_runs_off_the_gui_thread(toasts):
 
     assert _wait_for(lambda: microscope.activated == ["B"] and applied)
     assert microscope.activation_threads[0] is not threading.main_thread()
-    assert widget.preset_combo.isEnabled()
+    # Waited for, not read: the combo is re-enabled by the worker's `finished`,
+    # which arrives after the `returned` that applied the preset. Reading it
+    # the instant `settings_changed` fires is a race a slow runner loses.
+    assert _wait_for(widget.preset_combo.isEnabled)
     assert toasts == []
 
 
@@ -158,7 +161,8 @@ def test_preset_failure_toasts_and_reverts(toasts):
     # reverted to the preset the microscope still reports, control usable again,
     # and no settings_changed for a preset that never applied
     assert _wait_for(lambda: widget.preset_combo.currentData() == "A")
-    assert widget.preset_combo.isEnabled()
+    # `finished` follows `errored` the same way it follows `returned`
+    assert _wait_for(widget.preset_combo.isEnabled)
     assert changed == []
 
 

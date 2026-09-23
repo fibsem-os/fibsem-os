@@ -31,6 +31,8 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
+from fibsem.acting import TASK, acting
+from fibsem.applications.autolamella.proposals import AuthorKind, DecisionOutcome
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
     Confirm,
@@ -38,6 +40,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     EditAlignmentArea,
     PickPOI,
     Request,
+    ReviewDetection,
     RunMillingTask,
     RunSpotBurn,
     SetFluorescenceChannels,
@@ -45,7 +48,14 @@ from fibsem.applications.autolamella.workflows.interaction import (
     SetMillingConfig,
     StalePromptError,
 )
+from fibsem.applications.autolamella.workflows.question_adapters import (
+    answer_from,
+    answered,
+    proposal_for,
+)
 from fibsem.applications.autolamella.workflows.tasks.status import (
+    Hold,
+    HoldKind,
     WorkflowStatusEvent,
 )
 from fibsem.structures import BeamType
@@ -82,6 +92,7 @@ class QtResponder(QObject):
         self._deferred_handlers: Dict[Type[Request], Callable] = {
             Confirm: self._confirm,
             ConfirmDetection: self._confirm_detection,
+            ReviewDetection: self._review_detection,
             EditAlignmentArea: self._edit_alignment_area,
             PickPOI: self._pick_poi,
             RunMillingTask: self._run_milling_task,
@@ -93,6 +104,13 @@ class QtResponder(QObject):
         # corpse) is a new question and gets a new one.
         self._pending_question: Optional[Tuple[Request, "Future", int]] = None
         self._question_seq = 0
+        # (experiment, item_id, task_name, proposal_id) when the pending question is also on
+        # the record as a proposal (FIB-1025): it is answered by a decision in
+        # the Review tab rather than by the prompt's button, and a decision
+        # landing on it is what completes the future. None for a question that
+        # is only a prompt. One attribute, read cross-thread by the agent
+        # server the same way _pending_question is.
+        self._recorded: Optional[Tuple[object, str, str, str]] = None
         # A RunMillingTask whose mill is currently running: the prompt is down,
         # the future is pending, and finished_milling_signal decides what next.
         self._active_milling: Optional[Tuple[RunMillingTask, "Future"]] = None
@@ -127,12 +145,18 @@ class QtResponder(QObject):
         return dispose
 
     def _emit_question_event(self, kind: str, payload: Dict) -> None:
-        """Tell every observer, each on its own; failures are logged, never raised."""
-        for observer in list(self._question_observers):
-            try:
-                observer(kind, payload)
-            except Exception:  # noqa: BLE001 - observers are not allowed to matter
-                logging.exception("question-event observer failed; continuing")
+        """Tell every observer, each on its own; failures are logged, never raised.
+
+        On the GUI thread, but every question is a task's: it is raised and
+        withdrawn on the task's behalf, so it is marked as the task's for the
+        experiment's record (FIB-1062). An answer says who answered.
+        """
+        with acting(TASK):
+            for observer in list(self._question_observers):
+                try:
+                    observer(kind, payload)
+                except Exception:  # noqa: BLE001 - observers are not allowed to matter
+                    logging.exception("question-event observer failed; continuing")
 
     def submit(self, request: "Request", future: "Future") -> None:
         """Hand ``request`` to the GUI thread; never blocks. Any thread."""
@@ -163,6 +187,15 @@ class QtResponder(QObject):
         if pending is None or pending[1].cancelled():
             return None, None
         return pending[0], pending[2]
+
+    def recorded_question(self) -> Optional[Tuple[str, str, str]]:
+        """``(item_id, task_name, proposal_id)`` when the pending question is on
+        the record and is answered by deciding that proposal, else None. What a
+        decision has to name, all three. Any thread."""
+        recorded = self._recorded
+        if recorded is None or self.pending_question() is None:
+            return None
+        return recorded[1], recorded[2], recorded[3]
 
     def submit_answer(
         self,
@@ -223,6 +256,19 @@ class QtResponder(QObject):
                     ),
                 )
                 return
+        if self._recorded is not None:
+            # A recorded question has one way to be answered, for an agent as
+            # for a person: a decision. A click here would say "applied" and
+            # decide nothing.
+            _experiment, item_id, task_name, _proposal_id = self._recorded
+            self._fail(
+                outcome,
+                ValueError(
+                    f"this question is on the record: decide {task_name!r} on "
+                    f"item {item_id!r} instead of answering the prompt"
+                ),
+            )
+            return
         try:
             if value is not None:
                 if pending is None or pending[1].cancelled():
@@ -432,9 +478,17 @@ class QtResponder(QObject):
     # --- questions: the answer arrives from a click, later -------------------------
 
     def _park_question(
-        self, request: Request, future: "Future", msg: str, pos: str, neg: Optional[str]
+        self,
+        request: Request,
+        future: "Future",
+        msg: str,
+        pos: str,
+        neg: Optional[str],
+        releases: str = "answer the question on the Microscope tab",
+        items: Tuple[str, ...] = (),
     ) -> None:
         """Hold ``future`` for :meth:`answer_confirm` and put the prompt up."""
+        self._stop_listening()
         if self._pending_question is not None:
             # The workflow thread blocks on each question, so a live second
             # question is impossible: a pending future here belonged to a waiter
@@ -453,10 +507,11 @@ class QtResponder(QObject):
                 "nonce": self._question_seq,
             },
         )
-        # Display state, not a handshake: the workflow no longer polls this flag
-        # for converted questions, but the attention button, border and timeline
-        # pause still read it.
-        self._ui.WAITING_FOR_USER_INTERACTION = True
+        # Display state, not a handshake: the workflow does not poll this, but
+        # the attention button, border, status bar and timeline pause read it.
+        # The main window re-addresses it to a connected agent when the task
+        # is designated so.
+        self._ui.hold = Hold(kind=HoldKind.question, releases=releases, items=items)
         # We are on the GUI thread that owns the widgets: show the prompt
         # directly, and ping the status channel (message=None: says nothing
         # about the prompt) so the main window's waiting chrome refreshes.
@@ -468,6 +523,31 @@ class QtResponder(QObject):
         self._park_question(
             request, future, request.message, request.positive, request.negative
         )
+
+    def question_host(self) -> Optional[object]:
+        """The widget the question now up is asked on, when it has a tab of its
+        own rather than the shared prompt bar.
+
+        The attention button uses this to go back to a question the operator
+        navigated away from: a detection is corrected on its own tab, a mill is
+        run on the milling tab, and neither is on the Microscope tab the button
+        otherwise goes to. Derived from the pending request rather than
+        remembered, so it cannot drift out of step with what was actually
+        raised; ``None`` means the prompt is where the button already goes.
+        """
+        if self._pending_question is None:
+            return None
+        if self._recorded is not None:
+            return self._review_tab()
+        request = self._pending_question[0]
+        if isinstance(request, ConfirmDetection):
+            return self._ui.det_widget
+        if isinstance(request, RunMillingTask):
+            try:
+                return self._milling_widget()
+            except RuntimeError:
+                return None
+        return None
 
     def _confirm_detection(self, request: ConfirmDetection, future: "Future") -> None:
         """Show detected features for correction; the click answers with the set."""
@@ -601,7 +681,9 @@ class QtResponder(QObject):
         )
         # None: the widget builds the config from the editor, so the operator's
         # edits are what actually runs — as the old start_milling_signal path did.
-        self._milling_widget().milling_widget.run_milling(None)
+        # The task's mill, run on its behalf: the widget's worker carries the mark.
+        with acting(TASK):
+            self._milling_widget().milling_widget.run_milling(None)
 
     def _on_milling_finished(self) -> None:
         """GUI thread, from finished_milling_signal — success and failure alike."""
@@ -639,6 +721,170 @@ class QtResponder(QObject):
         widget.clear()
         return config
 
+    # --- a question on the record (FIB-1025) ------------------------------------
+    #
+    # Some questions carry a value -- where the model put the features -- and the
+    # value, who corrected it and by how much belong on the item. Such a question
+    # is recorded as a proposal and answered by a decision in the Review tab,
+    # which is where every other judgement is collected. Everything about the
+    # *wait* stays here: the nonce, the hold, the abort. Only where the answer
+    # comes from changes.
+
+    def _review_detection(self, request: ReviewDetection, future: "Future") -> None:
+        """A detection from an asker that said who it is: on the record and in
+        the Review tab when it can be, and otherwise the Detection tab prompt,
+        untouched -- it is a ``ConfirmDetection`` too."""
+        if self._ask_on_the_record(
+            request,
+            future,
+            "The detected features need confirming in the Review tab.",
+        ):
+            return
+        self._confirm_detection(request, future)
+
+    def _review_tab(self):
+        """The main window's Review tab when there is one and it is showing --
+        which is the interactive-review preference, read where it is applied --
+        else None. The standalone window has no Review tab at all."""
+        parent = self._ui.parent_widget
+        tab = getattr(parent, "review_tab", None)
+        tabs = getattr(parent, "tab_widget", None)
+        if tab is None or tabs is None:
+            return None
+        index = tabs.indexOf(tab)
+        if index == -1 or not tabs.isTabVisible(index):
+            return None
+        return tab
+
+    def _ask_on_the_record(self, request: Request, future: "Future", msg: str) -> bool:
+        """Record ``request`` as a proposal and hold the run on the decision.
+
+        False, having done nothing, whenever it cannot: no Review tab to answer
+        it in, a request that does not say who is asking, an item that is gone,
+        or nothing to record (``proposal_for`` says why). The caller then asks
+        the way it always has, so nothing here can leave a question unasked.
+        """
+        tab = self._review_tab()
+        item_id = getattr(request, "item_id", "")
+        task_name = getattr(request, "task_name", "")
+        experiment = getattr(self._ui, "experiment", None)
+        if tab is None or not item_id or not task_name or experiment is None:
+            return False
+        item = experiment.get_item_by_id(item_id)
+        if item is None:
+            return False
+        proposal = proposal_for(request, experiment, item)
+        if proposal is None:
+            return False
+        if not experiment.ask_proposal(item_id, task_name, proposal):
+            return False
+
+        self._park_question(
+            request,
+            future,
+            msg,
+            "Go to Review",
+            None,
+            releases=f"decide {item.name} in the Review tab",
+            items=(f"{item.name}/{task_name}",),
+        )
+        self._recorded = (experiment, item_id, task_name, proposal.id)
+        experiment.decided.connect(self._on_decided)
+
+        # However the wait ends without an answer -- Stop, a timeout, a run that
+        # is torn down -- the asker cancels its future, on its own thread. That
+        # is the moment the question stops existing, so it is taken back there
+        # and then: withdraw_proposal is safe off the GUI thread and does not
+        # wait for it. The withdrawal comes back round as a decision, on this
+        # thread, and _on_decided takes the prompt down.
+        def _taken_back(done: "Future") -> None:
+            if done.cancelled():
+                experiment.withdraw_proposal(
+                    item_id, task_name, "the run stopped before it was answered"
+                )
+
+        future.add_done_callback(_taken_back)
+
+        parent = self._ui.parent_widget
+        parent.tab_widget.setCurrentWidget(tab)
+        tab.select(item_id, task_name)
+        return True
+
+    def _stop_listening(self) -> None:
+        """Forget the recorded question, if there is one. The record itself is
+        not touched: it has its answer, or its withdrawal, already."""
+        recorded, self._recorded = self._recorded, None
+        if recorded is None:
+            return
+        try:
+            recorded[0].decided.disconnect(self._on_decided)
+        except Exception:  # noqa: BLE001 - already disconnected is fine
+            pass
+
+    def _on_decided(self, item_id: str, task_name: str) -> None:
+        """GUI thread. A decision landed somewhere; release the run if it was
+        on the question that is up."""
+        recorded, pending = self._recorded, self._pending_question
+        if recorded is None or pending is None:
+            return
+        experiment, asked_item, asked_task, asked_id = recorded
+        if (item_id, task_name) != (asked_item, asked_task):
+            return
+        item = experiment.get_item_by_id(item_id)
+        proposal = item.proposal(task_name) if item is not None else None
+        if proposal is None or proposal.id != asked_id:
+            # A decision on this item and task, but not on the question that
+            # is up: the pair is not what names a question, the proposal is.
+            return
+        decision = proposal.current
+        if decision is None:
+            return
+        request, future, nonce = pending
+        self._pending_question = None
+        self._stop_listening()
+        self._ui.hold = None
+        self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
+        name = type(request).__name__
+        if decision.outcome is DecisionOutcome.Withdrawn:
+            # Nobody answered: the asker is gone, or somebody took it back.
+            future.cancel()
+            self._emit_question_event(
+                "prompt_cancelled", {"type": name, "nonce": nonce}
+            )
+            return
+        confirmed = decision.outcome is DecisionOutcome.Confirmed
+        self._emit_question_event(
+            "prompt_answered",
+            {
+                "type": name,
+                "response": confirmed,
+                "answered_by": "agent"
+                if decision.author.kind is AuthorKind.agent
+                else "operator",
+                "nonce": nonce,
+            },
+        )
+        if not confirmed:
+            # Raised on the workflow thread inside wait_for, where the task's
+            # own failure path handles it -- the same as any other refusal to
+            # go on.
+            self._fail(
+                future,
+                RuntimeError(
+                    f"{task_name} was rejected: {decision.reason or 'no reason given'}"
+                ),
+            )
+            return
+        try:
+            answer = answer_from(request, decision.values)
+        except Exception as exc:  # noqa: BLE001 - the caller owns the failure
+            self._fail(future, exc)
+            return
+        # Before the waiter wakes, as the Detection tab's click does it: the
+        # task carries on to a consistent record.
+        answered(request, answer)
+        self._deliver(future, answer)
+
     def abandon(self) -> None:
         """Drop whatever a finished run left behind. GUI thread, workflow end.
 
@@ -648,6 +894,7 @@ class QtResponder(QObject):
         exited — so a question still parked, or a run still tracked, belongs to
         nobody: cancel it and take the prompt down.
         """
+        self._stop_listening()
         pending, self._pending_question = self._pending_question, None
         milling, self._active_milling = self._active_milling, None
         burning, self._active_spot_burn = self._active_spot_burn, None
@@ -655,7 +902,7 @@ class QtResponder(QObject):
             if pair is not None:
                 pair[1].cancel()
         if pending is not None:
-            self._ui.WAITING_FOR_USER_INTERACTION = False
+            self._ui.hold = None
             self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
             self._emit_question_event(
                 "prompt_cancelled",
@@ -696,7 +943,8 @@ class QtResponder(QObject):
             WorkflowStatusEvent(message="Running Spot Burn...")
         )
         widget = self._ui.spot_burn_widget
-        widget.run_spot_burn_worker()
+        with acting(TASK):  # the task's burn, run on its behalf
+            widget.run_spot_burn_worker()
         if not widget.is_burning:
             # Refused — no in-bounds points — so no finished signal will come.
             # The old is_milling-style poll fell straight through and re-asked;
@@ -751,8 +999,17 @@ class QtResponder(QObject):
         if pending is None:
             return False
         request, future = pending[0], pending[1]
+        if self._recorded is not None and not future.cancelled():
+            # Not an answer. The question is decided in the Review tab, and
+            # this button is the way there from the Microscope tab.
+            tab = self._review_tab()
+            if tab is not None:
+                self._ui.parent_widget.tab_widget.setCurrentWidget(tab)
+                tab.select(self._recorded[1], self._recorded[2])
+            return True
+        self._stop_listening()
         self._pending_question = None
-        self._ui.WAITING_FOR_USER_INTERACTION = False
+        self._ui.hold = None
         if future.cancelled():
             # The asker aborted while the prompt stood. The click means nothing
             # beyond taking the stale prompt down — in particular it must not

@@ -40,6 +40,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from fibsem import utils
+from fibsem.acting import AGENT, acting
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server.app_routes import (
     build_app_config_router,
@@ -137,6 +138,25 @@ def _beam_type(value: str) -> BeamType:
         )
 
 
+class _AgentActs:
+    """Every request is the agent acting, for the experiment's record (FIB-1062).
+
+    Pure ASGI middleware. The mark is a context variable, and a route handler --
+    a sync function, which FastAPI runs in a worker thread -- runs with a copy
+    of the request's context, so the mark reaches whatever the handler calls.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        with acting(AGENT):
+            await self.app(scope, receive, send)
+
+
 def build_server(
     microscope: FibsemMicroscope,
     app_context=None,
@@ -153,6 +173,7 @@ def build_server(
         auth = AuthConfig.generate()
 
     app = FastAPI(title="fibsem server", version=API_VERSION)
+    app.add_middleware(_AgentActs)
     app.state.auth = auth
     app.state.microscope = microscope
     # One hardware command in flight per microscope; see auth.command_slot.

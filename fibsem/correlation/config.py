@@ -7,6 +7,7 @@ as a peer field on
 is a user step, not an automated microscope task. Defined here so the autolamella
 model only holds an instance; imports no UI.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -52,7 +53,9 @@ class FitSettings:
             fm_fiducial_channel=d.get("fm_fiducial_channel"),
             fm_poi_channel=d.get("fm_poi_channel"),
             reflection_cutout=d.get("reflection_cutout", default.reflection_cutout),
-            fluorescence_cutout=d.get("fluorescence_cutout", default.fluorescence_cutout),
+            fluorescence_cutout=d.get(
+                "fluorescence_cutout", default.fluorescence_cutout
+            ),
         )
 
 
@@ -107,12 +110,25 @@ class CorrelationConfig:
     fit: FitSettings = field(default_factory=FitSettings)
     ri: RISettings = field(default_factory=RISettings)
     load_spot_burns: bool = True
+    # Run the correlation again when the points settle, rather than on a press
+    # (FIB-1020). Persisted because the alternative is a per-dialog tick: the
+    # protocol editor builds a new correlation dialog for every lamella, so a
+    # session-only preference is re-set once per lamella and reaches nobody.
+    auto_rerun: bool = False
+    # Resample an anisotropic FM stack to isotropic as it loads, off the GUI
+    # thread, instead of waiting for the Interpolate action (FIB-1023). The fit
+    # does not need it -- it converts z to xy pixels itself (FIB-881) -- so this
+    # is for the display and for anything downstream that assumes isotropic
+    # voxels. Off by default: it costs a rewrite of the volume.
+    auto_interpolate: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "fit": self.fit.to_dict(),
             "ri": self.ri.to_dict(),
             "load_spot_burns": self.load_spot_burns,
+            "auto_rerun": self.auto_rerun,
+            "auto_interpolate": self.auto_interpolate,
         }
 
     @staticmethod
@@ -122,4 +138,6 @@ class CorrelationConfig:
             fit=FitSettings.from_dict(d.get("fit")),
             ri=RISettings.from_dict(d.get("ri")),
             load_spot_burns=d.get("load_spot_burns", True),
+            auto_rerun=d.get("auto_rerun", False),
+            auto_interpolate=d.get("auto_interpolate", False),
         )

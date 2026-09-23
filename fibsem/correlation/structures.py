@@ -20,8 +20,12 @@ class PointType(Enum):
     FIB = "FIB"
     FM = "FM"
     POI = "POI"
-    SURFACE = "SURFACE"          # sample surface in the FIB image (post-correlation RI correction)
-    SURFACE_FM = "FM-SURFACE"    # sample surface in the FM volume (pre-correlation RI correction)
+    SURFACE = (
+        "SURFACE"  # sample surface in the FIB image (post-correlation RI correction)
+    )
+    SURFACE_FM = (
+        "FM-SURFACE"  # sample surface in the FM volume (pre-correlation RI correction)
+    )
 
 
 @dataclass
@@ -38,17 +42,81 @@ class PointXYZ:
         return PointXYZ(x=data["x"], y=data["y"], z=data["z"])
 
 
+class PointStatus:
+    """What has been established about a coordinate's position (FIB-956).
+
+    Plain strings on ``Coordinate.status`` so a file written by an older build
+    reads back unchanged (the field defaults to ""). Three things are kept
+    apart: what the position *is* (this), where it *came from*
+    (:class:`PointProvenance`), and what the UI *emphasises*
+    (``Coordinate.suggested``, transient).
+
+    ``PREDICTED``: the projection put it here and nobody has looked; drawn
+    hollow, never fed to a fit. ``PLACED``: the user put it here. ``FITTED``:
+    the local image fitter landed it, from a placed or a predicted start.
+    ``ACCEPTED``: a prediction taken as it was, unmoved -- usable by the final
+    fit but no evidence for refining the map, since its position is the map's
+    own. ``REJECTED``: left out of the fit, by the user or by rejection; stays
+    on screen and in the file.
+
+    A failed fit is an event, not a state: the point stays what it was.
+    """
+
+    PREDICTED = "predicted"
+    PLACED = "placed"
+    FITTED = "fitted"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+    # positions the transform may be fitted to
+    USABLE = frozenset({"", PLACED, FITTED, ACCEPTED})
+    # positions that are only a guess
+    TENTATIVE = frozenset({PREDICTED})
+
+    # what earlier builds wrote (2026-09-09 .. 2026-09-14)
+    LEGACY = {
+        "adjusted": PLACED,
+        "confirmed": ACCEPTED,
+        "suggested": PREDICTED,
+        "fit_failed": PLACED,
+    }
+
+
+class PointProvenance:
+    """Where a coordinate's position came from; set once, never changes."""
+
+    PATTERN = "pattern"  # the spot-burn task's own coordinates
+    PROJECTED = "projected"  # the other image's point through the transform
+    DETECTED = "detected"  # found by a search
+    USER = "user"
+    IMPORTED = "imported"
+
+
 @dataclass
 class Coordinate:
     point: PointXYZ = field(default_factory=PointXYZ)
     point_type: PointType = field(default=PointType.FIB)
     fitted: bool = False  # True when this position came from an accepted auto-fit
+    # Per-point state (FIB-956): see PointStatus / PointProvenance. Provenance,
+    # not position -- `matches_inputs` ignores both, as it ignores `fitted`.
+    status: str = ""
+    provenance: str = ""
+    # UI emphasis, not state: one of the predictions worth dragging first.
+    # Never saved; recomputed by the projection.
+    suggested: bool = field(default=False, compare=False)
+
+    @property
+    def usable(self) -> bool:
+        """Whether this position may feed the transform."""
+        return self.status in PointStatus.USABLE
 
     def to_dict(self):
         return {
             "point": self.point.to_dict(),
             "point_type": self.point_type.value,
             "fitted": self.fitted,
+            "status": self.status,
+            "provenance": self.provenance,
         }
 
     @staticmethod
@@ -56,7 +124,13 @@ class Coordinate:
         point = PointXYZ.from_dict(data["point"])
         point_type = PointType(data["point_type"])
         return Coordinate(
-            point=point, point_type=point_type, fitted=data.get("fitted", False)
+            point=point,
+            point_type=point_type,
+            fitted=data.get("fitted", False),
+            status=PointStatus.LEGACY.get(
+                data.get("status", "") or "", data.get("status", "") or ""
+            ),
+            provenance=data.get("provenance", "") or "",
         )
 
 
@@ -135,6 +209,14 @@ class CorrelationInputData:
     # FM z-step, likewise restored from JSON: lets a seed's FM z be rescaled to a
     # re-acquired volume with a different z-sampling (FIB-299).
     stored_fm_pixel_size_z: Optional[float] = None
+    # The image names as the file recorded them. A run's fiducials are pixels in
+    # a specific image, so the names are part of the record -- and a lamella
+    # holds a reference per task and stage, so guessing picks the wrong one and
+    # silently shifts every coordinate. Kept here because the images are not in
+    # the file: reading a run and writing it back had no live image to name and
+    # wrote null over what was there (FIB-1019).
+    stored_fib_image_filename: Optional[str] = None
+    stored_fm_image_filename: Optional[str] = None
 
     def to_dict(self):
         return {
@@ -168,7 +250,9 @@ class CorrelationInputData:
         """
         if self.fib_image is None:
             return self.stored_fib_image_pixel_size
-        pixel_size = getattr(getattr(self.fib_image, "metadata", None), "pixel_size", None)
+        pixel_size = getattr(
+            getattr(self.fib_image, "metadata", None), "pixel_size", None
+        )
         if pixel_size is None:
             return self.stored_fib_image_pixel_size
         return getattr(pixel_size, "x", None)
@@ -194,11 +278,19 @@ class CorrelationInputData:
 
     @property
     def fib_image_filename(self) -> Optional[str]:
-        return _loaded_filename(self.fib_image)
+        """The file this run's FIB fiducials were picked in, or None.
+
+        The loaded image first -- it is the image in hand -- then the name the
+        file recorded. Without the fallback, opening a run and saving it again
+        erased the name, because a re-save has no live image to ask when the
+        images were never part of the file (FIB-1019).
+        """
+        return _loaded_filename(self.fib_image) or self.stored_fib_image_filename
 
     @property
     def fm_image_filename(self) -> Optional[str]:
-        return _loaded_filename(self.fm_image)
+        """The FM stack this run's fiducials were picked in, or None."""
+        return _loaded_filename(self.fm_image) or self.stored_fm_image_filename
 
     @staticmethod
     def from_dict(data: dict) -> CorrelationInputData:
@@ -252,6 +344,8 @@ class CorrelationInputData:
             stored_fib_image_shape=tuple(stored_shape) if stored_shape else None,
             stored_fib_image_pixel_size=data.get("fib_image_pixel_size"),
             stored_fm_pixel_size_z=data.get("fm_pixel_size_z"),
+            stored_fib_image_filename=data.get("fib_image_filename"),
+            stored_fm_image_filename=data.get("fm_image_filename"),
         )
 
     def save(self, filename: str):
@@ -354,6 +448,38 @@ class CorrelationResult:
     refractive_index_correction_mode: Optional[str] = None
     updated_at: float = field(default_factory=time.time)
 
+    # Geometry seeding (FIB-881). `fm_z_scale` is the factor the FM z (slices) was
+    # multiplied by for the fit -- the slice thickness in xy pixels -- so the
+    # rotation is over isotropic units; 1.0 when the stack did not say. `seed` is
+    # the nominal transform the fit started from (None when unseeded) and
+    # `branch_check` how the fit relates to its mirror branch; both plain dicts,
+    # written for the status line and the saved file rather than for code.
+    fm_z_scale: float = 1.0
+    seed: Optional[dict] = None
+    branch_check: Optional[dict] = None
+    # The fit verdict's evidence (FIB-956): fibsem.correlation.verdict
+    # FitDiagnostics.to_dict(), computed after the fit when it was seeded.
+    diagnostics: Optional[dict] = None
+    # Where the fiducials put FM pixel (0, 0) minus where the stage metadata
+    # put it, in microns in the FIB image's frame (x, y). The next lamella's
+    # first projection adds it to its own metadata translation (FIB-979).
+    placement_offset: Optional[list] = None
+
+    @property
+    def dimage_dz_px_per_slice(self) -> Optional[list]:
+        """Where one FM slice of depth lands in the FIB image, in pixels (x, y).
+
+        The axis and gain the refractive-index depth correction moves along: the
+        fitted projection's z column, back in slices of the picked stack.
+        """
+        if not self.rotation_quaternion or not self.scale:
+            return None
+        r = np.asarray(self.rotation_quaternion, dtype=float)
+        if r.shape != (3, 3):
+            return None
+        col = self.scale * r[:2, 2] * self.fm_z_scale
+        return [float(col[0]), float(col[1])]
+
     def to_dict(self) -> dict:
         return {
             "poi": [p.to_dict() for p in self.poi],
@@ -377,6 +503,11 @@ class CorrelationResult:
             "refractive_index_correction_factor": self.refractive_index_correction_factor,
             "refractive_index_correction_mode": self.refractive_index_correction_mode,
             "updated_at": self.updated_at,
+            "fm_z_scale": self.fm_z_scale,
+            "seed": self.seed,
+            "diagnostics": self.diagnostics,
+            "branch_check": self.branch_check,
+            "placement_offset": self.placement_offset,
         }
 
     @staticmethod
@@ -419,6 +550,11 @@ class CorrelationResult:
                 "refractive_index_correction_mode"
             ),
             updated_at=data.get("updated_at", time.time()),
+            fm_z_scale=data.get("fm_z_scale", 1.0),
+            seed=data.get("seed"),
+            branch_check=data.get("branch_check"),
+            diagnostics=data.get("diagnostics"),
+            placement_offset=data.get("placement_offset"),
         )
 
     def apply_refractive_index_correction(

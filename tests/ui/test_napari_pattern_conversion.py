@@ -169,3 +169,36 @@ def test_convert_point_to_napari_takes_width_height_not_shape():
     got = convert_point_to_napari(resolution, PS, Point(0.0, ABOVE))
 
     assert (got.x, got.y) == (512, 156)
+
+
+def test_a_bitmap_pattern_converts_without_reaching_for_a_name_it_has_not_got():
+    """FIB-1027: `convert_bitmap_pattern_to_napari_image` read
+    `SHAPES_LAYER_PROPERTIES` from the module it was extracted out of, which
+    never followed it here, so drawing any bitmap pattern raised NameError.
+
+    Ruff could not see it: F821 is ignored repo-wide. So this calls the
+    converter rather than trusting the lint.
+    """
+    from fibsem.milling.patterning.shapes import (
+        SHAPES_LAYER_PROPERTIES,
+        convert_bitmap_pattern_to_napari_image,
+    )
+    from fibsem.structures import FibsemBitmapSettings
+
+    settings = FibsemBitmapSettings(
+        width=4e-6,
+        height=2e-6,
+        depth=1e-6,
+        centre_x=1e-6,
+        centre_y=-1e-6,
+    )
+    assert settings.bitmap is None  # the branch that fills a blank frame
+    image, properties = convert_bitmap_pattern_to_napari_image(
+        settings, (512, 768), pixelsize=1e-8
+    )
+
+    assert image.shape == (200, 400)  # height / pixelsize, width / pixelsize
+    # the border the constant describes is burned into the edges
+    ew = SHAPES_LAYER_PROPERTIES["image_edge_width"]
+    assert image[:ew, :].all() and image[:, :ew].all()
+    assert "translate" in properties

@@ -74,6 +74,104 @@ def test_the_round_trip_is_one_call_each_way():
     assert microscope.get_stage_orientation() == "FIB"
 
 
+# ── it arrives on the same piece of sample ──────────────────────────────
+
+
+def _off_centre(microscope, orientation: str) -> FibsemStagePosition:
+    pose = microscope.get_orientation(orientation)
+    return FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=pose.r, t=pose.t)
+
+
+def test_the_traverse_keeps_the_sample_point():
+    """Where the stage lands is where `to_device` says the same point is at the FM.
+    It used to re-pose by name, which rewrites r and t where the stage stands: the
+    half turn is compucentric about a centre that is not the sample, so the point
+    under the beam was swung away before the traverse -- and the FM ended up looking
+    at somewhere else, 200 um off on the simulator."""
+    microscope = _microscope()
+    start = _off_centre(microscope, "SEM")
+    microscope.move_stage_absolute(start)
+    expected = microscope.to_device(start, "FM")
+
+    microscope.move_to_device("FM")
+
+    arrived = microscope.get_stage_position()
+    assert arrived.x == pytest.approx(expected.x, abs=1e-9)
+    assert arrived.y == pytest.approx(expected.y, abs=1e-9)
+    assert microscope.get_stage_orientation(arrived) == "FIB"
+
+
+def test_going_out_and_back_returns_to_the_start():
+    microscope = _microscope()
+    start = _off_centre(microscope, "SEM")
+    microscope.move_stage_absolute(start)
+
+    microscope.move_to_device("FM")
+    microscope.move_to_device("FIBSEM", orientation="SEM")
+
+    back = microscope.get_stage_position()
+    assert back.x == pytest.approx(start.x, abs=1e-9)
+    assert back.y == pytest.approx(start.y, abs=1e-9)
+
+
+# ── `to_device`: the conversion the move agrees with ─────────────────────
+
+
+def test_to_device_keeps_a_pose_the_device_images_from():
+    """A FIB pose carried to the iFLM is relocated, not snapped to nominal."""
+    microscope = _microscope()
+    start = _off_centre(microscope, "FIB")
+    start.t += np.radians(1.0)  # a tilt somebody dialled in
+
+    at_fm = microscope.to_device(start, "FM")
+
+    assert microscope.is_at_device("FM", at_fm)
+    assert at_fm.t == pytest.approx(start.t)
+    assert at_fm.r == pytest.approx(start.r)
+
+
+def test_to_device_re_poses_a_pose_the_device_cannot_image_from():
+    microscope = _microscope()
+    start = _off_centre(microscope, "SEM")
+
+    at_fm = microscope.to_device(start, "FM")
+
+    assert microscope.is_at_device("FM", at_fm)
+    assert microscope.get_stage_orientation(at_fm) == "FIB"
+
+
+def test_to_device_round_trips():
+    microscope = _microscope()
+    start = _off_centre(microscope, "SEM")
+
+    back = microscope.to_device(
+        microscope.to_device(start, "FM"), "FIBSEM", orientation="SEM"
+    )
+
+    assert back.x == pytest.approx(start.x, abs=1e-9)
+    assert back.y == pytest.approx(start.y, abs=1e-9)
+
+
+def test_to_device_on_a_compustage_is_the_flip():
+    microscope = _microscope(ARCTIS_CONFIG)
+    start = _off_centre(microscope, "SEM")
+
+    at_fm = microscope.to_device(start, "FM")
+
+    assert microscope.get_stage_orientation(at_fm) == "FM"
+
+
+def test_to_device_refuses_an_unsupported_pose():
+    """`NONE` is unsupported: there is no conversion from it, and it says so."""
+    microscope = _microscope(ARCTIS_CONFIG)
+    start = _off_centre(microscope, "SEM")
+    start.t = np.radians(-90)
+    assert microscope.get_stage_orientation(start) == "NONE"
+
+    with pytest.raises(ValueError):
+        microscope.to_device(start, "FM")
+
+
 # ── what a traverse still does not do ────────────────────────────────
 
 

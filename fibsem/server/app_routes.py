@@ -100,6 +100,20 @@ class AppContext(Protocol):
 
     def pending_prompt(self) -> Dict[str, Any]: ...
 
+    def reviews(self) -> Dict[str, Any]: ...
+
+    def decide(
+        self,
+        item_id: str,
+        task_name: str,
+        outcome: str,
+        values: Optional[Dict[str, Any]] = None,
+        reason: str = "",
+        author: str = "",
+        task_id: str = "",
+        proposal_id: str = "",
+    ) -> Dict[str, Any]: ...
+
     def answer_prompt(
         self, response: bool, nonce: int, value: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]: ...
@@ -266,6 +280,10 @@ def build_app_router(context: AppContext) -> APIRouter:
     def pending_prompt():
         return context.pending_prompt()
 
+    @router.get("/reviews")
+    def reviews():
+        return context.reviews()
+
     @router.post("/workflow/grids/plan")
     def grid_workflow_plan(body: Dict[str, Any]):
         # A POST on the read router because it computes, never acts: the
@@ -345,6 +363,83 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 detail={
                     "error_type": "invalid_value",
                     "message": result["invalid_value"],
+                },
+            )
+        return result
+
+    @router.post("/decide")
+    def decide(body: Dict[str, Any]):
+        # The same function the Review tab calls, on the main thread, blocking
+        # until applied. Item by id, never by name: names change.
+        item_id = body.get("item_id")
+        task_name = body.get("task_name")
+        outcome = body.get("outcome")
+        # What the decision is on: the proposal's own id, or -- from a caller
+        # that has not learned it -- the run it came from. The id is the one to
+        # pass: a task may ask several questions in one run.
+        proposal_id = body.get("proposal_id") or ""
+        task_id = body.get("task_id") or ""
+        named = [v for v in (proposal_id, task_id) if v]
+        if not all(isinstance(v, str) and v for v in (item_id, task_name, outcome)) or (
+            not named or not all(isinstance(v, str) for v in named)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass item_id, task_name, proposal_id and outcome "
+                    "(Confirmed or Rejected) from GET /app/reviews.",
+                },
+            )
+        values = body.get("values")
+        if values is not None and not isinstance(values, dict):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_value",
+                    "message": "values, when given, must be a JSON object keyed by "
+                    "value name, e.g. {'poi': {'x': ..., 'y': ...}} in metres.",
+                },
+            )
+        if outcome == "Rejected" and not str(body.get("reason", "")).strip():
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "A reject needs a reason; it is recorded on the item.",
+                },
+            )
+        result = context.decide(
+            item_id,
+            task_name,
+            outcome,
+            values=values,
+            reason=str(body.get("reason", "")),
+            author=str(body.get("author", "")),
+            task_id=task_id,
+            proposal_id=proposal_id,
+        )
+        if result.get("invalid_value"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_value",
+                    "message": result["invalid_value"],
+                },
+            )
+        if not result.get("applied", False) and result.get("available", True):
+            error_type = result.get("error_type") or (
+                "running" if result.get("running") else "not_pending"
+            )
+            raise HTTPException(
+                # a request that cannot be decided as given is 422; one that
+                # the state refuses (running, re-run since, nothing pending) 409
+                status_code=422
+                if error_type in ("missing_field", "invalid_value")
+                else 409,
+                detail={
+                    "error_type": error_type,
+                    "message": result.get("reason", "Not applied."),
                 },
             )
         return result

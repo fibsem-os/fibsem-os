@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
 from fibsem.constants import DATETIME_DISPLAY_AMPM, TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets, tokens
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
+from fibsem.utils import format_bytes as utils_format_bytes
 from fibsem.utils import format_time_remaining as utils_format_time_remaining
 
 BACKGROUND = stylesheets.SURFACE_COLOR
@@ -55,18 +56,11 @@ def format_duration(seconds: float) -> str:
     return utils_format_time_remaining(seconds, pad=True)
 
 
-def format_bytes(count: float) -> str:
-    """`3.4 GB`, `880 MB`, `12 kB`. Decimal units, because a disk is sold in them.
-
-    One decimal place above a gigabyte and none below: the number is an estimate of what
-    a run will write, and quoting it to four figures would claim a precision the tile
-    count does not have.
-    """
-    for unit, step in (("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("kB", 1e3)):
-        if count >= step:
-            value = count / step
-            return f"{value:.1f} {unit}" if unit in ("TB", "GB") else f"{value:.0f} {unit}"
-    return f"{int(count)} B"
+# Re-exported, not defined here. The experiment dialogs quote free disk space with it
+# and cannot import a module of Qt furniture for a formatter, so it moved to
+# `fibsem.utils` beside the other `format_*`. The name stays importable from here
+# because both overview dialogs ask for it by this path.
+format_bytes = utils_format_bytes
 
 
 def mosaic_pixels(rows: int, cols: int, overlap: float, width: int, height: int):

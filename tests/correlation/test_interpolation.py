@@ -4,6 +4,7 @@ Pure-array + FluorescenceImage-level; no Qt. Uses small synthetic volumes so it
 runs fast and deterministically, with the numbers chosen to mirror the real
 METEOR case (500 nm z step, 130 nm XY -> isotropic).
 """
+
 import numpy as np
 import pytest
 
@@ -47,15 +48,120 @@ def test_interpolate_z_stack_only_scales_z():
     assert out.shape[0] == 20  # z doubled (500 -> 250)
 
 
+_RATIOS = [
+    (500e-9, 250e-9),  # up, 2x: 21 -> 42
+    (500e-9, 130e-9),  # up, non-integer: 21 -> 81
+    (500e-9, 1200e-9),  # down: 21 -> 9
+    (500e-9, 500e-9),  # identity
+]
+
+
+def _volume(dtype, seed=0, shape=(21, 6, 5)):
+    rng = np.random.default_rng(seed)
+    if np.issubdtype(dtype, np.integer):
+        return rng.integers(0, 65535, size=shape, dtype=dtype)
+    return rng.random(shape, dtype=dtype) * 1000
+
+
+@pytest.mark.parametrize("method", ["linear", "cubic"])
+@pytest.mark.parametrize("dtype", [np.uint16, np.float32])
+@pytest.mark.parametrize("pixelsize_in, pixelsize_out", _RATIOS)
+def test_z_resample_is_identical_to_scipy_zoom(
+    method, dtype, pixelsize_in, pixelsize_out
+):
+    """Neither path goes through scipy's zoom any more, which spent 9 s (linear)
+    and 76 s (cubic) per 2048-square channel walking axes that do not change.
+    The slice blends that replaced it must give exactly what zoom gave: the
+    same slice count, the same dtype, and the same values, so an interpolated
+    volume and every FM z rescaled against it are unchanged. Linear integer
+    data is exact to the last bit. Cubic sums its four taps in a different
+    order, so a value that lands exactly half way can round to the other side:
+    one grey level, on about one voxel in a hundred thousand of random noise
+    and on none of a real channel. Float data agrees to float32 rounding."""
+    from fibsem.correlation.util import scipy_zoom_z
+
+    img = _volume(dtype)
+    expected = scipy_zoom_z(img, pixelsize_in, pixelsize_out, method)
+    out = interpolate_z_stack(img, pixelsize_in, pixelsize_out, method=method)
+    assert out.shape == expected.shape
+    assert out.dtype == expected.dtype
+    if not np.issubdtype(dtype, np.integer):
+        np.testing.assert_allclose(out, expected, rtol=0, atol=1e-3)
+    elif method == "linear":
+        np.testing.assert_array_equal(out, expected)
+    else:
+        off = np.abs(out.astype(int) - expected.astype(int))
+        assert off.max() <= 1
+        assert (off > 0).sum() <= off.size // 100
+
+
+def test_cubic_overshoot_is_clamped_to_the_dtype_like_zoom():
+    """A cubic can overshoot a step edge past 0 or 65535; zoom clamps rather
+    than wraps, and so must the blend."""
+    from fibsem.correlation.util import scipy_zoom_z
+
+    img = np.zeros((21, 4, 4), dtype=np.uint16)
+    img[10:] = 65535  # a hard step in z
+    expected = scipy_zoom_z(img, 500e-9, 130e-9, "cubic")
+    out = interpolate_z_stack(img, 500e-9, 130e-9, method="cubic")
+    # the step's midpoint is an exact half-way tie, see the test above
+    assert np.abs(out.astype(int) - expected.astype(int)).max() <= 1
+    assert out.min() == 0 and out.max() == 65535
+
+
+def test_linear_z_resample_leaves_exact_source_slices_untouched():
+    """At 2x, the end output slices are source slices: copied, not re-rounded."""
+    img = _volume(np.uint16, seed=1, shape=(5, 4, 4))
+    out = interpolate_z_stack(img, 500e-9, 250e-9, method="linear")
+    assert out.shape[0] == 10
+    # zoom's grid puts output k at source k * 4 / 9; only k = 0 and k = 9 are exact
+    np.testing.assert_array_equal(out[0], img[0])
+    np.testing.assert_array_equal(out[9], img[4])
+
+
+@pytest.mark.parametrize("method", ["linear", "cubic"])
+def test_multi_channel_output_is_one_volume_of_the_input_dtype_in_channel_order(
+    method,
+):
+    """Channels interpolate on a thread pool; each still lands in its own slot."""
+    img = np.stack([_volume(np.uint16, seed=s, shape=(5, 4, 4)) for s in range(5)])
+    out = multi_channel_interpolation(img, 500e-9, 250e-9, method=method)
+    assert out.shape == (5, 10, 4, 4)
+    assert out.dtype == np.uint16
+    for c in range(5):
+        np.testing.assert_array_equal(
+            out[c], interpolate_z_stack(img[c], 500e-9, 250e-9, method=method)
+        )
+
+
 def test_multi_channel_progress_callback_is_ui_agnostic():
     """The algorithm reports progress through a plain callable, not a Qt object."""
     img = np.random.rand(3, 5, 4, 4).astype(np.float32)
     calls = []
     multi_channel_interpolation(
-        img, 500e-9, 250e-9, progress_callback=lambda done, total: calls.append((done, total))
+        img,
+        500e-9,
+        250e-9,
+        progress_callback=lambda done, total: calls.append((done, total)),
     )
-    # one call before the loop, one after each of the 3 channels
+    # one call before the loop, one as each of the 3 channels completes
     assert calls == [(0, 3), (1, 3), (2, 3), (3, 3)]
+
+
+def test_progress_is_reported_on_the_calling_thread():
+    """The GUI relays progress through a Qt signal; the callback must not fire
+    from the pool's threads, which would make that a cross-thread emit."""
+    import threading
+
+    img = np.random.rand(3, 5, 4, 4).astype(np.float32)
+    threads = set()
+    multi_channel_interpolation(
+        img,
+        500e-9,
+        250e-9,
+        progress_callback=lambda *_: threads.add(threading.get_ident()),
+    )
+    assert threads == {threading.get_ident()}
 
 
 def test_multi_channel_runs_without_a_callback():
@@ -155,35 +261,23 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PyQt5")
 
 
-def _real_fm(crop=64):
-    """A concrete FluorescenceImage the dialog/widget can consume, or skip.
-
-    Cropped in XY by default: interpolation is z-only, so a small frame keeps the
-    slice counts, pixel sizes, and the physical-depth invariant identical while
-    the 2048x2048 -> would-be 2 GB / ~36 s full run stays out of the test suite.
+def _meteor_like_fm():
+    """A 21-slice stack at the METEOR pixel sizes (500 nm z, 130 nm xy), the
+    case the dialog's "-> 81 slices" preview and the depth invariant are
+    written for. Synthetic and small: interpolation is z-only, so a 64-square
+    frame keeps the slice counts, pixel sizes and the physical-depth invariant
+    identical to a real 2048-square stack. These used to load a real volume
+    from ``tmp/`` under the current directory and skip when it was missing;
+    the shared conftest runs every test from its own temp dir, so they always
+    skipped, everywhere.
     """
-    import copy
-
-    from fibsem.fm.structures import FluorescenceImage
-
-    path = os.path.join(
-        os.getcwd(), "tmp", "BeforeMilling_G1_-Feature-2-Active-001.ome.tiff"
-    )
-    if not os.path.exists(path):
-        pytest.skip("tmp/ FM volume not present")
-    fm = FluorescenceImage.load(path)
-    if crop:
-        fm = FluorescenceImage(
-            data=fm.data[:, :, :crop, :crop].copy(),
-            metadata=copy.deepcopy(fm.metadata),
-        )
-    return fm
+    return _aniso_fm(nz=21, xy=130e-9, z=500e-9, shape=(64, 64))
 
 
 def test_dialog_defaults_to_isotropic(qapp):
     from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
 
-    fm = _real_fm()
+    fm = _meteor_like_fm()
     dlg = InterpolateZDialog(fm)
     assert dlg._chk_iso.isChecked()  # isotropic on by default
     assert not dlg._spin_target.isEnabled()  # driven by the checkbox
@@ -192,10 +286,47 @@ def test_dialog_defaults_to_isotropic(qapp):
     assert "→ 81 slices" in dlg._preview.text()
 
 
+def test_dialog_opens_with_fm_points_placed(qapp):
+    """The warn row (FM points will be rescaled) draws its icon in the warn
+    colour from the tokens; the dialog once named a constant that no longer
+    existed and raised on open."""
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+    from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
+
+    fm = FluorescenceImage(
+        data=np.zeros((1, 4, 8, 8), dtype=np.uint16),
+        metadata=FluorescenceImageMetadata(
+            acquisition_date="2026-08-05T00:00:00",
+            pixel_size_x=1e-7,
+            pixel_size_y=1e-7,
+            pixel_size_z=3e-7,
+            resolution=(8, 8),
+            channels=[
+                FluorescenceChannelMetadata(
+                    name="GFP",
+                    color="#00FF00",
+                    excitation_wavelength=488,
+                    emission_wavelength=509,
+                    power=1.0,
+                    exposure_time=0.1,
+                    gain=1.0,
+                    offset=0.0,
+                )
+            ],
+        ),
+    )
+    dlg = InterpolateZDialog(fm, fm_point_count=3)
+    assert "→" in dlg._preview.text()
+
+
 def test_dialog_unchecking_isotropic_frees_the_spinbox(qapp):
     from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
 
-    fm = _real_fm()
+    fm = _meteor_like_fm()
     dlg = InterpolateZDialog(fm)
     dlg._chk_iso.setChecked(False)
     assert dlg._spin_target.isEnabled()
@@ -212,7 +343,7 @@ def test_enter_does_not_run_the_interpolation(qapp):
 
     from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
 
-    dlg = InterpolateZDialog(_real_fm())
+    dlg = InterpolateZDialog(_meteor_like_fm())
     dlg.show()
     QTest.keyClick(dlg, Qt.Key_Return)
     QTest.keyClick(dlg, Qt.Key_Enter)
@@ -222,7 +353,7 @@ def test_enter_does_not_run_the_interpolation(qapp):
     QTest.keyClick(dlg, Qt.Key_Escape)
     assert dlg.isHidden()  # Escape still cancels
 
-    dlg2 = InterpolateZDialog(_real_fm())
+    dlg2 = InterpolateZDialog(_meteor_like_fm())
     dlg2.accept()  # the click path still accepts
     assert dlg2.result() == QDialog.Accepted
 
@@ -247,7 +378,7 @@ def test_interpolate_button_lives_in_images_tab_and_needs_a_zstack(qapp):
     w = _widget(qapp)
     btn = w._images_tab._btn_interpolate  # under the FM load controls, not the canvas
     assert btn.isEnabled() is False  # no image yet
-    w.set_fm_image(_real_fm())
+    w.set_fm_image(_meteor_like_fm())
     assert btn.isEnabled() is True  # 21-slice stack
 
 
@@ -255,7 +386,7 @@ def test_interpolating_shows_embedded_progress_and_locks_the_button(qapp):
     """Progress is a non-modal bar in the Images tab; the button locks while it
     runs, and neither blocks the rest of the GUI."""
     w = _widget(qapp)
-    w.set_fm_image(_real_fm())
+    w.set_fm_image(_meteor_like_fm())
     tab = w._images_tab
     # isHidden(), not isVisible(): the latter is False for any child of an unshown
     # top-level window, so it can't distinguish our explicit hide.
@@ -279,7 +410,7 @@ def test_adopt_interpolated_volume_preserves_physical_depth(qapp):
     from fibsem.correlation.util import interpolate_fm_volume
 
     w = _widget(qapp)
-    fm = _real_fm()
+    fm = _meteor_like_fm()
     w.set_fm_image(fm)
     old_nz = fm.data.shape[1]
     old_z_step = fm.metadata.pixel_size_z
@@ -306,7 +437,7 @@ def test_rescale_only_touches_fm_side_points(qapp):
     from fibsem.correlation.structures import PointType
 
     w = _widget(qapp)
-    w.set_fm_image(_real_fm())
+    w.set_fm_image(_meteor_like_fm())
     w._on_canvas_add_requested(10.0, 10.0, PointType.FIB)  # FIB side
     w._coords_tab.fib_list.coordinates[0].point.z = 5.0
     w._on_canvas_add_requested(20.0, 20.0, PointType.FM)  # FM side
@@ -315,3 +446,94 @@ def test_rescale_only_touches_fm_side_points(qapp):
     w._rescale_fm_z(2.0)
     assert w._coords_tab.fib_list.coordinates[0].point.z == 5.0  # FIB untouched
     assert w._coords_tab.fm_list.coordinates[0].point.z == 10.0  # FM scaled
+
+
+def _aniso_fm(nz=8, xy=1e-7, z=5e-7, shape=(8, 8)):
+    """A small anisotropic stack, enough for the auto-interpolation gates."""
+    import numpy as np
+
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    h, w = shape
+    return FluorescenceImage(
+        data=np.zeros((1, nz, h, w), dtype=np.uint16),
+        metadata=FluorescenceImageMetadata(
+            acquisition_date="2026-09-21T00:00:00",
+            pixel_size_x=xy,
+            pixel_size_y=xy,
+            pixel_size_z=z,
+            resolution=(w, h),
+            channels=[
+                FluorescenceChannelMetadata(
+                    name="GFP",
+                    color="#00FF00",
+                    excitation_wavelength=488,
+                    emission_wavelength=509,
+                    power=1.0,
+                    exposure_time=0.1,
+                    gain=1.0,
+                    offset=0.0,
+                )
+            ],
+        ),
+    )
+
+
+def test_auto_interpolation_only_runs_when_asked_and_worth_it(qapp, monkeypatch):
+    """FIB-1023: off by default; and when on, it skips a stack that is already
+    isotropic, a single plane, or one with no slice thickness to aim at."""
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
+        CorrelationTabWidget,
+    )
+
+    w = CorrelationTabWidget()
+    started = []
+    monkeypatch.setattr(
+        type(w), "_start_fm_interpolation", lambda self, t, m: started.append((t, m))
+    )
+
+    assert not w._images_tab._chk_auto_interpolate.isChecked()  # off by default
+    w.set_fm_image(_aniso_fm())
+    assert started == []
+
+    w._images_tab._chk_auto_interpolate.setChecked(True)
+    w.set_fm_image(_aniso_fm())
+    assert started == [(1e-7, "linear")]  # targets the xy pixel size
+
+    started.clear()
+    w.set_fm_image(_aniso_fm(z=1e-7))  # already isotropic
+    assert started == []
+    w.set_fm_image(_aniso_fm(nz=1))  # a single plane
+    assert started == []
+    w.set_fm_image(_aniso_fm(z=None))  # no slice thickness to aim at
+    assert started == []
+    w.close()
+
+
+def test_auto_interpolation_refuses_a_volume_too_large_to_make_silently(
+    qapp, monkeypatch
+):
+    """The preference is on, so not doing it needs a reason the user can see."""
+    from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
+
+    w = ctw.CorrelationTabWidget()
+    started, said = [], []
+    monkeypatch.setattr(
+        type(w), "_start_fm_interpolation", lambda self, t, m: started.append(t)
+    )
+    monkeypatch.setattr(
+        ctw.notification_service, "show", lambda msg, level="info": said.append(msg)
+    )
+    w._images_tab._chk_auto_interpolate.setChecked(True)
+
+    # 2048-square, 21 slices at 20x: ~1800 slices, ~15 GB — past the cap.
+    # The frame is empty, so the fixture itself stays small.
+    w.set_fm_image(_aniso_fm(nz=21, z=2e-6, shape=(2048, 2048)))
+    assert started == []
+    assert said and "Not interpolated automatically" in said[0]
+    assert "Interpolate" in said[0]  # names the manual route
+    w.close()

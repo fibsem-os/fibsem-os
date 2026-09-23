@@ -9,6 +9,7 @@ couple of render checks.
   * reflection hole     -> z + XY, inverted signal
   * fluorescence target -> z + XY
 """
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -32,14 +33,18 @@ def _blob_2d(size: int, cx: float, cy: float, sigma: float = 3.0) -> np.ndarray:
 def _refl_vol(cx: float, nz: int = 21, size: int = 60) -> np.ndarray:
     vol = np.full((nz, size, size), 200.0, dtype=np.float32)
     for zi in range(nz):  # a dark hole, deepest at z=10
-        vol[zi] -= 160.0 * np.exp(-((zi - 10) ** 2) / (2 * 2.0**2)) * _blob_2d(size, cx, cx)
+        vol[zi] -= (
+            160.0 * np.exp(-((zi - 10) ** 2) / (2 * 2.0**2)) * _blob_2d(size, cx, cx)
+        )
     return vol
 
 
 def _fluor_vol(cx: float, nz: int = 21, size: int = 40) -> np.ndarray:
     vol = np.zeros((nz, size, size), dtype=np.float32)
     for zi in range(nz):  # a bright target, brightest at z=10
-        vol[zi] += 200.0 * np.exp(-((zi - 10) ** 2) / (2 * 2.0**2)) * _blob_2d(size, cx, cx)
+        vol[zi] += (
+            200.0 * np.exp(-((zi - 10) ** 2) / (2 * 2.0**2)) * _blob_2d(size, cx, cx)
+        )
     return vol
 
 
@@ -52,7 +57,7 @@ def test_fib_hole_fit_returns_xy_only_diagnostic():
 
     assert isinstance(d, FitDiagnostic)
     assert np.isfinite(xr) and np.isfinite(yr)
-    assert not d.has_z              # FIB has no z panel
+    assert not d.has_z  # FIB has no z panel
     assert d.fitted_xy is not None  # a clean fit has a fitted marker
 
 
@@ -92,6 +97,68 @@ def test_fib_input_marker_tracks_subpixel_click():
     assert d.fitted_xy == pytest.approx(d.input_xy, abs=0.25)
 
 
+# --- the reflection fit's windows stop at the stack and the image (FIB-980) --
+
+
+def _refl_vol_at(cx: float, cy: float, cz: int, nz: int = 21, size: int = 60):
+    """A dark hole at (cx, cy), deepest at plane cz."""
+    vol = np.full((nz, size, size), 200.0, dtype=np.float32)
+    for zi in range(nz):
+        vol[zi] -= (
+            160.0 * np.exp(-((zi - cz) ** 2) / (2 * 2.0**2)) * _blob_2d(size, cx, cy)
+        )
+    return vol
+
+
+@pytest.mark.parametrize("z", [0, 2, 9])
+def test_reflection_fit_works_in_the_lower_planes(z):
+    """A click below plane 10 used to make the z window's start negative; the
+    slice wrapped to the end of the stack, came back empty, and the fit raised.
+    Eight of those in one bench session (FIB-980)."""
+    vol = _refl_vol_at(30, 30, cz=max(z, 1))
+    xr, yr, zr, d = hole_fitting_reflection(vol, 30, 30, z, 2)
+    assert xr == pytest.approx(30, abs=0.5) and yr == pytest.approx(30, abs=0.5)
+    assert zr == pytest.approx(max(z, 1), abs=1.0)  # absolute, not window-relative
+    assert d.z_axis[0] == 0  # the window starts at the first plane
+    assert 0 <= d.z_fitted < vol.shape[0]
+
+
+@pytest.mark.parametrize("cx, cy", [(5, 5), (5, 30), (30, 5), (1, 1)])
+def test_reflection_fit_works_near_the_top_and_left_edges(cx, cy):
+    """The same wrap happened in x and y within the cutout of the top or left
+    edge; the bottom and right only clip, which made it look intermittent."""
+    vol = _refl_vol_at(cx, cy, cz=10)
+    xr, yr, zr, d = hole_fitting_reflection(vol, cx, cy, 10, 2)
+    assert xr == pytest.approx(cx, abs=0.75) and yr == pytest.approx(cy, abs=0.75)
+    assert zr == pytest.approx(10, abs=1.0)
+    # the input marker still sits on the click, in the clamped window's frame
+    # (the window starts at the edge, not 15 px before the click)
+    assert d.input_xy == pytest.approx((cx - max(0, cx - 15), cy - max(0, cy - 15)))
+    assert d.fitted_xy is not None
+
+
+def test_reflection_fit_works_at_the_top_plane_and_far_corner():
+    vol = _refl_vol_at(57, 57, cz=19)
+    xr, yr, zr, d = hole_fitting_reflection(vol, 57, 57, 20, 2)
+    assert xr == pytest.approx(57, abs=0.75) and yr == pytest.approx(57, abs=0.75)
+    assert zr == pytest.approx(19, abs=1.0)
+
+
+def test_reflection_fit_refuses_a_stack_too_thin_to_fit_through():
+    """Two planes are a line, not a peak: refuse, and say how many there were."""
+    vol = _refl_vol_at(30, 30, cz=1, nz=2)
+    with pytest.raises(ValueError, match=r"only 2 plane\(s\).*at least 3"):
+        hole_fitting_reflection(vol, 30, 30, 1, 2)
+
+
+def test_reflection_fit_at_the_centre_is_unchanged():
+    """The clamp is a no-op away from the edges: same answer as before."""
+    xr, yr, zr, d = hole_fitting_reflection(_refl_vol(30), 30, 30, 10, 2)
+    assert (xr, yr, zr) == pytest.approx((30, 30, 10), abs=0.3)
+    assert d.input_xy == pytest.approx((15.0, 15.0))
+    assert d.z_axis[0] == 0 and len(d.z_axis) == 15
+
+
 def test_reflection_input_marker_tracks_subpixel_click():
     cx = 30.6
     _, _, _, d = hole_fitting_reflection(_refl_vol(cx), cx, cx, 10, 2)
@@ -127,19 +194,28 @@ def _xy_only():
 
 def _with_z():
     return FitDiagnostic(
-        title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0),
-        z_axis=np.arange(5), z_signal=np.arange(5.0), z_fit=np.arange(5.0),
-        z_input=2.0, z_fitted=2.5,
+        title="t",
+        roi_xy=np.zeros((10, 10)),
+        input_xy=(5.0, 5.0),
+        z_axis=np.arange(5),
+        z_signal=np.arange(5.0),
+        z_fit=np.arange(5.0),
+        z_input=2.0,
+        z_fitted=2.5,
     )
 
 
 def test_plot_fit_diagnostic_panel_counts():
-    assert len(plot_fit_diagnostic(_xy_only()).axes) == 1   # XY only
-    assert len(plot_fit_diagnostic(_with_z()).axes) == 2    # z + XY
+    assert len(plot_fit_diagnostic(_xy_only()).axes) == 1  # XY only
+    assert len(plot_fit_diagnostic(_with_z()).axes) == 2  # z + XY
 
 
 def test_plot_fit_diagnostic_dark_vs_light_facecolor():
     from matplotlib.colors import to_hex
 
-    assert to_hex(plot_fit_diagnostic(_with_z(), dark=True).get_facecolor()) == "#1e2124"
-    assert to_hex(plot_fit_diagnostic(_with_z(), dark=False).get_facecolor()) == "#ffffff"
+    assert (
+        to_hex(plot_fit_diagnostic(_with_z(), dark=True).get_facecolor()) == "#1e2124"
+    )
+    assert (
+        to_hex(plot_fit_diagnostic(_with_z(), dark=False).get_facecolor()) == "#ffffff"
+    )

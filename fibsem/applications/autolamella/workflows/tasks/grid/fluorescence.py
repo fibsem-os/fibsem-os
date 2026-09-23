@@ -22,7 +22,11 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
 )
 from fibsem.autofunctions.autofocus import AutoFocusSettings
 from fibsem.cancellation import OperationCancelledError
-from fibsem.fm.acquisition import FMTiledAcquisitionRunner, OverviewDestination
+from fibsem.fm.acquisition import (
+    FMTiledAcquisitionRunner,
+    OverviewDestination,
+    record_fluorescence_image,
+)
 from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.imaging.thumbnail import write_thumbnail
@@ -87,6 +91,7 @@ def acquire_fluorescence_overview(
         mosaic = runner.run_and_stitch()
         report(TiledStatus.SAVING)
         path = destination.save_mosaic(mosaic)
+        record_fluorescence_image(microscope, mosaic, overview=parameters)
     except OperationCancelledError:
         report(TiledStatus.CANCELLED)
         raise
@@ -129,11 +134,11 @@ class FluorescenceOverviewGridTask(GridTask):
     config: FluorescenceOverviewGridTaskConfig
 
     def grid_centre(self) -> FibsemStagePosition:
-        """The grid's calibrated slot position, at the FM.
+        """The grid's calibrated slot position, as the FM sees it.
 
-        On a compustage the FM is an orientation (a flip); on an offset mount it is
-        a device the stage travels to with its pose kept. `get_target_position`
-        spells the two differently, and refuses the wrong one, so the branch is here.
+        One call on either mounting (`to_device`): a compustage gets the flip, an
+        offset mount gets the traverse, and the pose is kept where the objective
+        images from it and otherwise put into the first orientation it declares.
         """
         slot = self.slot
         if slot is None:
@@ -142,9 +147,7 @@ class FluorescenceOverviewGridTask(GridTask):
             )
         if slot.position is None:
             raise RuntimeError(uncalibrated_message(slot.name))
-        if self.microscope.stage_is_compustage:
-            return self.microscope.get_target_position(slot.position, "FM")
-        return self.microscope.get_target_position(slot.position, target_device="FM")
+        return self.microscope.to_device(slot.position, "FM")
 
     def _run(self) -> None:
         fm = getattr(self.microscope, "fm", None)

@@ -12,15 +12,20 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskDescription,
+    AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.attendance import (
+    Attendance,
+    attendance_for,
 )
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.ui import stylesheets
@@ -45,10 +50,26 @@ REQUIRES_FONT_PX = 10
 REQUIRES_MAX_WIDTH = 170
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
-_BTN_SPACER_WIDTH = (
-    _BTN_SIZE.width() * 4 + 8 * 3
-)  # schedule + supervise + edit + remove + 3 gaps
-_BTN_STYLE = stylesheets.TOOLBUTTON_ICON_STYLESHEET
+# The attention chip: the mode's icon (the same ones the lamella rows and
+# status chips use) and its name, fixed width so the row does not jump
+# between states. "Supervised" is the widest it shows. The schedule
+# clock button, which only duplicated the pencil, gave up the width.
+_CHIP_WIDTH = 104
+_CHIP_ICONS = {
+    "automated": "mdi:lightning-bolt-circle",
+    "supervised": "mdi:account-hard-hat",
+    "agent": "mdi:star-four-points",
+}
+_BTN_SPACER_WIDTH = _BTN_SIZE.width() + _CHIP_WIDTH + 8  # attention chip + edit + 1 gap
+# Long labels on purpose: the short set (Auto / Superv.) reads badly and the
+# long ones fit at the chip's width. Two modes: a person decides, or nobody
+# is asked. Where the run waits for the person is a property of the task,
+# not a third state.
+ATTENTION_LABELS = {
+    "supervised": "Supervised",
+    "agent": "Agent",
+    "automated": "Automated",
+}
 
 
 class _DraggableTaskList(QListWidget):
@@ -86,45 +107,154 @@ def _agent_supervision_available() -> bool:
         return False
 
 
-def _supervise_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
-    """Return (icon_name, icon_color, tooltip) for the supervision indicator."""
-    if (
-        task.supervise
-        and getattr(task, "supervisor", "human") == "agent"
-        and _agent_supervision_available()
-    ):
-        return (
-            "mdi:star-four-points",
-            stylesheets.BORDER_STATE_COLOURS["agent"],
-            "Agent — the connected agent answers this task's questions "
-            "(you can always answer first). Click to change.",
+def _review_available() -> bool:
+    """Whether the Review toggle exists at all: the propose-and-review flag.
+    Same hard-gate rule as the Agent option -- off, a stored ``review: true``
+    is not shown and not honoured."""
+    import fibsem.config as fibsem_cfg
+
+    try:
+        return bool(
+            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
         )
-    if task.supervise:
-        return "mdi:account-hard-hat", stylesheets.PRIMARY_COLOR, "Supervised"
-    return "mdi:lightning-bolt-circle", stylesheets.AUTOMATED_COLOR, "Automated"
+    except Exception:
+        return False
 
 
-def _requires_text(task: AutoLamellaTaskDescription, font: QFont) -> str:
-    """What the task waits for, sized to the column that holds it.
+def attention_state(
+    task: AutoLamellaTaskDescription,
+    agent_available: Optional[bool] = None,
+    review_available: Optional[bool] = None,
+) -> str:
+    """Which of the chip's states the task is in: the one question the user
+    has about a task, *when am I involved?*, read from the task's attention.
 
-    Empty where a task has no dependency: "No requirements" on every row was what
-    buried the two or three that have one.
-
-    Elided rather than left to run. A task waiting on four others produced a label
-    wider than the row, and Qt cut it off mid-word; the row's tooltip carries the
-    full list.
+    A stored ``supervisor: agent`` shows as plain Supervised while the
+    agent-server preference is off -- the state it will actually run in, not
+    the one in the file. ``review_available`` is accepted and unused: the
+    preference no longer changes what a task's attention reads as.
     """
-    if not task.requires:
-        return ""
-    return QFontMetrics(font).elidedText(
-        "after " + ", ".join(task.requires), Qt.ElideRight, REQUIRES_MAX_WIDTH
+    if agent_available is None:
+        agent_available = _agent_supervision_available()
+    if task.attention is Attention.supervised:
+        if getattr(task, "supervisor", "human") == "agent" and agent_available:
+            return "agent"
+        return "supervised"
+    return "automated"
+
+
+def _attention_chip(
+    task: AutoLamellaTaskDescription,
+    has_dependents: bool = True,
+    attendance: Optional[Attendance] = None,
+) -> tuple[str, str, str]:
+    """(label, colour, tooltip) for the chip: the word is the state, the
+    colour is the mode's, and the tooltip says what the state means for this
+    task -- whether it needs you there while it runs, and what waits on you
+    afterwards -- when the task's type is known (``attendance``)."""
+    label, colour, tip = _attention_chip_words(task, has_dependents)
+    if attendance is not None:
+        tip = f"{label} — {attendance.line} Click to change."
+    return label, colour, tip
+
+
+def _attention_chip_words(
+    task: AutoLamellaTaskDescription, has_dependents: bool = True
+) -> tuple[str, str, str]:
+    state = attention_state(task)
+    label = ATTENTION_LABELS[state]
+    if state == "agent":
+        return (
+            label,
+            stylesheets.BORDER_STATE_COLOURS["agent"],
+            "Agent — the connected agent answers this task's questions in the "
+            "workflow (you can always answer first). Click to change.",
+        )
+    if state == "supervised":
+        tip = (
+            "Supervised — you decide. A question the task needs answered is "
+            "asked in the workflow, at the microscope; a result it leaves for "
+            "afterwards waits for your decision in the Review tab, and the "
+            "tasks that require it wait with it. Click to change."
+            if _review_available()
+            else "Supervised — asks you in the workflow, at the microscope; your "
+            "answer is the decision on the record. Click to change."
+        )
+        return label, stylesheets.PRIMARY_COLOR, tip
+    tip = (
+        "Automated — runs without anyone; what it did is listed in the Review "
+        "tab to check. Click to change."
+    )
+    return label, stylesheets.AUTOMATED_COLOR, tip
+
+
+def _chip_style(colour: str, muted: bool = False) -> str:
+    fg = NEUTRAL_700 if muted else colour
+    border = NEUTRAL_700 if muted else colour
+    return (
+        "QToolButton { border: 1px solid "
+        + border
+        + "; border-radius: 3px; padding: 1px 5px 1px 4px; background: transparent; "
+        + f"color: {fg}; font-size: 11px; text-align: left; }}"
+        "QToolButton:hover { background: rgba(255, 255, 255, 25); }"
     )
 
 
+def _requires_text(
+    task: AutoLamellaTaskDescription,
+    font: QFont,
+    schedule: bool = True,
+    reviewed: Optional[set] = None,
+) -> str:
+    """What the task waits for, and when it is scheduled, sized to the
+    column that holds them.
+
+    Empty where a task has neither: "No requirements" on every row was what
+    buried the two or three that have one. A schedule is set in the edit
+    dialog; the row only says when, in the same column, so a scheduled row
+    is not a wider row.
+
+    ``reviewed`` names the tasks set to Review: a requirement on one of them
+    is a wait for a decision, and the row says so where the wait is felt --
+    "after review of Setup Lamella Position" -- so the reader of this row does
+    not need the rule.
+
+    Elided rather than left to run. A task waiting on four others produced a
+    label wider than the row, and Qt cut it off mid-word; the row's tooltip
+    carries the full list.
+    """
+    parts = []
+    if task.requires:
+        parts.append("after " + _requires_phrase(task.requires, reviewed or set()))
+    if schedule and task.scheduled_at is not None:
+        parts.append("at " + task.scheduled_at.strftime("%d %b %H:%M"))
+    if not parts:
+        return ""
+    return QFontMetrics(font).elidedText(
+        " · ".join(parts), Qt.ElideRight, REQUIRES_MAX_WIDTH
+    )
+
+
+def _requires_phrase(requires: List[str], reviewed: set) -> str:
+    """The wait, said where it is felt: "review of Setup Lamella Position"
+    when what it waits for is reviewed. The marker leads, because task names
+    are long and the column elides the tail. A mixed list marks the reviewed
+    names: "Setup (reviewed), Fiducial"."""
+    if requires and all(r in reviewed for r in requires):
+        return "review of " + ", ".join(requires)
+    return ", ".join(f"{r} (reviewed)" if r in reviewed else r for r in requires)
+
+
 class WorkflowTaskRowWidget(QWidget):
-    supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
+    """One task: its name, what it waits for, and one chip for when a person
+    is involved (Automated / Supervised / Review), plus schedule, edit, remove.
+
+    The chip writes the task's ``attention`` (and ``supervisor`` for the Agent
+    step) and emits ``attention_changed``.
+    """
+
+    attention_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     edit_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
-    remove_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
     selection_changed = pyqtSignal(object, bool)  # AutoLamellaTaskDescription, checked
 
     def __init__(
@@ -172,25 +302,29 @@ class WorkflowTaskRowWidget(QWidget):
         )
         layout.addWidget(self.requires_label)
 
-        self.btn_schedule = QToolButton()
-        self.btn_schedule.setFixedSize(_BTN_SIZE)
-        self.btn_schedule.setStyleSheet(_BTN_STYLE)
-        layout.addWidget(self.btn_schedule)
+        # One chip in place of a supervise button and a review button: the
+        # word on it is the state, the colour is the run mode's (automated
+        # green, supervised blue, review teal, agent the agent border).
+        self.btn_attention = QToolButton()
+        self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_attention.setIconSize(QSize(14, 14))
+        self.btn_attention.setFixedSize(_CHIP_WIDTH, _BTN_SIZE.height() - 8)
+        self.btn_attention.setCursor(Qt.PointingHandCursor)
+        self.btn_attention.setFocusPolicy(Qt.NoFocus)
+        layout.addWidget(self.btn_attention)
+        self._has_dependents = True
+        self._reviewed: set = set()
+        self._attendance: Optional[Attendance] = None
+        self._schedule_visible = True
 
-        self.btn_supervise = QToolButton()
-        self.btn_supervise.setFixedSize(_BTN_SIZE)
-        self.btn_supervise.setStyleSheet(_BTN_STYLE)
-        layout.addWidget(self.btn_supervise)
-
+        # Edit opens the dialog, which is also where a task is removed: a
+        # trash can on every row was the one thing there nobody pressed.
         self.btn_edit = IconToolButton(
-            icon="mdi:pencil", tooltip="Edit", size=_BTN_SIZE.width()
+            icon="mdi:pencil",
+            tooltip="Edit, schedule or remove",
+            size=_BTN_SIZE.width(),
         )
         layout.addWidget(self.btn_edit)
-
-        self.btn_remove = IconToolButton(
-            icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE.width()
-        )
-        layout.addWidget(self.btn_remove)
 
         drag_icon = QLabel()
         drag_icon.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
@@ -202,71 +336,99 @@ class WorkflowTaskRowWidget(QWidget):
         self.checkbox.stateChanged.connect(
             lambda s: self.selection_changed.emit(self.task, bool(s))
         )
-        self.btn_schedule.clicked.connect(lambda: self.edit_clicked.emit(self.task))
-        self.btn_supervise.clicked.connect(self._on_supervise_clicked)
+        self.btn_attention.clicked.connect(self._on_attention_clicked)
         self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.task))
-        self.btn_remove.clicked.connect(self._on_remove_clicked)
 
         self.refresh()
 
-    def _on_supervise_clicked(self) -> None:
-        """Cycle the supervision state: Automated → Supervised → Agent → Automated.
+    def set_schedule_visible(self, visible: bool) -> None:
+        self._schedule_visible = visible
+        self.refresh()
 
-        The Agent step exists only while the agent-server preference is on;
-        without it this is the old two-state toggle. Leaving the agent state
-        resets ``supervisor`` to human so no hidden designation survives the
-        cycle.
+    def set_has_dependents(self, has_dependents: bool) -> None:
+        """Whether any later task requires this one. A Review state on a
+        task nothing requires gates nothing, and the row says so."""
+        if has_dependents != self._has_dependents:
+            self._has_dependents = has_dependents
+            self.refresh()
+
+    def set_attendance(self, attendance: Optional[Attendance]) -> None:
+        """What this task needs from a person, derived from its type: said on
+        the chip's tooltip and the row's, so the mode reads as what it does."""
+        if attendance != self._attendance:
+            self._attendance = attendance
+            self.refresh()
+
+    def set_reviewed(self, reviewed: set) -> None:
+        """The tasks set to Review, so a requirement on one reads as the wait
+        for a decision it is."""
+        if reviewed != self._reviewed:
+            self._reviewed = set(reviewed)
+            self.refresh()
+
+    def _on_attention_clicked(self) -> None:
+        """Cycle Supervised → Agent → Review later → Automated → Supervised:
+        down the ladder of trust a step at a time, and back to the top.
+
+        The Agent step exists only while the agent-server preference is on,
+        the Review later step only while interactive review is on; with
+        neither this is the old two-state toggle. Leaving Agent resets ``supervisor`` to
+        human, so nothing hidden survives a click.
         """
         task = self.task
-        if not task.supervise:
-            task.supervise = True
-            task.supervisor = "human"
-        elif (
-            getattr(task, "supervisor", "human") != "agent"
-            and _agent_supervision_available()
-        ):
-            task.supervisor = "agent"
-        else:
-            task.supervise = False
-            task.supervisor = "human"
-        self.refresh()
-        self.supervised_changed.emit(task)
-
-    def _on_remove_clicked(self) -> None:
-        reply = QMessageBox.question(
-            self,
-            "Remove Task",
-            f"Remove <b>{self.task.name}</b> from workflow?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+        order = ["supervised"]
+        if _agent_supervision_available():
+            order.append("agent")
+        order.append("automated")
+        current = attention_state(task)
+        following = order[(order.index(current) + 1) % len(order)]
+        before = (task.attention, getattr(task, "supervisor", "human"))
+        task.attention = (
+            Attention.supervised if following == "agent" else Attention(following)
         )
-        if reply == QMessageBox.Yes:
-            self.remove_clicked.emit(self.task)
+        task.supervisor = "agent" if following == "agent" else "human"
+        self.refresh()
+        if before != (task.attention, task.supervisor):
+            self.attention_changed.emit(task)
 
     def refresh(self) -> None:
         """Re-read all display fields from the stored task."""
         self.name_label.setText(self.task.name)
         self.requires_label.setText(
-            _requires_text(self.task, self.requires_label.font())
+            _requires_text(
+                self.task,
+                self.requires_label.font(),
+                self._schedule_visible,
+                self._reviewed,
+            )
         )
-        self.setToolTip(
-            "Requires: " + ", ".join(self.task.requires) if self.task.requires else ""
+        tips = []
+        if self.task.requires:
+            tips.append(
+                "Requires: " + _requires_phrase(self.task.requires, self._reviewed)
+            )
+        if self.task.scheduled_at is not None and self._schedule_visible:
+            tips.append(
+                "Scheduled: "
+                + self.task.scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
+                + " (set in the edit dialog)"
+            )
+        if self._attendance is not None:
+            tips.append(self._attendance.line)
+        self.setToolTip("\n".join(tips))
+        label, colour, tooltip = _attention_chip(
+            self.task, self._has_dependents, self._attendance
         )
-        icon_name, icon_color, tooltip = _supervise_icon(self.task)
-        self.btn_supervise.setIcon(fibsem_icon(icon_name, color=icon_color))
-        self.btn_supervise.setToolTip(tooltip)
-        if self.task.scheduled_at is not None:
-            self.btn_schedule.setIcon(
-                fibsem_icon("mdi:clock", color=stylesheets.WHITE_ICON_COLOR)
-            )
-            self.btn_schedule.setToolTip(
-                f"Scheduled: {self.task.scheduled_at.strftime(DATETIME_DISPLAY_AMPM)}"
-            )
-        else:
-            self.btn_schedule.setIcon(
-                fibsem_icon("mdi:clock-outline", color=NEUTRAL_700)
-            )
-            self.btn_schedule.setToolTip("Not scheduled — click to set")
+        self.btn_attention.setText(label)
+        self.btn_attention.setIcon(
+            fibsem_icon(_CHIP_ICONS[attention_state(self.task)], color=colour)
+        )
+        self.btn_attention.setToolTip(tooltip)
+        self.btn_attention.setStyleSheet(_chip_style(colour))
+        self.requires_label.setStyleSheet(
+            f"background: transparent; color: {REQUIRES_COLOUR}; "
+            f"font-size: {REQUIRES_FONT_PX}px;"
+        )
 
 
 class _WorkflowTaskListHeader(QWidget):
@@ -309,7 +471,7 @@ class _WorkflowTaskListHeader(QWidget):
 class WorkflowConfigWidget(QWidget):
     """List widget displaying AutoLamellaWorkflowConfig tasks with name, supervised, edit and remove actions."""
 
-    supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
+    attention_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     edit_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
     remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
     selection_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
@@ -321,11 +483,14 @@ class WorkflowConfigWidget(QWidget):
 
         self._btn_visible = {
             "schedule": True,
-            "supervise": True,
+            "supervise": True,  # the attention chip
             "edit": True,
             "remove": True,
         }
         self._checked: Dict[int, bool] = {}  # id(task) -> checked
+        # The protocol the tasks belong to, for what each task's type asks:
+        # the workflow config alone names tasks, not their types.
+        self._protocol: Optional[AutoLamellaTaskProtocol] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -358,10 +523,17 @@ class WorkflowConfigWidget(QWidget):
     # ------------------------------------------------------------------
 
     def set_config(self, config: AutoLamellaWorkflowConfig) -> None:
-        """Populate the list from an AutoLamellaWorkflowConfig."""
+        """Populate the list from an AutoLamellaWorkflowConfig, keeping the ticks.
+
+        Reached on every protocol edit (``workflow_config_changed``), not only when
+        the task set changes, and the ticked rows are the run selection. Rebuilding
+        them unticked emptied that selection on any field edit (FIB-967). Ticks are
+        matched by task name, so a task that is gone is simply not re-ticked.
+        """
+        checked = {task.name for task in self.get_selected()}
         self.clear()
         for task in config.tasks:
-            self.add_task(task)
+            self.add_task(task, checked=task.name in checked)
 
     def add_task(
         self, task: AutoLamellaTaskDescription, checked: bool = False
@@ -376,24 +548,55 @@ class WorkflowConfigWidget(QWidget):
 
         self._connect_row(row)
         self._apply_btn_visibility(row)
+        self._refresh_dependents()
         self._sync_select_all()
         return row
 
+    def _refresh_dependents(self) -> None:
+        """Tell each row whether a later task requires it: the fact the
+        Review state needs to be honest about."""
+        tasks = self.get_tasks()
+        required = {req for task in tasks for req in task.requires}
+        reviewed = (
+            {t.name for t in tasks if t.attention is Attention.supervised}
+            if _review_available()
+            else set()
+        )
+        protocol = self._protocol
+        review_on = _review_available()
+        for i in range(self._list.count()):
+            row = self._row(i)
+            row.set_has_dependents(row.task.name in required)
+            row.set_reviewed(reviewed)
+            row.set_attendance(
+                attendance_for(protocol, row.task.name, review_on)
+                if protocol is not None
+                else None
+            )
+
     def _connect_row(self, row: WorkflowTaskRowWidget) -> None:
-        row.supervised_changed.connect(self.supervised_changed)
+        row.attention_changed.connect(self.attention_changed)
+        # a task moving to or from Review changes what its consumers' rows say
+        row.attention_changed.connect(lambda _t: self._refresh_dependents())
         row.edit_clicked.connect(self.edit_requested)
-        row.remove_clicked.connect(self._on_remove_clicked)
         row.selection_changed.connect(self._on_row_selection_changed)
 
     def enable_schedule_button(self, visible: bool) -> None:
+        """Whether rows say when they are scheduled (the label, not a button)."""
         self._btn_visible["schedule"] = visible
         for i in range(self._list.count()):
-            self._row(i).btn_schedule.setVisible(visible)
+            self._row(i).set_schedule_visible(visible)
 
     def enable_supervise_button(self, visible: bool) -> None:
+        """Show or hide the attention chip."""
         self._btn_visible["supervise"] = visible
         for i in range(self._list.count()):
-            self._row(i).btn_supervise.setVisible(visible)
+            self._row(i).btn_attention.setVisible(visible)
+
+    def enable_review_button(self, _visible: bool) -> None:
+        """The Review state is offered by the preference, not by a host; a
+        host that flips the preference re-reads the rows through here."""
+        self.refresh_all()
 
     def enable_edit_button(self, visible: bool) -> None:
         self._btn_visible["edit"] = visible
@@ -401,9 +604,13 @@ class WorkflowConfigWidget(QWidget):
             self._row(i).btn_edit.setVisible(visible)
 
     def enable_remove_button(self, visible: bool) -> None:
+        """Whether tasks may be removed at all. Removal lives in the edit
+        dialog now; the host reads ``remove_allowed`` when it opens one."""
         self._btn_visible["remove"] = visible
-        for i in range(self._list.count()):
-            self._row(i).btn_remove.setVisible(visible)
+
+    @property
+    def remove_allowed(self) -> bool:
+        return self._btn_visible["remove"]
 
     def remove_task(self, task: AutoLamellaTaskDescription) -> None:
         for i in range(self._list.count()):
@@ -420,9 +627,16 @@ class WorkflowConfigWidget(QWidget):
                 row.refresh()
                 break
 
+    def set_protocol(self, protocol: Optional[AutoLamellaTaskProtocol]) -> None:
+        """The protocol whose tasks these are, so each row can say what its
+        task needs from a person. None: nothing is said."""
+        self._protocol = protocol
+        self._refresh_dependents()
+
     def refresh_all(self) -> None:
         for i in range(self._list.count()):
             self._row(i).refresh()
+        self._refresh_dependents()
 
     def get_tasks(self) -> List[AutoLamellaTaskDescription]:
         """Return tasks in current display order."""
@@ -467,14 +681,17 @@ class WorkflowConfigWidget(QWidget):
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
 
     def _apply_btn_visibility(self, row: WorkflowTaskRowWidget) -> None:
-        row.btn_schedule.setVisible(self._btn_visible["schedule"])
-        row.btn_supervise.setVisible(self._btn_visible["supervise"])
+        row.set_schedule_visible(self._btn_visible["schedule"])
+        row.btn_attention.setVisible(self._btn_visible["supervise"])
         row.btn_edit.setVisible(self._btn_visible["edit"])
-        row.btn_remove.setVisible(self._btn_visible["remove"])
 
-    def _on_remove_clicked(self, task: AutoLamellaTaskDescription) -> None:
+    def request_remove(self, task: AutoLamellaTaskDescription) -> None:
+        """Drop the task's row and announce it. The confirmation happened in
+        the edit dialog; this is the one removal path."""
         self.remove_task(task)
         self.remove_requested.emit(task)
+
+    _on_remove_clicked = request_remove  # the old name
 
     def _on_row_selection_changed(
         self, task: AutoLamellaTaskDescription, checked: bool
@@ -499,6 +716,7 @@ class WorkflowConfigWidget(QWidget):
             self._list.setItemWidget(item, row)
             self._connect_row(row)
             self._apply_btn_visibility(row)
+        self._refresh_dependents()
         self._sync_select_all()
         self.order_changed.emit(tasks)
 

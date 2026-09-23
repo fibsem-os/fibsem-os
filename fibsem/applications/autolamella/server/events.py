@@ -16,25 +16,29 @@ Rules the taps live by:
   automatic GC precisely because off-thread Qt finalization crashes.
 * **Metadata, not pixels.** Acquisition events carry beam/field-of-view/shape;
   the images themselves are fetched through the preview endpoints on demand.
-  Known upstream gap: the acquisition signals fire only from the streaming
-  live-view worker -- a one-shot ``acquire_image`` emits nothing on them, so
-  single-shot acquisitions are invisible to this stream until that changes.
+  The acquisition signals fire only from the streaming live-view worker. A
+  one-shot acquisition reaches the stream as ``image_acquired`` (on
+  ``record_signal``) when it goes through ``acquire.new_image``, as workflow
+  reference images do; a direct ``microscope.acquire_image`` call still does not.
 
 Sequence numbers make polling honest: a client asks for everything after seq
 N, and if eviction has eaten past N the response's ``oldest_available`` says
 so — a visible gap instead of silent continuity.
 
-Wiring that deliberately does NOT live here (it belongs to the embedded
-hosting, FIB-845): constructing the buffer in the app, attaching the
-microscope taps at connect time, and re-registering the lifecycle hook inside
-``setup_hooks()`` — the app rebuilds its hook set every run, so a
-once-at-startup registration silently goes deaf after the first run.
+Wiring that deliberately does NOT live here: constructing the buffer when a
+microscope connects, attaching the taps, and re-registering the lifecycle hook
+inside ``setup_hooks()`` — the app rebuilds its hook set every run, so a
+once-at-startup registration silently goes deaf after the first run. That is
+``event_recording.EventRecorder`` (FIB-1031), which also records the stream to
+disk; the agent server reads the same buffer when it runs.
 """
 
 import dataclasses
+import logging
 import threading
 import time
 from collections import deque
+from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
@@ -75,28 +79,85 @@ def to_plain(value: Any) -> Any:
     return str(value)
 
 
-class EventBuffer:
-    """Bounded, sequence-numbered, thread-safe event log with long-poll wait."""
+Stamp = Callable[[str, Dict[str, Any]], Dict[str, Any]]
 
-    def __init__(self, maxlen: int = 1000):
+
+def iso_time(timestamp: float) -> str:
+    """``timestamp`` as local ISO 8601 time with its UTC offset.
+
+    The offset is the point: the log and the image files record naive local
+    time, which a reader on another machine has to guess the zone of.
+    """
+    return (
+        datetime.fromtimestamp(timestamp)
+        .astimezone()
+        .isoformat(timespec="milliseconds")
+    )
+
+
+class EventBuffer:
+    """Bounded, sequence-numbered, thread-safe event log with long-poll wait.
+
+    Every record has ``seq``, ``timestamp`` (epoch seconds), ``t`` (the same
+    moment as :func:`iso_time`), ``kind`` and ``payload``. A ``stamp`` adds
+    fields of its own -- where in the run the event happened -- and must not
+    use those five names.
+    """
+
+    def __init__(self, maxlen: int = 1000, stamp: Optional[Stamp] = None):
         self._events: "deque[Dict[str, Any]]" = deque(maxlen=maxlen)
         self._seq = 0
         self._cond = threading.Condition()
+        self._stamp = stamp
+        self._subscribers: List[Callable[[Dict[str, Any]], None]] = []
 
     def append(self, kind: str, payload: Dict[str, Any]) -> int:
         """Record one event. Cheap and non-blocking; safe from any thread."""
+        now = time.time()
+        extra: Dict[str, Any] = {}
+        if self._stamp is not None:
+            try:
+                extra = self._stamp(kind, payload) or {}
+            except Exception:  # noqa: BLE001 - a stamp must never cost the event
+                logging.debug("event stamp failed", exc_info=True)
         with self._cond:
             self._seq += 1
-            self._events.append(
-                {
-                    "seq": self._seq,
-                    "timestamp": time.time(),
-                    "kind": kind,
-                    "payload": payload,
-                }
-            )
+            record = {
+                **extra,
+                "seq": self._seq,
+                "timestamp": now,
+                "t": iso_time(now),
+                "kind": kind,
+                "payload": payload,
+            }
+            self._events.append(record)
+            # Under the lock, so every subscriber sees records in seq order.
+            # Which is why a subscriber must only hand the record off.
+            for subscriber in self._subscribers:
+                try:
+                    subscriber(record)
+                except Exception:  # noqa: BLE001 - subscribers are not allowed to matter
+                    logging.debug("event subscriber failed", exc_info=True)
             self._cond.notify_all()
             return self._seq
+
+    def subscribe(
+        self, callback: Callable[[Dict[str, Any]], None]
+    ) -> Callable[[], None]:
+        """Call ``callback(record)`` for every event from now on; returns a disposer.
+
+        It runs on the emitting thread, inside the buffer's lock -- often mid-mill
+        -- so it must hand the record off and return, never do I/O itself.
+        """
+        with self._cond:
+            self._subscribers.append(callback)
+
+        def dispose() -> None:
+            with self._cond:
+                if callback in self._subscribers:
+                    self._subscribers.remove(callback)
+
+        return dispose
 
     def events_since(self, since: int = 0) -> Dict[str, Any]:
         with self._cond:
@@ -153,12 +214,29 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     """
     disposers: List[Callable[[], None]] = []
 
+    def append(kind: str, serialize: Callable[[Any], Dict[str, Any]], value) -> None:
+        # psygnal hands a subscriber's exception back to whoever emitted -- often
+        # the milling thread. An event that cannot be recorded is lost; the
+        # emitter never hears about it.
+        try:
+            buffer.append(kind, serialize(value))
+        except Exception:  # noqa: BLE001
+            logging.debug(f"could not record a {kind} event", exc_info=True)
+
     def tap(signal, kind: str, serialize: Callable[[Any], Dict[str, Any]]):
         def callback(value):
-            buffer.append(kind, serialize(value))
+            append(kind, serialize, value)
 
         signal.connect(callback)
         disposers.append(lambda: signal.disconnect(callback))
+
+    # Facts for the record (FibsemMicroscope.record_event): the producer names
+    # the kind.
+    def on_record(kind: str, payload: Any) -> None:
+        append(kind, to_plain, payload)
+
+    microscope.record_signal.connect(on_record)
+    disposers.append(lambda: microscope.record_signal.disconnect(on_record))
 
     tap(microscope.milling_progress_signal, "milling_progress", to_plain)
     tap(microscope.spot_burn_progress_signal, "spot_burn_progress", to_plain)
@@ -174,6 +252,28 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     fm = getattr(microscope, "fm", None)
     if fm is not None:
         tap(fm.acquisition_progress_signal, "fm_acquisition_progress", to_plain)
+        objective = getattr(fm, "objective", None)
+        if objective is not None:
+            # Every move announces itself, each z-stack plane included; the record
+            # wants the insert and the retract, so only a change of state. The
+            # state is not read on attach -- that would be a hardware read -- so
+            # the first move records the state it found.
+            last_state: List[Optional[str]] = [None]
+
+            def on_objective(position: float, state: str) -> None:
+                if state == last_state[0]:
+                    return
+                last_state[0] = state
+                append(
+                    "objective_state_changed",
+                    to_plain,
+                    {"state": state, "position": position},
+                )
+
+            objective.position_changed.connect(on_objective)
+            disposers.append(
+                lambda: objective.position_changed.disconnect(on_objective)
+            )
 
     return disposers
 

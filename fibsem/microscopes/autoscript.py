@@ -23,7 +23,11 @@ from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 from skimage import transform
 
-from fibsem.microscope import FibsemMicroscope
+from fibsem.microscope import (
+    FibsemMicroscope,
+    _records_beam_shift,
+    _records_stage_move,
+)
 from fibsem.microscopes._stage import (
     GridExchangeError,
     GridSlot,
@@ -62,6 +66,10 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from autoscript_sdb_microscope_client._dynamic_object_proxies import (
+        ElectronBeam,
+        IonBeam,
+    )
     from numpy.typing import NDArray
 
     from fibsem.structures import TFibsemPatternSettings
@@ -617,6 +625,15 @@ class AutoscriptSampleLoader(SampleGridLoader):
         self._apply_hardware_slots(list(self._autoloader.get_slots(True)))
 
     def _apply_hardware_slots(self, hw_slots: list) -> None:
+        # The rows as the hardware gave them, before any reading of ours: what a
+        # bench session needs from the log when the Sample view shows every slot
+        # as unknown or empty and the question is what AutoScript actually said.
+        logging.info(
+            "Autoloader slots: " + ", ".join(_describe_hw(hw, hw.id) for hw in hw_slots)
+        )
+        stage = getattr(self._autoloader, "stage", None)
+        if stage is not None:
+            logging.info(f"Autoloader stage: {_describe_hw(stage)}")
         if hw_slots:
             self.capacity = len(hw_slots)
 
@@ -694,6 +711,13 @@ class AutoscriptSampleLoader(SampleGridLoader):
             self._autoloader.unload()
         except Exception as e:
             raise GridExchangeError(f"Autoloader could not unload: {e}") from e
+
+
+def _describe_hw(hw, label=None) -> str:
+    """``id=State 'description'`` for a slot, ``State 'description'`` for the stage."""
+    described = (getattr(hw, "sample_description", "") or "").strip()
+    text = _slot_state(hw) + (f" '{described}'" if described else "")
+    return f"{label}={text}" if label is not None else text
 
 
 def _slot_state(hw_slot) -> str:
@@ -1497,6 +1521,7 @@ class ThermoMicroscope(FibsemMicroscope):
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
 
+    @_records_beam_shift
     def beam_shift(
         self, dx: float, dy: float, beam_type: BeamType = BeamType.ION
     ) -> Point:
@@ -1537,6 +1562,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return self.get_beam_shift(beam_type=beam_type)
 
+    @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """
         Move the stage to the specified coordinates.
@@ -1573,6 +1599,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return self.get_stage_position()
 
+    @_records_stage_move
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """
         Move the stage by the specified relative move.
@@ -1596,6 +1623,7 @@ class ThermoMicroscope(FibsemMicroscope):
         return self.get_stage_position()
 
     # TODO: migrate from stable_move vocab to sample_stage
+    @_records_stage_move
     def stable_move(
         self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
     ) -> FibsemStagePosition:
@@ -1652,6 +1680,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return self.get_stage_position()
 
+    @_records_stage_move
     def vertical_move(
         self,
         dy: float,
@@ -1943,6 +1972,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return
 
+    @_records_stage_move
     def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
         """Move the stage to the desired position in a safe manner, using compucentric rotation.
         Supports movements in the stage_position coordinate system

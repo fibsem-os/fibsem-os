@@ -11,7 +11,9 @@ The anchor is the last *real* window of ours to hold focus, deliberately not
 ``QApplication.activeWindow()``: that is None whenever the app is unfocused, which is
 the normal state while a run finishes and the operator watches the microscope software.
 """
+
 import os
+import weakref
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -157,3 +159,23 @@ def test_each_window_stacks_its_own_toasts(host, viewer):
     only_host = ToastManager(host)
     only_host.show_toast("first, on the host")
     assert host_toasts[0].y() == only_host.toasts[-1].y()
+
+
+def test_the_anchor_is_remembered_without_keeping_the_window_alive(host):
+    """FIB-992. The manager hears every focus change in the app and outlives most
+    windows, so a strong reference made it the owner of whichever window was focused
+    last. Replacing that reference dropped the window's last one in the middle of Qt's
+    focus change, and Qt went on to emit activeChanged() on the window it had just
+    destroyed -- a segfault in processActivatedEvent, which took the whole test run
+    down whenever cards were shown after a main-window test had left a manager behind.
+    """
+    manager = ToastManager(host)
+    window = QWidget()
+    manager._on_focus_changed(None, window)
+    gone = weakref.ref(window)
+
+    del window
+
+    assert gone() is None, "the manager kept the last focused window alive"
+    manager.show_toast("after that window went")
+    assert manager.toasts[-1].parent() is host

@@ -1,12 +1,13 @@
-"""CoordinateListWidget — reorderable list of Coordinate objects.
+"""CoordinateListWidget -- reorderable list of Coordinate objects.
 
-Each row shows an auto-generated read-only name, x/y/z spinboxes, and a trash
-button. The header row holds a shared color indicator and refit button that
-operate on the currently selected coordinate.
+Each row is a colour dot, the auto-generated name, x/y/z fields and a state
+word when the point is not simply placed. Fit and remove appear on the
+selected row; the full set of actions is on the row's context menu.
 
 Operates on a flat List[Coordinate]. Callers are responsible for
 flattening/reconstructing CorrelationInputData.
 """
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional
@@ -21,12 +22,19 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QVBoxLayout,
     QWidget,
 )
 
-from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.correlation.structures import (
+    Coordinate,
+    PointProvenance,
+    PointStatus,
+    PointType,
+)
 from fibsem.ui import stylesheets
+from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
     DRAG_HANDLE_WIDTH,
@@ -34,29 +42,31 @@ from fibsem.ui.icon import (
     fibsem_icon,
 )
 from fibsem.ui.tokens import (
-    CANVAS_BG,
-    GRAY_TEXT_COLOR,
+    CAPTION_STYLE,
+    CAPTION_VALUE_STYLE,
+    NUMBER_STYLE,
+    ROW_ALT_COLOR,
+    WARN_COLOR,
+    state_style,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
 
 _NAME_FIXED_WIDTH = 100
-_SPIN_FIXED_WIDTH = 75
+_SPIN_FIXED_WIDTH = 62
 _BTN_SIZE = QSize(24, 24)
 _ROW_HEIGHT = 28
-# Spacer in header aligning with drag handle in rows (layout spacing handles the 4px gap)
-_ROW_RIGHT_WIDTH = DRAG_HANDLE_WIDTH
+# A list shows every row up to this many, then scrolls. Sized to content rather
+# than left at Qt's default height, which showed seven rows and hid the eighth
+# fiducial under the next panel's header with only the count to say so
+# (FIB-978).
+_MAX_VISIBLE_ROWS = 12
 
-# Fit-state indicator colours. A fitted point (unmodified auto-fit result) is
-# white so it reads as "lit up"; otherwise a muted grey — dimmer than the light
-# trash/edit icons — so it recedes to a placeholder.
-_FITTED_ICON_COLOR = stylesheets.WHITE_ICON_COLOR
-_UNFITTED_ICON_COLOR = "#6b6f76"
 
 _POINT_TYPE_COLORS: Dict[PointType, str] = {
-    PointType.FIB:        "lime",
-    PointType.FM:         "cyan",
-    PointType.POI:        "magenta",
-    PointType.SURFACE:    "red",
+    PointType.FIB: "lime",
+    PointType.FM: "cyan",
+    PointType.POI: "magenta",
+    PointType.SURFACE: "red",
     PointType.SURFACE_FM: "yellow",
 }
 
@@ -88,7 +98,7 @@ def _name_col_width(point_type: Optional[PointType]) -> int:
     """
     label = f"{point_type.value if point_type else 'POINT'} 99"
     font = QApplication.font()  # the app-default family the label inherits...
-    font.setPixelSize(11)       # ...at the row/name label font-size
+    font.setPixelSize(11)  # ...at the row/name label font-size
     text_w = QFontMetrics(font).horizontalAdvance(label)
     return max(48, min(text_w + 14, _NAME_FIXED_WIDTH))  # +padding, clamped
 
@@ -96,6 +106,7 @@ def _name_col_width(point_type: Optional[PointType]) -> int:
 # ---------------------------------------------------------------------------
 # Draggable list
 # ---------------------------------------------------------------------------
+
 
 class _DraggableCoordinateList(QListWidget):
     """QListWidget with InternalMove drag-and-drop.
@@ -123,95 +134,61 @@ class _DraggableCoordinateList(QListWidget):
 
 
 # ---------------------------------------------------------------------------
-# Header
-# ---------------------------------------------------------------------------
-
-class _CoordinateListHeader(QWidget):
-    """Sticky dark header with column labels, a color indicator for the
-    selected coordinate's point type, and a shared refit button."""
-
-    def __init__(
-        self,
-        parent=None,
-        default_color: Optional[str] = None,
-        name_width: int = _NAME_FIXED_WIDTH,
-    ) -> None:
-        self._default_color = default_color
-        super().__init__(parent)
-        self.setStyleSheet(f"background: {CANVAS_BG};")
-        self.setFixedHeight(_ROW_HEIGHT)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 0, 6, 0)
-        layout.setSpacing(4)
-
-        def _lbl(text: str, width: Optional[int] = None) -> QLabel:
-            lbl = QLabel(text)
-            lbl.setStyleSheet("color: #aaa; font-size: 10px; background: transparent;")
-            if width is not None:
-                lbl.setFixedWidth(width)
-            return lbl
-
-        layout.addWidget(_lbl("Name", name_width))
-        layout.addWidget(_lbl("X", _SPIN_FIXED_WIDTH))
-        layout.addWidget(_lbl("Y", _SPIN_FIXED_WIDTH))
-        layout.addWidget(_lbl("Z", _SPIN_FIXED_WIDTH))
-        layout.addStretch(1)
-
-        # Color indicator — shows selected row's point type color
-        self.color_label = QLabel()
-        self.color_label.setFixedSize(_BTN_SIZE)
-        self.color_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.color_label.setStyleSheet("background: transparent;")
-        layout.addWidget(self.color_label)
-
-        # Refit button — acts on selected coordinate; disabled when nothing selected
-        self.btn_refit = IconToolButton(
-            icon="mdi:refresh",
-            tooltip="Refit selected coordinate (F)",
-            size=_BTN_SIZE.width(),
-        )
-        self.btn_refit.setEnabled(False)
-        layout.addWidget(self.btn_refit)
-
-        # Spacer aligning with rows' remove button + drag handle
-        layout.addWidget(_lbl("", _ROW_RIGHT_WIDTH))
-
-        self._clear_color()
-
-    def update_selection(self, coord: Optional[Coordinate]) -> None:
-        """Update color indicator and refit enable state for the selected coord."""
-        if coord is None:
-            self._clear_color()
-            self.btn_refit.setEnabled(False)
-        else:
-            color = _POINT_TYPE_COLORS.get(coord.point_type, "gray")
-            px = QPixmap(_BTN_SIZE.width() - 8, _BTN_SIZE.height() - 8)
-            px.fill(QColor(color))
-            self.color_label.setPixmap(px)
-            self.color_label.setToolTip(f"Point type: {coord.point_type.value}")
-            self.btn_refit.setEnabled(True)
-
-    def _clear_color(self) -> None:
-        if self._default_color:
-            px = QPixmap(_BTN_SIZE.width() - 8, _BTN_SIZE.height() - 8)
-            px.fill(QColor(self._default_color))
-            self.color_label.setPixmap(px)
-        else:
-            self.color_label.setPixmap(QPixmap())
-            self.color_label.setToolTip("")
-
-
-# ---------------------------------------------------------------------------
 # Row widget
 # ---------------------------------------------------------------------------
 
-class CoordinateRowWidget(QWidget):
-    """Single row: read-only name, xyz spinboxes, trash button."""
 
-    row_clicked        = pyqtSignal(object)              # Coordinate
+def state_text(coord: Coordinate) -> str:
+    """The one word a row shows for a point that is not simply placed (FIB-978).
+
+    Empty for a placed point: the default state carries no chrome. The
+    vocabulary is :class:`PointStatus`; ``suggested`` is the highlight on the
+    predictions worth dragging first.
+    """
+    status = getattr(coord, "status", "")
+    if status == PointStatus.PREDICTED:
+        return (
+            "predicted \u00b7 start here"
+            if getattr(coord, "suggested", False)
+            else "predicted"
+        )
+    if status == PointStatus.FITTED or (
+        status == "" and getattr(coord, "fitted", False)
+    ):
+        return "fitted"
+    if status == PointStatus.ACCEPTED:
+        return "accepted"
+    if status == PointStatus.REJECTED:
+        return "removed from fit"
+    return ""
+
+
+def _state_tone(coord: Coordinate) -> str:
+    status = getattr(coord, "status", "")
+    if status == PointStatus.PREDICTED:
+        return "warn" if getattr(coord, "suggested", False) else "muted"
+    if status == PointStatus.FITTED or (
+        status == "" and getattr(coord, "fitted", False)
+    ):
+        return "ok"
+    return "muted"
+
+
+class CoordinateRowWidget(QWidget):
+    """One point: colour dot, name, x y z, and a state word when there is one.
+
+    Nothing else at rest. The actions (fit, remove) appear only while the row
+    is selected; the drag handle only under the pointer; the full set (fit,
+    reset to prediction, reject from fit, remove) is on the right-click menu
+    (FIB-978 \u00a77).
+    """
+
+    row_clicked = pyqtSignal(object)  # Coordinate
     coordinate_changed = pyqtSignal(object, str, float)  # Coordinate, field, value
-    remove_clicked     = pyqtSignal(object)              # Coordinate
+    remove_clicked = pyqtSignal(object)  # Coordinate
+    fit_clicked = pyqtSignal(object)  # Coordinate
+    reset_clicked = pyqtSignal(object)  # Coordinate: back to its prediction
+    reject_toggled = pyqtSignal(object)  # Coordinate: in / out of the fit
 
     def __init__(
         self,
@@ -222,85 +199,92 @@ class CoordinateRowWidget(QWidget):
     ) -> None:
         super().__init__(parent)
         self.coord = coord
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 1, 6, 1)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 1, 4, 1)
+        layout.setSpacing(6)
 
-        # Name label (read-only)
+        self.dot = QLabel()
+        self.dot.setFixedSize(10, 10)
+        layout.addWidget(self.dot)
+
         self.name_label = QLabel(name)
         self.name_label.setFixedWidth(name_width)
-        # Omit `background: transparent` — it's the QLabel default, and an
+        # Omit `background: transparent` -- it is the QLabel default, and an
         # unscoped rule bleeds into this label's QToolTip background.
-        self.name_label.setStyleSheet(f"color: {GRAY_TEXT_COLOR}; font-size: 11px;")
+        self.name_label.setStyleSheet(CAPTION_VALUE_STYLE)
         self.name_label.setToolTip("Auto-generated coordinate name")
         layout.addWidget(self.name_label)
 
-        # XYZ spinboxes
-        self.x_spin = ValueSpinBox(decimals=3, minimum=-1e6, maximum=1e6, step=0.001, no_buttons=True)
-        self.x_spin.setFixedWidth(_SPIN_FIXED_WIDTH)
-        self.x_spin.setToolTip("X coordinate")
-        layout.addWidget(self.x_spin)
+        # One decimal: a pixel to a thousandth is noise and widens every field.
+        self.x_spin = ValueSpinBox(
+            decimals=1, minimum=-1e6, maximum=1e6, step=0.1, no_buttons=True
+        )
+        self.y_spin = ValueSpinBox(
+            decimals=1, minimum=-1e6, maximum=1e6, step=0.1, no_buttons=True
+        )
+        self.z_spin = ValueSpinBox(
+            decimals=1, minimum=-1e6, maximum=1e6, step=0.1, no_buttons=True
+        )
+        for spin, tip in (
+            (self.x_spin, "X (px)"),
+            (self.y_spin, "Y (px)"),
+            (self.z_spin, "Z (slice)"),
+        ):
+            spin.setFixedWidth(_SPIN_FIXED_WIDTH)
+            spin.setToolTip(tip)
+            spin.setStyleSheet(f"{NUMBER_STYLE} padding: 1px 4px;")
+            layout.addWidget(spin)
 
-        self.y_spin = ValueSpinBox(decimals=3, minimum=-1e6, maximum=1e6, step=0.001, no_buttons=True)
-        self.y_spin.setFixedWidth(_SPIN_FIXED_WIDTH)
-        self.y_spin.setToolTip("Y coordinate")
-        layout.addWidget(self.y_spin)
+        self.state_label = QLabel("")
+        layout.addWidget(self.state_label, stretch=1)
 
-        self.z_spin = ValueSpinBox(decimals=3, minimum=-1e6, maximum=1e6, step=0.001, no_buttons=True)
-        self.z_spin.setFixedWidth(_SPIN_FIXED_WIDTH)
-        self.z_spin.setToolTip("Z coordinate")
-        layout.addWidget(self.z_spin)
-
-        # Compact number font + padding so the rows stay short
-        for _spin in (self.x_spin, self.y_spin, self.z_spin):
-            _spin.setStyleSheet("font-size: 11px; padding: 1px 6px;")
-
-        layout.addStretch(1)
-
-        # Fit-state indicator — always visible so every row keeps an aligned
-        # status column; the colour encodes the state (white = auto-fit and
-        # confirmed, grey = manually placed). coord.fitted clears on a manual
-        # edit. Pixmaps are pre-rendered once and swapped on refresh.
-        self._icon_fitted = fibsem_icon(
-            "mdi:target", color=_FITTED_ICON_COLOR
-        ).pixmap(QSize(14, 14))
-        self._icon_unfitted = fibsem_icon(
-            "mdi:target", color=_UNFITTED_ICON_COLOR
-        ).pixmap(QSize(14, 14))
-        self.fitted_icon = QLabel()
-        self.fitted_icon.setFixedSize(16, 16)
-        # No `background: transparent` stylesheet: a QLabel is already
-        # background-less, and an unscoped rule here would bleed into this
-        # widget's QToolTip (making the tooltip background transparent too).
-        layout.addWidget(self.fitted_icon)
-
-        # Remove button
-        self.btn_remove = IconToolButton(
-            icon="mdi:trash-can-outline",
-            tooltip="Remove coordinate",
+        # Actions: shown only while selected
+        self.actions = QWidget()
+        actions_layout = QHBoxLayout(self.actions)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(2)
+        self.btn_fit = IconToolButton(
+            icon="mdi:target",
+            tooltip="Fit this point to the image (F)",
             size=_BTN_SIZE.width(),
         )
-        layout.addWidget(self.btn_remove)
+        self.btn_remove = IconToolButton(
+            icon="mdi:close",
+            tooltip="Remove this point (Delete)",
+            size=_BTN_SIZE.width(),
+        )
+        actions_layout.addWidget(self.btn_fit)
+        actions_layout.addWidget(self.btn_remove)
+        self.actions.setVisible(False)
+        layout.addWidget(self.actions)
 
-        # Drag handle
-        drag_icon = QLabel()
-        drag_icon.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
-        drag_icon.setPixmap(drag_handle_pixmap())
-        drag_icon.setStyleSheet("background: transparent;")
-        drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
-        layout.addWidget(drag_icon)
+        # Drag handle: shown only under the pointer
+        self.drag_icon = QLabel()
+        self.drag_icon.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
+        self.drag_icon.setPixmap(drag_handle_pixmap())
+        self.drag_icon.setStyleSheet("background: transparent;")
+        self.drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.drag_icon.setVisible(False)
+        layout.addWidget(self.drag_icon)
 
-        # Install eventFilter on spinboxes for row-selection on focus
         for w in (self.x_spin, self.y_spin, self.z_spin):
             w.installEventFilter(self)
 
+        self._selected = False
+        self._note: Optional[tuple] = None  # (text, tone) from the last run
         self._connect_signals()
         self.refresh()
 
+    def set_note(self, note: Optional[tuple]) -> None:
+        """A per-run remark for the state column -- the point's leave-one-out
+        error after a run -- shown when the state word is empty. ``(text,
+        tone)`` or None."""
+        self._note = note
+        self._update_state()
+
     def _connect_signals(self) -> None:
         self.btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.coord))
+        self.btn_fit.clicked.connect(lambda: self.fit_clicked.emit(self.coord))
         self.x_spin.editingFinished.connect(self._on_x_changed)
         self.y_spin.editingFinished.connect(self._on_y_changed)
         self.z_spin.editingFinished.connect(self._on_z_changed)
@@ -314,12 +298,51 @@ class CoordinateRowWidget(QWidget):
             self.row_clicked.emit(self.coord)
         return super().eventFilter(obj, event)
 
+    def enterEvent(self, event) -> None:
+        self.drag_icon.setVisible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self.drag_icon.setVisible(False)
+        super().leaveEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        self.row_clicked.emit(self.coord)
+        menu = QMenu(self)
+        menu.addAction("Fit to image\tF", lambda: self.fit_clicked.emit(self.coord))
+        reset = menu.addAction(
+            "Reset to prediction", lambda: self.reset_clicked.emit(self.coord)
+        )
+        reset.setEnabled(
+            getattr(self.coord, "provenance", "") == PointProvenance.PROJECTED
+            and getattr(self.coord, "status", "") != PointStatus.PREDICTED
+        )
+        rejected = getattr(self.coord, "status", "") == PointStatus.REJECTED
+        menu.addAction(
+            "Restore to fit" if rejected else "Reject from fit",
+            lambda: self.reject_toggled.emit(self.coord),
+        )
+        menu.addSeparator()
+        menu.addAction("Remove\tDel", lambda: self.remove_clicked.emit(self.coord))
+        menu.exec_(event.globalPos())
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def set_name(self, name: str) -> None:
         self.name_label.setText(name)
+
+    def set_selected(self, selected: bool) -> None:
+        """Show the row's actions only while it is the selected row, and paint
+        the row's own selected background (the list's item highlight is off)."""
+        self._selected = selected
+        self.actions.setVisible(selected)
+        self.setAutoFillBackground(selected)
+        if selected:
+            palette = self.palette()
+            palette.setColor(self.backgroundRole(), QColor(ROW_ALT_COLOR))
+            self.setPalette(palette)
 
     def set_axis_maxima(
         self,
@@ -328,6 +351,7 @@ class CoordinateRowWidget(QWidget):
         z_max: Optional[float] = None,
     ) -> None:
         """Constrain spinbox ranges to image shape. Pass None to leave unconstrained."""
+        self._axis_max = (x_max, y_max)
         if x_max is not None:
             self.x_spin.setMinimum(0.0)
             self.x_spin.setMaximum(float(x_max))
@@ -337,26 +361,86 @@ class CoordinateRowWidget(QWidget):
         if z_max is not None:
             self.z_spin.setMinimum(0.0)
             self.z_spin.setMaximum(float(z_max))
+        self.refresh()
+
+    def _off_image(self) -> bool:
+        """Outside the image's axes: only a projection can put a point there."""
+        x_max, y_max = getattr(self, "_axis_max", (None, None))
+        p = self.coord.point
+        return (x_max is not None and not 0.0 <= p.x <= x_max) or (
+            y_max is not None and not 0.0 <= p.y <= y_max
+        )
 
     def refresh(self) -> None:
-        """Re-sync spinboxes from coord.point without emitting signals."""
+        """Re-sync the fields and the state word from the coordinate, silently."""
         for w in (self.x_spin, self.y_spin, self.z_spin):
             w.blockSignals(True)
-        self.x_spin.setValue(self.coord.point.x)
-        self.y_spin.setValue(self.coord.point.y)
-        self.z_spin.setValue(self.coord.point.z)
+        # A typed value is held to the image. A projection can land outside
+        # it; the row then shows the true number, read-only, rather than the
+        # clamped 0.0 it used to show. The user drags the ring in from the
+        # canvas or projects again after a drop.
+        off = self._off_image()
+        x_max, y_max = getattr(self, "_axis_max", (None, None))
+        for spin, value, top in (
+            (self.x_spin, self.coord.point.x, x_max),
+            (self.y_spin, self.coord.point.y, y_max),
+        ):
+            if off:
+                spin.setRange(-1e6, 1e6)
+            elif top is not None:
+                spin.setRange(0.0, float(top))
+            spin.setValue(value)
+            spin.setEnabled(not off)
+            spin.setToolTip(
+                "Outside the image. Drag its ring in from the canvas, or "
+                "project again after placing a pair."
+                if off
+                else ""
+            )
+        # z is a slice: an integer unless the fitter found a sub-slice depth
+        # (or the value is fractional anyway, as an older file's may be)
+        z = self.coord.point.z
+        self.z_spin.setDecimals(
+            0 if float(z).is_integer() and state_text(self.coord) != "fitted" else 1
+        )
+        self.z_spin.setValue(z)
         for w in (self.x_spin, self.y_spin, self.z_spin):
             w.blockSignals(False)
-        self._update_fitted_icon()
+        self._update_state()
 
-    def _update_fitted_icon(self) -> None:
-        """Colour the always-visible indicator by fit state (green vs grey)."""
-        fitted = bool(getattr(self.coord, "fitted", False))
-        self.fitted_icon.setPixmap(
-            self._icon_fitted if fitted else self._icon_unfitted
-        )
-        self.fitted_icon.setToolTip(
-            "Auto-fit and confirmed" if fitted else "Manually placed (not auto-fit)"
+    def _update_state(self) -> None:
+        colour = _POINT_TYPE_COLORS.get(self.coord.point_type, "gray")
+        status = getattr(self.coord, "status", "")
+        if status in PointStatus.TENTATIVE:
+            edge = WARN_COLOR if getattr(self.coord, "suggested", False) else colour
+            self.dot.setStyleSheet(
+                f"border: 1.5px solid {edge}; border-radius: 5px; background: transparent;"
+            )
+        else:
+            self.dot.setStyleSheet(f"background: {colour}; border-radius: 5px;")
+        text = state_text(self.coord)
+        tone = _state_tone(self.coord)
+        if text.startswith("predicted") and self._off_image():
+            text, tone = "predicted \u00b7 off image", "warn"
+        if not text and self._note:
+            text, tone = self._note
+        self.state_label.setText(text)
+        self.state_label.setStyleSheet(state_style(tone, 11))
+        muted = status == PointStatus.REJECTED
+        for w in (self.name_label, self.x_spin, self.y_spin, self.z_spin):
+            font = w.font()
+            font.setStrikeOut(muted)
+            w.setFont(font)
+        self.setToolTip(
+            {
+                "predicted": "Predicted from the FIB fiducial; drag it onto the burn.",
+                "predicted \u00b7 start here": "Predicted from the FIB fiducial; one of the "
+                "three best-spread points, so drag this one first.",
+                "fitted": "Position from the image fitter.",
+                "accepted": "A prediction you accepted without moving it; it counts in "
+                "the fit but is no evidence for the transform.",
+                "removed from fit": "Left out of the fit; still on screen and in the file.",
+            }.get(text, "")
         )
 
     # ------------------------------------------------------------------
@@ -389,44 +473,56 @@ class CoordinateRowWidget(QWidget):
 # Main list widget
 # ---------------------------------------------------------------------------
 
+
 class CoordinateListWidget(QWidget):
     """Reorderable list of Coordinate objects.
 
-    The header holds a shared color indicator and refit button for the
-    currently selected row.
+    No header row: the rows read without column labels, and the actions live
+    on the selected row and its context menu (FIB-978 \u00a77).
 
     Signals
     -------
-    coordinate_selected  : Coordinate — a row was selected
-    coordinate_changed   : Coordinate, field, value — xyz edited
-    coordinate_removed   : Coordinate — a row was removed
-    order_changed        : List[Coordinate] — order after drag-drop
-    refit_requested      : Coordinate — header refit button clicked
+    coordinate_selected  : Coordinate -- a row was selected
+    coordinate_changed   : Coordinate, field, value -- xyz edited
+    coordinate_removed   : Coordinate -- a row was removed
+    order_changed        : List[Coordinate] -- order after drag-drop
+    refit_requested      : Coordinate -- fit asked for on a row
+    reset_requested      : Coordinate -- back to its prediction
+    reject_toggled       : Coordinate -- in / out of the fit
     """
 
-    coordinate_selected  = pyqtSignal(object)              # Coordinate
-    coordinate_changed   = pyqtSignal(object, str, float)  # Coordinate, field, value
-    coordinate_removed   = pyqtSignal(object)              # Coordinate
-    order_changed        = pyqtSignal(list)                # List[Coordinate]
-    refit_requested      = pyqtSignal(object)              # Coordinate
+    coordinate_selected = pyqtSignal(object)  # Coordinate
+    coordinate_changed = pyqtSignal(object, str, float)  # Coordinate, field, value
+    coordinate_removed = pyqtSignal(object)  # Coordinate
+    order_changed = pyqtSignal(list)  # List[Coordinate]
+    refit_requested = pyqtSignal(object)  # Coordinate
+    reset_requested = pyqtSignal(object)  # Coordinate
+    reject_toggled = pyqtSignal(object)  # Coordinate
 
     def __init__(
         self,
         coordinates: Optional[List[Coordinate]] = None,
         point_type: Optional[PointType] = None,
         parent: Optional[QWidget] = None,
+        store: Optional[CorrelationPointStore] = None,
     ) -> None:
         super().__init__(parent)
-        self._coordinates: List[Coordinate] = []
-        self._selected_coordinate: Optional[Coordinate] = None
+        if point_type is None:
+            raise ValueError("a coordinate list shows one point type")
+        self._point_type = point_type
+        # The points and the selection live in the store (FIB-973); this widget
+        # renders them. Until the tab widget shares one store between the lists
+        # and the canvases, each list has its own.
+        self._store = store if store is not None else CorrelationPointStore(self)
+        self._assigning = False
         self._x_max: Optional[float] = None
         self._y_max: Optional[float] = None
         self._z_max: Optional[float] = None
-        self._default_header_color = _POINT_TYPE_COLORS.get(point_type) if point_type else None
         self._name_width = _name_col_width(point_type)
 
         self._setup_ui()
         self._connect_signals()
+        self._rebuild_rows()
 
         if coordinates:
             self.coordinates = coordinates
@@ -436,31 +532,33 @@ class CoordinateListWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._header = _CoordinateListHeader(
-            default_color=self._default_header_color, name_width=self._name_width
-        )
-        layout.addWidget(self._header)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #3a3d42;")
-        layout.addWidget(sep)
-
         self._list = _DraggableCoordinateList()
-        self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
+        # The item highlight would show through the row's translucent widget
+        # only where no child covers it, reading as a stray box beside the
+        # numbers; the row paints its own selected background instead.
+        self._list.setStyleSheet(
+            stylesheets.LIST_WIDGET_STYLESHEET
+            + "QListWidget::item:selected { background: transparent; }"
+        )
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setFrameShape(QFrame.Shape.NoFrame)
         layout.addWidget(self._list)
+        self._fit_height_to_rows()
 
         self._empty_label = QLabel("No coordinates")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("color: #666; font-style: italic; padding: 8px;")
+        self._empty_label.setStyleSheet(
+            f"{CAPTION_STYLE} font-style: italic; padding: 8px;"
+        )
         self._empty_label.setVisible(True)
         layout.addWidget(self._empty_label)
 
     def _connect_signals(self) -> None:
         self._list.reordered.connect(self._on_reordered)
-        self._header.btn_refit.clicked.connect(self._on_header_refit)
+        self._store.structure_changed.connect(self._on_structure_changed)
+        self._store.points_changed.connect(self._on_points_changed)
+        self._store.selection_changed.connect(self._show_selection)
 
     # ------------------------------------------------------------------
     # Public API
@@ -484,32 +582,91 @@ class CoordinateListWidget(QWidget):
                     w.set_axis_maxima(x_max, y_max, z_max)
 
     @property
+    def store(self) -> CorrelationPointStore:
+        return self._store
+
+    @property
     def selected_coordinate(self) -> Optional[Coordinate]:
-        return self._selected_coordinate
+        """The selected point, when it is one of this list's."""
+        return self._store.selected_of_type(self._point_type)
 
     @property
     def coordinates(self) -> List[Coordinate]:
-        return list(self._coordinates)
+        return self._store.of_type(self._point_type)
 
     @coordinates.setter
     def coordinates(self, value: List[Coordinate]) -> None:
-        self._coordinates = list(value)
-        self._selected_coordinate = None
-        self._header.update_selection(None)
+        # Always redrawn, even for the same points: `set_data(self.data)` hands
+        # the same objects back with new values to have them shown.
+        self._assigning = True
+        try:
+            self._store.replace_type(self._point_type, value)
+        finally:
+            self._assigning = False
         self._rebuild_rows()
-        if self._coordinates:
-            self._set_selected(self._coordinates[0])
+        # Selecting row 1 is this setter's, not the store's: it is what made a
+        # canvas delete jump the selection (FIB-965), and it goes with the last
+        # caller that assigns a whole list.
+        coords = self.coordinates
+        if coords:
+            self._set_selected(coords[0])
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
     def _rebuild_rows(self) -> None:
+        coords = self.coordinates
         self._list.clear()
-        names = _generate_names(self._coordinates)
-        for coord, name in zip(self._coordinates, names):
+        for coord, name in zip(coords, _generate_names(coords)):
             self._add_row(coord, name)
-        self._empty_label.setVisible(len(self._coordinates) == 0)
+        self._empty_label.setVisible(len(coords) == 0)
+        self._fit_height_to_rows()
+        self._show_selection()
+
+    def _row_coordinates(self) -> List[Coordinate]:
+        return [
+            self._list.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(self._list.count())
+        ]
+
+    def _on_structure_changed(self) -> None:
+        # A shared store announces every type's changes. Rebuilding for another
+        # list's change would destroy a spinbox being typed in here.
+        if self._assigning:
+            return  # the setter redraws once, itself
+        rows, coords = self._row_coordinates(), self.coordinates
+        if len(rows) == len(coords) and all(a is b for a, b in zip(rows, coords)):
+            return
+        self._rebuild_rows()
+
+    def _on_points_changed(self, coords: tuple) -> None:
+        for coord in coords:
+            if coord.point_type is self._point_type:
+                self.refresh_coordinate(coord)
+
+    def set_notes(self, notes: dict) -> None:
+        """Per-point remarks from the last run, keyed by coordinate identity:
+        ``{id(coord): (text, tone)}``. An empty dict clears them."""
+        self._notes = dict(notes)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            w = self._list.itemWidget(item) if item is not None else None
+            if isinstance(w, CoordinateRowWidget):
+                w.set_note(self._notes.get(id(w.coord)))
+
+    def _fit_height_to_rows(self) -> None:
+        """Size the list to its rows, up to ``_MAX_VISIBLE_ROWS``, then scroll.
+
+        The tab around these lists scrolls as a whole; a list that scrolls
+        inside it at a fixed default height hides rows, and a hidden row is a
+        hidden fiducial. With no rows the list takes no space and the empty
+        label shows instead.
+        """
+        n = self._list.count()
+        shown = min(n, _MAX_VISIBLE_ROWS)
+        self._list.setFixedHeight(shown * _ROW_HEIGHT + (4 if shown else 0))
+        self._list.setVisible(n > 0)
 
     def _add_row(self, coord: Coordinate, name: str) -> None:
         row_widget = CoordinateRowWidget(
@@ -518,79 +675,106 @@ class CoordinateListWidget(QWidget):
         if any(v is not None for v in (self._x_max, self._y_max, self._z_max)):
             row_widget.set_axis_maxima(self._x_max, self._y_max, self._z_max)
         self._connect_row(row_widget)
+        row_widget.set_note(getattr(self, "_notes", {}).get(id(coord)))
 
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, coord)
         item.setSizeHint(QSize(0, _ROW_HEIGHT))
         self._list.addItem(item)
         self._list.setItemWidget(item, row_widget)
+        self._fit_height_to_rows()
 
     def _connect_row(self, row_widget: CoordinateRowWidget) -> None:
         row_widget.row_clicked.connect(self._on_row_clicked)
-        row_widget.coordinate_changed.connect(self.coordinate_changed)
+        row_widget.coordinate_changed.connect(self._on_row_changed)
         row_widget.remove_clicked.connect(self._on_remove)
+        row_widget.fit_clicked.connect(self.refit_requested)
+        row_widget.reset_clicked.connect(self.reset_requested)
+        row_widget.reject_toggled.connect(self.reject_toggled)
 
     def _set_selected(self, coord: Coordinate) -> None:
-        self._selected_coordinate = coord
+        """A selection made here: select in the store, and announce it."""
+        self._store.select(coord)
+        self.coordinate_selected.emit(coord)
+
+    def _show_selection(self) -> None:
+        coord = self.selected_coordinate
+        if coord is None:
+            self._list.clearSelection()
+        else:
+            for i in range(self._list.count()):
+                item = self._list.item(i)
+                if item is not None and item.data(Qt.ItemDataRole.UserRole) is coord:
+                    self._list.setCurrentItem(item)
+                    break
+        self._mark_selected(coord)
+
+    def _mark_selected(self, coord: Optional[Coordinate]) -> None:
+        """Show the actions on the selected row only."""
         for i in range(self._list.count()):
             item = self._list.item(i)
-            if item is not None and item.data(Qt.ItemDataRole.UserRole) is coord:
-                self._list.setCurrentItem(item)
-                break
-        self._header.update_selection(coord)
-        self.coordinate_selected.emit(coord)
+            w = self._list.itemWidget(item) if item is not None else None
+            if isinstance(w, CoordinateRowWidget):
+                w.set_selected(w.coord is coord)
 
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
 
+    def _on_row_changed(self, coord: Coordinate, field: str, value: float) -> None:
+        # Through the store, so that a typed value makes the point the user's
+        # (`placed`) and the canvas moves and restyles it; then announced.
+        if coord not in self._store:
+            return  # a row on its way out; an exception in a slot aborts the app
+        self._store.set_field(coord, field, value)
+        self.coordinate_changed.emit(coord, field, value)
+
     def _on_row_clicked(self, coord: Coordinate) -> None:
-        if coord is not self._selected_coordinate:
+        if coord is not self.selected_coordinate:
             self._set_selected(coord)
 
-    def _on_header_refit(self) -> None:
-        self.refit_requested.emit(self._selected_coordinate)
-
     def _on_reordered(self, coords: List[Coordinate]) -> None:
-        self._coordinates = coords
-        selected_before = self._selected_coordinate
+        self._store.reorder(self._point_type, coords)
+        # Qt clears the row widgets on a move, so the rows are rebuilt even
+        # when the drop left the order as it was and the store said nothing.
         self._rebuild_rows()
-        if selected_before is not None and selected_before in self._coordinates:
-            self._set_selected(selected_before)
-        else:
-            self._header.update_selection(self._selected_coordinate)
-        self.order_changed.emit(list(self._coordinates))
+        selected = self.selected_coordinate
+        if selected is not None:
+            self.coordinate_selected.emit(selected)
+        self.order_changed.emit(self.coordinates)
+
+    def remove_coordinate(self, coord: Coordinate) -> bool:
+        """Remove *coord*'s row and select its neighbour, without emitting anything.
+
+        The caller decides what the removal means: the row's own trash button emits
+        ``coordinate_removed`` and then the neighbour's selection; the canvas path is
+        echoing a removal that already happened and only needs the list to follow.
+        Selecting the first row instead, as assigning ``coordinates`` does, was what
+        made a canvas delete jump the selection to row 1 (FIB-965).
+        Returns False if *coord* is not here.
+        """
+        # The store removes by identity and selects the neighbour; the rows and
+        # the highlight follow from its signals.
+        if coord.point_type is not self._point_type:
+            return False
+        return self._store.remove(coord)
 
     def _on_remove(self, coord: Coordinate) -> None:
-        if coord not in self._coordinates:
-            return
-        idx = self._coordinates.index(coord)
-        self._coordinates.remove(coord)
-
-        next_coord = None
-        if self._coordinates:
-            next_idx = min(idx, len(self._coordinates) - 1)
-            next_coord = self._coordinates[next_idx]
-
-        if self._selected_coordinate is coord:
-            self._selected_coordinate = None
-
-        self._rebuild_rows()
-
-        if next_coord is not None:
-            self._set_selected(next_coord)
-        else:
-            self._header.update_selection(None)
-
-        self.coordinate_removed.emit(coord)
+        # Removal first, then the neighbour's selection: the tab widget answers
+        # coordinate_removed by rebuilding the overlay, which drops its selection,
+        # so a selection announced before the removal was wiped by it (FIB-965).
+        if self.remove_coordinate(coord):
+            self.coordinate_removed.emit(coord)
+            selected = self.selected_coordinate
+            if selected is not None:
+                self.coordinate_selected.emit(selected)
 
     def add_coordinate(self, coord: Coordinate) -> None:
-        """Append a coordinate, rebuild its row, and select it."""
-        self._coordinates.append(coord)
-        names = _generate_names(self._coordinates)
-        self._add_row(coord, names[-1])
-        self._empty_label.setVisible(False)
-        self._set_selected(coord)
+        """Add a coordinate and select it."""
+        if coord.point_type is not self._point_type:
+            raise ValueError(f"{coord} is not a {self._point_type} point")
+        self._store.add(coord)
+        self.coordinate_selected.emit(coord)
 
     def refresh_coordinate(self, coord: Coordinate) -> None:
         """Re-sync spinboxes for one coordinate after an external edit (e.g. canvas drag)."""
@@ -604,14 +788,11 @@ class CoordinateListWidget(QWidget):
 
     def select_coordinate_silent(self, coord: Optional[Coordinate]) -> None:
         """Highlight a row without emitting ``coordinate_selected`` (avoids sync loops)."""
-        self._selected_coordinate = coord
+        if coord is not None and coord not in self._store:
+            coord = None
         if coord is None:
-            self._header.update_selection(None)
-            self._list.clearSelection()
-            return
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            if item is not None and item.data(Qt.ItemDataRole.UserRole) is coord:
-                self._list.setCurrentItem(item)
-                break
-        self._header.update_selection(coord)
+            # only this list's: the selection may be another list's
+            self._store.deselect(self.selected_coordinate)
+        else:
+            # beside the other canvas's selection, as a verdict's pair link asks
+            self._store.select(coord, extend=True)

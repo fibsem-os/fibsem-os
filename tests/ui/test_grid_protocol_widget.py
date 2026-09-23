@@ -12,6 +12,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskProtocol,
     Experiment,
 )
@@ -51,6 +52,23 @@ def widget(qapp, experiment):
 
 def saved_protocol(experiment) -> dict:
     return yaml.safe_load((Path(experiment.path) / "protocol.yaml").read_text())
+
+
+def test_a_beam_overview_can_be_taken_at_the_milling_pose(widget, experiment):
+    """SEM, FIB, or MILLING: a FIB overview at the milling pose shows the grid as
+    the lamellae will be milled, which is the one a tester went looking for."""
+    from fibsem.applications.autolamella.ui.grid_protocol_widget import _ORIENTATIONS
+
+    assert _ORIENTATIONS == ["SEM", "FIB", "MILLING"]
+    widget.add_task(BEAM, "overview_milling")
+    editor = widget.editor_panel.editor_for(BEAM)
+    items = [editor.orientation.itemText(i) for i in range(editor.orientation.count())]
+    assert items == ["SEM", "FIB", "MILLING"]
+    editor.orientation.setCurrentText("MILLING")
+    config = widget.apply_selected()
+    assert config.orientation == "MILLING"
+    saved = saved_protocol(experiment)["grid_tasks"]["tasks"]["overview_milling"]
+    assert saved["orientation"] == "MILLING"
 
 
 def test_without_a_task_protocol_there_is_nothing_to_edit(qapp, tmp_path):
@@ -125,6 +143,29 @@ def test_reset_puts_the_defaults_back(widget, experiment):
     assert fresh.orientation == "SEM"
     assert experiment.grid_protocol.task_config["overview_sem"] is fresh
     assert editor.orientation.currentText() == "SEM"
+
+
+def test_reset_keeps_attention_and_requires(widget, experiment):
+    widget.add_task(BEAM, "overview_sem")
+    widget.add_task(BEAM, "overview_fib")
+    config = experiment.grid_protocol.task_config["overview_fib"]
+    config.attention = Attention.supervised
+    config.requires = ["overview_sem"]
+    fresh = widget.reset_selected()
+    assert fresh.attention is Attention.supervised
+    assert fresh.requires == ["overview_sem"]
+
+
+def test_removing_a_task_drops_it_from_what_requires_it(widget, experiment):
+    widget.add_task(BEAM, "overview_sem")
+    widget.add_task(BEAM, "overview_fib")
+    experiment.grid_protocol.task_config["overview_fib"].requires = ["overview_sem"]
+    widget.remove_task("overview_sem")
+    assert experiment.grid_protocol.requirements("overview_fib") == []
+    assert (
+        saved_protocol(experiment)["grid_tasks"]["tasks"]["overview_fib"]["requires"]
+        == []
+    )
 
 
 def test_the_trash_icon_asks_first(widget, monkeypatch):

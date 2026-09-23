@@ -51,9 +51,10 @@ from fibsem.ui.widgets.fibsem_overview_settings_widget import (
     FibsemOverviewSettingsWidget,
 )
 
-# The poses a beam overview can be taken at. The stage knows more (MILLING), but
-# an overview of a grid is taken flat to one beam or the other.
-_ORIENTATIONS = ["SEM", "FIB"]
+# The poses a beam overview can be taken at: flat to either beam, or the milling
+# pose, so a FIB overview can show the grid as the lamellae will be milled. The
+# stage knows FM too, which is the fluorescence task's business.
+_ORIENTATIONS = ["SEM", "FIB", "MILLING"]
 
 # The name a new task gets, by type, before the person renames it. The role the
 # task records under follows the beam, so the default name says which.
@@ -493,6 +494,11 @@ class GridProtocolWidget(QWidget):
         if protocol is None:
             return
         protocol.remove(name)
+        # nothing may go on requiring a task that is gone: it would be skipped
+        # on every grid, for a reason no one can see
+        for config in protocol.task_config.values():
+            if name in config.requires:
+                config.requires = [r for r in config.requires if r != name]
         self._save()
         self.refresh()
 
@@ -513,11 +519,17 @@ class GridProtocolWidget(QWidget):
         return config
 
     def reset_selected(self) -> Optional[GridTaskConfig]:
-        """Replace the selected task's settings with the type's defaults, and save."""
+        """Replace the selected task's settings with the type's defaults, and save.
+        How it takes part in the workflow -- attention, requires -- is kept: those
+        are set on the Workflow tab's grid list, not settings of the run."""
         protocol, config = self.protocol, self.selected_config()
         if protocol is None or config is None:
             return None
-        fresh = type(config)(task_name=config.task_name)
+        fresh = type(config)(
+            task_name=config.task_name,
+            attention=config.attention,
+            requires=list(config.requires),
+        )
         protocol.task_config[config.task_name] = fresh
         self._save()
         self._show_selected()

@@ -14,6 +14,7 @@ from psygnal.containers import EventedDict
 from fibsem import utils
 from fibsem.applications.autolamella.server import AgentContext
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskStatus,
     Experiment,
@@ -285,7 +286,7 @@ def test_set_supervision_flips_the_live_protocol(experiment):
     )
 
     experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name="Rough Milling", supervise=False, required=True)
+        AutoLamellaTaskDescription(name="Rough Milling", required=True)
     )
     host = Host()
     host.experiment = experiment
@@ -294,7 +295,9 @@ def test_set_supervision_flips_the_live_protocol(experiment):
     applied = ctx.set_supervision("Rough Milling", True)
     assert applied["applied"] is True
     # The same read the workflow's decision points use sees the new value.
-    assert experiment.task_protocol.get_supervision("Rough Milling") is True
+    assert (
+        experiment.task_protocol.get_attention("Rough Milling") is Attention.supervised
+    )
 
     unknown = ctx.set_supervision("No Such Task", True)
     assert unknown["applied"] is False
@@ -310,7 +313,9 @@ def test_supervisor_designation_round_trips_and_is_settable(experiment):
     )
 
     experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name="Rough Milling", supervise=True, required=True)
+        AutoLamellaTaskDescription(
+            name="Rough Milling", attention=Attention.supervised, required=True
+        )
     )
     host = Host()
     host.experiment = experiment
@@ -352,7 +357,7 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
     experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name="Rough Milling", supervise=False, required=True)
+        AutoLamellaTaskDescription(name="Rough Milling", required=True)
     )
     host = Host()
     host.experiment = experiment

@@ -13,6 +13,7 @@ pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
 from fibsem import config as fibsem_cfg
+from fibsem.applications.autolamella.event_recording import recorder_for
 from fibsem.applications.autolamella.server import hosting
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
@@ -31,6 +32,7 @@ def ui(qapp):
     finally:
         if window._agent_server_host is not None:
             window._agent_server_host.stop()
+        window._stop_event_recorder()
         window.close()
         window.deleteLater()
         qapp.processEvents()
@@ -69,9 +71,11 @@ def test_connect_starts_a_live_read_only_server(ui, agent_server_enabled):
     assert body["routers"]["app"] is True
     assert body["scopes"]["hardware"] is False
 
-    # Per-run hook registration: the manager built for a run carries the feed.
-    manager = ui.setup_hooks()
-    assert host.lifecycle_hook in manager._hooks
+    # The feed is the recorder's, which a run finds and registers for itself
+    # (FIB-1044): not registered a second time by the app's own hooks.
+    assert host.lifecycle_hook is ui._event_recorder.lifecycle_hook
+    assert recorder_for(ui.microscope) is ui._event_recorder
+    assert host.lifecycle_hook not in ui.setup_hooks()._hooks
 
     # The question-lifecycle feed is wired straight into the buffer...
     assert host.event_buffer.append in ui.ui_responder._question_observers
@@ -141,3 +145,40 @@ def test_default_preference_hosts_nothing(ui, monkeypatch):
     assert ui._agent_server_host is None
     manager = ui.setup_hooks()
     assert manager is not None  # and built without any agent involvement
+
+
+def test_the_event_stream_runs_without_the_agent_server(ui, monkeypatch):
+    """The stream is the app's (FIB-1031): connect starts it, server or not."""
+    monkeypatch.setattr(
+        fibsem_cfg, "load_user_preferences", lambda: fibsem_cfg.UserPreferences()
+    )
+    ui.system_widget.connect_to_microscope()
+    ui.connect_to_microscope()
+    recorder = ui._event_recorder
+    assert recorder is not None and ui._agent_server_host is None
+    # A run finds this recorder and registers its lifecycle hook (FIB-1044).
+    assert recorder_for(ui.microscope) is recorder
+    assert recorder.buffer.append in ui.ui_responder._question_observers
+    # In the app, a call no task or agent marked is the operator's (FIB-1062).
+    assert recorder.default_actor == "operator"
+
+    ui.disconnect_from_microscope()
+    assert ui._event_recorder is None
+    assert recorder_for(recorder.microscope) is None
+    assert recorder.buffer.append not in ui.ui_responder._question_observers
+    assert not recorder.writer.alive
+
+
+def test_the_agent_server_reads_the_session_stream(ui, agent_server_enabled):
+    # connect_to_microscope runs twice here: through the widget's signal, then
+    # called directly -- as it would on any later refresh of the widget while
+    # connected. The second must not leave the server on a stream it replaced.
+    ui.system_widget.connect_to_microscope()
+    ui.connect_to_microscope()
+    host, recorder = ui._agent_server_host, ui._event_recorder
+    assert host.running
+    assert host.event_buffer is recorder.buffer
+    assert host.lifecycle_hook is recorder.lifecycle_hook
+    # Shared, so not registered here: the run registers it, once (FIB-1044).
+    hooks = ui.setup_hooks()._hooks
+    assert sum(hook is recorder.lifecycle_hook for hook in hooks) == 0

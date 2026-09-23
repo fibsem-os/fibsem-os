@@ -4,7 +4,9 @@ This is the piece that turns the factory into the app's public interface: when
 a microscope connects (and the ``agent_server_enabled`` preference is on), the
 app builds ``build_server(microscope, app_context=AgentContext(ui, buffer))``
 and runs it on a daemon thread. One process, one microscope connection, one
-commander — the whole reason embedded hosting exists.
+commander — the whole reason embedded hosting exists. The buffer is the
+app's event stream (``event_recording.EventRecorder``), which exists
+whether or not this runs.
 
 Threading notes, because this file is where the server meets Qt:
 
@@ -77,16 +79,22 @@ class AgentServerHost:
     def url(self) -> str:
         return f"http://{self._host}:{self._port}"
 
-    def start(self, microscope) -> bool:
-        """Start serving. Returns False (and logs) rather than ever raising."""
+    def start(self, microscope, event_buffer=None, lifecycle_hook=None) -> bool:
+        """Start serving. Returns False (and logs) rather than ever raising.
+
+        ``event_buffer`` and ``lifecycle_hook`` are the app's event stream
+        (``event_recording.EventRecorder``), whose taps and prompt feed are
+        already attached and which outlives the server. Without them the host
+        builds and feeds a buffer of its own, as it did before the stream moved.
+        """
         try:
-            return self._start(microscope)
+            return self._start(microscope, event_buffer, lifecycle_hook)
         except Exception:
             logging.exception("agent server failed to start; continuing without it")
             self.stop()
             return False
 
-    def _start(self, microscope) -> bool:
+    def _start(self, microscope, event_buffer=None, lifecycle_hook=None) -> bool:
         import uvicorn
 
         from fibsem.server import AuthConfig, build_server
@@ -119,19 +127,24 @@ class AgentServerHost:
                 "(developer override; the arming dialog replaces this)"
             )
         self.auth = AuthConfig.generate(arm_control=arm_control)
-        self.event_buffer = EventBuffer()
-        self.lifecycle_hook = make_lifecycle_hook(self.event_buffer)
-        self._disposers = attach_microscope_taps(self.event_buffer, microscope)
+        if event_buffer is not None:
+            # The app's stream: already fed, and not ours to detach on stop.
+            self.event_buffer = event_buffer
+            self.lifecycle_hook = lifecycle_hook
+        else:
+            self.event_buffer = EventBuffer()
+            self.lifecycle_hook = make_lifecycle_hook(self.event_buffer)
+            self._disposers = attach_microscope_taps(self.event_buffer, microscope)
 
-        # The question-lifecycle feed: prompt_raised / prompt_answered /
-        # prompt_cancelled straight from the responder into the buffer, so a
-        # supervising agent can sleep on the events long-poll instead of
-        # polling /app/prompt, and answers carry who answered them.
-        responder = getattr(self._ui, "ui_responder", None)
-        if responder is not None:
-            self._disposers.append(
-                responder.add_question_observer(self.event_buffer.append)
-            )
+            # The question-lifecycle feed: prompt_raised / prompt_answered /
+            # prompt_cancelled straight from the responder into the buffer, so a
+            # supervising agent can sleep on the events long-poll instead of
+            # polling /app/prompt, and answers carry who answered them.
+            responder = getattr(self._ui, "ui_responder", None)
+            if responder is not None:
+                self._disposers.append(
+                    responder.add_question_observer(self.event_buffer.append)
+                )
 
         app = build_server(
             microscope,

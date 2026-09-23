@@ -33,6 +33,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     run_grid_tasks,
 )
 from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatusEvent
+from fibsem.cancellation import OperationCancelledError
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 
 GRIDS = ["Grid-01", "Grid-02", "Grid-03"]  # what the sim magazine holds
@@ -330,6 +331,81 @@ class TestStopAndStatus:
         assert df.loc[df.task_status == "NotStarted", "loaded"].isna().all()
         assert df.loc[df.task_status != "NotStarted", "loaded"].notna().all()
 
+    def test_stop_during_the_unload_leaves_the_slot_empty_and_the_next_grid_out(
+        self, manager, experiment, microscope
+    ):
+        """An exchange is an unload then a load. A Stop that lands during the
+        unload used to be honoured only once the next grid was in; now the run
+        ends with the working slot empty, and the load entry says so."""
+        stage = microscope._stage
+        stage.ensure_loaded("Grid-01")
+        real_unload = stage.unload
+
+        def unload_then_stop():
+            real_unload()
+            manager.stop()  # the click lands while the loader is retracting
+
+        stage.unload = unload_then_stop
+        executed = run_with_stub(manager, ["overview_sem"], ["Grid-02"])
+
+        assert executed == []
+        assert stage.loader.working_slot.loaded_grid is None
+        assert stage.loaded_grids == []
+        (entry,) = load_entries(experiment.get_grid_by_name("Grid-02"))
+        assert entry.status is Status.Cancelled
+        assert (
+            entry.status_message
+            == "Stopped after unloading Grid-01; Grid-02 was not loaded."
+        )
+        load_item, task_item = manager.queue.items
+        assert load_item.status is Status.Cancelled
+        assert task_item.status is Status.NotStarted
+        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled by user."
+        # Cancelled is not "could not be loaded": nothing refused the grid.
+        assert "Grid-02" not in manager._not_loaded
+
+    def test_stop_during_the_load_lets_the_grid_in_and_runs_nothing_on_it(
+        self, manager, experiment, microscope
+    ):
+        """The autoloader's load blocks and cannot be interrupted, so a Stop that
+        lands during it is honoured once the grid is in: the load is recorded as
+        it happened, and the run ends before any task starts on that grid."""
+        stage = microscope._stage
+        loader = stage.loader
+        real_load = loader._do_load
+
+        def load_then_stop(slot):
+            real_load(slot)
+            manager.stop()  # the click lands while the grid is travelling
+
+        loader._do_load = load_then_stop
+        executed = run_with_stub(manager, ["overview_sem"], ["Grid-02"])
+
+        assert executed == []
+        assert [g.name for g in stage.loaded_grids] == ["Grid-02"]
+        (entry,) = load_entries(experiment.get_grid_by_name("Grid-02"))
+        assert entry.status is Status.Completed
+        assert entry.status_message == "Loaded into Slot-01."
+        load_item, task_item = manager.queue.items
+        assert load_item.status is Status.Completed
+        assert task_item.status is Status.NotStarted
+        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled by user."
+
+    def test_stop_before_the_exchange_loads_nothing(
+        self, manager, experiment, microscope
+    ):
+        stage = microscope._stage
+        stage.ensure_loaded("Grid-01")
+        manager.stop()
+        # The loop would end before the load; go straight at the exchange to
+        # show the checkpoint ahead of the unload holds on its own.
+        with pytest.raises(OperationCancelledError):
+            manager._ensure_loaded(experiment.get_grid_by_name("Grid-02"))
+        assert stage.loaded_grids[0].name == "Grid-01"
+        (entry,) = load_entries(experiment.get_grid_by_name("Grid-02"))
+        assert entry.status is Status.Cancelled
+        assert entry.status_message == "Stopped before loading Grid-02."
+
     def test_reports_name_the_grid_and_track_the_queue(self, manager):
         run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
         reports = [
@@ -374,6 +450,34 @@ class TestStopAndStatus:
 
 
 class TestEndToEnd:
+    def test_a_real_overview_at_the_milling_pose(
+        self, microscope, experiment, tmp_path
+    ):
+        """The task re-expresses the slot's calibrated position for MILLING as it
+        does for FIB, and the overview lands under the grid like any other."""
+        experiment.grid_protocol.add(
+            BeamOverviewGridTaskConfig(
+                task_name="overview_milling",
+                orientation="MILLING",
+                settings=_small_settings(BeamType.ION),
+            )
+        )
+        manager = run_grid_tasks(
+            microscope,
+            experiment,
+            task_names=["overview_milling"],
+            grid_names=["Grid-01"],
+        )
+        assert all(i.status is Status.Completed for i in manager.queue.items)
+        grid = experiment.get_grid_by_name("Grid-01")
+        (path,) = grid_outputs(experiment, grid, "overview_fib")
+        assert path.startswith(
+            str(tmp_path / "exp" / "grids" / "Grid-01" / "overview_milling")
+        )
+        slot = microscope._stage.holder.find_slot_by_grid_name("Grid-01")
+        expected = microscope.get_target_position(slot.position, "MILLING")
+        assert microscope.get_stage_orientation(expected) == "MILLING"
+
     def test_real_overviews_land_under_each_grid(
         self, microscope, experiment, tmp_path
     ):

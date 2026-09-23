@@ -35,6 +35,7 @@ reordering. Index bookkeeping on removal — including shifting ``_selected`` �
 stays in the base, which is precisely the part a translation layer would have
 had to reimplement.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -44,6 +45,7 @@ import matplotlib.patheffects as pe
 from PyQt5.QtCore import pyqtSignal
 
 from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.ui.correlation.point_store import POINT_RULES, CorrelationPointStore
 from fibsem.ui.tokens import ORANGE_COLOR
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
@@ -57,17 +59,17 @@ if TYPE_CHECKING:
 # rather than to match the app palette — the same reasoning that keeps the
 # NEUTRAL_* ramp out of the tinted tokens.
 POINT_COLORS: Dict[PointType, str] = {
-    PointType.FIB:        "#00ff00",
-    PointType.FM:         "#00e5ff",
-    PointType.POI:        "#ff00ff",
-    PointType.SURFACE:    ORANGE_COLOR,
+    PointType.FIB: "#00ff00",
+    PointType.FM: "#00e5ff",
+    PointType.POI: "#ff00ff",
+    PointType.SURFACE: ORANGE_COLOR,
     PointType.SURFACE_FM: "#ffea00",
 }
 POINT_MARKERS: Dict[PointType, str] = {
-    PointType.FIB:        "o",
-    PointType.FM:         "o",
-    PointType.POI:        "o",
-    PointType.SURFACE:    "+",
+    PointType.FIB: "o",
+    PointType.FM: "o",
+    PointType.POI: "o",
+    PointType.SURFACE: "+",
     PointType.SURFACE_FM: "+",
 }
 MARKER_SIZE = 5.0  # the base draws the selected marker at size * 1.4 = 7.0
@@ -76,9 +78,11 @@ MARKER_SIZE = 5.0  # the base draws the selected marker at size * 1.4 = 7.0
 # complement of all of them: it rescues SURFACE and FM-SURFACE against a bright
 # image, where they otherwise disappear entirely. A *white* stroke is the wrong
 # choice for the same reason -- it merges into a bright background, which is
-# exactly where the outline has to work. 0.5 matches the old canvas; heavier
-# starts eating the glyph at this font size.
-LABEL_OUTLINE = [pe.withStroke(linewidth=0.5, foreground="black")]
+# exactly where the outline has to work. The stroke is drawn *behind* the
+# glyph (``Normal`` re-draws the text on top), so it can be heavy enough to
+# hold a label on a burned, white patch of FIB image without eating the
+# letters -- at 0.5 the FIB labels vanished there (FIB-978).
+LABEL_OUTLINE = [pe.withStroke(linewidth=2.0, foreground="black"), pe.Normal()]
 
 
 LABEL_FONTSIZE = 8
@@ -110,7 +114,8 @@ def legend_handle(
 
     edge_color, edge_width = marker_edge(color, marker, hollow)
     return Line2D(
-        [], [],
+        [],
+        [],
         marker=marker,
         markersize=7,
         color=color,
@@ -143,15 +148,30 @@ class CorrelationPointOverlay(PointOverlay):
     # ones still fire; consumers here should use these.
     coordinate_selected = pyqtSignal(object)  # Coordinate
     coordinate_moved = pyqtSignal(object)  # Coordinate (drag finished)
-    coordinate_removed = pyqtSignal(object)  # Coordinate (before removal)
+    coordinate_removed = pyqtSignal(object)  # Coordinate (emitted after removal)
     # The view decides which PointType a new point gets (it owns the menu), so
     # the overlay only reports where the user asked for one.
     add_requested = pyqtSignal(float, float)  # x, y
 
-    def __init__(self, parent=None) -> None:
+    def __init__(
+        self,
+        parent=None,
+        store: Optional[CorrelationPointStore] = None,
+        side: Optional[str] = None,
+    ) -> None:
+        """*store* holds the points and the selection (FIB-973); this draws
+        them. *side* is the canvas this is, "fib" or "fm", and picks that side's
+        points out of a store shared with the other canvas; None draws them all.
+        Until the tab widget shares one store, each overlay has its own."""
         super().__init__(size=MARKER_SIZE, parent=parent)
+        self._store = store if store is not None else CorrelationPointStore(self)
+        self._side = side
+        # What is drawn, index-aligned with the base's _points. A copy of the
+        # store's order for the per-index style hooks, re-read on every change.
         self._coords: List[Coordinate] = []
         self._names: List[str] = []
+        self._drawn_state: List[Tuple[str, bool]] = []
+        self._assigning = False
         self._legend_visible = True
         self._labels_visible = True
         # entries contributed by CorrelationResultOverlay; see set_extra_legend_entries
@@ -160,23 +180,91 @@ class CorrelationPointOverlay(PointOverlay):
         self._surface_coord: Optional[Coordinate] = None
         self.point_selected.connect(self._emit_selected)
         self.point_moved.connect(self._emit_moved)
-        self.point_removed.connect(self._emit_removed)
+        self._store.structure_changed.connect(self._on_structure_changed)
+        self._store.points_changed.connect(self._on_points_changed)
+        self._store.selection_changed.connect(self._show_selection)
+
+    # ── the store ─────────────────────────────────────────────────────────
+
+    @property
+    def store(self) -> CorrelationPointStore:
+        return self._store
+
+    def _point_types(self) -> List[PointType]:
+        return [
+            pt
+            for pt, rule in POINT_RULES.items()
+            if self._side is None or rule.side == self._side
+        ]
+
+    def _store_coordinates(self) -> List[Coordinate]:
+        if self._side is None:
+            return self._store.coordinates
+        return self._store.on_side(self._side)
+
+    def _render(self) -> None:
+        """Redraw every point from the store, and the selection with them."""
+        self._coords = self._store_coordinates()
+        self._names = generate_names(self._coords)
+        self._drawn_state = [self._state_of(c) for c in self._coords]
+        self.set_points([(c.point.x, c.point.y) for c in self._coords])
+        self._show_selection()
+
+    @staticmethod
+    def _state_of(coord: Coordinate) -> Tuple[str, bool]:
+        """What _style_by_status draws from."""
+        return (coord.status, coord.suggested)
+
+    def _on_structure_changed(self) -> None:
+        if self._assigning:
+            return  # set_coordinates redraws once, itself
+        # A shared store announces the other canvas's changes too.
+        coords = self._store_coordinates()
+        if len(coords) == len(self._coords) and all(
+            a is b for a, b in zip(coords, self._coords)
+        ):
+            return
+        self._render()
+
+    def _on_points_changed(self, coords: tuple) -> None:
+        mine = [c for c in coords if self.index_of(c) is not None]
+        if not mine:
+            return
+        # A hollow prediction that was placed, a point that was rejected: the
+        # style hooks only ever add to an artist, so a changed state is redrawn
+        # from scratch. A moved point is only moved.
+        if any(self._state_of(c) != self._drawn_state[self.index_of(c)] for c in mine):
+            self._render()
+            return
+        for coord in mine:
+            self.refresh_coordinate(coord)
+
+    def _show_selection(self) -> None:
+        self.set_selected(self.index_of(self.selected_coordinate()))
 
     # ── model ─────────────────────────────────────────────────────────────
 
     def set_coordinates(self, coords: List[Coordinate]) -> None:
         """Replace the displayed set. Coordinates are held by reference, so the
-        objects handed back by the signals are the caller's own."""
-        self._coords = list(coords)
-        self._names = generate_names(self._coords)
-        self.set_points([(c.point.x, c.point.y) for c in self._coords])
+        objects handed back by the signals are the caller's own.
+
+        Always redraws, even for the same points: the tab widget calls this to
+        have a changed status drawn. A point that is still here stays selected.
+        """
+        coords = list(coords)
+        self._assigning = True
+        try:
+            for pt in self._point_types():
+                self._store.replace_type(pt, [c for c in coords if c.point_type is pt])
+        finally:
+            self._assigning = False
+        self._render()
 
     def add_coordinate(self, coord: Coordinate) -> int:
-        self._coords.append(coord)
-        self._names = generate_names(self._coords)
-        idx = super().add_point(coord.point.x, coord.point.y)
-        self._refresh_chrome()
-        return idx
+        """Draw one more point. Not selected, and no per-type rule applied:
+        the caller has made those decisions."""
+        self._store.add_many([coord])
+        return self.index_of(coord)
 
     def remove_coordinate(self, coord: Coordinate) -> None:
         idx = self.index_of(coord)
@@ -195,12 +283,18 @@ class CorrelationPointOverlay(PointOverlay):
         return None
 
     def selected_coordinate(self) -> Optional[Coordinate]:
-        idx = self._selected
-        return self._coords[idx] if idx is not None and idx < len(self._coords) else None
+        if self._side is not None:
+            return self._store.selected_on(self._side)
+        return self._store.current
 
     def set_selected_coordinate(self, coord: Optional[Coordinate]) -> None:
-        """Select by identity. Silent, like the base's ``set_selected``."""
-        self.set_selected(self.index_of(coord))
+        """Select by identity. Silent, like the base's ``set_selected``: no
+        ``coordinate_selected``. The other canvas's selection is left alone, so
+        a pair can be shown on both."""
+        if coord is None or coord not in self._store:
+            self._store.deselect(self.selected_coordinate())
+        else:
+            self._store.select(coord, extend=True)
 
     def refresh_coordinate(self, coord: Coordinate) -> None:
         """Re-read a coordinate's position after an external edit."""
@@ -223,17 +317,16 @@ class CorrelationPointOverlay(PointOverlay):
     def remove_point(self, index: int) -> None:
         if index < 0 or index >= len(self._coords):
             return
-        # super() emits point_removed(index) before it pops, so _emit_removed can
-        # still read _coords[index]; pop only once it returns.
-        super().remove_point(index)
-        self._coords.pop(index)
-        self._names = generate_names(self._coords)
-        self._refresh_chrome()
+        # The store removes the point and selects its neighbour, and this is
+        # redrawn from it before the Coordinate is announced: the tab widget
+        # answers by rebuilding us from its model, which must not race a
+        # half-finished removal (FIB-958).
+        coord = self._coords[index]
+        self._store.remove(coord)
+        self.coordinate_removed.emit(coord)
 
     def clear_points(self) -> None:
-        super().clear_points()
-        self._coords.clear()
-        self._names = []
+        self.set_coordinates([])
 
     # ── per-point style ───────────────────────────────────────────────────
 
@@ -301,6 +394,30 @@ class CorrelationPointOverlay(PointOverlay):
             # a point added while labels are off must not arrive showing its name
             ann.set_visible(self._labels_visible and self._visible)
             ann.set_path_effects(LABEL_OUTLINE)
+        self._style_by_status(idx)
+
+    def _style_by_status(self, idx: int) -> None:
+        """A projected position is a guess, not a pick: drawn as a hollow ring
+        (a suggested one larger, so the eye finds the three to drag), and a
+        rejected point fades but stays, so the record is visible on screen."""
+        if idx >= len(self._coords) or idx >= len(self._artists):
+            return
+        from fibsem.correlation.structures import PointStatus
+
+        status = getattr(self._coords[idx], "status", "")
+        line = self._artists[idx]
+        if status in PointStatus.TENTATIVE:
+            line.set_markerfacecolor("none")
+            line.set_markeredgecolor(self._point_color(idx, idx == self._selected))
+            line.set_markeredgewidth(1.5)
+            if getattr(self._coords[idx], "suggested", False):
+                line.set_markersize(self._size * 1.8)
+                line.set_markeredgewidth(2.5)
+        elif status == PointStatus.REJECTED:
+            line.set_alpha(0.35)
+            ann = self._anns[idx] if idx < len(self._anns) else None
+            if ann is not None:
+                ann.set_alpha(0.35)
 
     def _legend_entries(self):
         """One swatch per PointType currently on screen.
@@ -434,6 +551,13 @@ class CorrelationPointOverlay(PointOverlay):
             self._surface_line.set_animated(False)
         super()._on_release(event)
 
+    def _on_press(self, event) -> None:
+        super()._on_press(event)
+        # A click on nothing deselects in the base, which tells nobody. The
+        # selection is the store's, so it is told.
+        if self._selected is None:
+            self._store.deselect(self.selected_coordinate())
+
     # ── interaction ───────────────────────────────────────────────────────
 
     def _on_right_click(self, x: float, y: float) -> None:
@@ -445,18 +569,20 @@ class CorrelationPointOverlay(PointOverlay):
 
     def _emit_selected(self, idx: int, x: float, y: float) -> None:
         if idx < len(self._coords):
-            self.coordinate_selected.emit(self._coords[idx])
+            coord = self._coords[idx]
+            # The base has already highlighted idx and captured the drag, so the
+            # store's echo back into set_selected finds nothing to change.
+            self._store.select(coord)
+            self.coordinate_selected.emit(coord)
 
     def _emit_moved(self, idx: int, x: float, y: float) -> None:
+        """A finished drag. The store hears of a move once, on release; until
+        then the dragged position is this overlay's alone."""
         if idx >= len(self._coords):
             return
         coord = self._coords[idx]
-        coord.point.x, coord.point.y = float(x), float(y)
+        self._store.move(coord, float(x), float(y))
         self.coordinate_moved.emit(coord)
-
-    def _emit_removed(self, idx: int) -> None:
-        if idx < len(self._coords):
-            self.coordinate_removed.emit(self._coords[idx])
 
     def _refresh_chrome(self) -> None:
         """Re-derive the labels and the legend after the coordinate set changes.
@@ -634,7 +760,8 @@ class CorrelationResultOverlay(CanvasOverlay):
         edge_color, edge_width = marker_edge(group.color, group.marker, group.hollow)
         for i, (x, y) in enumerate(group.points, start=1):
             (line,) = self._ax.plot(
-                x, y,
+                x,
+                y,
                 marker=group.marker,
                 markersize=group.size,
                 color=group.color,

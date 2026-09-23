@@ -15,8 +15,26 @@ Three questions with three separate answers, never collapsed into one:
 
 A failed load records the failure, skips the grid's remaining tasks as "grid not
 loaded", and the run continues with the next grid: an overnight run must not stop
-on grid 3 of 12. A failed task fails only itself; the next task on the same grid
-still runs, since an SEM overview failing says nothing about the FM one.
+on grid 3 of 12. A failed task fails only itself and what ``requires`` it; the
+next task on the same grid still runs, since an SEM overview failing says nothing
+about the FM one.
+
+Decisions follow the lamella workflow's rules. A task waits while a task it
+requires awaits a decision in the Review tab or is still queued for the grid,
+and is skipped when one did not complete. While a grid waits, the run moves on
+to the next grid and comes back once the decision lands.
+
+Where Stop lands
+----------------
+The hardware calls are atomic; Stop is honoured at the checkpoints between them.
+
+* Between queue items: the loop asks ``is_stopped`` before taking the next one.
+* Inside a task: at the task's own checkpoints -- after its stage move, between
+  tiles, inside a focus sweep. The task ends Cancelled and the loop ends the run.
+* Inside an exchange: before the unload, and between the unload and the load.
+  A Stop that lands during the unload leaves the working slot empty and the
+  next grid in the magazine; the load entry says so. A Stop that lands during
+  the load is honoured once the grid is in, the last checkpoint an exchange has.
 """
 
 from __future__ import annotations
@@ -60,6 +78,8 @@ LOAD_TASK_TYPE = "LOAD_GRID"
 # Skip reasons, in the vocabulary TASK_SKIPPED hooks and status reports carry.
 SKIP_GRID_NOT_FOUND = "grid_not_found"
 SKIP_GRID_NOT_LOADED = "grid_not_loaded"
+SKIP_MISSING_PREREQS = "missing_prereqs"  # the lamella manager's word for it
+SKIP_NOTHING_TO_RUN = "nothing_to_run"  # a load with no runnable task behind it
 
 
 def plan_grid_run(
@@ -75,6 +95,8 @@ def plan_grid_run(
 class GridTaskManager(BaseTaskManager):
     """Runs grid tasks over the experiment's grids, one grid at a time."""
 
+    ITEM_NOUN = "grids"
+
     def __init__(
         self,
         microscope: "FibsemMicroscope",
@@ -83,7 +105,7 @@ class GridTaskManager(BaseTaskManager):
         hook_manager: Optional[HookManager] = None,
     ):
         super().__init__(microscope, experiment, parent_ui, hook_manager)
-        # Grids this run could not bring into the beam, and why. One attempt per
+        # Grids this run could not bring onto the stage, and why. One attempt per
         # grid per run: an exchange that failed once is not retried on the next
         # task, which would only re-run the same failure in front of a queue of
         # grids that might load fine.
@@ -94,11 +116,21 @@ class GridTaskManager(BaseTaskManager):
     def run(
         self, task_names: List[str], grid_names: Optional[List[str]] = None
     ) -> None:
-        """Run ``task_names``, in order, on each of ``grid_names`` (all grids if None)."""
+        """Run ``task_names``, in order, on each of ``grid_names`` (all grids if None).
+
+        A task that is AwaitingDecision on a grid is left out for that grid, as
+        on the lamella side: its run is over and its record waits in the Review
+        tab, and running it again would supersede the proposal someone is about
+        to decide. With the Review surface off there is no way to decide, so
+        Run re-runs it."""
         if grid_names is None:
             grid_names = [g.name for g in self.experiment.grids]
         self.queue.build_from_pairs(
-            plan_grid_run(task_names, grid_names),
+            [
+                (grid, step)
+                for grid, step in plan_grid_run(task_names, grid_names)
+                if not (self.review_enabled and self._awaiting_decision(grid, step))
+            ],
             task_names=task_names,
             item_names=grid_names,
         )
@@ -145,11 +177,96 @@ class GridTaskManager(BaseTaskManager):
 
     # --- The run loop ---
 
+    def _awaiting_decision(self, grid_name: str, task_name: str) -> bool:
+        grid = self.experiment.get_grid_by_name(grid_name)
+        return grid is not None and grid.is_awaiting_decision(task_name)
+
+    def _requirements(self, task_name: str) -> List[str]:
+        try:
+            return self.experiment.grid_protocol.requirements(task_name)
+        except ValueError:  # no task protocol on this experiment
+            return []
+
+    def _defer_reason(self, grid: GridRecord, task_name: str) -> Optional[str]:
+        """Why this task cannot run on this grid *yet*, as on the lamella side:
+        a task it requires awaits a decision (``awaiting_decision``), or is still
+        queued for this grid (``prereq_pending``). The run moves on to the next
+        grid meanwhile, and comes back -- an exchange -- when it can run."""
+        for req in self._requirements(task_name):
+            # a rerun still queued is the attempt that counts, whatever an
+            # earlier run of it did
+            if self.queue.has_pending_pair(grid.name, req):
+                return "prereq_pending"
+            if grid.is_awaiting_decision(req):
+                return "awaiting_decision"
+        return None
+
+    def _item_defer_reason(self, item: WorkItem) -> Optional[str]:
+        grid = self.experiment.get_grid_by_name(item.item_name)
+        if grid is None:
+            return None  # let the loop retire it with a reason
+        if item.task_name == LOAD_ENTRY_NAME:
+            return self._load_defer_reason(grid)
+        return self._defer_reason(grid, item.task_name)
+
+    def _pending_tasks(self, grid: GridRecord) -> List[WorkItem]:
+        return [
+            i
+            for i in self.queue.pending
+            if i.item_name == grid.name and i.task_name != LOAD_ENTRY_NAME
+        ]
+
+    def _runnable_now(self, grid: GridRecord, task_name: str) -> bool:
+        return self._defer_reason(
+            grid, task_name
+        ) is None and not self._missing_requirements(grid, task_name)
+
+    def _load_defer_reason(self, grid: GridRecord) -> Optional[str]:
+        """An exchange is the expensive step, so a grid is loaded for work that
+        can run now, not for work still waiting (FIB-1005). The load waits while
+        every task queued for the grid waits on a decision or a queued
+        requirement, and goes ahead once one can run. A load with no tasks
+        queued behind it is a load someone asked for, and runs."""
+        pending = self._pending_tasks(grid)
+        if not pending or any(self._runnable_now(grid, i.task_name) for i in pending):
+            return None
+        if any(self._defer_reason(grid, i.task_name) for i in pending):
+            return "waiting_for_work"
+        return None  # every task will be skipped: the load step retires itself
+
+    def _missing_requirements(self, grid: GridRecord, task_name: str) -> List[str]:
+        """Required tasks whose latest run on this grid did not complete: failed,
+        rejected, cancelled, or never run. An older success does not count.
+        Terminal for this run, as on the lamella side."""
+        return [
+            req
+            for req in self._requirements(task_name)
+            if not grid.latest_run_completed(req)
+        ]
+
     def _run_queue(self) -> None:
-        self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
+        with self._recording():
+            self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
+            self.experiment.decided.connect(self._on_decided)
+            try:
+                self._run_items()
+            finally:
+                self.experiment.decided.disconnect(self._on_decided)
+
+    def _requirements_of(self, task_name: str) -> List[str]:
+        return self._requirements(task_name)
+
+    def _run_items(self) -> None:
         while not self.is_stopped:
-            item = self.queue.next()
+            # Cleared before the scan, so a decision that lands between a scan
+            # finding nothing and the wait starting is not lost.
+            self._decision_event.clear()
+            item = self.queue.next(skip=self._is_deferred)
             if item is None:
+                if self.queue.is_empty:
+                    break
+                if self._wait_for_a_decision():
+                    continue
                 break
 
             # A stop_task click that landed between two tasks was aimed at the one
@@ -180,7 +297,40 @@ class GridTaskManager(BaseTaskManager):
                 self._run_load_step(item, grid)
                 continue
 
-            if not self._ensure_loaded(grid):
+            # Before the load: a task that cannot use what it requires is not
+            # worth an exchange.
+            missing = self._missing_requirements(grid, item.task_name)
+            if missing:
+                msg = (
+                    f"Skipping {item.task_name} on {grid.name}: required "
+                    f"{', '.join(missing)} did not complete."
+                )
+                logging.info(msg)
+                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                self._emit_report(
+                    item=item,
+                    item_name=grid.name,
+                    status=AutoLamellaTaskStatus.Skipped,
+                    msg=msg,
+                    skip_reason=SKIP_MISSING_PREREQS,
+                )
+                self._fire_skipped_hook(
+                    item.task_name,
+                    grid.name,
+                    SKIP_MISSING_PREREQS,
+                    task_type=self._task_type(item.task_name),
+                    item_id=grid.id,
+                )
+                continue
+
+            self._expire_what_this_consumes(grid.id, item.task_name)
+
+            try:
+                loaded = self._ensure_loaded(grid)
+            except OperationCancelledError as e:
+                self._cancel_load(item, grid, str(e))
+                continue
+            if not loaded:
                 reason = self._not_loaded[grid.name]
                 msg = f"Skipping {item.task_name} on {grid.name}: grid not loaded."
                 logging.info(f"{msg} {reason}")
@@ -211,7 +361,12 @@ class GridTaskManager(BaseTaskManager):
             err = self._run_single_task(item.task_name, grid)
             final_status = grid.task_state.status
             self.queue.mark_done(item, final_status)
-            if err is None:
+            if err is None and final_status is AutoLamellaTaskStatus.AwaitingDecision:
+                msg = (
+                    f"{item.task_name} on grid {grid.name} awaits a decision "
+                    "in the Review tab."
+                )
+            elif err is None:
                 msg = f"Completed {item.task_name} on grid {grid.name}."
             else:
                 msg = f"Error in {item.task_name} on grid {grid.name}."
@@ -229,6 +384,10 @@ class GridTaskManager(BaseTaskManager):
         if self.is_stopped:
             self._fire_workflow_hook(HookEvent.WORKFLOW_CANCELLED)
             self._say(workflow_info="Grid workflow cancelled by user.")
+        elif self.stalled:
+            # Drained with work waiting on decisions, and the wait ran out: not
+            # completed, not cancelled. The next Run picks up from there.
+            self._report_stall()
         else:
             self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
             self._say(workflow_info=self._completion_message())
@@ -237,14 +396,36 @@ class GridTaskManager(BaseTaskManager):
 
     def _run_load_step(self, item: WorkItem, grid: GridRecord) -> None:
         """The planned exchange. Its outcome is the queue item's status, so the
-        timeline shows a grid that would not load where it failed."""
+        timeline shows a grid that would not load where it failed. Skipped,
+        with no exchange, when every task queued for the grid is going to be
+        skipped for a requirement that did not complete (FIB-1005)."""
+        pending = self._pending_tasks(grid)
+        if pending and not any(self._runnable_now(grid, i.task_name) for i in pending):
+            msg = (
+                f"Not loading grid {grid.name}: none of its selected tasks can run "
+                "(a task they require did not complete)."
+            )
+            logging.info(msg)
+            self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+            self._emit_report(
+                item=item,
+                item_name=grid.name,
+                status=AutoLamellaTaskStatus.Skipped,
+                msg=msg,
+                skip_reason=SKIP_NOTHING_TO_RUN,
+            )
+            return
         self._emit_report(
             item=item,
             item_name=grid.name,
             status=AutoLamellaTaskStatus.InProgress,
             msg=f"Loading grid {grid.name}.",
         )
-        loaded = self._ensure_loaded(grid)
+        try:
+            loaded = self._ensure_loaded(grid)
+        except OperationCancelledError as e:
+            self._cancel_load(item, grid, str(e))
+            return
         status = (
             AutoLamellaTaskStatus.Completed if loaded else AutoLamellaTaskStatus.Failed
         )
@@ -261,14 +442,32 @@ class GridTaskManager(BaseTaskManager):
             ),
         )
 
+    def _cancel_load(self, item: WorkItem, grid: GridRecord, msg: str) -> None:
+        """A Stop landed inside the exchange: the queue item ends Cancelled, not
+        Failed, and the loop ends the run at its next check."""
+        logging.info(msg)
+        self.queue.mark_done(item, AutoLamellaTaskStatus.Cancelled)
+        self._emit_report(
+            item=item,
+            item_name=grid.name,
+            status=AutoLamellaTaskStatus.Cancelled,
+            msg=msg,
+        )
+
     def _ensure_loaded(self, grid: GridRecord) -> bool:
-        """Bring the grid into the beam, recording the attempt when it costs one.
+        """Bring the grid onto the stage, recording the attempt when it costs one.
 
         A grid already in a holder slot is confirmed, not exchanged, and leaves no
         entry: the second task on a grid is not a second load. An exchange, or a
         refusal, is recorded on the grid's history as a ``load`` entry with how
         long it took or why it did not happen. A failure is remembered for the
         rest of the run so the grid's other tasks skip without retrying it.
+
+        An exchange is two hardware calls, the unload and the load, and Stop is
+        honoured before each: a Stop that arrives while the working slot is being
+        emptied ends the run with the slot empty, rather than loading a grid the
+        operator has just asked not to have loaded. Raises
+        ``OperationCancelledError`` at either checkpoint, with the entry recorded.
         """
         if grid.name in self._not_loaded:
             return False
@@ -279,10 +478,24 @@ class GridTaskManager(BaseTaskManager):
             task_type=LOAD_TASK_TYPE,
             status=AutoLamellaTaskStatus.InProgress,
         )
-        if not loaded:
-            logging.info(f"Loading grid {grid.name}.")
-            self._say(status_bar=f"Loading grid {grid.name}...")
         try:
+            if not loaded:
+                self._stop_exchange_if_asked(
+                    grid, entry, f"Stopped before loading {grid.name}."
+                )
+                occupant = self._working_slot_occupant(stage)
+                if occupant is not None:
+                    logging.info(f"Unloading grid {occupant} for {grid.name}.")
+                    self._say(status_bar=f"Unloading grid {occupant}...")
+                    stage.unload()
+                    self._stop_exchange_if_asked(
+                        grid,
+                        entry,
+                        f"Stopped after unloading {occupant}; "
+                        f"{grid.name} was not loaded.",
+                    )
+                logging.info(f"Loading grid {grid.name}.")
+                self._say(status_bar=f"Loading grid {grid.name}...")
             slot = stage.ensure_loaded(grid.name)
         except GridExchangeError as e:
             self._not_loaded[grid.name] = str(e)
@@ -306,6 +519,29 @@ class GridTaskManager(BaseTaskManager):
                 f"Grid {grid.name} loaded into {slot.name} in {entry.duration:.1f} s."
             )
         return True
+
+    @staticmethod
+    def _working_slot_occupant(stage) -> Optional[str]:
+        """The name of the grid an exchange would have to retract first, or None.
+        Only a loader retracts anything; a fixed holder has nowhere to put it."""
+        if stage.loader is None:
+            return None
+        occupant = stage.loader.working_slot.loaded_grid
+        return occupant.name if occupant is not None else None
+
+    def _stop_exchange_if_asked(
+        self, grid: GridRecord, entry: AutoLamellaTaskState, msg: str
+    ) -> None:
+        """A checkpoint inside the exchange: record the entry and raise if Stop
+        has been asked for since the loop last looked."""
+        if not self.is_stopped:
+            return
+        entry.status = AutoLamellaTaskStatus.Cancelled
+        entry.status_message = msg
+        entry.end_timestamp = datetime.timestamp(datetime.now())
+        grid.task_history.append(entry)
+        self.experiment.save()
+        raise OperationCancelledError(msg)
 
     def _run_single_task(self, task_name: str, grid: GridRecord) -> Optional[Exception]:
         """Execute one task on one grid. Returns the exception, or None."""

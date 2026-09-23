@@ -10,10 +10,12 @@ These helpers are called from workflow tasks that need hardware and a GUI, so no
 imports them under test and a plain signature mismatch is invisible until an operator hits
 it mid-run. Checking the call sites statically costs nothing and catches the whole class.
 """
+
 from __future__ import annotations
 
 import ast
 import inspect
+import os
 from pathlib import Path
 from typing import List, Tuple
 
@@ -26,7 +28,8 @@ from fibsem.applications.autolamella.workflows import ui as workflow_ui
 _HELPERS = {
     name: obj
     for name, obj in vars(workflow_ui).items()
-    if inspect.isfunction(obj) and not name.startswith("_")
+    if inspect.isfunction(obj)
+    and not name.startswith("_")
     and obj.__module__ == workflow_ui.__name__
 }
 
@@ -39,7 +42,9 @@ def _call_sites() -> List[Tuple[Path, int, str, ast.Call]]:
     for path in sorted(_TASKS_DIR.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError:  # pragma: no cover - a broken file is another test's problem
+        except (
+            SyntaxError
+        ):  # pragma: no cover - a broken file is another test's problem
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -100,3 +105,69 @@ def test_call_site_matches_signature(path, lineno, name, call):
             f"{path.name}:{lineno} calls {name}({', '.join(sorted(kwargs))}) "
             f"but the signature is {name}{signature} — {exc}"
         )
+
+
+_WORKFLOWS_DIR = Path(workflow_ui.__file__).parent
+
+
+def test_update_detection_ui_keeps_the_signature_others_call_it_with():
+    """``update_detection_ui`` is called from code outside this repository, so
+    its parameters are a contract: their names, their order and which of them
+    may be left out. New behaviour goes in a second function beside it
+    (``review_detection_ui``), not into this one."""
+    parameters = inspect.signature(workflow_ui.update_detection_ui).parameters
+
+    assert list(parameters) == [
+        "microscope",
+        "image_settings",
+        "checkpoint",
+        "features",
+        "parent_ui",
+        "validate",
+        "msg",
+        "position",
+    ]
+    optional = {n for n, p in parameters.items() if p.default is not p.empty}
+    assert optional == {"parent_ui", "validate", "msg", "position"}
+    assert parameters["validate"].default is True
+    assert parameters["msg"].default == "Lamella"
+
+
+def _calls_to(name: str) -> List[Tuple[Path, int]]:
+    """Every call to a ``workflows.ui`` helper anywhere under ``workflows/`` --
+    the tasks, and the shared alignment helpers in ``core.py`` they call."""
+    calls = []
+    for path in sorted(_WORKFLOWS_DIR.rglob("*.py")):
+        if path == Path(workflow_ui.__file__):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _called_helper_name(node.func) == name:
+                calls.append((path, node.lineno))
+    return calls
+
+
+def test_which_tasks_ask_their_detections_on_the_record():
+    """Moving a task over changes where an operator answers a detection (the
+    Review tab, with the review preference on) so it is a decision made on
+    purpose, and it has to change this test. The undercut has moved: its
+    three detections go through ``AutoLamellaTask.detect``, and the two in
+    ``align_feature_coincident`` through the ``detect`` it is handed. The
+    only direct ``update_detection_ui`` calls left are the fallbacks for the
+    preference being off. ``review_detection_ui`` is the bridge for the
+    responder and has no caller in the workflow."""
+    direct = {
+        os.path.basename(str(path)) for path, _ in _calls_to("update_detection_ui")
+    }
+    assert direct == {"base.py", "core.py"}, direct
+    assert _calls_to("review_detection_ui") == []
+    undercut = Path(workflow_ui.__file__).parent / "tasks" / "undercut.py"
+    tree = ast.parse(undercut.read_text(encoding="utf-8"))
+    asks = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "detect"
+    ]
+    assert len(asks) == 2, "the per-undercut detection and the final one"

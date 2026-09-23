@@ -49,6 +49,7 @@ _QUESTION_LABELS = {
     "PickPOI": "point of interest",
     "EditAlignmentArea": "alignment area",
     "ConfirmDetection": "detection",
+    "ReviewDetection": "detection",
 }
 
 _ROW_STYLESHEET = (

@@ -99,6 +99,7 @@ from fibsem.ui.widgets.custom_widgets import (
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
+    from fibsem.fm.structures import FluorescenceConfiguration
     from fibsem.microscope import FibsemMicroscope
     from fibsem.milling.tasks import FibsemMillingTaskConfig
 
@@ -107,7 +108,7 @@ if TYPE_CHECKING:
 _BG = SURFACE_COLOR
 _HEADER_BG = CANVAS_BG
 
-# name used for the coincidence entry in the lamella review panel / task history
+# name used for the coincidence entry in the lamella History panel / task history
 COINCIDENCE_REVIEW_TASK_NAME = "Coincidence Milling"
 
 
@@ -1717,7 +1718,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self._timelapse_timestamps.append(now)
 
             n = len(self._timelapse_frames)
-            self.fm_canvas.set_timelapse_length(n)
+            self.fm_canvas.set_timelapse_length(n)  # the new frame is reachable
+            if self._is_scrubbing:
+                # The operator is looking at an earlier frame: the display path
+                # above already holds it, and the slider and label must describe
+                # it, not the frame that just arrived (FIB-968).
+                return
             # Advance slider to latest without triggering scrub (live display stays untouched)
             self.fm_canvas.time_slider.blockSignals(True)
             self.fm_canvas.time_slider.setValue(n - 1)

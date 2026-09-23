@@ -105,7 +105,7 @@ def test_run_summary_survives_the_post_run_dialog(ui, monkeypatch):
     shown = []
 
     class _Dialog:
-        def __init__(self, summary, parent=None):
+        def __init__(self, summary, note="", parent=None):
             shown.append(summary)
 
         def exec_(self):

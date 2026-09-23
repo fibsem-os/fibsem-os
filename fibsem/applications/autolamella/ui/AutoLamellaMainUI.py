@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import time
+from dataclasses import replace
 from typing import List, Optional, Tuple
 
 try:
@@ -42,9 +43,12 @@ from superqt import ensure_main_thread
 
 import fibsem
 import fibsem.config as fibsem_cfg
+from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskStatus,
     Experiment,
+    GridRecord,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
@@ -69,17 +73,24 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
+from fibsem.applications.autolamella.ui.review_tab_widget import (
+    ReviewTabWidget,
+    review_tab_icon,
+)
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     WorkflowPreflightDialog,
 )
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
+from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as GRID_LOAD_STEP,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.status import (
+    Hold,
+    HoldKind,
     WorkflowStatusEvent,
     WorkflowStatusUpdate,
 )
@@ -415,6 +426,13 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
     )
 
 
+def _attention_label(hold: Hold) -> str:
+    """The attention button's text for a hold the operator can release."""
+    if hold.kind is HoldKind.decision:
+        return f"Review Required ({len(hold.items)})"
+    return "Attention Required"
+
+
 class AutoLamellaSingleWindowUI(QMainWindow):
     """Main window for AutoLamella UI.
 
@@ -649,7 +667,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_generate_overview_plot.triggered.connect(
             self._on_generate_overview_plot
         )
+        # The grid screening report (FIB-1057): shown with the Grids tab, by the
+        # same flag, since it reports what that tab holds.
+        self.action_generate_grid_report = QAction(
+            "Generate Grid Screening Report", self
+        )
+        self.action_generate_grid_report.setToolTip(
+            "Write a PDF of every grid's overviews and verdicts under the "
+            "experiment folder, and open it"
+        )
+        self.action_generate_grid_report.triggered.connect(
+            self._on_generate_grid_report
+        )
         reporting_menu.addAction(self.action_generate_report)
+        reporting_menu.addAction(self.action_generate_grid_report)
         reporting_menu.addAction(self.action_generate_overview_plot)
 
         # user scripts (FIB-338). The menu itself is application-agnostic; this
@@ -974,6 +1005,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # tab is not here: it ships to everyone, and which of its modalities can be
         # reached follows the instrument rather than a flag.
         self._apply_grid_workflow_visibility()
+        self._apply_review_visibility()
         # Same rule as the rest of the agent chrome: invisible unless enabled.
         self.action_agent_server.setVisible(
             self._preferences.features.agent_server_enabled
@@ -1253,6 +1285,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.autolamella_ui is not None:
             self.autolamella_ui.action_generate_report()
 
+    def _on_generate_grid_report(self):
+        """Tools → Reporting → Generate Grid Screening Report.
+
+        The Grids tab does the writing and says how it went on its strip, so the
+        window shows that tab first; a refusal that needs no tab is a toast.
+        """
+        tab = getattr(self, "grids_tab", None)
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        if tab is None or experiment is None:
+            self.show_toast("Open an experiment to report on.", "warning")
+            return
+        if not experiment.grids:
+            self.show_toast(
+                "No grids in this experiment. Run inventory on the Grids tab first.",
+                "warning",
+            )
+            return
+        self.tab_widget.setCurrentWidget(tab)
+        tab.generate_report()
+
     def _on_generate_overview_plot(self):
         """Handle Generate Overview Plot action."""
         if self.autolamella_ui is not None:
@@ -1487,7 +1539,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_watchdog = QTimer(self)
         self._agent_watchdog.setSingleShot(True)
         self._agent_watchdog.timeout.connect(self._on_agent_watchdog_expired)
-        self._agent_watchdog_expired = False
         # The companion check: while a question parks on the agent's clock,
         # confirm someone is actually on the other end (the agent's token is
         # heard from continuously while it watches). An agent that dies
@@ -1539,9 +1590,78 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.stop_task_workflow()
             self._set_border_state("stopping")
 
+    def _listen_for_questions(self, experiment) -> None:
+        """A question a task asks mid-run (``AutoLamellaTask.ask``) is answered
+        in the Review tab, so the tab is fronted when one is recorded. One
+        subscription per experiment; the previous experiment's is dropped."""
+        previous = getattr(self, "_asked_experiment", None)
+        if previous is experiment:
+            return
+        if previous is not None:
+            try:
+                previous.asked.disconnect(self._on_question_asked)
+                previous.decided.disconnect(self._on_question_decided)
+            except Exception:
+                pass
+        self._asked_experiment = experiment
+        if experiment is not None:
+            experiment.asked.connect(self._on_question_asked)
+            experiment.decided.connect(self._on_question_decided)
+
+    def _on_question_asked(self, item_id: str, task_name: str) -> None:
+        """Put a question a task just asked in front of the operator, where
+        its kind is answered: a state on the prompt bar of the Microscope tab
+        (the operator is at the instrument, and confirming needs no image);
+        anything else in the Review tab, which is fronted."""
+        review_tab = getattr(self, "review_tab", None)
+        experiment = getattr(self, "_asked_experiment", None)
+        if review_tab is None or experiment is None:
+            return
+        item = experiment.get_item_by_id(item_id)
+        proposal = item.proposal(task_name) if item is not None else None
+        if proposal is None or not proposal.asking:
+            return
+        if proposal.kind == STATE:
+            self.autolamella_ui.show_state_question(item_id, task_name, proposal)
+            return
+        self.tab_widget.setCurrentWidget(review_tab)
+        review_tab.select(item_id, task_name)
+
+    def _on_question_decided(self, item_id: str, task_name: str) -> None:
+        """However a state question was answered -- the prompt bar, the Review
+        tab, an agent, or withdrawn by Stop -- the prompt comes down."""
+        self.autolamella_ui.clear_state_question(item_id, task_name)
+
     def _on_user_attention_clicked(self):
-        """Handle user attention button click - switch to Microscope tab."""
+        """Handle user attention button click - switch to Microscope tab, or to
+        the Review tab when what is waiting is a decision rather than a question.
+
+        A question asked on a tab of its own -- a detection, a mill -- is not on
+        the Microscope tab, so landing there leaves the operator looking for a
+        prompt that is somewhere else. This is the way back to it.
+
+        The destination comes from the question, never from the hold's kind.
+        ``HoldKind.question`` covers both a prompt answered here and one
+        answered on a tab of its own, and once an in-run review is answered in
+        the Review tab (FIB-1025) it will cover that too -- so the kind says
+        only that something holds the run, and the pending request says where.
+        """
+        hold = self.autolamella_ui.hold
+        review_tab = getattr(self, "review_tab", None)
+        if (
+            hold is not None
+            and hold.kind is HoldKind.decision
+            and review_tab is not None
+        ):
+            self.tab_widget.setCurrentWidget(review_tab)
+            return
+        host = self.autolamella_ui.ui_responder.question_host()
+        if host is not None and self.tab_widget.indexOf(host) != -1:
+            # A question answered on one of this window's own tabs.
+            self.tab_widget.setCurrentWidget(host)
+            return
         self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
+        self.autolamella_ui.front_question()
 
     def _on_run_workflow_clicked(self):
         """Run the workflow using the lamella and task selections from the workflow widget."""
@@ -1570,6 +1690,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = [t.name for t in selected_tasks]
         lamella_names = [lam.name for lam in selected_lamella]
 
+        # Before the estimate and the confirmation: a linked lamella whose grid
+        # is in the magazine cannot be run at all, and there is no override.
+        refused = self._lamella_run_refusal(selected_lamella)
+        if refused:
+            QMessageBox.warning(self, "Cannot run", refused)
+            return
+
         if not confirm_run_workflow_dialog(
             ui.experiment, lamella_names, task_names, parent=self
         ):
@@ -1590,6 +1717,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_workflow_widget.lamella_list.set_all_selected(False)
         self.lamella_workflow_widget.workflow.set_all_selected(False)
 
+    def _lamella_run_refusal(self, lamellae) -> str:
+        """Why these lamellae cannot run now, or "": a lamella linked to a grid
+        that is not on the stage. Reads the inventory first; see `grid_gate`."""
+        ui = self.autolamella_ui
+        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        if ui is None or ui.experiment is None or stage is None:
+            return ""
+        return run_refusal(ui.experiment, stage, lamellae)
+
     def _grid_workflow_active(self) -> bool:
         """Whether the Workflow tab's Grids view is the one showing: Run acts on it."""
         left = getattr(self, "workflow_left_tabs", None)
@@ -1609,6 +1745,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             grid_names,
             self.grid_workflow_widget.exchanges_for(grids),
             str(ui.experiment.path),
+            beams_off=self._beams_off(),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -1632,11 +1769,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.grid_workflow_widget.exchanges_for(list(ui.experiment.grids)),
             str(ui.experiment.path),
             screen_all=True,
+            beams_off=self._beams_off(),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
         self._start_grid_run(task_names, None, inventory_first=True)
+
+    def _beams_off(self) -> list:
+        """The beams that are off now, which the run will turn on: the preflight
+        says so. A read at the click, about to commit to a run: the one time the
+        GUI asks the hardware."""
+        microscope = getattr(self.autolamella_ui, "microscope", None)
+        if microscope is None:
+            return []
+        off = []
+        for beam in (BeamType.ELECTRON, BeamType.ION):
+            try:
+                if not microscope.is_on(beam):
+                    off.append(beam)
+            except Exception as e:  # noqa: BLE001 - unknown is not "off"
+                logging.warning(
+                    f"Could not read whether the {beam.name} beam is on: {e}"
+                )
+        return off
 
     def _start_grid_run(
         self, task_names: list, grid_names, inventory_first: bool
@@ -1648,8 +1804,31 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ui._start_run_grid_workflow_thread(task_names, grid_names, inventory_first)
         self.set_workflow_running()
 
+    def _run_refuses_selection(self) -> str:
+        """Why the left panel's selection cannot join the running queue, or "".
+
+        A run has one manager, lamella or grid, and the Add button commits
+        whichever view is in front. A grid selection has nothing to join while
+        a lamella run is going, and the other way round; the button says so
+        rather than offering an add that the handler would refuse.
+        """
+        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+            GridTaskManager,
+        )
+
+        manager = getattr(self.autolamella_ui, "_task_manager", None)
+        if manager is None:
+            return ""
+        grid_run = isinstance(manager, GridTaskManager)
+        if self._grid_workflow_active() and not grid_run:
+            return "A lamella run is going; grid tasks cannot join it"
+        if not self._grid_workflow_active() and grid_run:
+            return "A grid run is going; lamella tasks cannot join it"
+        return ""
+
     def _on_workflow_selection_changed(self, _=None) -> None:
         """Enable the run button only when at least one lamella and one task are selected."""
+        refused = self._run_refuses_selection()
         if self._grid_workflow_active():
             n_grid = len(self.grid_workflow_widget.get_selected_grids())
             n_task = len(self.grid_workflow_widget.get_selected_task_names())
@@ -1663,12 +1842,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
             if hasattr(self, "workflow_timeline"):
                 self.workflow_timeline.set_add_enabled(
-                    valid,
-                    f"Add to the end of the queue: {n_grid} grid"
-                    f"{'s' if n_grid != 1 else ''}, {n_task} task"
-                    f"{'s' if n_task != 1 else ''}"
-                    if valid
-                    else "Select a present grid and a task to add to the queue",
+                    valid and not refused,
+                    refused
+                    or (
+                        f"Add to the end of the queue: {n_grid} grid"
+                        f"{'s' if n_grid != 1 else ''}, {n_task} task"
+                        f"{'s' if n_task != 1 else ''}"
+                        if valid
+                        else "Select a present grid and a task to add to the queue"
+                    ),
                 )
             return
         n_lam = len(self.lamella_workflow_widget.get_selected_lamella())
@@ -1699,7 +1881,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 )
             else:
                 tip = f"Select {' and '.join(missing)} to add to the queue"
-            self.workflow_timeline.set_add_enabled(valid, tip)
+            self.workflow_timeline.set_add_enabled(
+                valid and not refused, refused or tip
+            )
 
     def set_workflow_running(self, message: str | None = None):
         """Show stop button and update status message."""
@@ -1720,6 +1904,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # on with it — and go off again in hide_workflow_running.
         if hasattr(self, "workflow_timeline"):
             self.workflow_timeline.set_actions_enabled(True)
+            # Whether the front view's selection can join this run depends on
+            # which kind of run it is, so the Add button is re-read now.
+            self._on_workflow_selection_changed()
 
     def hide_workflow_running(self):
         """Hide the stop button and show run button."""
@@ -1895,7 +2082,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         for task in protocol.workflow_config.tasks:
             if task.name == self._current_task_name:
-                task.supervise = not task.supervise
+                task.attention = (
+                    Attention.automated
+                    if task.attention is Attention.supervised
+                    else Attention.supervised
+                )
                 break
         self._update_supervised_status()
         if self.autolamella_ui.is_workflow_running:
@@ -2174,6 +2365,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.add_lamella_editor_tab()
         self.add_grids_tab()
         self.add_workflow_tab()
+        self.add_review_tab()
         self._apply_grid_workflow_visibility()
 
         # add notification button to tab bar
@@ -2193,7 +2385,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_widget.set_experiment()
         self.grids_tab.set_experiment(self.autolamella_ui.experiment)
         self.grid_workflow_widget.set_experiment(self.autolamella_ui.experiment)
+        self.review_tab.set_experiment(self.autolamella_ui.experiment)
+        self.review_tab.set_microscope(self.autolamella_ui.microscope)
         experiment = self.autolamella_ui.experiment
+        self._listen_for_questions(experiment)
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
             self.lamella_workflow_widget.set_workflow_config(
@@ -2507,7 +2702,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # ── Right: sub-tab widget ──────────────────────────────────────────
         right_tabs = QTabWidget()
 
-        # Review tab
+        # History tab: what was done to this lamella, task by task, with each
+        # task's images. Not "Review": that is the main tab where decisions
+        # are made, and one thing in the window is called that.
         self.lamella_task_image_widget = LamellaTaskImageWidget()
 
         # Protocol tab: matplotlib canvas (left) + editor (right). The editor owns its
@@ -2531,7 +2728,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         protocol_splitter.setSizes([700, 550])
 
         right_tabs.addTab(protocol_splitter, "Protocol")
-        right_tabs.addTab(self.lamella_task_image_widget, "Review")
+        right_tabs.addTab(self.lamella_task_image_widget, "History")
 
         outer_splitter.addWidget(right_tabs)
         outer_splitter.setStretchFactor(1, 1)
@@ -2556,6 +2753,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         until the screening flow has run on the Arctis and a fixed holder.
         """
         self.grids_tab = GridsTabWidget()
+        # The Positions view makes lamellae through the application widget, the
+        # one path every lamella is made by.
+        self.grids_tab.set_autolamella_ui(self.autolamella_ui)
         # Fires on disconnect too, with microscope None; the tab redraws its chips
         # from whatever stage there is.
         self.autolamella_ui.system_widget.connected_signal.connect(
@@ -2569,12 +2769,108 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(self.grids_tab), False)
         self._apply_grid_workflow_visibility()
 
+    def add_review_tab(self):
+        """The Review tab: every proposal waiting for a decision (FIB-950).
+
+        Behind `features.proposer_reviewer_workflow_enabled`, visibility only,
+        like the Grids tab. The inbox is derived from the experiment on every
+        refresh, so the tab holds no state a decision could be lost in.
+        """
+        self.review_tab = ReviewTabWidget()
+        self.review_tab.counts_changed.connect(self._on_reviews_counts_changed)
+        self.review_tab.decided.connect(self._on_review_decided)
+        self.review_tab.open_item_requested.connect(self._on_review_open_item)
+        self.tab_widget.addTab(self.review_tab, review_tab_icon(), "Review")
+        self._apply_review_visibility()
+
+    def _apply_review_visibility(self) -> None:
+        enabled = self._preferences.features.proposer_reviewer_workflow_enabled
+        tab = getattr(self, "review_tab", None)
+        if tab is not None:
+            self.tab_widget.setTabVisible(self.tab_widget.indexOf(tab), enabled)
+        workflow = getattr(self, "lamella_workflow_widget", None)
+        if workflow is not None:
+            workflow.workflow.enable_review_button(enabled)
+
+    def _on_reviews_counts_changed(self, waiting: int, to_check: int) -> None:
+        """The tab badge carries both counts; only ``waiting`` means the run is
+        stalled on someone, and the orange border follows the manager, not
+        this badge, so a pile of things to check never looks like a stall."""
+        tab = getattr(self, "review_tab", None)
+        if tab is None:
+            return
+        index = self.tab_widget.indexOf(tab)
+        parts = []
+        if waiting:
+            parts.append(str(waiting))
+        if to_check:
+            parts.append(f"{to_check} to check")
+        self.tab_widget.setTabText(
+            index, f"Review ({' · '.join(parts)})" if parts else "Review"
+        )
+        self.tab_widget.setTabToolTip(
+            index,
+            f"{waiting} waiting for a decision, {to_check} applied and not yet checked",
+        )
+
+    def _on_review_open_item(self, item) -> None:
+        """Go to lamella, or grid: select it where it is looked after. Editing
+        is not a review action, so the Review tab hands over rather than
+        growing one."""
+        if isinstance(item, GridRecord):
+            grids = getattr(self, "grids_tab", None)
+            if grids is not None:
+                self.tab_widget.setCurrentWidget(grids)
+                # Positions, not wherever the tab was left: every grid review
+                # is about an overview, and placing on one is the thing a
+                # reviewer comes here to do -- an automated overview's row
+                # sends them here for exactly that.
+                grids.show_positions(item)
+            return
+        container = getattr(self, "_lamella_tab_container", None)
+        cards = getattr(self, "lamella_card_container", None)
+        if container is None or cards is None or item is None:
+            return
+        self.tab_widget.setCurrentWidget(container)
+        cards.select_lamella(item.name)
+        self._on_lamella_card_selected(item)
+
+    def _on_review_decided(self, _item_id: str, _task_name: str) -> None:
+        # The decision wrote through to the lamella (its point, its patterns,
+        # or its verdict); everything that shows a lamella redraws.
+        self.lamella_list_widget.refresh_all()
+        self.lamella_widget.set_experiment()
+
     def _refresh_grid_protocol_editor(self) -> None:
         """The task order changed on the Workflow tab: the Protocol tab's grid
         list follows. Guarded: the editor builds lazily on the first connect."""
         grid_protocol = getattr(self.task_widget, "grid_protocol", None)
         if grid_protocol is not None:
             grid_protocol.refresh()
+
+    def _record_inventoried_grids(self) -> None:
+        """A record for every grid the inventory lists and the experiment does not.
+
+        The Sample view's inventory updated the loader and nothing else, so the
+        Grids tab and the Workflow grid list stayed empty until the Grids tab's
+        own refresh was pressed. Reads the stage's cached inventory: no hardware.
+        """
+        ui = self.autolamella_ui
+        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        if ui is None or ui.experiment is None or stage is None:
+            return
+        try:
+            added = ui.experiment.sync_grids_from_inventory(stage)
+        except Exception as e:  # noqa: BLE001 - the inventory still shows
+            logging.warning(f"Could not record the inventoried grids: {e}")
+            return
+        if not added:
+            return
+        logging.info(f"Recorded {len(added)} grid(s) from the inventory.")
+        try:
+            ui.experiment.save()
+        except Exception as e:  # noqa: BLE001 - recorded; saved next time
+            logging.warning(f"Could not save the experiment: {e}")
 
     def _refresh_grids_tab_microscope(self):
         if getattr(self, "grids_tab", None) is None or self.autolamella_ui is None:
@@ -2587,14 +2883,57 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         sample = getattr(self.autolamella_ui, "sample_widget", None)
         loader = getattr(sample, "loader_widget", None)
         if loader is not None:
+            # Records first: an inventory read there lists grids the experiment
+            # has no record of, and the refreshes below draw from the records.
+            loader.loader_changed.connect(self._record_inventoried_grids)
             loader.loader_changed.connect(self.grids_tab.refresh)
             loader.loader_changed.connect(self.grid_workflow_widget.refresh)
+            loader.loader_changed.connect(self._refresh_grid_context)
+        self._refresh_grid_context()
         # Calibrating a slot from the Sample view changes what the Overview
         # tabs should draw by default; they re-resolve rather than wait for a
         # reconnect.
         holder_panel = getattr(sample, "holder_widget", None)
         if holder_panel is not None:
             holder_panel.holder_changed.connect(self._on_holder_changed)
+
+    def _grid_context(self):
+        """`GridRecord.id -> (name, on the stage)` for the lamella displays,
+        from the experiment's records and what the stage already knows. No
+        hardware call: the stage answers from its last read."""
+        experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
+        if experiment is None or not experiment.grids:
+            return None
+        loaded = set()
+        stage = getattr(self.autolamella_ui.microscope, "_stage", None)
+        if stage is not None:
+            try:
+                loaded = {e.name for e in stage.grid_inventory() if e.loaded}
+            except Exception as e:  # noqa: BLE001 - drawn as "not on the stage"
+                logging.debug(f"Could not read the grid inventory: {e}")
+        return {g.id: (g.name, g.name in loaded) for g in experiment.grids}
+
+    def _refresh_grid_context(self, *_args) -> None:
+        """Push the grid context to every lamella display. Called on every
+        load, unload and exchange, and on every list rebuild."""
+        context = self._grid_context()
+        for widget in (
+            getattr(self, "lamella_card_container", None),
+            getattr(self, "lamella_list_widget", None),
+            getattr(self.autolamella_ui, "lamella_list", None),
+        ):
+            if widget is not None:
+                widget.set_grid_context(context)
+        # The Overview canvases mark only the lamellae on the stage, so what
+        # they draw changes with every load and unload too.
+        self._refresh_overview_positions()
+
+    def _refresh_sample_view(self) -> None:
+        """Redraw Microscope → Sample from the stage. Looked up each time: the
+        Sample view is rebuilt on every connect."""
+        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        if sample is not None:
+            sample.refresh()
 
     def _on_holder_changed(self, _holder) -> None:
         for tab in (
@@ -2614,6 +2953,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         tab = getattr(self, "grids_tab", None)
         if tab is not None:
             self.tab_widget.setTabVisible(self.tab_widget.indexOf(tab), enabled)
+        action = getattr(self, "action_generate_grid_report", None)
+        if action is not None:
+            action.setVisible(enabled)
         left = getattr(self, "workflow_left_tabs", None)
         view = getattr(self, "grid_workflow_widget", None)
         if left is not None and view is not None:
@@ -2621,6 +2963,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # With the flag off the selector has one page; a tab bar with a lone
             # "Lamella" tab is chrome the lamella workflow never had.
             left.tabBar().setVisible(enabled)
+            # And with it showing, the list's own "Lamella" title says the same
+            # thing twice.
+            self.lamella_workflow_widget.set_section_title_visible(not enabled)
         editor = getattr(self, "task_widget", None)
         if editor is not None:
             editor.set_grid_protocol_visible(enabled)
@@ -2653,7 +2998,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_list_widget = self.lamella_workflow_widget.lamella_list
 
         # Workflow task signals — each change persists the updated config to disk
-        self.lamella_workflow_widget.task_supervised_changed.connect(
+        self.lamella_workflow_widget.task_attention_changed.connect(
             self._save_workflow_config
         )
         self.lamella_workflow_widget.task_edited.connect(self._save_workflow_config)
@@ -2714,6 +3059,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # An inventory, a rename, a manual load on the Grids tab: the run view's
         # rows and chips follow. Built after the Grids tab, so the signal exists.
         self.grids_tab.experiment_changed.connect(self.grid_workflow_widget.refresh)
+        # And the Sample view: a load or unload from a card changes what is on
+        # the stage, and that view draws from the stage without polling it.
+        self.grids_tab.experiment_changed.connect(self._refresh_sample_view)
+        # And the lamella lists: their grid chips say whether each lamella's
+        # grid is on the stage.
+        self.grids_tab.experiment_changed.connect(self._refresh_grid_context)
         self.workflow_left_tabs.currentChanged.connect(
             self._on_workflow_selection_changed
         )
@@ -2811,6 +3162,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._show_queue_message(
                 "Select at least one lamella and one task to add to the queue."
             )
+            return
+
+        refused = self._lamella_run_refusal(lamellae)
+        if refused:
+            QMessageBox.warning(self, "Cannot add to the queue", refused)
             return
 
         lamella_names = [lam.name for lam in lamellae]
@@ -3169,6 +3525,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         if event.report is not None:
             self._apply_status_report(event.report)
+            # A task finishing may have left a proposal; the inbox re-derives.
+            review_tab = getattr(self, "review_tab", None)
+            if review_tab is not None:
+                review_tab.set_running(self.autolamella_ui.is_workflow_running)
+                review_tab.refresh()
 
         if self.autolamella_ui is None:
             return
@@ -3242,11 +3603,28 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_list_widget.refresh_lamella(lamella)
             self.lamella_card_container.refresh_lamella(lamella)
             self.autolamella_ui.lamella_list.refresh_lamella(lamella)
+            # The Overview pages' lists carry the same status column; without
+            # this they sat stale for the whole run (FIB-995).
+            for lamella_list in self._overview_lamella_lists():
+                lamella_list.refresh_lamella(lamella)
         else:
             self.lamella_list_widget.refresh_all()
             self.lamella_card_container.refresh_all()
             self.autolamella_ui.lamella_list.refresh_all()
+            for lamella_list in self._overview_lamella_lists():
+                lamella_list.refresh_all()
         self._on_lamella_card_selected(getattr(self, "_selected_card_lamella", None))
+
+    def _overview_lamella_lists(self):
+        """The lamella list beside each Overview page, whichever pages exist."""
+        return [
+            tab.lamella_list
+            for tab in (
+                getattr(self, "beam_overview_tab", None),
+                getattr(self, "fm_overview_tab", None),
+            )
+            if tab is not None and getattr(tab, "lamella_list", None) is not None
+        ]
 
     def _on_agent_server_dialog(self) -> None:
         """Open the session dialog: status, token, and scope arming."""
@@ -3287,15 +3665,25 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_question_event(self, kind: str, payload: dict) -> None:
         """GUI thread, from the responder: arm/disarm the agent watchdog."""
+        ui = self.autolamella_ui
         if kind == "prompt_raised":
-            self._agent_watchdog_expired = False
-            if self._agent_supervision_active(self._current_task_name):
+            hold = ui.hold
+            if hold is not None and self._agent_supervision_active(
+                self._current_task_name
+            ):
+                # The question is the agent's: re-address the hold, and start
+                # the clock that hands it to the operator if the agent goes
+                # quiet. Not for an agent that isn't there.
                 if self._agent_presumed_gone():
-                    # Don't park a question for an agent that isn't there.
                     self._hand_question_to_operator(
                         "The agent hasn't been in touch — this question is yours."
                     )
                     return
+                ui.hold = replace(
+                    hold,
+                    kind=HoldKind.agent,
+                    releases="the agent answers the question, or it comes to you",
+                )
                 self._agent_watchdog.start(self._watchdog_ms())
                 self._agent_liveness_check.start()
             else:
@@ -3304,7 +3692,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         elif kind in ("prompt_answered", "prompt_cancelled"):
             self._agent_watchdog.stop()
             self._agent_liveness_check.stop()
-            self._agent_watchdog_expired = False
         self._refresh_workflow_indicators()
 
     def _on_agent_watchdog_expired(self) -> None:
@@ -3329,12 +3716,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         and the first writer still wins."""
         self._agent_watchdog.stop()
         self._agent_liveness_check.stop()
-        if not self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
+        hold = self.autolamella_ui.hold
+        if hold is None:
             return  # the answer raced the escalation; nothing is standing
-        self._agent_watchdog_expired = True
+        self.autolamella_ui.hold = replace(
+            hold,
+            kind=HoldKind.question,
+            releases="answer the question on the Microscope tab",
+        )
         notification_service.show_toast(message, "warning")
         # The ordinary waiting chrome (orange border, attention button, sound)
-        # takes over below, now that agent_holding no longer suppresses it.
+        # takes over below, now that the hold is the operator's.
         self._refresh_workflow_indicators()
 
     def _refresh_workflow_indicators(self) -> None:
@@ -3342,22 +3734,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # refresh the supervised status chip
         self._update_supervised_status()
 
-        waiting = self.autolamella_ui.WAITING_FOR_USER_INTERACTION
+        hold = self.autolamella_ui.hold
+        # The timeline freezes its countdown on a hold: a wait for an answer or
+        # a decision is not machine time whoever is giving it, and left running
+        # it would spend the estimate while nothing is happening.
+        self.workflow_timeline.set_waiting_for_user(hold is not None)
         # A question addressed to a running agent is not (yet) a wait for the
         # operator: the chrome stays agent-purple and quiet while the watchdog
-        # counts down. Expiry — or a human-designated question — is what turns
-        # this into the ordinary waiting state.
-        agent_holding = (
-            waiting
-            and not self._agent_watchdog_expired
-            and self._agent_supervision_active(self._current_task_name)
-        )
-        # The timeline freezes its countdown on this: a wait for an answer is not
-        # machine time whoever is answering, and left running it would spend the
-        # estimate while nothing is happening.
-        self.workflow_timeline.set_waiting_for_user(waiting)
-        if waiting and not agent_holding:
-            # Show user attention button and change status bar color
+        # counts down. Expiry -- or a human-designated question -- is what
+        # turns it into the ordinary waiting state. A run parked on review
+        # decisions is a wait for the operator too, just not at the beam: same
+        # chrome, but the button leads to the Review tab.
+        if hold is not None and hold.kind is not HoldKind.agent:
+            self.user_attention_btn.setText(_attention_label(hold))
+            self.user_attention_btn.setToolTip(
+                f"The run is waiting on you: {hold.releases}."
+            )
             self.user_attention_btn.show()
             # Play notification sound once when entering waiting state
             if not self._user_interaction_sound_played and self._sound_enabled:
@@ -3371,10 +3763,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Update border to reflect current workflow state
         if self._border_state == "stopping":
             pass  # Keep the red border until the workflow finishes unwinding
-        elif waiting and agent_holding:
-            self._set_border_state("agent")
-        elif waiting:
-            self._set_border_state("waiting")
+        elif hold is not None:
+            self._set_border_state(
+                "agent" if hold.kind is HoldKind.agent else "waiting"
+            )
         elif self.autolamella_ui.WORKFLOW_PENDING:
             self._set_border_state("pending")
         elif self.autolamella_ui.is_workflow_running:
@@ -3387,9 +3779,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if not hasattr(self, "lamella_list_widget"):
             return
         experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
-        self.lamella_list_widget.clear()
+        # The ticks and the selected card are the operator's, and this runs on every
+        # insert or removal: rebuild around them rather than through them (FIB-966).
+        selected = getattr(self, "_selected_card_lamella", None)
         self.lamella_card_container.clear()
-        self._on_lamella_card_selected(None)
         # The overview canvases are further displays of the same set, so they are
         # rebuilt here rather than from subscriptions of their own -- one handler for
         # "the lamellae changed" means the displays cannot end up disagreeing about what
@@ -3398,10 +3791,24 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # fill them.
         self._refresh_overview_positions()
         if experiment is None:
+            self.lamella_list_widget.clear()
+            self._on_lamella_card_selected(None)
             return
+        self._refresh_grid_context()
+        self.lamella_list_widget.set_lamellae(list(experiment.positions))
         for lamella in experiment.positions:
-            self.lamella_list_widget.add_lamella(lamella)
             self.lamella_card_container.add_lamella(lamella)
+        still_there = next(
+            (
+                lamella
+                for lamella in experiment.positions
+                if selected is not None and lamella.id == selected.id
+            ),
+            None,
+        )
+        if still_there is not None:
+            self.lamella_card_container.select_lamella(still_there.name)
+        self._on_lamella_card_selected(still_there)
         self._on_workflow_selection_changed()
         self._update_lamella_tab_enabled()
 
@@ -3495,6 +3902,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             sample.refresh()
         self.user_attention_btn.hide()
         self.lamella_list_widget.refresh_all()
+        review_tab = getattr(self, "review_tab", None)
+        if review_tab is not None:
+            review_tab.set_running(False)
+            review_tab.refresh()
         self.lamella_card_container.refresh_all()
         if self.status_bar is not None:
             self.status_bar.showMessage("Workflow: Finished")

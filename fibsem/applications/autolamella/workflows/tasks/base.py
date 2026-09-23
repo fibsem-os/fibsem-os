@@ -5,6 +5,7 @@ import glob
 import logging
 import os
 import random
+import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -13,10 +14,14 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from typing import (
     TYPE_CHECKING,
+    Any,
+    Callable,
     ClassVar,
+    Dict,
     List,
     Literal,
     Optional,
+    Sequence,
     Tuple,
     Type,
     TypeVar,
@@ -27,6 +32,19 @@ import numpy as np
 
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
+from fibsem.acting import TASK, acting
+from fibsem.applications.autolamella.proposals import (
+    ALIGNMENT_AREA,
+    DETECTION,
+    PROPOSAL_KINDS,
+    TASK_RESULT,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+    Proposer,
+    TaskResultProposer,
+    human_author,
+)
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -36,6 +54,8 @@ from fibsem.applications.autolamella.protocol.constants import (
     UNDERCUT_KEY,
 )
 from fibsem.applications.autolamella.structures import (
+    EXPERIMENT_WRITE_LOCK,
+    Attention,
     AutoLamellaTaskConfig,
     AutoLamellaTaskState,
     AutoLamellaTaskStatus,
@@ -57,6 +77,17 @@ from fibsem.applications.autolamella.workflows.interaction import (
     SetMillingConfig,
     ask,
 )
+from fibsem.applications.autolamella.workflows.question_adapters import (
+    decided_features,
+    detection_image_file,
+    detection_provenance,
+    detection_values,
+    record_training_data,
+)
+from fibsem.applications.autolamella.workflows.tasks.proposing import (
+    LAMELLA_RESULT_IMAGES,
+    settle,
+)
 from fibsem.applications.autolamella.workflows.ui import (
     INSTRUCTION_TIMEOUT_S,
     _abort_requested,
@@ -64,7 +95,9 @@ from fibsem.applications.autolamella.workflows.ui import (
     update_alignment_area_ui,
 )
 from fibsem.cancellation import OperationCancelledError
+from fibsem.detection import detection as detection_module
 from fibsem.detection.detection import (
+    DetectedFeatures,
     Feature,
     LamellaBottomEdge,
     LamellaCentre,
@@ -105,6 +138,40 @@ class AutoLamellaTask(ABC):
 
     config_cls: ClassVar[AutoLamellaTaskConfig]
     config: AutoLamellaTaskConfig
+    # What this task type proposes, for the Review tab: a property of the type,
+    # declared here, never a protocol choice, and independent of the mode it
+    # runs in. The default proposes the task's result ("here is what I did,
+    # look"), which every shipped task has; a task whose output is a value
+    # someone might change swaps in a proposer for that kind (Setup proposes
+    # the milling position); None only for a type with nothing to look at, so
+    # that a Review chip on its row is never a silent no-op. A run records
+    # outputs (files, by role); a task proposes a kind, through its proposer.
+    proposer: ClassVar[Optional[Proposer]] = TaskResultProposer()
+    # What this task type asks *while it runs*, as proposal kinds: the values
+    # it needs answered before its next line (a detection, then the stage
+    # move that follows it). The proposer is what it leaves for afterwards;
+    # this is what it needs now. Declared on the type, like the proposer, so
+    # what needs a person present is known before the run. ``ask`` refuses a
+    # kind that is not here.
+    questions: ClassVar[Tuple[str, ...]] = ()
+    # Work done at the microscope with the tools, then Continue: a mill, a
+    # spot burn. Declared so the same line can say the task needs someone
+    # there; not asked through ``ask`` and not yet recorded.
+    sessions: ClassVar[Tuple[str, ...]] = ()
+    # Which recorded output roles are the result images a proposal points at,
+    # by provenance key; the last file under each role is the one shown.
+    result_images: ClassVar[Dict[str, str]] = LAMELLA_RESULT_IMAGES
+
+    @classmethod
+    def questions_for(cls, config: AutoLamellaTaskConfig) -> Tuple[str, ...]:
+        """The kinds this task asks under ``config``: a setting may turn one
+        off (Setup's ``select_poi``). By default, everything declared."""
+        return cls.questions
+
+    @classmethod
+    def sessions_for(cls, config: AutoLamellaTaskConfig) -> Tuple[str, ...]:
+        """The sessions this task runs under ``config``; by default, all."""
+        return cls.sessions
 
     def __init__(
         self,
@@ -124,6 +191,10 @@ class AutoLamellaTask(ABC):
         # the manager's to decide, and a task should not have to know.
         self._stop_event = task_manager.abort_token if task_manager else None
         self._last_fib_image: Optional[FibsemImage] = None
+        # A decision the task took in its own run -- the operator's inline
+        # answer to a supervised question -- recorded on the proposal once it
+        # is made, after the run, through Experiment.decide like every other.
+        self.inline_decision: Optional[Decision] = None
 
     @property
     def task_type(self) -> str:
@@ -145,6 +216,41 @@ class AutoLamellaTask(ABC):
         """Return whether the task should be validated by the user."""
         return get_task_supervision(self.task_name, self.parent_ui)
 
+    @property
+    def review(self) -> bool:
+        """Whether a person decides this task's record: the task is Supervised
+        and the review preference is on (read once per run by the manager,
+        through it rather than the UI so a headless run behaves the same).
+        Then a result the operator did not decide in the workflow -- a
+        milling session's Continue, Setup's point -- leaves the task
+        AwaitingDecision, and the decision in the Review tab finishes it.
+        Otherwise the producer decides its own record. The record is made
+        either way: the preference hides the Review surface, not the
+        record."""
+        manager = self.task_manager
+        if manager is None or not getattr(manager, "review_enabled", False):
+            return False
+        protocol = getattr(manager.experiment, "task_protocol", None)
+        if protocol is None:
+            return False
+        return protocol.get_attention(self.task_name) is Attention.supervised
+
+    def _settle(self, failure: str = "") -> None:
+        """Propose this run's result on the lamella and decide it; see
+        ``proposing.settle``."""
+        settle(
+            self,
+            self.lamella,
+            proposer=type(self).proposer,
+            result_images=self.result_images,
+            review=self.review,
+            inline_decision=self.inline_decision,
+            experiment=getattr(self.task_manager, "experiment", None),
+            failure=failure,
+        )
+
+    # Everything the task does, on its own thread, is the task's (FIB-1062).
+    @acting(TASK)
     def run(self) -> None:
         self.pre_task()
         self._fire_hook("task_started")
@@ -169,6 +275,10 @@ class AutoLamellaTask(ABC):
                     "Cancelled by user." if cancelled else str(e)
                 )
                 self._record_outcome()
+                # A failure is exactly when someone wants to look; a Stop is
+                # not, whoever pressed it already knows.
+                if not cancelled:
+                    self._settle(failure=str(e))
             except Exception:
                 logging.exception(f"Could not record the outcome of {self.task_name}")
             self._fire_hook(
@@ -182,6 +292,7 @@ class AutoLamellaTask(ABC):
             # That is silently wrong, and wrong exactly when the record matters most.
             self.microscope.experiment.clear_workflow_metadata()
         self.post_task()
+        self._settle()
         self._fire_hook("task_completed")
 
     def _record_outcome(self) -> None:
@@ -340,6 +451,18 @@ class AutoLamellaTask(ABC):
                 display_message if display_message is not None else ""
             )
 
+        if message not in _LIFECYCLE_STEPS:
+            # STARTED / FINISHED are recorded as task_started / task_completed.
+            self.microscope.record_event(
+                "task_step",
+                {
+                    "step": message,
+                    "display_message": display_message,
+                    "item_type": "lamella",
+                    "task_type": self.task_type,
+                },
+            )
+
         if message not in _LIFECYCLE_STEPS and self.parent_ui is not None:
             self.parent_ui.step_update_signal.emit(display_message or message)
 
@@ -356,6 +479,197 @@ class AutoLamellaTask(ABC):
             msg=f"{self.lamella.name} [{self.task_name}] {message}",
             workflow_info=workflow_info,
         )
+
+    def ask(
+        self,
+        kind: str,
+        values: Dict[str, Any],
+        *,
+        image: str = "",
+        provenance: Optional[Dict[str, Any]] = None,
+        message: str = "",
+        decided: Optional[Callable[[], Dict[str, Any]]] = None,
+        enabled: bool = True,
+    ) -> Decision:
+        """Ask for ``values`` of ``kind`` and wait for the answer, on the record.
+
+        The one way a task asks for a value it needs before it can carry on.
+        The ask is a proposal on the lamella (``values`` are what the task
+        would use as they stand; ``image`` the saved file they sit on, relative
+        to the lamella's folder), and the answer is a decision on it, through
+        ``Experiment.decide`` like every other: from the Review tab, from the
+        prompt bar, from a connected agent. Returned as the decision, so the
+        task reads ``.outcome`` and ``.values``; a task applies the decided
+        values itself, so a kind asked here must not write them through.
+
+        Supervised, with a window to answer in (``validate``): the run holds
+        here -- the manager raises the hold, the Review tab is fronted -- until
+        the decision lands, or Stop, which withdraws the question and raises
+        ``InterruptedError``. Otherwise nobody is asked: the proposal goes on
+        the record with an ``Unreviewed`` decision carrying the proposed
+        values, for someone to check afterwards, and returns at once. A
+        declared kind that ``questions_for`` leaves out under this config is
+        the same: recorded, not asked.
+
+        ``decided`` is for a confirmation: an answer that says "as it stands"
+        and carries no values of its own (a state, confirmed from the prompt
+        bar). The task, which can read the instrument, is asked for the
+        values as they stand once the confirmation lands, and they go on the
+        decision, so a change the operator made before confirming is the
+        delta. Not called for an answer that already carries values.
+
+        ``enabled`` is the ask's own switch in the task's settings
+        (``confirm_position``, say), for a task that asks the same kind more
+        than once: off, this one is recorded and not asked, as a kind
+        ``questions_for`` leaves out is.
+        """
+        declared = type(self).questions
+        if kind not in declared:
+            raise ValueError(
+                f"{type(self).__name__} does not declare {kind!r} in questions "
+                f"(it declares {list(declared)}); a task says what it asks."
+            )
+        carried = PROPOSAL_KINDS[kind].values
+        unknown = [n for n in values if n not in carried]
+        if unknown:
+            raise ValueError(f"{kind} does not carry {unknown}; it carries {carried}")
+        manager = self.task_manager
+        experiment = getattr(manager, "experiment", None)
+        if manager is None or experiment is None:
+            raise RuntimeError("ask needs a task manager with an experiment")
+
+        item = self.lamella
+        proposal = Proposal(
+            kind=kind,
+            values=dict(values),
+            provenance={
+                "proposer": self.task_name,
+                "task_id": self.lamella.task_state.task_id or self.task_id,
+                "reference_image": image,
+                "message": message,
+                **(provenance or {}),
+            },
+        )
+        asked_under_config = enabled and kind in type(self).questions_for(self.config)
+        # A window to answer in is the main window: its Review tab, its prompt
+        # bar. The microscope widget on its own has neither.
+        window = getattr(self.parent_ui, "parent_widget", None) is not None
+        if not asked_under_config or not self.validate or not window:
+            reason = (
+                "turned off in the task's settings"
+                if not asked_under_config
+                else "nobody was asked: the task is not supervised"
+                if self.parent_ui is not None
+                and window
+                and not get_task_supervision(self.task_name, self.parent_ui)
+                else "nobody was asked: no window to ask in"
+            )
+            experiment.record_unasked(item.id, self.task_name, proposal, reason)
+            return proposal.current
+
+        answered = threading.Event()
+
+        def _on_decided(item_id: str, task_name: str) -> None:
+            # This question, and decided: ``decided`` also fires for the
+            # previous question's fill-in, which can land after this one was
+            # recorded when the task asks twice in a row (FIB-1053).
+            if (item_id, task_name) == (item.id, self.task_name):
+                current = item.proposal(task_name)
+                if (
+                    current is not None
+                    and current.id == proposal.id
+                    and current.current is not None
+                ):
+                    answered.set()
+
+        experiment.decided.connect(_on_decided)
+        try:
+            if not experiment.ask_proposal(item.id, self.task_name, proposal):
+                raise RuntimeError(f"could not record the {kind} question")
+            with manager.holding_a_question(item.name, self.task_name):
+                while not answered.wait(0.1):
+                    if self._stop_event is not None and self._stop_event.is_set():
+                        experiment.withdraw_proposal(
+                            item.id,
+                            self.task_name,
+                            "the run stopped before it was answered",
+                        )
+                        raise InterruptedError(f"{kind} question cancelled")
+        finally:
+            experiment.decided.disconnect(_on_decided)
+        decision = proposal.current
+        if decision is None or decision.outcome is DecisionOutcome.Withdrawn:
+            raise InterruptedError(f"{kind} question withdrawn before it was answered")
+        if (
+            decided is not None
+            and decision.outcome is DecisionOutcome.Confirmed
+            and not decision.values
+        ):
+            experiment.fill_in_decision(
+                item.id, self.task_name, proposal.id, dict(decided())
+            )
+        return decision
+
+    def detect(
+        self,
+        image_settings: ImageSettings,
+        checkpoint: str,
+        features: Sequence[Feature],
+        *,
+        position: Optional[FibsemStagePosition] = None,
+        message: str = "",
+        enabled: bool = True,
+    ) -> DetectedFeatures:
+        """Take an image, run the model on it, and ask about what it found.
+
+        With the review preference on, the detection is a ``detection``
+        question through ``ask``: recorded on the lamella against the image
+        the model ran on, answered in the Review tab (a marker dragged, then
+        Confirm), and the decided points are put back on the detection with
+        ``feature_m`` recomputed, so the stage moves by the corrected value.
+        A rejection fails the task, as Reject in the Review tab says it does.
+        The training data the Detection tab writes on its click is written
+        here too. With the preference off it is ``update_detection_ui``, the
+        Detection tab prompt, exactly as it always was.
+        """
+        message = message or self.lamella.status_info
+        if not getattr(self.task_manager, "review_enabled", False):
+            return update_detection_ui(
+                microscope=self.microscope,
+                image_settings=image_settings,
+                checkpoint=checkpoint,
+                features=features,
+                parent_ui=self.parent_ui,
+                validate=self.validate,
+                msg=message,
+                position=position,
+            )
+        names = ", ".join(f.name for f in features)
+        if len(names) > 15:
+            names = names[:15] + "..."
+        update_status_ui(self.parent_ui, f"{message}: Detecting Features ({names})...")
+        detection = detection_module.take_image_and_detect_features(
+            microscope=self.microscope,
+            image_settings=image_settings,
+            features=features,
+            point=position,
+            checkpoint=checkpoint,
+        )
+        decision = self.ask(
+            DETECTION,
+            detection_values(detection),
+            image=detection_image_file(detection, str(self.lamella.path)),
+            provenance=detection_provenance(detection),
+            message=message,
+            enabled=enabled,
+        )
+        if decision.outcome is DecisionOutcome.Rejected:
+            raise RuntimeError(
+                f"{self.task_name} was rejected: {decision.reason or 'no reason given'}"
+            )
+        answer = decided_features(detection, decision.values)
+        record_training_data(detection, answer)
+        return answer
 
     def _check_for_abort(self) -> None:
         """Raise InterruptedError if this task should stop.
@@ -409,7 +723,7 @@ class AutoLamellaTask(ABC):
                 return milling_task.config
             return milling_config
 
-        return ask(
+        config = ask(
             self.parent_ui.ui_responder,
             RunMillingTask(
                 # deepcopy kept from the signal days: the editor's copy must be
@@ -424,6 +738,20 @@ class AutoLamellaTask(ABC):
             ),
             abort=lambda: _abort_requested(self.parent_ui),
         )
+        if milling_enabled and self.validate:
+            # The operator watched the mill and pressed Continue: that is the
+            # decision on this run's result, recorded as theirs rather than
+            # the producer's own, and the task does not wait a second time in
+            # the Review tab for a look it already had.
+            experiment = getattr(self.task_manager, "experiment", None)
+            self.inline_decision = Decision(
+                outcome=DecisionOutcome.Confirmed,
+                author=experiment.author()
+                if experiment is not None
+                else human_author(""),
+                via="workflow",
+            )
+        return config
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""
@@ -662,7 +990,7 @@ class AutoLamellaTask(ABC):
         off the filename. Pass it when a task names its own files but the set *is* the
         task's reference set rather than an extra one -- AcquireReferenceImageTask
         timestamps its filenames, so the default rule filed its only product under
-        "other" and the review panel, which asks for "final", never saw it (FIB-579).
+        "other" and the History panel, which asks for "final", never saw it (FIB-579).
         """
 
         if field_of_views is None:
@@ -774,16 +1102,73 @@ class AutoLamellaTask(ABC):
 
         return fib_image
 
-    def _validate_alignment_area(self) -> None:
-        """Validate the alignment area with the user."""
+    @property
+    def _asks_on_the_record(self) -> bool:
+        """Whether the task's confirmations go through ``ask``: the review
+        preference is on. Off, the prompts run as they always have."""
+        return bool(getattr(self.task_manager, "review_enabled", False))
+
+    def _last_fib_image_file(self) -> str:
+        """The last FIB reference image, relative to the lamella's folder, for
+        a question to sit on; empty when none has been saved yet."""
+        image = self._last_fib_image
+        if image is None or image.filepath is None:
+            return ""
+        return os.path.relpath(image.filepath, self.lamella.path)
+
+    def _milling_result_image_file(self, config: FibsemMillingTaskConfig) -> str:
+        """The FIB image a milling session left behind (the ``finished``
+        acquisition it saves in the lamella's folder, when its config
+        acquires one), relative to that folder; empty when it saved none."""
+        imaging = getattr(getattr(config, "acquisition", None), "imaging", None)
+        filename = str(getattr(imaging, "filename", "") or "")
+        if filename:
+            for candidate in sorted(
+                glob.glob(os.path.join(str(self.lamella.path), f"{filename}*_ib.tif"))
+            ):
+                return os.path.relpath(candidate, self.lamella.path)
+        return ""
+
+    def _validate_alignment_area(
+        self, *, image: str = "", enabled: bool = True
+    ) -> None:
+        """Check the alignment area with the operator before the alignment
+        reference is taken in it.
+
+        On the record (the review preference on): an ``alignment_area``
+        question on ``image`` -- the last FIB reference image unless the
+        caller names the frame -- answered by dragging the rectangle in the
+        Review tab; the decided area is what the task acquires with. A
+        rejection fails the task, as Reject in the Review tab says. Otherwise
+        the prompt as it has always been, the rectangle dragged on the
+        Microscope tab's canvas. ``enabled`` is the task's own switch.
+        """
         self.log_status_message(
             "VALIDATE_ALIGNMENT_AREA", "Validating Alignment Image..."
         )
+        if self._asks_on_the_record:
+            decision = self.ask(
+                ALIGNMENT_AREA,
+                {"alignment_area": deepcopy(self.lamella.alignment_area)},
+                image=image or self._last_fib_image_file(),
+                message="Check the alignment area: the reference for later "
+                "alignments is taken in it. Drag it to correct it.",
+                enabled=enabled,
+            )
+            if decision.outcome is DecisionOutcome.Rejected:
+                raise RuntimeError(
+                    f"{self.task_name} was rejected: "
+                    f"{decision.reason or 'no reason given'}"
+                )
+            area = decision.values.get("alignment_area")
+            if isinstance(area, FibsemRectangle):
+                self.lamella.alignment_area = area
+            return
         self.lamella.alignment_area = update_alignment_area_ui(
             alignment_area=self.lamella.alignment_area,
             parent_ui=self.parent_ui,
             msg="Drag to edit the Alignment Area. Press Continue when done.",
-            validate=self.validate,
+            validate=self.validate and enabled,
         )
 
     def set_fluorescence_channels_ui(
@@ -815,4 +1200,5 @@ def get_task_supervision(
     if parent_ui.experiment is None or parent_ui.experiment.task_protocol is None:
         logging.warning("Parent UI experiment task protocol is None.")
         return False
-    return parent_ui.experiment.task_protocol.get_supervision(task_name)
+    protocol = parent_ui.experiment.task_protocol
+    return protocol.get_attention(task_name) is Attention.supervised

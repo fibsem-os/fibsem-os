@@ -88,7 +88,7 @@ def test_agent_answer_wakes_the_asker_like_a_click(ui, qapp):
     thread.join(timeout=5)
     assert outcome.get("answer") is True
     assert ui.ui_responder.pending_question() is None
-    assert ui.WAITING_FOR_USER_INTERACTION is False  # display state torn down
+    assert ui.hold is None  # display state torn down
 
 
 def test_agent_no_answers_too(ui, qapp):

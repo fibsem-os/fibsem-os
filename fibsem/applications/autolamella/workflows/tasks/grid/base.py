@@ -14,7 +14,7 @@ import os
 import uuid
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -31,11 +31,16 @@ from typing import (
     get_type_hints,
 )
 
+from fibsem.acting import TASK, acting
+from fibsem.applications.autolamella.proposals import Proposer, TaskResultProposer
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskStatus,
     GridRecord,
+    attention_from,
     get_fields_with_metadata,
 )
+from fibsem.applications.autolamella.workflows.tasks.proposing import settle
 from fibsem.cancellation import OperationCancelledError
 
 if TYPE_CHECKING:
@@ -61,11 +66,22 @@ class GridTaskConfig(ABC):
     task_type: ClassVar[str]
     display_name: ClassVar[str]
     task_name: str = ""  # unique within a protocol; the key the workflow uses
+    # Who decides the task's record: automated (the task confirms its own) or
+    # supervised (the task ends AwaitingDecision and the Review tab decides;
+    # a grid task asks nothing while it runs, so that is the whole of it).
+    # One per task name, shared by every grid like the rest of the config;
+    # read as automated while the review preference is off.
+    attention: Attention = Attention.automated
+    # The tasks, by name, whose result this one uses, as on the lamella
+    # workflow: it waits while one of them awaits a decision or is still queued
+    # for the grid, and is skipped when one of them did not complete. Empty:
+    # it runs whatever happened before it on the grid.
+    requires: List[str] = field(default_factory=list)
 
     @property
     def parameters(self) -> Tuple[str, ...]:
         """The task-specific fields, in declaration order: what a form shows."""
-        return tuple(f.name for f in fields(self) if f.name != "task_name")
+        return tuple(f.name for f in fields(self) if f.name not in _WORKFLOW_FIELDS)
 
     @property
     def field_metadata(self) -> Dict[str, Dict[str, Any]]:
@@ -75,6 +91,8 @@ class GridTaskConfig(ABC):
         data: Dict[str, Any] = {
             "task_type": self.task_type,
             "task_name": self.task_name,
+            "attention": self.attention.value,
+            "requires": list(self.requires),
         }
         for name in self.parameters:
             data[name] = _serialise(getattr(self, name))
@@ -87,11 +105,36 @@ class GridTaskConfig(ABC):
         for f in fields(cls):
             if f.name not in data:
                 continue
+            if f.name == "attention":
+                kwargs[f.name] = attention_from(
+                    data[f.name], f"grid task '{data.get('task_name', '')}'"
+                )
+                continue
+            if f.name == "requires":
+                kwargs[f.name] = _requires(data[f.name], data.get("task_name", ""))
+                continue
             kwargs[f.name] = _deserialise(hints.get(f.name), data[f.name])
         unknown = set(data) - {f.name for f in fields(cls)} - {"task_type"}
         for key in sorted(unknown):
             logging.warning(f"Unknown field '{key}' in {cls.__name__}; ignored.")
         return cls(**kwargs)
+
+
+# Fields that say how a task takes part in the workflow, not how it runs: not
+# form parameters, and serialised by the base.
+_WORKFLOW_FIELDS = ("task_name", "attention", "requires")
+
+
+def _requires(value: Any, task_name: str) -> List[str]:
+    """Stored requirements as task names, or none with a warning: a malformed
+    value must not drop the task from the protocol."""
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return list(value)
+    logging.warning(
+        f"Grid task '{task_name}' has requires {value!r}, not a list of task "
+        "names; read as none."
+    )
+    return []
 
 
 def _serialise(value: Any) -> Any:
@@ -132,6 +175,9 @@ class GridTask(ABC):
 
     config_cls: ClassVar[Type[GridTaskConfig]]
     config: GridTaskConfig
+    # What this task type proposes for the Review tab, as on AutoLamellaTask:
+    # its result, with the image it recorded under its role.
+    proposer: ClassVar[Optional[Proposer]] = TaskResultProposer()
 
     def __init__(
         self,
@@ -167,6 +213,24 @@ class GridTask(ABC):
     def display_name(self) -> str:
         return self.config.display_name
 
+    @property
+    def review(self) -> bool:
+        """Whether this task ends waiting on a decision in the Review tab: its
+        config's attention, and the feature flag as the manager read it for
+        this run. Otherwise the task confirms its own record."""
+        manager = self.task_manager
+        if manager is None or not getattr(manager, "review_enabled", False):
+            return False
+        return self.config.attention is Attention.supervised
+
+    @property
+    def result_images(self) -> Dict[str, str]:
+        """The image a proposal points at, by provenance key: the file recorded
+        under the config's role (the stitched overview, not its thumbnail; the
+        operator is judging the image). Empty for a task with no role."""
+        role = getattr(self.config, "role", None)
+        return {"reference_image": role} if role else {}
+
     # -- where the grid is, and where its files go -----------------------------
 
     @property
@@ -192,6 +256,8 @@ class GridTask(ABC):
 
     # -- lifecycle -------------------------------------------------------------
 
+    # Everything the task does, on its own thread, is the task's (FIB-1062).
+    @acting(TASK)
     def run(self) -> None:
         self.pre_task()
         self._fire_hook("task_started")
@@ -209,6 +275,10 @@ class GridTask(ABC):
                     "Cancelled by user." if cancelled else str(e)
                 )
                 self._record_outcome()
+                # A failure is exactly when someone wants to look; a Stop is
+                # not, whoever pressed it already knows.
+                if not cancelled:
+                    self._settle(failure=str(e))
             except Exception:
                 logging.exception(f"Could not record the outcome of {self.task_name}")
             self._fire_hook(
@@ -218,7 +288,23 @@ class GridTask(ABC):
         finally:
             self._clear_workflow_metadata()
         self.post_task()
+        self._settle()
         self._fire_hook("task_completed")
+
+    def _settle(self, failure: str = "") -> None:
+        """Propose this run's result on the grid and decide it; see
+        ``proposing.settle``. A grid task asks no question, so there is never
+        an inline decision."""
+        settle(
+            self,
+            self.grid,
+            proposer=type(self).proposer,
+            result_images=self.result_images,
+            review=self.review,
+            inline_decision=None,
+            experiment=self.experiment,
+            failure=failure,
+        )
 
     @abstractmethod
     def _run(self) -> None: ...
@@ -303,6 +389,18 @@ class GridTask(ABC):
         )
         self.grid.task_state.step = message
         self.grid.task_state.status_message = display_message or ""
+        record = getattr(self.microscope, "record_event", None)
+        if message not in _LIFECYCLE_STEPS and record is not None:
+            # STARTED / FINISHED are recorded as task_started / task_completed.
+            record(
+                "task_step",
+                {
+                    "step": message,
+                    "display_message": display_message,
+                    "item_type": "grid",
+                    "task_type": self.task_type,
+                },
+            )
         signal = getattr(self.parent_ui, "step_update_signal", None)
         if message not in _LIFECYCLE_STEPS and signal is not None:
             signal.emit(display_message or message)

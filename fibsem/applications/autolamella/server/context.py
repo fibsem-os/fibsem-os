@@ -30,8 +30,9 @@ import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import task_outputs as _task_outputs
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
 
 __all__ = ["AgentContext", "ITEM_PATCH_FIELDS", "config_version", "item_fields_version"]
 
@@ -230,6 +231,23 @@ def _overview_projector(path: str):
     return block, project
 
 
+def _attendance_line(task_protocol: Any, task_name: str) -> str:
+    """One line on what a task needs from a person, or "" when its type is
+    not one this build knows."""
+    from fibsem.applications.autolamella.workflows.tasks.attendance import (
+        attendance_for,
+    )
+
+    try:
+        review_on = bool(
+            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
+        )
+    except Exception:
+        review_on = False
+    att = attendance_for(task_protocol, task_name, review_on)
+    return att.line if att is not None else ""
+
+
 class AgentContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
@@ -342,7 +360,8 @@ class AgentContext:
         return {"available": False, "items": []}
 
     def protocol(self) -> Dict[str, Any]:
-        """The workflow definition with live supervision flags and schedules."""
+        """The workflow definition with live supervision flags, schedules and
+        what each task needs from a person."""
         experiment = self._experiment
         task_protocol = (
             getattr(experiment, "task_protocol", None) if experiment else None
@@ -366,7 +385,14 @@ class AgentContext:
             "tasks": [
                 {
                     "name": task.name,
-                    "supervise": task.supervise,
+                    "attention": task.attention.value,
+                    # what the task needs from a person under that attention:
+                    # whether someone must be at the microscope while it
+                    # runs, and what waits for a decision afterwards
+                    "attendance": _attendance_line(task_protocol, task.name),
+                    # the boolean the /supervision verb takes, for the agents
+                    # that read it back
+                    "supervise": task.attention is Attention.supervised,
                     "supervisor": getattr(task, "supervisor", "human"),
                     "required": task.required,
                     "requires": list(task.requires),
@@ -661,7 +687,7 @@ class AgentContext:
             "name": grid.name,
             "id": grid.id,
             "description": grid.description,
-            "quality": grid.quality.name,
+            "quality": grid.quality.verdict.name,
             "status": grid.task_state.status.name,
             "current_task": grid.task_state.name or None,
             "is_failure": grid.is_failure,
@@ -834,6 +860,136 @@ class AgentContext:
                 },
             )
         return result
+
+    # --- propose and review (FIB-950) -----------------------------------------
+
+    def reviews(self) -> Dict[str, Any]:
+        """Every proposal waiting for a decision: the Review tab's inbox, derived
+        from the experiment the same way the tab derives it, with the reference
+        image each proposal's values sit on as an agent-sized preview."""
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "reviews": []}
+        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.applications.autolamella.server.prompts import _preview_payload
+        from fibsem.applications.autolamella.ui.review_tab_widget import (
+            _load_reference_image,
+            is_gated,
+            review_preview,
+            waiting_on,
+        )
+
+        protocol = getattr(experiment, "task_protocol", None)
+
+        def describe(item, task_name, proposal):
+            doc = to_plain(proposal.to_dict())
+            doc.update(
+                {
+                    "item_id": item.id,
+                    "item_name": item.name,
+                    "task_name": task_name,
+                    # what this is; decide_review passes it back. The run is
+                    # here as a fact about it, and still names it for a caller
+                    # that has not learned the id.
+                    "proposal_id": proposal.id,
+                    "task_id": proposal.task_id,
+                    # The task that made it is stopped on the answer: nothing
+                    # else runs until it is decided, so it comes first.
+                    "holding_the_run": bool(proposal.asking),
+                    "gated": is_gated(experiment, task_name, item),
+                    "waiting_on": waiting_on(experiment, task_name, item),
+                }
+            )
+            image = _load_reference_image(experiment, item, proposal)
+            # a fluorescence result is shown as its channel composite
+            preview = review_preview(image) if image is not None else None
+            doc["reference_image"] = (
+                _preview_payload(preview) if preview is not None else None
+            )
+            electron = _load_reference_image(
+                experiment, item, proposal, "reference_image_eb"
+            )
+            doc["reference_image_eb"] = (
+                _preview_payload(electron) if electron is not None else None
+            )
+            return doc
+
+        reviews = [describe(*entry) for entry in experiment.pending_proposals()]
+        # Applied by the producer (advise mode), nobody has looked: an agent
+        # acknowledges one with Confirmed and no values, which writes nothing.
+        to_check = [describe(*entry) for entry in experiment.proposals_to_check()]
+        return {"available": True, "reviews": reviews, "to_check": to_check}
+
+    def decide(
+        self,
+        item_id: str,
+        task_name: str,
+        outcome: str,
+        values: Optional[Dict[str, Any]] = None,
+        reason: str = "",
+        author: str = "",
+        task_id: str = "",
+        proposal_id: str = "",
+    ) -> Dict[str, Any]:
+        """Decide a pending proposal, exactly as the Review tab would: the same
+        Experiment.decide, on the main thread, blocking until applied. The
+        author is recorded as the agent, never as the operator.
+
+        ``proposal_id`` is the proposal the agent was shown (from
+        get_pending_reviews), and what the decision is checked against: a task
+        may ask several questions in one run, and only the id tells the one
+        that was shown from the one that replaced it. ``task_id``, the run, is
+        accepted in its place from a caller that has not learned the id, and
+        is checked the way it always was. One of them is needed; a stale one
+        is refused."""
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "applied": False, "reason": "No experiment."}
+        from fibsem.applications.autolamella.proposals import (
+            Decision,
+            DecisionOutcome,
+            _decode_values,  # the wire shape is the stored shape
+            agent_author,
+        )
+
+        try:
+            decided = DecisionOutcome[outcome]
+        except KeyError:
+            return {
+                "available": True,
+                "applied": False,
+                "invalid_value": f"outcome must be Confirmed or Rejected, not {outcome!r}",
+            }
+        decision = Decision(
+            outcome=decided,
+            author=agent_author(author or "remote"),
+            values=_decode_values(values or {}),
+            reason=reason,
+            via="server",
+            task_id=str(task_id or ""),
+            proposal_id=str(proposal_id or ""),
+        )
+        result = experiment.decide(item_id, task_name, decision)
+        doc = result.to_dict()
+        doc["available"] = True
+        if result.applied:
+            try:
+                experiment.save()
+            except Exception:
+                logging.exception(
+                    "saving the experiment after an agent decision failed"
+                )
+            if self._event_buffer is not None:
+                self._event_buffer.append(
+                    "review_decided",
+                    {
+                        "item_id": item_id,
+                        "task_name": task_name,
+                        "outcome": decided.name,
+                        "author": str(decision.author),
+                    },
+                )
+        return doc
 
     def add_note(self, text: str, item_name: Optional[str] = None) -> Dict[str, Any]:
         """Put an agent observation on the record.
@@ -1307,7 +1463,9 @@ class AgentContext:
             return {"available": False, "applied": False}
         for task in config.tasks:
             if task.name == task_name:
-                task.supervise = bool(supervise)
+                task.attention = (
+                    Attention.supervised if supervise else Attention.automated
+                )
                 if supervisor is not None:
                     task.supervisor = supervisor
                 return {
@@ -1459,6 +1617,17 @@ class AgentContext:
 
         payload = serialize_request(request)
         payload["nonce"] = nonce
+        recorded = responder.recorded_question()
+        if recorded is not None:
+            # On the item's record as a proposal, and answered there: the same
+            # decision an agent makes on any other review. Answering the prompt
+            # would decide nothing, so it says so up front.
+            payload["answer_via"] = "decide"
+            payload["decide"] = {
+                "item_id": recorded[0],
+                "task_name": recorded[1],
+                "proposal_id": recorded[2],
+            }
         current = self._peek_current(responder, payload["type"], nonce)
         if current is not None:
             payload["current"] = current
@@ -1544,6 +1713,21 @@ class AgentContext:
         from fibsem.applications.autolamella.workflows.interaction import (
             StalePromptError,
         )
+
+        recorded = responder.recorded_question()
+        _request, pending_nonce = responder.pending_question_and_nonce()
+        if recorded is not None and pending_nonce == int(nonce):
+            # Nothing was clicked. This question is decided, not answered: see
+            # ``answer_via`` on the pending prompt.
+            return {
+                "available": True,
+                "applied": False,
+                "stale": False,
+                "answer_via": "decide",
+                "item_id": recorded[0],
+                "task_name": recorded[1],
+                "proposal_id": recorded[2],
+            }
 
         parsed = None
         if value is not None:

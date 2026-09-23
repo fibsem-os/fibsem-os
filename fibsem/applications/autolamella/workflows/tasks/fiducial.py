@@ -1,11 +1,11 @@
-
 ######## FIDUCIAL TASK DEFINITIONS ########
 
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, Optional, Type
+from typing import ClassVar, Optional, Tuple, Type
 
+from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -39,15 +39,25 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
         default=True,
         metadata=field_meta(
             tooltip="Align to the reference image before milling fiducial (if available)"
-        )
-
+        ),
+    )
+    confirm_alignment_area: bool = field(
+        default=True,
+        metadata=field_meta(
+            label="Confirm Alignment Area",
+            tooltip="Ask you to check the alignment area around the milled "
+            "fiducial before the alignment reference is taken in it. Off, the "
+            "area is used as it stands.",
+        ),
     )
     task_type: ClassVar[str] = "MILL_FIDUCIAL"
     display_name: ClassVar[str] = "Mill Fiducial"
 
     def __post_init__(self):
         if self.milling == {}:
-            self.milling = deepcopy({FIDUCIAL_KEY: DEFAULT_MILLING_CONFIG[FIDUCIAL_KEY]})
+            self.milling = deepcopy(
+                {FIDUCIAL_KEY: DEFAULT_MILLING_CONFIG[FIDUCIAL_KEY]}
+            )
 
     @property
     def opens_with_reference_alignment(self) -> bool:
@@ -57,6 +67,18 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
 
 class MillFiducialTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
+
+    # Work at the microscope, then Continue: the mill. Then the alignment
+    # area around the milled fiducial, asked on the post-mill image.
+    questions = (ALIGNMENT_AREA,)
+    sessions = ("milling",)
+
+    @classmethod
+    def questions_for(cls, config) -> Tuple[str, ...]:
+        if not getattr(config, "confirm_alignment_area", True):
+            return ()
+        return cls.questions
+
     config: MillFiducialTaskConfig
     config_cls: ClassVar[Type[MillFiducialTaskConfig]] = MillFiducialTaskConfig
 
@@ -65,6 +87,7 @@ class MillFiducialTask(AutoLamellaTask):
 
         # bookkeeping
         from fibsem.structures import ImageSettings
+
         image_settings: ImageSettings = self.config.imaging
         image_settings.path = self.lamella.path
 
@@ -77,32 +100,63 @@ class MillFiducialTask(AutoLamellaTask):
 
         fiducial_task_config = self.config.milling[FIDUCIAL_KEY]
 
-        self._acquire_reference_image(image_settings, field_of_view=fiducial_task_config.field_of_view)
+        self._acquire_reference_image(
+            image_settings, field_of_view=fiducial_task_config.field_of_view
+        )
 
         # fiducial
         self.log_status_message("MILL_FIDUCIAL", "Milling Fiducial...")
         msg = f"Press Run Milling to mill the Fiducial for {self.lamella.name}. Press Continue when done."
         fiducial_task_config.alignment.rect = self.lamella.alignment_area
         fiducial_task_config.acquisition.imaging.path = self.lamella.path
-        milling_task_config = self.update_milling_config_ui(fiducial_task_config, msg=msg)
+        milling_task_config = self.update_milling_config_ui(
+            fiducial_task_config, msg=msg
+        )
         self.config.milling[FIDUCIAL_KEY] = deepcopy(milling_task_config)
 
         alignment_hfw = milling_task_config.field_of_view
         # get alignment area based on fiducial bounding box
-        self.lamella.alignment_area = get_pattern_reduced_area(pattern=milling_task_config.stages[0].pattern,
-                                                        image=FibsemImage.generate_blank_image(hfw=alignment_hfw),
-                                                        expand_percent=int(self.config.alignment_expansion))
+        self.lamella.alignment_area = get_pattern_reduced_area(
+            pattern=milling_task_config.stages[0].pattern,
+            image=FibsemImage.generate_blank_image(hfw=alignment_hfw),
+            expand_percent=int(self.config.alignment_expansion),
+        )
 
         if not self.lamella.alignment_area.is_valid_reduced_area:
-            raise ValueError(f"Invalid alignment area: {self.lamella.alignment_area}, check the field of view for the fiducial milling pattern.")
+            raise ValueError(
+                f"Invalid alignment area: {self.lamella.alignment_area}, check the field of view for the fiducial milling pattern."
+            )
 
-        # validate alignment area
-        self._validate_alignment_area()
+        # validate alignment area, on the image the mill left behind: the
+        # session's finished acquisition when it saved one (off by default),
+        # else one FIB frame taken now. A question on the record needs the
+        # frame it is about, and the pre-mill reference does not show the
+        # fiducial; the old prompt sat on the display, which had the mill's
+        # own unsaved post-mill image.
+        image = self._milling_result_image_file(milling_task_config)
+        if (
+            not image
+            and self._asks_on_the_record
+            and self.config.confirm_alignment_area
+        ):
+            self._acquire_channels(
+                image_settings,
+                filename=f"ref_{self.task_name}_post_mill",
+                field_of_view=alignment_hfw,
+                acquire_sem=False,
+                acquire_fib=True,
+            )
+            image = self._last_fib_image_file()
+        self._validate_alignment_area(
+            image=image, enabled=self.config.confirm_alignment_area
+        )
 
         # # acquire alignment reference image
-        self._acquire_alignment_reference_image(image_settings=image_settings,
-                                      reduced_area=self.lamella.alignment_area,
-                                      field_of_view=alignment_hfw)
+        self._acquire_alignment_reference_image(
+            image_settings=image_settings,
+            reduced_area=self.lamella.alignment_area,
+            field_of_view=alignment_hfw,
+        )
 
         # sync alignment area to rough and polishing milling tasks (QUERY: should we sync all tasks?)
         rough_milling_task_config: Optional[FibsemMillingTaskConfig] = None
@@ -117,15 +171,26 @@ class MillFiducialTask(AutoLamellaTask):
                     rough_milling_task_config = task_config.milling[MILL_ROUGH_KEY]
                     rough_milling_name = task_name
                 elif task_config.task_type == "MILL_POLISHING":
-                    polishing_milling_task_config = task_config.milling[MILL_POLISHING_KEY]
+                    polishing_milling_task_config = task_config.milling[
+                        MILL_POLISHING_KEY
+                    ]
                     polishing_milling_name = task_name
         except Exception as e:
-            logging.warning(f"Unable to find MillRoughTaskConfig or MillPolishingTaskConfig in lamella task config: {e}")
+            logging.warning(
+                f"Unable to find MillRoughTaskConfig or MillPolishingTaskConfig in lamella task config: {e}"
+            )
 
         if rough_milling_task_config is not None and rough_milling_name is not None:
-            self.lamella.task_config[rough_milling_name].milling[MILL_ROUGH_KEY].alignment.rect = deepcopy(self.lamella.alignment_area)
-        if polishing_milling_task_config is not None and polishing_milling_name is not None:
-            self.lamella.task_config[polishing_milling_name].milling[MILL_POLISHING_KEY].alignment.rect = deepcopy(self.lamella.alignment_area)
+            self.lamella.task_config[rough_milling_name].milling[
+                MILL_ROUGH_KEY
+            ].alignment.rect = deepcopy(self.lamella.alignment_area)
+        if (
+            polishing_milling_task_config is not None
+            and polishing_milling_name is not None
+        ):
+            self.lamella.task_config[polishing_milling_name].milling[
+                MILL_POLISHING_KEY
+            ].alignment.rect = deepcopy(self.lamella.alignment_area)
 
         # reference images
         self._acquire_set_of_reference_images(image_settings)

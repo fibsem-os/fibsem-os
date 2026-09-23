@@ -24,7 +24,9 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from fibsem.acting import TASK, current_actor
 from fibsem.applications.autolamella.workflows.interaction import RunSpotBurn, ask
+from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import Point
 
@@ -53,10 +55,11 @@ def ui(qapp):
     sbw = importlib.import_module("fibsem.ui.FibsemSpotBurnWidget")
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
-    burns = []
+    burns, actors = [], []
 
     def fake_run_spot_burn(microscope, settings, beam_type, stop_event=None, **kwargs):
         burns.append(settings)
+        actors.append(current_actor())  # who the record would say burned
         time.sleep(0.05)
 
     original_run = sbw.run_spot_burn
@@ -68,6 +71,7 @@ def ui(qapp):
     # test_mainui_workflow_status; its fix rides the typed-status PR).
     window._set_border_state("idle")
     window.autolamella_ui._burn_runs = burns  # for the tests to inspect
+    window.autolamella_ui._burn_actors = actors
     yield window.autolamella_ui
     sbw.run_spot_burn = original_run
     if window.autolamella_ui.microscope is not None:
@@ -132,12 +136,14 @@ def test_run_then_continue_burns_once_and_answers_the_settings(ui, qapp):
     assert ui.pushButton_yes.text() == "Run Spot Burn"
     assert ui.pushButton_no.text() == "Continue"
     assert ui.spot_burn_widget._workflow_mode is True
-    assert ui.WAITING_FOR_USER_INTERACTION is True
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()  # run
     # Prompt down while burning; back when the widget's finished signal fires.
     _wait_for_prompt(ui, qapp, MSG)
     assert len(ui._burn_runs) == 1
+    # Run on the widget's worker thread, for the task (FIB-1062).
+    assert ui._burn_actors == [TASK]
 
     ui.pushButton_no.click()  # continue
     _finish(thread, qapp)
@@ -149,7 +155,7 @@ def test_run_then_continue_burns_once_and_answers_the_settings(ui, qapp):
     assert len(settings.coordinates) == 1
     # The question cleared the widget on its way out.
     assert ui.spot_burn_widget._workflow_mode is False
-    assert ui.WAITING_FOR_USER_INTERACTION is False
+    assert ui.hold is None
     assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
 
 

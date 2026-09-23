@@ -23,9 +23,8 @@ from fibsem.versioning import get_branch, get_revision, get_version_string
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Either `v0.5.1-48-g4cd11d9c` from a tagged clone, or a bare short sha from a
-# shallow/tagless one (which is what actions/checkout produces by default),
-# each optionally suffixed `-dirty`.
-DESCRIBE_RE = re.compile(r"^(.+-g)?[0-9a-f]{7,40}(-dirty)?$")
+# shallow/tagless one (which is what actions/checkout produces by default).
+DESCRIBE_RE = re.compile(r"^(.+-g)?[0-9a-f]{7,40}$")
 
 
 def _clear_caches():
@@ -110,7 +109,7 @@ def test_revision_and_branch_from_real_checkout(monkeypatch):
     # contract -- `get_revision` is `git describe` and nothing else -- and it holds
     # wherever HEAD is, which the shape assertions below do not.
     described = subprocess.run(
-        ["git", "describe", "--tags", "--always", "--dirty", "--match", "v*"],
+        ["git", "describe", "--tags", "--always", "--match", "v*"],
         cwd=str(REPO_ROOT),
         capture_output=True,
         encoding="utf-8",
@@ -144,11 +143,7 @@ def test_revision_and_branch_from_real_checkout(monkeypatch):
             encoding="utf-8",
             errors="replace",
         ).stdout.split()
-        # Not str.removesuffix: that is 3.9+, and CI builds 3.8 (#553 fixed the same
-        # thing in fibsem/ itself).
-        suffix = "-dirty"
-        name = revision[: -len(suffix)] if revision.endswith(suffix) else revision
-        assert name in tags, (
+        assert revision in tags, (
             f"{revision} is neither a describe with a sha nor a tag on HEAD"
         )
 
@@ -317,7 +312,6 @@ def test_describe_argv(monkeypatch):
         "describe",
         "--tags",
         "--always",
-        "--dirty",
         "--match",
         "v*",
     ]
@@ -345,13 +339,33 @@ def test_describe_measures_from_release_tags_only(monkeypatch, tmp_path):
 
     # Control: assert the bug is actually reachable in this repo, so the test
     # below cannot pass simply because the decoy was never a candidate.
-    unfiltered = _git(repo, "describe", "--tags", "--always", "--dirty")
+    unfiltered = _git(repo, "describe", "--tags", "--always")
     assert unfiltered.startswith("251111-example-"), unfiltered
 
     monkeypatch.setattr(versioning, "_source_checkout_root", lambda: repo)
 
     revision = get_revision()
     assert revision.startswith("v1.0.0-"), revision
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_uncommitted_changes_do_not_change_the_revision(monkeypatch, tmp_path):
+    """The revision is the commit. Checking the working tree for changes
+    (--dirty) could outlast the timeout on a slow Windows machine and lose the
+    revision entirely (FIB-1029), so a changed file is not marked."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "--quiet")
+    (repo / "tracked.txt").write_text("committed\n", encoding="utf-8")
+    _git(repo, "add", "tracked.txt")
+    _git(repo, "commit", "--quiet", "-m", "first")
+    _git(repo, "tag", "v1.0.0")
+    (repo / "tracked.txt").write_text("changed, not committed\n", encoding="utf-8")
+    assert _git(repo, "describe", "--tags", "--dirty") == "v1.0.0-dirty"  # control
+
+    monkeypatch.setattr(versioning, "_source_checkout_root", lambda: repo)
+
+    assert get_revision() == "v1.0.0"
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
@@ -394,7 +408,8 @@ def test_environment_is_scrubbed(monkeypatch):
     env = seen["env"]
     assert "GIT_DIR" not in env
     assert "GIT_WORK_TREE" not in env
-    # Read-only lookup must not take .git/index.lock, which --dirty otherwise does.
+    # Read-only lookup must not take .git/index.lock, which git's opportunistic
+    # index refresh otherwise does.
     assert env["GIT_OPTIONAL_LOCKS"] == "0"
     # Guards against anyone "simplifying" to a minimal env, which breaks git on
     # Windows (no SystemRoot) and anywhere git is not on the default PATH.

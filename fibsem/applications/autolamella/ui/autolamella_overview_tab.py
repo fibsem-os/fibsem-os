@@ -30,12 +30,14 @@ this for anyone with an experiment. That widget is now deleted, and nothing unde
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
-from fibsem.applications.autolamella.structures import DefectType
+from fibsem.applications.autolamella.structures import DefectType, OverlayRecord
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
 )
@@ -78,7 +80,12 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
     # ── what makes this the beam side ────────────────────────────────────
 
     def _build_overview(self, microscope) -> QWidget:
-        return FibsemOverviewWidget(microscope)
+        overview = FibsemOverviewWidget(microscope)
+        overview.gridbar_placement_changed.connect(self._save_gridbar_placement)
+        overview.image_placement_changed.connect(self._save_image_placement)
+        overview.image_display_changed.connect(self._save_image_display)
+        overview.image_removed.connect(self._forget_image)
+        return overview
 
     def _can_build(self, microscope) -> bool:
         return self._enabled
@@ -109,6 +116,203 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
             if lamella.defect.state in FLAGGED_DEFECT_STATES
         ]
         self.overview.set_positions(positions, flagged=flagged)
+
+    # ── the grid under the stage, and what was placed over it ────────────
+
+    @property
+    def current_grid(self):
+        """The experiment's record for the grid the stage is over, or None.
+
+        The holder says which grid is in the slot the stage is at, from its cached
+        position -- no hardware read, this is asked from paint paths. A holder with a
+        single grid loaded answers that grid even before the stage has been read, which
+        is every Arctis. None when nothing is loaded, or the experiment has no record
+        of the grid that is.
+        """
+        experiment = self.experiment
+        stage = getattr(self.microscope, "_stage", None)
+        if experiment is None or stage is None:
+            return None
+        try:
+            grid = stage.current_grid
+            if grid is None:
+                loaded = stage.loaded_grids
+                grid = loaded[0] if len(loaded) == 1 else None
+        except Exception as e:  # noqa: BLE001 - a stage that cannot say has no grid
+            logger.debug(f"Could not read the grid under the stage: {e}")
+            return None
+        return experiment.get_grid_by_name(grid.name) if grid is not None else None
+
+    def _save_gridbar_placement(self) -> None:
+        """The user placed the grid bars: keep it on the grid they are over."""
+        grid = self.current_grid
+        if grid is None or self.overview is None:
+            logger.debug("No grid under the stage to keep the grid bar placement on.")
+            return
+        dx, dy, rotation = self.overview.gridbar_placement
+        spacing, bar_width = self.overview.gridbar_pitch
+        grid.set_overlay(
+            OverlayRecord(
+                kind="gridbar",
+                dx=dx,
+                dy=dy,
+                rotation=rotation,
+                pitch=spacing,
+                bar_width=bar_width,
+            )
+        )
+        try:
+            self.experiment.save()
+        except Exception as e:  # noqa: BLE001 - the placement is on screen either way
+            logger.error(f"Could not save the grid bar placement: {e}")
+
+    # ── images aligned over the grid ─────────────────────────────────────
+
+    ALIGNED_IMAGES_DIR = "Aligned Images"
+
+    def _image_source(self, grid, aligned) -> Optional[str]:
+        """The image's file, relative to the grid's folder -- copied in if it is
+        elsewhere, so the experiment stays self-contained."""
+        if not aligned.path:
+            return None
+        root = str(self.experiment.grid_path(grid))
+        path = os.path.abspath(aligned.path)
+        if os.path.commonpath([root, path]) == os.path.abspath(root):
+            return os.path.relpath(path, root)
+        folder = os.path.join(root, self.ALIGNED_IMAGES_DIR)
+        os.makedirs(folder, exist_ok=True)
+        copied = os.path.join(folder, os.path.basename(path))
+        if not os.path.exists(copied):
+            shutil.copy2(path, copied)
+        aligned.path = copied
+        return os.path.relpath(copied, root)
+
+    def _keep_image(self, key: str):
+        """Write an aligned image's record on the grid under the stage -- where it
+        is and how it is shown -- and save. The grid and the record, or None."""
+        grid = self.current_grid
+        aligned = self.overview.aligned_images.get(key) if self.overview else None
+        if grid is None or aligned is None:
+            logger.debug("No grid under the stage to keep the image on.")
+            return None
+        try:
+            source = self._image_source(grid, aligned)
+        except Exception as e:  # noqa: BLE001 - a copy that failed is said
+            logger.error(f"Could not copy {aligned.label} into the grid folder: {e}")
+            return None
+        if source is None:
+            logger.debug(f"{aligned.label} has no file to keep; not recorded.")
+            return None
+        dx, dy, rotation, scale = aligned.placement
+        record = OverlayRecord(
+            kind="image",
+            source=source,
+            dx=dx,
+            dy=dy,
+            rotation=rotation,
+            scale=scale,
+            fit=dict(aligned.fit),
+            display=self.overview.aligned_images.display_state(key),
+        )
+        if aligned.record_id:
+            record.id = aligned.record_id
+        aligned.record_id = record.id
+        grid.set_overlay(record)
+        try:
+            self.experiment.save()
+        except Exception as e:  # noqa: BLE001 - the image is on screen either way
+            logger.error(f"Could not save {aligned.label} on grid {grid.name}: {e}")
+            return None
+        return grid, record
+
+    def _save_image_placement(self, key: str) -> None:
+        """The user placed an aligned image: keep it on the grid they are over."""
+        kept = self._keep_image(key)
+        if kept is None:
+            return
+        grid, record = kept
+        aligned = self.overview.aligned_images.get(key)
+        logger.info(
+            f"Kept {aligned.label} on grid {grid.name}: dx={record.dx:.3e} m"
+            f" dy={record.dy:.3e} m rotation={record.rotation:.2f} deg"
+            f" scale={record.scale:.4f}{' (from a fit)' if record.fit else ''};"
+            f" source {record.source}"
+        )
+
+    def _save_image_display(self, key: str) -> None:
+        """The user changed how an aligned image is shown: keep that too."""
+        kept = self._keep_image(key)
+        if kept is None:
+            return
+        grid, record = kept
+        display = record.display
+        shown = [
+            f"{c['name']} {c['color']}{'' if c['visible'] else ' (hidden)'}"
+            for c in display.get("channels", [])
+        ]
+        logger.info(
+            f"Kept how {self.overview.aligned_images.get(key).label} is shown on grid"
+            f" {grid.name}: opacity {display.get('opacity', 0):.2f},"
+            f" {'signal only' if display.get('signal_only') else 'whole frame'},"
+            f" channels {', '.join(shown) or 'none'}"
+        )
+
+    def _forget_image(self, _key: str, record_id: str) -> None:
+        grid = self.current_grid
+        if not record_id or grid is None:
+            return
+        grid.overlays = [o for o in grid.overlays if o.id != record_id]
+        try:
+            self.experiment.save()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Could not save the experiment: {e}")
+
+    def _restore_images(self, grid) -> None:
+        """Lay the grid's recorded images over the canvas, where they were left."""
+        self.overview.clear_aligned_images()
+        if grid is None:
+            return
+        root = str(self.experiment.grid_path(grid))
+        for record in grid.overlays:
+            if record.kind != "image" or not record.source:
+                continue
+            path = os.path.join(root, record.source)
+            if not os.path.isfile(path):
+                logger.warning(f"Aligned image {record.source} is missing; not shown.")
+                continue
+            key = self.overview.load_aligned_image(path)
+            if key is None:
+                continue
+            aligned = self.overview.aligned_images.get(key)
+            aligned.record_id = record.id
+            self.overview.aligned_images.set_placement(
+                key, record.dx, record.dy, record.rotation, record.scale
+            )
+            if record.display:
+                self.overview.set_aligned_image_display(key, record.display)
+
+    def _restore_overlays(self) -> None:
+        """Put the grid bars and the aligned images where this grid's records say.
+
+        Through the widget's setters, which do not announce, so restoring never
+        writes back what was just read.
+        """
+        if self.overview is None:
+            return
+        grid = self.current_grid
+        grid_id = grid.id if grid is not None else None
+        if grid_id == self._overlays_grid_id:
+            return
+        self._overlays_grid_id = grid_id
+        self._restore_images(grid)
+        record = grid.overlay_of("gridbar") if grid is not None else None
+        if record is None:
+            self.overview.set_gridbar_placement(0.0, 0.0, 0.0)
+            return
+        if record.pitch and record.bar_width:
+            self.overview.set_gridbar_pitch(record.pitch, record.bar_width)
+        self.overview.set_gridbar_placement(record.dx, record.dy, record.rotation)
+        self.overview.overlay_controls.set_visible("gridbars", True)
 
     # ── what the window asks ─────────────────────────────────────────────
 

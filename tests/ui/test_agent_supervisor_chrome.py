@@ -19,6 +19,7 @@ pytest.importorskip("PyQt5")
 from psygnal.containers import EventedDict
 
 from fibsem.applications.autolamella.structures import (
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     Experiment,
@@ -56,7 +57,7 @@ def agent_supervised_task(main_ui, tmp_path):
     experiment.task_protocol.workflow_config.tasks.append(
         AutoLamellaTaskDescription(
             name="Rough Milling",
-            supervise=True,
+            attention=Attention.supervised,
             required=True,
             supervisor="agent",
         )
@@ -90,7 +91,7 @@ def test_designation_shows_agent_chrome_with_a_running_server(
 def test_an_unsupervised_task_is_automated_regardless(main_ui, agent_supervised_task):
     main_ui.autolamella_ui._agent_server_host = _RunningHost()
     task = agent_supervised_task.task_protocol.workflow_config.tasks[-1]
-    task.supervise = False
+    task.attention = Attention.automated
     assert main_ui._update_supervised_status() is False
     assert main_ui.supervised_status_btn.text() == "Automated"
     assert main_ui._running_border_state("Rough Milling") == "automated"

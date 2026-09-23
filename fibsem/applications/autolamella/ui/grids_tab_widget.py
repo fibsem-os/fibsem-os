@@ -1,44 +1,61 @@
 """The Grids tab: the experiment's grid records, one card each.
 
-Mirrors the Lamella tab: cards on the left, the selected grid's results on the
-right; the grid protocol is edited on the Protocol tab beside the lamella one. The tab's object is what grids are *available to this experiment*, not
+Mirrors the Lamella tab: cards on the left, the selected grid on the right, as
+its Results or as Positions -- its stored overviews with lamellae marked on them
+(`GridPositionsWidget`); the grid protocol is edited on the Protocol tab beside
+the lamella one. The tab's object is what grids are *available to this experiment*, not
 what the hardware holds; empty magazine slots never appear here (that is
 Microscope → Sample). Slot, present and loaded are read from the stage's
 inventory on every refresh and drawn as chips.
 
 Run inventory, Load and Unload are conveniences over the same ``Stage``
-primitives the Sample view uses, run off the GUI thread. Running tasks is not on
-this tab; that is Workflow → Grids.
+primitives the Sample view uses, run off the GUI thread. ``generate_report``
+writes the grid screening PDF (FIB-1057) under the experiment folder and opens
+it; Tools → Reporting is what calls it, and the outcome is said on this tab's
+strip. Running tasks is not on this tab; that is Workflow → Grids.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from typing import Callable, Dict, Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPushButton,
     QScrollArea,
     QSplitter,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem.applications.autolamella.structures import Experiment, GridRecord
+from fibsem.applications.autolamella.tools.grid_report_pdf import (
+    generate_grid_report,
+)
 from fibsem.applications.autolamella.ui.grid_card_widget import GridCardContainer
+from fibsem.applications.autolamella.ui.grid_positions_widget import (
+    GridPositionsWidget,
+)
 from fibsem.applications.autolamella.ui.grid_results_widget import GridResultsWidget
 from fibsem.microscopes._stage import GridInventoryEntry, SampleGrid
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker
-from fibsem.ui.tokens import ERROR_COLOR, NEUTRAL_200, TEXT_MUTED_COLOR
+from fibsem.ui.tokens import ERROR_COLOR, NEUTRAL_200, PANEL_COLOR, TEXT_MUTED_COLOR
+from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE, VIEW_CHIP_SPACING
 from fibsem.ui.widgets.sample_loader_widget import _ICON_BTN_STYLE, ICON_INVENTORY
 
 _STRIP_WIDTH = 340
+VIEW_RESULTS = "Results"
+VIEW_POSITIONS = "Positions"
 
 
 class GridsTabWidget(QWidget):
@@ -57,6 +74,7 @@ class GridsTabWidget(QWidget):
         self._busy = False
         self._controls_enabled = True
         self._worker = None
+        self._after: Optional[Callable[[], None]] = None
         self._inventory: Dict[str, GridInventoryEntry] = {}
         self._setup_ui()
         self.refresh()
@@ -131,13 +149,47 @@ class GridsTabWidget(QWidget):
         splitter.addWidget(strip)
         splitter.setStretchFactor(0, 0)
 
-        # -- right: sub-tabs -----------------------------------------------------
-        # -- right: the selected grid's results --------------------------------
+        # -- right: the selected grid, as Results or as Positions ----------------
         # The grid protocol is edited on the Protocol tab, beside the lamella one.
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+        switch = QWidget()
+        switch.setStyleSheet(f"background: {PANEL_COLOR};")
+        switch_layout = QHBoxLayout(switch)
+        switch_layout.setContentsMargins(12, 4, 12, 4)
+        switch_layout.setSpacing(VIEW_CHIP_SPACING)
+        self.view_chips: Dict[str, QPushButton] = {}
+        for name in (VIEW_RESULTS, VIEW_POSITIONS):
+            chip = QPushButton(name)
+            chip.setCheckable(True)
+            chip.setCursor(Qt.PointingHandCursor)
+            # Accent when selected, as the Overview tab's modality chips: which
+            # of the two the panel is showing should read at a glance.
+            chip.setStyleSheet(MODALITY_CHIP_STYLE)
+            chip.clicked.connect(lambda _checked=False, n=name: self.show_view(n))
+            switch_layout.addWidget(chip)
+            self.view_chips[name] = chip
+        switch_layout.addStretch(1)
+        right_layout.addWidget(switch)
+
+        self.stack = QStackedWidget()
         self.results_widget = GridResultsWidget()
         self.cards.grid_selected.connect(self.results_widget.set_grid)
-        splitter.addWidget(self.results_widget)
+        self.results_widget.mark_requested.connect(self._on_mark_requested)
+        self.stack.addWidget(self.results_widget)
+        self.positions_widget = GridPositionsWidget()
+        self.positions_widget.load_requested.connect(self._on_load)
+        self.positions_widget.done_requested.connect(
+            lambda: self.show_view(VIEW_RESULTS)
+        )
+        self.cards.grid_selected.connect(self._on_grid_selected_for_positions)
+        self.stack.addWidget(self.positions_widget)
+        right_layout.addWidget(self.stack, 1)
+        splitter.addWidget(right)
         splitter.setStretchFactor(1, 1)
+        self.show_view(VIEW_RESULTS)
         splitter.setSizes([_STRIP_WIDTH, 99999])
         layout.addWidget(splitter)
 
@@ -146,7 +198,82 @@ class GridsTabWidget(QWidget):
     def set_experiment(self, experiment: Optional[Experiment]) -> None:
         self._experiment = experiment
         self.results_widget.set_experiment(experiment)
+        self.positions_widget.set_experiment(experiment)
         self._rebuild()
+
+    def set_autolamella_ui(self, autolamella_ui) -> None:
+        """The application widget that makes lamellae, for the Positions view."""
+        self.positions_widget.set_autolamella_ui(autolamella_ui)
+
+    # -- Results | Positions -----------------------------------------------------
+
+    @property
+    def view(self) -> str:
+        return (
+            VIEW_POSITIONS
+            if self.stack.currentWidget() is self.positions_widget
+            else VIEW_RESULTS
+        )
+
+    def show_view(self, name: str) -> None:
+        """Results, or Positions for the selected grid."""
+        if name == VIEW_POSITIONS:
+            grid = self.cards.selected_grid
+            if grid is None:
+                self.show_view(VIEW_RESULTS)
+                return
+            self._sync_positions_grid(grid)
+            self.stack.setCurrentWidget(self.positions_widget)
+        else:
+            self.stack.setCurrentWidget(self.results_widget)
+        for chip_name, chip in self.view_chips.items():
+            chip.setChecked(chip_name == self.view)
+
+    def select_grid(self, grid: GridRecord) -> None:
+        """Select *grid* as a click would, so Results and the host follow."""
+        if self.cards.selected_grid is not grid:
+            self.cards.select_grid(grid)
+            self.cards.grid_selected.emit(grid)
+
+    def show_positions(self, grid: GridRecord, path: Optional[str] = None) -> None:
+        """Positions for *grid*, showing the view holding the overview at *path*."""
+        if self.cards.selected_grid is not grid:
+            # `select_grid` is the programmatic one and does not emit; the
+            # Results view and the host are told the way a click tells them.
+            self.cards.select_grid(grid)
+            self.cards.grid_selected.emit(grid)
+        self.show_view(VIEW_POSITIONS)
+        if path is not None:
+            self.positions_widget.show_overview(path)
+
+    def _on_mark_requested(self, grid: GridRecord, path: str) -> None:
+        self.show_positions(grid, path)
+
+    def _on_grid_selected_for_positions(self, grid: Optional[GridRecord]) -> None:
+        """The Positions chip is offered whenever a card is selected, and the
+        Positions view follows the card selection while it is showing; a
+        deselection goes back to Results, which has something to say without a
+        grid."""
+        self.view_chips[VIEW_POSITIONS].setEnabled(grid is not None)
+        if self.view != VIEW_POSITIONS:
+            return
+        if grid is None:
+            self.show_view(VIEW_RESULTS)
+            return
+        self._sync_positions_grid(grid)
+
+    def _sync_positions_grid(self, grid: GridRecord) -> None:
+        entry = self._inventory.get(grid.name)
+        loaded = entry is not None and entry.loaded
+        can_load = (
+            self.stage is not None
+            and self.stage.loader is not None
+            and entry is not None
+            and entry.present
+            and self._controls_enabled
+            and not self._busy
+        )
+        self.positions_widget.set_grid(grid, loaded=loaded, can_load=can_load)
 
     def set_microscope(self, microscope) -> None:
         self._microscope = microscope
@@ -200,6 +327,9 @@ class GridsTabWidget(QWidget):
             card.set_inventory(self._inventory.get(card.grid.name), has_loader)
             card.set_controls_enabled(self._controls_enabled and not self._busy)
         self.results_widget.refresh()
+        if self.view == VIEW_POSITIONS and self.cards.selected_grid is not None:
+            self._sync_positions_grid(self.cards.selected_grid)
+        self.view_chips[VIEW_POSITIONS].setEnabled(self.cards.selected_grid is not None)
 
         n = len(self.cards.cards)
         present = sum(1 for c in self.cards.cards if c.is_present)
@@ -312,6 +442,47 @@ class GridsTabWidget(QWidget):
             job, f"Unloading {grid.name}…", f"{grid.name} returned to the magazine."
         )
 
+    # -- the report ---------------------------------------------------------------
+
+    def generate_report(self) -> None:
+        """Write the grid screening PDF under the experiment folder and open it.
+
+        Needs records, not hardware: the report reads the experiment only, so this
+        works with nothing connected. The stage inventory the tab holds, if any,
+        supplies the slot column.
+        """
+        experiment = self._experiment
+        if experiment is None:
+            self._say("No experiment loaded.", error=True)
+            return
+        if not experiment.grids:
+            self._say("No grids to report. Run inventory first.", error=True)
+            return
+        inventory = list(self._inventory.values())
+        written: Dict[str, str] = {}
+
+        def job() -> None:
+            try:
+                written["path"] = generate_grid_report(experiment, inventory=inventory)
+            except ImportError as e:
+                raise RuntimeError(
+                    "Reporting tools are not installed: pip install "
+                    f"fibsem-os[reporting] ({e})"
+                ) from e
+
+        def opened() -> None:
+            path = written.get("path")
+            if path:
+                # The name only: the strip is narrow and the folder is the experiment's.
+                self._say(f"Report written: {os.path.basename(path)}")
+                self.open_report(path)
+
+        self._start(job, "Writing the grid screening report…", "", after=opened)
+
+    def open_report(self, path: str) -> None:
+        """Hand the PDF to the desktop's viewer. Separate so a test can watch it."""
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
     def _confirm(self, title: str, text: str) -> bool:
         if self._synchronous:
             return True
@@ -322,12 +493,21 @@ class GridsTabWidget(QWidget):
             == QMessageBox.Yes
         )
 
-    def _start(self, job: Callable[[], None], doing: str, done: str) -> None:
+    def _start(
+        self,
+        job: Callable[[], None],
+        doing: str,
+        done: str,
+        after: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Run *job* off the GUI thread, saying *doing* meanwhile and *done* when
+        it returns; *after*, if given, runs on the GUI thread after that."""
         if self._busy:
             return
         self._set_busy(True)
         self._say(doing)
         self._done_text = done
+        self._after = after
         if self._synchronous:
             try:
                 job()
@@ -350,6 +530,9 @@ class GridsTabWidget(QWidget):
 
     def _on_returned(self, _result: object = None) -> None:
         self._say(self._done_text)
+        after, self._after = self._after, None
+        if after is not None:
+            after()
 
     def _on_errored(self, error: Exception) -> None:
         logging.warning(f"Grid operation failed: {error}")

@@ -68,6 +68,37 @@ class TestHeadline:
         ]
         assert grid_headline(grid)[0].startswith("overview_fib (")
 
+    def test_a_task_awaiting_a_decision_is_the_headline(self):
+        grid = GridRecord(name="g")
+        grid.task_history += [
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(AutoLamellaTaskStatus.AwaitingDecision),
+            entry(AutoLamellaTaskStatus.Failed, "overview_fib"),
+        ]
+        assert grid_headline(grid)[0] == "overview_sem awaits a decision"
+
+    def test_it_is_found_across_a_later_load(self):
+        """A run that moved on and came back loads the grid again; the task
+        waiting from before that load is still the news."""
+        grid = GridRecord(name="g")
+        grid.task_history += [
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(AutoLamellaTaskStatus.AwaitingDecision),
+            entry(AutoLamellaTaskStatus.AwaitingDecision, "overview_fib"),
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(AutoLamellaTaskStatus.Completed, "overview_fm"),
+        ]
+        assert grid_headline(grid)[0] == "2 tasks await a decision"
+
+    def test_a_decided_task_is_not_waiting(self):
+        grid = GridRecord(name="g")
+        grid.task_history += [
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(AutoLamellaTaskStatus.AwaitingDecision),
+            entry(AutoLamellaTaskStatus.Completed),  # re-run, finished
+        ]
+        assert grid_headline(grid)[0].startswith("overview_sem (")
+
     def test_failed_tasks_are_counted(self):
         grid = GridRecord(name="g")
         grid.task_history += [
@@ -152,11 +183,11 @@ class TestCards:
         tab.experiment_changed.connect(lambda: changed.append(True))
         card = tab.cards.cards[0]
         card.set_quality(GridQuality.GOOD)
-        assert card.grid.quality is GridQuality.GOOD
+        assert card.grid.quality.verdict is GridQuality.GOOD
         assert "Good" in card._btn_quality.toolTip()
         assert changed == [True]
         loaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
-        assert loaded.get_grid_by_name("Grid-01").quality is GridQuality.GOOD
+        assert loaded.get_grid_by_name("Grid-01").quality.verdict is GridQuality.GOOD
         # a task outcome does not touch it
         assert grid_headline(card.grid)[0] == "Not run"
 
@@ -351,3 +382,79 @@ def test_a_grid_task_added_on_the_protocol_tab_reaches_the_run_view(main_ui, tmp
 
     assert list(run_view._task_rows) == ["SEM Overview"]
     assert run_view.get_selected_task_names() == ["SEM Overview"]
+
+
+def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
+    """Seen on the bench: unloading from the Grids tab left the Sample view
+    showing the grid still on the stage. The Sample view draws from the stage
+    and never polls it, so the Grids tab's exchanges have to tell it."""
+    from fibsem.microscopes._stage import DemoSampleLoader
+    from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
+
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    microscope = ui.microscope
+    microscope.stage_is_compustage = True
+    microscope._stage = _create_sample_stage(microscope)
+    microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1, 2))
+    # The Sample view is built at connect, against the stage of that moment;
+    # rebuild it for the swapped stage the way a connect would.
+    ui.sample_widget = FibsemSampleWidget(microscope=microscope)
+    main_ui._refresh_grids_tab_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    ui.experiment = exp
+    main_ui.grids_tab.set_experiment(exp)
+    main_ui.tab_widget.setTabEnabled(
+        main_ui.tab_widget.indexOf(main_ui.grids_tab), True
+    )
+    main_ui.grids_tab._synchronous = True
+    main_ui.grids_tab.btn_inventory.click()
+
+    def sample_states():
+        return [r.state for r in ui.sample_widget.loader_widget._rows[:2]]
+
+    assert sample_states() == ["occupied", "occupied"]
+    card = main_ui.grids_tab.cards.cards[1]
+    card._action_load.trigger()
+    assert sample_states() == ["occupied", "loaded"]
+    card._action_unload.trigger()
+    assert sample_states() == ["occupied", "occupied"]
+
+
+class TestReport:
+    """Writes the grid screening PDF under the experiment and opens it. Tools →
+    Reporting calls this; see test_grid_report_menu.py for the menu."""
+
+    def test_needs_a_record_but_no_hardware(self, qapp, experiment):
+        widget = GridsTabWidget(synchronous=True)
+        widget.set_experiment(experiment)
+        widget.generate_report()
+        assert widget.status_label.text() == "No grids to report. Run inventory first."
+
+    def test_writes_under_the_experiment_and_opens_it(
+        self, tab, experiment, monkeypatch
+    ):
+        pytest.importorskip("reportlab")
+        tab.btn_inventory.click()
+        opened = []
+        monkeypatch.setattr(tab, "open_report", opened.append)
+        tab.generate_report()
+        (path,) = opened
+        assert path == os.path.join(str(experiment.path), "grid-screening-report.pdf")
+        assert os.path.getsize(path) > 0
+        assert tab.status_label.text() == "Report written: grid-screening-report.pdf"
+        assert not tab.busy
+
+    def test_a_missing_reporting_extra_is_said_plainly(self, tab, monkeypatch):
+        import fibsem.applications.autolamella.ui.grids_tab_widget as module
+
+        tab.btn_inventory.click()
+
+        def refuse(*_args, **_kwargs):
+            raise ImportError("No module named 'reportlab'")
+
+        monkeypatch.setattr(module, "generate_grid_report", refuse)
+        tab.generate_report()
+        assert "pip install fibsem-os[reporting]" in tab.status_label.text()

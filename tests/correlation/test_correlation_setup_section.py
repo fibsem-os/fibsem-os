@@ -5,6 +5,7 @@ the live canvas. Covers the default source precedence, enable rules, run
 selection, the payload each source yields, and the widget-side seeding + the
 manual-edit guard. Headless PyQt5, offscreen.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -280,6 +281,23 @@ def test_fm_pixel_size_reports_xy_z_and_anisotropy(qapp):
     )
 
 
+def test_fm_pixel_size_says_when_the_slice_thickness_is_missing(qapp):
+    """Anisotropy is the normal case and the fit converts the units itself, so
+    it is reported as a fact. A stack that records no slice thickness is the
+    case where depth really is unreliable: the fit cannot convert z at all, and
+    the depth correction is computed from what it finds (FIB-1017)."""
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
+        _format_fm_pixel_size,
+    )
+
+    text = _format_fm_pixel_size(_fm_image(pixel_size_z=None).metadata)
+    assert "40.0 nm xy" in text
+    assert "slice thickness not recorded" in text
+    assert "depth cannot be trusted" in text
+    # and it does not claim an anisotropy it cannot compute
+    assert "anisotropic" not in text
+
+
 def test_fm_pixel_size_handles_missing_metadata(qapp):
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         _format_fm_pixel_size,
@@ -297,7 +315,9 @@ def test_loading_fm_through_the_picker_enables_interpolate(qapp, monkeypatch):
     import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     tab = _widget()._images_tab
-    monkeypatch.setattr(ctw.FluorescenceImage, "load", staticmethod(lambda p: _fm_image()))
+    monkeypatch.setattr(
+        ctw.FluorescenceImage, "load", staticmethod(lambda p: _fm_image())
+    )
 
     tab._load_fm("/lam/some.ome.tiff")
     assert tab._btn_interpolate.isEnabled()

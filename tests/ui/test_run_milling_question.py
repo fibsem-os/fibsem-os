@@ -24,11 +24,13 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from fibsem.acting import TASK, current_actor
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows.interaction import (
     RunMillingTask,
     ask,
 )
+from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 
@@ -45,16 +47,18 @@ def ui(qapp, monkeypatch):
     """A real AutoLamellaUI, connected (Demo), with the mill run itself stubbed."""
     from fibsem.ui.widgets import milling_widget as mw
 
-    runs = []
+    runs, actors = [], []
 
     def fake_run_milling_task(microscope, config, parent_ui=None, **kwargs):
         runs.append(config)
+        actors.append(current_actor())  # who the record would say milled
         time.sleep(0.05)  # long enough for is_milling to be observable
 
     monkeypatch.setattr(mw, "run_milling_task", fake_run_milling_task)
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
     widget._mill_runs = runs  # for the tests to inspect
+    widget._mill_actors = actors
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
@@ -104,7 +108,7 @@ def test_run_then_continue_runs_once_and_answers_the_editor_config(ui, qapp):
 
     assert ui.pushButton_yes.text() == "Run Milling"
     assert ui.pushButton_no.text() == "Continue"
-    assert ui.WAITING_FOR_USER_INTERACTION is True
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()  # run
     # The prompt is down while the mill runs, and comes back when it finishes.
@@ -117,7 +121,7 @@ def test_run_then_continue_runs_once_and_answers_the_editor_config(ui, qapp):
     assert "error" not in outcome
     assert isinstance(outcome["config"], FibsemMillingTaskConfig)
     assert outcome["config"].name == "rough-mill"
-    assert ui.WAITING_FOR_USER_INTERACTION is False
+    assert ui.hold is None
     # The old handshakes are gone, and so is the polled flag.
     assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
 
@@ -144,7 +148,7 @@ def test_unsupervised_runs_once_without_a_prompt(ui, qapp):
     assert outcome["config"].name == "auto"
     assert len(ui._mill_runs) == 1
     # No prompt was ever shown for it.
-    assert ui.WAITING_FOR_USER_INTERACTION is False
+    assert ui.hold is None
 
 
 def test_disabled_milling_only_confirms_the_patterns(ui, qapp):
@@ -220,7 +224,7 @@ def test_a_stop_during_the_mill_does_not_resurrect_the_prompt(ui, qapp):
         time.sleep(0.01)
 
     assert ui.label_instructions.text() != MSG, "the aborted prompt came back"
-    assert ui.WAITING_FOR_USER_INTERACTION is False
+    assert ui.hold is None
 
 
 def test_a_click_after_a_stop_starts_nothing(ui, qapp):
@@ -298,3 +302,63 @@ def test_flipping_to_supervised_mid_mill_drops_into_the_loop(ui, qapp):
 
     assert "error" not in outcome
     assert outcome["config"].name == "drop-in"
+
+
+# ── who milled, on the experiment's record (FIB-1062) ────────────────────────
+
+
+def test_the_mill_it_runs_for_the_task_is_the_task_s(ui, qapp):
+    """The widget runs it on a GUI worker thread, for the task, asked or not."""
+    auto = RunMillingTask(config=_config("auto"), confirm=lambda: False, message=MSG)
+    thread, _ = _ask_on_worker_thread(ui, qapp, auto, wait_for_prompt=False)
+    _finish(thread, qapp)
+
+    request = RunMillingTask(config=_config("asked"), message=MSG)
+    thread, _ = _ask_on_worker_thread(ui, qapp, request)
+    ui.pushButton_yes.click()  # the operator says run; the mill is still the task's
+    _wait_for_prompt(ui, qapp, MSG)
+    ui.pushButton_no.click()
+    _finish(thread, qapp)
+
+    assert ui._mill_actors == [TASK, TASK]
+
+
+def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp):
+    """The editor's own Run, outside any question: unmarked, the operator's."""
+    ui.ui_responder._milling_widget().milling_widget.run_milling(_config("by-hand"))
+    deadline = time.monotonic() + 10
+    while not ui._mill_runs and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+    assert ui._mill_actors == [None]
+
+
+def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_path):
+    from fibsem.acting import OPERATOR
+    from fibsem.applications.autolamella.event_recording import (
+        EVENTS_FILENAME,
+        EventRecorder,
+        read_events,
+    )
+
+    recorder = EventRecorder(
+        ui.microscope,
+        responder=ui.ui_responder,
+        experiment_path=tmp_path,
+        default_actor=OPERATOR,
+    )
+    try:
+        request = RunMillingTask(config=_config("asked"), message=MSG)
+        thread, _ = _ask_on_worker_thread(ui, qapp, request)
+        ui.pushButton_no.click()  # continue, without running
+        _finish(thread, qapp)
+    finally:
+        recorder.close()
+    actors = {
+        r["kind"]: r["actor"]
+        for r in read_events(tmp_path / EVENTS_FILENAME)
+        if r["kind"].startswith("prompt_")
+    }
+    # Raised on the GUI thread, but for the task that asked.
+    assert actors == {"prompt_raised": "task", "prompt_answered": "operator"}

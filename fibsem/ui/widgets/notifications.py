@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import weakref
+from typing import Optional
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -41,10 +43,10 @@ class ToastNotification(QWidget):
 
     # Notification types with colors
     TYPES = {
-        "info": ACCENT_COLOR,                      # Blue
-        "success": stylesheets.GREEN_COLOR,     # Green
-        "warning": stylesheets.ORANGE_COLOR,    # Orange
-        "error": "#f44336",                     # Red
+        "info": ACCENT_COLOR,  # Blue
+        "success": stylesheets.GREEN_COLOR,  # Green
+        "warning": stylesheets.ORANGE_COLOR,  # Orange
+        "error": "#f44336",  # Red
     }
 
     def __init__(self, parent=None, duration: int = 5000):
@@ -159,7 +161,9 @@ class ToastNotification(QWidget):
             }}
         """)
 
-    def show_toast(self, message: str, notification_type: str = "info", duration: int = 3000):
+    def show_toast(
+        self, message: str, notification_type: str = "info", duration: int = 3000
+    ):
         """Show the toast notification."""
         self.message_label.setText(message)
         self._apply_style(notification_type)
@@ -204,7 +208,7 @@ class ToastNotification(QWidget):
             pass  # Already disconnected
         self.hide()
         # Call cleanup callback if set
-        if hasattr(self, '_cleanup_callback') and self._cleanup_callback:
+        if hasattr(self, "_cleanup_callback") and self._cleanup_callback:
             self._cleanup_callback()
 
 
@@ -238,7 +242,9 @@ class NotificationHistoryPopup(QWidget):
         header_layout.setContentsMargins(12, 10, 12, 10)
 
         header_label = QLabel("Notifications")
-        header_label.setStyleSheet(f"color: {TEXT_COLOR}; font-weight: bold; font-size: 14px;")
+        header_label.setStyleSheet(
+            f"color: {TEXT_COLOR}; font-weight: bold; font-size: 14px;"
+        )
         header_layout.addWidget(header_label)
 
         header_layout.addStretch()
@@ -472,7 +478,7 @@ class ToastManager:
         self.toasts: list[ToastNotification] = []
         self.spacing = 10
         self.notification_bell: NotificationBell = None
-        self._last_active: QWidget = None
+        self._last_active: Optional[weakref.ref] = None  # to a QWidget
         app = QApplication.instance()
         if app is not None:
             app.focusChanged.connect(self._on_focus_changed)
@@ -490,16 +496,23 @@ class ToastManager:
         microscope software. Only ``Qt.Window`` types qualify, which skips the app's
         own transient chrome (toasts, popovers, tooltips) and short-lived dialogs: a
         toast anchored to a dialog would be destroyed with it mid-fade.
+
+        Remembered by weak reference (FIB-992). The manager hears every focus change
+        in the app, so a strong reference made it the owner of whichever window was
+        focused last, and replacing that reference here dropped the window's last one
+        in the middle of Qt's focus change. Qt then emitted ``activeChanged()`` on the
+        window it had just destroyed: a segfault in
+        ``QGuiApplicationPrivate::processActivatedEvent``.
         """
         if now is None:
             return
         window = now.window()
         if window is not None and window.windowType() == Qt.Window:
-            self._last_active = window
+            self._last_active = weakref.ref(window)
 
     def _anchor(self) -> QWidget:
         """The window a new toast belongs to."""
-        window = self._last_active
+        window = self._last_active() if self._last_active is not None else None
         try:
             # isMinimized: anchoring to a minimized window would place the toast at
             # that window's restored geometry, i.e. over nothing the operator can see.
@@ -510,18 +523,26 @@ class ToastManager:
             return self.parent
         return window
 
-    def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000, temporary: bool = False):
+    def show_toast(
+        self,
+        message: str,
+        notification_type: str = "info",
+        duration: int = 5000,
+        temporary: bool = False,
+    ):
         """Show a toast notification."""
         toast = ToastNotification(self._anchor(), duration)
         self.toasts.append(toast)
 
         # Connect to hidden signal for cleanup (not fade_animation.finished which fires on fade-in too)
         toast.hidden_signal_connected = False
+
         def on_hidden():
             if toast in self.toasts:
                 self.toasts.remove(toast)
                 toast.deleteLater()
                 self._reposition_toasts()
+
         toast._cleanup_callback = on_hidden
 
         toast.show_toast(message, notification_type, duration)

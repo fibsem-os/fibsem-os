@@ -81,6 +81,32 @@ def test_every_backend_takes_the_view_as_a_parameter(cls):
     assert "beam_type" in inspect.signature(cls.vertical_move).parameters
 
 
+@pytest.mark.parametrize(
+    "cls",
+    [ThermoMicroscope, TescanMicroscope, DemoMicroscope],
+    ids=lambda c: c.__name__,
+)
+def test_every_backend_takes_every_parameter_the_base_declares(cls):
+    """Checked against the base rather than by name, so a parameter added there
+    later is held to every backend too. Odemis needs the stub modules to import,
+    so it is checked in test_odemis_vertical_move.py."""
+    base = inspect.signature(FibsemMicroscope.vertical_move).parameters
+    override = inspect.signature(cls.vertical_move).parameters
+    for name, param in base.items():
+        assert name in override, f"{cls.__name__}.vertical_move has no {name}"
+        assert override[name].default == param.default, name
+
+
+def test_the_base_declares_relaxation():
+    """The automated coincidence alignment calls vertical_move(..., relaxation=...)
+    on whatever backend it is given. The base did not declare it, so nothing held
+    Odemis and Tescan to it, and both raised TypeError (#1002)."""
+    relaxation = inspect.signature(FibsemMicroscope.vertical_move).parameters[
+        "relaxation"
+    ]
+    assert relaxation.default == 1.0
+
+
 def test_an_unsupported_view_raises_instead_of_moving(microscope):
     """The failure mode being designed out: correcting a SEM-measured offset with the
     FIB's geometry, which is what the old fallbacks did."""

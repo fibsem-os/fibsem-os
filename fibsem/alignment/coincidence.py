@@ -42,7 +42,7 @@ from fibsem.structures import FibsemImage, FibsemStagePosition
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import ImageSettings
+    from fibsem.structures import BeamType, ImageSettings
 
 DEFAULT_FIB_COLUMN_TILT = np.deg2rad(52.0)
 
@@ -443,7 +443,11 @@ DEFAULT_MAX_ITERATIONS = 3
 # where the mesh's rival correlation peaks sit.
 DEFAULT_COARSE_HFW = 900e-6  # m
 DEFAULT_COARSE_CAPTURE_RANGE = 100e-6  # m, just under one 125 um grid pitch
-DEFAULT_COARSE_AGREEMENT_TOLERANCE = 2e-6  # m, looser: coarse pixels are ~4x bigger
+# The coarse pass only has to land inside the fine pass's capture range
+# (DEFAULT_CAPTURE_RANGE, 20 um), so its two bands need not agree closer than
+# a fraction of that: 8 um accepted three of four Arctis attempts that 2 um
+# refused, all at the same +26..29 um height error (FIB-987).
+DEFAULT_COARSE_AGREEMENT_TOLERANCE = 8e-6  # m
 DEFAULT_COARSE_MAX_LATERAL_OFFSET = 20e-6  # m
 
 REASON_CONVERGED = "converged"
@@ -529,7 +533,11 @@ def _default_image_settings() -> "ImageSettings":
     return ImageSettings(
         hfw=DEFAULT_ALIGNMENT_HFW,
         resolution=DEFAULT_ALIGNMENT_RESOLUTION,
-        dwell_time=0.2e-6,  # keep the ion dose down: this runs repeatedly
+        # 1 us: at 0.2 us the SEM frame on an Arctis (2 kV, 25 pA, ETD) was
+        # noise -- neighbour-pixel correlation 0.16 -- and every measurement
+        # of a session was refused (FIB-987). The ion dose at 1 us over a
+        # 150 um field is still small for something that runs a few times.
+        dwell_time=1.0e-6,
         autocontrast=False,
         save=False,
     )
@@ -551,13 +559,18 @@ def check_coincidence(
     """
     from copy import deepcopy
 
+    from fibsem import acquire
     from fibsem.structures import BeamType
 
     settings = deepcopy(image_settings or _default_image_settings())
+    # Acquired as given, as the microscope did before this went through
+    # `acquire`: never autocontrasted or saved here, whatever the settings say.
+    settings.autocontrast = False
+    settings.save = False
     settings.beam_type = BeamType.ELECTRON
-    sem_image = microscope.acquire_image(image_settings=settings)
+    sem_image = acquire.acquire_image(microscope, settings)
     settings.beam_type = BeamType.ION
-    fib_image = microscope.acquire_image(image_settings=settings)
+    fib_image = acquire.acquire_image(microscope, settings)
     measurement = measure_coincidence_from_images(
         sem_image,
         fib_image,
@@ -569,6 +582,20 @@ def check_coincidence(
     )
     measurement.sem_image = sem_image
     measurement.fib_image = fib_image
+    microscope.record_event(  # for the experiment's record; it never raises
+        "coincidence_measured",
+        {
+            "hfw": settings.hfw,
+            "dx": measurement.dx,
+            "dy": measurement.dy,
+            "dz": measurement.dz,
+            "band_disagreement": measurement.band_disagreement,
+            "rival_ratio": measurement.rival_ratio,
+            "is_reliable": measurement.is_reliable,
+            "refusal_reason": measurement.refusal_reason,
+            "prior": measurement.prior,
+        },
+    )
     return measurement
 
 
@@ -637,7 +664,7 @@ def ensure_coincident(
             one grid pitch: the mesh is periodic and rival peaks sit one
             pitch apart.
         coarse_agreement_tolerance: band-agreement gate for the coarse pass
-            (looser: its pixels are ~4x larger).
+            (looser: it only has to land inside the fine capture range).
         coarse_max_lateral_offset: |dx| bound for the coarse pass (looser:
             it only has to land within the fine pass's reach, and the fine
             measurement that follows re-verifies under the strict bound).

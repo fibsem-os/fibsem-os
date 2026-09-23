@@ -81,6 +81,7 @@ and the reusable half where it can be called without one (FIB-828).
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import logging
 import threading
@@ -112,6 +113,11 @@ class FunctionWorker(QObject):
     use — :meth:`is_alive` and :meth:`join` — so a widget that stored a raw ``Thread`` for
     lifecycle (``is_acquiring`` / ``cancel`` / ``closeEvent``) can hold a ``FunctionWorker``
     instead with no change to those call sites.
+
+    The body runs with a copy of the context the worker was started from, which a raw
+    ``Thread`` does not do. So work started on a task's behalf is still the task's in the
+    experiment's record (``fibsem.acting``, FIB-1062), and work started from the GUI is
+    unmarked, as it was.
     """
 
     started = pyqtSignal()
@@ -125,9 +131,11 @@ class FunctionWorker(QObject):
         self._args = args
         self._kwargs = kwargs
         self._thread: Optional[threading.Thread] = None
+        self._context: Optional[contextvars.Context] = None
 
     def start(self) -> None:
         """Launch the worker on a daemon thread."""
+        self._context = contextvars.copy_context()
         _ACTIVE_WORKERS.add(self)
         # Released on the GUI thread once the worker is done (self lives there).
         self.finished.connect(lambda: _ACTIVE_WORKERS.discard(self))
@@ -156,7 +164,7 @@ class FunctionWorker(QObject):
     def _run(self) -> None:
         self.started.emit()
         try:
-            result = self._func(*self._args, **self._kwargs)
+            result = self._context.run(self._func, *self._args, **self._kwargs)
         except Exception as exc:  # noqa: BLE001 - report every failure, never swallow it
             logging.exception(
                 "worker %r failed", getattr(self._func, "__name__", self._func)

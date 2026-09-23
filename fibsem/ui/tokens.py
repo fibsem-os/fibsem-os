@@ -52,6 +52,11 @@ CURRENT_POSITION_COLOUR = "#ffee58"  # where the stage is now
 # value it replaced was muted enough to disappear into a bright overview.
 SAVED_POSITION_COLOUR = "#00e5ff"  # a marked position
 SELECTED_POSITION_COLOUR = "#76ff03"  # the marked position under the selection
+# A position placed but not yet committed: a mark in a review that creates the
+# lamellae when it is confirmed. Magenta because the two above are taken and
+# this has to read as a different kind of thing rather than another state of
+# the same one -- one is on the experiment, the other is a proposal.
+DRAFT_POSITION_COLOUR = "#e040fb"  # placed, not yet created
 
 # The sample holder, drawn under everything else on the same canvases. Here for the
 # same reason as the markers above, and they had already drifted: the FIB/SEM overview
@@ -88,6 +93,11 @@ ACCENT_COLOR = "#50a6ff"  # links, selected state, informational chips
 OK_COLOR = "#4caf50"  # success
 WARN_COLOR = "#e0a030"  # loaded but inactive, degraded, needs attention
 ERROR_COLOR = "#d04040"  # failure
+# The Review chip: the task will wait on you, in the Review tab. The same
+# orange as the border's "waiting on you now" and the inbox's waiting rows, on
+# purpose: one colour for one meaning, at rest on the chip and live on the
+# border when it happens. Not red (error) and not amber (degraded, cancelled).
+REVIEW_COLOR = ORANGE_COLOR
 
 # The disabled pair. Every semantic button sheet renders its :disabled state in
 # these two, and until now both were bare literals repeated across the file --
@@ -133,6 +143,52 @@ NEUTRAL_900 = "#1a1b1e"
 # Role name for the workflow border's "queued, but nothing is executing" state.
 # Points at the neutral the workflow timeline already uses for StepStatus.PENDING
 # (its ``_DOT_PENDING``), so a parked run reads the same on both surfaces instead
+# ---------------------------------------------------------------------------
+# Text roles
+#
+# A widget that styles each label inline picks a size and a colour every time,
+# and across the correlation widgets that produced 33 labels at 11 px, 17 at
+# 12 px, and five different "muted" greys for the same job (FIB-978). These are
+# the roles a label can have; a widget names the role, not the numbers.
+#
+# Stylesheet fragments, so they compose: ``f"{CAPTION_STYLE} margin-left: 8px;"``.
+PANEL_TITLE_STYLE = f"color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 600;"
+BODY_STYLE = f"color: {TEXT_COLOR}; font-size: 12px;"  # labels, status, instructions
+BODY_MUTED_STYLE = (
+    f"color: {TEXT_MUTED_COLOR}; font-size: 12px;"  # secondary at body size
+)
+CAPTION_STYLE = (
+    f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"  # table headers, counts, notes
+)
+CAPTION_VALUE_STYLE = (
+    f"color: {TEXT_COLOR}; font-size: 11px;"  # the value beside a caption
+)
+NUMBER_FONT = "Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+NUMBER_STYLE = f"font-family: {NUMBER_FONT}; font-size: 11px; color: {TEXT_COLOR};"
+CONTROL_STYLE = "font-size: 12px;"  # combos, buttons, checkboxes sitting among captions
+TABLE_STYLE = (
+    "QTableWidget { font-size: 11px; } "
+    "QHeaderView::section { font-size: 11px; padding: 2px 4px; }"
+)
+
+_STATE_COLORS = {
+    "ok": OK_COLOR,
+    "warn": WARN_COLOR,
+    "error": ERROR_COLOR,
+    "info": ACCENT_COLOR,
+    "muted": TEXT_MUTED_COLOR,
+}
+
+
+def state_style(tone: str, size: int = 12) -> str:
+    """Text in a semantic colour: ``tone`` is ok / warn / error / info / muted."""
+    return f"color: {_STATE_COLORS[tone]}; font-size: {size}px;"
+
+
+def state_color(tone: str) -> str:
+    return _STATE_COLORS[tone]
+
+
 # of inventing a seventh colour for an idea the app already has one for.
 PENDING_COLOR = NEUTRAL_700
 
