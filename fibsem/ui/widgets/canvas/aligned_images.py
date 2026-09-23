@@ -118,6 +118,8 @@ class AlignedImage:
     squash: float = 1.0
     per_metre: float = 1.0  # canvas units per metre, at the last placement
     channels: List[str] = field(default_factory=list)
+    # The id of the record a host keeps this placement under, once it has one.
+    record_id: Optional[str] = None
 
     @property
     def placement(self) -> Tuple[float, float, float, float]:
@@ -255,9 +257,9 @@ class AlignedImages(QObject):
             record.overlay.set_visible(False)
             return
         record.anchor = (float(anchor[0]), float(anchor[1]))
-        record.base_rotation = base_rotation
-        record.squash = squash
-        record.per_metre = per_metre
+        record.base_rotation = float(base_rotation)
+        record.squash = float(squash)
+        record.per_metre = float(per_metre)
         height, width = record.shape
         size = record.pixel_size * base_scale * record.scale
         record.overlay.set_image(
@@ -280,15 +282,19 @@ class AlignedImages(QObject):
         record = self._images.get(key)
         if record is None or not record.per_metre:
             return
-        record.dx = (cx - record.anchor[0]) / record.per_metre
-        record.dy = (cy - record.anchor[1]) / record.per_metre / (record.squash or 1.0)
+        # Plain floats: a frame's numbers arrive as numpy scalars, and a record
+        # holding one cannot be written to the experiment file.
+        record.dx = float((cx - record.anchor[0]) / record.per_metre)
+        record.dy = float(
+            (cy - record.anchor[1]) / record.per_metre / (record.squash or 1.0)
+        )
         self._place(record)
 
     def _on_rotated(self, key: str, rotation: float) -> None:
         record = self._images.get(key)
         if record is None:
             return
-        record.rotation = float(rotation) - record.base_rotation
+        record.rotation = float(rotation - record.base_rotation)
         self._place(record)
 
 

@@ -549,6 +549,9 @@ class FibsemOverviewWidget(QWidget):
     # The user placed an aligned image (a drag ended, or Reset): its key. Same
     # rule as the bars -- never emitted by the setters a host restores through.
     image_placement_changed = pyqtSignal(str)
+    # An aligned image was taken off the canvas by the user: its key, and the id of
+    # the record it was kept under (empty if it had none).
+    image_removed = pyqtSignal(str, str)
 
     # Internal hops from a worker thread to the GUI thread. `tiled_acquisition_signal`
     # and `stage_position_changed` are psygnals, which call their callbacks
@@ -1398,7 +1401,12 @@ class FibsemOverviewWidget(QWidget):
         except Exception as e:
             logger.debug(f"Could not read the dragged grid bars: {e}")
             return
-        self._gridbar_offset = (here[0] - there[0], (here[1] - there[1]) / squash)
+        # Plain floats: the frame's numbers arrive as numpy scalars, and a record
+        # holding one cannot be written to the experiment file.
+        self._gridbar_offset = (
+            float(here[0] - there[0]),
+            float((here[1] - there[1]) / squash),
+        )
         self._refresh_gridbars()
 
     def _on_gridbars_rotated(self, rotation: float) -> None:
@@ -1504,7 +1512,7 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_aligned_readout()
         return key
 
-    def remove_aligned_image(self, key: str) -> None:
+    def remove_aligned_image(self, key: str, announce: bool = True) -> None:
         record = self.aligned_images.get(key)
         if record is None:
             return
@@ -1513,6 +1521,22 @@ class FibsemOverviewWidget(QWidget):
         self.aligned_images.remove(key)
         self.aligned_image_panel.remove_image(key)
         self._refresh_aligned_readout()
+        if announce:
+            self.image_removed.emit(key, record.record_id or "")
+
+    def clear_aligned_images(self) -> None:
+        """Take every aligned image off the canvas, without announcing: a host
+        switching grids, not a user removing anything."""
+        for key in self.aligned_images.keys():
+            self.remove_aligned_image(key, announce=False)
+
+    def aligned_image_for_record(self, record_id: str):
+        """The aligned image kept under *record_id*, or None."""
+        for key in self.aligned_images.keys():
+            record = self.aligned_images.get(key)
+            if record is not None and record.record_id == record_id:
+                return record
+        return None
 
     def _on_aligned_image_selected(self, key: str) -> None:
         if self.aligned_image_panel.btn_align.isChecked():
