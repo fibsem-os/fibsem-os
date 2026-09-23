@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -11,6 +10,7 @@ import numpy as np
 import yaml
 from psygnal import Signal
 
+from fibsem._timing import sim_sleep
 from fibsem.config import (
     DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH,
     SAMPLE_HOLDER_CONFIGURATION_PATH,
@@ -586,8 +586,10 @@ class DemoSampleLoader(SampleGridLoader):
 
     Set ``fail_next_exchange`` to make the next load or unload raise
     ``GridExchangeError`` and leave the state untouched, so the run loop's
-    load-failure path can be exercised. ``exchange_delay`` is honoured only when
-    non-zero; tests leave it at zero.
+    load-failure path can be exercised. ``exchange_delay`` is how long each load
+    and each unload pretends to take, so a full exchange takes it twice. It goes
+    through ``sim_sleep``, a no-op under ``FIBSEM_SIM_NO_DELAY=1``, which the test
+    suite sets: the app waits, the tests do not.
     """
 
     def __init__(
@@ -623,8 +625,7 @@ class DemoSampleLoader(SampleGridLoader):
         if self.fail_next_exchange:
             self.fail_next_exchange = False
             raise GridExchangeError("Simulated autoloader exchange failure.")
-        if self.exchange_delay > 0:
-            time.sleep(self.exchange_delay)
+        sim_sleep(self.exchange_delay)
 
 
 def _slot_name(index: int) -> str:
