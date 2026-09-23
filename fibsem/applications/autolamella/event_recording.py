@@ -231,13 +231,21 @@ class EventRecorder:
         self._disposers: List[Callable[[], None]] = [
             self.buffer.subscribe(self.writer.write)
         ]
-        self._disposers += attach_microscope_taps(self.buffer, microscope)
-        if responder is not None:
-            self._disposers.append(responder.add_question_observer(self.buffer.append))
-        # Registered by setup_hooks on every run: the app rebuilds its hook set
-        # per run, so this object is handed over again each time.
-        self.lifecycle_hook = make_lifecycle_hook(self.buffer)
-        self.set_experiment(experiment_path, experiment)
+        try:
+            self._disposers += attach_microscope_taps(self.buffer, microscope)
+            if responder is not None:
+                self._disposers.append(
+                    responder.add_question_observer(self.buffer.append)
+                )
+            # Registered for each run by the task manager that runs it
+            # (FIB-1044), so this object is handed over again every time.
+            self.lifecycle_hook = make_lifecycle_hook(self.buffer)
+            self.set_experiment(experiment_path, experiment)
+        except BaseException:
+            # A recorder that could not be made must not leave its writer
+            # running: nothing holds it to close it.
+            self.close()
+            raise
         # The first one open for a microscope is the one a run finds.
         if recorder_for(microscope) is None:
             _RECORDERS[id(microscope)] = self

@@ -154,3 +154,38 @@ def test_a_grid_run_without_the_gui_records_its_events(microscope, experiment):
 
     kinds = _kinds(read_events(Path(experiment.path) / EVENTS_FILENAME))
     assert kinds == ["workflow_started", "workflow_completed"]
+
+
+def _writers():
+    import threading
+
+    return sum(t.name == "fibsem-event-writer" for t in threading.enumerate())
+
+
+def test_a_recorder_that_cannot_be_made_leaves_no_writer_running():
+    """Nothing holds a recorder whose construction failed, so nothing would
+    ever close the writer thread it had started."""
+
+    class NotAMicroscope:
+        pass
+
+    before = _writers()
+    with pytest.raises(AttributeError):
+        EventRecorder(NotAMicroscope())
+    assert _writers() == before
+
+
+def test_a_run_on_a_microscope_that_cannot_be_recorded_leaves_nothing_running(
+    experiment,
+):
+    """A stand-in microscope, as tests and scripts use: the run goes ahead
+    unrecorded, and leaves no writer thread behind."""
+
+    class StandIn:
+        pass
+
+    manager = manager_module.TaskManager(microscope=StandIn(), experiment=experiment)
+    before = _writers()
+    with manager._recording():
+        pass
+    assert _writers() == before
