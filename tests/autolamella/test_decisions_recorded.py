@@ -71,7 +71,11 @@ def _poi_proposal(lamella, x=0.0):
     proposal = Proposal(
         kind=POINT_OF_INTEREST,
         values={"poi": Point(x, 0.0)},
-        provenance={"task_id": RUN, "proposer": "current-poi"},
+        provenance={
+            "task_id": RUN,
+            "proposer": "current-poi",
+            "reference_image": "ref_final_ib.tif",
+        },
     )
     lamella.proposals[TASK] = [proposal]
     return proposal
@@ -110,6 +114,7 @@ def test_a_decision_is_recorded_with_what_was_proposed_and_what_was_decided(
     assert (payload["proposal_id"], payload["decision"]) == (proposal.id, 0)
     assert payload["proposed"]["poi"] == Point(0.0, 0.0).to_dict()
     assert payload["decided"]["poi"] == Point(2e-6, -1e-6).to_dict()
+    assert payload["image"] == "ref_final_ib.tif"  # what the point sits on
     assert (payload["outcome"], payload["author"], payload["via"]) == (
         "Confirmed",
         "human:op",

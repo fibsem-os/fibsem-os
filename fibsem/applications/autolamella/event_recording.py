@@ -407,4 +407,7 @@ def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any
         "proposal_id": proposal.id,
         "kind": proposal.kind,
         "proposed": _encode_values(proposal.values),
+        # the saved image the values sit on, relative to the item's folder: a
+        # point only means something on the image it was placed on
+        "image": proposal.provenance.get("reference_image") or None,
     }

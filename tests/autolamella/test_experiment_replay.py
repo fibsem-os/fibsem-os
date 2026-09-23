@@ -20,6 +20,7 @@ from fibsem.applications.autolamella.tools.replay import (
     EventKind,
     load_replay,
     parse_record,
+    proposal_marks,
     read_log_records,
 )
 from fibsem.milling.base import FibsemMillingStage
@@ -1156,6 +1157,82 @@ def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path
         "the row is when it was confirmed, not when the position was read"
     )
     assert events[1].data["filled_in"] is True
+
+
+def test_a_decision_is_shown_on_the_image_its_values_sit_on(tmp_path):
+    """Decided in the Review tab after another lamella's images were taken:
+    the scene shows the image the point was placed on, with both points."""
+    for name in ("ref_final_ib.tif", "ref_other_ib.tif"):
+        folder = tmp_path / ("01" if "final" in name else "02")
+        folder.mkdir(exist_ok=True)
+        (folder / name).write_bytes(b"")
+
+    def image(t, item, name):
+        path = f"D:\\data\\exp\\{item}\\{name}"
+        return _record(_at(t), "image_acquired", {"path": path, "beam_type": "ION"})
+
+    poi = {"kind": "point_of_interest", "proposed": {"poi": {"x": 0.0, "y": 0.0}}}
+    decided = {"outcome": "Confirmed", "author": "human:op", "via": "review"}
+    _write_events(
+        tmp_path,
+        image(0, "01", "ref_final_ib.tif"),
+        image(1, "02", "ref_other_ib.tif"),
+        _proposal(
+            2,
+            "proposal_decided",
+            "operator",
+            "P1",
+            **poi,
+            **decided,
+            decision=0,
+            image="ref_final_ib.tif",
+            decided={"poi": {"x": 2e-6, "y": -1e-6}},
+        ),
+        _proposal(
+            3,
+            "proposal_decided",
+            "operator",
+            "P2",
+            **poi,
+            **decided,
+            decision=0,
+            image="not_on_disk_ib.tif",
+            decided={},
+        ),
+    )
+    replay = load_replay(tmp_path)
+    first, other, on_disk, missing = range(4)
+
+    scene = replay.scene(on_disk)
+    assert scene.fib is replay.events[first], "the image the point sits on"
+    assert scene.proposal is replay.events[on_disk]
+    assert proposal_marks(scene.proposal.data) == (
+        "m",
+        [(0.0, 0.0)],
+        [(2e-6, -1e-6)],
+    )
+
+    scene = replay.scene(missing)
+    assert scene.fib is replay.events[other], "the latest, as for any row"
+    assert scene.proposal is None
+
+
+def test_the_marks_of_each_kind_of_value():
+    features = [{"name": "LamellaCentre", "px": {"x": 10.0, "y": 20.0}}]
+    moved = [{"name": "LamellaCentre", "px": {"x": 12.0, "y": 20.0}}]
+    assert proposal_marks(
+        {"proposed": {"features": features}, "decided": {"features": moved}}
+    ) == ("px", [(10.0, 20.0)], [(12.0, 20.0)])
+    assert proposal_marks({"proposed": {"poi": {"x": 1e-6, "y": 0.0}}}) == (
+        "m",
+        [(1e-6, 0.0)],
+        [],
+    )
+    area = {"left": 0.25, "top": 0.25, "width": 0.5, "height": 0.25}
+    assert proposal_marks(
+        {"proposed": {"alignment_area": area}, "decided": {"alignment_area": area}}
+    ) == ("rect", [(0.25, 0.25, 0.5, 0.25)], [(0.25, 0.25, 0.5, 0.25)])
+    assert proposal_marks({"proposed": {"stage_position": {"x": 0.0}}}) is None
 
 
 def test_a_correlation_says_where_it_put_the_point_and_how_well_it_fits(tmp_path):

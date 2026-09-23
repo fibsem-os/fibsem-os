@@ -86,6 +86,143 @@ def test_spot_burns_are_drawn_as_they_happen(widget):
     assert widget.milling_overlay._stages == []  # the mill before it has ended
 
 
+def _decision_on_a_real_image(tmp_path, kind, proposed, decided):
+    """An experiment with one real FIB image of lamella 01, and a decision
+    whose values sit on it; returns the image."""
+    import json
+
+    from fibsem import utils
+    from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+    from fibsem.structures import BeamType, ImageSettings
+
+    # A real acquisition, so the saved file carries its pixel size as a
+    # recorded one does (a blank image's metadata does not survive a save).
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    try:
+        image = microscope.acquire_image(
+            ImageSettings(resolution=[64, 48], hfw=64e-6, beam_type=BeamType.ION)
+        )
+    finally:
+        microscope.disconnect()
+    (tmp_path / "01").mkdir()
+    path = tmp_path / "01" / "ref_final_ib.tif"
+    image.save(str(path))
+    t = "2026-09-23T14:00:0{}.000+10:00"
+    records = [
+        {
+            "t": t.format(0),
+            "kind": "image_acquired",
+            "payload": {"path": str(path), "beam_type": "ION"},
+        },
+        {
+            "t": t.format(1),
+            "kind": "proposal_decided",
+            "actor": "operator",
+            "payload": {
+                "item": {"id": "L1", "name": "01"},
+                "task": "Setup Lamella Position",
+                "proposal_id": "P1",
+                "kind": kind,
+                "image": "ref_final_ib.tif",
+                "proposed": proposed,
+                "decided": decided,
+                "decision": 0,
+                "outcome": "Confirmed",
+                "author": "human:op",
+                "via": "review",
+            },
+        },
+    ]
+    (tmp_path / EVENTS_FILENAME).write_text(
+        "".join(json.dumps(r) + "\n" for r in records), encoding="utf-8"
+    )
+    return image
+
+
+def _drawn(widget, pane):
+    """The proposed points, the decided points and the rectangles on *pane*."""
+    proposed, decided, areas = widget.proposal_overlays[pane]
+    return (
+        proposed._points,
+        decided._points,
+        [(s.kind, s.color, s.cx, s.cy, s.width, s.height) for s in areas._specs],
+    )
+
+
+def test_a_decision_draws_its_proposed_and_decided_points(qapp, tmp_path):
+    """On the image the point was placed on: proposed where the task put it,
+    decided where the operator moved it, +y up in metres as a point of
+    interest is recorded."""
+    image = _decision_on_a_real_image(
+        tmp_path,
+        "point_of_interest",
+        {"poi": {"x": 0.0, "y": 0.0}},
+        {"poi": {"x": 4e-6, "y": 2e-6}},
+    )
+    pixel_size = image.metadata.pixel_size.x
+    height, width = image.data.shape[:2]
+    w = ExperimentReplayWidget.from_directory(tmp_path)
+    try:
+        w.seek(0)
+        assert _drawn(w, "fib") == ([], [], [])
+
+        w.seek(1)
+        assert "ref_final_ib.tif" in w.fib_canvas._title_text
+        proposed, decided, areas = _drawn(w, "fib")
+        assert proposed == [pytest.approx((width / 2, height / 2))]
+        # 4 µm right and 2 µm up: +y is up in metres, down in pixels
+        assert decided == [
+            pytest.approx(
+                (width / 2 + 4e-6 / pixel_size, height / 2 - 2e-6 / pixel_size)
+            )
+        ]
+        assert areas == []
+        assert _drawn(w, "sem") == ([], [], [])
+    finally:
+        w.close()
+        w.deleteLater()
+        qapp.processEvents()
+
+
+def test_a_decided_alignment_area_is_drawn_as_a_rectangle(qapp, tmp_path):
+    from fibsem.ui.tokens import DRAFT_POSITION_COLOUR, ORANGE_COLOR
+
+    area = {"left": 0.25, "top": 0.25, "width": 0.5, "height": 0.25}
+    moved = dict(area, left=0.5)
+    image = _decision_on_a_real_image(
+        tmp_path,
+        "alignment_area",
+        {"alignment_area": area},
+        {"alignment_area": moved},
+    )
+    height, width = image.data.shape[:2]
+    w = ExperimentReplayWidget.from_directory(tmp_path)
+    try:
+        w.seek(1)
+        assert _drawn(w, "fib")[2] == [
+            (
+                "rect",
+                ORANGE_COLOR,
+                0.5 * width,
+                0.375 * height,
+                0.5 * width,
+                0.25 * height,
+            ),
+            (
+                "rect",
+                DRAFT_POSITION_COLOUR,
+                0.75 * width,
+                0.375 * height,
+                0.5 * width,
+                0.25 * height,
+            ),
+        ]
+    finally:
+        w.close()
+        w.deleteLater()
+        qapp.processEvents()
+
+
 def test_the_fm_z_stack_is_shown_in_the_fm_pane(widget):
     assert widget.fm_widget.layers == []  # nothing acquired yet at the start
     widget.seek(_first(widget, EventKind.FLUORESCENCE))
