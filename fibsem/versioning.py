@@ -13,8 +13,7 @@ package was imported from:
 
 Never raises, never runs at import, never depends on the process cwd, and never
 writes to the user's repository. Results are cached for the lifetime of the
-process, so ``-dirty`` reflects the working tree as it was at the *first* call,
-i.e. what the session started with.
+process.
 """
 
 import logging
@@ -81,9 +80,10 @@ def _run_git(*args: str) -> Optional[str]:
 
     try:
         env = {k: v for k, v in os.environ.items() if k not in _GIT_ENV_OVERRIDES}
-        # --dirty refreshes the index, which normally takes .git/index.lock and
-        # writes the index back: a read-only version lookup would mutate the
-        # user's repository and collide with any git they run concurrently.
+        # git may refresh the index opportunistically, which takes
+        # .git/index.lock and writes the index back: a read-only version lookup
+        # would mutate the user's repository and collide with any git they run
+        # concurrently.
         env["GIT_OPTIONAL_LOCKS"] = "0"
         result = subprocess.run(
             ["git", *args],
@@ -133,9 +133,15 @@ def _describe() -> Optional[str]:
     # required alongside it: release tags here are lightweight (see RELEASE.md),
     # and plain describe considers only annotated ones.
     #
+    # Not --dirty: it checks every file in the checkout for changes, which on a
+    # Windows machine behind on-access antivirus can outlast the timeout, and
+    # then the revision is lost entirely -- no fibsem_revision in anything the
+    # session records, and the update check taking the checkout for a release
+    # (FIB-1029). The commit is what identifies the running code.
+    #
     # Cached because FibsemImageMetadata builds a FibsemExperimentRef for every
     # acquired image — without this that would be one git fork per image.
-    return _run_git("describe", "--tags", "--always", "--dirty", "--match", "v*")
+    return _run_git("describe", "--tags", "--always", "--match", "v*")
 
 
 @cache
@@ -149,8 +155,8 @@ def _branch() -> Optional[str]:
 def get_revision() -> Optional[str]:
     """Return ``git describe`` of the running checkout, or None.
 
-    For example ``"v0.5.1-48-g4cd11d9c"``, ``"v0.5.1-48-g4cd11d9c-dirty"``, or a
-    bare ``"4cd11d9c"`` in a clone with no ``v*`` release tags. None for a wheel
+    For example ``"v0.5.1-48-g4cd11d9c"``, or a bare ``"4cd11d9c"`` in a clone
+    with no ``v*`` release tags. Uncommitted changes are not marked. None for a wheel
     install, or on any failure. Measured only from release tags, so an unrelated
     tag nearer to HEAD cannot become the base. Cached: the first call forks git,
     later calls are free.
