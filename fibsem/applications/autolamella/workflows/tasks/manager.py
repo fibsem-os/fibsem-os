@@ -5,7 +5,7 @@ import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
@@ -255,7 +255,12 @@ class BaseTaskManager:
         task is stopped on its next line until the decision lands in the
         Review tab. The same hold kind as a park between tasks, because it is
         released the same way and the attention button goes to the same
-        place; the workflow line says which task is stopped and where."""
+        place; the workflow line says which task is stopped and where.
+
+        Said on the record too (``question_asked`` / ``question_released``):
+        a question asked this way raises no prompt, so nothing else in the
+        event stream tells a watcher that the run has stopped to be told
+        something (FIB-1050)."""
         self._set_hold(
             Hold(
                 kind=HoldKind.decision,
@@ -266,10 +271,23 @@ class BaseTaskManager:
             "in the Review tab.",
             message=None,
         )
+        self._record_event(
+            "question_asked", {"item_name": item_name, "task_name": task_name}
+        )
         try:
             yield
         finally:
             self._set_hold(None, message=None)
+            self._record_event(
+                "question_released", {"item_name": item_name, "task_name": task_name}
+            )
+
+    def _record_event(self, kind: str, payload: Dict[str, Any]) -> None:
+        """A fact for the experiment's record, through the microscope's
+        ``record_event`` (which never raises); nothing without one."""
+        record = getattr(self.microscope, "record_event", None)
+        if callable(record):
+            record(kind, payload)
 
     def _requirements_of(self, task_name: str) -> List[str]:
         """The tasks ``task_name`` requires, by this manager's protocol."""

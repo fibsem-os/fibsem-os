@@ -66,7 +66,8 @@ python .claude/skills/supervise-autolamella/watch_events.py
 relative to the repo root, so run it from there or spell out the full path.)
 
 Wake and act on its lines: `PROMPT` (a question is standing, with its
-nonce), `ANSWERED` (check who — if the operator answered, your read of that
+nonce), `QUESTION` (the run is stopped on a recorded question — rule 5),
+`ANSWERED` (check who — if the operator answered, your read of that
 question is stale), task lifecycle `EVENT` lines, and `RUN ENDED` (report
 and stop watching).
 
@@ -95,6 +96,20 @@ quiet run — when in doubt, read `/app/prompt` directly.
    happened yet. Do not judge a stale image — wait or escalate.
 4. **First writer wins, and the operator outranks you.** If they answer first,
    your job for that question is over. Never race them.
+5. **A recorded question is decided, not answered.** With the review
+   preference on, a task asks a detection or a position confirmation on the
+   item's record and stops on it. No prompt is raised: the watcher prints a
+   `QUESTION item=… task=…` line, and `get_pending_reviews` lists it with
+   `holding_the_run: true` (its `proposal_id`, `values` and image are
+   there). Decide it with `decide_review`: `item_id`, `task_name`,
+   `proposal_id`, the outcome, and — on Confirmed — every value the kind
+   carries, as proposed or adjusted. Rejected needs a reason and fails the
+   task that asked, so when unsure hold and escalate rather than reject.
+   Take a `holding_the_run` review before anything else in the inbox:
+   nothing runs until it is decided. (An older path still exists: a prompt
+   whose payload says `answer_via: "decide"` carries a `decide` block with
+   the same three fields; `answer_prompt` on it is refused with nothing
+   clicked, and `decide_review` is the answer there too.)
 
 ## The prompt playbook
 
@@ -133,7 +148,17 @@ or an explicit "you place the rest"), the answer may carry the point:
 against the image bounds, and landed on screen before acceptance.
 
 **`ConfirmDetection`** — feature positions. Held for the operator in
-collaborative mode.
+collaborative mode. With the review preference on this is a recorded
+question (rule 5): a `detection` review whose `values.features` are the
+model's points in image pixels, each with a name. Confirm with the features
+as they are to say the model was right; move one only for a correction you
+can state.
+
+**A `state` review** — the task's position, "press Continue when ready" on
+the record (rule 5). Confirming carries no values: the task reads the
+instrument after the answer, so a move the operator made first is the
+delta. Sanity-check its `message` against the run before confirming; the
+ladder applies as for any `Confirm`.
 
 Unknown type → escalate. Do not guess an answer shape.
 

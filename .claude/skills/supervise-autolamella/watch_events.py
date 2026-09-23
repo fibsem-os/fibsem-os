@@ -57,7 +57,20 @@ def _print_events(events, since):
         kind = event.get("kind", "")
         data = event.get("payload", {})
         since = max(since, event.get("seq", since))
-        if kind == "prompt_raised":
+        if kind == "question_asked":
+            print(
+                "QUESTION item=%s task=%s -- the run is stopped on a recorded "
+                "question: find it in get_pending_reviews (holding_the_run) and "
+                "decide it" % (data.get("item_name"), data.get("task_name")),
+                flush=True,
+            )
+        elif kind == "question_released":
+            print(
+                "QUESTION RELEASED item=%s task=%s"
+                % (data.get("item_name"), data.get("task_name")),
+                flush=True,
+            )
+        elif kind == "prompt_raised":
             print(
                 "PROMPT nonce=%s type=%s" % (data.get("nonce"), data.get("type")),
                 flush=True,
