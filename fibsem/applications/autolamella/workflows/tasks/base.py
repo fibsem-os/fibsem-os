@@ -741,19 +741,21 @@ class AutoLamellaTask(ABC):
             abort=lambda: _abort_requested(self.parent_ui),
         )
         if milling_enabled and self.validate:
-            # The operator watched the mill and pressed Continue: that is the
-            # decision on this run's result, recorded as theirs rather than
-            # the producer's own, and the task does not wait a second time in
-            # the Review tab for a look it already had.
-            experiment = getattr(self.task_manager, "experiment", None)
-            self.inline_decision = Decision(
-                outcome=DecisionOutcome.Confirmed,
-                author=experiment.author()
-                if experiment is not None
-                else human_author(""),
-                via="workflow",
-            )
+            # The operator watched the mill and pressed Continue.
+            self._decided_in_the_workflow()
         return config
+
+    def _decided_in_the_workflow(self) -> None:
+        """The operator answered this run's session in the workflow: a mill's
+        Continue, a setup's Save. That is the decision on the run's result,
+        recorded as theirs rather than the producer's own, and the task does
+        not wait a second time in the Review tab for a look it already had."""
+        experiment = getattr(self.task_manager, "experiment", None)
+        self.inline_decision = Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author=experiment.author() if experiment is not None else human_author(""),
+            via="workflow",
+        )
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""

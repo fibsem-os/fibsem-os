@@ -30,7 +30,10 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Optional, Type
 
 from fibsem import timing
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    Attention,
+    AutoLamellaTaskConfig,
+)
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.structures import FibsemRectangle, Point, field_meta
 
@@ -164,6 +167,13 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
     )
 
     def _run(self) -> None:
+        # A person's judgement at the microscope is the whole output; run
+        # automated it would record guesses as a set-up site.
+        if self._protocol_attention() is Attention.automated:
+            raise ValueError(
+                f"{self.task_name} needs an operator at the microscope and cannot "
+                "run Automated. Set it to Supervised in the protocol."
+            )
         if self.microscope.fm is None:
             raise ValueError(
                 "Fluorescence microscope not initialized in the FibsemMicroscope "
@@ -330,6 +340,25 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
                 f"{self.task_name}: coincidence alignment did not converge for "
                 f"{self.lamella.name}: {result.reason}. Continuing at the milling pose."
             )
+
+    def _protocol_attention(self) -> Optional[Attention]:
+        """The attention the run's workflow lists this task with; None when it
+        does not list it, or there is no protocol.
+
+        Only a listed task: the protocol reads an unlisted task as automated,
+        and running Setup on its own is not asking for that. Read through the
+        task manager, which a headless run and a GUI run share, and through
+        the window only when there is no manager."""
+        for holder in (self.task_manager, self.parent_ui):
+            experiment = getattr(holder, "experiment", None)
+            protocol = getattr(experiment, "task_protocol", None)
+            if protocol is None:
+                continue
+            for task in protocol.workflow_config.tasks:
+                if task.name == self.task_name:
+                    return task.attention
+            return None
+        return None
 
     def _hand_off(self) -> None:
         """Give the operator the viewer to place the boxes. Wired in FIB-911.

@@ -204,3 +204,82 @@ def test_requires_a_milling_pose(microscope, tmp_path):
 
     assert "milling pose" in lamella.task_state.status_message.lower()
     assert not lamella.task_config["Setup Coincidence Milling"].is_set_up
+
+
+# ---------------------------------------------------------------------------
+# attention: a person's judgement is the output, so never Automated (FIB-1080)
+# ---------------------------------------------------------------------------
+
+
+class _Manager:
+    """The manager seam the task reads: the run's experiment and its abort."""
+
+    def __init__(self, experiment):
+        import threading
+
+        self.experiment = experiment
+        self.abort_token = threading.Event()
+
+
+def _managed_task(microscope, lamella, tmp_path, attention, listed=True):
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+        AutoLamellaTaskProtocol,
+        AutoLamellaWorkflowConfig,
+        Experiment,
+    )
+
+    experiment = Experiment(path=str(tmp_path), name="setup-attention")
+    experiment.positions.append(lamella)
+    experiment.task_protocol = AutoLamellaTaskProtocol(
+        workflow_config=AutoLamellaWorkflowConfig(
+            tasks=[
+                AutoLamellaTaskDescription(
+                    name="Setup Coincidence Milling" if listed else "Other Task",
+                    attention=attention,
+                )
+            ]
+        )
+    )
+    task = _task(microscope, lamella)
+    task.task_manager = _Manager(experiment)
+    task._stop_event = task.task_manager.abort_token
+    return task
+
+
+def test_an_automated_setup_is_refused_before_anything_moves(microscope, tmp_path):
+    from fibsem.applications.autolamella.structures import Attention
+
+    lamella = _lamella(microscope, tmp_path)
+    before = microscope.get_stage_position()
+    task = _managed_task(microscope, lamella, tmp_path, Attention.automated)
+
+    with pytest.raises(ValueError, match="cannot run Automated"):
+        task.run()
+
+    # nothing recorded, nothing moved
+    assert not lamella.task_config["Setup Coincidence Milling"].is_set_up
+    assert not os.path.exists(task.setup_reference_path)
+    assert microscope.get_stage_position().t == pytest.approx(before.t)
+
+
+def test_a_supervised_setup_runs(microscope, tmp_path):
+    from fibsem.applications.autolamella.structures import Attention
+
+    lamella = _lamella(microscope, tmp_path)
+    task = _managed_task(microscope, lamella, tmp_path, Attention.supervised)
+    task.run()
+    assert lamella.task_config["Setup Coincidence Milling"].is_set_up
+
+
+def test_a_setup_the_workflow_does_not_list_is_not_refused(microscope, tmp_path):
+    """The protocol reads an unlisted task as automated; running Setup on its
+    own is not asking for that."""
+    from fibsem.applications.autolamella.structures import Attention
+
+    lamella = _lamella(microscope, tmp_path)
+    task = _managed_task(
+        microscope, lamella, tmp_path, Attention.automated, listed=False
+    )
+    task.run()
+    assert lamella.task_config["Setup Coincidence Milling"].is_set_up
