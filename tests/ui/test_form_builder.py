@@ -203,6 +203,16 @@ def test_an_unrenderable_field_returns_none(qapp):
     assert build_control(meta(), object()) is None
 
 
+def test_an_unset_number_has_no_control(qapp):
+    """Optional[float] = None: a spinbox would invent a value and write it back.
+    The old float branch did ``None * scale`` -- a TypeError inside a Qt slot,
+    which PyQt5 turns into an abort of the whole application."""
+    from typing import Optional
+
+    assert build_control(meta(scale=1e6), None, annotation=Optional[float]) is None
+    assert build_control(meta(), None, annotation=Optional[int]) is None
+
+
 # --- the adapters -------------------------------------------------------------
 
 

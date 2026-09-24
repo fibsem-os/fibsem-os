@@ -138,6 +138,8 @@ def test_enter_shows_the_stored_boxes_and_locks_the_site(viewer, qapp):
     assert "Locked to test by the task" == viewer.label_task_lock.text()
     assert viewer.label_objective_hint.isVisible()
     assert "No objective height known" in viewer.label_objective_hint.text()
+    # the objective controls are open, not collapsed as for manual use
+    assert viewer.objective_panel._btn_collapse.isChecked()
     assert viewer._info_widget._setup_container.isVisible()
     assert "30 % drop" in viewer._info_widget._setup_label.text()
     assert "as stored" in viewer._info_widget._setup_label.text()
@@ -219,11 +221,18 @@ def test_fib_drag_moves_every_stage_in_setup_mode(viewer, qapp):
     for stage in stages:
         assert stage.pattern.point.x == pytest.approx(4e-6, rel=0.05)
         assert stage.pattern.point.y == pytest.approx(2e-6, rel=0.05)
-    # both stages' real shapes are drawn on the FIB canvas, not just one box
+    # both stages' real shapes are drawn on the FIB canvas, not just one box,
+    # each with its scan direction: the first arrow down, the second up
+    from matplotlib.text import Annotation
+
     overlay = viewer.fib_canvas.pattern_overlay
     assert len(overlay._stages) == 2
     assert overlay._image is not None
     assert len(overlay._artists) >= 2
+    arrows = [a for a in overlay._artists if isinstance(a, Annotation)]
+    assert len(arrows) == 2
+    assert arrows[0].xy[1] > arrows[0].xyann[1]  # TopToBottom: y grows downward
+    assert arrows[1].xy[1] < arrows[1].xyann[1]  # BottomToTop
 
 
 def test_continue_and_skip_fire_their_callbacks_and_exit_restores(viewer, qapp):
@@ -279,3 +288,79 @@ def test_closing_the_window_mid_setup_is_a_skip(viewer, qapp):
     qapp.processEvents()
     assert fired == ["skip"]
     assert not viewer.in_setup_mode
+
+
+def test_a_held_exit_keeps_the_lock_until_the_next_site_or_the_end(viewer, qapp):
+    """Between one site's Save and the next site's hand-off the viewer stays
+    locked, showing what was saved, and the manual state restored at the end
+    is the operator's -- not the first site's task config."""
+    from copy import deepcopy
+
+    lamella = viewer._lamella
+    manual_before = viewer.milling_viewer_widget.get_config().name
+    fib, fm = _frames(viewer)
+    site1 = _milling_config(Point(1.0e-6, 0.0))
+    site1.name = "site-1 task config"
+
+    viewer.enter_setup_mode(
+        lamella=lamella,
+        config=_site_config(),
+        milling_config=site1,
+        fib_image=fib,
+        fm_image=fm,
+    )
+    viewer.exit_setup_mode(hold=True)
+    qapp.processEvents()
+
+    assert not viewer.in_setup_mode
+    assert viewer.is_holding_setup
+    assert not viewer.lamella_list_widget.isEnabled()
+    assert not viewer.btn_milling.isVisible()
+    assert not viewer.btn_setup_continue.isVisible()
+    assert viewer.label_task_lock.isVisible()
+    assert viewer.label_task_lock.text() == "Waiting for the next site"
+    assert viewer.milling_viewer_widget.get_config().name == "site-1 task config"
+
+    # the next site takes over without a manual interlude
+    site2 = _milling_config(Point(-1.0e-6, 0.0))
+    site2.name = "site-2 task config"
+    viewer.enter_setup_mode(
+        lamella=lamella,
+        config=_site_config(),
+        milling_config=site2,
+        fib_image=fib,
+        fm_image=fm,
+    )
+    assert viewer.in_setup_mode and not viewer.is_holding_setup
+    assert viewer.btn_setup_continue.isVisible()
+    assert viewer.milling_viewer_widget.get_config().name == "site-2 task config"
+
+    # the end of the run restores the operator's config, not site 1's
+    viewer.exit_setup_mode(hold=True)
+    viewer.exit_setup_mode()
+    qapp.processEvents()
+    assert not viewer.is_holding_setup
+    assert viewer.lamella_list_widget.isEnabled()
+    assert viewer.btn_milling.isVisible()
+    assert viewer.milling_viewer_widget.get_config().name == manual_before
+
+
+def test_shift_scroll_on_the_fm_quadrant_steps_the_objective(viewer, qapp):
+    """As on the main FM canvas: Shift+scroll nudges the objective by the step
+    size, plain scroll is left to the canvas zoom."""
+    objective = viewer.fm_objective_widget
+    objective.update_objective_position_labels()
+    before = objective.doubleSpinBox_objective_position.value()
+    step = objective.doubleSpinBox_objective_step_size.value()
+
+    viewer.fm_canvas.canvas.canvas_scrolled.emit(10.0, 10.0, 1, ("Shift",))
+    qapp.processEvents()
+    assert objective.doubleSpinBox_objective_position.value() == pytest.approx(
+        before + step
+    )
+
+    viewer.fm_canvas.canvas.canvas_scrolled.emit(10.0, 10.0, 1, ())
+    qapp.processEvents()
+    assert objective.doubleSpinBox_objective_position.value() == pytest.approx(
+        before + step
+    )
