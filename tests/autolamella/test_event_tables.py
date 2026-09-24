@@ -39,10 +39,10 @@ from fibsem.applications.autolamella.tools.event_tables import (
     ACTOR_COLUMNS,
     DECISION_COLUMNS,
     EDIT_COLUMNS,
-    WAIT_COLUMNS,
     MILLING_COLUMNS,
     RUN_COLUMNS,
     STEP_COLUMNS,
+    WAIT_COLUMNS,
     event_tables,
     read_event_tables,
 )
