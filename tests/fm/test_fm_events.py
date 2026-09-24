@@ -146,3 +146,52 @@ def test_the_objective_records_its_insert_and_retract_not_every_move(
         r["payload"]["state"] for r in _recorded(tmp_path, "objective_state_changed")
     ]
     assert states == ["Retracted", "Inserted", "Retracted"]
+
+
+def test_report_v2_reads_each_acquisition_once(microscope, tmp_path):
+    """A z-stack and a stitched overview, read back as report v2's fm table
+    (FIB-1036): one row each, with what was acquired and for how long."""
+    from fibsem.applications.autolamella.tools.event_tables import read_event_tables
+    from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
+        acquire_fluorescence_overview,
+    )
+
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        stack = acquire_image(
+            microscope.fm,
+            CHANNEL,
+            zparams=ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6),
+            filename=str(tmp_path / "01-lamella-zstack.ome.tiff"),
+        )
+        _, overview = acquire_fluorescence_overview(
+            microscope,
+            [CHANNEL],
+            OverviewParameters(
+                rows=2,
+                cols=2,
+                overlap=0.1,
+                use_zstack=False,
+                autofocus_mode=AutoFocusMode.NONE,
+            ),
+            centre=microscope.get_stage_position(),
+            directory=tmp_path / "overviews",
+        )
+    finally:
+        recorder.close()
+
+    rows = read_event_tables(tmp_path).fm.to_dict("records")
+
+    first, second = rows
+    assert (first["planes"], first["path"]) == (
+        stack.metadata.get_z_count(),
+        stack.filepath,
+    )
+    assert not isinstance(first["overview"], str)  # None, or NaN on pandas 3
+    assert (second["planes"], second["overview"], second["path"]) == (
+        1,
+        "2×2",
+        overview,
+    )
+    assert all(r["channels"] == ["GFP"] for r in rows)
+    assert all(r["start"] <= r["end"] and r["duration"] >= 0 for r in rows)

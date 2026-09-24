@@ -7,7 +7,8 @@ got, where its time went, and what needs a look:
 * headline numbers: lamellae finished, throughput, and the time budget --
   machine, waiting for an answer, and idle (nothing running)
 * the outcome of each lamella's run of each task
-* a timeline of every run, with its waits and the idle gaps between runs
+* a timeline of every run, with its waits and the idle gaps between runs, and
+  every fluorescence acquisition
 
 One file with nothing to fetch: styles are inline and the charts are SVG, so it
 opens offline on the support PC and can be passed on as it is. It prints to A4
@@ -54,6 +55,7 @@ _TASK_COLOURS = (
 _WAIT_COLOUR = "#EF9F27"
 _FAILED_COLOUR = "#E24B4A"
 _CANCELLED_COLOUR = "#5F5E5A"
+_FM_COLOUR = "#2C2C2A"
 _NO_ITEM = "(no lamella)"
 
 Interval = Tuple[datetime, datetime]
@@ -122,15 +124,19 @@ def render_report(
     rows' and columns' order: the experiment's lamellae and its workflow. A
     lamella or task that ran without being in either is added after them."""
     runs = _runs(tables)
-    items = _ordered(items, [r["item"] for r in runs])
+    fm = _fm(tables)
+    items = _ordered(items, [r["item"] for r in runs] + [a["item"] for a in fm])
     tasks = _ordered(tasks, [r["task"] for r in runs])
     summary = summarise(tables, items, tasks)
     generated = generated or datetime.now()
-    body = [_header(name, summary, items, tasks, generated), _headline(summary, items)]
+    body = [
+        _header(name, summary, items, tasks, generated),
+        _headline(summary, items, fm),
+    ]
     if summary.start is not None:
         body += [
             _section("Outcome", _outcome(runs, items, tasks)),
-            _section("Timeline", _timeline(runs, tables, summary, items, tasks)),
+            _section("Timeline", _timeline(runs, fm, tables, summary, items, tasks)),
         ]
     else:
         body.append('<p class="muted">No task runs were recorded.</p>')
@@ -192,7 +198,7 @@ def _header(name, summary, items, tasks, generated) -> str:
     )
 
 
-def _headline(summary: Summary, items: Sequence[str]) -> str:
+def _headline(summary: Summary, items: Sequence[str], fm: List[Dict[str, Any]]) -> str:
     def share(seconds: float) -> str:
         if summary.span <= 0:
             return "—"
@@ -214,6 +220,15 @@ def _headline(summary: Summary, items: Sequence[str]) -> str:
         ("Waiting for an answer", share(summary.waiting), _duration(summary.waiting)),
         ("Idle", share(summary.idle), f"{_duration(summary.idle)}, nothing running"),
     ]
+    if fm:
+        imaged = {a["item"] for a in fm if a["item"] != _NO_ITEM}
+        tiles.append(
+            (
+                "Fluorescence",
+                f"{len(fm)} acquisitions",
+                f"on {len(imaged)} lamella{'e' if len(imaged) != 1 else ''}",
+            )
+        )
     return '<div class="tiles">{}</div>'.format(
         "".join(
             f'<div class="tile"><span>{_e(label)}</span><b>{_e(value)}</b>'
@@ -264,13 +279,16 @@ def _cell_text(run: Dict[str, Any]) -> str:
     return outcome  # skipped, unfinished
 
 
-def _timeline(runs, tables: EventTables, summary: Summary, items, tasks) -> str:
+def _timeline(runs, fm, tables: EventTables, summary: Summary, items, tasks) -> str:
     """Every run on its lamella's row, coloured by task, with its waits over
-    it and the idle gaps between runs shaded."""
+    it and the idle gaps between runs shaded; each FM acquisition marked under
+    its lamella's row. The span covers acquisitions made outside any run."""
     width, left, right, top, row_h = 960, 170, 16, 26, 22
     rows = {item: i for i, item in enumerate(items)}
     height = top + row_h * len(items) + 30
-    start, span = summary.start, max(summary.span, 1.0)
+    start = min([summary.start] + [a["start"] for a in fm])
+    end = max([summary.end] + [a["end"] for a in fm])
+    span = max((end - start).total_seconds(), 1.0)
 
     def x(t: datetime) -> float:
         return left + (t - start).total_seconds() / span * (width - left - right)
@@ -289,7 +307,7 @@ def _timeline(runs, tables: EventTables, summary: Summary, items, tasks) -> str:
                 f'text-anchor="middle">idle {_e(_duration((b - a).total_seconds()))}'
                 "</text>"
             )
-    for tick, label in _ticks(summary.start, summary.end):
+    for tick, label in _ticks(start, end):
         parts.append(
             f'<line x1="{x(tick):.1f}" x2="{x(tick):.1f}" y1="{top - 4}" '
             f'y2="{bottom}" class="grid"/><text x="{x(tick):.1f}" y="{bottom + 16}" '
@@ -331,6 +349,17 @@ def _timeline(runs, tables: EventTables, summary: Summary, items, tasks) -> str:
             f'fill="{_WAIT_COLOUR}" class="wait"><title>{_e(_text(wait["task"]))} '
             f"waited {_e(_clock((b - a).total_seconds()))} for an answer</title></rect>"
         )
+    for acquisition in fm:
+        middle = (
+            x(acquisition["start"])
+            + (x(acquisition["end"]) - x(acquisition["start"])) / 2
+        )
+        y = top + rows[acquisition["item"]] * row_h + 15
+        parts.append(
+            f'<path d="M{middle - 4:.1f},{y + 6} L{middle + 4:.1f},{y + 6} '
+            f'L{middle:.1f},{y} Z" fill="{_FM_COLOUR}" class="fm">'
+            f"<title>{_e(_fm_title(acquisition))}</title></path>"
+        )
     # what this session had: a key for failed runs only if one failed
     outcomes = {run["outcome"] for run in runs}
     legend = [(t, colours[t]) for t in tasks]
@@ -344,6 +373,8 @@ def _timeline(runs, tables: EventTables, summary: Summary, items, tasks) -> str:
         )
         if outcome in outcomes
     ]
+    if fm:
+        legend.append(("FM acquisition", _FM_COLOUR))
     keys = "".join(
         f'<span class="key"><i style="background:{c}"></i>{_e(label)}</span>'
         for label, c in legend
@@ -391,6 +422,43 @@ def _runs(tables: EventTables) -> List[Dict[str, Any]]:
             }
         )
     return rows
+
+
+def _fm(tables: EventTables) -> List[Dict[str, Any]]:
+    """The FM acquisitions as plain rows, each on a lamella's row."""
+    rows = []
+    for acquisition in tables.fm.to_dict("records"):
+        start, end = _dt(acquisition["start"]), _dt(acquisition["end"])
+        if start is None or end is None:
+            continue
+        rows.append(
+            {
+                "item": _item(acquisition["item"]),
+                "task": _text(acquisition["task"]),
+                "start": start,
+                "end": end,
+                "channels": list(acquisition["channels"] or []),
+                "planes": int(acquisition["planes"]),
+                "overview": _text(acquisition["overview"]),
+            }
+        )
+    return rows
+
+
+def _fm_title(acquisition: Dict[str, Any]) -> str:
+    """An FM acquisition as its mark's tooltip says it: what, and how long."""
+    if acquisition["overview"]:
+        what = f"FM overview, {acquisition['overview']} tiles"
+    elif acquisition["planes"] > 1:
+        what = f"FM z-stack, {acquisition['planes']} planes"
+    else:
+        what = "FM image"
+    if acquisition["channels"]:
+        what += f", {', '.join(acquisition['channels'])}"
+    if acquisition["task"]:
+        what += f" ({acquisition['task']})"
+    seconds = (acquisition["end"] - acquisition["start"]).total_seconds()
+    return f"{what} · {_clock(seconds)}"
 
 
 def _run_end(run: Dict[str, Any]) -> datetime:
