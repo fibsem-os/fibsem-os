@@ -189,6 +189,17 @@ class TestCoordinateSystemHelpers:
         )
         assert _transform_position(pos).name == "lamella-1"
 
+    def test_transform_position_is_quiet_at_info(self, caplog):
+        """It runs for every position drawn from the other side of the stage --
+        three times per aligned image per redraw -- so it logs at debug; at info
+        it buried the rest of the log."""
+        import logging
+
+        pos = FibsemStagePosition(name="lamella-1", x=1e-4, y=2e-4, z=0.0, r=0.0, t=0.0)
+        with caplog.at_level(logging.INFO):
+            _transform_position(pos)
+        assert [r for r in caplog.records if "was transformed" in r.getMessage()] == []
+
     def test_transform_position_inverts_xy_about_the_specimen_origin(self):
         """A 180 degree compucentric rotation, plus a fixed calibration offset."""
         pos = FibsemStagePosition(

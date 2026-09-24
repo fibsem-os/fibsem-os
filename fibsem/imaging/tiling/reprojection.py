@@ -294,7 +294,10 @@ def _transform_position(pos: FibsemStagePosition) -> FibsemStagePosition:
     transformed_position.name = pos.name
 
     # print("trans   pos: ", transformed_position)
-    logging.info(f"Initial position {pos} was transformed to {transformed_position}")
+    # Debug, not info: this runs for every position drawn from the other side of the
+    # stage -- three times per aligned image per redraw -- and at info it buried the
+    # rest of the log (366 lines in five minutes of aligning an image).
+    logging.debug(f"Initial position {pos} was transformed to {transformed_position}")
 
     return transformed_position
 

@@ -85,6 +85,7 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
         overview.image_placement_changed.connect(self._save_image_placement)
         overview.image_display_changed.connect(self._save_image_display)
         overview.image_removed.connect(self._forget_image)
+        overview.aligned_image_folder = self._aligned_image_folder
         return overview
 
     def _can_build(self, microscope) -> bool:
@@ -170,6 +171,16 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
 
     ALIGNED_IMAGES_DIR = "Aligned Images"
 
+    def _aligned_image_folder(self) -> Optional[str]:
+        """Where an imported image's copy is written: the folder of the grid under
+        the stage, so its record needs no second copy. None without a grid."""
+        grid = self.current_grid
+        if grid is None or self.experiment is None:
+            return None
+        return os.path.join(
+            str(self.experiment.grid_path(grid)), self.ALIGNED_IMAGES_DIR
+        )
+
     def _image_source(self, grid, aligned) -> Optional[str]:
         """The image's file, relative to the grid's folder -- copied in if it is
         elsewhere, so the experiment stays self-contained."""
@@ -211,6 +222,7 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
             dy=dy,
             rotation=rotation,
             scale=scale,
+            mirrored=aligned.mirrored,
             fit=dict(aligned.fit),
             display=self.overview.aligned_images.display_state(key),
         )
@@ -285,8 +297,13 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
                 continue
             aligned = self.overview.aligned_images.get(key)
             aligned.record_id = record.id
-            self.overview.aligned_images.set_placement(
-                key, record.dx, record.dy, record.rotation, record.scale
+            self.overview.set_aligned_image_placement(
+                key,
+                record.dx,
+                record.dy,
+                record.rotation,
+                record.scale,
+                mirrored=record.mirrored,
             )
             if record.display:
                 self.overview.set_aligned_image_display(key, record.display)

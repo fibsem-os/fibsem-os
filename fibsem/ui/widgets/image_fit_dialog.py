@@ -34,10 +34,13 @@ from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
     CorrelationCanvasWidget,
 )
-from fibsem.ui.tokens import CANVAS_BG, TEXT_COLOR
+from fibsem.ui.tokens import CANVAS_BG, TEXT_COLOR, WARN_COLOR
 
 Pairs = List[Tuple[float, float, float, float]]  # image x, y, reference x, y
 PreviewFit = Callable[[Pairs, bool], Optional[SimilarityFit]]
+# What the host would add about the pairs as they stand -- that they fit much better
+# mirrored, say -- or None for nothing.
+PairsHint = Callable[[Pairs, bool], Optional[str]]
 
 MIN_PAIRS = 3
 
@@ -53,6 +56,7 @@ class ImageFitDialog(QDialog):
         reference_label: str = "Overview",
         image_label: str = "Image",
         rms_text: Optional[Callable[[float], str]] = None,
+        hint: Optional[PairsHint] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -60,6 +64,7 @@ class ImageFitDialog(QDialog):
         self.setStyleSheet(f"background: {CANVAS_BG}; color: {TEXT_COLOR};")
         self.resize(1200, 700)
         self._preview = preview
+        self._hint = hint
         # How to say a residual: the host knows what a canvas unit is in metres,
         # the dialog does not. Canvas units, labelled as such, when not told.
         self._rms_text = rms_text or (lambda rms: f"RMS {rms:.1f} canvas px")
@@ -91,6 +96,12 @@ class ImageFitDialog(QDialog):
         splitter.addWidget(self._pane(reference_label, self.reference_canvas))
         splitter.addWidget(self._pane(image_label, self.image_canvas))
         layout.addWidget(splitter, 1)
+
+        self.label_hint = QLabel("")
+        self.label_hint.setWordWrap(True)
+        self.label_hint.setStyleSheet(f"color: {WARN_COLOR}; font-size: 12px;")
+        self.label_hint.hide()
+        layout.addWidget(self.label_hint)
 
         footer = QHBoxLayout()
         self.label_status = QLabel("")
@@ -157,6 +168,7 @@ class ImageFitDialog(QDialog):
         self._store.add(Coordinate(PointXYZ(x, y, 0.0), point_type))
 
     def _refresh(self, *_args) -> None:
+        self._refresh_hint()
         pairs = self.pairs()
         references = len(self._store.of_type(PointType.FIB))
         images = len(self._store.of_type(PointType.FM))
@@ -183,3 +195,14 @@ class ImageFitDialog(QDialog):
                     f"scale ×{fit.scale:.3f}"
                 )
         self.label_status.setText(text)
+
+    def _refresh_hint(self) -> None:
+        text = None
+        pairs = self.pairs()
+        if self._hint is not None and len(pairs) >= MIN_PAIRS:
+            try:
+                text = self._hint(pairs, self.fix_scale)
+            except Exception:  # noqa: BLE001 - a hint that fails says nothing
+                text = None
+        self.label_hint.setText(text or "")
+        self.label_hint.setVisible(bool(text))
