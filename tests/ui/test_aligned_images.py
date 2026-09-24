@@ -251,6 +251,7 @@ class TestADragIsKeptOnTheSample:
 
         record.overlay.moved.emit(np.float64(cx + 3.0), np.float64(cy + 2.0))
         record.overlay.rotated.emit(np.float64(record.base_rotation + 1.0))
+        record.overlay.scaled.emit(np.float64(1.1))
 
         assert all(type(v) is float for v in record.placement)
 
@@ -273,6 +274,30 @@ class TestADragIsKeptOnTheSample:
 
         assert record.rotation == pytest.approx(7.5)
         assert record.overlay.rotation == pytest.approx(base + 7.5)
+
+    def test_a_corner_scales_the_pixel_size_about_the_centre(self, widget, microscope):
+        """The factor multiplies what is kept, not the file's pixel size: two drags
+        compound, the centre stays put, and Reset still has the file's to go back to."""
+        frame = _show(widget, SQUARE)
+        key = widget.add_aligned_image(
+            _fm_image(microscope, _fm_at(microscope), size=64, pixel_size=1e-6), "fm"
+        )
+        record = widget.aligned_images.get(key)
+        centre = record.overlay.centre
+        seen = []
+        widget.image_placement_changed.connect(seen.append)
+
+        record.overlay.scaled.emit(1.25)
+        record.overlay.scaled.emit(1.2)
+        record.overlay.drag_finished.emit()
+
+        assert record.scale == pytest.approx(1.5)
+        assert record.pixel_size == 1e-6
+        assert record.overlay.footprint == pytest.approx(
+            (frame.length(1.5 * 64e-6), frame.length(1.5 * 64e-6))
+        )
+        assert record.overlay.centre == pytest.approx(centre)
+        assert seen == [key]
 
     def test_the_same_placement_draws_in_every_view(self, widget, microscope):
         _show(widget, SQUARE)
@@ -297,7 +322,7 @@ class TestADragIsKeptOnTheSample:
         seen = []
         widget.image_placement_changed.connect(seen.append)
 
-        widget.aligned_images.set_placement(key, 1e-6, 2e-6, 3.0)
+        widget.aligned_images.set_placement(key, 1e-6, 2e-6, 3.0, 2.0)
         assert seen == []
 
         widget.aligned_image_panel.btn_reset.click()
@@ -355,6 +380,13 @@ class TestTheControls:
         )
         record.overlay.drag_finished.emit()
         assert "Moved" in widget.aligned_image_panel.label_placement.text()
+        assert "pixel" not in widget.aligned_image_panel.label_placement.text()
+
+        record.overlay.scaled.emit(1.25)
+        record.overlay.drag_finished.emit()
+        assert "pixel 1.25 um (×1.250)" in (
+            widget.aligned_image_panel.label_placement.text()
+        )
 
 
 class TestFitFromPoints:
@@ -420,7 +452,8 @@ class TestFitFromPoints:
         assert widget.aligned_images.get(key).scale == 1.0
         assert widget.aligned_images.get(key).fit["fix_scale"] is True
 
-    def test_a_drag_afterwards_forgets_the_fit(self, widget, microscope):
+    @pytest.mark.parametrize("gesture", ["move", "scale"])
+    def test_a_drag_afterwards_forgets_the_fit(self, widget, microscope, gesture):
         _show(widget, SQUARE)
         key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
         targets = self._targets_for(widget, key, 5e-6, 5e-6, 3.0)
@@ -429,7 +462,10 @@ class TestFitFromPoints:
         assert record.fit
 
         cx, cy = record.overlay.centre
-        record.overlay.moved.emit(cx + 1.0, cy)
+        if gesture == "move":
+            record.overlay.moved.emit(cx + 1.0, cy)
+        else:
+            record.overlay.scaled.emit(1.1)
 
         assert record.fit == {}
 

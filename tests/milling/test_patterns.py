@@ -769,6 +769,39 @@ class TestFiducialPattern:
         # Second rectangle should be rotated 90 degrees more
         assert shapes[1].rotation == (45 + 90) * (np.pi / 180)
 
+    def test_define_at_zero_rotation_emits_no_rotated_shapes(self):
+        """A cross at 0 degrees is two axis-aligned bars, not two rotated ones.
+
+        Some vendors' scripting APIs (JEOL) cannot rotate a milling shape at all,
+        so a right-angle turn has to arrive as swapped dimensions or the second
+        bar lands on top of the first and mills a single line.
+        """
+        fiducial = FiducialPattern(
+            width=1.0, height=10.0, depth=1.0, rotation=0, point=Point(5.0, 15.0)
+        )
+
+        vertical, horizontal = fiducial.define()
+
+        assert vertical.rotation == 0.0
+        assert horizontal.rotation == 0.0
+        assert (vertical.width, vertical.height) == (1.0, 10.0)
+        assert (horizontal.width, horizontal.height) == (10.0, 1.0)
+        # the two bars must cross, not coincide
+        assert vertical.centre_x == horizontal.centre_x == 5.0
+        assert vertical.centre_y == horizontal.centre_y == 15.0
+
+    def test_define_leaves_non_right_angles_rotated(self):
+        """45 degrees genuinely needs rotation -- squaring it off would mill the
+        wrong figure, so the dimension swap must not touch it."""
+        fiducial = FiducialPattern(width=1.0, height=10.0, depth=1.0, rotation=45)
+
+        shapes = fiducial.define()
+
+        assert shapes[0].rotation == pytest.approx(np.deg2rad(45))
+        assert shapes[1].rotation == pytest.approx(np.deg2rad(135))
+        for shape in shapes:
+            assert (shape.width, shape.height) == (1.0, 10.0)
+
     def test_to_dict(self):
         fiducial = FiducialPattern(
             width=10.0,

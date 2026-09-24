@@ -170,6 +170,9 @@ class FibsemMicroscope(ABC):
     _patterns: List
     stage_is_compustage: bool = False
     milling_channel: BeamType = BeamType.ION
+    #: The file `system` was loaded from, when it was loaded from one. Set by
+    #: `utils.setup_session`; what a calibration action writes back to.
+    configuration_path: Optional[str] = None
 
     # The views a coincidence correction can be measured in -- the beam_type
     # values vertical_move accepts. The FIB view is universal; the SEM view
@@ -335,8 +338,163 @@ class FibsemMicroscope(ABC):
         # it is `_get_axis_limits` itself raising, and on a compustage that is a
         # lookup of a module constant, which cannot.
         self._read_stage_capabilities()
+        self._read_hardware_capabilities()
 
         self._stage = _create_sample_stage(self)
+
+    # ---- fitted subsystems ---------------------------------------------------
+    #
+    # Whether a manipulator, a GIS, a multichem or a sputter coater is fitted used to
+    # be four configuration keys, which meant a site could describe hardware it does
+    # not have, or omit hardware it does, and nothing would disagree. They are not in
+    # the file any more. A backend that can ask the instrument does (AutoScript); one
+    # that cannot answers for itself with `DEFAULT_FITTED`, which is what its shipped
+    # configuration used to say. Each probe returns True, False, or None for "cannot
+    # say", and None falls back to the class default rather than to "not fitted" --
+    # a subsystem that wrongly appears is a menu entry that errors, one that wrongly
+    # disappears is a working instrument that lost a feature on upgrade.
+
+    #: What this backend assumes is fitted when it cannot ask.
+    DEFAULT_FITTED: Dict[str, bool] = {
+        "manipulator": True,
+        "gis": True,
+        "gis_multichem": True,
+        "gis_sputter_coater": False,
+    }
+
+    def _probe_manipulator_installed(self) -> Optional[bool]:
+        """Whether a manipulator is fitted, or None if this backend cannot say."""
+        return None
+
+    def _probe_gis_installed(self) -> Optional[bool]:
+        return None
+
+    def _probe_multichem_installed(self) -> Optional[bool]:
+        return None
+
+    def _probe_sputter_coater_installed(self) -> Optional[bool]:
+        return None
+
+    def _read_hardware_capabilities(self) -> None:
+        """Ask the instrument which subsystems are fitted, and record the answers."""
+        probes = (
+            ("manipulator", self._probe_manipulator_installed),
+            ("gis", self._probe_gis_installed),
+            ("gis_multichem", self._probe_multichem_installed),
+            ("gis_sputter_coater", self._probe_sputter_coater_installed),
+        )
+        for key, probe in probes:
+            try:
+                present = probe()
+            except Exception as e:
+                # A raising probe is ambiguous -- a missing subsystem and a sick
+                # connection look the same -- so it is read as "cannot say".
+                logging.debug(f"Capability probe {probe.__name__} failed: {e}")
+                present = None
+            if present is None:
+                present = self.DEFAULT_FITTED[key]
+            self.set_available(key, bool(present))
+        self._read_plasma_source()
+
+    # ---- the ion column's plasma source ----------------------------------------
+    #
+    # A plasma column is one with a gas (`BeamSystemSettings.plasma_gas`). Files
+    # written before that said so with `plasma: true` beside the gas, and a site that
+    # set the flag and left the gas at `None` loads with no gas -- so it would lose
+    # its plasma controls on upgrade. For that case only, the gas the instrument is
+    # running is read and recorded.
+    #
+    # Read, never changed: nothing here sets a gas on the instrument, and a gas the
+    # configuration states is left alone -- the instrument is not even asked. The
+    # probe can only find a plasma source; "cannot say" leaves the column as the
+    # file described it.
+
+    def _probe_plasma_gas(self) -> Optional[str]:
+        """The ion column's current plasma gas, or None if this backend cannot say."""
+        return None
+
+    def _read_plasma_source(self) -> None:
+        """Record the instrument's plasma gas when the configuration names none."""
+        if self.system.ion.plasma_gas is not None:
+            return
+        try:
+            gas = self._probe_plasma_gas()
+        except Exception as e:
+            # A Ga column refuses the question the same way a sick connection does.
+            logging.debug(f"Plasma gas probe failed: {e}")
+            gas = None
+        if not gas:
+            return
+        logging.info(
+            f"The configuration names no plasma gas; the ion column reports '{gas}'."
+        )
+        self.system.ion.plasma_gas = str(gas)
+
+    def _apply_fluorescence_calibration(self) -> None:
+        """Push the configured objective calibration onto the objective.
+
+        `focus_position` and `limit_position` are calibration: somebody focused this
+        objective on this microscope, and somebody decided how far it may safely be
+        inserted. They lived only in `fm-configuration.yaml`, which a one-second
+        debounced autosave rewrites after any channel edit -- a safety limit carried
+        by a file that turns over while someone adjusts colours.
+
+        The configuration wins when it states one. It states nothing by default, and
+        then the working-state file answers exactly as before -- the FM widget applies
+        that file's positions only while the configuration is silent, and stops
+        writing them once it is not. Nothing is written back here.
+        """
+        if self.fm is None or self.fm.objective is None:
+            return
+        for name in ("focus_position", "limit_position"):
+            value = getattr(self.system.fm, name)
+            if value is None:
+                continue
+            try:
+                setattr(self.fm.objective, name, float(value))
+            except Exception as e:
+                logging.warning(f"Could not apply configured objective {name}: {e}")
+
+    def capture_defaults(self) -> None:
+        """Record what the instrument is doing now as the defaults a session starts from.
+
+        The gesture the `defaults:` block exists for. Nobody wants to type 2.00 kV,
+        100 pA, 150 um, 1536x1024, 1 us, ETD and SecondaryElectrons into a grid -- and
+        somebody who does will type what they believe the instrument is doing. "It is
+        set up how I like it, remember this" is the natural way to say it, and the
+        instrument already knows the answer.
+
+        **The stage position is deliberately not captured.** `get_microscope_state`
+        returns it alongside the beams, and it has no business here: applying it
+        would move the stage, and where the stage happened to be sitting when
+        somebody pressed Save is session state, not a preference. The objective
+        position is out for the same reason from the other direction -- it is
+        calibration, not a default.
+
+        Writes into the settings only. Saving the configuration to disk is a separate
+        act, so pressing this is reversible until someone means it.
+        """
+        state = self.get_microscope_state()
+        for beam, detector, record in (
+            (state.electron_beam, state.electron_detector, self.system.electron),
+            (state.ion_beam, state.ion_detector, self.system.ion),
+        ):
+            # Only the defaults. `BeamSettings` also carries the beam shift, the
+            # stigmation, the scan rotation and the working distance, and those are
+            # alignment state: capturing them would put the shift the column
+            # happened to have into the file, and Apply would push it back.
+            if beam is not None:
+                for name in (
+                    "voltage",
+                    "beam_current",
+                    "hfw",
+                    "resolution",
+                    "dwell_time",
+                ):
+                    setattr(record.beam, name, deepcopy(getattr(beam, name)))
+            if detector is not None:
+                record.detector.type = detector.type
+                record.detector.mode = detector.mode
 
     def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
         """The grid loader for a compustage system, or None when it has no autoloader.
@@ -956,18 +1114,27 @@ class FibsemMicroscope(ABC):
     def set_beam_settings(self, beam_settings: BeamSettings) -> None:
         """Set the beam settings for the specified beam type"""
         logging.debug(f"Setting {beam_settings.beam_type.name} beam settings...")
-        self.set_working_distance(
-            beam_settings.working_distance, beam_settings.beam_type
+        # A None is "not stated", not a value to push. A configuration may leave
+        # any of these out -- a `defaults:` block with only the voltage in it is a
+        # configuration -- and the readers default them to None, so each one is
+        # pushed only when there is something to push.
+        beam_type = beam_settings.beam_type
+        setters = (
+            (self.set_working_distance, beam_settings.working_distance),
+            (self.set_beam_current, beam_settings.beam_current),
+            (self.set_beam_voltage, beam_settings.voltage),
+            (self.set_field_of_view, beam_settings.hfw),
+            (self.set_resolution, beam_settings.resolution),
+            (self.set_dwell_time, beam_settings.dwell_time),
+            (self.set_stigmation, beam_settings.stigmation),
+            (self.set_beam_shift, beam_settings.shift),
+            (self.set_scan_rotation, beam_settings.scan_rotation),
         )
-        self.set_beam_current(beam_settings.beam_current, beam_settings.beam_type)
-        self.set_beam_voltage(beam_settings.voltage, beam_settings.beam_type)
-        self.set_field_of_view(beam_settings.hfw, beam_settings.beam_type)
-        self.set_resolution(beam_settings.resolution, beam_settings.beam_type)
-        self.set_dwell_time(beam_settings.dwell_time, beam_settings.beam_type)
-        self.set_stigmation(beam_settings.stigmation, beam_settings.beam_type)
-        self.set_beam_shift(beam_settings.shift, beam_settings.beam_type)
-        self.set_scan_rotation(beam_settings.scan_rotation, beam_settings.beam_type)
-        self.set("preset", beam_settings.preset, beam_settings.beam_type)
+        for setter, value in setters:
+            if value is not None:
+                setter(value, beam_type)
+        if beam_settings.preset is not None:
+            self.set("preset", beam_settings.preset, beam_type)
 
         logging.debug(
             {
@@ -988,7 +1155,6 @@ class FibsemMicroscope(ABC):
             detector=self.get_detector_settings(beam_type),
             eucentric_height=self.get("eucentric_height", beam_type),
             column_tilt=self.get("column_tilt", beam_type),
-            plasma=self.get("plasma", beam_type),
             plasma_gas=self.get("plasma_gas", beam_type),
         )
 
@@ -1011,9 +1177,10 @@ class FibsemMicroscope(ABC):
         self.set("eucentric_height", settings.eucentric_height, beam_type)
         self.set("column_tilt", settings.column_tilt, beam_type)
 
-        if beam_type is BeamType.ION:
+        # Only a plasma column has a gas to set; a None here means "no plasma source",
+        # not "clear the gas".
+        if beam_type is BeamType.ION and settings.plasma_gas is not None:
             self.set("plasma_gas", settings.plasma_gas, beam_type)
-            self.set("plasma", settings.plasma, beam_type)
 
         logging.debug(
             {
@@ -1199,7 +1366,15 @@ class FibsemMicroscope(ABC):
         elif system == "ion_beam":
             self.system.ion.enabled = value
         elif system == "ion_plasma":
-            self.system.ion.plasma = value
+            # Derived from the gas, so it can only be switched off here; switching
+            # it on needs a gas, which is `system.ion.plasma_gas`.
+            if not value:
+                self.system.ion.plasma_gas = None
+            elif self.system.ion.plasma_gas is None:
+                logging.warning(
+                    "set_available('ion_plasma', True) has no effect: a plasma column "
+                    "is one with a gas. Set system.ion.plasma_gas instead."
+                )
         elif system == "stage":
             self.system.stage.enabled = value
         elif system == "manipulator":
@@ -1233,6 +1408,7 @@ class FibsemMicroscope(ABC):
             self.set_beam_system_settings(system_settings.ion)
 
         if self.is_available("stage"):
+            previous_stage = self.system.stage
             self.system.stage = system_settings.stage
             # The line above replaces the whole record, including the capability the
             # instrument told us about at connect. `system_settings` came from a file,
@@ -1242,12 +1418,25 @@ class FibsemMicroscope(ABC):
             # stage cannot make. Re-read rather than preserve: the instrument is the
             # authority, and it has not changed because someone pressed Apply.
             self._read_stage_capabilities()
+            # The same replacement empties the holder map, for the same reason: a
+            # configuration written before the holder moved into it has no `holders:`.
+            # But which holder is in the shuttle is a physical fact, and pressing Apply
+            # did not change it -- so it is carried across, and the running `Stage`
+            # keeps agreeing with the configuration it came from. A file that *does*
+            # name holders wins, because then the user is choosing one.
+            if not self.system.stage.holders:
+                self.system.stage.holders = previous_stage.holders
+                self.system.stage.active_holder = previous_stage.active_holder
+            else:
+                # The file chose a holder, so the running `Stage` -- built once at
+                # connect -- has to be rebuilt around it, or `system.stage` says one
+                # holder while `_stage.holder` still moves to the slots of another.
+                self._create_sample_stage()
 
-        if self.is_available("manipulator"):
-            self.system.manipulator = system_settings.manipulator
-
-        if self.is_available("gis"):
-            self.system.gis = system_settings.gis
+        # `system_settings.manipulator` and `.gis` are not taken from the incoming
+        # settings: what is fitted is not in the file, so the incoming records only
+        # carry defaults, and the ones already here carry what the instrument (or
+        # the backend) said at connect.
 
         # dont update info -> read only
         logging.info("Microscope configuration applied.")
