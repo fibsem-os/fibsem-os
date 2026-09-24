@@ -234,9 +234,10 @@ class SampleHolderWidget(QWidget):
 
     ``holder_changed`` fires after a grid was named or cleared here and after the
     wizard saved a calibration, for hosts that draw the holder. Nothing is saved
-    from here: the wizard writes the calibration file, and naming a grid goes
-    through ``Stage.assign_grid``, which records the occupancy in the session state
-    (or, with a loader, writes the hardware). ``set_holder`` swaps which holder is shown.
+    from here: the wizard writes the holder into the configuration, and naming a
+    grid goes through ``Stage.assign_grid``, which records the occupancy in the
+    session state (or, with a loader, writes the hardware). ``set_holder`` swaps
+    which holder is shown.
     """
 
     holder_changed = pyqtSignal(object)  # SampleHolder
