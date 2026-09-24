@@ -883,37 +883,13 @@ def get_params(main_str: str) -> list:
     return cats
 
 
-def _get_position(name: str):
-
-    import os
-
-    from fibsem import config as cfg
-    from fibsem.structures import FibsemStagePosition
-
-    ddict = load_yaml(fname=os.path.join(cfg.CONFIG_PATH, "positions.yaml"))
-    # get position from save positions?
-    for d in ddict:
-        if d["name"] == name:
-            return FibsemStagePosition.from_dict(d)
-    return None
-
-
-def _get_positions(fname: str = None) -> List[str]:
-
-    import os
-
-    from fibsem import config as cfg
-
-    if fname is None:
-        fname = os.path.join(cfg.CONFIG_PATH, "positions.yaml")
-
-    ddict = load_yaml(fname=fname)
-
-    return [d["name"] for d in ddict]
-
-
 def save_positions(positions: list, path: str = None, overwrite: bool = False) -> None:
-    """save the list of positions to file"""
+    """Save a list of positions to a YAML file.
+
+    Not where the application keeps its saved positions any more: those are session
+    state (`fibsem.saved_positions`). A file written here is only imported if the
+    configuration's session state has no saved positions yet.
+    """
 
     from fibsem import config as cfg
 
