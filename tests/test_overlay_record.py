@@ -133,7 +133,7 @@ class TestTheExperimentCarriesIt:
         assert all(
             type(v) is float
             for v in yaml.safe_load(text).values()
-            if v is not None and not isinstance(v, (str, dict))
+            if v is not None and not isinstance(v, (str, dict, bool))
         )
 
     def test_numpy_values_anywhere_in_the_display_still_write(self):
@@ -166,3 +166,15 @@ class TestTheExperimentCarriesIt:
 
         with open(path) as f:
             assert f.read() == before
+
+
+class TestAMirroredImageIsKeptMirrored:
+    def test_the_mirror_survives_the_dict_form(self):
+        record = OverlayRecord(kind="image", source="fm.ome.tiff", mirrored=True)
+        back = OverlayRecord.from_dict(yaml.safe_load(yaml.safe_dump(record.to_dict())))
+        assert back.mirrored is True
+
+    def test_a_record_from_before_the_mirror_is_not_mirrored(self):
+        data = OverlayRecord(kind="image", source="fm.ome.tiff").to_dict()
+        del data["mirrored"]
+        assert OverlayRecord.from_dict(data).mirrored is False

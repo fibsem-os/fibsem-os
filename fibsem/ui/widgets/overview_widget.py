@@ -642,6 +642,12 @@ class FibsemOverviewWidget(QWidget):
         # two callers happened to poll together.
         self._stage_position: Optional[FibsemStagePosition] = None
         self._save_directory: Optional[str] = None
+        # Where an imported image's corrected copy is written. A host keeping images
+        # per grid points this at the grid's folder, so the copy is written once,
+        # where its record will look for it.
+        self.aligned_image_folder: Callable[[], Optional[str]] = (
+            self._default_aligned_image_folder
+        )
         self._mosaic: Optional[FibsemImage] = None
         # Whether a run is under way, and whether a host is allowing one to be started.
         # Two independent facts kept apart on purpose: a workflow ending must not
@@ -752,6 +758,9 @@ class FibsemOverviewWidget(QWidget):
         self.aligned_image_panel.selected.connect(self._on_aligned_image_selected)
         self.aligned_image_panel.align_toggled.connect(self._on_align_image_toggled)
         self.aligned_image_panel.reset_requested.connect(self.aligned_images.reset)
+        self.aligned_image_panel.mirror_toggled.connect(
+            self.aligned_images.set_mirrored
+        )
         self.aligned_image_panel.fit_requested.connect(self._fit_aligned_image)
         self.aligned_image_panel.opacity_changed.connect(self._on_image_opacity_changed)
         self.aligned_image_panel.signal_only_changed.connect(
@@ -769,6 +778,11 @@ class FibsemOverviewWidget(QWidget):
         # time: built on first use, `_channels_key` naming whose layers it holds.
         self._channels_panel = None
         self._channels_key: Optional[str] = None
+        # The point pairs last picked for each image, with the overview they were
+        # picked on: the fit dialog reopens with them, so pressing Mirror after the
+        # dialog said the image looks mirrored does not cost the user their clicks.
+        # The mirror is in the placement, not the pixels, so the pairs still hold.
+        self._fit_pairs: Dict[str, Tuple[str, list]] = {}
         # A re-blend of a large image takes ~150 ms, and a slider drag asks for one
         # per step. Edits that queue up while one runs are coalesced into the next,
         # so the slider keeps up and the image shows the latest value.
@@ -1542,12 +1556,137 @@ class FibsemOverviewWidget(QWidget):
         path = ui_utils.open_existing_file_dialog(
             msg="Select a fluorescence image to lay over the overview",
             path=str(self._save_directory or os.getcwd()),
-            _filter="Fluorescence images (*.ome.tiff *.ome.tif *.tiff *.tif)",
+            _filter="Images (*.ome.tiff *.ome.tif *.tiff *.tif *.png *.jpg *.jpeg)",
             parent=self,
         )
         if not path:
             return
-        self.load_aligned_image(path)
+        self.open_aligned_image(path)
+
+    def open_aligned_image(self, path: str) -> Optional[str]:
+        """Lay an image from disk over the overview, asking about it if need be.
+
+        An image that says where it was taken is placed from its metadata, as
+        :meth:`load_aligned_image` does. Any other -- a file from another microscope,
+        a screenshot -- goes through the import dialog first. Returns its key.
+        """
+        from fibsem.fm.reader import RASTER_SUFFIXES
+
+        if not path.lower().endswith(RASTER_SUFFIXES):
+            image = self._read_fluorescence_image(path)
+            if image is not None and self._can_place(image):
+                return self.add_aligned_image(
+                    image, label=os.path.basename(path), path=path
+                )
+        return self.import_aligned_image(path)
+
+    def import_aligned_image(self, path: str) -> Optional[str]:
+        """Ask how to read *path*, then lay it at the centre of the view. The
+        corrected copy is what is shown, and what a record keeps."""
+        from fibsem.fm.reader import read_source
+        from fibsem.ui.widgets.fm_import_dialog import ImportImageDialog
+
+        if self._frame() is None:
+            notification_service.show_toast(
+                "Acquire or load an overview first: an imported image is placed "
+                "against it.",
+                "warning",
+            )
+            return None
+        try:
+            source = read_source(path)
+        except Exception as e:  # noqa: BLE001 - said, not fatal
+            logger.error(f"Could not read {path} for import: {e}")
+            notification_service.show_toast(
+                f"Could not read {os.path.basename(path)}.", "error"
+            )
+            return None
+        dialog = ImportImageDialog(source, parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+        return self._place_imported(dialog)
+
+    def _place_imported(self, dialog) -> Optional[str]:
+        from fibsem.fm.reader import assumed_geometry, assumed_pose
+        from fibsem.projection import FMStageProjection
+
+        source = dialog.source
+        try:
+            geometry = assumed_geometry(self.microscope)
+            pose = assumed_pose(self.microscope)
+            roles, shape = dialog.roles, source.data.shape
+            height, width = shape[roles.index("Y")], shape[roles.index("X")]
+            projection = FMStageProjection(
+                geometry=geometry, pixel_size=dialog.pixel_size, shape=(height, width)
+            )
+            (x0, x1), (y0, y1) = self.canvas._ax.get_xlim(), self.canvas._ax.get_ylim()
+            base = self.aligned_images.base_at(
+                projection, pose, ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+            )
+            image = dialog.build(geometry=geometry, stage_position=base)
+            path = self._write_imported(image, source.name)
+        except Exception as e:  # noqa: BLE001 - said, not fatal
+            logger.error(f"Could not import {source.path}: {e}")
+            notification_service.show_toast(
+                f"Could not import {source.name}: {e}", "error"
+            )
+            return None
+        logger.info(
+            f"Imported {source.path} as {path}: axes {dialog.roles} of "
+            f"{tuple(source.data.shape)}, {dialog.pixel_size:.4g} m per pixel, "
+            f"channels {list(zip(dialog.channel_names, dialog.channel_colors))}"
+            f"{', mirrored' if dialog.flip else ''}; centred on x={base.x:.4g} "
+            f"y={base.y:.4g} m"
+        )
+        return self.add_aligned_image(image, label=os.path.basename(path), path=path)
+
+    def _default_aligned_image_folder(self) -> Optional[str]:
+        if not self._save_directory:
+            return None
+        return os.path.join(str(self._save_directory), "Aligned Images")
+
+    def _write_imported(self, image, name: str) -> str:
+        """Save an imported image as our own OME-TIFF: a new file beside, never
+        over, anything already there. Compressed, as the files people bring are:
+        uncompressed, a Zeiss export's copy was six times the size of the export.
+        zlib rather than their LZW: smaller on 16-bit stacks, and readable on an
+        install without imagecodecs."""
+        import tempfile
+
+        folder = self.aligned_image_folder() or os.path.join(
+            tempfile.gettempdir(), "fibsem-imported-images"
+        )
+        os.makedirs(folder, exist_ok=True)
+        stem = name
+        for suffix in (".tiff", ".tif", ".png", ".jpeg", ".jpg", ".ome"):
+            if stem.lower().endswith(suffix):
+                stem = stem[: -len(suffix)]
+        path = os.path.join(folder, f"{stem}.ome.tiff")
+        count = 1
+        while os.path.exists(path):
+            count += 1
+            path = os.path.join(folder, f"{stem}-{count}.ome.tiff")
+        return image.save(path, compression="zlib")
+
+    def _read_fluorescence_image(self, path: str):
+        from fibsem.fm.structures import FluorescenceImage
+
+        try:
+            return FluorescenceImage.load(path)
+        except Exception as e:  # noqa: BLE001 - the import reads it another way
+            logger.debug(f"{path} is not a fluorescence image FibsemOS reads: {e}")
+            return None
+
+    @staticmethod
+    def _can_place(image) -> bool:
+        from fibsem.projection import FMStageProjection
+
+        metadata = image.metadata
+        return (
+            FMStageProjection.from_image(image) is not None
+            and getattr(metadata, "stage_position", None) is not None
+            and bool(getattr(metadata, "pixel_size_x", None))
+        )
 
     def load_aligned_image(self, path: str) -> Optional[str]:
         """Lay a fluorescence image from disk over the overview. Returns its key."""
@@ -1584,6 +1723,7 @@ class FibsemOverviewWidget(QWidget):
             self.aligned_image_panel.btn_align.setChecked(False)
         # The channel controls follow the selection off it, as the flush skips
         # it: neither needs telling here.
+        self._fit_pairs.pop(key, None)
         self.aligned_images.remove(key)
         self.aligned_image_panel.remove_image(key)
         self._refresh_aligned_readout()
@@ -1789,10 +1929,29 @@ class FibsemOverviewWidget(QWidget):
             return fit_similarity(placed, targets, fix_scale=fix_scale, scale=1.0)
 
         per_px = (self.canvas.reference_pixel_size or 0.0) * constants.SI_TO_MICRO
+
+        def hint(pairs, fix_scale):
+            from fibsem.correlation.similarity import looks_mirrored
+
+            image_pixels, targets = to_canvas(pairs)
+            placed = [
+                self.aligned_images.pixel_to_canvas(key, *p) for p in image_pixels
+            ]
+            found = looks_mirrored(placed, targets, fix_scale=fix_scale, scale=1.0)
+            if found is None:
+                return None
+            rms, mirrored = found
+            return (
+                f"These points fit much better mirrored: RMS {mirrored * per_px:.2f} um "
+                f"against {rms * per_px:.2f} um. Cancel, press Mirror in the Align "
+                "panel and fit again; your points are kept."
+            )
+
         dialog = ImageFitDialog(
             reference=tile.grey,
             image=record.rgb,
             preview=preview,
+            hint=hint,
             rms_text=lambda rms: f"RMS {rms * per_px:.2f} um",
             reference_label=self._current_view.label
             if self._current_view is not None
@@ -1800,7 +1959,13 @@ class FibsemOverviewWidget(QWidget):
             image_label=record.label,
             parent=self,
         )
-        if dialog.exec_() != QDialog.Accepted:
+        kept = self._fit_pairs.get(key)
+        if kept is not None and kept[0] == canvas_key:
+            for px, py, rx, ry in kept[1]:
+                dialog.add_pair((px, py), (rx, ry))
+        accepted = dialog.exec_() == QDialog.Accepted
+        self._fit_pairs[key] = (canvas_key, dialog.pairs())
+        if not accepted:
             return
         image_pixels, targets = to_canvas(dialog.pairs())
         try:
@@ -1820,19 +1985,40 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_aligned_readout()
         self.image_placement_changed.emit(key)
 
+    def set_aligned_image_placement(
+        self,
+        key: str,
+        dx: float,
+        dy: float,
+        rotation: float,
+        scale: float = 1.0,
+        mirrored: bool = False,
+    ) -> None:
+        """Put an image where a record says, without announcing, and show it."""
+        self.aligned_images.set_placement(
+            key, dx, dy, rotation, scale, mirrored=mirrored
+        )
+        self._refresh_aligned_readout()
+
     def _refresh_aligned_readout(self) -> None:
         key = self.aligned_image_panel.current_key
         record = self.aligned_images.get(key) if key else None
+        self.aligned_image_panel.set_mirrored(
+            record.mirrored if record is not None else False
+        )
         if record is None:
             self.aligned_image_panel.set_placement_text("")
             return
+        mirrored = ", mirrored" if record.mirrored else ""
         dx, dy, rotation, scale = record.placement
         if dx == 0.0 and dy == 0.0 and rotation == 0.0 and scale == 1.0:
-            self.aligned_image_panel.set_placement_text("Placed from its metadata")
+            self.aligned_image_panel.set_placement_text(
+                f"Placed from its metadata{mirrored}"
+            )
             return
         self.aligned_image_panel.set_placement_text(
             f"Moved {dx * constants.SI_TO_MICRO:+.1f}, {dy * constants.SI_TO_MICRO:+.1f} um"
-            f" from its metadata, turned {rotation:+.1f}°"
+            f" from its metadata, turned {rotation:+.1f}°{mirrored}"
         )
 
     # ── state ────────────────────────────────────────────────────────────
