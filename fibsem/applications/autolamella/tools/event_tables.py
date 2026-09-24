@@ -6,7 +6,8 @@ fixed columns, so an experiment that recorded none of a kind still has the
 table, empty.
 
 * ``runs``: one row per task run on an item -- when it started and ended, how it
-  ended, and how much of it was spent waiting for an answer.
+  ended, how much of it was spent waiting for an answer, and the files it
+  recorded as its outputs (by role, relative to the item's folder).
 * ``steps``: one row per task step. A step ends where the run's next step
   starts, or where the run ends.
 * ``milling``: one row per milling stage, from its start to its finish.
@@ -63,6 +64,7 @@ RUN_COLUMNS = [
     "duration",
     "waiting",
     "machine",
+    "outputs",
 ]
 STEP_COLUMNS = [
     "item",
@@ -213,6 +215,9 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
                 run["outcome"] = _RUN_ENDS[kind]
                 reason = payload.get("error")
             run.update(end=time, reason=reason or None)
+            # what the run wrote, from its state as it ended
+            state = payload.get("task_state") or {}
+            run["outputs"] = dict(state.get("outputs") or {})
             _end(current_step.pop(run_id, None), time)
         elif kind == "task_step":
             _end(current_step.pop(run_id, None), time)
@@ -329,6 +334,7 @@ def _run(
         "end": None,
         "outcome": UNFINISHED,
         "reason": None,
+        "outputs": {},
     }
 
 

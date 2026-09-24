@@ -14,16 +14,22 @@ got, where its time went, and what needs a look:
   every fluorescence acquisition
 * where the operator stepped in: each kind of question, how often what was
   proposed was changed or rejected and by how much, and the plan's edits
+* a card for each lamella: its final images and its last FM acquisition as
+  thumbnails, then its runs, milling stages, decisions, edits and FM
+  acquisitions
 
-One file with nothing to fetch: styles are inline and the charts are SVG, so it
-opens offline on the support PC and can be passed on as it is. It prints to A4
-through its print stylesheet.
+One file with nothing to fetch: styles are inline, the charts are SVG and the
+thumbnails are embedded as small JPEGs, so it opens offline on the support PC
+and can be passed on as it is. It prints to A4 through its print stylesheet.
 
 The experiment is only asked for its name, its lamellae and its workflow's
 order; everything that happened comes from the stream.
 """
 
+import base64
 import html
+import io
+import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -99,21 +105,30 @@ def write_report(experiment: Any, path: Union[str, Path, None] = None) -> Path:
     """
     folder = Path(experiment.path)
     events = folder / EVENTS_FILENAME
-    if not events.is_file():
-        raise FileNotFoundError(
-            f"{experiment.name} has no {EVENTS_FILENAME}: it was recorded before "
-            "the event stream, so its report is the log-based one."
-        )
+    missing = no_record(experiment)
+    if missing is not None:
+        raise FileNotFoundError(missing)
     page = render_report(
         read_event_tables(events),
         name=experiment.name,
         items=[p.name for p in experiment.positions],
         tasks=workflow_tasks(experiment),
+        folders={p.name: Path(p.path) for p in experiment.positions},
     )
     path = Path(path) if path is not None else folder / REPORT_DIRNAME / REPORT_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(page, encoding="utf-8")
     return path
+
+
+def no_record(experiment: Any) -> Optional[str]:
+    """Why ``experiment`` has no v2 report, or None when it can have one."""
+    if (Path(experiment.path) / EVENTS_FILENAME).is_file():
+        return None
+    return (
+        f"{experiment.name} has no {EVENTS_FILENAME}: it was recorded before the "
+        "event stream, so its report is the log-based one."
+    )
 
 
 def workflow_tasks(experiment: Any) -> List[str]:
@@ -129,10 +144,13 @@ def render_report(
     items: Sequence[str],
     tasks: Sequence[str],
     generated: Optional[datetime] = None,
+    folders: Optional[Dict[str, Path]] = None,
 ) -> str:
     """The page, from the record's tables. ``items`` and ``tasks`` give the
     rows' and columns' order: the experiment's lamellae and its workflow. A
-    lamella or task that ran without being in either is added after them."""
+    lamella or task that ran without being in either is added after them.
+    ``folders`` are the lamellae's folders, where their images are: without
+    them the cards have no thumbnails."""
     runs = _runs(tables)
     fm = _fm(tables)
     items = _ordered(items, [r["item"] for r in runs] + [a["item"] for a in fm])
@@ -152,6 +170,10 @@ def render_report(
             _section("Outcome", _outcome(runs, lamellae, tasks)),
             _section("Timeline", _timeline(runs, fm, tables, summary, items, tasks)),
             _section("Where the operator stepped in", _stepped_in(tables)),
+            _section(
+                "Lamellae",
+                _cards(runs, fm, tables, summary, lamellae, folders or {}),
+            ),
         ]
     else:
         body.append('<p class="muted">No task runs were recorded.</p>')
@@ -631,6 +653,221 @@ def _stepped_in(tables: EventTables) -> str:
     return "".join(parts)
 
 
+def _cards(runs, fm, tables, summary, lamellae, folders) -> str:
+    """A card for each lamella: how it ended, its thumbnails, and its detail."""
+    by_item: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
+        item: {"runs": [], "milling": [], "decisions": [], "edits": [], "fm": []}
+        for item in lamellae
+    }
+
+    def add(kind: str, row: Dict[str, Any], item: Any) -> None:
+        if _item(item) in by_item:
+            by_item[_item(item)][kind].append(row)
+
+    for run in runs:
+        add("runs", run, run["item"])
+    for acquisition in fm:
+        add("fm", acquisition, acquisition["item"])
+    for kind in ("milling", "decisions", "edits"):
+        for row in getattr(tables, kind).to_dict("records"):
+            add(kind, row, row["item"])
+    cards = [
+        _card(item, of, summary, folders.get(item)) for item, of in by_item.items()
+    ]
+    return "".join(cards) or '<p class="muted">No lamellae.</p>'
+
+
+def _card(item: str, of, summary: Summary, folder: Optional[Path]) -> str:
+    runs = of["runs"]
+    if item in summary.finished:
+        status = "finished"
+    elif runs:
+        last = runs[-1]
+        status = f"{last['outcome']} in {last['task']}"
+    else:
+        status = "not run"
+    facts = [status]
+    run_time = sum(r["duration"] or 0.0 for r in runs)
+    if run_time:
+        facts.append(f"{_duration(run_time)} run")
+    waiting = sum(r["waiting"] or 0.0 for r in runs)
+    if waiting:
+        facts.append(f"{_duration(waiting)} waiting")
+    changed = sum(bool(d["changed"]) for d in of["decisions"])
+    if changed:
+        facts.append(f"{changed} decision{'s' if changed != 1 else ''} changed")
+    if of["edits"]:
+        facts.append(f"{len(of['edits'])} edit{'s' if len(of['edits']) != 1 else ''}")
+    if of["fm"]:
+        facts.append(f"{len(of['fm'])} FM")
+    head = (
+        f'<div class="card-head"><b>{_e(item)}</b>'
+        f'<span class="muted">{_e(" · ".join(facts))}</span></div>'
+    )
+    thumbs = _thumbnails(runs, of["fm"], folder)
+    detail = _card_detail(of)
+    return f'<div class="card">{head}{thumbs}{detail}</div>'
+
+
+def _thumbnails(runs, fm, folder: Optional[Path]) -> str:
+    """The final SEM and FIB images of the lamella's last run that recorded
+    them, and its last FM acquisition, embedded as small JPEGs."""
+    if folder is None:
+        return ""
+    shown = []
+    for role, label in (("final_sem", "final SEM"), ("final_fib", "final FIB")):
+        recorded = next(
+            (r["outputs"][role] for r in reversed(runs) if r["outputs"].get(role)),
+            None,
+        )
+        if recorded:
+            shown.append((folder / recorded[-1], label))
+    last_fm = next((a for a in reversed(fm) if a["path"]), None)
+    if last_fm is not None:
+        shown.append((_found(Path(last_fm["path"]), folder), "last FM, max projection"))
+    images = []
+    for path, label in shown:
+        uri = _thumbnail(path) if path is not None else None
+        if uri is not None:
+            images.append(
+                f'<figure><img src="{uri}" alt="{_e(label)}">'
+                f"<figcaption>{_e(label)}</figcaption></figure>"
+            )
+    return f'<div class="thumbs">{"".join(images)}</div>' if images else ""
+
+
+def _found(path: Path, folder: Path) -> Optional[Path]:
+    """A recorded file, where it was, or in the lamella's folder if the
+    experiment has moved since."""
+    if path.is_file():
+        return path
+    moved = next(folder.rglob(path.name), None) if folder.is_dir() else None
+    return moved
+
+
+def _thumbnail(path: Path, width: int = 360) -> Optional[str]:
+    """``path`` as a small JPEG data URI: a stack as its maximum projection,
+    scaled to its own range. None when it can't be read."""
+    try:
+        import numpy as np
+        import tifffile
+        from PIL import Image
+
+        data = np.asarray(tifffile.imread(str(path)))
+        while data.ndim > 2:  # planes and channels: the brightest of each pixel
+            data = data.max(axis=0)
+        if data.dtype != np.uint8:
+            low, high = np.percentile(data, (1, 99.5))
+            scaled = (data.astype(float) - low) / max(high - low, 1e-9)
+            data = (np.clip(scaled, 0, 1) * 255).astype(np.uint8)
+        image = Image.fromarray(data)
+        image.thumbnail((width, width))
+        out = io.BytesIO()
+        image.convert("L").save(out, format="JPEG", quality=80)
+    except Exception:  # noqa: BLE001 - a missing thumbnail is not a missing report
+        logging.debug(f"no thumbnail for {path}", exc_info=True)
+        return None
+    return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
+
+
+def _card_detail(of) -> str:
+    """The lamella's runs, then any milling stages, decisions, edits and FM
+    acquisitions, open (and so printed) by default."""
+    parts = []
+    runs = [
+        [
+            r["task"],
+            _when(r["start"]),
+            r["outcome"],
+            _clock(r["duration"]),
+            _clock(r["waiting"]) if r["waiting"] else "—",
+        ]
+        for r in of["runs"]
+    ]
+    if runs:
+        parts.append(_rows(("Task", "Started", "Outcome", "Duration", "Waiting"), runs))
+    stages = [
+        [
+            f"{_text(m['milling_task'])}: {_text(m['stage'])}",
+            _current(m["milling_current"]),
+            _depth(m["depth"]),
+            _clock(None if pd.isna(m["duration"]) else m["duration"]),
+            "finished" if m["finished"] else "did not finish",
+        ]
+        for m in of["milling"]
+    ]
+    if stages:
+        parts.append(
+            _rows(("Milling stage", "Current", "Depth", "Duration", ""), stages)
+        )
+    decisions = [
+        [
+            _when(_dt(d["time"])),
+            kind_label(_text(d["kind"])),
+            _text(d["outcome"]).lower()
+            + (" (changed)" if d["changed"] and d["outcome"] == "Confirmed" else ""),
+            _text(d["actor"]) or "—",
+            _move(d["moved"], d["unit"]) if d["changed"] else "—",
+        ]
+        for d in of["decisions"]
+    ]
+    if decisions:
+        parts.append(_rows(("When", "Question", "Decision", "By", "Moved"), decisions))
+    edits = [
+        [
+            _when(_dt(e["time"])),
+            ", ".join(list(e["fields"] or [])[:3]) or _text(e["target"]),
+            _text(e["via"]),
+            _text(e["actor"]) or "—",
+        ]
+        for e in of["edits"]
+    ]
+    if edits:
+        parts.append(_rows(("When", "Edited", "From", "By"), edits))
+    acquisitions = [
+        [
+            _when(a["start"]),
+            _fm_title(a).rsplit(" · ", 1)[0],
+            _clock((a["end"] - a["start"]).total_seconds()),
+        ]
+        for a in of["fm"]
+    ]
+    if acquisitions:
+        parts.append(_rows(("When", "FM acquisition", "Duration"), acquisitions))
+    if not parts:
+        return ""
+    return f"<details open><summary>Detail</summary>{''.join(parts)}</details>"
+
+
+def _rows(head: Sequence[str], rows: List[List[Any]]) -> str:
+    return _table(
+        head,
+        ["<tr>" + "".join(f"<td>{_e(c)}</td>" for c in row) + "</tr>" for row in rows],
+    )
+
+
+def _when(t: Optional[datetime]) -> str:
+    return t.strftime("%H:%M:%S") if t is not None else "—"
+
+
+def _current(amps: Any) -> str:
+    if amps is None or pd.isna(amps):
+        return "—"
+    return f"{amps * 1e9:.2f} nA" if amps >= 1e-9 else f"{amps * 1e12:.0f} pA"
+
+
+def _depth(metres: Any) -> str:
+    return "—" if metres is None or pd.isna(metres) else f"{metres * 1e6:.2f} µm"
+
+
+def _move(moved: Any, unit: Any) -> str:
+    if moved is None or pd.isna(moved):
+        return "—"
+    if unit == "m":
+        return f"{moved * 1e6:.1f} µm" if moved >= 1e-7 else f"{moved * 1e9:.0f} nm"
+    return f"{moved:.1f} {unit}"
+
+
 def _mean_move(changed: List[Dict[str, Any]]) -> str:
     """How far the changed decisions moved what was proposed, on average."""
     moves = [(d["moved"], d["unit"]) for d in changed if not pd.isna(d["moved"])]
@@ -677,6 +914,7 @@ def _runs(tables: EventTables) -> List[Dict[str, Any]]:
                 "start": _dt(run["start"]),
                 "end": _dt(run["end"]),
                 "outcome": run["outcome"],
+                "outputs": run["outputs"] if isinstance(run["outputs"], dict) else {},
                 "reason": None if pd.isna(run["reason"]) else run["reason"],
                 "duration": None if pd.isna(run["duration"]) else run["duration"],
                 "waiting": None if pd.isna(run["waiting"]) else run["waiting"],
@@ -702,6 +940,7 @@ def _fm(tables: EventTables) -> List[Dict[str, Any]]:
                 "channels": list(acquisition["channels"] or []),
                 "planes": int(acquisition["planes"]),
                 "overview": _text(acquisition["overview"]),
+                "path": _text(acquisition["path"]),
             }
         )
     return rows
@@ -861,6 +1100,17 @@ h3 { font-size: 14px; font-weight: 600; margin: 16px 0 6px; }
   background: var(--soft); }
 .note.failed { border-color: #E24B4A; } .note.warning { border-color: #BA7517; }
 .note.notice { border-color: #EF9F27; } .note.info { border-color: #888780; }
+.card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px;
+  margin-bottom: 12px; break-inside: avoid; }
+.card-head { display: flex; justify-content: space-between; gap: 12px;
+  font-size: 13px; }
+.thumbs { display: flex; gap: 8px; margin: 10px 0 4px; }
+.thumbs figure { margin: 0; flex: 0 1 220px; }
+.thumbs img { width: 100%; border-radius: 4px; display: block; background: #000; }
+.thumbs figcaption { font-size: 11px; color: var(--muted); margin-top: 2px; }
+details { margin-top: 6px; } summary { font-size: 12px; color: var(--muted);
+  cursor: pointer; }
+details .list { margin-top: 6px; }
 .key { display: inline-flex; align-items: center; gap: 4px; margin-right: 14px; }
 .key i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .timeline text { font-size: 11px; fill: var(--muted); }
@@ -873,7 +1123,8 @@ section { break-inside: avoid; }
 @media print {
   body { padding: 0; max-width: none; font-size: 12px; }
   .noprint { display: none; }
-  .tiles, .cell, .key i, .timeline rect, .note { print-color-adjust: exact;
+  .tiles, .cell, .key i, .timeline rect, .note, .thumbs img {
+    print-color-adjust: exact;
     -webkit-print-color-adjust: exact; }
 }
 """

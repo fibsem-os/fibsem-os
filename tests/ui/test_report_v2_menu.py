@@ -106,15 +106,16 @@ def test_the_report_is_written_opened_and_printed(window, seen, tmp_path):
 
     window.action_generate_report_v2.trigger()
 
+    # written on a worker, then opened, then printed on another
+    assert _toasts(seen, 2) == [
+        ("success", f"Report written: {REPORT_FILENAME}"),
+        ("success", "PDF written: report.pdf"),
+    ]
     path = Path(experiment.path) / REPORT_DIRNAME / REPORT_FILENAME
     assert path.is_file()
     assert "Rough Milling" in path.read_text(encoding="utf-8")
     ((url),) = seen["opened"]
     assert Path(url.toLocalFile()) == path
-    assert _toasts(seen, 2) == [
-        ("success", f"Report written: {REPORT_FILENAME}"),
-        ("success", "PDF written: report.pdf"),
-    ]
     assert seen["printed"] == [path]
 
 
@@ -124,12 +125,12 @@ def test_with_no_pdf_the_page_still_is_and_says_how_to_make_one(window, seen, tm
 
     window.action_generate_report_v2.trigger()
 
-    assert len(seen["opened"]) == 1
     assert _toasts(seen, 2)[1] == (
         "warning",
         "No PDF: no Edge, Chrome or Chromium was found to print the page with. "
         "The page's Print button makes one.",
     )
+    assert len(seen["opened"]) == 1
 
 
 def test_an_older_experiment_says_why_there_is_no_v2_report(window, seen, tmp_path):
