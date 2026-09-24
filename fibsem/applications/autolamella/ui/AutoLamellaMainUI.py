@@ -1296,9 +1296,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_generate_report_v2(self):
         """Tools → Reporting → Generate Report v2 (preview): write the page from
-        the experiment's events.jsonl, under its folder, and open it.
+        the experiment's events.jsonl, under its folder, and open it; then
+        print it to a PDF beside it.
 
-        On the GUI thread: it reads one file and builds text, with no images yet.
+        The page is written on the GUI thread: it reads one file and builds
+        text, with no images yet. The PDF takes a browser a few seconds, so it
+        is made on a worker, and says when it is done or why it could not be.
         """
         experiment = getattr(self.autolamella_ui, "experiment", None)
         if experiment is None:
@@ -1320,6 +1323,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         self.show_toast(f"Report written: {path.name}", "success")
+        self._print_report_v2(path)
+
+    def _print_report_v2(self, path) -> None:
+        from fibsem.applications.autolamella.tools import pdf_export
+        from fibsem.ui.qt.threading import thread_worker
+
+        @thread_worker
+        def _print():
+            return pdf_export.html_to_pdf(path)
+
+        worker = _print()
+        worker.returned.connect(
+            lambda pdf: self.show_toast(f"PDF written: {pdf.name}", "success")
+        )
+        worker.errored.connect(
+            lambda exc: self.show_toast(
+                f"No PDF: {exc}. The page's Print button makes one.", "warning"
+            )
+        )
+        worker.start()
 
     def _on_generate_grid_report(self):
         """Tools → Reporting → Generate Grid Screening Report.
