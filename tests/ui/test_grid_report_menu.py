@@ -59,6 +59,7 @@ def _reporting_actions(window):
 def test_it_sits_with_the_lamella_report(window):
     assert _reporting_actions(window) == [
         "Generate Report",
+        "Generate Report v2 (preview)",
         "Generate Grid Screening Report",
         "Generate Overview Plot",
     ]
