@@ -29,6 +29,7 @@ class AlignedImagePanel(QWidget):
     selected = pyqtSignal(str)  # key, "" for none
     align_toggled = pyqtSignal(bool)
     reset_requested = pyqtSignal(str)  # key
+    mirror_toggled = pyqtSignal(str, bool)  # key, mirrored left to right
     fit_requested = pyqtSignal(str)  # key: pick point pairs and fit
     opacity_changed = pyqtSignal(str, float)  # key, 0..1
     signal_only_changed = pyqtSignal(str, bool)  # key, dark drawn clear
@@ -69,7 +70,19 @@ class AlignedImagePanel(QWidget):
         )
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
+        # Checkable, so it shows which way round the image is. One axis is enough:
+        # a top-to-bottom flip is this and a half turn, which the placement has.
+        self.btn_mirror = QPushButton("Mirror")
+        self.btn_mirror.setCheckable(True)
+        self.btn_mirror.setToolTip(
+            "Mirror the image left to right: for an image recorded mirrored, which "
+            "no turn can line up"
+        )
+        self.btn_mirror.toggled.connect(
+            lambda on: self.mirror_toggled.emit(self.current_key or "", on)
+        )
         buttons.addWidget(self.btn_align)
+        buttons.addWidget(self.btn_mirror)
         buttons.addWidget(self.btn_reset)
         layout.addRow(buttons)
         # The way users prefer: three matching points rather than a drag.
@@ -136,6 +149,12 @@ class AlignedImagePanel(QWidget):
     def set_placement_text(self, text: str) -> None:
         self.label_placement.setText(text)
 
+    def set_mirrored(self, mirrored: bool) -> None:
+        """Show whether the selected image is mirrored, silently."""
+        self.btn_mirror.blockSignals(True)
+        self.btn_mirror.setChecked(bool(mirrored))
+        self.btn_mirror.blockSignals(False)
+
     def set_display(self, opacity: float, signal_only: bool) -> None:
         """Show the selected image's opacity and signal-only setting, silently."""
         for widget in (self.slider_opacity, self.check_signal_only):
@@ -155,6 +174,7 @@ class AlignedImagePanel(QWidget):
             self.btn_remove,
             self.btn_align,
             self.btn_reset,
+            self.btn_mirror,
             self.btn_fit,
             self.slider_opacity,
             self.check_signal_only,
