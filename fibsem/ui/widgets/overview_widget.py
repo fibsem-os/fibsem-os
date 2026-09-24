@@ -778,6 +778,11 @@ class FibsemOverviewWidget(QWidget):
         # time: built on first use, `_channels_key` naming whose layers it holds.
         self._channels_panel = None
         self._channels_key: Optional[str] = None
+        # The point pairs last picked for each image, with the overview they were
+        # picked on: the fit dialog reopens with them, so pressing Mirror after the
+        # dialog said the image looks mirrored does not cost the user their clicks.
+        # The mirror is in the placement, not the pixels, so the pairs still hold.
+        self._fit_pairs: Dict[str, Tuple[str, list]] = {}
         # A re-blend of a large image takes ~150 ms, and a slider drag asks for one
         # per step. Edits that queue up while one runs are coalesced into the next,
         # so the slider keeps up and the image shows the latest value.
@@ -1718,6 +1723,7 @@ class FibsemOverviewWidget(QWidget):
             self.aligned_image_panel.btn_align.setChecked(False)
         # The channel controls follow the selection off it, as the flush skips
         # it: neither needs telling here.
+        self._fit_pairs.pop(key, None)
         self.aligned_images.remove(key)
         self.aligned_image_panel.remove_image(key)
         self._refresh_aligned_readout()
@@ -1923,10 +1929,29 @@ class FibsemOverviewWidget(QWidget):
             return fit_similarity(placed, targets, fix_scale=fix_scale, scale=1.0)
 
         per_px = (self.canvas.reference_pixel_size or 0.0) * constants.SI_TO_MICRO
+
+        def hint(pairs, fix_scale):
+            from fibsem.correlation.similarity import looks_mirrored
+
+            image_pixels, targets = to_canvas(pairs)
+            placed = [
+                self.aligned_images.pixel_to_canvas(key, *p) for p in image_pixels
+            ]
+            found = looks_mirrored(placed, targets, fix_scale=fix_scale, scale=1.0)
+            if found is None:
+                return None
+            rms, mirrored = found
+            return (
+                f"These points fit much better mirrored: RMS {mirrored * per_px:.2f} um "
+                f"against {rms * per_px:.2f} um. Cancel, press Mirror in the Align "
+                "panel and fit again; your points are kept."
+            )
+
         dialog = ImageFitDialog(
             reference=tile.grey,
             image=record.rgb,
             preview=preview,
+            hint=hint,
             rms_text=lambda rms: f"RMS {rms * per_px:.2f} um",
             reference_label=self._current_view.label
             if self._current_view is not None
@@ -1934,7 +1959,13 @@ class FibsemOverviewWidget(QWidget):
             image_label=record.label,
             parent=self,
         )
-        if dialog.exec_() != QDialog.Accepted:
+        kept = self._fit_pairs.get(key)
+        if kept is not None and kept[0] == canvas_key:
+            for px, py, rx, ry in kept[1]:
+                dialog.add_pair((px, py), (rx, ry))
+        accepted = dialog.exec_() == QDialog.Accepted
+        self._fit_pairs[key] = (canvas_key, dialog.pairs())
+        if not accepted:
             return
         image_pixels, targets = to_canvas(dialog.pairs())
         try:

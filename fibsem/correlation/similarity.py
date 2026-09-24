@@ -109,3 +109,54 @@ def fit_similarity(
         residuals=residuals,
         rms=rms,
     )
+
+
+def mirrored_fit(
+    src, dst, fix_scale: bool = False, scale: Optional[float] = None
+) -> SimilarityFit:
+    """The best similarity taking *src*, mirrored left to right, onto *dst*.
+
+    Any mirror will do: a reflection about one line is one about any other and a
+    turn, and the fit finds the turn. So this answers whether the pairs are the
+    other way round, not about which axis.
+    """
+    src = np.asarray(src, dtype=float).reshape(-1, 2) * np.array([-1.0, 1.0])
+    return fit_similarity(src, dst, fix_scale=fix_scale, scale=scale)
+
+
+# The plain fit is poor -- its RMS this share of how far the targets spread -- and the
+# mirrored one at most this share of it. Both, or three points nearly in a line (which
+# fit either way about equally) would say "mirrored" on noise.
+MIRROR_POOR_FIT = 0.1
+MIRROR_BETTER_BY = 0.5
+
+
+def looks_mirrored(
+    src, dst, fix_scale: bool = False, scale: Optional[float] = None
+) -> Optional[Tuple[float, float]]:
+    """(RMS, mirrored RMS) when the pairs fit clearly better mirrored, else None.
+
+    For an image whose file cannot say how its camera saw the sample: no turn lines
+    up a mirror image, and what the user sees is only a fit that will not come good.
+    Three pairs are enough -- a triangle's handedness is what a mirror reverses. Two
+    say nothing, by the arithmetic rather than a rule: two points mirrored are two
+    points turned, so both fits come out the same.
+    """
+    src = np.asarray(src, dtype=float).reshape(-1, 2)
+    dst = np.asarray(dst, dtype=float).reshape(-1, 2)
+    if len(src) < 2 or src.shape != dst.shape:
+        return None
+    spread = float(np.sqrt(((dst - dst.mean(axis=0)) ** 2).sum(axis=1).mean()))
+    if spread <= 0.0:
+        return None
+    try:
+        plain = fit_similarity(src, dst, fix_scale=fix_scale, scale=scale)
+        mirrored = mirrored_fit(src, dst, fix_scale=fix_scale, scale=scale)
+    except ValueError:
+        return None
+    if (
+        plain.rms > MIRROR_POOR_FIT * spread
+        and mirrored.rms < MIRROR_BETTER_BY * plain.rms
+    ):
+        return plain.rms, mirrored.rms
+    return None
