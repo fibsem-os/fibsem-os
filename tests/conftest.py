@@ -48,7 +48,8 @@ def _isolate_session_state(tmp_path_factory, monkeypatch):
     Any test that connects a microscope and builds an FM widget writes session
     state as the application would. Without this it lands in the checkout -- and in
     the next test's reads. The two files the FM state lived in before are pointed
-    away too, so nothing is imported from a developer's real ones.
+    away too, and so are the saved-positions files, so nothing is imported from a
+    developer's real ones.
     """
     import fibsem.config as cfg
     import fibsem.session_state as session_state
@@ -61,6 +62,9 @@ def _isolate_session_state(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(
         cfg, "FM_RECENT_CHANNELS_PATH", str(directory / "fm-recent-channels.yaml")
     )
+    # and the two files saved positions are imported from
+    monkeypatch.setattr(cfg, "POSITION_PATH", str(directory / "saved-positions.yaml"))
+    monkeypatch.setattr(cfg, "LEGACY_POSITIONS_PATH", str(directory / "positions.yaml"))
 
 
 @pytest.fixture(autouse=True)
