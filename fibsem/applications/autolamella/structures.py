@@ -3182,7 +3182,47 @@ class Experiment:
         # exists, so in a real run this always writes. A caller driving an
         # in-memory experiment is not asking this method to give it a directory.
         if os.path.exists(os.path.join(self.path, "experiment.yaml")):
+            self._snapshot_configuration(microscope)
             self.save()
+
+    CONFIGURATION_FILENAME = "configuration.yaml"
+
+    def _snapshot_configuration(self, microscope: "FibsemMicroscope") -> None:
+        """Copy the microscope configuration this session runs with into the experiment.
+
+        The experiment already keeps its own copy of the protocol (`protocol.yaml`)
+        and records which instrument and software ran it (`session`). What it did not
+        keep was the configuration: the calibration (holder slots, objective limits,
+        pre-tilt) and the defaults in effect. Those get edited -- a holder is
+        recalibrated, a limit changed -- and afterwards nothing could say what an
+        earlier run used. A copy, not a reference, for that reason.
+
+        The live record rather than the file on disk: `microscope.system` is what the
+        session actually ran with, including anything applied after loading. A later
+        session overwrites it, so it is the configuration of the latest session --
+        the same rule `session` follows. An unchanged configuration writes nothing.
+
+        Never fails registration: a copy that could not be written is logged.
+        """
+        from fibsem.structures import CONFIGURATION_VERSION
+        from fibsem.utils import _plain, _write_configuration_file, load_yaml
+
+        path = os.path.join(self.path, self.CONFIGURATION_FILENAME)
+        try:
+            snapshot = _plain(
+                {"version": CONFIGURATION_VERSION, **microscope.system.to_dict()}
+            )
+            if os.path.exists(path):
+                try:
+                    if load_yaml(path) == snapshot:
+                        return
+                except Exception:
+                    pass  # unreadable: overwrite it
+            _write_configuration_file(path, snapshot)
+        except Exception as e:
+            logging.warning(
+                f"Could not copy the microscope configuration into {path}: {e}"
+            )
 
     def _declared_user(self) -> Optional[FibsemUser]:
         """The operator named when the experiment was created, if anyone was.
