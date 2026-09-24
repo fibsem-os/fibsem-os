@@ -42,6 +42,11 @@ dependencies = [
     "lxml[html_clean]; python_version >= '3.9'",
     "lxml[html_clean]<6.1.2; python_version < '3.9'",
     "importlib_metadata>=4.6; python_version < '3.10'",
+    # tifffile hands every TIFF codec but zlib to imagecodecs, and nothing else here
+    # pulled it in: without it an LZW-compressed file cannot be opened at all. The
+    # fluorescence images people bring from other microscopes are exactly that -- a
+    # Zeiss ZEN export and a METEOR ImageJ stack are both LZW.
+    "imagecodecs",
 ]
 
 [project.urls]
