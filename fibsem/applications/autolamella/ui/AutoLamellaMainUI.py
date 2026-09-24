@@ -663,6 +663,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             raise RuntimeError("Failed to create Reporting submenu in AutoLamella UI.")
         self.action_generate_report = QAction("Generate Report", self)
         self.action_generate_report.triggered.connect(self._on_generate_report)
+        # Report v2 (FIB-1036): an HTML page built from events.jsonl. Offered
+        # beside the PDF report until it has been checked against real runs.
+        self.action_generate_report_v2 = QAction("Generate Report v2 (preview)", self)
+        self.action_generate_report_v2.setToolTip(
+            "Write an HTML report from the experiment's events.jsonl under its "
+            "folder, and open it"
+        )
+        self.action_generate_report_v2.triggered.connect(self._on_generate_report_v2)
         self.action_generate_overview_plot = QAction("Generate Overview Plot", self)
         self.action_generate_overview_plot.triggered.connect(
             self._on_generate_overview_plot
@@ -680,6 +688,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._on_generate_grid_report
         )
         reporting_menu.addAction(self.action_generate_report)
+        reporting_menu.addAction(self.action_generate_report_v2)
         reporting_menu.addAction(self.action_generate_grid_report)
         reporting_menu.addAction(self.action_generate_overview_plot)
 
@@ -1284,6 +1293,33 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Generate Report action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.action_generate_report()
+
+    def _on_generate_report_v2(self):
+        """Tools → Reporting → Generate Report v2 (preview): write the page from
+        the experiment's events.jsonl, under its folder, and open it.
+
+        On the GUI thread: it reads one file and builds text, with no images yet.
+        """
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        if experiment is None:
+            self.show_toast("Open an experiment to report on.", "warning")
+            return
+        from PyQt5.QtCore import QUrl
+        from PyQt5.QtGui import QDesktopServices
+
+        from fibsem.applications.autolamella.tools.report_v2 import write_report
+
+        try:
+            path = write_report(experiment)
+        except FileNotFoundError as e:  # recorded before the event stream
+            self.show_toast(str(e), "warning")
+            return
+        except Exception as e:
+            logging.exception("Could not write report v2")
+            self.show_toast(f"Could not write the report: {e}", "error")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        self.show_toast(f"Report written: {path.name}", "success")
 
     def _on_generate_grid_report(self):
         """Tools → Reporting → Generate Grid Screening Report.

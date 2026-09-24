@@ -42,6 +42,7 @@ from fibsem.applications.autolamella.tools.event_tables import (
     MILLING_COLUMNS,
     RUN_COLUMNS,
     STEP_COLUMNS,
+    WAIT_COLUMNS,
     event_tables,
     read_event_tables,
 )
@@ -173,6 +174,7 @@ def test_every_table_has_its_columns_even_empty(tmp_path):
     assert list(tables.decisions.columns) == DECISION_COLUMNS
     assert list(tables.edits.columns) == EDIT_COLUMNS
     assert list(tables.actors.columns) == ACTOR_COLUMNS
+    assert list(tables.waits.columns) == WAIT_COLUMNS
     assert tables.runs.empty and tables.decisions.empty and tables.actors.empty
 
 
@@ -259,6 +261,15 @@ def test_waiting_for_an_answer_is_not_the_machine_s_time():
     ((decision),) = tables.decisions.to_dict("records")
     assert decision["asked"] == T0 + timedelta(seconds=20)
     assert decision["waited"] == 30.0
+    # each wait where it was, for a timeline to draw: both, as recorded
+    waits = tables.waits.to_dict("records")
+    assert [(w["source"], w["item"], w["task_id"]) for w in waits] == [
+        ("question", ITEM["name"], RUN),
+        ("prompt", ITEM["name"], RUN),
+    ]
+    assert {(w["start"], w["end"], w["duration"]) for w in waits} == {
+        (T0 + timedelta(seconds=20), T0 + timedelta(seconds=50), 30.0)
+    }
 
 
 def test_a_prompt_is_paired_with_its_own_answer():

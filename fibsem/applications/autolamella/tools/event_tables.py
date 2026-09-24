@@ -16,6 +16,8 @@ table, empty.
   it, from where, and which values it changed.
 * ``actors``: how many records each actor has of each kind: the operator's,
   an agent's and the task's share of what was done.
+* ``waits``: one row per question a run waited on, from when it was raised or
+  asked to its answer: where the waiting was, for a timeline to draw.
 
 Waiting is the time a run's questions stood unanswered: a prompt from when it
 was raised to its answer or withdrawal, and a question on the record from when
@@ -117,6 +119,7 @@ EDIT_COLUMNS = [
     "fields",
 ]
 ACTOR_COLUMNS = ["actor", "kind", "count"]
+WAIT_COLUMNS = ["item", "task", "task_id", "start", "end", "duration", "source"]
 
 # How a run ended. A run with no end recorded is "unfinished": still running
 # when the file was read, or cut off.
@@ -139,6 +142,7 @@ class EventTables:
     decisions: pd.DataFrame
     edits: pd.DataFrame
     actors: pd.DataFrame
+    waits: pd.DataFrame
 
 
 def read_event_tables(path: Union[str, Path]) -> EventTables:
@@ -160,9 +164,11 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
     decisions: List[Dict[str, Any]] = []
     # (proposal id, decision index) -> its row, for a fill-in to complete
     decided: Dict[Tuple[Any, Any], Dict[str, Any]] = {}
-    raised: Dict[Tuple[Any, Any], Tuple[datetime, Any]] = {}  # prompt -> (t, run)
-    asked: Dict[Any, Tuple[datetime, Any]] = {}  # proposal id -> (t, run)
+    # a prompt, or a question on the record -> when, and on which run
+    raised: Dict[Tuple[Any, Any], Tuple[datetime, Any, Any, Any]] = {}
+    asked: Dict[Any, Tuple[datetime, Any, Any, Any]] = {}
     waits: Dict[Any, List[Interval]] = {}  # run id -> its questions' waits
+    wait_rows: List[Dict[str, Any]] = []
     edits: List[Dict[str, Any]] = []
     acted: "Counter[Tuple[Any, Any]]" = Counter()  # (actor, kind) -> records
 
@@ -226,13 +232,19 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
             if row is not None:
                 row.update(end=time, finished=True)
         elif kind == "prompt_raised":
-            raised[(record.get("session"), payload.get("nonce"))] = (time, run_id)
+            key = (record.get("session"), payload.get("nonce"))
+            raised[key] = (time, run_id, item.get("name"), task.get("name"))
         elif kind in ("prompt_answered", "prompt_cancelled"):
             prompt = raised.pop((record.get("session"), payload.get("nonce")), None)
             if prompt is not None:
-                waits.setdefault(prompt[1], []).append((prompt[0], time))
+                _waited(prompt, time, "prompt", waits, wait_rows)
         elif kind == "proposal_asked":
-            asked[payload.get("proposal_id")] = (time, run_id)
+            asked[payload.get("proposal_id")] = (
+                time,
+                run_id,
+                item.get("name"),
+                task.get("name"),
+            )
         elif kind == "proposal_decided":
             key = (payload.get("proposal_id"), payload.get("decision"))
             if payload.get("filled_in") and key in decided:
@@ -242,7 +254,7 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
             question = asked.pop(payload.get("proposal_id"), None)
             row = _decision(time, record, payload, question)
             if question is not None:
-                waits.setdefault(question[1], []).append((question[0], time))
+                _waited(question, time, "question", waits, wait_rows)
             decisions.append(row)
             decided[key] = row
         elif kind == "edit":
@@ -261,6 +273,7 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
         milling=_table(milling, MILLING_COLUMNS),
         decisions=_table(decisions, DECISION_COLUMNS),
         edits=_table(edits, EDIT_COLUMNS),
+        waits=_table(wait_rows, WAIT_COLUMNS),
         actors=_table(
             (
                 {"actor": actor, "kind": kind, "count": count}
@@ -302,6 +315,29 @@ def _run(
 def _end(step: Optional[Dict[str, Any]], time: datetime) -> None:
     if step is not None:
         step["end"] = time
+
+
+def _waited(
+    question: Tuple[datetime, Any, Any, Any],
+    answered: datetime,
+    source: str,
+    waits: Dict[Any, List[Interval]],
+    rows: List[Dict[str, Any]],
+) -> None:
+    """A question that stood from its raising to ``answered``, on its run."""
+    start, run_id, item, task = question
+    waits.setdefault(run_id, []).append((start, answered))
+    rows.append(
+        {
+            "item": item,
+            "task": task,
+            "task_id": run_id,
+            "start": start,
+            "end": answered,
+            "duration": _seconds(start, answered),
+            "source": source,
+        }
+    )
 
 
 def _decision(
