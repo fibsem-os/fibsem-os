@@ -32,6 +32,10 @@ re-reads the file immediately before writing, replaces only its own section, and
 replaces the file atomically. Sections other writers own are carried across
 untouched, including ones this version does not know.
 
+A section name may be dotted -- `fm.working`, `fm.recent_channels` -- to name one
+key inside a section. Writing it replaces that key and nothing else in the section,
+so two writers of one subsystem's state do not overwrite each other either.
+
 **How a read is kept safe.** A missing file or section reads as empty. A file that
 cannot be parsed reads as empty too, is logged, and is moved aside on the next write
 rather than overwritten, so whatever it held can still be recovered by hand.
@@ -64,6 +68,31 @@ _LOCKS_GUARD = threading.Lock()
 def _lock_for(path: Path) -> threading.Lock:
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(str(path), threading.Lock())
+
+
+_ABSENT = object()
+
+
+def _get(data: dict, name: str) -> Any:
+    """The value at a dotted *name*, or `_ABSENT`."""
+    node: Any = data
+    for part in name.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return _ABSENT
+        node = node[part]
+    return node
+
+
+def _set(data: dict, name: str, value: Any) -> None:
+    """Set the value at a dotted *name*, creating (or replacing non-mapping)
+    parents on the way; sibling keys are left as they are."""
+    *parents, leaf = name.split(".")
+    node = data
+    for part in parents:
+        if not isinstance(node.get(part), dict):
+            node[part] = {}
+        node = node[part]
+    node[leaf] = value
 
 
 def session_state_path(
@@ -133,9 +162,9 @@ class SessionState:
         and never deleted. A migration that raises is logged and treated as
         having found nothing.
         """
-        data = self._read() or {}
-        if name in data:
-            return data[name]
+        value = _get(self._read() or {}, name)
+        if value is not _ABSENT:
+            return value
         if migrate is not None:
             try:
                 migrated = migrate()
@@ -164,7 +193,7 @@ class SessionState:
                 self._set_aside_unreadable()
                 data = {}
             data["version"] = SESSION_STATE_VERSION
-            data[name] = _plain(value)
+            _set(data, name, _plain(value))
             try:
                 self._replace(data)
             except Exception as e:

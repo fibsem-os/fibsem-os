@@ -33,6 +33,7 @@ from fibsem.fm.structures import (
     ZParameters,
 )
 from fibsem.microscope import FibsemMicroscope
+from fibsem.session_state import session_state_for
 from fibsem.structures import DeviceImagingState, Point
 from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets import (
@@ -696,7 +697,9 @@ class FMControlWidget(QWidget):
         logging.info(
             f"Starting acquisition with channel settings: {selected_channel_settings}"
         )
-        record_recent_channels(selected_channel_settings)
+        record_recent_channels(
+            selected_channel_settings, session_state_for(self.microscope, writable=True)
+        )
         self.fm.start_acquisition(channel_settings=selected_channel_settings)
         self._update_acquisition_button_states()
 
@@ -899,7 +902,9 @@ class FMControlWidget(QWidget):
             self._update_acquisition_button_states()
             return
 
-        record_recent_channels(channel_settings)
+        record_recent_channels(
+            channel_settings, session_state_for(self.microscope, writable=True)
+        )
 
         # Marked busy as late as possible: everything above can still abort -- the
         # filename step opens a modal -- and an abort leaving the flag set would lock
@@ -1172,7 +1177,10 @@ class FMControlWidget(QWidget):
         from fibsem.fm.config import save_fm_configuration
 
         try:
-            save_fm_configuration(self._build_fluorescence_configuration())
+            save_fm_configuration(
+                self._build_fluorescence_configuration(),
+                session_state_for(self.microscope, writable=True),
+            )
         except Exception as e:
             logging.warning(f"Could not save FM working state: {e}")
 

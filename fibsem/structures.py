@@ -3101,13 +3101,11 @@ class MicroscopeSettings:
         if protocol is None:
             protocol = settings.get("protocol", {"name": "demo"})
 
-        # The FM working state -- channels, z-stack, camera -- is session state
-        # with its own auto-persisted file, and is loaded from there. A `fm.config`
-        # key naming a different path used to be honoured here; it was never written
-        # by `to_dict`, no shipped file stated it, and no site used it.
-        from fibsem.fm.config import load_fm_configuration
-
-        fm_config = load_fm_configuration()
+        # The FM working state is session state, per instrument configuration, so
+        # it is loaded by `utils.load_microscope_configuration`, which knows which
+        # configuration this is. Reading it here made this a function of the disk
+        # rather than of the dict it was given.
+        fm_config = None
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),

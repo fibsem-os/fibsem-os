@@ -368,8 +368,9 @@ class FMOverviewWidget(QWidget):
         """The saved FM configuration if there is one, otherwise a single channel."""
         try:
             from fibsem.fm.config import load_fm_configuration
+            from fibsem.session_state import session_state_for
 
-            config = load_fm_configuration()
+            config = load_fm_configuration(session_state_for(self.microscope))
             if config is not None and config.channel_settings:
                 return list(config.channel_settings)
         except Exception as e:
