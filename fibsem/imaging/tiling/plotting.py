@@ -10,13 +10,13 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib.patheffects as path_effects
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 
 from fibsem import constants
 from fibsem.conversions import is_inside_image_bounds
+from fibsem.imaging.reduce import downsample
 from fibsem.imaging.tiling.geometry import TilePosition
 from fibsem.imaging.tiling.reprojection import reproject_stage_positions_onto_image2
 from fibsem.structures import (
@@ -57,6 +57,54 @@ _AUTO_FIGURE_WIDTH_IN = 10.0
 
 # Clear space between a marker's edge and its label, in points.
 _LABEL_GAP_POINTS = 6.0
+
+# What a marker's label sits on. A chip, rather than the black outline it replaces, for
+# one reason that decides it: an outline only *partly* darkens what is behind the glyphs,
+# so the contrast still depends on the image. One overview holds bright ice and black
+# vacuum, and cyan-over-ice stayed marginal however thick the stroke was drawn. A chip
+# fixes the ground, so the contrast is chosen once and holds everywhere on the page. It
+# also stops the outline thickening the letterforms, which at 8-9pt was most of why the
+# old labels looked crude.
+#
+# The values are the real-space canvas's, not new ones: `RulerOverlay` labels a point on
+# the image with exactly this -- `round,pad=0.3` on `CANVAS_BG`, a 0.8pt edge in the
+# artist's own colour, alpha 0.8 -- and `FibsemCanvasBase` gives its title the same chip
+# without the edge. The exported map is the canvas on paper, so it should be the same
+# object. The ruler's alpha rather than the title's 0.55 because the ruler is the sibling
+# that sits *on the image*, where what is behind the chip is not known in advance.
+#
+# Literals rather than an import of `fibsem.ui.stylesheets.CANVAS_BG`, for the reason
+# given above `DEFECT_FAILURE_COLOUR`: importing anything from `fibsem.ui` drags in Qt,
+# and this module has to render from a workflow hook and on CI. Keep them in step by
+# hand. `dict(...)` the chip at the call site -- matplotlib keeps a reference to the dict
+# it is handed, and two annotations sharing one is a bug waiting to be written.
+_LABEL_CHIP_PAD = 0.3
+_LABEL_CHIP = {
+    "boxstyle": f"round,pad={_LABEL_CHIP_PAD}",
+    "facecolor": "#1e2124",  # CANVAS_BG
+    "alpha": 0.8,
+    "edgecolor": "none",
+    "linewidth": 0.8,
+}
+
+# The description under a name: smaller, and the canvas's text-on-a-dark-panel grey
+# rather than the marker's colour. On this figure colour means one thing -- what a human
+# flagged -- and a description repeating it turns a grid of unflagged lamellae into a
+# wall of cyan with nothing standing out.
+_SUB_LABEL_SCALE = 0.7
+_MIN_LABEL_POINTS = 6.0
+_SUB_LABEL_COLOUR = "#e8e8e8"
+
+# How the scalebar is drawn, again the canvas's own: white on a `CANVAS_BG` panel at 0.6,
+# and 8pt rather than matplotlib's 10pt default, which is large against everything else
+# on the figure (FIB-583). This was black-on-white, which is the one combination that
+# cannot be mistaken for part of the canvas.
+_SCALEBAR = {
+    "color": "white",
+    "box_color": "#1e2124",  # CANVAS_BG
+    "box_alpha": 0.6,
+    "font_properties": {"size": 8},
+}
 
 # How near an edge a marker must be before its label is placed on the other side of it.
 # A fraction of the image rather than a pixel count, because overviews differ by orders
@@ -145,15 +193,25 @@ def _draw_position_label(
     The two are drawn as separate artists rather than one two-line string so the
     description can be smaller, and they are stacked so that the block reads downwards
     from the name wherever :func:`_label_placement` put it.
+
+    Each sits on its own chip -- see :data:`_LABEL_CHIP` for why that beats the outline
+    it replaces.
+
+    Once they are chips rather than bare text the gap between them has to be *derived*
+    from the chip geometry rather than picked. The literal it replaces happens to abut at
+    the sizes in use today, but it does not track the padding: raising
+    :data:`_LABEL_CHIP_PAD` from 0.25 to 0.7 moves the two chips from touching to 13px of
+    overlap, because the boxes grow and the gap does not. Half of each chip's height is
+    the value that keeps them meeting whatever the padding and the sub-size become.
     """
     (dx, dy), ha, va = _label_placement(x, y, image_shape, marker_half_points)
 
-    # A halo, rather than the transparency it replaces. A single overview holds bright
-    # ice and black vacuum, and text at alpha 0.75 was hard to read on both.
-    halo = [path_effects.withStroke(linewidth=2.0, foreground="black", alpha=0.7)]
-
-    line_gap = fontsize + 2.0
-    sub_size = max(6.0, fontsize * 0.7)
+    sub_size = max(_MIN_LABEL_POINTS, fontsize * _SUB_LABEL_SCALE)
+    # Half of each chip's height, so their edges meet. A chip is the text's own height
+    # plus its padding above and below, which is what the `1 + 2 * pad` is.
+    line_gap = (
+        fontsize * (1 + 2 * _LABEL_CHIP_PAD) + sub_size * (1 + 2 * _LABEL_CHIP_PAD)
+    ) / 2.0
 
     # Above the marker, the name goes on top and the description sits between it and the
     # marker; below the marker, the order is the other way up. Either way the name is the
@@ -164,6 +222,12 @@ def _draw_position_label(
     else:
         name_dy, sub_dy = dy, dy
 
+    # The name's chip is ringed in the marker's own colour, which is what ties a label
+    # to the crosshair it belongs to when several sit close together -- and is what
+    # `RulerOverlay` does with `edgecolor=self._color`. The description's is not: two
+    # abutting chips with different edges read as two objects, and the ring on the block
+    # as a whole is the name's.
+    name_chip = dict(_LABEL_CHIP, edgecolor=colour)
     ax.annotate(
         label,
         xy=(x, y),
@@ -173,7 +237,7 @@ def _draw_position_label(
         color=colour,
         ha=ha,
         va=va,
-        path_effects=halo,
+        bbox=name_chip,
         annotation_clip=False,
     )
 
@@ -184,10 +248,13 @@ def _draw_position_label(
             xytext=(dx, sub_dy),
             textcoords="offset points",
             fontsize=sub_size,
-            color=colour,
+            # Neutral, not the marker's colour. On this figure colour means one thing --
+            # what a human flagged -- and a description repeating it makes a grid of
+            # unflagged lamellae into a wall of cyan with nothing standing out.
+            color=_SUB_LABEL_COLOUR,
             ha=ha,
             va=va,
-            path_effects=halo,
+            bbox=dict(_LABEL_CHIP),
             annotation_clip=False,
         )
 
@@ -588,10 +655,8 @@ def plot_minimap(
             ax.add_artist(
                 ScaleBar(
                     dx=image.metadata.pixel_size.x,
-                    color="black",
-                    box_color="white",
-                    box_alpha=0.5,
                     location="lower right",
+                    **_SCALEBAR,
                 )
             )
         except Exception as e:
@@ -601,4 +666,203 @@ def plot_minimap(
     if show:
         plt.show()
 
+    return fig
+
+
+# How many pixels each placed image is drawn at when compositing. A stitched mosaic is
+# tens of thousands of pixels across and a PDF page is a few thousand at 200 dpi, so the
+# full array is thrown away by the rasteriser anyway -- reducing first turns a
+# multi-second render into a fast one. Box-averaged, so a feature smaller than a drawn
+# pixel dims into its neighbours rather than disappearing.
+_COMPOSITE_MAX_PX = 3000
+
+
+def compose_overview_extent(
+    image: FibsemImage,
+    reference: FibsemImage,
+    centre: Tuple[float, float],
+) -> Tuple[float, float, float, float]:
+    """Where *image* lands on *reference*'s pixel grid, as an imshow extent.
+
+    *centre* is where *image* was acquired, already reprojected into *reference*'s
+    pixels. The rest is the scale difference between the two: an image acquired at a
+    finer pixel size covers proportionally less ground per pixel, so it is drawn smaller.
+
+    The same arithmetic `FibsemRealSpaceCanvas._extent_for` does, and deliberately
+    duplicated in about six lines rather than reached for through that class -- the
+    canvas is a `FigureCanvasQTAgg`, and this runs from a workflow hook that has no
+    display. What is Qt about the canvas is the widget around this, not this.
+    """
+    scale = image.metadata.pixel_size.x / reference.metadata.pixel_size.x
+    half_w = image.data.shape[1] * scale / 2.0
+    half_h = image.data.shape[0] * scale / 2.0
+    cx, cy = centre
+    # y descending, because an image's rows run downwards and imshow was given
+    # origin="upper" for the reference.
+    return (cx - half_w, cx + half_w, cy + half_h, cy - half_h)
+
+
+def plot_overview_composite(
+    images: List[FibsemImage],
+    positions: List[FibsemStagePosition],
+    color: str = "cyan",
+    colors: Optional[Dict[str, str]] = None,
+    descriptions: Optional[Dict[str, str]] = None,
+    show_names: bool = True,
+    show_descriptions: bool = False,
+    show_scalebar: bool = True,
+    fontsize: int = 10,
+    markersize: int = 20,
+    figsize: Optional[Tuple[int, int]] = None,
+    ax: Optional[plt.Axes] = None,
+) -> Figure:
+    """Draw several overviews of the *same view* on one set of axes, and mark positions.
+
+    Only ever call this with images that register with each other -- same beam, same
+    stage orientation. Two overviews taken through different beams, or at different
+    orientations, are pictures from different directions: compositing them would place
+    real pixels at coordinates they were never acquired at, and the result would look
+    exactly as authoritative as a correct one. `OverviewView` in the Overview tab draws
+    the same line for the same reason.
+
+    Placement is relative to `images[0]`, whose pixel grid becomes the frame. Every other
+    image's acquisition position is reprojected into that grid by the *same* function the
+    position markers use, so the images and the markers agree by construction rather than
+    by two implementations happening to match.
+
+    Args:
+        images: overviews of one view. The first is the frame; order otherwise decides
+            what draws over what, so pass coarse before fine.
+        positions: stage positions to mark, named.
+        color: marker colour for anything `colors` does not name.
+        colors: position name -> colour, for positions that differ from the rest.
+        descriptions: position name -> free text, drawn under the name.
+        figsize: None sizes the figure to the composed extent's aspect.
+    Returns:
+        The matplotlib figure.
+    """
+    if not images:
+        raise ValueError("plot_overview_composite needs at least one image")
+
+    reference = images[0]
+    if reference.metadata is None or reference.metadata.microscope_state is None:
+        raise ValueError(
+            "The reference overview has no microscope state, so nothing can be placed "
+            "relative to it."
+        )
+
+    placements: List[Tuple[FibsemImage, Tuple[float, float, float, float]]] = []
+    ref_h, ref_w = reference.data.shape[0], reference.data.shape[1]
+    placements.append((reference, (-0.5, ref_w - 0.5, ref_h - 0.5, -0.5)))
+
+    for image in images[1:]:
+        state = getattr(image.metadata, "microscope_state", None)
+        centre_position = getattr(state, "stage_position", None)
+        if centre_position is None:
+            logging.warning(
+                "Skipping an overview with no recorded stage position: it cannot be "
+                "placed relative to the others."
+            )
+            continue
+        try:
+            point = reproject_stage_positions_onto_image2(
+                image=reference, positions=[centre_position]
+            )[0]
+        except Exception as e:
+            logging.warning(f"Could not place an overview on the composite: {e}")
+            continue
+        placements.append(
+            (image, compose_overview_extent(image, reference, (point.x, point.y)))
+        )
+
+    x0 = min(p[1][0] for p in placements)
+    x1 = max(p[1][1] for p in placements)
+    y_bottom = max(p[1][2] for p in placements)
+    y_top = min(p[1][3] for p in placements)
+
+    if ax is None:
+        if figsize is None:
+            span_w = abs(x1 - x0)
+            span_h = abs(y_bottom - y_top)
+            figsize = figsize_for_image((span_h, span_w))
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+
+    for image, extent in placements:
+        ax.imshow(
+            downsample(image.data, _COMPOSITE_MAX_PX),
+            cmap="gray",
+            extent=extent,
+            origin="upper",
+            aspect="equal",
+            interpolation="nearest",
+        )
+
+    ax.set_xlim(x0, x1)
+    ax.set_ylim(y_bottom, y_top)
+
+    points = reproject_stage_positions_onto_image2(image=reference, positions=positions)
+    marker_entries = []
+    for i, pt in enumerate(points):
+        # Bounded against the *composed* extent rather than the reference image, which
+        # is the point of compositing: a lamella off the edge of the first overview but
+        # inside a second one is on this page, and must be drawn.
+        if not (x0 <= pt.x <= x1 and y_top <= pt.y <= y_bottom):
+            continue
+        if pt.name is None:
+            pt.name = f"Position {i:02d}"
+        marker_entries.append(
+            {
+                "point": (pt.x, pt.y),
+                "color": (colors or {}).get(pt.name, color),
+                "label": pt.name,
+                "description": (descriptions or {}).get(pt.name, ""),
+            }
+        )
+
+    if marker_entries:
+        scatter = np.array([e["point"] for e in marker_entries])
+        ax.scatter(
+            scatter[:, 0],
+            scatter[:, 1],
+            c=[e["color"] for e in marker_entries],
+            marker="+",
+            s=markersize**2,
+            linewidths=2,
+        )
+        if show_names:
+            shape = (abs(y_bottom - y_top), abs(x1 - x0))
+            for entry in marker_entries:
+                x, y = entry["point"]
+                _draw_position_label(
+                    ax,
+                    x,
+                    y,
+                    label=entry["label"],
+                    colour=entry["color"],
+                    fontsize=fontsize,
+                    # Offsets are measured from the *drawn* extent, not the reference
+                    # image, so a marker near the edge of the composite flips inwards
+                    # rather than a marker near the edge of one tile of it.
+                    image_shape=shape,
+                    marker_half_points=markersize / 2.0,
+                    description=entry["description"] if show_descriptions else "",
+                )
+
+    if show_scalebar:
+        try:
+            from matplotlib_scalebar.scalebar import ScaleBar
+
+            ax.add_artist(
+                ScaleBar(
+                    dx=reference.metadata.pixel_size.x,
+                    location="lower right",
+                    **_SCALEBAR,
+                )
+            )
+        except Exception as e:
+            logging.debug(f"Could not add a scalebar: {e}")
+
+    ax.axis("off")
     return fig
