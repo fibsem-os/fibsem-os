@@ -6,13 +6,18 @@ headless Demo run cannot produce: time spent waiting, idle gaps, failed and
 retried runs.
 """
 
+import base64
 import html
+import io
 import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pytest
+import tifffile
+from PIL import Image
 from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
@@ -27,6 +32,7 @@ from fibsem.applications.autolamella.tools.event_tables import event_tables
 from fibsem.applications.autolamella.tools.report_v2 import (
     REPORT_DIRNAME,
     REPORT_FILENAME,
+    _thumbnail,
     render_report,
     summarise,
     write_report,
@@ -101,6 +107,12 @@ def test_the_report_of_a_run_is_written_beside_its_record(microscope, experiment
     assert _count(page, r'class="cell completed"') == 4
     assert _count(page, r'class="run"') == 4
     assert "2 of 2" in page
+    # each lamella's final SEM and FIB images, embedded
+    thumbnails = re.findall(r'<img src="data:image/jpeg;base64,([^"]+)"', page)
+    assert len(thumbnails) == 4
+    for encoded in thumbnails:
+        jpeg = base64.b64decode(encoded)
+        assert Image.open(io.BytesIO(jpeg)).size[0] <= 360 and len(jpeg) < 80_000
     # one file, with nothing to fetch
     assert not re.search(r"(src|href)=\"(https?:)?//", page)
     assert "<script src" not in page and "<link" not in page
@@ -499,3 +511,117 @@ def test_nobody_stepped_in():
     _, page = _render(_run(A, SETUP, 0, 60))
 
     assert "Nobody was asked anything, and the plan was not edited." in page
+
+
+# ── lamella cards ────────────────────────────────────────────────────────────
+
+
+def _pixels(uri):
+    data = base64.b64decode(uri.split(",", 1)[1])
+    return np.asarray(Image.open(io.BytesIO(data)))
+
+
+def test_a_stack_s_thumbnail_is_its_maximum_projection(tmp_path):
+    """Two channels by three planes: a spot bright in one plane of one
+    channel shows in the thumbnail."""
+    stack = np.full((2, 3, 64, 64), 100, dtype=np.uint16)
+    stack[1, 2, 10:14, 50:54] = 4000
+    path = tmp_path / "stack.ome.tiff"
+    tifffile.imwrite(str(path), stack)
+
+    pixels = _pixels(_thumbnail(path))
+
+    assert pixels.shape == (64, 64)
+    assert pixels[12, 52] > 200 and pixels[40, 20] < 50
+
+
+def test_an_image_that_cannot_be_read_has_no_thumbnail(tmp_path):
+    broken = tmp_path / "broken.tif"
+    broken.write_bytes(b"not a tiff")
+
+    assert _thumbnail(broken) is None
+    assert _thumbnail(tmp_path / "missing.tif") is None
+
+
+def test_an_fm_stack_is_found_in_the_lamella_s_folder_after_a_move(tmp_path):
+    """The record names where the stack was written; the experiment has been
+    copied off the microscope since, so it is found by name in its folder."""
+    folder = tmp_path / "copied" / A
+    (folder / "fm").mkdir(parents=True)
+    tifffile.imwrite(
+        str(folder / "fm" / "zstack.ome.tiff"), np.ones((3, 32, 32), np.uint16)
+    )
+    acquisition = _fm(200, A, planes=3, started=160)
+    acquisition["payload"]["path"] = (
+        "D:/microscope/experiment/01-lamella/fm/zstack.ome.tiff"
+    )
+    records = _run(A, SETUP, 0, 300) + [acquisition]
+
+    tables = event_tables(records)
+    page = render_report(tables, "s", [A], [SETUP], folders={A: folder})
+
+    assert "last FM, max projection" in page
+    assert _count(page, r'<img src="data:image/jpeg') == 1
+
+
+def test_a_lamella_s_card():
+    stage = {
+        "name": "Rough 01",
+        "milling": {"milling_current": 7.4e-10},
+        "pattern": {"depth": 6.5e-7},
+    }
+    records = (
+        _run(A, SETUP, 0, 200, wait=(20, 80))
+        + _run(A, ROUGH, 200, 400, "task_failed", "Alignment failed")
+        + [
+            _record(
+                "milling_stage_started",
+                250,
+                A,
+                ROUGH,
+                f"{A}/{ROUGH}/200",
+                {"task_id": "m1", "task_name": ROUGH, "stage": stage},
+            ),
+            _record(
+                "milling_progress",
+                310,
+                A,
+                ROUGH,
+                f"{A}/{ROUGH}/200",
+                {"task_id": "m1", "stage_name": "Rough 01", "status": "stage-finished"},
+            ),
+        ]
+        + _question(
+            150,
+            A,
+            "point_of_interest",
+            {"poi": {"x": 0.0, "y": 0.0}},
+            {"poi": {"x": 3e-6, "y": 4e-6}},
+            wait=30,
+        )
+        + [_edit(180, A, "lamella editor", "milling.mill_rough")]
+        + [_fm(390, A, planes=5, started=350)]
+    )
+
+    _, page = _render(records, items=(A, B))
+
+    card = re.search(r'<div class="card">(.*?)</div></div>', page, re.S)
+    assert card is not None
+    head = re.search(
+        r'<div class="card-head"><b>([^<]*)</b><span class="muted">([^<]*)', page
+    )
+    assert head.groups() == (
+        A,
+        "failed in Rough Milling · 6 min run · 1 min waiting · 1 decision changed "
+        "· 1 edit · 1 FM",
+    )
+    assert "<td>Rough Milling: Rough 01</td><td>740 pA</td><td>0.65 µm</td>" in page
+    assert "<td>confirmed (changed)</td><td>operator</td><td>5.0 µm</td>" in page
+    assert (
+        "<td>milling.mill_rough.fov</td><td>lamella editor</td><td>operator</td>"
+        in page
+    )
+    assert "FM z-stack, 5 planes, GFP (Acquire Fluorescence)" in page
+    # B never ran: a card that says so, and no thumbnails without folders
+    assert re.search(rf"<b>{B}</b><span class=\"muted\">not run</span>", page)
+    assert "<img" not in page

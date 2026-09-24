@@ -1299,28 +1299,37 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         the experiment's events.jsonl, under its folder, and open it; then
         print it to a PDF beside it.
 
-        The page is written on the GUI thread: it reads one file and builds
-        text, with no images yet. The PDF takes a browser a few seconds, so it
-        is made on a worker, and says when it is done or why it could not be.
+        Both on workers: the page loads each lamella's final images for its
+        thumbnails, and the PDF takes a browser a few seconds. Each says when it
+        is done, or why it could not be.
         """
         experiment = getattr(self.autolamella_ui, "experiment", None)
         if experiment is None:
             self.show_toast("Open an experiment to report on.", "warning")
             return
+        from fibsem.applications.autolamella.tools import report_v2
+        from fibsem.ui.qt.threading import thread_worker
+
+        missing = report_v2.no_record(experiment)  # recorded before the stream
+        if missing is not None:
+            self.show_toast(missing, "warning")
+            return
+
+        @thread_worker
+        def _write():
+            return report_v2.write_report(experiment)
+
+        worker = _write()
+        worker.returned.connect(self._on_report_v2_written)
+        worker.errored.connect(
+            lambda exc: self.show_toast(f"Could not write the report: {exc}", "error")
+        )
+        worker.start()
+
+    def _on_report_v2_written(self, path) -> None:
         from PyQt5.QtCore import QUrl
         from PyQt5.QtGui import QDesktopServices
 
-        from fibsem.applications.autolamella.tools.report_v2 import write_report
-
-        try:
-            path = write_report(experiment)
-        except FileNotFoundError as e:  # recorded before the event stream
-            self.show_toast(str(e), "warning")
-            return
-        except Exception as e:
-            logging.exception("Could not write report v2")
-            self.show_toast(f"Could not write the report: {e}", "error")
-            return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         self.show_toast(f"Report written: {path.name}", "success")
         self._print_report_v2(path)
