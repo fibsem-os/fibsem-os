@@ -164,6 +164,9 @@ class AlignedImages(QObject):
         self._images: Dict[str, AlignedImage] = {}
         self._count = 0
         self._frame: Optional["StageFrame"] = None
+        # Each image's map into the view, with the frame it was made for: see
+        # `_map_for`. Keyed like `_images`.
+        self._maps: Dict[str, tuple] = {}
 
     # ── the set ───────────────────────────────────────────────────────────
 
@@ -238,6 +241,7 @@ class AlignedImages(QObject):
 
     def remove(self, key: str) -> bool:
         record = self._images.pop(key, None)
+        self._maps.pop(key, None)
         if record is None:
             return False
         self._canvas.remove_overlay(record.overlay)
@@ -375,9 +379,7 @@ class AlignedImages(QObject):
             record.overlay.set_visible(False)
             return
         try:
-            a, offset = image_map(
-                record.projection, record.base, frame.projection, frame.origin
-            )
+            a, offset = self._map_for(record, frame)
             mirror, base_rotation, squash, base_scale = decompose(a)
             anchor = self._canvas.metres_to_canvas(*offset)
             per_metre = frame.length(1.0)
@@ -404,6 +406,29 @@ class AlignedImages(QObject):
             mirror=mirror,
         )
         record.overlay.set_visible(True)
+
+    def _map_for(self, record: AlignedImage, frame: "StageFrame"):
+        """The image's map into *frame*'s view, made once per view.
+
+        It depends only on the image's own projection and the view's -- not on the
+        user's placement or the canvas scale -- but a drag redraws through it on
+        every mouse move and a stage move rebuilds an equal frame, and each making
+        runs three stage transforms. Kept until the view's origin or projection
+        changes, compared by value, so an equal frame rebuilt still hits.
+        """
+        cached = self._maps.get(record.key)
+        if cached is not None:
+            made_for, a, offset = cached
+            if (
+                made_for.origin == frame.origin
+                and made_for.projection == frame.projection
+            ):
+                return a, offset
+        a, offset = image_map(
+            record.projection, record.base, frame.projection, frame.origin
+        )
+        self._maps[record.key] = (frame, a, offset)
+        return a, offset
 
     # ── placed from point pairs ───────────────────────────────────────────
 
@@ -504,6 +529,57 @@ class AlignedImages(QObject):
         record.rotation = float(rotation - record.base_rotation)
         record.fit = {}
         self._place(record)
+
+    # ── an image the file cannot place ─────────────────────────────────────
+
+    def base_at(
+        self,
+        projection: FMStageProjection,
+        pose: "FibsemStagePosition",
+        target: Tuple[float, float],
+    ) -> "FibsemStagePosition":
+        """Where an image taken at *pose* must have been centred for its centre to
+        fall on canvas point *target* in the current view.
+
+        For an imported image, whose file says nothing about where it was taken: it
+        starts where the user is looking, and upright -- of *pose*'s rotation and
+        the one opposite, whichever shows it the way the file does. The map from
+        stage to view is affine over a grid, so a step of Newton's method lands the
+        centre; a second takes out rounding.
+        """
+        import copy
+
+        frame = self._frame
+        if frame is None:
+            raise ValueError("there is no view to place the image in yet")
+        want = np.array(self._canvas.canvas_to_metres(*target), dtype=float)
+
+        def turn_at(r: float) -> float:
+            candidate = copy.deepcopy(frame.origin)
+            candidate.r, candidate.t = r, pose.t
+            a, _ = image_map(projection, candidate, frame.projection, frame.origin)
+            return abs(decompose(a)[1])
+
+        base = copy.deepcopy(frame.origin)
+        base.r = min((pose.r, pose.r + math.pi), key=turn_at)
+        base.t = pose.t
+
+        def centre_of(position) -> np.ndarray:
+            return np.array(
+                image_map(projection, position, frame.projection, frame.origin)[1]
+            )
+
+        for _ in range(2):
+            here = centre_of(base)
+            columns = []
+            for axis in ("x", "y"):
+                probe = copy.deepcopy(base)
+                setattr(probe, axis, getattr(probe, axis) + _PROBE)
+                columns.append((centre_of(probe) - here) / _PROBE)
+            step = np.linalg.solve(np.column_stack(columns), want - here)
+            base.x = float(base.x + step[0])
+            base.y = float(base.y + step[1])
+        return base
 
 
 def os_basename(path: str) -> str:
