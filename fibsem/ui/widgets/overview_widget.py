@@ -758,6 +758,9 @@ class FibsemOverviewWidget(QWidget):
         self.aligned_image_panel.selected.connect(self._on_aligned_image_selected)
         self.aligned_image_panel.align_toggled.connect(self._on_align_image_toggled)
         self.aligned_image_panel.reset_requested.connect(self.aligned_images.reset)
+        self.aligned_image_panel.mirror_toggled.connect(
+            self.aligned_images.set_mirrored
+        )
         self.aligned_image_panel.fit_requested.connect(self._fit_aligned_image)
         self.aligned_image_panel.opacity_changed.connect(self._on_image_opacity_changed)
         self.aligned_image_panel.signal_only_changed.connect(
@@ -1951,19 +1954,40 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_aligned_readout()
         self.image_placement_changed.emit(key)
 
+    def set_aligned_image_placement(
+        self,
+        key: str,
+        dx: float,
+        dy: float,
+        rotation: float,
+        scale: float = 1.0,
+        mirrored: bool = False,
+    ) -> None:
+        """Put an image where a record says, without announcing, and show it."""
+        self.aligned_images.set_placement(
+            key, dx, dy, rotation, scale, mirrored=mirrored
+        )
+        self._refresh_aligned_readout()
+
     def _refresh_aligned_readout(self) -> None:
         key = self.aligned_image_panel.current_key
         record = self.aligned_images.get(key) if key else None
+        self.aligned_image_panel.set_mirrored(
+            record.mirrored if record is not None else False
+        )
         if record is None:
             self.aligned_image_panel.set_placement_text("")
             return
+        mirrored = ", mirrored" if record.mirrored else ""
         dx, dy, rotation, scale = record.placement
         if dx == 0.0 and dy == 0.0 and rotation == 0.0 and scale == 1.0:
-            self.aligned_image_panel.set_placement_text("Placed from its metadata")
+            self.aligned_image_panel.set_placement_text(
+                f"Placed from its metadata{mirrored}"
+            )
             return
         self.aligned_image_panel.set_placement_text(
             f"Moved {dx * constants.SI_TO_MICRO:+.1f}, {dy * constants.SI_TO_MICRO:+.1f} um"
-            f" from its metadata, turned {rotation:+.1f}°"
+            f" from its metadata, turned {rotation:+.1f}°{mirrored}"
         )
 
     # ── state ────────────────────────────────────────────────────────────

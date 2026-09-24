@@ -1069,3 +1069,30 @@ class TestAnAlignedImageIsKeptOnTheGrid:
                 again._drop_overview()
         finally:
             stage.unload()
+
+    def test_a_mirror_is_kept_and_laid_back(self, tab, microscope, tmp_path):
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            key = tab.overview.load_aligned_image(elsewhere)
+            tab.overview.aligned_image_panel.btn_mirror.click()
+
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert record.mirrored is True
+
+            reopened = Experiment.load(
+                os.path.join(str(tab.experiment.path), "experiment.yaml")
+            )
+            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again.refresh_microscope()
+            try:
+                self._show(again, microscope)
+                (back_key,) = again.overview.aligned_images.keys()
+                assert again.overview.aligned_images.get(back_key).mirrored
+                assert again.overview.aligned_image_panel.btn_mirror.isChecked()
+            finally:
+                again._drop_overview()
+        finally:
+            stage.unload()
