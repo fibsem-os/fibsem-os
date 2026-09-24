@@ -551,6 +551,7 @@ class DemoMicroscope(FibsemMicroscope):
             logging.info("No fluorescence microscope in this simulated system.")
             self.fm = None
 
+        self._apply_fluorescence_calibration()
         self._warn_on_fluorescence_geometry()
 
         # user, experiment metadata
@@ -1133,6 +1134,27 @@ class DemoMicroscope(FibsemMicroscope):
             self, dx, dy, beam_type, base_position
         )
 
+    # ---- fitted subsystems, as the simulated instrument reports them ---------
+    #
+    # The `sim:` block is where a simulated configuration stands in for a hardware
+    # probe (`has_fm`, `is_compustage`), so that is where these come from too. Absent
+    # means the Demo default -- everything fitted but a sputter coater.
+
+    def _probe_manipulator_installed(self) -> Optional[bool]:
+        return self.system.sim.get("has_manipulator")
+
+    def _probe_gis_installed(self) -> Optional[bool]:
+        return self.system.sim.get("has_gis")
+
+    def _probe_multichem_installed(self) -> Optional[bool]:
+        return self.system.sim.get("has_gis_multichem")
+
+    def _probe_sputter_coater_installed(self) -> Optional[bool]:
+        return self.system.sim.get("has_gis_sputter_coater")
+
+    def _probe_plasma_gas(self) -> Optional[str]:
+        return self.system.sim.get("plasma_gas")
+
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the axis limits for the stage."""
         if self.stage_is_compustage:
@@ -1596,7 +1618,7 @@ class DemoMicroscope(FibsemMicroscope):
         # TODO: universalise this for demo, tescan
         """
 
-        use_multichem = self.is_available("multichem")
+        use_multichem = self.is_available("gis_multichem")
         port = gis_settings.port
         gas = gis_settings.gas
         duration = gis_settings.duration
@@ -1914,12 +1936,6 @@ class DemoMicroscope(FibsemMicroscope):
                 return
             else:
                 raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        # ion beam properties
-        if key == "plasma":
-            if beam_type is BeamType.ION:
-                self.system.ion.plasma = value
-                return
 
         if beam_type is BeamType.ION:
             if key == "plasma_gas":

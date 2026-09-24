@@ -79,7 +79,10 @@ def test_a_configuration_that_says_nothing_gets_the_objective_under_the_grid():
     """
     default, _ = utils.setup_session(config_path=cfg.MICROSCOPE_CONFIGURATION_PATH)
 
-    assert "devices" not in utils.load_yaml(cfg.MICROSCOPE_CONFIGURATION_PATH)["stage"]
+    assert (
+        "devices"
+        not in utils.load_yaml(cfg.MICROSCOPE_CONFIGURATION_PATH)["hardware"]["stage"]
+    )
     assert default.system.stage.devices == DEFAULT_STAGE_DEVICES
     assert default.system.stage.device_range == DEFAULT_DEVICE_RANGE
 
@@ -273,7 +276,7 @@ def test_a_configuration_that_says_nothing_can_still_see_the_sample():
     """
     microscope = _microscope(ARCTIS_CONFIG)
 
-    assert "devices" not in utils.load_yaml(ARCTIS_CONFIG)["stage"]
+    assert "devices" not in utils.load_yaml(ARCTIS_CONFIG)["hardware"]["stage"]
     assert microscope.system.stage.devices["FM"].acquisition_orientations == ["FM"]
 
 
