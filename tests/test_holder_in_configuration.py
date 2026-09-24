@@ -505,6 +505,22 @@ def test_a_settings_record_does_not_keep_the_microscope_alive():
     assert gone() is None, "the settings record kept the microscope alive"
 
 
+def test_a_stage_with_a_named_holder_equals_its_own_round_trip():
+    """The file carries the pre-tilt only on the holder once one is named, so the
+    reader seeds the stage's fallback from the active holder. Without that the
+    fallback read back as 0.0: nothing visible changed, but the record no longer
+    equalled itself after a save, and every round-trip comparison failed."""
+    holder = SampleHolder(name="Pre-Tilted", pre_tilt=35.0)
+    holder._ensure_slots()  # as every holder the application builds has
+    stage = _stage_settings(
+        shuttle_pre_tilt=35.0,
+        holders={"Pre-Tilted": holder},
+        active_holder="Pre-Tilted",
+    )
+
+    assert StageSystemSettings.from_dict(stage.to_dict()) == stage
+
+
 def test_the_holder_no_longer_reads_the_stage():
     """The recursion this change had to remove.
 

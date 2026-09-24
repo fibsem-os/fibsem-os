@@ -2417,9 +2417,22 @@ class StageSystemSettings:
         # now derived from the two fields that decide it. Ignoring beats honouring: a
         # stored value that disagrees with the derivation is a value someone typed
         # wrong, and reading it back would preserve the mistake.
+        holders = {
+            name: _configured_holder_from(name, holder)
+            for name, holder in (settings.get("holders") or {}).items()
+        }
+        active_holder = settings.get("active_holder", "")
+        # Once a holder is named the file states the pre-tilt only on the holder,
+        # so the stage's fallback is seeded from it. Left at 0.0 it changed nothing
+        # anyone reads -- the holder answers -- but a record no longer equalled its
+        # own round trip, which is exactly what the round-trip tests compare.
+        active = holders.get(active_holder)
+        fallback = settings.get(
+            "shuttle_pre_tilt", active.pre_tilt if active is not None else 0.0
+        )
         return StageSystemSettings(
             rotation_reference=settings.get("rotation_reference", 0.0),
-            shuttle_pre_tilt=settings.get("shuttle_pre_tilt", 0.0),
+            shuttle_pre_tilt=fallback,
             enabled=settings.get("enabled", True),
             rotation=settings.get("rotation", True),
             milling_angle=settings.get("milling_angle", 15.0),
@@ -2436,11 +2449,8 @@ class StageSystemSettings:
                 if devices
                 else deepcopy(DEFAULT_STAGE_DEVICES)
             ),
-            holders={
-                name: _configured_holder_from(name, holder)
-                for name, holder in (settings.get("holders") or {}).items()
-            },
-            active_holder=settings.get("active_holder", ""),
+            holders=holders,
+            active_holder=active_holder,
         )
 
 
