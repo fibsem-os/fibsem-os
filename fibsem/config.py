@@ -291,28 +291,6 @@ DEFAULT_CHECKPOINT = "autolamella-mega-20240107.pt"
 # feature flags
 APPLY_CONFIGURATION_ENABLED = True
 
-# tescan manipulator
-
-TESCAN_MANIPULATOR_CALIBRATION_PATH = os.path.join(
-    CONFIG_PATH, "tescan_manipulator.yaml"
-)
-
-
-def load_tescan_manipulator_calibration() -> dict:
-    """Load the tescan manipulator calibration"""
-    from fibsem.utils import load_yaml
-
-    config = load_yaml(TESCAN_MANIPULATOR_CALIBRATION_PATH)
-    return config
-
-
-def save_tescan_manipulator_calibration(config: dict) -> None:
-    """Save the tescan manipulator calibration"""
-    from fibsem.utils import save_yaml
-
-    save_yaml(TESCAN_MANIPULATOR_CALIBRATION_PATH, config)
-    return None
-
 
 # ---------------------------------------------------------------------------
 # User Preferences

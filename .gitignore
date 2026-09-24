@@ -48,7 +48,6 @@ fibsem/config/*.yaml
 # Session state: per instrument configuration, written as the operator works.
 fibsem/config/session/
 !fibsem/config/microscope-configuration.yaml
-!fibsem/config/tescan_manipulator.yaml
 !fibsem/config/tfs*.yaml
 !fibsem/config/odemis*.yaml
 !fibsem/config/tescan-*.yaml
