@@ -1,8 +1,9 @@
 """Tools → Reporting → Generate Report v2 (preview) writes the page from the
-experiment's events.jsonl and opens it (FIB-1036).
+experiment's events.jsonl, opens it, and prints it to a PDF (FIB-1036).
 
 The real main window, with no microscope: the report reads records only. What
-the browser is asked to open is caught, not opened.
+the browser is asked to open is caught, not opened, and the printing is a
+stand-in (``tests/autolamella/test_pdf_export.py`` prints for real).
 """
 
 import json
@@ -17,11 +18,13 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from PyQt5.QtGui import QDesktopServices  # noqa: E402
+from PyQt5.QtTest import QTest  # noqa: E402
 
 from fibsem.applications.autolamella.event_recording import (  # noqa: E402
     EVENTS_FILENAME,
 )
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
+from fibsem.applications.autolamella.tools import pdf_export  # noqa: E402
 from fibsem.applications.autolamella.tools.report_v2 import (  # noqa: E402
     REPORT_DIRNAME,
     REPORT_FILENAME,
@@ -44,8 +47,17 @@ def window(qapp):
 
 @pytest.fixture
 def seen(window, monkeypatch):
-    """What the window opened, and what it said."""
-    seen = {"opened": [], "toasts": []}
+    """What the window opened, printed and said. Printing makes the PDF,
+    unless ``seen["no_pdf"]`` says why it can't."""
+    seen = {"opened": [], "printed": [], "toasts": [], "no_pdf": None}
+
+    def print_to_pdf(path):
+        seen["printed"].append(Path(path))
+        if seen["no_pdf"]:
+            raise pdf_export.PdfExportError(seen["no_pdf"])
+        return Path(path).with_suffix(".pdf")
+
+    monkeypatch.setattr(pdf_export, "html_to_pdf", print_to_pdf)
     monkeypatch.setattr(
         QDesktopServices, "openUrl", lambda url: seen["opened"].append(url) or True
     )
@@ -79,7 +91,16 @@ def _experiment(tmp_path, name, recorded=True):
     return exp
 
 
-def test_the_report_is_written_and_opened(window, seen, tmp_path):
+def _toasts(seen, count):
+    """The toasts, once there are ``count``: the PDF's comes from a worker."""
+    for _ in range(100):
+        if len(seen["toasts"]) >= count:
+            break
+        QTest.qWait(20)
+    return seen["toasts"]
+
+
+def test_the_report_is_written_opened_and_printed(window, seen, tmp_path):
     experiment = _experiment(tmp_path, "recorded")
     window.autolamella_ui.experiment = experiment
 
@@ -90,7 +111,25 @@ def test_the_report_is_written_and_opened(window, seen, tmp_path):
     assert "Rough Milling" in path.read_text(encoding="utf-8")
     ((url),) = seen["opened"]
     assert Path(url.toLocalFile()) == path
-    assert seen["toasts"] == [("success", f"Report written: {REPORT_FILENAME}")]
+    assert _toasts(seen, 2) == [
+        ("success", f"Report written: {REPORT_FILENAME}"),
+        ("success", "PDF written: report.pdf"),
+    ]
+    assert seen["printed"] == [path]
+
+
+def test_with_no_pdf_the_page_still_is_and_says_how_to_make_one(window, seen, tmp_path):
+    window.autolamella_ui.experiment = _experiment(tmp_path, "no-browser")
+    seen["no_pdf"] = "no Edge, Chrome or Chromium was found to print the page with"
+
+    window.action_generate_report_v2.trigger()
+
+    assert len(seen["opened"]) == 1
+    assert _toasts(seen, 2)[1] == (
+        "warning",
+        "No PDF: no Edge, Chrome or Chromium was found to print the page with. "
+        "The page's Print button makes one.",
+    )
 
 
 def test_an_older_experiment_says_why_there_is_no_v2_report(window, seen, tmp_path):
@@ -98,7 +137,7 @@ def test_an_older_experiment_says_why_there_is_no_v2_report(window, seen, tmp_pa
 
     window.action_generate_report_v2.trigger()
 
-    assert seen["opened"] == []
+    assert seen["opened"] == [] and seen["printed"] == []
     ((level, message),) = seen["toasts"]
     assert level == "warning" and "recorded before the event stream" in message
 
@@ -108,5 +147,5 @@ def test_with_no_experiment_open(window, seen):
 
     window.action_generate_report_v2.trigger()
 
-    assert seen["opened"] == []
+    assert seen["opened"] == [] and seen["printed"] == []
     assert seen["toasts"] == [("warning", "Open an experiment to report on.")]
