@@ -15,7 +15,7 @@ survive a change of view:
 
 `AlignedImages` holds one `ImageOverlay` per image on a canvas, re-places them all for
 a frame on request, and turns what the overlays emit (a canvas centre, a canvas
-rotation) back into the user's part.
+rotation, a factor on the size) back into the user's part.
 
 How an image looks is kept apart from where it is. Each channel's max projection is
 held at display size as an `FMLayer`, so a colour, a hidden channel or a contrast
@@ -225,6 +225,7 @@ class AlignedImages(QObject):
         self._canvas.add_overlay(overlay)
         overlay.moved.connect(lambda x, y, key=key: self._on_moved(key, x, y))
         overlay.rotated.connect(lambda r, key=key: self._on_rotated(key, r))
+        overlay.scaled.connect(lambda f, key=key: self._on_scaled(key, f))
         overlay.drag_finished.connect(lambda key=key: self.placement_changed.emit(key))
         record = AlignedImage(
             key=key,
@@ -551,6 +552,17 @@ class AlignedImages(QObject):
         if record is None:
             return
         record.rotation = float(rotation - record.base_rotation)
+        record.fit = {}
+        self._place(record)
+
+    def _on_scaled(self, key: str, factor: float) -> None:
+        # The scale multiplies the pixel size where the footprint is worked out, so
+        # this is the pixel size corrected -- kept apart from the file's own, which
+        # Reset goes back to. About the centre: the offset is untouched.
+        record = self._images.get(key)
+        if record is None or not factor > 0:
+            return
+        record.scale = float(record.scale * factor)
         record.fit = {}
         self._place(record)
 
