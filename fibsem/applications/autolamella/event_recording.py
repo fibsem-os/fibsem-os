@@ -437,7 +437,7 @@ def _items(experiment: Any) -> List[Any]:
 
 
 def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any]:
-    return {
+    payload = {
         "item": {"id": item.id, "name": item.name},
         "task": task_name,
         "proposal_id": proposal.id,
@@ -447,3 +447,9 @@ def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any
         # point only means something on the image it was placed on
         "image": proposal.provenance.get("reference_image") or None,
     }
+    # The model a detection came from: a correction only means something
+    # against the checkpoint that made the prediction (FIB-1066).
+    checkpoint = proposal.provenance.get("checkpoint")
+    if checkpoint:
+        payload["checkpoint"] = checkpoint
+    return payload

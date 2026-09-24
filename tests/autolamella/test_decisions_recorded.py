@@ -9,6 +9,7 @@ person or an agent, ``expire_open``, ``withdraw_proposal`` and
 
 import os
 
+import numpy as np
 import pytest
 from psygnal.containers import EventedDict
 
@@ -16,6 +17,7 @@ from fibsem import utils
 from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella.event_recording import EventRecorder
 from fibsem.applications.autolamella.proposals import (
+    DETECTION,
     POINT_OF_INTEREST,
     STATE,
     Decision,
@@ -27,6 +29,11 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Experiment,
 )
+from fibsem.applications.autolamella.workflows.question_adapters import (
+    detection_provenance,
+    detection_values,
+)
+from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
 
 TASK = "Setup Lamella Position"
@@ -121,7 +128,42 @@ def test_a_decision_is_recorded_with_what_was_proposed_and_what_was_decided(
         "review",
     )
     assert "filled_in" not in payload
+    assert "checkpoint" not in payload  # a detection's alone
     assert lamella.poi.x == 2e-6  # and the decision still did what it does
+
+
+def test_a_detection_names_the_model_that_made_it(experiment, recorder):
+    """The prediction, the correction and the checkpoint the prediction came
+    from, as ``detect`` asks it: a correction only means something against the
+    model that made it (FIB-1066)."""
+    feature = LamellaCentre()
+    feature.px = Point(10.0, 20.0)
+    detection = DetectedFeatures(
+        features=[feature],
+        image=np.zeros((8, 8), dtype=np.uint8),
+        mask=np.zeros((8, 8), dtype=np.uint8),
+        rgb=np.zeros((8, 8, 3), dtype=np.uint8),
+        pixelsize=1e-9,
+        checkpoint="autolamella-mega-20240107.pt",
+    )
+    proposal = Proposal(
+        kind=DETECTION,
+        values=detection_values(detection),
+        provenance={"task_id": RUN, **detection_provenance(detection)},
+    )
+    experiment.positions[0].proposals[TASK] = [proposal]
+    corrected = {"features": [{"name": feature.name, "px": Point(12.0, 20.0)}]}
+
+    _decide(experiment, proposal, "human:op", corrected)
+
+    ((event),) = _events(recorder)
+    payload = event["payload"]
+    assert payload["checkpoint"] == "autolamella-mega-20240107.pt"
+    ((proposed),) = payload["proposed"]["features"]
+    ((decided),) = payload["decided"]["features"]
+    assert proposed["px"] == Point(10.0, 20.0).to_dict()
+    assert decided["px"] == Point(12.0, 20.0).to_dict()
+    assert event["actor"] == "operator"
 
 
 def test_an_agent_s_decision_is_the_agent_s(experiment, recorder):
