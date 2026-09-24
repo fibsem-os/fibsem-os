@@ -1,12 +1,19 @@
-"""Persistence for the fluorescence (FM) configuration.
+"""The fluorescence (FM) session state: the working configuration and recent channels.
 
-A single ``fm-configuration.yaml`` holds the live FM config. It is auto-saved on
-change + on close and auto-loaded + applied on startup, so FM settings survive
-restarts.
+Both live in the instrument's session state (`fibsem.session_state`) under `fm:`:
 
-``fm-recent-channels.yaml`` holds the recently-used channel settings, recorded
-whenever the user starts an acquisition, and offered as quick-select entries
-when adding a channel.
+- ``fm.working`` -- the live FM configuration (channels, z-stack, camera, autofocus).
+  Autosaved as it changes and applied at startup, so FM settings survive restarts.
+  It is session state because it has no other home: there is no FM block among the
+  microscope configuration's defaults.
+- ``fm.recent_channels`` -- recently used channel settings, recorded whenever an
+  acquisition starts and offered as quick-select entries when adding a channel.
+
+Each function takes the `SessionState` to use, so every caller says which
+instrument it means and whether it may write: the application passes a writable
+store, a script a read-only one. Each sub-key is imported from the file it used to
+live in (``fm-configuration.yaml``, ``fm-recent-channels.yaml``) the first time it
+is absent; those files are never deleted.
 """
 
 import logging
@@ -17,25 +24,54 @@ import yaml
 
 from fibsem import config as cfg
 from fibsem.fm.structures import ChannelSettings, FluorescenceConfiguration
+from fibsem.session_state import SessionState, session_state_for
 
 MAX_RECENT_CHANNELS = 10
 
-
-def save_fm_configuration(config: FluorescenceConfiguration) -> str:
-    """Persist the current FM configuration to the working-state file."""
-    os.makedirs(cfg.CONFIG_PATH, exist_ok=True)
-    return config.export(cfg.FM_CONFIGURATION_PATH)
+WORKING = "fm.working"
+RECENT_CHANNELS = "fm.recent_channels"
 
 
-def load_fm_configuration() -> Optional[FluorescenceConfiguration]:
-    """Load the working-state FM configuration, or None if it doesn't exist."""
-    if not os.path.exists(cfg.FM_CONFIGURATION_PATH):
+def fm_session_state(fm, writable: bool = False) -> SessionState:
+    """The session state for the instrument an FM belongs to (its ``parent``)."""
+    return session_state_for(getattr(fm, "parent", None), writable=writable)
+
+
+# ---- the working configuration ----------------------------------------------
+
+
+def _import_working() -> Optional[dict]:
+    """The working configuration from the file it lived in before, if any."""
+    path = cfg.FM_CONFIGURATION_PATH
+    if not os.path.exists(path):
+        return None
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+    # Parsed once here so a file that cannot become a configuration is not
+    # imported as one.
+    return FluorescenceConfiguration.from_dict(data).to_dict() if data else None
+
+
+def save_fm_configuration(
+    config: FluorescenceConfiguration, state: SessionState
+) -> bool:
+    """Save the working FM configuration. Returns whether anything was written."""
+    return state.save_section(WORKING, config.to_dict())
+
+
+def load_fm_configuration(state: SessionState) -> Optional[FluorescenceConfiguration]:
+    """The working FM configuration, or None if there is none."""
+    data = state.load_section(WORKING, migrate=_import_working)
+    if not data:
         return None
     try:
-        return FluorescenceConfiguration.load(cfg.FM_CONFIGURATION_PATH)
+        return FluorescenceConfiguration.from_dict(data)
     except Exception as e:
         logging.warning(f"Failed to load FM working state: {e}")
         return None
+
+
+# ---- recent channels ---------------------------------------------------------
 
 
 def _recent_channel_key(channel: ChannelSettings) -> str:
@@ -48,16 +84,19 @@ def _recent_channel_key(channel: ChannelSettings) -> str:
     return channel.name
 
 
-def load_recent_channels() -> List[ChannelSettings]:
-    """Load the recently-used channel settings, most recent first."""
-    if not os.path.exists(cfg.FM_RECENT_CHANNELS_PATH):
-        return []
-    try:
-        with open(cfg.FM_RECENT_CHANNELS_PATH, "r") as f:
-            data = yaml.safe_load(f)
-    except Exception as e:
-        logging.warning(f"Failed to load recent FM channels: {e}")
-        return []
+def _import_recent_channels() -> Optional[list]:
+    """The recent channels from the file they lived in before, if any."""
+    path = cfg.FM_RECENT_CHANNELS_PATH
+    if not os.path.exists(path):
+        return None
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+    return data if isinstance(data, list) else None
+
+
+def load_recent_channels(state: SessionState) -> List[ChannelSettings]:
+    """The recently used channel settings, most recent first."""
+    data = state.load_section(RECENT_CHANNELS, migrate=_import_recent_channels)
     if not isinstance(data, list):
         return []
     channels = []
@@ -71,12 +110,13 @@ def load_recent_channels() -> List[ChannelSettings]:
 
 def record_recent_channels(
     channels: Union[ChannelSettings, List[ChannelSettings]],
+    state: SessionState,
 ) -> None:
     """Record channel settings as recently used (deduped, most recent first)."""
     if isinstance(channels, ChannelSettings):
         channels = [channels]
     try:
-        recents = load_recent_channels()
+        recents = load_recent_channels(state)
         previous = [ch.to_dict() for ch in recents]
         # later entries in `channels` end up further down the list, matching
         # the on-screen channel order
@@ -88,23 +128,19 @@ def record_recent_channels(
         updated = [ch.to_dict() for ch in recents]
         if updated == previous:
             return
-        os.makedirs(cfg.CONFIG_PATH, exist_ok=True)
-        with open(cfg.FM_RECENT_CHANNELS_PATH, "w") as f:
-            yaml.safe_dump(updated, f, sort_keys=False)
+        state.save_section(RECENT_CHANNELS, updated)
     except Exception as e:
         logging.warning(f"Failed to record recent FM channels: {e}")
 
 
-def remove_recent_channel(channel: ChannelSettings) -> None:
-    """Remove a channel from the recently-used list by its dedup key."""
+def remove_recent_channel(channel: ChannelSettings, state: SessionState) -> None:
+    """Remove a channel from the recently used list by its dedup key."""
     try:
-        recents = load_recent_channels()
+        recents = load_recent_channels(state)
         key = _recent_channel_key(channel)
         remaining = [ch for ch in recents if _recent_channel_key(ch) != key]
         if len(remaining) == len(recents):
             return
-        os.makedirs(cfg.CONFIG_PATH, exist_ok=True)
-        with open(cfg.FM_RECENT_CHANNELS_PATH, "w") as f:
-            yaml.safe_dump([ch.to_dict() for ch in remaining], f, sort_keys=False)
+        state.save_section(RECENT_CHANNELS, [ch.to_dict() for ch in remaining])
     except Exception as e:
         logging.warning(f"Failed to remove recent FM channel: {e}")

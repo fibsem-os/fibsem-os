@@ -157,6 +157,27 @@ def test_writers_on_different_threads_keep_each_other_s_sections(store):
     assert _on_disk(store)["occupancy"] == {"i": 49}
 
 
+def test_a_dotted_name_writes_one_key_and_keeps_its_siblings(store):
+    """The FM autosave and the recent-channels writer share the `fm` section."""
+    store.save_section("fm.working", {"channels": ["GFP"]})
+    store.save_section("fm.recent_channels", [{"name": "DAPI"}])
+    store.save_section("fm.working", {"channels": ["RFP"]})
+
+    assert _on_disk(store)["fm"] == {
+        "working": {"channels": ["RFP"]},
+        "recent_channels": [{"name": "DAPI"}],
+    }
+    assert store.load_section("fm.recent_channels") == [{"name": "DAPI"}]
+    assert store.load_section("fm.nothing_here", default=[]) == []
+
+
+def test_a_dotted_name_under_a_non_mapping_replaces_it(store):
+    store.save_section("fm", "not a mapping")
+    store.save_section("fm.working", {"a": 1})
+
+    assert store.load_section("fm") == {"working": {"a": 1}}
+
+
 # ---------------------------------------------------------------------------
 # An unreadable file
 # ---------------------------------------------------------------------------
@@ -233,13 +254,6 @@ def test_a_present_section_is_never_re_imported(store):
         raise AssertionError("imported over an existing section")
 
     assert store.load_section("fm", migrate=migrate) == {"current": True}
-
-
-def test_the_store_lives_under_the_config_directory_by_default():
-    import fibsem.config as cfg
-
-    path = SessionState("site.yaml").path
-    assert path.parent == Path(cfg.CONFIG_PATH) / "session"
 
 
 def test_the_session_directory_is_not_tracked_by_git():

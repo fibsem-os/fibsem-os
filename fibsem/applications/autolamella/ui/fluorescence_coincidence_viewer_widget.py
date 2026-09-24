@@ -958,8 +958,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         """On open, apply the FM config: the live main-UI config if provided,
         else the last-used working state as a fallback."""
         from fibsem.fm.config import load_fm_configuration
+        from fibsem.session_state import session_state_for
 
-        config = self._seed_fm_config or load_fm_configuration()
+        config = self._seed_fm_config or load_fm_configuration(
+            session_state_for(self.microscope)
+        )
         if config is not None:
             try:
                 self._apply_fm_configuration(config)
@@ -969,9 +972,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _save_fm_configuration(self) -> None:
         """Persist the current FM configuration as the working state."""
         from fibsem.fm.config import save_fm_configuration
+        from fibsem.session_state import session_state_for
 
         try:
-            save_fm_configuration(self._read_fm_configuration())
+            save_fm_configuration(
+                self._read_fm_configuration(),
+                session_state_for(self.microscope, writable=True),
+            )
         except Exception as e:
             logging.warning(f"Could not save FM working state: {e}")
 

@@ -535,6 +535,13 @@ def load_microscope_configuration(
     # create settings
     settings = MicroscopeSettings.from_dict(config, protocol=protocol)
 
+    # The FM working state for this configuration: session state, read-only here
+    # (a script reads what the operator left; only the application writes it).
+    from fibsem.fm.config import load_fm_configuration
+    from fibsem.session_state import SessionState
+
+    settings.fm = load_fm_configuration(SessionState(config_path))
+
     return settings
 
 

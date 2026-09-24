@@ -41,6 +41,28 @@ def _isolate_sample_holder_config(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_session_state(tmp_path_factory, monkeypatch):
+    """Session state goes to a per-test directory, never to `fibsem/config/session/`.
+
+    Any test that connects a microscope and builds an FM widget writes session
+    state as the application would. Without this it lands in the checkout -- and in
+    the next test's reads. The two files the FM state lived in before are pointed
+    away too, so nothing is imported from a developer's real ones.
+    """
+    import fibsem.config as cfg
+    import fibsem.session_state as session_state
+
+    directory = tmp_path_factory.mktemp("session-state")
+    monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(directory))
+    monkeypatch.setattr(
+        cfg, "FM_CONFIGURATION_PATH", str(directory / "fm-configuration.yaml")
+    )
+    monkeypatch.setattr(
+        cfg, "FM_RECENT_CHANNELS_PATH", str(directory / "fm-recent-channels.yaml")
+    )
+
+
+@pytest.fixture(autouse=True)
 def _isolate_cwd(tmp_path, monkeypatch):
     """Run every test from its own tmp dir.
 
