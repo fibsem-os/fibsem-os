@@ -4079,6 +4079,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.autolamella_ui.fm_control_widget.save_fm_configuration()
             except Exception as e:
                 logging.warning(f"Could not save FM working state on close: {e}")
+        # After the flush, so its edit is recorded: write what is queued to
+        # events.jsonl and stop the recorder's writer thread. Nothing else does,
+        # so a window closed without disconnecting leaves it running.
+        if self.autolamella_ui is not None:
+            try:
+                self.autolamella_ui._stop_event_recorder()
+            except Exception as e:
+                logging.warning(f"Could not close the event recorder on close: {e}")
         try:
             notification_service._get_service().toast.disconnect(
                 self._on_notification_service

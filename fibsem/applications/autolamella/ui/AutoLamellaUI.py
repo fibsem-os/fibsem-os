@@ -734,6 +734,14 @@ class AutoLamellaUI(QMainWindow):
             self._event_recorder.close()
             self._event_recorder = None
 
+    def closeEvent(self, event) -> None:
+        """Closed on its own, as tests and scripts use it, the window closes its
+        recorder, whose writer thread would otherwise run until the process
+        ends. Embedded, it is never closed: the main window's closeEvent does
+        this instead."""
+        self._stop_event_recorder()
+        super().closeEvent(event)
+
     def _start_agent_server(self) -> None:
         """Host the agent server over this session, if the preference asks for it.
 
