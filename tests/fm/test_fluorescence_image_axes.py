@@ -249,8 +249,11 @@ def test_a_meteor_imagej_export_loads_without_an_error_in_the_log(tmp_path, capl
     _meteor_like(path, data)
     with caplog.at_level(logging.ERROR, logger="tifffile"):
         with tifffile.TiffFile(path) as tif:
-            tif.series[0].asarray()  # guard: the plain open does log it
-    assert any(r.name == "tifffile" for r in caplog.records)
+            tif.series[0].asarray()
+    # Recent tifffile tries the OME series first and logs; the one Python 3.8 gets
+    # (2023.7.10) reads it as ImageJ and does not. The load must be right and quiet
+    # on both; only on the first is there an error for it to have avoided.
+    plain_open_logged = any(r.name == "tifffile" for r in caplog.records)
     caplog.clear()
 
     with caplog.at_level(logging.ERROR, logger="tifffile"):
@@ -258,6 +261,8 @@ def test_a_meteor_imagej_export_loads_without_an_error_in_the_log(tmp_path, capl
 
     np.testing.assert_array_equal(back.data, data)
     assert [r.getMessage() for r in caplog.records if r.name == "tifffile"] == []
+    if not plain_open_logged:
+        pytest.skip("this tifffile reads the file as ImageJ first: no error to avoid")
 
 
 def test_an_imagej_z_stack_is_one_channel(tmp_path):
