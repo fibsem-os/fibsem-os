@@ -25,6 +25,7 @@ nothing in a screenshot names the machine or the person who ran it.
 import argparse
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -177,10 +178,12 @@ class Harness:
         cfg.SAMPLE_HOLDER_CONFIGURATION_PATH = holder_path
         cfg.SAMPLE_HOLDER_OCCUPANCY_PATH = occupancy_path
         stage_module.SAMPLE_HOLDER_CONFIGURATION_PATH = holder_path
+        # Copies, not the shipped files: the calibration wizard saves the holder
+        # into the configuration it was connected with.
         for name, filename in SIM_CONFIGURATIONS.items():
-            cfg.USER_CONFIGURATIONS[name] = {
-                "path": os.path.join(cfg.CONFIG_PATH, filename)
-            }
+            copy = tmp / filename
+            shutil.copyfile(os.path.join(cfg.CONFIG_PATH, filename), copy)
+            cfg.USER_CONFIGURATIONS[name] = {"path": str(copy)}
 
     # -- driving ------------------------------------------------------------
 
