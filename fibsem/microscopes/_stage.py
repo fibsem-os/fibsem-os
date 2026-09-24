@@ -10,11 +10,10 @@ import numpy as np
 import yaml
 from psygnal import Signal
 
+from fibsem import config as cfg
 from fibsem._timing import sim_sleep
-from fibsem.config import (
-    SAMPLE_HOLDER_CONFIGURATION_PATH,
-    SAMPLE_HOLDER_OCCUPANCY_PATH,
-)
+from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
+from fibsem.session_state import SessionState, session_state_for
 from fibsem.structures import (
     GRID_RADIUS,
     BeamType,
@@ -548,14 +547,16 @@ class Stage:
         return self.grid_inventory()
 
     def assign_grid(
-        self, slot_name: str, grid: Optional[SampleGrid], persist: bool = True
+        self, slot_name: str, grid: Optional[SampleGrid], persist: bool = False
     ) -> None:
-        """Name (or clear) the grid in an inventory slot, and keep it.
+        """Name (or clear) the grid in an inventory slot.
 
         With a loader the slot is a magazine slot and the name goes to the hardware's
-        slot description. On a fixed holder the slot is a holder slot and the name is
-        saved to the occupancy file, so it is there next session; the calibration file
-        is not touched. Pass ``persist=False`` to change only the in-memory holder.
+        slot description. On a fixed holder the slot is a holder slot; with
+        ``persist=True`` the occupancy is also saved to the session state, so it is
+        there next session. The application persists; a script leaves it off, so it
+        cannot rewrite what the operator declared is in the shuttle. The
+        calibration is never touched.
         """
         if self.loader is not None:
             self.loader.assign_grid(slot_name, grid)
@@ -565,7 +566,52 @@ class Stage:
             raise ValueError(f"Slot '{slot_name}' not found in sample holder.")
         slot.loaded_grid = grid
         if persist:
-            self.holder.save_occupancy(SAMPLE_HOLDER_OCCUPANCY_PATH)
+            save_holder_occupancy(
+                self.holder, session_state_for(self.parent, writable=True)
+            )
+
+    def restore_occupancy(self) -> bool:
+        """Put back the grids the session state records in the holder's slots.
+
+        Only a fixed holder: an autoloader's magazine is read from the hardware.
+        Returns whether anything was recorded.
+        """
+        if self.loader is not None:
+            return False
+        return load_holder_occupancy(self.holder, session_state_for(self.parent))
+
+
+# ---- which grid is in which slot: session state -------------------------------------
+
+HOLDER_OCCUPANCY = "holder_occupancy"
+
+
+def _import_occupancy() -> Optional[dict]:
+    """The occupancy from the file it lived in before the session state, if any."""
+    path = Path(cfg.SAMPLE_HOLDER_OCCUPANCY_PATH)
+    if not path.exists():
+        return None
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+    return data if isinstance(data, dict) else None
+
+
+def load_holder_occupancy(holder: SampleHolder, state: SessionState) -> bool:
+    """Apply the recorded occupancy to *holder*. Returns whether there was one."""
+    data = state.load_section(HOLDER_OCCUPANCY, migrate=_import_occupancy)
+    if data is None:
+        return False
+    try:
+        holder.apply_occupancy(data)
+    except Exception as e:
+        logging.warning(f"Could not restore the sample holder occupancy: {e}")
+        return False
+    return True
+
+
+def save_holder_occupancy(holder: SampleHolder, state: SessionState) -> bool:
+    """Record which grid is in which slot. Returns whether anything was written."""
+    return state.save_section(HOLDER_OCCUPANCY, holder.occupancy_to_dict())
 
 
 def uncalibrated_message(slot_name: str) -> str:
@@ -672,10 +718,14 @@ def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
             float(stage_settings.rotation_reference),
         ):
             logging.warning(f"Sample holder: {note}. Recalibrate it.")
-        # The grids in the slots are session state, remembered in their own file so
-        # a restart does not forget what is physically still in the shuttle.
-        holder.load_occupancy(SAMPLE_HOLDER_OCCUPANCY_PATH)
         loader = None
 
     holder._parent = microscope
-    return Stage(parent=microscope, holder=holder, loader=loader)
+    stage = Stage(parent=microscope, holder=holder, loader=loader)
+    # The grids in the slots are session state, so a restart does not forget what is
+    # physically still in the shuttle. Restored here when the stage is rebuilt; at
+    # the first connect the configuration is not known yet, and `setup_session`
+    # restores it once it is.
+    if getattr(microscope, "configuration_path", None):
+        stage.restore_occupancy()
+    return stage

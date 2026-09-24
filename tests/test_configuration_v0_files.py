@@ -134,9 +134,6 @@ def test_an_old_file_gives_the_same_orientations(filename, tmp_path, monkeypatch
     monkeypatch.setattr(
         _stage, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(tmp_path / "absent.yaml")
     )
-    monkeypatch.setattr(
-        _stage, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(tmp_path / "occupancy.yaml")
-    )
     config = utils.load_yaml(os.path.join(FIXTURES, filename))
     config["info"] = dict(config["info"], manufacturer="Demo", ip_address="localhost")
     if "arctis" in filename:

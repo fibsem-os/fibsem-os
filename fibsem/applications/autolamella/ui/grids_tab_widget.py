@@ -372,10 +372,12 @@ class GridsTabWidget(QWidget):
         grid.name = name
         # The record links to the hardware by name, so the hardware follows: on the
         # autoloader that writes the slot description, on a fixed holder the
-        # occupancy file.
+        # occupancy in the session state.
         if entry is not None and entry.present and self.stage is not None:
             try:
-                self.stage.assign_grid(entry.slot_name, SampleGrid(name=name))
+                self.stage.assign_grid(
+                    entry.slot_name, SampleGrid(name=name), persist=True
+                )
             except Exception as e:  # noqa: BLE001 - the record is renamed; say so
                 logging.warning(f"Renamed the record but not the hardware slot: {e}")
                 self._say(

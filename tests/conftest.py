@@ -35,9 +35,10 @@ def _isolate_sample_holder_config(tmp_path_factory, monkeypatch):
     default_sample_holder(pre_tilt=0.0).save(path)
     monkeypatch.setattr(cfg, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
     monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+    # The file the occupancy lived in before the session state: imported from, so a
+    # developer's real one must not be.
     occupancy = holder_dir / "sample-holder-occupancy.yaml"  # absent until written
     monkeypatch.setattr(cfg, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(occupancy))
-    monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(occupancy))
 
 
 @pytest.fixture(autouse=True)

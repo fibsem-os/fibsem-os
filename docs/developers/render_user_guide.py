@@ -171,7 +171,6 @@ class Harness:
         cfg.SAMPLE_HOLDER_CONFIGURATION_PATH = holder_path
         cfg.SAMPLE_HOLDER_OCCUPANCY_PATH = occupancy_path
         stage_module.SAMPLE_HOLDER_CONFIGURATION_PATH = holder_path
-        stage_module.SAMPLE_HOLDER_OCCUPANCY_PATH = occupancy_path
         for name, filename in SIM_CONFIGURATIONS.items():
             cfg.USER_CONFIGURATIONS[name] = {
                 "path": os.path.join(cfg.CONFIG_PATH, filename)
