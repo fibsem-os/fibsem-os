@@ -6,6 +6,8 @@ replaces only its own section, an unreadable file is never overwritten, and an o
 file is imported once.
 """
 
+import os
+import stat
 import threading
 from pathlib import Path
 
@@ -202,6 +204,18 @@ def test_a_file_that_is_not_a_mapping_is_treated_as_unreadable(store):
     store.path.write_text("- just\n- a list\n")
 
     assert store.load_section("fm") is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_the_file_is_readable_by_the_next_operator(store):
+    """Created like any other file, under the umask -- not private to the account
+    that happened to write it, as a `mkstemp` file would be."""
+    umask = os.umask(0)
+    os.umask(umask)
+
+    store.save_section("fm", {"a": 1})
+
+    assert stat.S_IMODE(store.path.stat().st_mode) == 0o666 & ~umask
 
 
 def test_no_temporary_file_is_left_behind(store):

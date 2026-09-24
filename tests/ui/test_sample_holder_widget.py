@@ -137,8 +137,11 @@ def test_unhosted_widget_moves_the_stage_itself(qapp, microscope):
     assert abs(microscope.get_stage_position().x + 5e-3) < 1e-9
 
 
-def test_naming_persists_to_the_occupancy_file_not_the_calibration(qapp, microscope):
+def test_naming_persists_to_the_session_state_not_the_calibration(qapp, microscope):
+    from pathlib import Path
+
     import fibsem.config as cfg
+    from fibsem.session_state import session_state_for
 
     holder = microscope._stage.holder
     widget = SampleHolderWidget(microscope=microscope)
@@ -146,9 +149,9 @@ def test_naming_persists_to_the_occupancy_file_not_the_calibration(qapp, microsc
     row = widget._row_widget(0)
     row.name_edit.setText("grid-aspen")
     row.name_edit.editingFinished.emit()
-    from pathlib import Path
 
-    assert Path(cfg.SAMPLE_HOLDER_OCCUPANCY_PATH).exists()
+    recorded = session_state_for(microscope).load_section("holder_occupancy")
+    assert recorded["Slot-01"]["name"] == "grid-aspen"
     assert "grid-aspen" not in Path(cfg.SAMPLE_HOLDER_CONFIGURATION_PATH).read_text()
 
 

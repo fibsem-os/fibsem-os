@@ -4720,23 +4720,6 @@ class SampleHolder:
                 SampleGrid.from_dict(grid_data) if grid_data is not None else None
             )
 
-    def save_occupancy(self, path: Union[str, Path]) -> None:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            yaml.dump(
-                self.occupancy_to_dict(), f, default_flow_style=False, sort_keys=False
-            )
-
-    def load_occupancy(self, path: Union[str, Path]) -> bool:
-        """Apply the occupancy file if there is one. Returns whether there was."""
-        path = Path(path)
-        if not path.exists():
-            return False
-        with open(path, "r") as f:
-            self.apply_occupancy(yaml.safe_load(f) or {})
-        return True
-
     @classmethod
     def from_dict(cls, data: dict) -> "SampleHolder":
         slots = {
@@ -4769,7 +4752,7 @@ class SampleHolder:
 
     def save(self, path: Union[str, Path]) -> None:
         """Write the holder's geometry and calibration. Not the grids in it: those
-        are session state and live in the occupancy file (``save_occupancy``)."""
+        are session state (``fibsem.microscopes._stage.save_holder_occupancy``)."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:

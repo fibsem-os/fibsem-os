@@ -235,8 +235,8 @@ class SampleHolderWidget(QWidget):
     ``holder_changed`` fires after a grid was named or cleared here and after the
     wizard saved a calibration, for hosts that draw the holder. Nothing is saved
     from here: the wizard writes the calibration file, and naming a grid goes
-    through ``Stage.assign_grid``, which writes the occupancy file (or, with a
-    loader, the hardware). ``set_holder`` swaps which holder is shown.
+    through ``Stage.assign_grid``, which records the occupancy in the session state
+    (or, with a loader, writes the hardware). ``set_holder`` swaps which holder is shown.
     """
 
     holder_changed = pyqtSignal(object)  # SampleHolder
@@ -377,7 +377,7 @@ class SampleHolderWidget(QWidget):
 
     def _on_grid_named(self, slot: GridSlot, name: str) -> None:
         """Record the grid in a slot. Through the stage when there is one, so the
-        occupancy file is written and a restart still knows what is in the shuttle."""
+        occupancy is saved and a restart still knows what is in the shuttle."""
         if self._holder is None:
             return
         grid: Optional[SampleGrid]
@@ -390,7 +390,7 @@ class SampleHolderWidget(QWidget):
             grid = SampleGrid(name=name)
         if self._microscope is not None:
             try:
-                self._microscope._stage.assign_grid(slot.name, grid)
+                self._microscope._stage.assign_grid(slot.name, grid, persist=True)
             except Exception as e:  # noqa: BLE001 - keep the in-memory change, say so
                 logging.warning(f"Could not record the grid in {slot.name}: {e}")
                 slot.loaded_grid = grid

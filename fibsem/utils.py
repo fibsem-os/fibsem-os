@@ -501,6 +501,11 @@ def setup_session(
     microscope.configuration_path = str(
         config_path if config_path is not None else cfg.DEFAULT_CONFIGURATION_PATH
     )
+    # The stage was built during the connect, before the configuration was known,
+    # so the session state it restores from could not be found yet.
+    stage = getattr(microscope, "_stage", None)
+    if stage is not None:
+        stage.restore_occupancy()
 
     logging.info(f"Finished setup for session: {session}")
 

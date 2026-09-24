@@ -390,37 +390,30 @@ class TestAssignGrid:
         assert loader.slots["Slot-03"].loaded_grid.name == "grid-cedar"
         assert _entry(microscope, "Slot-03").present is True
 
-    def test_on_fixed_holder_names_the_slot_and_saves_the_occupancy(
-        self, tmp_path, monkeypatch
-    ):
-        import fibsem.microscopes._stage as stage_module
-
-        path = tmp_path / "occupancy.yaml"
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(path))
+    def test_on_fixed_holder_names_the_slot_and_saves_the_occupancy(self):
         microscope = _fixed_demo()
-        microscope._stage.assign_grid("Slot-02", SampleGrid(name="grid-birch"))
+        microscope._stage.assign_grid(
+            "Slot-02", SampleGrid(name="grid-birch"), persist=True
+        )
         assert _entry(microscope, "Slot-02").name == "grid-birch"
         # the next session's holder picks it up; the calibration file is untouched
         again = _fixed_demo()
         assert again._stage.holder.slots["Slot-02"].loaded_grid.name == "grid-birch"
 
-    def test_on_fixed_holder_can_skip_persisting(self, tmp_path, monkeypatch):
-        import fibsem.microscopes._stage as stage_module
+    def test_on_fixed_holder_a_script_does_not_persist(self):
+        """Persisting is the application's to ask for; a script names a grid for
+        its own run and leaves what the operator declared alone."""
+        from fibsem.session_state import session_state_for
 
-        path = tmp_path / "occupancy.yaml"
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(path))
-        microscope = _fixed_demo()
-        microscope._stage.assign_grid("Slot-01", SampleGrid(name="g"), persist=False)
-        assert not path.exists()
-
-    def test_on_fixed_holder_clearing_persists_too(self, tmp_path, monkeypatch):
-        import fibsem.microscopes._stage as stage_module
-
-        path = tmp_path / "occupancy.yaml"
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(path))
         microscope = _fixed_demo()
         microscope._stage.assign_grid("Slot-01", SampleGrid(name="g"))
-        microscope._stage.assign_grid("Slot-01", None)
+        assert not session_state_for(microscope).path.exists()
+        assert _fixed_demo()._stage.holder.slots["Slot-01"].loaded_grid is None
+
+    def test_on_fixed_holder_clearing_persists_too(self):
+        microscope = _fixed_demo()
+        microscope._stage.assign_grid("Slot-01", SampleGrid(name="g"), persist=True)
+        microscope._stage.assign_grid("Slot-01", None, persist=True)
         assert _fixed_demo()._stage.holder.slots["Slot-01"].loaded_grid is None
 
     def test_unknown_holder_slot_raises(self):

@@ -394,7 +394,7 @@ class SampleLoaderWidget(QWidget):
             return
         grid = SampleGrid(name=name, description=grid.description, radius=grid.radius)
         try:
-            self._microscope._stage.assign_grid(slot.name, grid)
+            self._microscope._stage.assign_grid(slot.name, grid, persist=True)
         except Exception as e:  # noqa: BLE001 - keep the in-memory change, say so
             logging.warning(f"Could not write the name of {slot.name}: {e}")
             slot.loaded_grid = grid
