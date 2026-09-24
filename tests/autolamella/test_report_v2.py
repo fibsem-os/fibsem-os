@@ -260,3 +260,53 @@ def test_nothing_ran():
 
     assert "No task runs were recorded." in page
     assert "0 of 3" in page
+
+
+def _fm(second, item, planes=1, overview=None, started=None):
+    return {
+        "session": "s1",
+        "actor": "task" if item else "operator",
+        "kind": "fm_image_acquired",
+        "t": (T0 + timedelta(seconds=second)).isoformat() + "+10:00",
+        "item": {"id": item, "name": item} if item else None,
+        "task": {"id": "fm", "name": "Acquire Fluorescence"} if item else None,
+        "payload": {
+            "acquired_at": (
+                (T0 + timedelta(seconds=started)).isoformat()
+                if started is not None
+                else None
+            ),
+            "channels": [{"name": "GFP"}],
+            "z_positions": [0.0] * planes if planes > 1 else None,
+            "overview": overview,
+        },
+    }
+
+
+def test_fluorescence_acquisitions_are_counted_and_marked():
+    """Two z-stacks on two lamellae during the runs, and an overview on no
+    lamella made before the first run: the timeline reaches back to it."""
+    records = (
+        [_fm(0, None, overview={"rows": 2, "cols": 2}, started=-180)]
+        + _run(A, SETUP, 0, 300)
+        + [_fm(200, A, planes=11, started=160)]
+        + _run(B, SETUP, 300, 600)
+        + [_fm(550, B, planes=11, started=500)]
+    )
+
+    _, page = _render(records, items=(A, B))
+
+    assert "3 acquisitions" in page and "on 2 lamellae" in page
+    assert _count(page, r'class="fm"') == 3
+    assert "(no lamella)" in page  # the overview's row
+    assert "FM z-stack, 11 planes, GFP (Acquire Fluorescence) · 0:40" in page
+    assert "FM overview, 2×2 tiles, GFP · 3:00" in page
+    assert "</i>FM acquisition" in page
+    ticks = re.findall(r'text-anchor="middle">(\d\d:\d\d)</text>', page)
+    assert ticks[0] == "08:58"  # before the first run, at 09:00
+
+
+def test_no_fluorescence_no_tile_and_no_key():
+    _, page = _render(_run(A, SETUP, 0, 60))
+
+    assert "Fluorescence" not in page and "</i>FM acquisition" not in page

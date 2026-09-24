@@ -18,6 +18,8 @@ table, empty.
   an agent's and the task's share of what was done.
 * ``waits``: one row per question a run waited on, from when it was raised or
   asked to its answer: where the waiting was, for a timeline to draw.
+* ``fm``: one row per fluorescence acquisition -- a z-stack, an image or a
+  stitched overview -- on the lamella and task it was made for, if any.
 
 Waiting is the time a run's questions stood unanswered: a prompt from when it
 was raised to its answer or withdrawal, and a question on the record from when
@@ -120,6 +122,19 @@ EDIT_COLUMNS = [
 ]
 ACTOR_COLUMNS = ["actor", "kind", "count"]
 WAIT_COLUMNS = ["item", "task", "task_id", "start", "end", "duration", "source"]
+FM_COLUMNS = [
+    "item",
+    "task",
+    "task_id",
+    "actor",
+    "start",
+    "end",
+    "duration",
+    "channels",
+    "planes",
+    "overview",
+    "path",
+]
 
 # How a run ended. A run with no end recorded is "unfinished": still running
 # when the file was read, or cut off.
@@ -143,6 +158,7 @@ class EventTables:
     edits: pd.DataFrame
     actors: pd.DataFrame
     waits: pd.DataFrame
+    fm: pd.DataFrame
 
 
 def read_event_tables(path: Union[str, Path]) -> EventTables:
@@ -169,6 +185,7 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
     asked: Dict[Any, Tuple[datetime, Any, Any, Any]] = {}
     waits: Dict[Any, List[Interval]] = {}  # run id -> its questions' waits
     wait_rows: List[Dict[str, Any]] = []
+    fm: List[Dict[str, Any]] = []
     edits: List[Dict[str, Any]] = []
     acted: "Counter[Tuple[Any, Any]]" = Counter()  # (actor, kind) -> records
 
@@ -259,6 +276,8 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
             decided[key] = row
         elif kind == "edit":
             edits.append(_edit(time, record, payload))
+        elif kind == "fm_image_acquired":
+            fm.append(_fm(time, record, payload))
 
     for run in runs.values():
         _time_spent(run, waits.get(run["task_id"], []))
@@ -274,6 +293,7 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
         decisions=_table(decisions, DECISION_COLUMNS),
         edits=_table(edits, EDIT_COLUMNS),
         waits=_table(wait_rows, WAIT_COLUMNS),
+        fm=_table(fm, FM_COLUMNS),
         actors=_table(
             (
                 {"actor": actor, "kind": kind, "count": count}
@@ -315,6 +335,49 @@ def _run(
 def _end(step: Optional[Dict[str, Any]], time: datetime) -> None:
     if step is not None:
         step["end"] = time
+
+
+def _fm(time: datetime, record: Dict[str, Any], payload: Dict[str, Any]):
+    """An FM acquisition, recorded once it was saved: it started when its
+    metadata says, and ended when it was recorded."""
+    item = record.get("item") or {}
+    task = record.get("task") or {}
+    start = _acquired_at(payload.get("acquired_at"))
+    if start is None or start > time:
+        start = time
+    overview = payload.get("overview")
+    return {
+        "item": item.get("name"),
+        "task": task.get("name"),
+        "task_id": task.get("id"),
+        "actor": record.get("actor"),
+        "start": start,
+        "end": time,
+        "duration": _seconds(start, time),
+        "channels": [
+            c.get("name") for c in payload.get("channels") or [] if isinstance(c, dict)
+        ],
+        "planes": len(payload.get("z_positions") or []) or 1,
+        "overview": (
+            f"{overview.get('rows')}×{overview.get('cols')}"
+            if isinstance(overview, dict)
+            else None
+        ),
+        "path": payload.get("path"),
+    }
+
+
+def _acquired_at(value: Any) -> Optional[datetime]:
+    """An FM acquisition's start, as its metadata records it: the instrument's
+    local time, converted to it when the value carries an offset (as the
+    replay reads it)."""
+    try:
+        started = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    if started.tzinfo is not None:
+        started = started.astimezone().replace(tzinfo=None)
+    return started
 
 
 def _waited(

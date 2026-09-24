@@ -39,6 +39,7 @@ from fibsem.applications.autolamella.tools.event_tables import (
     ACTOR_COLUMNS,
     DECISION_COLUMNS,
     EDIT_COLUMNS,
+    FM_COLUMNS,
     MILLING_COLUMNS,
     RUN_COLUMNS,
     STEP_COLUMNS,
@@ -175,6 +176,7 @@ def test_every_table_has_its_columns_even_empty(tmp_path):
     assert list(tables.edits.columns) == EDIT_COLUMNS
     assert list(tables.actors.columns) == ACTOR_COLUMNS
     assert list(tables.waits.columns) == WAIT_COLUMNS
+    assert list(tables.fm.columns) == FM_COLUMNS
     assert tables.runs.empty and tables.decisions.empty and tables.actors.empty
 
 
@@ -581,3 +583,42 @@ def test_who_did_what():
         ("task", "task_completed"): 1,
         (None, "task_step"): 1,
     }
+
+
+def _fm_payload(acquired_at=None, planes=None, overview=None, path="stack.ome.tiff"):
+    return {
+        "path": path,
+        "acquired_at": acquired_at,
+        "channels": [{"name": "DAPI"}, {"name": "GFP"}],
+        "z_positions": [i * 1e-6 for i in range(planes)] if planes else None,
+        "overview": overview,
+    }
+
+
+def test_each_fm_acquisition_with_what_and_how_long():
+    """A z-stack started when its metadata says and recorded when saved; an
+    overview on no lamella; and one whose start was not recorded."""
+    started = (T0 + timedelta(seconds=10)).isoformat()
+    records = [
+        _record("fm_image_acquired", 52, _fm_payload(started, planes=21)),
+        _record(
+            "fm_image_acquired",
+            90,
+            _fm_payload(overview={"rows": 3, "cols": 4, "overlap": 0.1}),
+            run=None,
+            actor="operator",
+        ),
+        _record("fm_image_acquired", 100, _fm_payload(planes=1, path=None)),
+    ]
+
+    stack, overview, image = event_tables(records).fm.to_dict("records")
+
+    assert (stack["item"], stack["task"], stack["task_id"]) == (ITEM["name"], TASK, RUN)
+    assert (stack["start"], stack["end"]) == tuple(_seconds(10, 52))
+    assert (stack["duration"], stack["planes"]) == (42.0, 21)
+    assert stack["channels"] == ["DAPI", "GFP"]
+    assert pd.isna(overview["item"]) and overview["actor"] == "operator"
+    assert (overview["overview"], overview["planes"]) == ("3×4", 1)
+    # no start recorded: taken as when it was recorded
+    assert (image["duration"], image["planes"]) == (0.0, 1)
+    assert pd.isna(image["path"])
