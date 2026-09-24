@@ -2016,9 +2016,16 @@ class FibsemOverviewWidget(QWidget):
                 f"Placed from its metadata{mirrored}"
             )
             return
+        # A scale is shown as the pixel size it makes: the number the file had wrong.
+        scaled = (
+            f", pixel {record.pixel_size * scale * constants.SI_TO_MICRO:.4g} um"
+            f" (×{scale:.3f})"
+            if scale != 1.0
+            else ""
+        )
         self.aligned_image_panel.set_placement_text(
             f"Moved {dx * constants.SI_TO_MICRO:+.1f}, {dy * constants.SI_TO_MICRO:+.1f} um"
-            f" from its metadata, turned {rotation:+.1f}°{mirrored}"
+            f" from its metadata, turned {rotation:+.1f}°{scaled}{mirrored}"
         )
 
     # ── state ────────────────────────────────────────────────────────────
