@@ -272,6 +272,8 @@ class MillCoincidentTask(AutoLamellaTask):
             ),
             abort=lambda: _abort_requested(self.parent_ui),
         )
+        # The operator pressed Continue in the viewer, milled or not.
+        self._decided_in_the_workflow()
         if result is None:
             self.log_status_message(
                 "MILL_COINCIDENT_SKIPPED",

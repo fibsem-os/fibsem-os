@@ -281,9 +281,14 @@ def test_start_milling_runs_the_edited_boxes_and_continue_answers_them(
     milling_widget = viewer.milling_viewer_widget.milling_widget
     ran = []
 
+    actors = []
+
     def fake_run(config=None):
+        from fibsem.acting import current_actor
+
         milling_widget._running_config = config
         ran.append(config)
+        actors.append(current_actor())
 
     monkeypatch.setattr(milling_widget, "run_milling", fake_run)
 
@@ -297,6 +302,8 @@ def test_start_milling_runs_the_edited_boxes_and_continue_answers_them(
     qapp.processEvents()
     assert len(ran) == 1
     assert viewer._is_milling_active
+    # started on the task's behalf, as the workflow's milling session is
+    assert actors == ["task"]
     for stage in ran[0].enabled_stages:
         assert stage.pattern.point.x == pytest.approx(3.0e-6)
         assert stage.strategy.config.bbox.left == pytest.approx(0.1, abs=0.01)

@@ -295,6 +295,9 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             setup: Optional[CoincidenceSetup] = None
             if self.parent_ui is not None:
                 setup = self._hand_off(fm_image)
+                # Save and Continue, or Skip Site: either way the operator
+                # decided this site in the workflow
+                self._decided_in_the_workflow()
                 if setup is None:
                     # skipped: no record, so the mill task's `requires` holds
                     # this site back and says why

@@ -61,6 +61,7 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import conversions
+from fibsem.acting import TASK, acting, current_actor
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
@@ -2316,9 +2317,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._is_milling_active = True
         self._set_widgets_enabled(False)
         self.milling_started_signal.emit()
-        self.milling_viewer_widget.milling_widget.run_milling(
-            config=milling_task_config
-        )
+        # In run mode this is the task's mill, started on its behalf, as the
+        # workflow's milling session is (FIB-1062); a manual run is the operator's.
+        with acting(TASK if self.in_run_mode else current_actor()):
+            self.milling_viewer_widget.milling_widget.run_milling(
+                config=milling_task_config
+            )
 
     @ensure_main_thread
     def _on_milling_progress(self, payload: object):

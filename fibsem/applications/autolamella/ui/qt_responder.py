@@ -71,6 +71,9 @@ if TYPE_CHECKING:
 
 __all__ = ["QtResponder"]
 
+# where the coincidence questions are answered, for the hold's status line
+_IN_THE_VIEWER = "answer the question in the Coincidence Milling Viewer"
+
 
 class QtResponder(QObject):
     """Answers workflow requests by driving the window's widgets, on the GUI thread."""
@@ -717,7 +720,9 @@ class QtResponder(QObject):
             title=request.milling_config.name,
             on_continue=lambda: self.answer_confirm(True),
         )
-        self._park_question(request, future, request.message, "Continue", None)
+        self._park_question(
+            request, future, request.message, "Continue", None, releases=_IN_THE_VIEWER
+        )
 
     def _finish_coincidence_run(self):
         """The answer: the config the viewer ran, None if it never did; viewer released."""
@@ -1011,7 +1016,12 @@ class QtResponder(QObject):
             on_skip=lambda: self.answer_confirm(False),
         )
         self._park_question(
-            request, future, request.message, "Save and Continue", "Skip Site"
+            request,
+            future,
+            request.message,
+            "Save and Continue",
+            "Skip Site",
+            releases=_IN_THE_VIEWER,
         )
 
     def _coincidence_viewer(self):

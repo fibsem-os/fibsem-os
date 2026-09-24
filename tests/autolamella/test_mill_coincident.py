@@ -13,6 +13,7 @@ import yaml
 
 import fibsem.config as fconfig
 from fibsem import utils
+from fibsem.applications.autolamella.proposals import DecisionOutcome
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -347,6 +348,11 @@ def test_supervised_asks_the_viewer_to_run_and_records_its_answer(microscope, tm
     milling = lamella.task_config["Coincidence Milling"].milling[MILL_COINCIDENT_KEY]
     assert all(s.strategy.end_reason == "drop" for s in milling.enabled_stages)
     assert "drop" in lamella.task_history[-1].status_message
+    # the viewer's Continue is the operator's decision on the run, not a second
+    # look waiting in the Review tab
+    assert task.inline_decision is not None
+    assert task.inline_decision.outcome is DecisionOutcome.Confirmed
+    assert task.inline_decision.via == "workflow"
 
 
 def test_automated_with_a_ui_tells_the_viewer_to_watch_and_release(
@@ -373,3 +379,5 @@ def test_automated_with_a_ui_tells_the_viewer_to_watch_and_release(
     assert callable(watch.stop)
     milling = lamella.task_config["Coincidence Milling"].milling[MILL_COINCIDENT_KEY]
     assert milling.enabled_stages[0].strategy.end_reason == "timeout"
+    # nobody decided it in the workflow
+    assert task.inline_decision is None

@@ -92,7 +92,7 @@ def _run_task_on_worker_thread(ui, lamella):
     task = SetupCoincidenceMillingTask(
         microscope=ui.microscope, config=config, lamella=lamella, parent_ui=ui
     )
-    outcome = {}
+    outcome = {"task": task}
 
     def target():
         try:
@@ -133,6 +133,8 @@ def test_save_and_continue_records_what_the_operator_left(ui, qapp):
     assert ui.microscope.fm.objective.position == pytest.approx(2.45e-3)
     assert viewer._selected_lamella is lamella
     assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    # the hold says where the question is answered
+    assert "Coincidence Milling Viewer" in ui.hold.releases
 
     # the FM tab shows the mill's monitoring channel, and only it
     channels = viewer.fm_channel_widget.channel_settings
@@ -159,6 +161,9 @@ def test_save_and_continue_records_what_the_operator_left(ui, qapp):
     assert config.pattern_offset.x == pytest.approx(2.0e-6)
     assert config.pattern_offset.y == pytest.approx(1.0e-6)
     assert config.intensity_drop_fraction == pytest.approx(0.35)
+    # Save and Continue is the operator's decision on the site's setup
+    decision = outcome["task"].inline_decision
+    assert decision is not None and decision.via == "workflow"
     # the tuned channel landed on the mill task, not on the setup record
     mill = lamella.task_config["Coincidence Milling"]
     assert mill.monitoring_channel.name == "Monitoring"

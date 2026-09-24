@@ -140,6 +140,7 @@ def test_supervised_mill_is_run_from_the_viewer_and_continue_answers_it(ui, qapp
     viewer = _viewer(ui)
     # the main window's prompt is the same question, Continue only
     assert ui.label_instructions.text() == MSG
+    assert "Coincidence Milling Viewer" in ui.hold.releases
     assert not ui.pushButton_no.isVisible()
     # the milling tab was not touched
     assert ui.milling_task_config_widget.milling_widget.running_config is None
