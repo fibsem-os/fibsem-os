@@ -6,9 +6,14 @@ got, where its time went, and what needs a look:
 
 * headline numbers: lamellae finished, throughput, and the time budget --
   machine, waiting for an answer, and idle (nothing running)
+* what is worth a look: failed, cancelled and unfinished runs, milling stages
+  that did not finish, long waits, idle gaps, rejected proposals, and plan
+  edits made while tasks were running
 * the outcome of each lamella's run of each task
 * a timeline of every run, with its waits and the idle gaps between runs, and
   every fluorescence acquisition
+* where the operator stepped in: each kind of question, how often what was
+  proposed was changed or rejected and by how much, and the plan's edits
 
 One file with nothing to fetch: styles are inline and the charts are SVG, so it
 opens offline on the support PC and can be passed on as it is. It prints to A4
@@ -28,6 +33,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import pandas as pd
 
 from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+from fibsem.applications.autolamella.proposals import kind_label
 from fibsem.applications.autolamella.tools.event_tables import (
     EventTables,
     read_event_tables,
@@ -40,6 +46,10 @@ REPORT_FILENAME = "report.html"
 # worth pointing out.
 _IDLE_GAP_MIN_S = 60.0
 _IDLE_GAP_MIN_FRACTION = 0.02
+# A wait for an answer this long, or a gap with nothing running this long, is
+# worth a look. Shorter gaps are still shaded on the timeline.
+_LONG_WAIT_S = 300.0
+_LONG_IDLE_S = 600.0
 
 # The tasks' colours, in the workflow's order, and what each ending looks like.
 _TASK_COLOURS = (
@@ -127,16 +137,21 @@ def render_report(
     fm = _fm(tables)
     items = _ordered(items, [r["item"] for r in runs] + [a["item"] for a in fm])
     tasks = _ordered(tasks, [r["task"] for r in runs])
-    summary = summarise(tables, items, tasks)
+    # what was on no lamella -- a grid overview -- has a row on the timeline,
+    # but is not a lamella to count or to give an outcome
+    lamellae = [item for item in items if item != _NO_ITEM]
+    summary = summarise(tables, lamellae, tasks)
     generated = generated or datetime.now()
     body = [
-        _header(name, summary, items, tasks, generated),
-        _headline(summary, items, fm),
+        _header(name, summary, lamellae, tasks, generated),
+        _headline(summary, lamellae, fm),
     ]
     if summary.start is not None:
         body += [
-            _section("Outcome", _outcome(runs, items, tasks)),
+            _section("Worth a look", _worth_a_look(runs, tables, summary)),
+            _section("Outcome", _outcome(runs, lamellae, tasks)),
             _section("Timeline", _timeline(runs, fm, tables, summary, items, tasks)),
+            _section("Where the operator stepped in", _stepped_in(tables)),
         ]
     else:
         body.append('<p class="muted">No task runs were recorded.</p>')
@@ -387,6 +402,253 @@ def _timeline(runs, fm, tables: EventTables, summary: Summary, items, tasks) -> 
     )
 
 
+def _worth_a_look(runs, tables: EventTables, summary: Summary) -> str:
+    """What a reader should see first: most serious first, then in order."""
+    notes: List[Tuple[int, datetime, str]] = []  # (how serious, when, what)
+    completed = {(r["item"], r["task"]) for r in runs if r["outcome"] == "completed"}
+    for run in runs:
+        item, task, when = run["item"], run["task"], run["start"] or run["end"]
+        reason = f": {run['reason'].rstrip('.')}" if run["reason"] else ""
+        if run["outcome"] == "failed":
+            then = (
+                " It was run again and completed." if (item, task) in completed else ""
+            )
+            notes.append(
+                (
+                    0,
+                    when,
+                    f"{item}: {task} failed after {_clock(run['duration'])}"
+                    f"{reason}.{then}",
+                )
+            )
+        elif run["outcome"] == "cancelled":
+            notes.append(
+                (
+                    1,
+                    when,
+                    f"{item}: {task} was cancelled at "
+                    f"{_clock(run['duration'])}{reason}.",
+                )
+            )
+        elif run["outcome"] == "unfinished":
+            notes.append(
+                (
+                    1,
+                    when,
+                    f"{item}: {task} has no end recorded; last heard from at "
+                    f"{_run_end(run):%H:%M}.",
+                )
+            )
+    for stage in tables.milling.to_dict("records"):
+        if not stage["finished"] and _dt(stage["start"]) is not None:
+            notes.append(
+                (
+                    1,
+                    _dt(stage["start"]),
+                    f"{_item(stage['item'])}: "
+                    f"{_text(stage['milling_task'])} stage {_text(stage['stage'])} "
+                    "did not finish.",
+                )
+            )
+    for decision in tables.decisions.to_dict("records"):
+        if decision["outcome"] == "Rejected":
+            reason = _text(decision["reason"]).rstrip(".")
+            notes.append(
+                (
+                    1,
+                    _dt(decision["time"]),
+                    f"{_item(decision['item'])}: "
+                    f"{kind_label(_text(decision['kind']))} rejected by the "
+                    f"{_text(decision['actor']) or 'operator'}"
+                    f"{': ' + reason if reason else ''}.",
+                )
+            )
+    for wait in tables.waits.to_dict("records"):
+        if not pd.isna(wait["duration"]) and wait["duration"] >= _LONG_WAIT_S:
+            start = _dt(wait["start"])
+            notes.append(
+                (
+                    2,
+                    start,
+                    f"{_item(wait['item'])}: {_text(wait['task'])} waited "
+                    f"{_duration(wait['duration'])} for an answer, from {start:%H:%M}.",
+                )
+            )
+    for a, b in summary.idle_gaps:
+        if (b - a).total_seconds() < _LONG_IDLE_S:
+            continue
+        notes.append(
+            (
+                2,
+                a,
+                f"Nothing ran from {a:%H:%M} to {b:%H:%M} "
+                f"({_duration((b - a).total_seconds())}).",
+            )
+        )
+    notes += _edits_mid_run(runs, tables)
+    if not notes:
+        return '<p class="muted">Nothing stood out.</p>'
+    notes.sort(key=lambda note: (note[0], note[1]))
+    marks = ("failed", "warning", "notice", "info")
+    return '<ul class="notes">{}</ul>'.format(
+        "".join(
+            f'<li class="note {marks[level]}">{_e(text)}</li>'
+            for level, _, text in notes
+        )
+    )
+
+
+def _edits_mid_run(runs, tables: EventTables) -> List[Tuple[int, datetime, str]]:
+    """Plan edits made while a task was running, one note for each change: an
+    edit applied to many lamellae at once is one note."""
+    changes: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
+    for edit in tables.edits.to_dict("records"):
+        t = _dt(edit["time"])
+        running = next(
+            (r for r in runs if r["start"] and r["start"] <= t <= _run_end(r)), None
+        )
+        if running is None:
+            continue
+        key = (
+            _text(edit["via"]),
+            _text(edit["target"]),
+            _text(edit["actor"]),
+            t.replace(second=0, microsecond=0),
+        )
+        changes.setdefault(key, []).append(dict(edit, running=running, time=t))
+    notes = []
+    for (via, target, actor, _), edits in changes.items():
+        lamellae = sorted({_item(e["item"]) for e in edits})
+        where = lamellae[0] if len(lamellae) == 1 else f"{len(lamellae)} lamellae"
+        running = edits[0]["running"]
+        who = f" by the {actor}" if actor else ""
+        notes.append(
+            (
+                3,
+                edits[0]["time"],
+                f"{_text(edits[0]['task']) or 'The protocol'}'s "
+                f"{target} changed on {where} at {edits[0]['time']:%H:%M} "
+                f"({via}{who}), while {running['task']} was running on "
+                f"{running['item']}.",
+            )
+        )
+    return notes
+
+
+def _stepped_in(tables: EventTables) -> str:
+    """Each kind of question: how its decisions went, how long it waited, and
+    how far what was proposed was moved. Then the plan's edits."""
+    decisions = tables.decisions.to_dict("records")
+    edits = tables.edits.to_dict("records")
+    if not decisions and not edits:
+        return '<p class="muted">Nobody was asked anything, and the plan was not edited.</p>'
+    parts = []
+    if decisions:
+        kinds: Dict[str, List[Dict[str, Any]]] = {}
+        for d in decisions:
+            kinds.setdefault(_text(d["kind"]), []).append(d)
+        rows = []
+        for kind, rows_of_kind in kinds.items():
+            confirmed = [d for d in rows_of_kind if d["outcome"] == "Confirmed"]
+            changed = [d for d in confirmed if d["changed"]]
+            waits = [d["waited"] for d in rows_of_kind if not pd.isna(d["waited"])]
+            cells = [
+                kind_label(kind),
+                len(rows_of_kind),
+                len(waits),
+                len(confirmed) - len(changed),
+                len(changed),
+                sum(d["outcome"] == "Rejected" for d in rows_of_kind),
+                sum(d["outcome"] == "Unreviewed" for d in rows_of_kind),
+                _clock(sum(waits) / len(waits)) if waits else "—",
+                _mean_move(changed),
+            ]
+            rows.append(
+                "<tr>"
+                + "".join(
+                    f"<td{'' if i == 0 else ' class=n'}>{_e(c)}</td>"
+                    for i, c in enumerate(cells)
+                )
+                + "</tr>"
+            )
+        head = (
+            "Question",
+            "Decisions",
+            "Asked",
+            "As proposed",
+            "Changed",
+            "Rejected",
+            "Unreviewed",
+            "Mean wait",
+            "Mean move",
+        )
+        parts.append(_table(head, rows))
+        by = {}
+        for d in decisions:
+            by[_text(d["actor"]) or "not recorded"] = (
+                by.get(_text(d["actor"]) or "not recorded", 0) + 1
+            )
+        note = (
+            " Those recorded as the task's were made by nobody: unreviewed, "
+            "withdrawn, or confirmed by the task itself."
+            if "task" in by
+            else ""
+        )
+        parts.append(
+            '<p class="muted small">Decided by '
+            + " · ".join(f"{_e(who)} {n}" for who, n in by.items())
+            + f".{_e(note)}</p>"
+        )
+    if edits:
+        groups: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+        for edit in edits:
+            groups.setdefault((_text(edit["via"]), _text(edit["actor"])), []).append(
+                edit
+            )
+        rows = []
+        for (via, actor), group in groups.items():
+            targets = list(dict.fromkeys(_text(e["target"]) for e in group))
+            shown = ", ".join(targets[:3]) + (
+                f" and {len(targets) - 3} more" if len(targets) > 3 else ""
+            )
+            cells = [
+                via or "—",
+                actor or "—",
+                len(group),
+                len({_item(e["item"]) for e in group}),
+                shown,
+            ]
+            rows.append(
+                "<tr>"
+                + "".join(
+                    f"<td{' class=n' if i in (2, 3) else ''}>{_e(c)}</td>"
+                    for i, c in enumerate(cells)
+                )
+                + "</tr>"
+            )
+        parts.append("<h3>Plan edits</h3>")
+        parts.append(_table(("From", "Who", "Edits", "Lamellae", "What"), rows))
+    return "".join(parts)
+
+
+def _mean_move(changed: List[Dict[str, Any]]) -> str:
+    """How far the changed decisions moved what was proposed, on average."""
+    moves = [(d["moved"], d["unit"]) for d in changed if not pd.isna(d["moved"])]
+    if not moves:
+        return "—"
+    unit = moves[0][1]
+    mean = sum(m for m, u in moves if u == unit) / sum(1 for _, u in moves if u == unit)
+    if unit == "m":
+        return f"{mean * 1e6:.1f} µm" if mean >= 1e-7 else f"{mean * 1e9:.0f} nm"
+    return f"{mean:.1f} {unit}" if mean < 10 else f"{mean:.0f} {unit}"
+
+
+def _table(head: Sequence[str], rows: List[str]) -> str:
+    return '<table class="list"><tr>{}</tr>{}</table>'.format(
+        "".join(f"<th>{_e(h)}</th>" for h in head), "".join(rows)
+    )
+
+
 def _section(title: str, content: str) -> str:
     return f"<section><h2>{_e(title)}</h2>{content}</section>"
 
@@ -588,6 +850,17 @@ button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
 .skipped, .unfinished { background: #fdf0dc; color: #7a4b0c; }
 .none { background: var(--soft); color: var(--muted); }
 .legend { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+h3 { font-size: 14px; font-weight: 600; margin: 16px 0 6px; }
+.list { border-collapse: collapse; width: 100%; font-size: 12px; }
+.list th { text-align: left; font-weight: 500; color: var(--muted);
+  border-bottom: 1px solid var(--line); padding: 4px 8px; }
+.list td { padding: 4px 8px; border-bottom: 1px solid var(--soft); }
+.list .n { text-align: right; font-variant-numeric: tabular-nums; }
+.notes { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.note { padding: 5px 10px 5px 12px; margin-bottom: 4px; border-left: 3px solid;
+  background: var(--soft); }
+.note.failed { border-color: #E24B4A; } .note.warning { border-color: #BA7517; }
+.note.notice { border-color: #EF9F27; } .note.info { border-color: #888780; }
 .key { display: inline-flex; align-items: center; gap: 4px; margin-right: 14px; }
 .key i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .timeline text { font-size: 11px; fill: var(--muted); }
@@ -600,7 +873,7 @@ section { break-inside: avoid; }
 @media print {
   body { padding: 0; max-width: none; font-size: 12px; }
   .noprint { display: none; }
-  .tiles, .cell, .key i, .timeline rect { print-color-adjust: exact;
+  .tiles, .cell, .key i, .timeline rect, .note { print-color-adjust: exact;
     -webkit-print-color-adjust: exact; }
 }
 """

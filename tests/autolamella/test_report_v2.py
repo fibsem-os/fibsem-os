@@ -6,6 +6,7 @@ headless Demo run cannot produce: time spent waiting, idle gaps, failed and
 retried runs.
 """
 
+import html
 import os
 import re
 from datetime import datetime, timedelta
@@ -310,3 +311,191 @@ def test_no_fluorescence_no_tile_and_no_key():
     _, page = _render(_run(A, SETUP, 0, 60))
 
     assert "Fluorescence" not in page and "</i>FM acquisition" not in page
+
+
+def test_an_acquisition_on_no_lamella_is_not_a_lamella():
+    records = _run(A, SETUP, 0, 60) + [_fm(30, None)]
+
+    _, page = _render(records, items=(A,))
+
+    assert "(no lamella)" in page  # its row on the timeline
+    assert "1 lamellae" in page and "0 of 1" in page
+    assert _count(page, r"<th>\(no lamella\)</th>") == 0  # no outcome row
+
+
+# ── worth a look, and where the operator stepped in ──────────────────────────
+
+
+def _question(second, item, kind, proposed, decided, outcome="Confirmed", **fields):
+    """A question asked at ``second - wait`` and decided at ``second``."""
+    wait = fields.pop("wait", None)
+    actor = fields.pop("actor", "operator")
+    proposal = f"{item}/{kind}/{second}"
+    records = []
+    if wait is not None:
+        records.append(
+            _record(
+                "proposal_asked",
+                second - wait,
+                item,
+                SETUP,
+                f"{item}/{SETUP}/0",
+                {"proposal_id": proposal, "kind": kind},
+            )
+        )
+    payload = {
+        "item": {"id": item, "name": item},
+        "task": SETUP,
+        "proposal_id": proposal,
+        "decision": 0,
+        "kind": kind,
+        "proposed": proposed,
+        "decided": decided,
+        "outcome": outcome,
+        **fields,
+    }
+    records.append(
+        _record("proposal_decided", second, item, SETUP, None, payload, actor)
+    )
+    return records
+
+
+def _edit(second, item, via, target="task_config", actor="operator", task=ROUGH):
+    payload = {
+        "item": {"id": item, "name": item},
+        "task": task,
+        "target": target,
+        "via": via,
+        "before": {"fov": 80e-6},
+        "after": {"fov": 100e-6},
+    }
+    return _record("edit", second, item, task, None, payload, actor)
+
+
+def _notes(page):
+    return [
+        (level, html.unescape(text))
+        for level, text in re.findall(r'<li class="note (\w+)">([^<]*)</li>', page)
+    ]
+
+
+def test_what_is_worth_a_look_most_serious_first():
+    stage = {"name": "Rough 02", "milling": {}, "pattern": {}}
+    records = (
+        _run(A, SETUP, 0, 60)
+        + _run(A, ROUGH, 60, 245, "task_failed", "Alignment failed")
+        + _run(A, ROUGH, 300, 900)
+        + [
+            _record(
+                "milling_stage_started",
+                400,
+                A,
+                ROUGH,
+                f"{A}/{ROUGH}/300",
+                {"task_id": "m1", "task_name": ROUGH, "stage": stage},
+            )
+        ]
+        + _run(B, SETUP, 900, 1500, wait=(960, 1320))  # six minutes
+        + _run(B, ROUGH, 2700, 2908, "task_cancelled", "Workflow aborted by user.")
+        + _question(2750, C, "point_of_interest", {}, {}, "Rejected", reason="cracked.")
+        + [_edit(2800, x, "global edit") for x in (A, B, C)]
+    )
+
+    _, page = _render(records)
+
+    assert _notes(page) == [
+        (
+            "failed",
+            f"{A}: Rough Milling failed after 3:05: Alignment failed. "
+            "It was run again and completed.",
+        ),
+        ("warning", f"{A}: Rough Milling stage Rough 02 did not finish."),
+        (
+            "warning",
+            f"{B}: Rough Milling was cancelled at 3:28: Workflow aborted by user.",
+        ),
+        ("warning", f"{C}: Point of interest rejected by the operator: cracked."),
+        (
+            "notice",
+            f"{B}: Setup Lamella Position waited 6 min for an answer, from 09:16.",
+        ),
+        ("notice", "Nothing ran from 09:25 to 09:45 (20 min)."),
+        (
+            "info",
+            "Rough Milling's task_config changed on 3 lamellae at 09:46 "
+            f"(global edit by the operator), while Rough Milling was running on {B}.",
+        ),
+    ]
+
+
+def test_a_quiet_session_has_nothing_worth_a_look():
+    """A 30 s wait, and five minutes with nothing running: shaded on the
+    timeline, but not worth a note."""
+    records = _run(A, SETUP, 0, 60, wait=(10, 40)) + _run(A, ROUGH, 360, 700)
+
+    _, page = _render(records)
+
+    assert "Nothing stood out." in page and _notes(page) == []
+    assert 'class="idle"' in page
+
+
+def _cells(page, first):
+    """The cells of the row that starts with ``first``."""
+    row = re.search(rf"<tr><td>{re.escape(first)}</td>(.*?)</tr>", page)
+    return re.findall(r"<td[^>]*>([^<]*)</td>", row.group(1))
+
+
+def test_where_the_operator_stepped_in():
+    poi = "point_of_interest"
+    origin = {"poi": {"x": 0.0, "y": 0.0}}
+    records = (
+        _run(A, SETUP, 0, 600)
+        # moved 5 µm, after 60 s; confirmed as it stood, after 120 s
+        + _question(100, A, poi, origin, {"poi": {"x": 3e-6, "y": 4e-6}}, wait=60)
+        + _question(200, B, poi, origin, dict(origin), wait=120)
+        + _question(300, C, poi, origin, {}, "Rejected", wait=30)
+        + _question(400, A, poi, origin, dict(origin), "Unreviewed", actor="task")
+        # a detection moved 6 px, by an agent
+        + _question(
+            500,
+            A,
+            "detection",
+            {"features": [{"name": "LamellaCentre", "px": {"x": 10, "y": 10}}]},
+            {"features": [{"name": "LamellaCentre", "px": {"x": 16, "y": 10}}]},
+            actor="agent",
+            wait=20,
+        )
+        + [_edit(50, A, "lamella editor", "milling.mill_rough")]
+        + [_edit(60, B, "lamella editor", "parameters.depth")]
+        + [_edit(70, x, "global edit") for x in (A, B, C)]
+    )
+
+    _, page = _render(records)
+
+    # decisions, asked, as proposed, changed, rejected, unreviewed, wait, move
+    assert _cells(page, "Point of interest") == [
+        "4",
+        "3",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1:10",
+        "5.0 µm",
+    ]
+    assert _cells(page, "Detection") == ["1", "1", "0", "1", "0", "0", "0:20", "6.0 px"]
+    assert "Decided by operator 3 · task 1 · agent 1." in page
+    assert "made by nobody" in page
+    assert _cells(page, "lamella editor") == [
+        "operator",
+        "2",
+        "2",
+        "milling.mill_rough, parameters.depth",
+    ]
+    assert _cells(page, "global edit") == ["operator", "3", "3", "task_config"]
+
+
+def test_nobody_stepped_in():
+    _, page = _render(_run(A, SETUP, 0, 60))
+
+    assert "Nobody was asked anything, and the plan was not edited." in page
