@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import sys
+import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import InitVar, asdict, dataclass, field, fields
@@ -4571,7 +4572,21 @@ class SampleHolder:
     slots: dict[str, GridSlot] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        self._parent: Optional["FibsemMicroscope"] = None
+        self._parent_ref: Optional["weakref.ReferenceType"] = None
+
+    # The microscope this holder is mounted on, held WEAKLY. A holder now lives in
+    # `system.stage.holders`, a plain settings record, and whoever keeps that record
+    # -- `microscope, settings = setup_session(...)` keeps it for as long as the
+    # caller's frame lives -- would otherwise keep the whole microscope alive through
+    # this back-reference, and with it every recorder and window subscribed to its
+    # signals. The holder is a description; it must not own the instrument.
+    @property
+    def _parent(self) -> Optional["FibsemMicroscope"]:
+        return self._parent_ref() if self._parent_ref is not None else None
+
+    @_parent.setter
+    def _parent(self, microscope: Optional["FibsemMicroscope"]) -> None:
+        self._parent_ref = weakref.ref(microscope) if microscope is not None else None
 
     @property
     def reference_rotation(self) -> float:

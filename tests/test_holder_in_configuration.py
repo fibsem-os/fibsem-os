@@ -481,6 +481,30 @@ def test_two_stages_that_differ_only_in_pre_tilt_are_not_equal():
     assert "35.0" in repr(tilted)
 
 
+def test_a_settings_record_does_not_keep_the_microscope_alive():
+    """The holder sits in `system.stage.holders` and points back at its microscope.
+
+    A strong back-reference made the settings record own the instrument: the
+    `settings` half of `microscope, settings = setup_session(...)` kept the
+    microscope alive, and with it every recorder subscribed to its signals --
+    which is how this surfaced, in the event-recorder registry test.
+    """
+    import gc
+    import weakref
+
+    path = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+    microscope, settings = utils.setup_session(config_path=path, manufacturer="Demo")
+    assert settings.system.stage.holders, (
+        "fixture no longer puts a holder on the record"
+    )
+    gone = weakref.ref(microscope)
+    microscope.disconnect()
+    del microscope
+    gc.collect()
+
+    assert gone() is None, "the settings record kept the microscope alive"
+
+
 def test_the_holder_no_longer_reads_the_stage():
     """The recursion this change had to remove.
 

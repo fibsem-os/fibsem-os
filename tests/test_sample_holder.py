@@ -122,7 +122,8 @@ class TestSampleHolderConstruction:
         class _FakeMicroscope:
             system = _FakeSystem()
 
-        h._parent = _FakeMicroscope()
+        microscope = _FakeMicroscope()  # held here: the holder's reference is weak
+        h._parent = microscope
         assert h.pre_tilt == 35.0
 
     def test_reference_rotation_with_parent(self):
@@ -138,7 +139,8 @@ class TestSampleHolderConstruction:
         class _FakeMicroscope:
             system = _FakeSystem()
 
-        h._parent = _FakeMicroscope()
+        microscope = _FakeMicroscope()  # held here: the holder's reference is weak
+        h._parent = microscope
         assert h.reference_rotation == 180.0
 
     def test_pre_tilt_is_serialised_and_reference_rotation_is_not(self):
