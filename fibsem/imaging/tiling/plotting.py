@@ -24,7 +24,16 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
 )
 
-POSITION_COLOURS = ["lime", "blue", "cyan", "magenta", "hotpink", "yellow", "orange", "red"]
+POSITION_COLOURS = [
+    "lime",
+    "blue",
+    "cyan",
+    "magenta",
+    "hotpink",
+    "yellow",
+    "orange",
+    "red",
+]
 
 
 def plot_tile_positions(
@@ -63,7 +72,7 @@ def plot_tile_positions(
         stage_positions=stage_positions,
         title=(
             f"{settings.tile_order.value.title()} — {settings.nrows}×{settings.ncols} tiles, "
-            f"{settings.overlap*100:.0f}% overlap"
+            f"{settings.overlap * 100:.0f}% overlap"
         ),
     )
 
@@ -119,31 +128,57 @@ def plot_tile_grid(
         if tile.enabled:
             continue
         cx, cy = centre(tile)
-        ax.add_patch(mpatches.FancyBboxPatch(
-            (cx - tile_fov_x / 2, cy - tile_fov_y / 2), tile_fov_x, tile_fov_y,
-            boxstyle="round,pad=0.01",
-            linewidth=1, edgecolor="#5a5f6e", facecolor="none", linestyle="--",
-        ))
+        ax.add_patch(
+            mpatches.FancyBboxPatch(
+                (cx - tile_fov_x / 2, cy - tile_fov_y / 2),
+                tile_fov_x,
+                tile_fov_y,
+                boxstyle="round,pad=0.01",
+                linewidth=1,
+                edgecolor="#5a5f6e",
+                facecolor="none",
+                linestyle="--",
+            )
+        )
         ax.text(cx, cy, "—", ha="center", va="center", fontsize=8, color="#5a5f6e")
 
     for order_idx, tile in enumerate(order):
         cx, cy = centre(tile)
         colour = POSITION_COLOURS[tile.row % len(POSITION_COLOURS)]
-        ax.add_patch(mpatches.FancyBboxPatch(
-            (cx - tile_fov_x / 2, cy - tile_fov_y / 2), tile_fov_x, tile_fov_y,
-            boxstyle="round,pad=0.01",
-            linewidth=1, edgecolor="white", facecolor=colour, alpha=0.4,
-        ))
-        ax.text(cx, cy, str(order_idx), ha="center", va="center",
-                fontsize=8, color="white", fontweight="bold")
+        ax.add_patch(
+            mpatches.FancyBboxPatch(
+                (cx - tile_fov_x / 2, cy - tile_fov_y / 2),
+                tile_fov_x,
+                tile_fov_y,
+                boxstyle="round,pad=0.01",
+                linewidth=1,
+                edgecolor="white",
+                facecolor=colour,
+                alpha=0.4,
+            )
+        )
+        ax.text(
+            cx,
+            cy,
+            str(order_idx),
+            ha="center",
+            va="center",
+            fontsize=8,
+            color="white",
+            fontweight="bold",
+        )
 
     # traversal path -- through the acquired tiles only, so a jump over a skipped
     # region is visible as a long arrow rather than hidden
     if len(order) > 1:
         pts = [centre(t) for t in order]
         for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-            ax.annotate("", xy=(x1, y1), xytext=(x0, y0),
-                        arrowprops=dict(arrowstyle="->", color="white", lw=1.0))
+            ax.annotate(
+                "",
+                xy=(x1, y1),
+                xytext=(x0, y0),
+                arrowprops=dict(arrowstyle="->", color="white", lw=1.0),
+            )
 
     # overlay actual projected stage positions (if provided)
     if stage_positions is not None and len(stage_positions) > 0 and order:
@@ -155,10 +190,22 @@ def plot_tile_grid(
         # of the projected path matches the grid it came from.
         ref = stage_positions[0]
         anchor_x, anchor_y = centre(order[0])
-        sxs = [anchor_x + (sp.x - ref.x) * constants.SI_TO_MICRO for sp in stage_positions]
-        sys_ = [anchor_y + (sp.y - ref.y) * constants.SI_TO_MICRO for sp in stage_positions]
+        sxs = [
+            anchor_x + (sp.x - ref.x) * constants.SI_TO_MICRO for sp in stage_positions
+        ]
+        sys_ = [
+            anchor_y + (sp.y - ref.y) * constants.SI_TO_MICRO for sp in stage_positions
+        ]
         ax.plot(sxs, sys_, linestyle=":", color="white", lw=0.8, alpha=0.6)
-        ax.plot(sxs, sys_, marker="x", color="white", ms=6, markeredgewidth=1.5, linestyle="none")
+        ax.plot(
+            sxs,
+            sys_,
+            marker="x",
+            color="white",
+            ms=6,
+            markeredgewidth=1.5,
+            linestyle="none",
+        )
 
     sym = constants.MICRON_SYMBOL
     ax.set_xlabel(f"X ({sym})")
@@ -176,15 +223,17 @@ def plot_tile_grid(
     fig.tight_layout()
     return fig
 
+
 def plot_stage_positions_on_image(
-        image: FibsemImage,
-        positions: List[FibsemStagePosition],
-        show: bool = False,
-        bound: bool = True,
-        color: Optional[str] = None,
-        show_scalebar: bool = False,
-        show_names: bool = True,
-        figsize: Optional[Tuple[int, int]] = (15, 15)) -> Figure:
+    image: FibsemImage,
+    positions: List[FibsemStagePosition],
+    show: bool = False,
+    bound: bool = True,
+    color: Optional[str] = None,
+    show_scalebar: bool = False,
+    show_names: bool = True,
+    figsize: Optional[Tuple[int, int]] = (15, 15),
+) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
     Args:
         image: The image.
@@ -195,35 +244,41 @@ def plot_stage_positions_on_image(
     Returns:
         The matplotlib figure."""
     if image.metadata is None or image.metadata.microscope_state is None:
-        raise ValueError("Image metadata or microscope state is not set. Cannot reproject stage positions.")
+        raise ValueError(
+            "Image metadata or microscope state is not set. Cannot reproject stage positions."
+        )
 
-    # reproject stage positions onto image 
+    # reproject stage positions onto image
     points = reproject_stage_positions_onto_image2(image=image, positions=positions)
 
     # construct matplotlib figure
-    fig = plt.figure(figsize = figsize)
+    fig = plt.figure(figsize=figsize)
     plt.imshow(image.data, cmap="gray")
 
     for i, pt in enumerate(points):
-
         # if points outside image, don't plot
-        if bound and not is_inside_image_bounds((pt.y, pt.x), (image.data.shape[0], image.data.shape[1])):
+        if bound and not is_inside_image_bounds(
+            (pt.y, pt.x), (image.data.shape[0], image.data.shape[1])
+        ):
             continue
 
         if color is None:
-            c = POSITION_COLOURS[i%len(POSITION_COLOURS)]
+            c = POSITION_COLOURS[i % len(POSITION_COLOURS)]
         else:
             c = color
-        plt.plot(pt.x, pt.y, ms=20, c=c, marker="+", markeredgewidth=2, label=f"{pt.name}")
+        plt.plot(
+            pt.x, pt.y, ms=20, c=c, marker="+", markeredgewidth=2, label=f"{pt.name}"
+        )
 
         if show_names:
             # draw position name next to point
-            plt.text(pt.x, pt.y-50, pt.name, fontsize=14, color=c, alpha=0.75)
+            plt.text(pt.x, pt.y - 50, pt.name, fontsize=14, color=c, alpha=0.75)
 
     if show_scalebar:
         try:
             # add scalebar
             from matplotlib_scalebar.scalebar import ScaleBar
+
             scalebar = ScaleBar(
                 dx=image.metadata.pixel_size.x,
                 color="black",
@@ -241,23 +296,25 @@ def plot_stage_positions_on_image(
 
     return fig
 
+
 def plot_minimap(
-        image: FibsemImage,
-        positions: List[FibsemStagePosition],
-        current_position: Optional[FibsemStagePosition] = None,
-        grid_positions: Optional[List[FibsemStagePosition]] = None,
-        show: bool = False,
-        bound: bool = True,
-        color: str = "cyan",
-        show_scalebar: bool = False,
-        show_names: bool = True,
-        show_descriptions: bool = False,
-        descriptions: Optional[Dict[str, str]] = None,
-        show_grid_radius: bool = False,
-        fontsize: int = 12,
-        markersize: int = 20,
-        figsize: Optional[Tuple[int, int]] = (15, 15),
-        ax: Optional[plt.Axes] = None) -> Figure:
+    image: FibsemImage,
+    positions: List[FibsemStagePosition],
+    current_position: Optional[FibsemStagePosition] = None,
+    grid_positions: Optional[List[FibsemStagePosition]] = None,
+    show: bool = False,
+    bound: bool = True,
+    color: str = "cyan",
+    show_scalebar: bool = False,
+    show_names: bool = True,
+    show_descriptions: bool = False,
+    descriptions: Optional[Dict[str, str]] = None,
+    show_grid_radius: bool = False,
+    fontsize: int = 12,
+    markersize: int = 20,
+    figsize: Optional[Tuple[int, int]] = (15, 15),
+    ax: Optional[plt.Axes] = None,
+) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
     Args:
         image: The image.
@@ -274,7 +331,9 @@ def plot_minimap(
     Returns:
         The matplotlib figure."""
     if image.metadata is None or image.metadata.microscope_state is None:
-        raise ValueError("Image metadata or microscope state is not set. Cannot reproject stage positions.")
+        raise ValueError(
+            "Image metadata or microscope state is not set. Cannot reproject stage positions."
+        )
 
     all_positions = list(positions)
     if current_position is not None:
@@ -289,16 +348,17 @@ def plot_minimap(
         fig = ax.figure
     ax.imshow(image.data, cmap="gray")
 
-    # reproject stage positions onto image 
+    # reproject stage positions onto image
     points = reproject_stage_positions_onto_image2(image=image, positions=all_positions)
 
     marker_entries: List[dict] = []
     for i, pt in enumerate(points):
-
         # if points outside image, don't plot
-        if bound and not is_inside_image_bounds((pt.y, pt.x), (image.data.shape[0], image.data.shape[1])):
+        if bound and not is_inside_image_bounds(
+            (pt.y, pt.x), (image.data.shape[0], image.data.shape[1])
+        ):
             continue
-        
+
         if pt.name is None:
             pt.name = f"Position {i:02d}"
 
@@ -319,8 +379,11 @@ def plot_minimap(
 
         # show grid radius
         if c == "red" and show_grid_radius:
-            r_pixels = 1000e-6 / image.metadata.pixel_size.x 
-            ax.add_artist(plt.Circle((pt.x, pt.y), radius=r_pixels, color=c, fill=False, linewidth=5)
+            r_pixels = 1000e-6 / image.metadata.pixel_size.x
+            ax.add_artist(
+                plt.Circle(
+                    (pt.x, pt.y), radius=r_pixels, color=c, fill=False, linewidth=5
+                )
             )
 
     if marker_entries:
@@ -331,7 +394,7 @@ def plot_minimap(
             scatter_array[:, 1],
             c=scatter_colors,
             marker="+",
-            s=markersize ** 2,
+            s=markersize**2,
             linewidths=2,
         )
 
@@ -365,6 +428,7 @@ def plot_minimap(
         try:
             # add scalebar
             from matplotlib_scalebar.scalebar import ScaleBar
+
             ax.add_artist(
                 ScaleBar(
                     dx=image.metadata.pixel_size.x,
