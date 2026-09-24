@@ -1106,7 +1106,8 @@ h3 { font-size: 14px; font-weight: 600; margin: 16px 0 6px; }
   font-size: 13px; }
 .thumbs { display: flex; gap: 8px; margin: 10px 0 4px; }
 .thumbs figure { margin: 0; flex: 0 1 220px; }
-.thumbs img { width: 100%; border-radius: 4px; display: block; background: #000; }
+.thumbs img { width: 100%; aspect-ratio: 3 / 2; object-fit: contain;
+  border-radius: 4px; display: block; background: #000; }
 .thumbs figcaption { font-size: 11px; color: var(--muted); margin-top: 2px; }
 details { margin-top: 6px; } summary { font-size: 12px; color: var(--muted);
   cursor: pointer; }
