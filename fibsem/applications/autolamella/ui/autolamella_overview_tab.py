@@ -222,6 +222,7 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
             dy=dy,
             rotation=rotation,
             scale=scale,
+            mirrored=aligned.mirrored,
             fit=dict(aligned.fit),
             display=self.overview.aligned_images.display_state(key),
         )
@@ -296,8 +297,13 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
                 continue
             aligned = self.overview.aligned_images.get(key)
             aligned.record_id = record.id
-            self.overview.aligned_images.set_placement(
-                key, record.dx, record.dy, record.rotation, record.scale
+            self.overview.set_aligned_image_placement(
+                key,
+                record.dx,
+                record.dy,
+                record.rotation,
+                record.scale,
+                mirrored=record.mirrored,
             )
             if record.display:
                 self.overview.set_aligned_image_display(key, record.display)

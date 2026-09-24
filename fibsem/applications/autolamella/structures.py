@@ -1679,6 +1679,8 @@ class OverlayRecord:
     dy: float = 0.0
     rotation: float = 0.0  # degrees, clockwise on screen
     scale: float = 1.0
+    # An image mirrored left to right by the user, about its own axis.
+    mirrored: bool = False
     # Grid bars: the lattice's pitch and bar width, in metres.
     pitch: Optional[float] = None
     bar_width: Optional[float] = None
@@ -1708,6 +1710,7 @@ class OverlayRecord:
             "dy": float(self.dy),
             "rotation": float(self.rotation),
             "scale": float(self.scale),
+            "mirrored": bool(self.mirrored),
             "pitch": None if self.pitch is None else float(self.pitch),
             "bar_width": None if self.bar_width is None else float(self.bar_width),
             "source": self.source,
@@ -1727,6 +1730,7 @@ class OverlayRecord:
             dy=float(data.get("dy", 0.0) or 0.0),
             rotation=float(data.get("rotation", 0.0) or 0.0),
             scale=float(data.get("scale", 1.0) or 1.0),
+            mirrored=bool(data.get("mirrored", False)),
             pitch=data.get("pitch"),
             bar_width=data.get("bar_width"),
             source=data.get("source"),
