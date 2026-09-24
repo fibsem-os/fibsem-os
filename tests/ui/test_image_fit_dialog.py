@@ -97,3 +97,50 @@ def test_an_unpaired_extra_point_is_ignored_and_said(qapp):
     assert len(dialog.pairs()) == 3
     assert "extra is ignored" in dialog.label_status.text()
     dialog.close()
+
+
+def _hinted(hint):
+    dialog = ImageFitDialog(
+        reference=np.zeros((20, 20), dtype=np.uint8),
+        image=np.zeros((10, 10, 3), dtype=np.uint8),
+        hint=hint,
+    )
+    return dialog
+
+
+def _three_pairs(dialog):
+    for i, (x, y) in enumerate([(1.0, 1.0), (8.0, 2.0), (3.0, 7.0)]):
+        dialog.add_pair((x, y), (x + 5, y + i))
+
+
+def test_the_hosts_hint_is_said_once_there_are_three_pairs(qapp):
+    heard = []
+
+    def hint(pairs, fix_scale):
+        heard.append((len(pairs), fix_scale))
+        return "These points fit much better mirrored."
+
+    dialog = _hinted(hint)
+    dialog.add_pair((1.0, 1.0), (6.0, 1.0))
+    assert dialog.label_hint.isHidden()
+    _three_pairs(dialog)
+    assert not dialog.label_hint.isHidden()
+    assert "mirrored" in dialog.label_hint.text()
+    dialog.check_lock_scale.setChecked(True)
+    assert heard[-1][1] is True  # asked again, with the scale locked
+
+
+def test_no_hint_says_nothing(qapp):
+    dialog = _hinted(lambda pairs, fix_scale: None)
+    _three_pairs(dialog)
+    assert dialog.label_hint.isHidden()
+
+
+def test_a_hint_that_fails_says_nothing(qapp):
+    def hint(pairs, fix_scale):
+        raise ValueError("the source points coincide")
+
+    dialog = _hinted(hint)
+    _three_pairs(dialog)
+    assert dialog.label_hint.isHidden()
+    assert dialog.btn_fit.isEnabled()

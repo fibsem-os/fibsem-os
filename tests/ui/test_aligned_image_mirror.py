@@ -211,3 +211,75 @@ class TestTheButton:
         assert w.aligned_image_panel.btn_mirror.isChecked()
         assert heard == []
         w.close()
+
+
+class TestTheFitDialogNoticesAMirror:
+    """The hint, and the points kept for the next go."""
+
+    @staticmethod
+    def _reference_pixels(w, key, canvas_points):
+        """Canvas points as pixels of the overview the fit dialog shows."""
+        canvas_key, tile = w._reference_tile_for_fit(key)
+        (cx, cy), (width_m, height_m) = w._extents[canvas_key]
+        height, width = tile.grey.shape[:2]
+        out = []
+        for X, Y in canvas_points:
+            mx, my = w.canvas.canvas_to_metres(X, Y)
+            out.append(
+                (
+                    (mx - (cx - width_m / 2)) / width_m * width - 0.5,
+                    (my - (cy - height_m / 2)) / height_m * height - 0.5,
+                )
+            )
+        return out
+
+    def test_says_so_keeps_the_points_and_goes_quiet_once_mirrored(
+        self, microscope, monkeypatch
+    ):
+        from PyQt5.QtWidgets import QDialog
+
+        from fibsem.ui.widgets.image_fit_dialog import ImageFitDialog
+
+        w, key = _widget(microscope)
+        images = w.aligned_images
+        # Where the features would be were the image mirrored, turned and moved.
+        images.set_placement(key, 3e-6, 1e-6, 20.0, mirrored=True)
+        targets = self._reference_pixels(w, key, _where(w, key))
+        images.set_placement(key, 0.0, 0.0, 0.0, mirrored=False)
+
+        seen = []
+
+        def exec_(dialog):
+            if not seen:  # the first time only: the user clicks the pairs
+                for (px, py), (rx, ry) in zip(PIXELS, targets):
+                    dialog.add_pair((px, py), (rx, ry))
+            seen.append((len(dialog.pairs()), dialog.label_hint.text()))
+            return QDialog.Rejected
+
+        monkeypatch.setattr(ImageFitDialog, "exec_", exec_)
+
+        w._fit_aligned_image(key)
+        assert "mirrored" in seen[0][1]
+
+        w.aligned_image_panel.btn_mirror.click()
+        w._fit_aligned_image(key)
+        assert seen[1] == (len(PIXELS), "")  # the points kept, and no hint now
+        w.close()
+
+    def test_the_points_are_forgotten_with_the_image(self, microscope, monkeypatch):
+        from PyQt5.QtWidgets import QDialog
+
+        from fibsem.ui.widgets.image_fit_dialog import ImageFitDialog
+
+        w, key = _widget(microscope)
+
+        def exec_(dialog):
+            dialog.add_pair((1.0, 1.0), (2.0, 2.0))
+            return QDialog.Rejected
+
+        monkeypatch.setattr(ImageFitDialog, "exec_", exec_)
+        w._fit_aligned_image(key)
+        assert key in w._fit_pairs
+        w.remove_aligned_image(key)
+        assert key not in w._fit_pairs
+        w.close()
