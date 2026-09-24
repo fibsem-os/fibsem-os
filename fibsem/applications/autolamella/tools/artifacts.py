@@ -127,3 +127,50 @@ def _find_item(experiment: "Experiment", context: "HookContext") -> Optional["La
         if lamella.name == context.item_name:
             return lamella
     return None
+
+
+HANDOFF_MAP_SUFFIX = "-handoff-map.pdf"
+
+
+def write_handoff_map(
+    experiment: "Experiment", context: "HookContext"
+) -> Optional[str]:
+    """Write the handoff map for the whole experiment when a run finishes.
+
+    The artifact `write_completion_summary` was standing in for. Written into the
+    experiment directory rather than a lamella's, because unlike the per-lamella summary
+    this covers the *grid*: where everything is, including the lamellae that did not
+    finish, which is the case people actually hit and the one they most want to look at.
+
+    Hung off the end of a run rather than off ITEM_COMPLETED for the same reason, plus a
+    practical one: the document re-renders every map and every lamella image, so
+    regenerating it each time one lamella finished would repeat that work once per
+    lamella for a file only the last version of which is read.
+
+    Grid and slot come from whatever the operator last typed into the export dialog,
+    which is kept on `Experiment.metadata`. Absent on a run where nobody opened it --
+    and absent is right, because guessing a cassette slot into a document that travels
+    with the sample would be worse than leaving it blank.
+
+    Overwrites in place. There is one current answer to "what is on this grid", and a
+    directory of dated near-duplicates makes the recipient choose between them.
+
+    Raising is contained by `HookManager.fire`, so a map that cannot be written is
+    logged and the run carries on.
+    """
+    from fibsem.applications.autolamella.tools.handoff_map import (
+        HandoffOptions,
+        generate_handoff_map,
+    )
+
+    output = os.path.join(
+        str(experiment.path), f"{experiment.name}{HANDOFF_MAP_SUFFIX}"
+    )
+    options = HandoffOptions(
+        grid=experiment.metadata.get("grid", ""),
+        slot=experiment.metadata.get("slot", ""),
+        note=experiment.metadata.get("handoff_note", ""),
+    )
+    generate_handoff_map(experiment, output, options)
+    logging.info(f"Wrote the handoff map for {experiment.name} to {output}")
+    return output
