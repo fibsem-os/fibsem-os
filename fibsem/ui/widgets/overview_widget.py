@@ -642,6 +642,12 @@ class FibsemOverviewWidget(QWidget):
         # two callers happened to poll together.
         self._stage_position: Optional[FibsemStagePosition] = None
         self._save_directory: Optional[str] = None
+        # Where an imported image's corrected copy is written. A host keeping images
+        # per grid points this at the grid's folder, so the copy is written once,
+        # where its record will look for it.
+        self.aligned_image_folder: Callable[[], Optional[str]] = (
+            self._default_aligned_image_folder
+        )
         self._mosaic: Optional[FibsemImage] = None
         # Whether a run is under way, and whether a host is allowing one to be started.
         # Two independent facts kept apart on purpose: a workflow ending must not
@@ -1542,12 +1548,137 @@ class FibsemOverviewWidget(QWidget):
         path = ui_utils.open_existing_file_dialog(
             msg="Select a fluorescence image to lay over the overview",
             path=str(self._save_directory or os.getcwd()),
-            _filter="Fluorescence images (*.ome.tiff *.ome.tif *.tiff *.tif)",
+            _filter="Images (*.ome.tiff *.ome.tif *.tiff *.tif *.png *.jpg *.jpeg)",
             parent=self,
         )
         if not path:
             return
-        self.load_aligned_image(path)
+        self.open_aligned_image(path)
+
+    def open_aligned_image(self, path: str) -> Optional[str]:
+        """Lay an image from disk over the overview, asking about it if need be.
+
+        An image that says where it was taken is placed from its metadata, as
+        :meth:`load_aligned_image` does. Any other -- a file from another microscope,
+        a screenshot -- goes through the import dialog first. Returns its key.
+        """
+        from fibsem.fm.reader import RASTER_SUFFIXES
+
+        if not path.lower().endswith(RASTER_SUFFIXES):
+            image = self._read_fluorescence_image(path)
+            if image is not None and self._can_place(image):
+                return self.add_aligned_image(
+                    image, label=os.path.basename(path), path=path
+                )
+        return self.import_aligned_image(path)
+
+    def import_aligned_image(self, path: str) -> Optional[str]:
+        """Ask how to read *path*, then lay it at the centre of the view. The
+        corrected copy is what is shown, and what a record keeps."""
+        from fibsem.fm.reader import read_source
+        from fibsem.ui.widgets.fm_import_dialog import ImportImageDialog
+
+        if self._frame() is None:
+            notification_service.show_toast(
+                "Acquire or load an overview first: an imported image is placed "
+                "against it.",
+                "warning",
+            )
+            return None
+        try:
+            source = read_source(path)
+        except Exception as e:  # noqa: BLE001 - said, not fatal
+            logger.error(f"Could not read {path} for import: {e}")
+            notification_service.show_toast(
+                f"Could not read {os.path.basename(path)}.", "error"
+            )
+            return None
+        dialog = ImportImageDialog(source, parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+        return self._place_imported(dialog)
+
+    def _place_imported(self, dialog) -> Optional[str]:
+        from fibsem.fm.reader import assumed_geometry, assumed_pose
+        from fibsem.projection import FMStageProjection
+
+        source = dialog.source
+        try:
+            geometry = assumed_geometry(self.microscope)
+            pose = assumed_pose(self.microscope)
+            roles, shape = dialog.roles, source.data.shape
+            height, width = shape[roles.index("Y")], shape[roles.index("X")]
+            projection = FMStageProjection(
+                geometry=geometry, pixel_size=dialog.pixel_size, shape=(height, width)
+            )
+            (x0, x1), (y0, y1) = self.canvas._ax.get_xlim(), self.canvas._ax.get_ylim()
+            base = self.aligned_images.base_at(
+                projection, pose, ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+            )
+            image = dialog.build(geometry=geometry, stage_position=base)
+            path = self._write_imported(image, source.name)
+        except Exception as e:  # noqa: BLE001 - said, not fatal
+            logger.error(f"Could not import {source.path}: {e}")
+            notification_service.show_toast(
+                f"Could not import {source.name}: {e}", "error"
+            )
+            return None
+        logger.info(
+            f"Imported {source.path} as {path}: axes {dialog.roles} of "
+            f"{tuple(source.data.shape)}, {dialog.pixel_size:.4g} m per pixel, "
+            f"channels {list(zip(dialog.channel_names, dialog.channel_colors))}"
+            f"{', mirrored' if dialog.flip else ''}; centred on x={base.x:.4g} "
+            f"y={base.y:.4g} m"
+        )
+        return self.add_aligned_image(image, label=os.path.basename(path), path=path)
+
+    def _default_aligned_image_folder(self) -> Optional[str]:
+        if not self._save_directory:
+            return None
+        return os.path.join(str(self._save_directory), "Aligned Images")
+
+    def _write_imported(self, image, name: str) -> str:
+        """Save an imported image as our own OME-TIFF: a new file beside, never
+        over, anything already there. Compressed, as the files people bring are:
+        uncompressed, a Zeiss export's copy was six times the size of the export.
+        zlib rather than their LZW: smaller on 16-bit stacks, and readable on an
+        install without imagecodecs."""
+        import tempfile
+
+        folder = self.aligned_image_folder() or os.path.join(
+            tempfile.gettempdir(), "fibsem-imported-images"
+        )
+        os.makedirs(folder, exist_ok=True)
+        stem = name
+        for suffix in (".tiff", ".tif", ".png", ".jpeg", ".jpg", ".ome"):
+            if stem.lower().endswith(suffix):
+                stem = stem[: -len(suffix)]
+        path = os.path.join(folder, f"{stem}.ome.tiff")
+        count = 1
+        while os.path.exists(path):
+            count += 1
+            path = os.path.join(folder, f"{stem}-{count}.ome.tiff")
+        return image.save(path, compression="zlib")
+
+    def _read_fluorescence_image(self, path: str):
+        from fibsem.fm.structures import FluorescenceImage
+
+        try:
+            return FluorescenceImage.load(path)
+        except Exception as e:  # noqa: BLE001 - the import reads it another way
+            logger.debug(f"{path} is not a fluorescence image FibsemOS reads: {e}")
+            return None
+
+    @staticmethod
+    def _can_place(image) -> bool:
+        from fibsem.projection import FMStageProjection
+
+        metadata = image.metadata
+        return (
+            FMStageProjection.from_image(image) is not None
+            and getattr(metadata, "stage_position", None) is not None
+            and bool(getattr(metadata, "pixel_size_x", None))
+        )
 
     def load_aligned_image(self, path: str) -> Optional[str]:
         """Lay a fluorescence image from disk over the overview. Returns its key."""
