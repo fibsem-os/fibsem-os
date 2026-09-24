@@ -211,3 +211,36 @@ def test_the_registry_does_not_keep_a_recorder_alive():
         assert gone() is None, "still held"
     finally:
         writer.close()  # its thread is still the writer's to stop
+
+
+def test_a_run_s_end_is_the_task_s_in_the_app_s_stream(microscope, experiment):
+    """The app's recorder calls anything unmarked the operator's; a run's own
+    ending is still the task's (FIB-1079), and its start the operator's."""
+    from fibsem.acting import OPERATOR
+
+    kept = EventRecorder(
+        microscope,
+        experiment_path=experiment.path,
+        experiment=experiment,
+        default_actor=OPERATOR,
+    )
+    try:
+        run_tasks(microscope, experiment, [SETUP])
+        records = kept.buffer.events_since(0)["events"]
+    finally:
+        kept.close()
+
+    actors = {
+        r["kind"]: r["actor"]
+        for r in records
+        if r["kind"].startswith(("workflow_", "experiment_", "item_", "task_"))
+        and r["kind"] != "task_step"
+    }
+    assert actors == {
+        "workflow_started": "operator",
+        "task_started": "task",
+        "task_completed": "task",
+        "item_completed": "task",
+        "experiment_completed": "task",
+        "workflow_completed": "task",
+    }

@@ -196,6 +196,27 @@ def _lifecycle_events() -> frozenset:
 _LIFECYCLE_EVENTS = _lifecycle_events()
 
 
+def _workflow_ends() -> frozenset:
+    from fibsem.hooks import HookEvent
+
+    return frozenset(
+        event.value
+        for event in (
+            HookEvent.WORKFLOW_COMPLETED,
+            HookEvent.WORKFLOW_CANCELLED,
+            HookEvent.WORKFLOW_STALLED,
+            HookEvent.EXPERIMENT_COMPLETED,
+        )
+    )
+
+
+# How a run ends, which the run itself reports: the task's, though they name no
+# task and fire outside any task's mark (FIB-1079). Its start is whoever
+# started it -- the operator's Run button, or the agent through the server --
+# so workflow_started is left to the thread's mark.
+_WORKFLOW_ENDS = _workflow_ends()
+
+
 class _HookRef:
     """A lifecycle event's own context, read like ``microscope.experiment``."""
 
@@ -309,7 +330,9 @@ class EventRecorder:
         the app's, not the thread's, so reading it would make a move the operator
         made during a run the task's. Unmarked, it is ``default_actor``. A task's
         own lifecycle event is the task's whichever thread fired it (a skip fires
-        from the task manager), and an answer says who answered.
+        from the task manager), and so is the way a run ends -- completed,
+        cancelled, stalled, the experiment completed -- which the run reports,
+        not whoever started it. An answer says who answered.
         """
         ref = getattr(self._microscope, "experiment", None)
         if kind in _LIFECYCLE_EVENTS and isinstance(payload, dict):
@@ -325,6 +348,8 @@ class EventRecorder:
         if kind == "prompt_answered" and isinstance(payload, dict):
             actor = payload.get("answered_by")
         elif kind in _LIFECYCLE_EVENTS and task is not None:
+            actor = TASK
+        elif kind in _WORKFLOW_ENDS:
             actor = TASK
         else:
             actor = current_actor() or self.default_actor
