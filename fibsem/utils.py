@@ -680,9 +680,36 @@ def write_configuration(path: Union[str, Path], updates: dict) -> None:
     writes `defaults.*`, and neither can disturb the other's section.
     """
     config = load_yaml(os.path.join(path)) or {}
+    if "version" not in config:
+        _keep_the_file_as_it_was(path)
     _deep_update(config, updates)
     _retire_legacy_duplicates(config)
     _write_configuration_file(path, config)
+
+
+def configuration_backup_path(path: Union[str, Path]) -> Path:
+    """Where a configuration written before the sections existed is kept."""
+    return Path(f"{path}.before-v1")
+
+
+def _keep_the_file_as_it_was(path: Union[str, Path]) -> None:
+    """Copy a file written before the sections existed, once, before it is changed.
+
+    The first write can move keys out of the old flat blocks (see
+    `_retire_legacy_duplicates`), and a version from before the sections cannot read
+    the result. The copy is what a site going back to that version restores. Made
+    once: a second write must not replace the original with a half-converted file.
+    """
+    backup = configuration_backup_path(path)
+    if backup.exists() or not os.path.exists(path):
+        return
+    import shutil
+
+    shutil.copy2(path, backup)
+    logging.info(
+        f"Kept a copy of {path} as {backup} before changing it; a version of "
+        "fibsem-os from before configuration v1 can read the copy."
+    )
 
 
 def _retire_legacy_duplicates(config: dict) -> None:

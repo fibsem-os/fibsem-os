@@ -105,3 +105,62 @@ def test_two_sections_written_separately_do_not_disturb_each_other(tmp_path):
     # and it still loads with nothing unrecognised
     assert utils.unrecognised_configuration_keys(written) == []
     assert MicroscopeSettings.from_dict(written).system.ion.beam.voltage == 8000
+
+
+# ---------------------------------------------------------------------------
+# A file from before the sections is kept as it was
+# ---------------------------------------------------------------------------
+
+OLD_FLAT_FILE = {
+    "info": {"name": "Bay 2", "manufacturer": "Thermo", "ip_address": "10.0.0.1"},
+    "stage": {"rotation_reference": 0, "shuttle_pre_tilt": 35.0},
+    "electron": {"column_tilt": 0, "eucentric_height": 7e-3, "voltage": 2000},
+    "ion": {"column_tilt": 52, "eucentric_height": 16.5e-3, "voltage": 30000},
+    "imaging": {"hfw": 150e-6},
+}
+
+
+def test_the_first_write_to_an_old_file_keeps_a_copy_of_it(tmp_path):
+    """The write moves `electron.voltage` into `defaults:`, and a version from before
+    the sections cannot read that. The copy is what a site going back restores."""
+    path = tmp_path / "old.yaml"
+    path.write_text(yaml.safe_dump(OLD_FLAT_FILE))
+    original = path.read_text()
+
+    utils.write_configuration(path, {"defaults": {"electron": {"voltage": 5000}}})
+
+    backup = utils.configuration_backup_path(path)
+    assert backup.read_text() == original
+    assert "voltage" not in utils.load_yaml(str(path))["electron"]
+
+
+def test_a_later_write_does_not_replace_the_copy(tmp_path):
+    path = tmp_path / "old.yaml"
+    path.write_text(yaml.safe_dump(OLD_FLAT_FILE))
+    original = path.read_text()
+
+    utils.write_configuration(path, {"defaults": {"electron": {"voltage": 5000}}})
+    utils.write_configuration(path, {"defaults": {"ion": {"voltage": 16000}}})
+
+    assert utils.configuration_backup_path(path).read_text() == original
+
+
+def test_a_file_already_in_sections_is_not_copied(tmp_path):
+    path = tmp_path / "site.yaml"
+    config = utils.load_yaml(SHIPPED)
+    assert "version" in config, "fixture no longer exercises a sectioned file"
+    path.write_text(yaml.safe_dump(config))
+
+    utils.write_configuration(path, {"defaults": {"electron": {"voltage": 5000}}})
+
+    assert not utils.configuration_backup_path(path).exists()
+
+
+def test_the_copy_is_not_offered_as_a_configuration(tmp_path):
+    """Configurations are picked up as `*.yaml`; the copy must not be one of them."""
+    path = tmp_path / "old.yaml"
+    path.write_text(yaml.safe_dump(OLD_FLAT_FILE))
+
+    utils.write_configuration(path, {"defaults": {"electron": {"voltage": 5000}}})
+
+    assert sorted(p.name for p in tmp_path.glob("*.yaml")) == ["old.yaml"]
