@@ -9,6 +9,7 @@ records written here, in the shape the recorder writes.
 """
 
 import os
+from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -18,7 +19,10 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+from fibsem.applications.autolamella.event_recording import (
+    EVENTS_FILENAME,
+    read_events,
+)
 from fibsem.applications.autolamella.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
@@ -32,7 +36,9 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.tools.event_tables import (
+    ACTOR_COLUMNS,
     DECISION_COLUMNS,
+    EDIT_COLUMNS,
     MILLING_COLUMNS,
     RUN_COLUMNS,
     STEP_COLUMNS,
@@ -129,6 +135,14 @@ def test_a_run_s_tasks_steps_and_milling_are_read(microscope, experiment):
 
     assert tables.decisions.empty
 
+    # every record counted once, and a run's steps are the task's
+    actors = tables.actors
+    records = list(read_events(Path(experiment.path) / EVENTS_FILENAME))
+    assert actors["count"].sum() == len(records)
+    steps = actors[actors["kind"] == "task_step"]
+    assert list(steps["actor"]) == ["task"]
+    assert steps["count"].iloc[0] == len(tables.steps)
+
 
 def test_decisions_nobody_was_asked_are_read_as_the_task_s(
     microscope, experiment, monkeypatch
@@ -157,7 +171,9 @@ def test_every_table_has_its_columns_even_empty(tmp_path):
     assert list(tables.steps.columns) == STEP_COLUMNS
     assert list(tables.milling.columns) == MILLING_COLUMNS
     assert list(tables.decisions.columns) == DECISION_COLUMNS
-    assert tables.runs.empty and tables.decisions.empty
+    assert list(tables.edits.columns) == EDIT_COLUMNS
+    assert list(tables.actors.columns) == ACTOR_COLUMNS
+    assert tables.runs.empty and tables.decisions.empty and tables.actors.empty
 
 
 # ── records the recorder writes ──────────────────────────────────────────────
@@ -456,3 +472,83 @@ def test_read_from_the_file_or_its_folder(microscope, experiment):
     by_file = read_event_tables(folder / EVENTS_FILENAME).runs
 
     assert by_folder.equals(by_file) and len(by_folder) == 1
+
+
+def _edit(second, before, after, actor="operator", via="lamella editor", run=None):
+    """An edit to the second lamella's rough milling pattern, as the editor
+    records it: on the item and task it edited, whatever run was going."""
+    payload = {
+        "item": {"id": "L2", "name": "02-lamella"},
+        "task": ROUGH,
+        "target": "milling.mill_rough",
+        "via": via,
+        "before": before,
+        "after": after,
+    }
+    return _record("edit", second, payload, run=run, actor=actor)
+
+
+def test_an_edit_names_the_fields_it_changed():
+    milling = MillRoughTaskConfig(task_name=ROUGH).milling["mill_rough"]
+    edited = deepcopy(milling)
+    edited.stages[0].pattern.depth = 2.5e-6
+    edited.stages[1].milling.milling_current = 1e-9
+    # read back through a widget in µm: a hair off, and not a change
+    rounded = deepcopy(milling)
+    rounded.field_of_view = milling.field_of_view * (1 + 1e-12)
+    records = [
+        # made while a run on the first lamella was going
+        _edit(0, milling.to_dict(), edited.to_dict(), run=RUN),
+        _edit(
+            5, milling.to_dict(), rounded.to_dict(), actor="agent", via="agent patch"
+        ),
+    ]
+
+    edits = event_tables(records).edits.to_dict("records")
+
+    first, second = edits
+    assert (first["item"], first["item_id"], first["task"]) == (
+        "02-lamella",
+        "L2",
+        ROUGH,
+    )
+    assert (first["target"], first["via"], first["actor"]) == (
+        "milling.mill_rough",
+        "lamella editor",
+        "operator",
+    )
+    assert first["fields"] == [
+        "stages.0.pattern.depth",
+        "stages.1.milling.milling_current",
+    ]
+    assert first["changes"] == 2
+    assert (second["changes"], second["fields"]) == (0, [])
+    assert (second["actor"], second["via"]) == ("agent", "agent patch")
+
+
+def test_who_did_what():
+    records = [
+        _started(0),
+        _step(0, "MILL_LAMELLA"),
+        _step(5, "ACQUIRE_REFERENCE_IMAGES"),
+        _edit(6, {"a": 1}, {"a": 2}),
+        _edit(7, {"a": 2}, {"a": 3}),
+        _edit(8, {"a": 3}, {"a": 4}, actor="agent"),
+        _record("task_completed", 9),
+        {"kind": "task_step", "t": T0.isoformat(), "payload": {}},  # no actor
+    ]
+
+    actors = event_tables(records).actors
+    # a record from before actors were recorded has none (NaN on pandas 3)
+    counts = {
+        (None if pd.isna(a) else a, k): n for a, k, n in actors.itertuples(index=False)
+    }
+
+    assert counts == {
+        ("task", "task_started"): 1,
+        ("task", "task_step"): 2,
+        ("operator", "edit"): 2,
+        ("agent", "edit"): 1,
+        ("task", "task_completed"): 1,
+        (None, "task_step"): 1,
+    }
