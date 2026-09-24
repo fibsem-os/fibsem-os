@@ -23,7 +23,6 @@ from typing import List, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QAction,
     QApplication,
     QLabel,
     QMainWindow,
@@ -88,7 +87,6 @@ class FibsemUI(QMainWindow):
         self.tab_widget = QTabWidget()
         self.setCentralWidget(self.tab_widget)
 
-        self._create_menu_bar()
         self._create_microscope_tab()
         self._create_overview_tab()
 
@@ -96,11 +94,6 @@ class FibsemUI(QMainWindow):
         self.update_ui()
 
     # ── layout ───────────────────────────────────────────────────────────
-
-    def _create_menu_bar(self) -> None:
-        tools_menu = self.menuBar().addMenu("Tools")
-        self.action_manipulator_calibration = QAction("Manipulator Calibration", self)
-        tools_menu.addAction(self.action_manipulator_calibration)
 
     def _create_microscope_tab(self) -> None:
         """The quad view beside the control panel."""
@@ -157,25 +150,12 @@ class FibsemUI(QMainWindow):
     def setup_connections(self) -> None:
         self.system_widget.connected_signal.connect(self.connect_to_microscope)
         self.system_widget.disconnected_signal.connect(self.disconnect_from_microscope)
-        # Connected unconditionally, and resolved when it fires. It used to be wired
-        # only `if self.manipulator_widget is not None` — which runs before any
-        # microscope has connected, so the widget is always None and the menu entry was
-        # never actually connected to anything.
-        self.action_manipulator_calibration.triggered.connect(
-            self._calibrate_manipulator
-        )
-
-    def _calibrate_manipulator(self) -> None:
-        if self.manipulator_widget is None:
-            return
-        self.manipulator_widget.calibrate_manipulator_positions()
 
     def update_ui(self) -> None:
         is_microscope_connected = self.microscope is not None
         self.tab_widget.setTabEnabled(
             self.tab_widget.indexOf(self.overview_container), is_microscope_connected
         )
-        self.action_manipulator_calibration.setVisible(is_microscope_connected)
 
     def connect_to_microscope(self) -> None:
         self.microscope = self.system_widget.microscope
