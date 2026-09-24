@@ -12,6 +12,10 @@ table, empty.
 * ``milling``: one row per milling stage, from its start to its finish.
 * ``decisions``: one row per decision on a question -- who made it, how long
   the question waited for it, and how far the decider moved what was proposed.
+* ``edits``: one row per edit to a lamella's plan or the protocol -- who made
+  it, from where, and which values it changed.
+* ``actors``: how many records each actor has of each kind: the operator's,
+  an agent's and the task's share of what was done.
 
 Waiting is the time a run's questions stood unanswered: a prompt from when it
 was raised to its answer or withdrawal, and a question on the record from when
@@ -23,6 +27,7 @@ in ``t`` is dropped. Durations are in seconds.
 """
 
 import math
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +44,7 @@ from fibsem.applications.autolamella.proposals import (
     POINT_OF_INTEREST,
     STATE,
 )
+from fibsem.applications.autolamella.tools.replay import changed_values
 
 RUN_COLUMNS = [
     "item",
@@ -99,6 +105,18 @@ DECISION_COLUMNS = [
     "unit",
     "checkpoint",
 ]
+EDIT_COLUMNS = [
+    "time",
+    "item",
+    "item_id",
+    "task",
+    "target",
+    "via",
+    "actor",
+    "changes",
+    "fields",
+]
+ACTOR_COLUMNS = ["actor", "kind", "count"]
 
 # How a run ended. A run with no end recorded is "unfinished": still running
 # when the file was read, or cut off.
@@ -119,6 +137,8 @@ class EventTables:
     steps: pd.DataFrame
     milling: pd.DataFrame
     decisions: pd.DataFrame
+    edits: pd.DataFrame
+    actors: pd.DataFrame
 
 
 def read_event_tables(path: Union[str, Path]) -> EventTables:
@@ -143,6 +163,8 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
     raised: Dict[Tuple[Any, Any], Tuple[datetime, Any]] = {}  # prompt -> (t, run)
     asked: Dict[Any, Tuple[datetime, Any]] = {}  # proposal id -> (t, run)
     waits: Dict[Any, List[Interval]] = {}  # run id -> its questions' waits
+    edits: List[Dict[str, Any]] = []
+    acted: "Counter[Tuple[Any, Any]]" = Counter()  # (actor, kind) -> records
 
     for record in records:
         time = _time(record)
@@ -153,6 +175,7 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
         item = record.get("item") or {}
         task = record.get("task") or {}
         run_id = task.get("id")
+        acted[(record.get("actor"), kind)] += 1
 
         if kind == "task_started":
             runs[run_id] = _run(item, task, payload, start=time)
@@ -222,6 +245,8 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
                 waits.setdefault(question[1], []).append((question[0], time))
             decisions.append(row)
             decided[key] = row
+        elif kind == "edit":
+            edits.append(_edit(time, record, payload))
 
     for run in runs.values():
         _time_spent(run, waits.get(run["task_id"], []))
@@ -235,6 +260,14 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
         steps=_table(steps, STEP_COLUMNS),
         milling=_table(milling, MILLING_COLUMNS),
         decisions=_table(decisions, DECISION_COLUMNS),
+        edits=_table(edits, EDIT_COLUMNS),
+        actors=_table(
+            (
+                {"actor": actor, "kind": kind, "count": count}
+                for (actor, kind), count in acted.items()
+            ),
+            ACTOR_COLUMNS,
+        ),
     )
 
 
@@ -298,6 +331,34 @@ def _decision(
     return row
 
 
+def _edit(
+    time: datetime, record: Dict[str, Any], payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    """An edit, on the item and task it edited, which the payload names. Its
+    ``before`` and ``after`` are the whole object; the values that differ are
+    the fields it changed, named in full from the target
+    (``milling.mill_rough.stages.0.pattern.depth``), so a target that is one
+    setting names itself. There are none when only a float's rounding changed, as a
+    value read back through a widget can."""
+    item = payload.get("item") or {}
+    target = payload.get("target")
+    fields = [
+        ".".join(part for part in (target, path) if part)
+        for path, _, _ in changed_values(payload.get("before"), payload.get("after"))
+    ]
+    return {
+        "time": time,
+        "item": item.get("name"),
+        "item_id": item.get("id"),
+        "task": payload.get("task"),
+        "target": target,
+        "via": payload.get("via"),
+        "actor": record.get("actor"),
+        "changes": len(fields),
+        "fields": fields,
+    }
+
+
 def _set_change(row: Dict[str, Any], payload: Dict[str, Any]) -> None:
     """Whether the decider changed what was proposed, and for a point, a
     position or detected features, by how much."""
@@ -309,7 +370,7 @@ def _set_change(row: Dict[str, Any], payload: Dict[str, Any]) -> None:
     elif moved is not None:
         changed = moved > 0
     else:
-        changed = not _same(proposed, decided)
+        changed = bool(changed_values(proposed, decided))
     row.update(changed=changed, moved=moved, unit=unit)
 
 
@@ -357,19 +418,6 @@ def _distance(a: Any, b: Any, keys: Tuple[str, ...]) -> Optional[float]:
     # a value read back through a widget is a hair off what it was given
     scale = max((abs(float(a[k])) for k in keys), default=0.0)
     return 0.0 if distance <= 1e-9 * scale else distance
-
-
-def _same(a: Any, b: Any) -> bool:
-    if isinstance(a, dict) and isinstance(b, dict):
-        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
-    if isinstance(a, list) and isinstance(b, list):
-        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
-    if isinstance(a, float) or isinstance(b, float):
-        try:
-            return math.isclose(float(a), float(b), rel_tol=1e-9)
-        except (TypeError, ValueError):
-            return False
-    return a == b
 
 
 def _time_spent(row: Dict[str, Any], waits: List[Interval]) -> None:

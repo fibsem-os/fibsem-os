@@ -1152,7 +1152,7 @@ def _edit_summary(payload: Dict[str, Any]) -> str:
     ``before`` and ``after`` are the whole object edited, so the values that
     differ are found by walking both.
     """
-    changes = _changed_values(payload.get("before"), payload.get("after"))
+    changes = changed_values(payload.get("before"), payload.get("after"))
     shown = [_edit_change(*change) for change in changes[:_EDIT_CHANGES_SHOWN]]
     if len(changes) > _EDIT_CHANGES_SHOWN:
         shown.append(f"{len(changes) - _EDIT_CHANGES_SHOWN} more")
@@ -1163,10 +1163,15 @@ def _edit_summary(payload: Dict[str, Any]) -> str:
     return text
 
 
-def _changed_values(
+def changed_values(
     before: Any, after: Any, path: str = ""
 ) -> List[Tuple[str, Any, Any]]:
-    """``(path, before, after)`` for each value that differs, in order."""
+    """``(path, before, after)`` for each value that differs, in order.
+
+    Floats that differ only by rounding are the same value (``_same_value``);
+    a key or item one side lacks differs. Report v2's tables read edits and
+    decisions with it too (``tools/event_tables.py``).
+    """
     if isinstance(before, dict) and isinstance(after, dict):
         keys = list(before) + [k for k in after if k not in before]
         pairs = [(k, before.get(k, _ABSENT), after.get(k, _ABSENT)) for k in keys]
@@ -1184,7 +1189,7 @@ def _changed_values(
     return [
         change
         for key, old, new in pairs
-        for change in _changed_values(old, new, f"{path}.{key}" if path else str(key))
+        for change in changed_values(old, new, f"{path}.{key}" if path else str(key))
     ]
 
 
@@ -1290,7 +1295,7 @@ def _decision_changes(proposed: Dict[str, Any], decided: Dict[str, Any]) -> str:
             if moved:
                 parts.append(f"{prefix}moved {moved}")
             continue
-        changes = _changed_values(old, new, name if len(decided) > 1 else "")
+        changes = changed_values(old, new, name if len(decided) > 1 else "")
         shown = [_edit_change(*c) for c in changes[:_EDIT_CHANGES_SHOWN]]
         if len(changes) > _EDIT_CHANGES_SHOWN:
             shown.append(f"{len(changes) - _EDIT_CHANGES_SHOWN} more")
