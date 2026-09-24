@@ -1919,6 +1919,17 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         return hasattr(self.connection.specimen, "sputter_coater")
 
+    def _probe_plasma_gas(self) -> Optional[str]:
+        """`ion_beam.source.plasma_gas.value` -- the call `get("plasma_gas")` makes.
+
+        Only a plasma source has one; on a Ga column the attribute is missing or the
+        read raises, and either is "cannot say", which leaves the file's answer.
+        """
+        plasma_gas = getattr(self.connection.beams.ion_beam.source, "plasma_gas", None)
+        if plasma_gas is None:
+            return None
+        return plasma_gas.value or None
+
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the stage axis limits for x, y, z, t, r."""
         from fibsem.microscopes.simulator import (

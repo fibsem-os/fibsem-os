@@ -2586,6 +2586,13 @@ def _plasma_gas_from(settings: dict) -> Optional[str]:
         return None
     gas = settings.get("plasma_gas")
     if gas is None or str(gas).strip().lower() in ("", "none", "null"):
+        if settings.get("plasma") is True:
+            # The old flag without a gas. Not a plasma column until the instrument
+            # names its gas at connect (`FibsemMicroscope._read_plasma_source`).
+            logging.info(
+                "The configuration says `plasma: true` but names no plasma gas; the "
+                "gas is read from the instrument at connect."
+            )
         return None
     return str(gas)
 

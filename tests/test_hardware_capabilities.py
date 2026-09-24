@@ -222,3 +222,130 @@ def test_no_call_site_asks_for_the_key_that_matches_nothing():
 def test_a_configuration_that_says_nothing_still_loads_and_images(microscope):
     image = microscope.acquire_image(beam_type=BeamType.ELECTRON)
     assert image is not None
+
+
+# ---------------------------------------------------------------------------
+# The plasma gas is the instrument's when it can say
+# ---------------------------------------------------------------------------
+
+
+def test_an_old_plasma_flag_without_a_gas_gets_the_instrument_s_gas(tmp_path):
+    """`plasma: true` with `plasma_gas: None` loads as no gas -- a plasma column is
+    one with a gas. The instrument names it at connect, so the site keeps its plasma
+    controls instead of losing them on upgrade."""
+    import yaml
+
+    config = _load("sim-arctis-configuration.yaml")
+    config["ion"] = {"plasma": True, "plasma_gas": None}
+    config["sim"]["plasma_gas"] = "Xenon"
+    assert MicroscopeSettings.from_dict(config).system.ion.plasma is False
+
+    path = tmp_path / "site.yaml"
+    path.write_text(yaml.safe_dump(config))
+    microscope, _ = utils.setup_session(
+        session_path=str(tmp_path), config_path=str(path), setup_logging=False
+    )
+    try:
+        assert microscope.system.ion.plasma_gas == "Xenon"
+        assert microscope.is_available("ion_plasma") is True
+    finally:
+        microscope.disconnect()
+
+
+def test_a_gas_the_configuration_states_is_left_alone(microscope, monkeypatch):
+    """The instrument is not asked, and its answer never replaces the file's."""
+
+    asked = []
+
+    def probe() -> Optional[str]:
+        asked.append(True)
+        return "Xenon"
+
+    microscope.system.ion.plasma_gas = "Argon"
+    monkeypatch.setattr(microscope, "_probe_plasma_gas", probe)
+
+    microscope._read_plasma_source()
+
+    assert microscope.system.ion.plasma_gas == "Argon"
+    assert asked == []
+
+
+def test_reading_the_gas_does_not_set_one(microscope, monkeypatch):
+    """Recording the gas is a read: no call reaches the instrument's setter."""
+    calls = []
+    original_set = microscope.set
+    monkeypatch.setattr(
+        microscope,
+        "set",
+        lambda key, *a, **k: calls.append(key) or original_set(key, *a, **k),
+    )
+    microscope.system.ion.plasma_gas = None
+    monkeypatch.setattr(microscope, "_probe_plasma_gas", lambda: "Xenon")
+
+    microscope._read_plasma_source()
+
+    assert microscope.system.ion.plasma_gas == "Xenon"
+    assert "plasma_gas" not in calls
+
+
+@pytest.mark.parametrize("answer", [None, "", "raises"])
+def test_a_probe_that_cannot_say_leaves_the_file_s_answer(
+    microscope, monkeypatch, answer
+):
+    """On a Ga column AutoScript refuses the question; that must not invent a
+    plasma source."""
+
+    def probe() -> Optional[str]:
+        if answer == "raises":
+            raise RuntimeError("no plasma source")
+        return answer
+
+    monkeypatch.setattr(microscope, "_probe_plasma_gas", probe)
+    microscope.system.ion.plasma_gas = None
+
+    microscope._read_plasma_source()
+
+    assert microscope.system.ion.plasma_gas is None
+
+
+def test_autoscript_asks_the_ion_source():
+    """The call `get("plasma_gas")` already makes, asked once at connect."""
+    from types import SimpleNamespace
+
+    from fibsem.microscopes.autoscript import ThermoMicroscope
+
+    def probe(source) -> Optional[str]:
+        fake = SimpleNamespace(
+            connection=SimpleNamespace(
+                beams=SimpleNamespace(ion_beam=SimpleNamespace(source=source))
+            )
+        )
+        return ThermoMicroscope._probe_plasma_gas(fake)
+
+    assert (
+        probe(SimpleNamespace(plasma_gas=SimpleNamespace(value="Oxygen"))) == "Oxygen"
+    )
+    assert probe(SimpleNamespace()) is None
+    assert probe(SimpleNamespace(plasma_gas=SimpleNamespace(value=""))) is None
+
+
+def test_switching_plasma_on_without_a_gas_says_it_did_nothing(microscope, caplog):
+    """It set a flag once; now a plasma column is one with a gas, so a script that
+    still calls it gets a warning instead of a silently non-plasma column."""
+    microscope.system.ion.plasma_gas = None
+
+    with caplog.at_level("WARNING"):
+        microscope.set_available("ion_plasma", True)
+
+    assert microscope.is_available("ion_plasma") is False
+    assert "plasma_gas" in caplog.text
+
+
+def test_switching_plasma_on_with_a_gas_is_quiet(microscope, caplog):
+    microscope.system.ion.plasma_gas = "Xenon"
+
+    with caplog.at_level("WARNING"):
+        microscope.set_available("ion_plasma", True)
+
+    assert microscope.is_available("ion_plasma") is True
+    assert "ion_plasma" not in caplog.text

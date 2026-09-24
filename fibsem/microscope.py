@@ -394,6 +394,41 @@ class FibsemMicroscope(ABC):
             if present is None:
                 present = self.DEFAULT_FITTED[key]
             self.set_available(key, bool(present))
+        self._read_plasma_source()
+
+    # ---- the ion column's plasma source ----------------------------------------
+    #
+    # A plasma column is one with a gas (`BeamSystemSettings.plasma_gas`). Files
+    # written before that said so with `plasma: true` beside the gas, and a site that
+    # set the flag and left the gas at `None` loads with no gas -- so it would lose
+    # its plasma controls on upgrade. For that case only, the gas the instrument is
+    # running is read and recorded.
+    #
+    # Read, never changed: nothing here sets a gas on the instrument, and a gas the
+    # configuration states is left alone -- the instrument is not even asked. The
+    # probe can only find a plasma source; "cannot say" leaves the column as the
+    # file described it.
+
+    def _probe_plasma_gas(self) -> Optional[str]:
+        """The ion column's current plasma gas, or None if this backend cannot say."""
+        return None
+
+    def _read_plasma_source(self) -> None:
+        """Record the instrument's plasma gas when the configuration names none."""
+        if self.system.ion.plasma_gas is not None:
+            return
+        try:
+            gas = self._probe_plasma_gas()
+        except Exception as e:
+            # A Ga column refuses the question the same way a sick connection does.
+            logging.debug(f"Plasma gas probe failed: {e}")
+            gas = None
+        if not gas:
+            return
+        logging.info(
+            f"The configuration names no plasma gas; the ion column reports '{gas}'."
+        )
+        self.system.ion.plasma_gas = str(gas)
 
     def _apply_fluorescence_calibration(self) -> None:
         """Push the configured objective calibration onto the objective.
@@ -1335,6 +1370,11 @@ class FibsemMicroscope(ABC):
             # it on needs a gas, which is `system.ion.plasma_gas`.
             if not value:
                 self.system.ion.plasma_gas = None
+            elif self.system.ion.plasma_gas is None:
+                logging.warning(
+                    "set_available('ion_plasma', True) has no effect: a plasma column "
+                    "is one with a gas. Set system.ion.plasma_gas instead."
+                )
         elif system == "stage":
             self.system.stage.enabled = value
         elif system == "manipulator":

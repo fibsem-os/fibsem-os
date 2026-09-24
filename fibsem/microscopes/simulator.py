@@ -1152,6 +1152,9 @@ class DemoMicroscope(FibsemMicroscope):
     def _probe_sputter_coater_installed(self) -> Optional[bool]:
         return self.system.sim.get("has_gis_sputter_coater")
 
+    def _probe_plasma_gas(self) -> Optional[str]:
+        return self.system.sim.get("plasma_gas")
+
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the axis limits for the stage."""
         if self.stage_is_compustage:
