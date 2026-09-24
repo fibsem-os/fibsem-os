@@ -424,12 +424,17 @@ class FluorescenceImage:
     # so two images of the same data read from different paths are still equal.
     filepath: Optional[str] = field(default=None, compare=False, repr=False)
 
-    def save(self, filename: str) -> str:
+    def save(self, filename: str, compression: Optional[str] = None) -> str:
         """
         Save a FMImage to a TIFF file with OME metadata.
 
         Args:
             filename (str): The filename to save the image to.
+            compression (str, optional): A tifffile compression, e.g. "zlib", for a
+                copy that should not be larger than its source; with a horizontal
+                predictor, which is what makes 16-bit microscopy compress. None, the
+                default, writes uncompressed and contiguous, as acquisitions always
+                have.
         """
         # if data is 2D, reshape to 4D (CZYX)
         if self.data.ndim == 2:
@@ -464,7 +469,19 @@ class FluorescenceImage:
         with tff.TiffWriter(filename) as tif:
             # Greyscale, said outright: left to guess, tifffile may take a stack
             # of three or four planes for the samples of an RGB image.
-            tif.write(data=tifffile_image, contiguous=True, photometric="minisblack")
+            if compression:
+                # Compressed pages cannot be contiguous; the per-plane mapping in
+                # the OME says where each is, as it does for any file.
+                tif.write(
+                    data=tifffile_image,
+                    photometric="minisblack",
+                    compression=compression,
+                    predictor=True,
+                )
+            else:
+                tif.write(
+                    data=tifffile_image, contiguous=True, photometric="minisblack"
+                )
             tif.overwrite_description(ome_xml)
 
         # set only after a successful write, so a recorded path is always a path that exists
