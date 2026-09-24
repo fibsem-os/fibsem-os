@@ -336,11 +336,14 @@ def _edit(
 ) -> Dict[str, Any]:
     """An edit, on the item and task it edited, which the payload names. Its
     ``before`` and ``after`` are the whole object; the values that differ are
-    the fields it changed: none when only a float's rounding did, as a value
-    read back through a widget can."""
+    the fields it changed, named in full from the target
+    (``milling.mill_rough.stages.0.pattern.depth``), so a target that is one
+    setting names itself. There are none when only a float's rounding changed, as a
+    value read back through a widget can."""
     item = payload.get("item") or {}
+    target = payload.get("target")
     fields = [
-        path
+        ".".join(part for part in (target, path) if part)
         for path, _, _ in changed_values(payload.get("before"), payload.get("after"))
     ]
     return {
@@ -348,7 +351,7 @@ def _edit(
         "item": item.get("name"),
         "item_id": item.get("id"),
         "task": payload.get("task"),
-        "target": payload.get("target"),
+        "target": target,
         "via": payload.get("via"),
         "actor": record.get("actor"),
         "changes": len(fields),

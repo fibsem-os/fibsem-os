@@ -518,12 +518,30 @@ def test_an_edit_names_the_fields_it_changed():
         "operator",
     )
     assert first["fields"] == [
-        "stages.0.pattern.depth",
-        "stages.1.milling.milling_current",
+        "milling.mill_rough.stages.0.pattern.depth",
+        "milling.mill_rough.stages.1.milling.milling_current",
     ]
     assert first["changes"] == 2
     assert (second["changes"], second["fields"]) == (0, [])
     assert (second["actor"], second["via"]) == ("agent", "agent patch")
+
+
+def test_an_edit_to_one_setting_names_it():
+    payload = {
+        "item": {"id": "L2", "name": "02-lamella"},
+        "task": ROUGH,
+        "target": "parameters.reacquire_alignment_reference",
+        "via": "lamella editor",
+        "before": False,
+        "after": True,
+    }
+
+    ((edit),) = event_tables([_record("edit", 0, payload, run=None)]).edits.to_dict(
+        "records"
+    )
+
+    assert edit["fields"] == ["parameters.reacquire_alignment_reference"]
+    assert edit["changes"] == 1
 
 
 def test_who_did_what():
