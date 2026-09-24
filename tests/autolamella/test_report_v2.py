@@ -617,7 +617,10 @@ def test_a_lamella_s_card():
     )
     assert "<td>Rough Milling: Rough 01</td><td>740 pA</td><td>0.65 µm</td>" in page
     assert "<td>confirmed (changed)</td><td>operator</td><td>5.0 µm</td>" in page
-    assert "<td>milling.mill_rough.fov</td><td>lamella editor</td><td>operator</td>" in page
+    assert (
+        "<td>milling.mill_rough.fov</td><td>lamella editor</td><td>operator</td>"
+        in page
+    )
     assert "FM z-stack, 5 planes, GFP (Acquire Fluorescence)" in page
     # B never ran: a card that says so, and no thumbnails without folders
     assert re.search(rf"<b>{B}</b><span class=\"muted\">not run</span>", page)
