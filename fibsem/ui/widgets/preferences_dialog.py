@@ -71,6 +71,12 @@ _TIP_PROPOSE_REVIEW = (
     "records what it did whether this is on or not; this shows the tab and "
     "allows a task to be set to Review. Early access."
 )
+_LBL_HANDOFF_MAP = "Enable Handoff Map Export"
+_TIP_HANDOFF_MAP = (
+    "Add Tools > Reporting > Export Handoff Map: the multi-page document a grid "
+    "travels to the TEM with -- a map page per overview, the lamella table, and a "
+    "card per lamella. Also writes it automatically when a workflow run finishes."
+)
 _LBL_AGENT_SERVER = "Enable Agent Server"
 _LBL_WATCHDOG = "Hand questions to me after"
 _TIP_WATCHDOG = (
@@ -183,6 +189,9 @@ class PreferencesDialog(QDialog):
         self._chk_propose_review = QCheckBox()
         self._chk_propose_review.setToolTip(_TIP_PROPOSE_REVIEW)
         features_form.addRow(_LBL_PROPOSE_REVIEW, self._chk_propose_review)
+        self._chk_handoff_map = QCheckBox()
+        self._chk_handoff_map.setToolTip(_TIP_HANDOFF_MAP)
+        features_form.addRow(_LBL_HANDOFF_MAP, self._chk_handoff_map)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -278,6 +287,7 @@ class PreferencesDialog(QDialog):
         self._chk_connection_chip.setChecked(f.connection_chip)
         self._chk_grid_workflow.setChecked(f.grid_workflow)
         self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
+        self._chk_handoff_map.setChecked(f.handoff_map)
 
         self._spin_watchdog.setValue(prefs.agent.watchdog_minutes)
 
@@ -337,6 +347,7 @@ class PreferencesDialog(QDialog):
                 connection_chip=self._chk_connection_chip.isChecked(),
                 grid_workflow=self._chk_grid_workflow.isChecked(),
                 proposer_reviewer_workflow_enabled=self._chk_propose_review.isChecked(),
+                handoff_map=self._chk_handoff_map.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),

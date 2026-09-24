@@ -432,6 +432,15 @@ class FeatureFlags:
     # before a run reports itself stalled, and the tab. Off, every task behaves
     # exactly as before. Off by default while it is a proof of concept.
     proposer_reviewer_workflow_enabled: bool = False
+    # Tools -> Reporting -> Export Handoff Map. The multi-page document a grid travels
+    # to the TEM with: a map page per view, the lamella table, then a card per lamella.
+    # Off while it sits *beside* the existing Generate Overview Plot rather than
+    # replacing it, so the plot people rely on is untouched while this is checked
+    # against real experiments.
+    #
+    # A staging flag like `connection_chip`, and it goes the way `napari_overview_tab`
+    # did: deleted when it replaces the overview plot, not kept as a preference.
+    handoff_map: bool = False
 
 
 @dataclass

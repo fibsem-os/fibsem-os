@@ -687,10 +687,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_generate_grid_report.triggered.connect(
             self._on_generate_grid_report
         )
+        # The multi-page document a grid travels to the TEM with. Built unconditionally
+        # and hidden by _apply_preferences while the handoff_map flag is off, which is
+        # the default -- hidden rather than absent so toggling the preference takes
+        # effect without a restart, the same way the coincidence viewer's action does.
+        self.action_export_handoff_map = QAction("Export Handoff Map...", self)
+        self.action_export_handoff_map.triggered.connect(self._on_export_handoff_map)
         reporting_menu.addAction(self.action_generate_report)
         reporting_menu.addAction(self.action_generate_report_v2)
         reporting_menu.addAction(self.action_generate_grid_report)
         reporting_menu.addAction(self.action_generate_overview_plot)
+        reporting_menu.addAction(self.action_export_handoff_map)
 
         # user scripts (FIB-338). The menu itself is application-agnostic; this
         # supplies only the folder, the context, and how to notify.
@@ -1010,6 +1017,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         coincidence_enabled = self._preferences.features.coincidence_milling_enabled
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
+        self.action_export_handoff_map.setVisible(
+            self._preferences.features.handoff_map
+        )
         # Which of the grid-workflow surfaces are shown follows its flag. The Overview
         # tab is not here: it ships to everyone, and which of its modalities can be
         # reached follows the instrument rather than a flag.
@@ -1372,6 +1382,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         self.tab_widget.setCurrentWidget(tab)
         tab.generate_report()
+
+    def _on_export_handoff_map(self):
+        """Tools -> Reporting -> Export Handoff Map."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.action_export_handoff_map()
 
     def _on_generate_overview_plot(self):
         """Handle Generate Overview Plot action."""
