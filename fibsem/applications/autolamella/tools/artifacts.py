@@ -113,9 +113,7 @@ def _task_record(task: "AutoLamellaTaskState") -> dict:
     }
 
 
-def _find_item(
-    experiment: "Experiment", context: "HookContext"
-) -> Optional["Lamella"]:
+def _find_item(experiment: "Experiment", context: "HookContext") -> Optional["Lamella"]:
     """Resolve the item a context names back to the lamella it refers to.
 
     By id first: the name is a petname a user can edit, the id is the stable key. The
