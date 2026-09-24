@@ -60,7 +60,8 @@ class AlignedImagePanel(QWidget):
         self.btn_align = QPushButton("Align image")
         self.btn_align.setCheckable(True)
         self.btn_align.setToolTip(
-            "Drag the image onto the overview; take the handle to turn it"
+            "Drag the image onto the overview; take the handle to turn it,"
+            " a corner to scale it"
         )
         self.btn_align.toggled.connect(self.align_toggled)
         self.btn_reset = QPushButton("Reset")
