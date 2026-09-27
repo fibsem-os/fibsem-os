@@ -50,7 +50,10 @@ def fm_microscope(demo_microscope):
     microscope = demo_microscope
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope.stage_is_compustage = True
-    microscope.move_to_microscope("FM")
+    # Flipped under the objective, asked for by name. Several tests below pin the
+    # direction of *stage* y, which on a compustage follows the tilt; unasked, the
+    # move keeps any pose the configured objective images from.
+    microscope.move_to_device("FM", orientation="FM")
     return microscope
 
 
@@ -1015,6 +1018,65 @@ def test_acquire_tileset_row_direction_matches_the_beam_tiler(
         assert np.sign(fm_dy) == np.sign(tile.dy), (
             f"y direction disagrees at row {tile.row} col {tile.col}: "
             f"FM {fm_dy:+.3e} vs beam {tile.dy:+.3e}"
+        )
+
+
+@pytest.mark.parametrize("pose", ["FM", "SEM", "MILLING"])
+def test_acquire_tileset_lands_each_tile_where_the_canvas_reads_it(
+    demo_microscope, monkeypatch, pose
+):
+    """The pose-independent form of the two tests above.
+
+    Which way *stage* y runs depends on the tilt -- on a compustage it reverses
+    between the flipped pose and the beam side -- so the thing that must hold in every
+    pose is the round trip: a tile asked for at an image offset is read back at that
+    offset by `FMStageProjection`, which is what the canvas, the planner and the
+    stitched mosaic's placement all use. The plane is y-up, an image offset y-down.
+    """
+    from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
+    from fibsem.projection import FMStageProjection
+
+    rows, cols, overlap = 3, 2, 0.1
+    microscope = demo_microscope
+    microscope.system.stage.shuttle_pre_tilt = 0
+    microscope.stage_is_compustage = True
+    microscope._update_orientations()
+    # An objective that also images from the beam side, or the acquisition gate
+    # refuses two of the three poses before anything is laid out.
+    microscope.system.stage.devices["FM"].acquisition_orientations = [
+        "FM",
+        "SEM",
+        "MILLING",
+    ]
+    microscope.fm.objective.retract()
+    microscope.move_to_orientation(pose)
+    microscope.fm.objective.insert()
+    centre = microscope.get_stage_position()
+    positions = _record_tile_positions(microscope, monkeypatch)
+    _run_tileset(microscope, rows, cols, overlap=overlap)
+    tiles = _by_tile(positions, rows, cols)
+
+    width, height = microscope.fm.camera.resolution
+    pixel_x, pixel_y = microscope.fm.camera.pixel_size
+    fov_x, fov_y = width * pixel_x, height * pixel_y
+    grid = compute_tile_grid_from_fov(
+        nrows=rows,
+        ncols=cols,
+        fov_x=fov_x,
+        fov_y=fov_y,
+        image_width=width,
+        image_height=height,
+        overlap=overlap,
+    )
+    offset_x = (cols - 1) * fov_x * (1 - overlap) / 2
+    offset_y = (rows - 1) * fov_y * (1 - overlap) / 2
+    projection = FMStageProjection.from_microscope(microscope)
+
+    for tile in grid:
+        asked = (tile.dx - offset_x, tile.dy + offset_y)
+        read = projection.to_plane(tiles[(tile.row, tile.col)], centre)
+        assert read == pytest.approx((asked[0], -asked[1]), abs=1e-9), (
+            f"tile {(tile.row, tile.col)} at the {pose} pose"
         )
 
 
