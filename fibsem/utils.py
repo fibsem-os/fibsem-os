@@ -771,6 +771,27 @@ def write_objective_calibration(
     )
 
 
+def write_holder_calibration(
+    path: Union[str, Path], holders: Dict[str, dict], active_holder: str
+) -> None:
+    """Record the sample holders and which one is fitted in the configuration at *path*.
+
+    `calibration.holders` is replaced whole rather than merged: a holder renamed in
+    the wizard must not leave its old entry behind, and the entries are the
+    holders the session knows, which include every one the file had.
+    """
+    config = load_yaml(os.path.join(path)) or {}
+    if "version" not in config:
+        _keep_the_file_as_it_was(path)
+    calibration = config.get("calibration")
+    if not isinstance(calibration, dict):
+        calibration = config["calibration"] = {}
+    calibration["holders"] = holders
+    calibration["active_holder"] = active_holder
+    _retire_legacy_duplicates(config)
+    _write_configuration_file(path, config)
+
+
 def _plain(value):
     """*value* with numpy scalars, tuples and numpy arrays as YAML-native types.
 

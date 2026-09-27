@@ -164,3 +164,21 @@ def test_the_copy_is_not_offered_as_a_configuration(tmp_path):
     utils.write_configuration(path, {"defaults": {"electron": {"voltage": 5000}}})
 
     assert sorted(p.name for p in tmp_path.glob("*.yaml")) == ["old.yaml"]
+
+
+def test_holders_are_replaced_whole_and_an_old_file_is_kept(tmp_path):
+    """The wizard writes every holder the session knows; one it renamed must not
+    survive under its old name, as a merge would leave it."""
+    path = tmp_path / "old.yaml"
+    path.write_text(yaml.safe_dump(OLD_FLAT_FILE))
+    original = path.read_text()
+    holder = {"name": "A", "capacity": 1, "pre_tilt": 35.0, "slots": {}}
+    utils.write_holder_calibration(path, {"A": holder}, "A")
+
+    utils.write_holder_calibration(path, {"B": dict(holder, name="B")}, "B")
+
+    written = utils.load_yaml(str(path))
+    assert list(written["calibration"]["holders"]) == ["B"]
+    assert written["calibration"]["active_holder"] == "B"
+    assert written["stage"]["rotation_reference"] == 0  # the rest is left alone
+    assert utils.configuration_backup_path(path).read_text() == original

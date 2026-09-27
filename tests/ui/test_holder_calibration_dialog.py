@@ -1,11 +1,15 @@
 """The guided slot calibration: orientation gate, capture, review, save."""
 
 import math
+import os
+import shutil
+from pathlib import Path
 
 import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
+import fibsem.config as cfg
 from fibsem import utils
 from fibsem.microscopes._stage import SampleHolder, _create_sample_stage
 from fibsem.structures import FibsemStagePosition
@@ -24,15 +28,36 @@ def microscope():
 
 
 def _holder(capacity: int = 2) -> SampleHolder:
-    holder = SampleHolder(pre_tilt=0.0, name="Test shuttle", capacity=capacity)
+    # 35 degrees, as the Demo configuration says: saved and selected, the holder's
+    # pre-tilt becomes the stage's, and a slot captured at another is not trusted.
+    holder = SampleHolder(pre_tilt=35.0, name="Test shuttle", capacity=capacity)
     holder._ensure_slots()
     return holder
 
 
+def _configuration(tmp_path) -> Path:
+    """A copy of a shipped configuration for the wizard to save into."""
+    path = tmp_path / "configuration.yaml"
+    if not path.exists():
+        shutil.copyfile(
+            os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"), path
+        )
+    return path
+
+
 def _dialog(qapp, microscope, holder, tmp_path):
     return HolderCalibrationDialog(
-        microscope, holder, save_path=str(tmp_path / "holder.yaml")
+        microscope, holder, configuration_path=str(_configuration(tmp_path))
     )
+
+
+def _saved_holder(tmp_path, name: str) -> SampleHolder:
+    """The holder as the configuration now records it."""
+    stage = utils.load_microscope_configuration(
+        str(_configuration(tmp_path))
+    ).system.stage
+    assert stage.active_holder == name
+    return stage.holders[name]
 
 
 def _move_to(microscope, x, y, z=4e-3):
@@ -150,7 +175,7 @@ def test_save_writes_the_config_and_emits(qapp, microscope, tmp_path):
 
     assert saved == [holder]
     assert holder.name == "Two-grid shuttle"
-    again = SampleHolder.load(tmp_path / "holder.yaml")
+    again = _saved_holder(tmp_path, "Two-grid shuttle")
     assert again.name == "Two-grid shuttle"
     assert abs(again.slots["Slot-01"].position.x + 3e-3) < 1e-9
     assert abs(again.slots["Slot-02"].position.x - 3e-3) < 1e-9
@@ -167,7 +192,11 @@ def test_cancel_leaves_the_holder_untouched(qapp, microscope, tmp_path):
     dialog._on_capture()
     dialog.reject()
     assert holder.slots["Slot-01"].position is before
-    assert not (tmp_path / "holder.yaml").exists()
+    assert (
+        "holders"
+        not in (utils.load_yaml(str(_configuration(tmp_path))).get("calibration") or {})
+        or not utils.load_yaml(str(_configuration(tmp_path)))["calibration"]["holders"]
+    )
 
 
 def test_live_position_follows_the_stage_signal(qapp, microscope, tmp_path):
@@ -203,7 +232,7 @@ def test_save_writes_a_calibration_record_that_survives_reload(
     dialog._show_step(dialog.review_step)
     dialog._on_next()  # Save
 
-    again = SampleHolder.load(tmp_path / "holder.yaml")
+    again = _saved_holder(tmp_path, "Test shuttle")
     slot = again.slots["Slot-01"]
     assert slot.is_calibrated
     assert slot.calibration.orientation == CALIBRATION_ORIENTATION
@@ -217,3 +246,74 @@ def test_save_writes_a_calibration_record_that_survives_reload(
         )
         == []
     )
+
+
+def _calibrate_one_slot(dialog, microscope, x=-3e-3):
+    _move_to(microscope, x=x, y=0.0)
+    dialog._show_step(2)
+    dialog._on_capture()
+    dialog._show_step(dialog.review_step)
+    dialog._on_next()  # Save
+
+
+def test_the_holder_is_saved_into_the_configuration_not_its_own_file(
+    qapp, microscope, tmp_path
+):
+    """Where it used to go: `sample-holder.yaml`, which nothing copies into an
+    experiment and which every connect re-imported."""
+    dialog = _dialog(qapp, microscope, _holder(1), tmp_path)
+
+    _calibrate_one_slot(dialog, microscope)
+
+    assert (
+        not Path(cfg.SAMPLE_HOLDER_CONFIGURATION_PATH).read_text().count("Test shuttle")
+    )
+    assert _saved_holder(tmp_path, "Test shuttle").slots["Slot-01"].is_calibrated
+
+
+def test_a_renamed_holder_leaves_no_entry_under_its_old_name(
+    qapp, microscope, tmp_path
+):
+    holder = _holder(1)
+    microscope.system.stage.holders = {"Test shuttle": holder}
+    microscope.system.stage.active_holder = "Test shuttle"
+    dialog = _dialog(qapp, microscope, holder, tmp_path)
+    dialog.name_edit.setText("Renamed shuttle")
+    dialog._on_next()  # applies the name
+
+    _calibrate_one_slot(dialog, microscope)
+
+    stage = utils.load_microscope_configuration(
+        str(_configuration(tmp_path))
+    ).system.stage
+    assert list(stage.holders) == ["Renamed shuttle"]
+    assert stage.active_holder == "Renamed shuttle"
+    assert microscope.system.stage.active_holder == "Renamed shuttle"
+
+
+def test_the_next_connect_uses_the_calibrated_holder(qapp, microscope, tmp_path):
+    dialog = _dialog(qapp, microscope, _holder(1), tmp_path)
+    _calibrate_one_slot(dialog, microscope, x=-3e-3)
+
+    again, _ = utils.setup_session(
+        config_path=str(_configuration(tmp_path)), manufacturer="Demo"
+    )
+
+    holder = again._stage.holder
+    assert holder.name == "Test shuttle"
+    assert holder.slots["Slot-01"].is_calibrated
+    assert abs(holder.slots["Slot-01"].position.x + 3e-3) < 1e-9
+
+
+def test_without_a_configuration_file_there_is_nowhere_to_save(
+    qapp, microscope, tmp_path
+):
+    microscope.configuration_path = None
+    dialog = HolderCalibrationDialog(microscope, _holder(1))
+    _move_to(microscope, x=-3e-3, y=0.0)
+    dialog._show_step(2)
+    dialog._on_capture()
+    dialog._show_step(dialog.review_step)
+
+    assert not dialog.can_save()
+    assert "nowhere to save" in dialog.review_summary.text()
