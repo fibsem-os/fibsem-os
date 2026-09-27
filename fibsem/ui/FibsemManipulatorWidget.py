@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Optional
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QMessageBox
 
-from fibsem import config as cfg
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.autoscript import ThermoMicroscope
@@ -72,9 +71,8 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
             self.calibrated_status_label.setVisible(False)
 
         if is_tescan:
-            self.tescan_calibration = cfg.load_tescan_manipulator_calibration()
-
-            self._initialise_calibration()
+            # Tescan inserts to the instrument's own named presets.
+            self.calibrated_status_label.setVisible(False)
             self.move_type_comboBox.hide()
             self.beam_type_label.hide()
             self.beam_type_combobox.hide()
@@ -94,72 +92,6 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
             else "Manipulator Status: Retracted"
         )
 
-    def _initialise_calibration(self):
-
-        is_calibrated = self.tescan_calibration["calibrated"]
-
-        if not is_calibrated:
-            self.calibrated_status_label.setText(
-                "Not Calibrated, Please run the calibration tool from the tool menu"
-            )
-            self.insertManipulator_button.setEnabled(False)
-            self._hide_show_buttons(show=False)
-
-    def _check_manipulator_positions_setup(self):
-
-        is_calibrated = self.tescan_calibration["calibrated"]
-
-        response = False
-        if is_calibrated:
-            response = message_box_ui(
-                title="Manipulator Positions Already Calibrated",
-                text="Manipulator Positions are already calibrated, would you like to recalibrate?",
-            )
-            response = not response
-
-        return response
-
-    def calibrate_manipulator_positions(self):
-
-        if not isinstance(self.microscope, TescanMicroscope):
-            message_box_ui(
-                title="Not Available",
-                text="Manipulator Position Calibration is only available for Tescan Microscopes",
-                buttons=QMessageBox.Ok,
-            )
-            return
-
-        response = self._check_manipulator_positions_setup()
-
-        if not response:
-            ok_to_cal = message_box_ui(
-                title="Manipulator Position calibration",
-                text="This tool calibrates the positions of the manipulator, it will switch between the parking, standby and working positions rapidly, please ensure it is safe to do so. If not please click no, otherwise press yes to continue",
-            )
-
-            if ok_to_cal:
-                calibration = self.tescan_calibration
-
-                for position in ["parking", "standby", "working"]:
-                    logging.info(f"Calibrating Manipulator {position} position")
-                    self.microscope.insert_manipulator(position)
-                    manipulator_loc = self.microscope.get_manipulator_position()
-                    calibration[position]["x"] = manipulator_loc.x
-                    calibration[position]["y"] = manipulator_loc.y
-                    calibration[position]["z"] = manipulator_loc.z
-
-                calibration["calibrated"] = True
-                cfg.save_tescan_manipulator_calibration(calibration)
-                self.tescan_calibration = cfg.load_tescan_manipulator_calibration()
-
-                message_box_ui(
-                    title="Manipulator Position calibration",
-                    text="Manipulator Positions calibrated successfully",
-                    buttons=QMessageBox.Ok,
-                )
-
-                self.update_ui_state()
-
     def change_move_type(self):
 
         if self.move_type_comboBox.currentText() == "Relative Move":
@@ -177,17 +109,7 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
 
     def update_ui_state(self):
 
-        if isinstance(self.microscope, (ThermoMicroscope, DemoMicroscope)):
-            is_calibrated = True
-
-        if isinstance(self.microscope, (TescanMicroscope)):
-            is_calibrated = self.tescan_calibration["calibrated"]
-
         is_inserted = self.microscope.get_manipulator_state()
-        self.insertManipulator_button.setEnabled(is_calibrated)
-        self.moveRelative_button.setEnabled(is_calibrated)
-        self.addSavedPosition_button.setEnabled(is_calibrated)
-        self.goToPosition_button.setEnabled(is_calibrated)
         self._hide_show_buttons(show=is_inserted)
         self.manipulatorStatus_label.setText(
             "Manipulator Status: Inserted"
@@ -197,7 +119,6 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         self.insertManipulator_button.setText(
             "Insert" if not is_inserted else "Retract"
         )
-        self.calibrated_status_label.setText("Calibrated")
 
     def update_ui(self):
 

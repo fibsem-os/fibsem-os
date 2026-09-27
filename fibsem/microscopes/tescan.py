@@ -1061,23 +1061,6 @@ class TescanMicroscope(FibsemMicroscope):
         """
 
         return False
-        # manipulator_positions = cfg.load_tescan_manipulator_calibration()
-
-        # if not manipulator_positions["calibrated"]:
-        #     logging.warning("Manipulator positions not calibrated, cannot get state")
-        #     return False
-
-        # retracted_position_x = manipulator_positions["parking"]["x"]*constants.METRE_TO_MILLIMETRE
-        # retracted_position_y = manipulator_positions["parking"]["y"]*constants.METRE_TO_MILLIMETRE
-        # retracted_position_z = manipulator_positions["parking"]["z"]*constants.METRE_TO_MILLIMETRE
-
-        # current_position = self.get_manipulator_position()
-
-        # current_position_array = [current_position.x*constants.METRE_TO_MILLIMETRE, current_position.y*constants.METRE_TO_MILLIMETRE, current_position.z*constants.METRE_TO_MILLIMETRE]
-
-        # check_compare = np.isclose(current_position_array, [retracted_position_x, retracted_position_y, retracted_position_z], atol=0.1)
-
-        # return True if False in check_compare else False
 
     def get_manipulator_position(self) -> FibsemManipulatorPosition:
         index = 0
