@@ -1349,6 +1349,10 @@ class FibsemMicroscope(ABC):
     # (pump/vent, get_manipulator_state/position) use the device directly.
     chamber_device: Optional[Any] = None
     manipulator_device: Optional[Any] = None
+    # The FM's parts and its group as devices (fibsem.devices.fm), by device name,
+    # beside `fm`. They drive the same FM objects `fm` holds, so the two share one
+    # state. Empty when there is no FM or the backend builds no devices.
+    fm_devices: Mapping[str, Any] = MappingProxyType({})
     _beam_routes: Mapping[str, str] = MappingProxyType({})
 
     def _route(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
