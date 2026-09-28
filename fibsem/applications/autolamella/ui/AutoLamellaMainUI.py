@@ -4152,6 +4152,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             tab = getattr(self, name, None)
             if tab is not None:
                 tab.refresh_positions()
+        # And the selected lamella's pose rows: a pose moved on a canvas changes the
+        # position, the chip and how far apart the two poses are, and nothing else
+        # redraws them. `update_lamella_ui` stands aside while a workflow runs.
+        autolamella_ui = getattr(self, "autolamella_ui", None)
+        if autolamella_ui is not None:
+            autolamella_ui.update_lamella_ui()
 
     def _on_notification_service(
         self, message: str, notification_type: str, temporary: bool

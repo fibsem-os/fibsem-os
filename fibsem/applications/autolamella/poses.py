@@ -370,6 +370,83 @@ def move_consequence(lamella: "Lamella", name: str) -> str:
     return f"Its {noun} was set by hand and stays where it is."
 
 
+def derivation_question(
+    lamella: "Lamella", name: str, orientation: Optional[str] = None
+) -> str:
+    """The confirmation for *Derive*, in the words a person needs before saying yes.
+
+    Every derivation overwrites, so every one confirms -- and the one that overwrites
+    a pose somebody set by hand says so, since that is the case the answer changes.
+    """
+    noun = POSE_NOUNS[name]
+    into = f" into the {orientation} orientation" if orientation else ""
+    text = (
+        f"Derive the {noun} of {lamella.name} from its "
+        f"{POSE_NOUNS[other_pose(name)]}{into}?"
+    )
+    if (
+        lamella.poses.get(name) is not None
+        and lamella.provenance_of(name) is PoseProvenance.OBSERVED
+    ):
+        text += f"\n\nThis overwrites a {noun} that was set by hand."
+    if name == FLUORESCENCE_POSE:
+        existing = lamella.poses.get(name)
+        if existing is not None and existing.objective_position is not None:
+            text += (
+                "\n\nThe objective position is kept; refocus before acquiring if the "
+                "orientation changed."
+            )
+        else:
+            text += (
+                "\n\nIt has no objective position yet, so it takes the objective's "
+                "saved focus position; refocus before acquiring."
+            )
+    return text
+
+
+# How far apart the two poses may be, from what each predicts of the other, before a
+# person is told. Two hand-centred poses legitimately differ by a few microns; tens
+# means one was moved and the other was not (FIB-954).
+DISAGREEMENT_WARNING_M = 20e-6
+
+
+def pose_disagreement(
+    microscope: "FibsemMicroscope", lamella: "Lamella"
+) -> Optional[float]:
+    """How far the fluorescence pose is from where the milling pose predicts it [m].
+
+    Replaces a stored "stale" state -- no writer has to remember to set it, so a task,
+    a script and a person are all covered -- and says how much, which a flag cannot.
+
+    Worked out through `to_device`, which is arithmetic on a compustage and on the
+    simulator. A conversion across a half turn on a ThermoFisher stage that is not a
+    compustage reads the compucentric offset from the stage, so this is for a user
+    action -- selecting a lamella, moving or deriving a pose -- and not for anything
+    that fires on its own. The hosts do not show the panel during a workflow.
+
+    Compared in the orientation the fluorescence pose is already in. None when either
+    pose is missing, there is no FM, or the conversion refuses.
+    """
+    milling, fluorescence = lamella.milling_pose, lamella.fluorescence_pose
+    if microscope is None or microscope.fm is None:
+        return None
+    if milling is None or fluorescence is None:
+        return None
+    a, b = milling.stage_position, fluorescence.stage_position
+    if a is None or b is None:
+        return None
+    try:
+        predicted = microscope.to_device(a, FM_DEVICE, _kept_orientation(microscope, b))
+    except ValueError:
+        return None
+    deltas = [
+        getattr(predicted, axis) - getattr(b, axis)
+        for axis in ("x", "y", "z")
+        if getattr(predicted, axis) is not None and getattr(b, axis) is not None
+    ]
+    return float(np.sqrt(sum(d * d for d in deltas))) if deltas else None
+
+
 def derive_pose(
     microscope: "FibsemMicroscope",
     lamella: "Lamella",
@@ -391,12 +468,21 @@ def derive_pose(
 
     Returns:
         True if the pose was written. False, with the existing pose untouched, if
-        there is nothing to derive it from or the instrument cannot work it out -- a
-        wrong milling pose is the dangerous outcome, so that direction refuses unless
-        the fluorescence pose is somewhere the objective sees the sample from.
+        there is no FM, nothing to derive it from, or the instrument cannot work it
+        out -- a wrong milling pose is the dangerous outcome, so that direction
+        refuses unless the fluorescence pose is somewhere the objective sees the
+        sample from. Without an FM that cannot be checked, and there is no second
+        side to convert between: a fluorescence pose there is left over from another
+        system.
     """
     if name not in (MILLING_POSE, FLUORESCENCE_POSE):
         raise ValueError(f"No derivation for a pose named {name!r}.")
+    if microscope.fm is None:
+        logging.warning(
+            f"Cannot derive the {name} pose of {lamella.name}: no fluorescence "
+            f"microscope."
+        )
+        return False
     source = lamella.poses.get(other_pose(name))
     if source is None or source.stage_position is None:
         logging.debug(f"Cannot derive the {name} pose of {lamella.name}: no source.")

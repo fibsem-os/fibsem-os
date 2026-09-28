@@ -2162,7 +2162,15 @@ class _StubHost:
 
         self.tab_widget = QTabWidget()
         self.autolamella_ui = type(
-            "_UI", (), {"microscope": microscope, "experiment": experiment}
+            "_UI",
+            (),
+            {
+                "microscope": microscope,
+                "experiment": experiment,
+                # The window also redraws the selected lamella's pose rows on a
+                # position change; there is no panel here to redraw.
+                "update_lamella_ui": lambda self: None,
+            },
         )()
         self.add_overview_tab()
 
