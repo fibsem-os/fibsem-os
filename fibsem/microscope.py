@@ -12,7 +12,17 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from types import MappingProxyType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 from psygnal import Signal
@@ -1021,12 +1031,34 @@ class FibsemMicroscope(ABC):
             cache_key = f"{key}_{beam_type.name if beam_type else 'None'}"
             self._available_values_cache.pop(cache_key, None)
 
+    # ---- device routing ------------------------------------------------------
+    #
+    # A get/set key that has moved to a device (see fibsem.devices) is routed to that
+    # device's parameter; every other key goes to the backend's `_get`/`_set` chain.
+    # A routed call makes the same instrument call the old branch made and skips the
+    # new API's validation, so the old API behaves the same either way. Both mappings
+    # are empty until a backend builds its devices, so today every key takes the old
+    # path. They are read-only here; a backend replaces them, never mutates them.
+    beams: Mapping[BeamType, Any] = MappingProxyType({})
+    _beam_routes: Mapping[str, str] = MappingProxyType({})
+
+    def _route(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
+        """The device parameter a key has moved to, or None to use `_get`/`_set`."""
+        name = self._beam_routes.get(key)
+        if name is None or beam_type is None:
+            return None
+        beam = self.beams.get(beam_type)
+        if beam is None:
+            return None
+        return beam.parameters.get(name)
+
     # TODO: use a decorator instead?
     def get(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> Union[float, int, bool, str, list, tuple, Point]:
         """Get wrapper for logging."""
-        value = self._get(key, beam_type)
+        param = self._route(key, beam_type)
+        value = param.get_value() if param is not None else self._get(key, beam_type)
         beam_name = "None" if beam_type is None else beam_type.name
         logging.debug(
             {"msg": "get", "key": key, "beam_type": beam_name, "value": value}
@@ -1040,7 +1072,11 @@ class FibsemMicroscope(ABC):
         beam_type: Optional[BeamType] = None,
     ) -> None:
         """Set wrapper for logging"""
-        self._set(key, value, beam_type)
+        param = self._route(key, beam_type)
+        if param is not None:
+            param.write_through(value)
+        else:
+            self._set(key, value, beam_type)
         beam_name = "None" if beam_type is None else beam_type.name
         logging.debug(
             {"msg": "set", "key": key, "beam_type": beam_name, "value": value}
