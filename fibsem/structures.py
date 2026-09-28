@@ -2469,14 +2469,34 @@ def _detector_block_from(settings: dict) -> dict:
     return block
 
 
+# Written by `BeamSettings` / `FibsemDetectorSettings` and not defaults: the column's
+# alignment (working distance, stigmation, beam shift) and what the last autocontrast
+# left on the detector. A configuration does not record them, and Apply does not set
+# them (`FibsemMicroscope.set_beam_system_settings`).
+NOT_BEAM_DEFAULTS = (
+    "working_distance",
+    "stigmation",
+    "shift",
+    "detector_brightness",
+    "detector_contrast",
+)
+
+# Written by `ImageSettings` and not defaults: where this session saves its images,
+# and the reduced area of the last acquisition.
+NOT_IMAGING_DEFAULTS = ("path", "filename", "reduced_area")
+
+
 def _split_defaults(beam: dict) -> dict:
     """Move the session defaults out of a written beam block, in place.
 
-    Returns the keys that went. What stays is the hardware description.
+    Returns the keys that went. What stays is the hardware description. Alignment
+    state is dropped from both.
     """
     moved = {
         k: beam.pop(k) for k in list(beam) if k not in SystemSettings.HARDWARE_BEAM_KEYS
     }
+    for key in NOT_BEAM_DEFAULTS:
+        moved.pop(key, None)
     return moved
 
 
@@ -3089,7 +3109,10 @@ class MicroscopeSettings:
         # Into the `defaults:` block `SystemSettings.to_dict` just created, beside the
         # beams: the acquire tab's opening state is the same kind of thing as the
         # voltage a session begins at.
-        settings_dict["defaults"]["imaging"] = self.image.to_dict()
+        imaging = self.image.to_dict()
+        for key in NOT_IMAGING_DEFAULTS:
+            imaging.pop(key, None)
+        settings_dict["defaults"]["imaging"] = imaging
 
         return settings_dict
 
