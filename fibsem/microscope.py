@@ -1487,19 +1487,7 @@ class FibsemMicroscope(ABC):
         beam_type = settings.beam_type
         logging.debug(f"Setting {settings.beam_type.name} beam system settings...")
         self.set("beam_enabled", settings.enabled, beam_type)
-        # What the configuration decides, not what the column is aligned to. The
-        # working distance, stigmation and beam shift are the column's current
-        # alignment, and the detector's brightness and contrast are what the last
-        # autocontrast left; a configuration that does not state them used to load
-        # them as 0 (and the working distance as the eucentric height), and Apply
-        # pushed those -- refocusing both columns and blacking out the detectors.
-        self.set_beam_settings(
-            replace(settings.beam, working_distance=None, stigmation=None, shift=None)
-        )
-        if settings.detector.type is not None:
-            self.set_detector_type(settings.detector.type, beam_type)
-        if settings.detector.mode is not None:
-            self.set_detector_mode(settings.detector.mode, beam_type)
+        self._apply_beam_defaults(settings)
         self.set("eucentric_height", settings.eucentric_height, beam_type)
         self.set("column_tilt", settings.column_tilt, beam_type)
 
@@ -1517,6 +1505,54 @@ class FibsemMicroscope(ABC):
         )
 
         return
+
+    def _apply_beam_defaults(self, settings: BeamSystemSettings) -> None:
+        """Set one column to its defaults: the beam settings, and the detector type
+        and mode.
+
+        What the configuration decides, not what the column is aligned to. The
+        working distance, stigmation and beam shift are the column's current
+        alignment, and the detector's brightness and contrast are what the last
+        autocontrast left; a configuration that does not state them used to load
+        them as 0 (and the working distance as the eucentric height), and Apply
+        pushed those -- refocusing both columns and blacking out the detectors.
+        """
+        beam_type = settings.beam_type
+        self.set_beam_settings(
+            replace(settings.beam, working_distance=None, stigmation=None, shift=None)
+        )
+        if settings.detector.type is not None:
+            self.set_detector_type(settings.detector.type, beam_type)
+        if settings.detector.mode is not None:
+            self.set_detector_mode(settings.detector.mode, beam_type)
+
+    def turn_beams_on(self) -> None:
+        """Turn on each available column that is off. Never turns one off.
+
+        What `defaults.beams_on_at_connect` does at connect.
+        """
+        for beam_type, key in (
+            (BeamType.ELECTRON, "electron_beam"),
+            (BeamType.ION, "ion_beam"),
+        ):
+            if self.is_available(key) and not self.is_on(beam_type):
+                self.turn_on(beam_type)
+
+    def apply_defaults(self) -> None:
+        """Set each available column to the configured defaults, and nothing else.
+
+        What `defaults.apply_on_connect` does at connect. Narrower than
+        `apply_configuration`: the beams are not switched on or off, the column
+        geometry and the plasma gas are not set, and the stage is left alone --
+        connecting must not change any of those.
+        """
+        for record, key in (
+            (self.system.electron, "electron_beam"),
+            (self.system.ion, "ion_beam"),
+        ):
+            if self.is_available(key):
+                self._apply_beam_defaults(record)
+        logging.info("Configured defaults applied to the microscope.")
 
     def get_detector_settings(
         self, beam_type: BeamType = BeamType.ELECTRON
