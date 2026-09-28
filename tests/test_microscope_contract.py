@@ -52,9 +52,10 @@ REFERENCE_BACKEND = "Demo"
 BEAMS = [BeamType.ELECTRON, BeamType.ION]
 
 
-def _device_demo_configuration() -> str:
-    """The default configuration with the device-built Demo selected."""
-    with open(cfg.DEFAULT_CONFIGURATION_PATH) as f:
+def _device_demo_configuration(base: str = cfg.DEFAULT_CONFIGURATION_PATH) -> str:
+    """A configuration (the default one unless given) with the device-built Demo
+    selected."""
+    with open(base) as f:
         configuration = yaml.safe_load(f)
     configuration.setdefault("sim", {})
     configuration["sim"] = {**(configuration["sim"] or {}), "devices": True}
@@ -64,8 +65,8 @@ def _device_demo_configuration() -> str:
     return path
 
 
-def _connect(backend: str):
-    config_path = _device_demo_configuration() if backend == "DeviceDemo" else None
+def _connect(backend: str, base: str = cfg.DEFAULT_CONFIGURATION_PATH):
+    config_path = _device_demo_configuration(base) if backend == "DeviceDemo" else base
     microscope, _ = utils.setup_session(
         config_path=config_path, manufacturer="Demo", setup_logging=False
     )
@@ -693,6 +694,77 @@ def test_cryo_deposition_leaves_the_microscope_as_it_was(microscope, insert_posi
     assert not _first_difference(
         [("start", None, before)], [("start", None, _snapshot(microscope))]
     )
+
+
+# ---------------------------------------------------------------------------
+# Fluorescence (on a configuration with an FM)
+# ---------------------------------------------------------------------------
+
+FM_CONFIGURATION = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+
+
+@pytest.fixture(params=BACKENDS)
+def fm_microscope(request):
+    return _connect(request.param, FM_CONFIGURATION)
+
+
+def test_fm_acquires_a_channel(fm_microscope):
+    from fibsem.fm.structures import ChannelSettings
+
+    channel = ChannelSettings(excitation_wavelength=488, power=0.3, exposure_time=0.02)
+    image = fm_microscope.fm.acquire_image(channel)
+    assert image.data.ndim == 2 and image.data.size > 0
+    assert fm_microscope.fm.camera.exposure_time == 0.02
+    assert fm_microscope.fm.light_source.power == 0.3
+    assert fm_microscope.fm.filter_set.excitation_wavelength == 488
+
+
+def test_fm_objective_inserts_and_retracts(fm_microscope):
+    objective = fm_microscope.fm.objective
+    objective.insert()
+    assert objective.state == "Inserted"
+    objective.retract()
+    assert objective.state == "Retracted"
+
+
+def test_device_demo_builds_no_fm_devices_without_an_fm():
+    microscope = _connect("DeviceDemo")
+    assert microscope.fm is None
+    assert dict(microscope.fm_devices) == {}
+
+
+def test_device_demo_fm_devices_share_state_with_the_fm():
+    """The devices drive the parts `fm` holds: a change on either side shows on both."""
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    fm, devices = microscope.fm, microscope.fm_devices
+    assert sorted(devices) == [
+        "camera",
+        "filter_set",
+        "fm",
+        "light_source",
+        "objective",
+    ]
+    devices["camera"].exposure_time.set_value(0.2)
+    assert fm.camera.exposure_time == 0.2
+    fm.light_source.power = 0.4
+    assert devices["light_source"].power.get_value() == 0.4
+    devices["objective"].insert()
+    assert fm.objective.state == "Inserted"
+    assert devices["objective"].state.cached == "Inserted"
+
+
+def test_device_demo_fm_group_acquires_a_channel():
+    from fibsem.fm.structures import ChannelSettings
+
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    devices = microscope.fm_devices
+    channel = ChannelSettings(excitation_wavelength=488, power=0.3, exposure_time=0.02)
+    data = devices["fm"].acquire_channel(channel.to_dict())
+    assert data.ndim == 2 and data.size > 0
+    # The group reads the parts back after the channel set them.
+    assert devices["camera"].exposure_time.cached == 0.02
+    assert devices["light_source"].power.cached == 0.3
+    assert devices["filter_set"].excitation_wavelength.cached == 488
 
 
 # ---------------------------------------------------------------------------
