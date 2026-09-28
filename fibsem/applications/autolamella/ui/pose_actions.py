@@ -41,7 +41,8 @@ def show_lamella_poses(
 ) -> None:
     """Show *lamella* in the panel, with what only the host can work out for it:
     the orientations a fluorescence pose may be derived into, and how far apart the
-    two poses are. Arithmetic on stored positions; the instrument is not asked."""
+    two poses are. For a user action: working out the distance can read the stage on
+    some systems -- see `poses.pose_disagreement`."""
     widget.set_fluorescence_orientations(fluorescence_orientations(microscope))
     widget.set_lamella(lamella)
     widget.set_pose_disagreement(
@@ -69,6 +70,14 @@ def derive_lamella_pose(
         notification_service.show_toast("No lamella selected.", "warning")
         return False
     if pose_name not in POSE_NOUNS:
+        return False
+    if microscope.fm is None:
+        # Said before asking: there is no second side to derive between.
+        notification_service.show_toast(
+            "No fluorescence microscope connected, so there is nothing to derive "
+            "a pose from or into.",
+            "warning",
+        )
         return False
     noun, source = POSE_NOUNS[pose_name], POSE_NOUNS[other_pose(pose_name)]
     if lamella.poses.get(other_pose(pose_name)) is None:

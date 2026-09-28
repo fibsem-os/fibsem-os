@@ -27,6 +27,7 @@ from fibsem.applications.autolamella.poses import (
     PoseProvenance,
     build_lamella_poses,
     derivation_question,
+    derive_pose,
     move_pose,
     pose_disagreement,
 )
@@ -319,3 +320,109 @@ def test_a_lamella_with_nothing_to_derive_from_is_not_asked(tmp_path, monkeypatc
         None, microscope, None, lamella, MILLING_POSE
     )
     assert asked == []
+
+
+def test_without_an_fm_nothing_is_derived_and_nothing_is_asked(tmp_path, monkeypatch):
+    """No second side to derive between. Said before asking, and nothing written --
+    a fluorescence pose there is left over from another system, and a milling pose
+    derived from it unchecked is the dangerous outcome."""
+    microscope = _microscope(IFLM_CONFIG)
+    lamella = _lamella(microscope, tmp_path)
+    microscope.fm = None
+    before = {name: pose.stage_position.x for name, pose in lamella.poses.items()}
+    asked = _answer(monkeypatch)
+
+    for name in (MILLING_POSE, FLUORESCENCE_POSE):
+        assert not pose_actions.derive_lamella_pose(
+            None, microscope, None, lamella, name
+        )
+        assert not derive_pose(microscope, lamella, name)
+
+    assert asked == []
+    assert {n: p.stage_position.x for n, p in lamella.poses.items()} == before
+
+
+def test_the_question_says_where_the_objective_position_comes_from(tmp_path):
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path)
+
+    assert "objective position is kept" in derivation_question(
+        lamella, FLUORESCENCE_POSE
+    )
+
+    lamella.fluorescence_pose.objective_position = None
+
+    question = derivation_question(lamella, FLUORESCENCE_POSE)
+    assert "is kept" not in question
+    assert "saved focus position" in question
+
+
+def test_the_list_puts_the_disagreement_on_a_derived_milling_pose(tmp_path):
+    """A target found in fluorescence: the milling pose is the guess, so that is the
+    row the distance goes on -- it is the one to derive again."""
+    microscope = _microscope()
+    poses = build_lamella_poses(microscope, _at(microscope, "FM"))
+    lamella = Lamella(petname="Lamella-01", path=str(tmp_path / "L01"), number=1)
+    poses.write_to(lamella)
+    assert lamella.provenance_of(MILLING_POSE) is PoseProvenance.DERIVED
+    widget = LamellaPoseListWidget()
+    widget.set_lamella(lamella)
+
+    widget.set_pose_disagreement(32e-6)
+
+    rows = _rows(widget)
+    assert rows[MILLING_POSE].provenance_label.text() == "32 µm off"
+    assert rows[FLUORESCENCE_POSE].provenance_label.isHidden()
+
+
+# ── the panel after a move made somewhere else ──────────────────────────
+
+
+@pytest.fixture
+def window(tmp_path, monkeypatch):
+    """A real AutoLamellaUI on the simulated Arctis, one lamella selected in it.
+
+    Both poses observed, so moving one leaves the other where it was and the two
+    disagree."""
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+
+    ui = AutoLamellaUI(parent_ui=None)
+    monkeypatch.setattr(
+        ui.system_widget,
+        "load_configuration",
+        lambda configuration_name=None: ARCTIS_CONFIG,
+    )
+    ui.system_widget.connect_to_microscope()
+    lamella = _lamella(ui.microscope, tmp_path)
+    lamella.fluorescence_pose = lamella.fluorescence_pose  # centred by hand
+    ui.experiment = _experiment(tmp_path, lamella)
+    ui.update_lamella_combobox()
+    ui.update_lamella_ui()
+    yield ui, lamella
+    ui.experiment = None
+    ui.microscope.disconnect()
+    ui.close()
+
+
+def test_a_move_on_a_canvas_redraws_the_selected_lamella(window):
+    """The overview canvases announce a move through the experiment's `changed`
+    event, and the window's handler for it is the one place that hears every move --
+    so it redraws the selected lamella's pose rows too, not only the canvases."""
+    from copy import deepcopy
+
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI,
+    )
+
+    ui, lamella = window
+    rows = _rows(ui.selected_lamella_widget.pose_list)
+    assert rows[FLUORESCENCE_POSE].provenance_label.isHidden()
+
+    moved = deepcopy(lamella.milling_pose.stage_position)
+    moved.x += 30e-6
+    move_pose(ui.microscope, lamella, MILLING_POSE, position=moved)
+    host = type("_Window", (), {"autolamella_ui": ui})()
+    AutoLamellaSingleWindowUI._refresh_overview_positions(host)
+
+    rows = _rows(ui.selected_lamella_widget.pose_list)
+    assert rows[FLUORESCENCE_POSE].provenance_label.text() == "30 µm off"

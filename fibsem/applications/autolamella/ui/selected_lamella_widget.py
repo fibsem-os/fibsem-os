@@ -186,9 +186,9 @@ class SelectedLamellaWidget(QWidget):
             text or "Free-text note (edit in the Lamella editor)"
         )
 
-    def refresh_pose(self, pose_name: str, state, provenance=None) -> None:
+    def refresh_pose(self, pose_name: str, state) -> None:
         """Update one pose row in place, without rebuilding the list."""
-        self.pose_list.refresh_pose(pose_name, state, provenance)
+        self.pose_list.refresh_pose(pose_name, state)
 
     def set_pose_disagreement(self, metres) -> None:
         """How far apart the two poses are, from the host -- see the pose list."""

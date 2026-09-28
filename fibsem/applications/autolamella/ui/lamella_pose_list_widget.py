@@ -446,12 +446,7 @@ class LamellaPoseListWidget(QWidget):
         for name, row in rows.items():
             row.set_disagreement(self._disagreement if name == target else None)
 
-    def refresh_pose(
-        self,
-        pose_name: str,
-        state: Optional[MicroscopeState],
-        provenance: Optional[PoseProvenance] = None,
-    ) -> None:
+    def refresh_pose(self, pose_name: str, state: Optional[MicroscopeState]) -> None:
         """Update an existing pose row in place, from the record itself.
 
         Takes the ``MicroscopeState`` rather than a rendered string: the row now shows
@@ -465,8 +460,6 @@ class LamellaPoseListWidget(QWidget):
             row = self._list.itemWidget(self._list.item(i))
             if isinstance(row, LamellaPoseRowWidget) and row.pose_name == pose_name:
                 row.set_state(state)
-                if provenance is not None:
-                    row.set_provenance(provenance)
                 return
 
     def clear(self) -> None:
