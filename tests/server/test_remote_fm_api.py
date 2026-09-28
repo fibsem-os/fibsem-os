@@ -160,3 +160,34 @@ def test_connect_names_a_server_that_serves_no_fm():
             RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port)
     finally:
         server.stop()
+
+
+def test_a_configuration_naming_a_remote_fm_connects_to_it(tmp_path):
+    """`fm.driver: remote` on a METEOR-style offset system: the microscope's FM is
+    the served one, and its images carry the stage position like a local FM's."""
+    import os
+
+    import fibsem.config as cfg
+    from fibsem import utils
+
+    server = DeviceServer(demo_fm_devices()).start()
+    try:
+        settings = utils.load_yaml(
+            os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+        )
+        settings["hardware"]["fm"].update(
+            driver="remote", address="127.0.0.1", port=server.port
+        )
+        settings["sim"]["has_fm"] = False  # no FM on the beams' connection
+        path = tmp_path / "remote-fm-configuration.yaml"
+        utils.save_yaml(path, settings)
+
+        microscope, _ = utils.setup_session(config_path=str(path))
+        assert isinstance(microscope.fm, RemoteFluorescenceMicroscope)
+        assert microscope.fm.parent is microscope
+        microscope.fm.objective.insert()
+        image = microscope.fm.acquire_image()
+        assert image.metadata.stage_position == microscope.get_stage_position()
+        microscope.fm.client.close()
+    finally:
+        server.stop()

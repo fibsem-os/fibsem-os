@@ -237,6 +237,8 @@ class RemoteFluorescenceMicroscope(FluorescenceMicroscope):
             devices
         )
         if missing:
+            if devices:
+                next(iter(devices.values())).client.close()
             raise RuntimeError(f"{host}:{port} serves no FM {sorted(missing)}")
         logging.info(f"Connected to the fluorescence microscope at {host}:{port}")
         return cls(devices, parent=parent)
