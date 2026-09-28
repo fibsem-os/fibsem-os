@@ -30,18 +30,18 @@ limit check, the ``stage`` resource, the read-back, and the change signals.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Iterator, Tuple
+from typing import Any, Dict, Iterator
 
 from psygnal import Signal
 
 from fibsem.devices.core import Device, Parameter, command
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemStagePosition, RangeLimit
 
 STAGE_RESOURCE = "stage"
 AXIS_UNITS: Dict[str, str] = {"x": "m", "y": "m", "z": "m", "r": "rad", "t": "rad"}
 """Every axis a ``FibsemStagePosition`` can carry, and its unit."""
 
-UNLIMITED: Tuple[float, float] = (-math.inf, math.inf)
+UNLIMITED = RangeLimit(min=-math.inf, max=math.inf)
 """The limits a driver gives an axis it has but cannot bound."""
 
 
@@ -61,8 +61,8 @@ class Axis:
         self.unit = AXIS_UNITS[name]
 
     @property
-    def limits(self) -> Tuple[float, float]:
-        """(low, high) in SI units, from the position metadata cached at connect."""
+    def limits(self) -> RangeLimit:
+        """In SI units, from the position metadata cached at connect."""
         return self.stage.position.limits[self.name]
 
     @property
@@ -185,7 +185,8 @@ class Stage(Device):
         """Raise ``StageLimitError`` naming every axis of *position* out of limits."""
         outside = []
         for name in self.axes:
-            low, high = self.axes[name].limits
+            limit = self.axes[name].limits
+            low, high = limit.min, limit.max
             value = getattr(position, name, None)
             if value is not None and not low <= value <= high:
                 outside.append(f"{name}={value:g} not in [{low:g}, {high:g}]")

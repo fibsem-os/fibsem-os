@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from fibsem.devices.core import BoundParameter, Device, Parameter, command
 from fibsem.devices.stage import Stage
-from fibsem.structures import BeamType, FibsemImage, ImageSettings
+from fibsem.structures import BeamType, FibsemImage, ImageSettings, RangeLimit
 
 
 class Beam(Device):
@@ -23,7 +23,7 @@ class Beam(Device):
     plasma_gas = Parameter(str)
     working_distance = Parameter(float, unit="m")
     hfw = Parameter(float, unit="m")
-    scan_rotation = Parameter(float, unit="rad", limits=(0.0, 2 * pi))
+    scan_rotation = Parameter(float, unit="rad", limits=RangeLimit(min=0.0, max=2 * pi))
     blanked = Parameter(bool)
     preset = Parameter(str)
     detector_type = Parameter(str)

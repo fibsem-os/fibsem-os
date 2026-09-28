@@ -25,7 +25,7 @@ from fibsem.devices import (
 from fibsem.devices.drivers.demo import bind_demo_beams, bind_demo_stage
 from fibsem.microscope import _records_stage_move
 from fibsem.microscopes.simulator import DemoMicroscope
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemStagePosition, RangeLimit
 
 
 def _demo(compustage: bool = False):
@@ -202,12 +202,14 @@ def test_the_old_signal_and_the_new_one_fire_together():
 def test_the_driver_lists_the_axes_with_their_limits_in_si_units(stage):
     assert list(stage.axes) == ["x", "y", "z", "r", "t"]
     assert stage.axes.x.unit == "m" and stage.axes.t.unit == "rad"
-    assert stage.axes.z.limits == (0.0, 40e-3)
+    assert stage.axes.z.limits == RangeLimit(min=0.0, max=40e-3)
     assert stage.axes["z"] is stage.axes.z
     # _get_axis_limits gives r and t in degrees; the axes carry radians
-    assert stage.axes.t.limits == pytest.approx((math.radians(-10), math.radians(90)))
-    assert stage.position.limits["r"] == pytest.approx((-2 * math.pi, 2 * math.pi))
-    assert stage.describe()["position"]["limits"]["z"] == (0.0, 40e-3)
+    t = stage.axes.t.limits
+    assert (t.min, t.max) == pytest.approx((math.radians(-10), math.radians(90)))
+    r = stage.position.limits["r"]
+    assert (r.min, r.max) == pytest.approx((-2 * math.pi, 2 * math.pi))
+    assert stage.describe()["position"]["limits"]["z"] == {"min": 0.0, "max": 40e-3}
 
 
 def test_a_compustage_has_no_rotation_axis_and_cannot_link():

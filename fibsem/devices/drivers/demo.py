@@ -18,7 +18,7 @@ from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import Stage
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures import BeamType, FibsemStagePosition, RangeLimit
 
 if TYPE_CHECKING:
     from fibsem.microscopes.simulator import DemoMicroscope
@@ -188,7 +188,7 @@ class DemoStage(Stage):
             low, high = limit.min, limit.max
             if axis in _DEGREE_AXES:
                 low, high = float(np.radians(low)), float(np.radians(high))
-            limits[axis] = (low, high)
+            limits[axis] = RangeLimit(min=low, max=high)
         return ParameterMetadata(limits=limits)
 
     # -- homing and linking -----------------------------------------------------------
