@@ -2801,6 +2801,10 @@ class FluorescenceSystemSettings:
     address: Optional[str] = None
     port: Optional[int] = None
 
+    # Where this PC keeps the remote FM server's token, which pairing writes.
+    # `None` is the default file, `~/.fibsem/device-server-token`.
+    token_file: Optional[str] = None
+
     # A remote FM whose server isn't answering at connect is built offline and comes
     # online by itself (FIB-1086), so the beams are never held up by the FM's PC.
     # `required: true` makes the connect fail instead, for a site where an FM that is
@@ -2822,6 +2826,7 @@ class FluorescenceSystemSettings:
             "driver": self.driver,
             "address": self.address,
             "port": self.port,
+            "token_file": self.token_file,
             "required": self.required,
         }
 
@@ -2844,6 +2849,7 @@ class FluorescenceSystemSettings:
             driver=settings.get("driver"),
             address=settings.get("address"),
             port=int(port) if port is not None else None,
+            token_file=settings.get("token_file"),
             required=(
                 bool(settings["required"])
                 if settings.get("required") is not None

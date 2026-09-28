@@ -1,4 +1,5 @@
-"""The device server's token file, and pairing a coordinator with a short code.
+"""The device server's token file, pairing a coordinator with a short code, and
+checking a connection.
 
 A device server has one bearer token (``fibsem.server.auth``). For a remote device it
 must survive restarts, since the coordinator reconnects to it, so it lives in a file:
@@ -10,31 +11,55 @@ at the microscope enters the code, and the coordinator trades it for the token
 (``POST /pair``). A code works once, for two minutes, and five wrong guesses close
 the window, so being on the network is not enough to pair: someone has to read the
 code off the device computer's screen.
+
+Both computers keep the token in a file, by default ``~/.fibsem/device-server-token``.
+Pairing writes the coordinator's; copying the device computer's file across works too.
+
+From the coordinator (the microscope PC), with only the standard library and requests:
+
+    python -m fibsem.server.pairing pair 192.168.0.20 8765 123456
+    python -m fibsem.server.pairing check 192.168.0.20 8765
+
+``check`` walks the connection in order and stops at the first failure, saying which:
+the server answers, it takes the token, what it allows, and which devices it serves.
 """
 
 from __future__ import annotations
 
+import argparse
 import hmac
 import logging
 import os
 import secrets
+import sys
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, List, Optional, Union
 
 PAIRING_SECONDS = 120.0
 PAIRING_ATTEMPTS = 5
+DEFAULT_TOKEN_FILE = Path("~/.fibsem/device-server-token")
+CHECK_TIMEOUT = 5.0
+
+
+def read_token(path: Union[str, Path, None] = None) -> Optional[str]:
+    """The token in ``path`` (the default file when None), or None if there is none."""
+    path = Path(path or DEFAULT_TOKEN_FILE).expanduser()
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    return token or None
 
 
 def load_or_create_token(path: Union[str, Path]) -> str:
     """The token in ``path``, or a new one written there (readable by its owner only)."""
     path = Path(path).expanduser()
-    if path.exists():
-        token = path.read_text(encoding="utf-8").strip()
-        if token:
-            return token
-    path.parent.mkdir(parents=True, exist_ok=True)
+    token = read_token(path)
+    if token is not None:
+        return token
     token = secrets.token_urlsafe(32)
     write_token(path, token)
     logging.info(f"Created a new device server token in {path}")
@@ -95,3 +120,143 @@ class Pairing:
             if self._left <= 0:
                 self._code = None
             return False
+
+
+# -- the coordinator's side ---------------------------------------------------------
+
+
+def pair(
+    host: str, port: int, code: str, token_file: Union[str, Path, None] = None
+) -> Path:
+    """Trade a pairing code for the server's token, and write it to ``token_file``.
+
+    Raises ``PermissionError`` when the server refuses the code (wrong, expired, used,
+    or no pairing window open), and ``ConnectionError`` when it can't be reached.
+    """
+    import requests
+
+    url = f"http://{host}:{port}/pair"
+    try:
+        response = requests.post(url, json={"code": code}, timeout=CHECK_TIMEOUT)
+    except requests.RequestException as error:
+        raise ConnectionError(f"{url}: {type(error).__name__}") from None
+    if response.status_code == 403:
+        raise PermissionError(
+            f"{host}:{port} refused the code: it is wrong, has expired or was already "
+            "used. Open a new pairing window on the device computer and try again."
+        )
+    response.raise_for_status()
+    return write_token(token_file or DEFAULT_TOKEN_FILE, response.json()["token"])
+
+
+@dataclass
+class Check:
+    """One step of ``check_connection``: its name, whether it passed, and what it found."""
+
+    name: str
+    ok: bool
+    detail: str
+
+
+def check_connection(
+    host: str, port: int, token: Optional[str], timeout: float = CHECK_TIMEOUT
+) -> List[Check]:
+    """Walk the connection to a device server, stopping at the first step that fails.
+
+    1. reachable: something answers HTTP at ``host:port``;
+    2. token: it accepts ``token``;
+    3. access: the scopes it has armed (only ``read`` means a read-only mirror);
+    4. devices: what it serves, whether each reaches its hardware, and the round trip.
+    """
+    import requests
+
+    base = f"http://{host}:{port}"
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    checks: List[Check] = []
+
+    def get(path: str, **kwargs: Any) -> Any:
+        return requests.get(f"{base}/{path}", timeout=timeout, **kwargs)
+
+    try:
+        get("access")  # any answer will do, a refusal included
+    except requests.RequestException as error:
+        reason = (
+            f"no answer within {timeout} s"
+            if isinstance(error, requests.Timeout)
+            else "connection refused"
+        )
+        return [
+            Check(
+                "reachable",
+                False,
+                f"{base}: {reason}. Is the device server running, and is the port "
+                "open in the firewall?",
+            )
+        ]
+    checks.append(Check("reachable", True, base))
+
+    if token is None:
+        checks.append(
+            Check("token", False, "No token file here: pair, or copy the token file.")
+        )
+        return checks
+    response = get("access", headers=headers)
+    if response.status_code == 401:
+        checks.append(
+            Check(
+                "token",
+                False,
+                "The server refused the token: pair again, or copy its token file.",
+            )
+        )
+        return checks
+    response.raise_for_status()
+    checks.append(Check("token", True, "accepted"))
+
+    scopes = response.json()["scopes"]
+    detail = ", ".join(scopes)
+    if "hardware" not in scopes:
+        detail += " (read only: start the server with --arm-hardware to allow control)"
+    checks.append(Check("access", True, detail))
+
+    start = time.monotonic()
+    devices = get("devices", headers=headers).json()
+    milliseconds = (time.monotonic() - start) * 1000
+    health = get("health", headers=headers).json()["devices"]
+    down = [f"{name} ({h['detail']})" for name, h in health.items() if not h["ok"]]
+    served = ", ".join(sorted(devices)) or "none"
+    detail = f"{served}; round trip {milliseconds:.0f} ms"
+    if down:
+        detail += f"; hardware not answering: {', '.join(down)}"
+    checks.append(Check("devices", bool(devices) and not down, detail))
+    return checks
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Pair with a device server, or check the connection to one."
+    )
+    parser.add_argument("action", choices=("pair", "check"))
+    parser.add_argument("host")
+    parser.add_argument("port", type=int)
+    parser.add_argument("code", nargs="?", help="the pairing code (pair only)")
+    parser.add_argument("--token-file", default=str(DEFAULT_TOKEN_FILE))
+    args = parser.parse_args(argv)
+    if args.action == "pair":
+        if args.code is None:
+            parser.error("pair needs the code shown on the device computer")
+        try:
+            path = pair(args.host, args.port, args.code, args.token_file)
+        except (PermissionError, ConnectionError) as error:
+            print(error, file=sys.stderr)
+            return 1
+        print(f"Paired with {args.host}:{args.port}. The token is in {path}.")
+        return 0
+    checks = check_connection(args.host, args.port, read_token(args.token_file))
+    for check in checks:
+        print(f"{'ok  ' if check.ok else 'FAIL'} {check.name}: {check.detail}")
+    return 0 if all(c.ok for c in checks) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

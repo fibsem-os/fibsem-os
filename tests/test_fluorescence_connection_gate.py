@@ -201,6 +201,7 @@ def test_the_driver_keys_survive_a_round_trip():
         "driver": "remote",
         "address": "10.0.0.2",
         "port": 8765,
+        "token_file": "~/.fibsem/fm-token",
         "required": True,
     }
 

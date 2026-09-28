@@ -31,6 +31,10 @@ A server that isn't running yet need not stop the coordinator connecting: with
 retry loop binds them when the server first answers, then fires ``reconnected``.
 Until then each device's ``online`` is False and its parameters are absent.
 
+Every request, and the event stream, carries the server's bearer token (``token``,
+read from its file with ``fibsem.server.pairing.read_token``). A server that refuses
+it, or refuses a write because it is read-only, raises ``RemoteDeviceRefused``.
+
 A command that returns an array (a camera frame, an FM channel) comes back as
 ``np.save`` bytes rather than JSON, and arrives as the same array.
 
@@ -80,6 +84,10 @@ class RemoteDeviceUnreachable(ConnectionError):
     """The server could not be reached. Nothing about the device is known right now."""
 
 
+class RemoteDeviceRefused(PermissionError):
+    """The server refused: the token is missing or wrong, or it is read-only."""
+
+
 _ERRORS: Dict[str, Callable[[str], Exception]] = {
     "ParameterUnavailable": ParameterUnavailable,
     "ParameterReadOnly": ParameterReadOnly,
@@ -116,11 +124,19 @@ class DeviceClient:
     read again, and every parameter that changed in the gap emitted ``changed``;
     devices built offline are bound."""
 
-    def __init__(self, host: str, port: int, heartbeat: float = HEARTBEAT):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        heartbeat: float = HEARTBEAT,
+        token: Optional[str] = None,
+    ):
         self.heartbeat = heartbeat
         self.base_url = f"http://{host}:{port}"
         self.events_url = f"ws://{host}:{port}/events"
+        self._headers = {"Authorization": f"Bearer {token}"} if token else {}
         self._session = requests.Session()
+        self._session.headers.update(self._headers)
         self._devices: Dict[str, Device] = {}
         self._events: Optional[threading.Thread] = None
         self._ready = threading.Event()
@@ -161,6 +177,13 @@ class DeviceClient:
             detail = response.text
         if isinstance(detail, dict) and detail.get("error") in _ERRORS:
             raise _ERRORS[detail["error"]](detail["detail"])
+        if response.status_code == 401:
+            raise RemoteDeviceRefused(
+                f"{self.base_url} refused the token: pair with it again, or copy its "
+                "token file"
+            )
+        if response.status_code == 403 and isinstance(detail, dict):
+            raise RemoteDeviceRefused(f"{method} {path}: {detail.get('message')}")
         raise RemoteDeviceError(f"{method} {path}: {response.status_code} {detail}")
 
     def health(self) -> Dict[str, Any]:
@@ -212,6 +235,7 @@ class DeviceClient:
 
         with connect(
             self.events_url,
+            additional_headers=self._headers,
             open_timeout=READ_TIMEOUT,
             ping_interval=self.heartbeat,
             ping_timeout=self.heartbeat,

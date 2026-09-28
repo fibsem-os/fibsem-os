@@ -22,6 +22,7 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
     RemoteDeviceUnreachable,
     connect_remote_beams,
 )
+from fibsem.server.auth import AuthConfig  # noqa: E402
 from fibsem.server.devices import DeviceServer, demo_devices  # noqa: E402
 from fibsem.structures import BeamType, Point  # noqa: E402
 
@@ -53,8 +54,12 @@ def wait_for(condition, timeout=2.0):
 def served():
     """(local devices by beam type, remote beams, server), all on 127.0.0.1."""
     local = {d.beam_type: d for d in demo_devices()}
-    server = DeviceServer(local.values()).start()
-    client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
+    server = DeviceServer(
+        local.values(), auth=AuthConfig.generate(arm_hardware=True)
+    ).start()
+    client = DeviceClient(
+        "127.0.0.1", server.port, heartbeat=0.5, token=server.auth.token
+    )
     remote = connect_remote_beams("127.0.0.1", server.port, client=client)
     yield local, remote, server
     for beam in remote.values():
@@ -204,7 +209,9 @@ def test_a_frozen_server_is_noticed_without_a_read(served):
     async def freeze() -> None:
         time.sleep(3.0)  # blocks the server's event loop, as a hung PC would
 
-    client = DeviceClient("127.0.0.1", server.port, heartbeat=0.2)
+    client = DeviceClient(
+        "127.0.0.1", server.port, heartbeat=0.2, token=server.auth.token
+    )
     beams = connect_remote_beams("127.0.0.1", server.port, client=client)
     dropped = []
     client.disconnected.connect(lambda: dropped.append(True))
@@ -240,7 +247,7 @@ def test_the_client_reconnects_and_catches_up_on_what_it_missed(served):
     assert wait_for(lambda: events == ["down"])
     local[BeamType.ELECTRON].hfw.set_value(456e-6)  # changed while nobody listened
 
-    restarted = DeviceServer(local.values(), port=port).start()
+    restarted = DeviceServer(local.values(), port=port, auth=server.auth).start()
     try:
         assert wait_for(lambda: events == ["down", "up"], timeout=10)
         assert sem.client.connected

@@ -16,14 +16,22 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
 from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
 from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage  # noqa: E402
+from fibsem.server.auth import AuthConfig  # noqa: E402
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
+from fibsem.server.pairing import write_token  # noqa: E402
+
+
+def _armed() -> AuthConfig:
+    return AuthConfig.generate(arm_hardware=True)
 
 
 @pytest.fixture
 def served():
     local = {d.name: d for d in demo_fm_devices()}
-    server = DeviceServer(local.values()).start()
-    client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
+    server = DeviceServer(local.values(), auth=_armed()).start()
+    client = DeviceClient(
+        "127.0.0.1", server.port, heartbeat=0.5, token=server.auth.token
+    )
     fm = RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port, client=client)
     # The simulated FM behind the served devices, as its computer would hold it.
     far = local["fm"]._fm
@@ -155,9 +163,12 @@ def test_connect_names_a_server_that_serves_no_fm():
     from fibsem.server.devices import demo_devices
 
     server = DeviceServer(demo_devices()).start()
+    client = DeviceClient("127.0.0.1", server.port, token=server.auth.token)
     try:
         with pytest.raises(RuntimeError, match="serves no FM"):
-            RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port)
+            RemoteFluorescenceMicroscope.connect(
+                "127.0.0.1", server.port, client=client
+            )
     finally:
         server.stop()
 
@@ -170,13 +181,16 @@ def test_a_configuration_naming_a_remote_fm_connects_to_it(tmp_path):
     import fibsem.config as cfg
     from fibsem import utils
 
-    server = DeviceServer(demo_fm_devices()).start()
+    server = DeviceServer(demo_fm_devices(), auth=_armed()).start()
     try:
         settings = utils.load_yaml(
             os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
         )
         settings["hardware"]["fm"].update(
-            driver="remote", address="127.0.0.1", port=server.port
+            driver="remote",
+            address="127.0.0.1",
+            port=server.port,
+            token_file=str(write_token(tmp_path / "token", server.auth.token)),
         )
         settings["sim"]["has_fm"] = False  # no FM on the beams' connection
         path = tmp_path / "remote-fm-configuration.yaml"
@@ -220,7 +234,8 @@ def test_without_offline_an_unserved_fm_refuses_to_connect():
 
 def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
     port = _free_port()
-    client = DeviceClient("127.0.0.1", port, heartbeat=0.5)
+    auth = _armed()
+    client = DeviceClient("127.0.0.1", port, heartbeat=0.5, token=auth.token)
     fm = RemoteFluorescenceMicroscope.connect(
         "127.0.0.1", port, client=client, offline=True
     )
@@ -236,7 +251,7 @@ def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
             fm.acquire_image()
 
         local = {d.name: d for d in demo_fm_devices()}
-        server = DeviceServer(local.values(), port=port).start()
+        server = DeviceServer(local.values(), port=port, auth=auth).start()
 
         assert _wait_for(lambda: fm.online and client.connected, timeout=5)
         assert came_online == [True]
@@ -263,10 +278,16 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
     from fibsem import utils
 
     port = _free_port()
+    auth = _armed()
     settings = utils.load_yaml(
         os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
-    settings["hardware"]["fm"].update(driver="remote", address="127.0.0.1", port=port)
+    settings["hardware"]["fm"].update(
+        driver="remote",
+        address="127.0.0.1",
+        port=port,
+        token_file=str(write_token(tmp_path / "token", auth.token)),
+    )
     settings.setdefault("calibration", {})["objective"] = {"limit_position": 0.004}
     path = tmp_path / "remote-fm-configuration.yaml"
     utils.save_yaml(path, settings)
@@ -280,7 +301,7 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
         microscope.get_stage_position()  # the beams' side works meanwhile
 
         local = {d.name: d for d in demo_fm_devices()}
-        server = DeviceServer(local.values(), port=port).start()
+        server = DeviceServer(local.values(), port=port, auth=auth).start()
 
         far = local["fm"]._fm
         assert _wait_for(lambda: far.objective.limit_position == 0.004, timeout=10)

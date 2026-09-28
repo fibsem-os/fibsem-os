@@ -17,6 +17,7 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
     connect_remote_fm,
 )
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
+from fibsem.server.auth import AuthConfig  # noqa: E402
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
 
 
@@ -32,8 +33,12 @@ def wait_for(condition, timeout=2.0):
 @pytest.fixture
 def served():
     local = {d.name: d for d in demo_fm_devices()}
-    server = DeviceServer(local.values()).start()
-    client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
+    server = DeviceServer(
+        local.values(), auth=AuthConfig.generate(arm_hardware=True)
+    ).start()
+    client = DeviceClient(
+        "127.0.0.1", server.port, heartbeat=0.5, token=server.auth.token
+    )
     remote = connect_remote_fm("127.0.0.1", server.port, client=client)
     yield local, remote
     client.close()
