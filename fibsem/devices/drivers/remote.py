@@ -26,6 +26,11 @@ devices are. The client keeps retrying; when the server is back it reads every
 parameter's metadata and value again, so anything that changed in the gap is
 signalled, and then fires ``DeviceClient.reconnected``.
 
+A server that isn't running yet need not stop the coordinator connecting: with
+``offline=True``, ``connect_remote_fm`` builds the FM's devices unbound, and the same
+retry loop binds them when the server first answers, then fires ``reconnected``.
+Until then each device's ``online`` is False and its parameters are absent.
+
 A command that returns an array (a camera frame, an FM channel) comes back as
 ``np.save`` bytes rather than JSON, and arrives as the same array.
 
@@ -107,8 +112,9 @@ class DeviceClient:
     """The event stream closed: the server stopped or the network dropped."""
 
     reconnected = Signal()
-    """The server is back. Metadata and values were read again, and every parameter
-    that changed in the gap emitted ``changed``."""
+    """The server is back, or answered for the first time. Metadata and values were
+    read again, and every parameter that changed in the gap emitted ``changed``;
+    devices built offline are bound."""
 
     def __init__(self, host: str, port: int, heartbeat: float = HEARTBEAT):
         self.heartbeat = heartbeat
@@ -171,12 +177,15 @@ class DeviceClient:
 
     # -- events ---------------------------------------------------------------------
 
-    def register(self, device: Device) -> None:
+    def register(self, device: Device, wait: bool = True) -> None:
+        """Follow the device's events. The first device starts the event stream; with
+        ``wait``, until it is open, so no change is missed from here on."""
         self._devices[device.name] = device
         if self._events is None:
             self._events = threading.Thread(target=self._listen, daemon=True)
             self._events.start()
-            self._ready.wait(READ_TIMEOUT)
+            if wait:
+                self._ready.wait(READ_TIMEOUT)
 
     def _listen(self) -> None:
         """Hold the event stream open; when it drops, retry until the server is back."""
@@ -209,15 +218,42 @@ class DeviceClient:
             close_timeout=self.heartbeat,  # a silent server won't answer the close
         ) as socket:
             self._socket = socket
+            bound = self._bind_offline()
             if resync:
                 self._resync()
             self.connected = True
             self._ready.set()
-            if resync:
+            if resync or bound:
                 logging.info(f"device events from {self.base_url} resumed")
                 self.reconnected.emit()
             for message in socket:
                 self._dispatch(json.loads(message))
+
+    def _bind_offline(self) -> bool:
+        """Bind the devices built while the server was down. True if there were any.
+
+        Runs with the event stream already open, so no change falls between a
+        device's first read and its events.
+        """
+        offline = [
+            device
+            for device in self._devices.values()
+            if isinstance(device, RemoteDevice) and not device.online
+        ]
+        if not offline:
+            return False
+        descriptions = self.describe()
+        for device in offline:
+            description = descriptions.get(device.name)
+            if description is None:
+                logging.warning(f"{self.base_url} serves no '{device.name}'")
+                continue
+            try:
+                device._bind_from(description)
+                device._prime()
+            except Exception as error:  # a type mismatch: stays offline, and says so
+                logging.error(f"{device.name} at {self.base_url}: {error}")
+        return True
 
     def _resync(self) -> None:
         """After a gap, events may have been missed: read metadata and values again."""
@@ -272,12 +308,26 @@ class RemoteDevice(Device):
     def __init__(self, *args: Any, client: DeviceClient, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.client = client
+        self.online = False
+        """Bound to what the server has. False while a device built offline waits for
+        its server; its parameters are absent until then."""
 
     def connect(self, description: Optional[Dict[str, Any]] = None) -> Device:
         if description is None:
             description = self.client.request(
                 "GET", f"devices/{self.name}", READ_TIMEOUT
             )
+        self._bind_from(description)
+        self.client.register(self)
+        self._prime()
+        return self
+
+    def connect_offline(self) -> Device:
+        """Follow a server that isn't answering yet: nothing is bound until it does."""
+        self.client.register(self, wait=False)
+        return self
+
+    def _bind_from(self, description: Dict[str, Any]) -> None:
         declared = self.declared_parameters()
         for name, info in description["parameters"].items():
             spec = declared.get(name)
@@ -297,12 +347,13 @@ class RemoteDevice(Device):
                 write=self._writer(name) if info["settable"] else None,
                 metadata=self._metadata_reader(name, first=info),
             )
-        self.client.register(self)
+        self.online = True
+
+    def _prime(self) -> None:
         # Fill the cache once, after the event stream is open so no change falls in
         # between: displays read ``cached`` and must not start empty.
         for param in self.parameters.values():
             param.get_value()
-        return self
 
     def call_command(self, command: str, **kwargs: Any) -> Any:
         """Run one of the device's commands on the server."""
@@ -418,12 +469,32 @@ REMOTE_FM_PARTS = {
 
 
 def connect_remote_fm(
-    host: str, port: int, client: Optional[DeviceClient] = None
+    host: str,
+    port: int,
+    client: Optional[DeviceClient] = None,
+    offline: bool = False,
 ) -> Dict[str, Device]:
-    """The FM's group and parts a device server has, by name."""
+    """The FM's group and parts a device server has, by name.
+
+    If the server can't be reached this raises ``RemoteDeviceUnreachable``, unless
+    ``offline``: then every part is built unbound, and binds when the server answers.
+    """
     client = client if client is not None else DeviceClient(host, port)
+    try:
+        descriptions = client.describe()
+    except RemoteDeviceUnreachable as error:
+        if not offline:
+            raise
+        logging.warning(
+            f"The fluorescence microscope is not reachable ({error}). It will connect "
+            "when its device server starts."
+        )
+        return {
+            name: part(name=name, client=client).connect_offline()
+            for name, part in REMOTE_FM_PARTS.items()
+        }
     return {
         name: REMOTE_FM_PARTS[name](name=name, client=client).connect(description)
-        for name, description in client.describe().items()
+        for name, description in descriptions.items()
         if name in REMOTE_FM_PARTS
     }
