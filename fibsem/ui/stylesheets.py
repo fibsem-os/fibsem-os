@@ -242,6 +242,46 @@ SECONDARY_BUTTON_STYLESHEET = f"""
     }}
 """
 
+# A button that sits flat on the header until the pointer reaches it, the way the
+# notification bell does. For controls that say where you are -- the microscope,
+# the experiment -- rather than ask you to do something: a filled pill gave them
+# more weight than anything else in the tab row. `:open` is a menu button with its
+# menu showing, which should read as held down.
+# TODO: no token -- #4a5168
+GHOST_BUTTON_STYLESHEET = f"""
+    QPushButton {{
+        background-color: transparent;
+        color: {TEXT_COLOR};
+        border: none;
+        padding: 5px 12px;
+        border-radius: 3px;
+    }}
+    QPushButton:hover {{
+        background-color: {BORDER_COLOR};
+    }}
+    QPushButton:pressed, QPushButton:open {{
+        background-color: #4a5168;
+    }}
+    QPushButton:disabled {{
+        background-color: transparent;
+        color: {DISABLED_TEXT_COLOR};
+    }}
+"""
+
+# The same, with the label muted until hovered: for a line that is context rather
+# than the thing you came to read.
+MUTED_GHOST_BUTTON_STYLESHEET = (
+    GHOST_BUTTON_STYLESHEET
+    + f"""
+    QPushButton {{
+        color: {TEXT_MUTED_COLOR};
+    }}
+    QPushButton:hover, QPushButton:pressed {{
+        color: {TEXT_COLOR};
+    }}
+"""
+)
+
 # A QPushButton that opens a menu. Qt stops drawing the native menu arrow as soon
 # as the button carries a stylesheet, so the chevron has to be put back by hand --
 # without it the control looks like a plain button and nothing says it opens.
@@ -255,15 +295,18 @@ SECONDARY_BUTTON_STYLESHEET = f"""
 # or not a stylesheet draws its own. Padding chosen to clear the chevron therefore
 # pays for that gutter twice, which put 30px between the label and the arrow against
 # 12px on the other side. 16 leaves 8 before the chevron and 8 after it.
+#
+# Flat, with the chevron muted like the icon: once there is no fill, the chevron is
+# what says the button opens, but at full strength it competes with the label.
 MENU_BUTTON_STYLESHEET = (
-    SECONDARY_BUTTON_STYLESHEET
+    GHOST_BUTTON_STYLESHEET
     + """
     QPushButton {
         text-align: left;
         padding-right: 16px;
     }
     QPushButton::menu-indicator {
-        image: url("__ICONS_DIR__/chevron_down.svg");
+        image: url("__ICONS_DIR__/chevron_down_muted.svg");
         subcontrol-origin: padding;
         subcontrol-position: center right;
         width: 10px;
