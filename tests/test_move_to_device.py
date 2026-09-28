@@ -336,3 +336,60 @@ def test_an_offset_mount_has_no_fm_orientation_to_ask_for():
         offset.get_orientation("FM")
 
     assert compustage.get_orientation("FM") is not None
+
+
+# ── a compustage FM that declares no orientations ───────────────────────────
+
+
+def _arctis_whose_fm_declares_nothing():
+    """A `devices:` block whose FM entry leaves `acquisition_orientations` out.
+
+    A missing key reads as an empty list, and empty means "constrains nothing". On a
+    compustage the pose is all that tells the FM from the beams, so that would be an
+    FM that images from every pose.
+    """
+    from fibsem.structures import StageDeviceSettings
+
+    microscope = _microscope(ARCTIS_CONFIG)
+    microscope.system.stage.devices["FM"] = StageDeviceSettings.from_dict(
+        {"origin": {"x": 0.0}}
+    )
+    assert microscope.system.stage.devices["FM"].acquisition_orientations == []
+    return microscope
+
+
+def test_a_compustage_fm_that_declares_nothing_images_flipped():
+    microscope = _arctis_whose_fm_declares_nothing()
+
+    assert microscope.get_acquisition_orientations("FM") == ["FM"]
+    assert microscope.fm._configured_acquisition_orientations() == ["FM"]
+
+
+@pytest.mark.parametrize("orientation", ["SEM", "MILLING"])
+def test_a_compustage_fm_that_declares_nothing_still_flips_to_image(orientation):
+    """It used to insert the objective at the beam pose, without flipping."""
+    from fibsem.structures import DeviceImagingState
+
+    microscope = _arctis_whose_fm_declares_nothing()
+    microscope.move_to_orientation(orientation)
+    assert microscope.get_device_imaging_state("FM") is DeviceImagingState.NEEDS_REPOSE
+
+    microscope.move_to_device("FM")
+
+    assert microscope.get_stage_orientation() == "FM"
+    assert microscope.fm.objective.state == "Inserted"
+
+
+def test_elsewhere_declaring_nothing_still_constrains_nothing():
+    """The beams image from every pose; so does an offset FM that says nothing,
+    since its place is what tells it apart."""
+    from fibsem.structures import StageDeviceSettings
+
+    compustage = _microscope(ARCTIS_CONFIG)
+    assert compustage.get_acquisition_orientations("FIBSEM") == []
+
+    offset = _microscope()
+    offset.system.stage.devices["FM"] = StageDeviceSettings.from_dict(
+        {"origin": {"x": 48.8e-3}}
+    )
+    assert offset.get_acquisition_orientations("FM") == []
