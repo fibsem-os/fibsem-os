@@ -690,10 +690,10 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         # system properties
         if key == "beam_enabled":
             if beam_type is BeamType.ELECTRON:
-                self.system.electron.beam.enabled = value
+                self.system.electron.enabled = value
                 return
             elif beam_type is BeamType.ION:
-                self.system.ion.beam.enabled = value
+                self.system.ion.enabled = value
                 return
             else:
                 raise ValueError(f"Unknown beam type: {beam_type} for {key}")
