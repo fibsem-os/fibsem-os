@@ -2784,11 +2784,30 @@ class FibsemMicroscope(ABC):
         Only meaningful for a device the stage *travels to*. A device that comes to
         the sample instead has no origin, and answers `False` rather than pretending
         position decides it.
+
+        Where every device shares one origin -- the objective under the grid, which
+        is also what a configuration that declares no devices describes -- there is
+        nowhere else to travel to, and the answer is `True` wherever the stage is.
+        `device_range` exists to tell places apart; with one place it tells nothing,
+        and reading it literally refused a lamella 25 mm along an Arctis grid as
+        "needs travel".
         """
+        target = self._get_device(device)
+        if self._is_the_only_place(target):
+            return True
         if stage_position is None:
             stage_position = self.get_stage_position()
-        return self._get_device(device).contains(
-            stage_position, self.system.stage.device_range
+        return target.contains(stage_position, self.system.stage.device_range)
+
+    def _is_the_only_place(self, target: StageDeviceSettings) -> bool:
+        """Does every device sit at *target*'s origin, so there is nowhere to travel?"""
+        origin = target.origin
+        if all(getattr(origin, axis) is None for axis in DEVICE_AXES):
+            return False
+        return all(
+            getattr(device.origin, axis) == getattr(origin, axis)
+            for device in self.system.stage.devices.values()
+            for axis in DEVICE_AXES
         )
 
     def get_current_device(
@@ -2802,7 +2821,9 @@ class FibsemMicroscope(ABC):
 
         Positional, so it is the wrong question on a compustage, where the beams and
         the FM are the same place reached by flipping and the devices fully overlap.
-        Nothing asks it there: `move_to_microscope` branches to the compustage path
+        It answers the first device there, wherever the stage is, which is enough for
+        a conversion (the translation between one place and itself is zero); nothing
+        decides a device by it: `move_to_microscope` branches to the compustage path
         first, and the device is decided by orientation instead.
         """
         if stage_position is None:

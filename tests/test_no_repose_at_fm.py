@@ -162,7 +162,8 @@ def test_a_system_with_no_fluorescence_microscope_is_not_affected():
     ever looks at where the stage is. The second is that there is nothing out there to
     find -- the default FM shares the beams' origin, so a system that never declared a
     `devices:` block no longer carries a phantom fluorescence microscope 48.8 mm along
-    x, somewhere its stage has every right to be.
+    x, somewhere its stage has every right to be. With one place, it is at the beams
+    wherever it goes.
 
     Both halves matter. A beam-only system must not be told it cannot rotate, and it
     must not be told it is standing at an instrument it does not have.
@@ -174,7 +175,7 @@ def test_a_system_with_no_fluorescence_microscope_is_not_affected():
     microscope.move_stage_relative(
         FibsemStagePosition(x=48.8e-3, y=0.0, z=0.0, r=0.0, t=0.0)
     )
-    assert microscope.get_current_device() is None
+    assert microscope.get_current_device() == "FIBSEM"
 
     microscope.move_to_orientation("MILLING")
 
