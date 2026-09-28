@@ -390,10 +390,17 @@ def derivation_question(
     ):
         text += f"\n\nThis overwrites a {noun} that was set by hand."
     if name == FLUORESCENCE_POSE:
-        text += (
-            "\n\nThe objective position is kept; refocus before acquiring if the "
-            "orientation changed."
-        )
+        existing = lamella.poses.get(name)
+        if existing is not None and existing.objective_position is not None:
+            text += (
+                "\n\nThe objective position is kept; refocus before acquiring if the "
+                "orientation changed."
+            )
+        else:
+            text += (
+                "\n\nIt has no objective position yet, so it takes the objective's "
+                "saved focus position; refocus before acquiring."
+            )
     return text
 
 
@@ -408,10 +415,14 @@ def pose_disagreement(
 ) -> Optional[float]:
     """How far the fluorescence pose is from where the milling pose predicts it [m].
 
-    Arithmetic on two stored positions: nothing is asked of the instrument, so it is
-    safe to compute on a UI event. Replaces a stored "stale" state -- no writer has to
-    remember to set it, so a task, a script and a person are all covered -- and says
-    how much, which a flag cannot.
+    Replaces a stored "stale" state -- no writer has to remember to set it, so a task,
+    a script and a person are all covered -- and says how much, which a flag cannot.
+
+    Worked out through `to_device`, which is arithmetic on a compustage and on the
+    simulator. A conversion across a half turn on a ThermoFisher stage that is not a
+    compustage reads the compucentric offset from the stage, so this is for a user
+    action -- selecting a lamella, moving or deriving a pose -- and not for anything
+    that fires on its own. The hosts do not show the panel during a workflow.
 
     Compared in the orientation the fluorescence pose is already in. None when either
     pose is missing, there is no FM, or the conversion refuses.
@@ -457,12 +468,21 @@ def derive_pose(
 
     Returns:
         True if the pose was written. False, with the existing pose untouched, if
-        there is nothing to derive it from or the instrument cannot work it out -- a
-        wrong milling pose is the dangerous outcome, so that direction refuses unless
-        the fluorescence pose is somewhere the objective sees the sample from.
+        there is no FM, nothing to derive it from, or the instrument cannot work it
+        out -- a wrong milling pose is the dangerous outcome, so that direction
+        refuses unless the fluorescence pose is somewhere the objective sees the
+        sample from. Without an FM that cannot be checked, and there is no second
+        side to convert between: a fluorescence pose there is left over from another
+        system.
     """
     if name not in (MILLING_POSE, FLUORESCENCE_POSE):
         raise ValueError(f"No derivation for a pose named {name!r}.")
+    if microscope.fm is None:
+        logging.warning(
+            f"Cannot derive the {name} pose of {lamella.name}: no fluorescence "
+            f"microscope."
+        )
+        return False
     source = lamella.poses.get(other_pose(name))
     if source is None or source.stage_position is None:
         logging.debug(f"Cannot derive the {name} pose of {lamella.name}: no source.")
