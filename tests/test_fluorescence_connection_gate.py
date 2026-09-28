@@ -137,6 +137,22 @@ def test_detected_but_not_configured_gets_nothing(tmp_path):
     assert _from(settings, tmp_path).fm is None
 
 
+def test_detected_with_no_fm_block_gets_nothing(tmp_path):
+    """An offset system with an iFLM fitted and nothing said about it: no FM.
+
+    Absent keeps the old default, which is off on anything but a compustage.
+    """
+    settings = utils.load_yaml(IFLM_CONFIG)
+    assert settings["sim"]["has_fm"] is True
+    del settings["hardware"]["fm"]
+
+    microscope = _from(settings, tmp_path)
+
+    assert microscope.stage_is_compustage is False
+    assert microscope.system.fm.enabled is None
+    assert microscope.fm is None
+
+
 def test_configured_but_not_detected_gets_nothing_either(tmp_path):
     """The probe still has the last word: a site can be wrong about its own hardware."""
     settings = utils.load_yaml(IFLM_CONFIG)
