@@ -234,3 +234,22 @@ def test_the_defaults_editor_needs_a_microscope(widget):
     widget.open_defaults()
 
     assert not widget.defaultsDialog.isVisible()
+
+
+def test_the_configuration_window_opens_when_connected_and_closes_on_disconnect(
+    widget, monkeypatch, toasts, demo_microscope
+):
+    widget.open_configuration()
+    assert widget.configurationWindow is None  # nothing to show yet
+
+    monkeypatch.setattr(
+        utils, "setup_session", lambda *a, **k: (demo_microscope, object())
+    )
+    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
+    widget.connect_to_microscope()
+    widget.open_configuration()
+    assert widget.configurationWindow.isVisible()
+
+    widget.microscope = None
+    widget.update_ui()
+    assert widget.configurationWindow is None

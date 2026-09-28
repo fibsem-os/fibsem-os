@@ -147,6 +147,15 @@ class SessionState:
             return None
         return data
 
+    def sections(self) -> Dict[str, Any]:
+        """Every section as the file holds it -- nothing imported, nothing written.
+
+        Empty when there is no file or it cannot be read. For showing what an
+        instrument remembers; code that uses a section loads it by name.
+        """
+        data = self._read() or {}
+        return {name: value for name, value in data.items() if name != "version"}
+
     def load_section(
         self,
         name: str,
