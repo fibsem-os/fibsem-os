@@ -19,6 +19,11 @@ come from the server. After that:
   made on the far side (the far computer's own UI, another client);
 - commands run on the server with ``call_command``.
 
+The event stream carries a heartbeat: when the server stops answering pings (a
+pulled cable, a frozen PC), ``DeviceClient.disconnected`` fires within two heartbeats,
+without waiting for the next read. ``DeviceClient.health()`` asks the server how its
+devices are.
+
 Not in the prototype: reconnecting after a lost connection, the one-commander lease,
 and commands that return images.
 """
@@ -44,6 +49,7 @@ from fibsem.devices.core import (
 from fibsem.structures import BeamType, RangeLimit
 
 READ_TIMEOUT = 5.0
+HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
 
 
@@ -86,7 +92,8 @@ class DeviceClient:
     disconnected = Signal()
     """The event stream closed: the server stopped or the network dropped."""
 
-    def __init__(self, host: str, port: int):
+    def __init__(self, host: str, port: int, heartbeat: float = HEARTBEAT):
+        self.heartbeat = heartbeat
         self.base_url = f"http://{host}:{port}"
         self.events_url = f"ws://{host}:{port}/events"
         self._session = requests.Session()
@@ -120,6 +127,15 @@ class DeviceClient:
             raise _ERRORS[detail["error"]](detail["detail"])
         raise RemoteDeviceError(f"{method} {path}: {response.status_code} {detail}")
 
+    def health(self) -> Dict[str, Any]:
+        """The server's own report: is it up, and can each device reach its hardware.
+
+        For a status display or a check before a long run. It is not a guard: a
+        device healthy a second ago says nothing about the next read, so guards
+        keep reading live.
+        """
+        return self.request("GET", "health", READ_TIMEOUT)
+
     def describe(self) -> Dict[str, Any]:
         return self.request("GET", "devices", READ_TIMEOUT)
 
@@ -136,7 +152,13 @@ class DeviceClient:
         from websockets.sync.client import connect
 
         try:
-            with connect(self.events_url, open_timeout=READ_TIMEOUT) as socket:
+            with connect(
+                self.events_url,
+                open_timeout=READ_TIMEOUT,
+                ping_interval=self.heartbeat,
+                ping_timeout=self.heartbeat,
+                close_timeout=self.heartbeat,  # a silent server won't answer the close
+            ) as socket:
                 self._socket = socket
                 self.connected = True
                 self._ready.set()

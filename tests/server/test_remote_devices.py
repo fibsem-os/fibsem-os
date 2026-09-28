@@ -2,6 +2,7 @@
 coordinator through the remote driver. A remote device must answer exactly as the
 device it stands for, and fail closed when the server goes away."""
 
+import threading
 import time
 
 import pytest
@@ -9,11 +10,14 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
+import requests  # noqa: E402
+
 from fibsem.devices.core import (  # noqa: E402
     ParameterReadOnly,
     ParameterUnavailable,
 )
 from fibsem.devices.drivers.remote import (  # noqa: E402
+    DeviceClient,
     RemoteBeam,
     RemoteDeviceUnreachable,
     connect_remote_beams,
@@ -170,3 +174,45 @@ def test_a_parameter_that_means_something_else_on_the_server_refuses_to_connect(
     description["parameters"]["voltage"]["unit"] = "kV"
     with pytest.raises(TypeError, match="voltage"):
         RemoteBeam(BeamType.ELECTRON, client=client).connect(description)
+
+
+def test_health_reports_each_device(served):
+    local, remote, _ = served
+    client = remote[BeamType.ELECTRON].client
+    assert client.health() == {
+        "ok": True,
+        "devices": {
+            "electron": {"ok": True, "detail": None},
+            "ion": {"ok": True, "detail": None},
+        },
+    }
+    local[BeamType.ION].check_health = lambda: "plasma source not responding"
+    health = client.health()
+    assert health["ok"] is False
+    assert health["devices"]["ion"] == {
+        "ok": False,
+        "detail": "plasma source not responding",
+    }
+
+
+def test_a_frozen_server_is_noticed_without_a_read(served):
+    """No clean close, no failed read: only the heartbeat can tell."""
+    _, _, server = served
+
+    @server.app.get("/freeze")
+    async def freeze() -> None:
+        time.sleep(3.0)  # blocks the server's event loop, as a hung PC would
+
+    client = DeviceClient("127.0.0.1", server.port, heartbeat=0.2)
+    beams = connect_remote_beams("127.0.0.1", server.port, client=client)
+    dropped = []
+    client.disconnected.connect(lambda: dropped.append(True))
+    threading.Thread(
+        target=requests.get, args=(f"{client.base_url}/freeze",), daemon=True
+    ).start()
+    try:
+        assert wait_for(lambda: dropped == [True], timeout=2.5)
+        assert not client.connected
+    finally:
+        for beam in beams.values():
+            beam.client.close()

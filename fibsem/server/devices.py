@@ -3,13 +3,15 @@
 A prototype of the far side of a remote device (the METEOR PC, say). It wraps any
 ``fibsem.devices.Device`` and exposes what the device already describes about itself:
 
+    GET  /health                               up, and each device's hardware reachable
     GET  /devices                              every device: parameters and commands
     GET  /devices/{device}                     one device
     GET  /devices/{device}/{parameter}         a live read       -> {"value": ...}
     PUT  /devices/{device}/{parameter}         {"value": ...}    -> {"value": written}
     GET  /devices/{device}/{parameter}/metadata                  -> limits, choices, settable
     POST /devices/{device}/commands/{command}  {"kwargs": {...}} -> {"result": ...}
-    WS   /events                               {"device", "parameter", "kind", "value"}
+    WS   /events                               {"device", "parameter", "kind", "value"},
+                                               with pings as a heartbeat
 
 The coordinator side is ``fibsem.devices.drivers.remote``. A write runs the device's
 ``set_value``, so the server checks every value itself, whatever the client did.
@@ -75,6 +77,20 @@ def metadata_payload(metadata: ParameterMetadata) -> Dict[str, Any]:
         "choices": list(metadata.choices) if metadata.choices is not None else None,
         "settable": metadata.settable,
     }
+
+
+def device_health(device: Device) -> Dict[str, Any]:
+    """A driver that can tell whether its hardware answers defines ``check_health()``,
+    returning None when fine or a reason when not. Without one, a device is as healthy
+    as the server serving it."""
+    check = getattr(device, "check_health", None)
+    if check is None:
+        return {"ok": True, "detail": None}
+    try:
+        problem = check()
+    except Exception as error:
+        problem = f"{type(error).__name__}: {error}"
+    return {"ok": problem is None, "detail": problem}
 
 
 class _EventHub:
@@ -168,6 +184,12 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
                 status, {"error": type(error).__name__, "detail": str(error)}
             ) from None
 
+    @app.get("/health")
+    def health() -> Dict[str, Any]:
+        """Up, and for each device whether its driver can reach the hardware."""
+        devices = {name: device_health(d) for name, d in by_name.items()}
+        return {"ok": all(d["ok"] for d in devices.values()), "devices": devices}
+
     @app.get("/devices")
     def list_devices() -> Dict[str, Any]:
         return {name: describe_device(d) for name, d in by_name.items()}
@@ -217,6 +239,7 @@ class DeviceServer:
             log_level="warning",
             timeout_graceful_shutdown=1,
         )
+        self.app = config.app
         self._server = uvicorn.Server(config)
         self._thread: Optional[threading.Thread] = None
 
