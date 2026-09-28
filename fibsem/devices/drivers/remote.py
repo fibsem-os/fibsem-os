@@ -116,7 +116,16 @@ class DeviceClient:
                 method, f"{self.base_url}/{path}", timeout=timeout, **kwargs
             )
         except requests.RequestException as error:
-            raise RemoteDeviceUnreachable(f"{self.base_url}: {error}") from error
+            # One line saying what is unreachable and why; the urllib3 chain under a
+            # refused connection is five tracebacks deep and says nothing more.
+            reason = type(error).__name__
+            if isinstance(error, requests.Timeout):
+                reason = f"no answer within {timeout} s"
+            elif isinstance(error, requests.ConnectionError):
+                reason = "connection refused or dropped"
+            raise RemoteDeviceUnreachable(
+                f"{method} {self.base_url}/{path}: {reason}"
+            ) from None
         if response.ok:
             return response.json()
         try:
