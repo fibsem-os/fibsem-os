@@ -38,7 +38,7 @@ from fibsem.devices.core import (
     Resources,
     action,
 )
-from fibsem.devices.demo import bind_demo_beams
+from fibsem.devices.demo import DemoBeam, bind_demo_beams
 
 __all__ = [
     "BEAM_ROUTES",
@@ -47,6 +47,7 @@ __all__ = [
     "Beam",
     "BoundParameter",
     "KeyRouter",
+    "DemoBeam",
     "Device",
     "ParamMeta",
     "Parameter",

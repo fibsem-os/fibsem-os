@@ -19,6 +19,8 @@ backend says the parameter needs it, makes the write, caches the value, emits
 
 from __future__ import annotations
 
+import copy
+import functools
 import inspect
 import logging
 import math
@@ -67,6 +69,27 @@ class Parameter:
     ``limits`` and ``choices`` given here are static defaults; a backend's metadata
     replaces them. ``depends_on`` names parameters whose change alters this one's
     metadata (the ion current choices depend on the plasma gas).
+
+    A backend implements a parameter in its device subclass, the way a property is
+    implemented, and the device binds it at ``connect()``::
+
+        class AutoscriptBeam(Beam):
+            @Beam.current.reader
+            def current(self):
+                return self._beam.beam_current.value
+
+            @current.writer
+            def current(self, value):
+                self._beam.beam_current.value = value
+
+            @current.meta
+            def current(self):
+                return ParamMeta(limits=...)
+
+            hfw = Beam.hfw.attribute("_beam.horizontal_field_width.value")
+
+    Without a reader the parameter stays absent; without a writer it is read-only.
+    Each decorator returns a new Parameter, so the base class is never changed.
     """
 
     def __init__(
@@ -85,6 +108,11 @@ class Parameter:
         self.depends_on = tuple(depends_on)
         self.doc = doc
         self.name = ""
+        self.fread: Optional[Callable[[Any], Any]] = None
+        self.fwrite: Optional[Callable[[Any, Any], None]] = None
+        self.fmeta: Optional[Callable[[Any], ParamMeta]] = None
+        self.favailable: Optional[Callable[[Any], bool]] = None
+        self.needs_channel = False
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
@@ -98,6 +126,58 @@ class Parameter:
             raise ParameterUnavailable(
                 f"{type(device).__name__} '{device.name}' has no '{self.name}' on this backend"
             ) from None
+
+    # -- implementing, in a backend's subclass -------------------------------------
+
+    def _copy(self, **changes: Any) -> Parameter:
+        new = copy.copy(self)
+        for key, value in changes.items():
+            setattr(new, key, value)
+        return new
+
+    def reader(
+        self, fn: Optional[Callable] = None, *, needs_channel: bool = False
+    ) -> Any:
+        """Implement the read. ``needs_channel`` claims the imaging channel for it."""
+        if fn is None:
+            return lambda f: self._copy(fread=f, needs_channel=needs_channel)
+        return self._copy(fread=fn, needs_channel=needs_channel)
+
+    def writer(self, fn: Callable[[Any, Any], None]) -> Parameter:
+        """Implement the write. Only the vendor call: checks and events are generic."""
+        return self._copy(fwrite=fn)
+
+    def meta(self, fn: Callable[[Any], ParamMeta]) -> Parameter:
+        """Implement the metadata read, called at connect and when a dependency changes."""
+        return self._copy(fmeta=fn)
+
+    def available(self, fn: Callable[[Any], bool]) -> Parameter:
+        """Whether this instance has the parameter at all (an ion column without plasma)."""
+        return self._copy(favailable=fn)
+
+    def attribute(
+        self, path: str, cast: Optional[Callable[[Any], Any]] = None
+    ) -> Parameter:
+        """Read and write a vendor attribute by its dotted path from the device.
+
+        Covers the common case in one line, e.g. AutoScript's ``beam_current.value``.
+        """
+        *parents, leaf = path.split(".")
+
+        def owner(device: Any) -> Any:
+            obj = device
+            for part in parents:
+                obj = getattr(obj, part)
+            return obj
+
+        def read(device: Any) -> Any:
+            value = getattr(owner(device), leaf)
+            return cast(value) if cast is not None else value
+
+        def write(device: Any, value: Any) -> None:
+            setattr(owner(device), leaf, cast(value) if cast is not None else value)
+
+        return self._copy(fread=read, fwrite=write)
 
     def __repr__(self) -> str:
         unit = f", unit={self.unit!r}" if self.unit else ""
@@ -382,6 +462,26 @@ class Device:
         self._bound[name] = param
         return param
 
+    def connect(self) -> Device:
+        """Bind every parameter this class implements, reading its metadata once.
+
+        A backend calls this after constructing its device. Parameters with no reader,
+        or whose ``available`` check says no, stay absent. Returns the device.
+        """
+        for name, spec in self.declared_parameters().items():
+            if spec.fread is None:
+                continue
+            if spec.favailable is not None and not spec.favailable(self):
+                continue
+            self.bind(
+                name,
+                read=functools.partial(spec.fread, self),
+                write=functools.partial(spec.fwrite, self) if spec.fwrite else None,
+                meta=functools.partial(spec.fmeta, self) if spec.fmeta else None,
+                needs_channel=spec.needs_channel,
+            )
+        return self
+
     def bind_channel(self, select: Callable[[], None]) -> None:
         """How to make this device the active imaging channel, for needs_channel params."""
         self._select_channel = select
@@ -431,9 +531,13 @@ class Device:
             yield
             return
         with self.resources.claim(IMAGING_CHANNEL):
-            if self._select_channel is not None:
-                self._select_channel()
+            self.select_channel()
             yield
+
+    def select_channel(self) -> None:
+        """Make this device the active imaging channel. Backends that share one override it."""
+        if self._select_channel is not None:
+            self._select_channel()
 
     def _dependency_changed(self, name: str) -> None:
         for param in self._bound.values():

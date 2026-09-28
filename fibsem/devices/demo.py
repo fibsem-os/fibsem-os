@@ -1,14 +1,15 @@
-"""The Demo backend's beams as devices, bound beside the untouched Demo microscope.
+"""The Demo backend's beams as devices, beside the untouched Demo microscope.
 
-Each binding reads and writes what the matching branch of ``DemoMicroscope._get`` and
-``_set`` reads and writes, so the old call and the new parameter touch the same state.
-This is step 1 of moving a key ("declare and bind"); the Demo chain itself is unchanged.
+``DemoBeam`` implements each parameter with what the matching branch of
+``DemoMicroscope._get`` and ``_set`` reads and writes, so the old call and the new
+parameter touch the same state. This is step 1 of moving a key ("declare and
+implement"); the Demo chain itself is unchanged.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParamMeta, Resources
@@ -18,38 +19,75 @@ if TYPE_CHECKING:
     from fibsem.microscopes.simulator import DemoMicroscope
 
 
-def _attribute(owner: Any, name: str, cast: Any = None) -> Dict[str, Any]:
-    """read/write for a plain attribute, as the Demo branches do it."""
+class DemoBeam(Beam):
+    def __init__(
+        self,
+        beam_type: BeamType,
+        parent: DemoMicroscope,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(beam_type, parent=parent, resources=resources)
+        self._system = (
+            parent.electron_system
+            if beam_type is BeamType.ELECTRON
+            else parent.ion_system
+        )
 
-    def read() -> Any:
-        return getattr(owner, name)
+    def _choices(self, key: str) -> ParamMeta:
+        return ParamMeta(choices=self.parent.get_available_values(key, self.beam_type))
 
-    def write(value: Any) -> None:
-        setattr(owner, name, cast(value) if cast is not None else value)
+    # Plain attributes: the Demo branches read and assign them directly.
+    working_distance = Beam.working_distance.attribute("_system.beam.working_distance")
+    hfw = Beam.hfw.attribute("_system.beam.hfw")
+    # Demo's get returns float(scan_rotation) and its set stores float(value).
+    scan_rotation = Beam.scan_rotation.attribute(
+        "_system.beam.scan_rotation", cast=float
+    )
 
-    return {"read": read, "write": write}
+    voltage = Beam.voltage.attribute("_system.beam.voltage")
 
+    @voltage.meta
+    def voltage(self) -> ParamMeta:
+        return self._choices("voltage")
 
-def _choices(microscope: DemoMicroscope, key: str, beam_type: BeamType) -> Any:
-    """Metadata from the Demo's get_available_values, re-read when a dependency changes."""
-    return lambda: ParamMeta(choices=microscope.get_available_values(key, beam_type))
+    current = Beam.current.attribute("_system.beam.beam_current")
 
+    @current.meta
+    def current(self) -> ParamMeta:
+        return self._choices("current")
 
-def _blank_writer(microscope: DemoMicroscope, system: Any, beam_type: BeamType) -> Any:
-    """The Demo "blanked" branch as it stands, spot burn included."""
+    detector_type = Beam.detector_type.attribute("_system.detector.type")
 
-    def write(value: bool) -> None:
-        system.blanked = value
-        if not value and system.scanning_mode == "spot":
-            microscope._burn_into_sample_scene(beam_type)
+    @detector_type.meta
+    def detector_type(self) -> ParamMeta:
+        return self._choices("detector_type")
 
-    return write
+    detector_mode = Beam.detector_mode.attribute("_system.detector.mode")
 
+    @detector_mode.meta
+    def detector_mode(self) -> ParamMeta:
+        return self._choices("detector_mode")
 
-def _plasma_gas_writer(microscope: DemoMicroscope) -> Any:
-    """The Demo "plasma_gas" branch as it stands: an unavailable gas logs and is ignored."""
+    # The Demo "blanked" branch as it stands, spot burn included.
+    @Beam.blanked.reader
+    def blanked(self) -> bool:
+        return self._system.blanked
 
-    def write(value: str) -> None:
+    @blanked.writer
+    def blanked(self, value: bool) -> None:
+        self._system.blanked = value
+        if not value and self._system.scanning_mode == "spot":
+            self.parent._burn_into_sample_scene(self.beam_type)
+
+    # Only a plasma ion column has a gas. An unavailable gas logs and is ignored,
+    # as the Demo branch does.
+    @Beam.plasma_gas.reader
+    def plasma_gas(self) -> str:
+        return self.parent.system.ion.plasma_gas
+
+    @plasma_gas.writer
+    def plasma_gas(self, value: str) -> None:
+        microscope = self.parent
         if not microscope.check_available_values("plasma_gas", value, BeamType.ION):
             logging.warning(
                 f"Plasma gas {value} not available. Available values: "
@@ -60,7 +98,16 @@ def _plasma_gas_writer(microscope: DemoMicroscope) -> Any:
         microscope.system.ion.plasma_gas = value
         logging.info(f"Plasma gas set to {value}.")
 
-    return write
+    @plasma_gas.meta
+    def plasma_gas(self) -> ParamMeta:
+        return self._choices("plasma_gas")
+
+    @plasma_gas.available
+    def plasma_gas(self) -> bool:
+        return self.beam_type is BeamType.ION and self.parent.system.ion.plasma
+
+    # "preset" is not implemented: Demo has no presets, so it is absent on the new
+    # API while the old set("preset", ...) keeps its no-op through the Demo chain.
 
 
 def bind_demo_beams(
@@ -68,57 +115,7 @@ def bind_demo_beams(
 ) -> Dict[BeamType, Beam]:
     """Build ``beams[BeamType]`` for a connected Demo microscope."""
     resources = resources if resources is not None else Resources()
-    beams = {}
-    for beam_type in (BeamType.ELECTRON, BeamType.ION):
-        system = (
-            microscope.electron_system
-            if beam_type is BeamType.ELECTRON
-            else microscope.ion_system
-        )
-        beam = Beam(beam_type, parent=microscope, resources=resources)
-
-        beam.bind(
-            "voltage",
-            **_attribute(system.beam, "voltage"),
-            meta=_choices(microscope, "voltage", beam_type),
-        )
-        beam.bind(
-            "current",
-            **_attribute(system.beam, "beam_current"),
-            meta=_choices(microscope, "current", beam_type),
-        )
-        beam.bind("working_distance", **_attribute(system.beam, "working_distance"))
-        beam.bind("hfw", **_attribute(system.beam, "hfw"))
-        # Demo's get returns float(scan_rotation) and its set stores float(value).
-        scan_rotation = _attribute(system.beam, "scan_rotation", cast=float)
-        beam.bind(
-            "scan_rotation",
-            read=lambda beam=system.beam: float(beam.scan_rotation),
-            write=scan_rotation["write"],
-        )
-        beam.bind(
-            "blanked",
-            read=lambda system=system: system.blanked,
-            write=_blank_writer(microscope, system, beam_type),
-        )
-        beam.bind(
-            "detector_type",
-            **_attribute(system.detector, "type"),
-            meta=_choices(microscope, "detector_type", beam_type),
-        )
-        beam.bind(
-            "detector_mode",
-            **_attribute(system.detector, "mode"),
-            meta=_choices(microscope, "detector_mode", beam_type),
-        )
-        # Demo has no presets: "preset" stays unbound, so it is absent on the new API
-        # while the old set("preset", ...) keeps its no-op through the Demo chain.
-        if beam_type is BeamType.ION and microscope.system.ion.plasma:
-            beam.bind(
-                "plasma_gas",
-                read=lambda: microscope.system.ion.plasma_gas,
-                write=_plasma_gas_writer(microscope),
-                meta=_choices(microscope, "plasma_gas", beam_type),
-            )
-        beams[beam_type] = beam
-    return beams
+    return {
+        beam_type: DemoBeam(beam_type, microscope, resources).connect()
+        for beam_type in (BeamType.ELECTRON, BeamType.ION)
+    }
