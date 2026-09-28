@@ -199,30 +199,42 @@ def test_the_old_signal_and_the_new_one_fire_together():
 # -- the new API ---------------------------------------------------------------------
 
 
-def test_axes_and_limits_come_from_the_backend_once_in_si_units(stage, microscope):
-    assert stage.axes == ("x", "y", "z", "r", "t")
-    assert stage.x.unit == "m" and stage.t.unit == "rad"
-    assert stage.z.limits == (0.0, 40e-3)
-    # _get_axis_limits gives r and t in degrees; the parameters carry radians
-    assert stage.t.limits == pytest.approx((math.radians(-10), math.radians(90)))
-    assert stage.limits["r"] == pytest.approx((-2 * math.pi, 2 * math.pi))
+def test_the_driver_lists_the_axes_with_their_limits_in_si_units(stage):
+    assert list(stage.axes) == ["x", "y", "z", "r", "t"]
+    assert stage.axes.x.unit == "m" and stage.axes.t.unit == "rad"
+    assert stage.axes.z.limits == (0.0, 40e-3)
+    assert stage.axes["z"] is stage.axes.z
+    # _get_axis_limits gives r and t in degrees; the axes carry radians
+    assert stage.axes.t.limits == pytest.approx((math.radians(-10), math.radians(90)))
+    assert stage.position.limits["r"] == pytest.approx((-2 * math.pi, 2 * math.pi))
+    assert stage.describe()["position"]["limits"]["z"] == (0.0, 40e-3)
 
 
 def test_a_compustage_has_no_rotation_axis_and_cannot_link():
     stage = bind_demo_stage(_demo(compustage=True))
-    assert stage.axes == ("x", "y", "z", "t")
+    assert list(stage.axes) == ["x", "y", "z", "t"]
+    assert "r" not in stage.axes
+    with pytest.raises(AttributeError, match="no 'r' axis"):
+        stage.axes.r
     assert "linked" not in stage.parameters
     with pytest.raises(ParameterUnavailable):
-        stage.r
+        stage.linked
     assert stage.commands["link"].available is False
     assert stage.commands["home"].available is True
 
 
+def test_an_axis_is_a_view_of_the_position_with_no_read_of_its_own(stage, microscope):
+    microscope.stage_system.position.t = 0.25
+    assert stage.axes.t.value == 0.25  # a live read, of the whole position
+    microscope.stage_system.position.t = 0.5
+    assert stage.axes.t.cached == 0.25  # no read: the last position read
+    assert stage.position.cached.t == 0.25
+
+
 def test_state_parameters_are_read_only(stage):
-    for name in ("position", "x", "t", "homed", "linked"):
+    assert set(stage.parameters) == {"position", "homed", "linked"}
+    for name in stage.parameters:
         assert stage.parameters[name].settable is False, name
-    with pytest.raises(ParameterReadOnly):
-        stage.x.set_value(0.0)
     with pytest.raises(ParameterReadOnly):
         stage.position.value = FibsemStagePosition(x=0.0)
 
@@ -231,7 +243,7 @@ def test_move_absolute_moves_and_returns_the_read_back_position(stage, microscop
     result = stage.move_absolute(FibsemStagePosition(x=1e-3, z=2e-3))
     assert result == microscope.get_stage_position()
     assert (result.x, result.z) == (1e-3, 2e-3)
-    assert stage.x.cached == 1e-3  # the axes follow the position read
+    assert stage.axes.x.cached == 1e-3
 
 
 def test_a_move_outside_the_limits_is_refused_and_nothing_moves(stage, microscope):
@@ -245,12 +257,10 @@ def test_a_move_outside_the_limits_is_refused_and_nothing_moves(stage, microscop
 
 def test_a_move_emits_position_and_axis_changes(stage):
     stage.position.get_value()
-    stage.x.get_value()
-    stage.y.get_value()
     positions, xs, ys = [], [], []
     stage.position.changed.connect(positions.append)
-    stage.x.changed.connect(xs.append)
-    stage.y.changed.connect(ys.append)
+    stage.axes.x.changed.connect(xs.append)
+    stage.axes.y.changed.connect(ys.append)
 
     stage.move_relative(FibsemStagePosition(x=2e-4))
 

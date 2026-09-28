@@ -33,9 +33,11 @@ The stage is a device the same way, with moves as commands:
     from fibsem.structures import FibsemStagePosition
 
     stage = bind_demo_stage(microscope)
-    stage.axes                              # ("x", "y", "z", "r", "t"); no r on a compustage
-    stage.t.limits                          # radians, cached at connect
+    list(stage.axes)                        # ["x", "y", "z", "r", "t"]; no r on a compustage
+    stage.axes.t.limits                     # radians, cached at connect
+    stage.axes.t.cached                     # stage.position.cached.t, no instrument call
     stage.position.changed.connect(print)   # every move, and every read that differs
+    stage.axes.t.changed.connect(print)     # only when t moved
     stage.move_absolute(FibsemStagePosition(x=1e-3))   # refused outside the limits
     stage.move_through(FibsemStagePosition(x=1e-3))    # the old API's move: no new check
     stage.home()
@@ -63,10 +65,20 @@ from fibsem.devices.core import (
     Resources,
     command,
 )
-from fibsem.devices.stage import AXES, STAGE_RESOURCE, Stage, StageLimitError
+from fibsem.devices.stage import (
+    AXIS_UNITS,
+    STAGE_RESOURCE,
+    UNLIMITED,
+    Axes,
+    Axis,
+    Stage,
+    StageLimitError,
+)
 
 __all__ = [
-    "AXES",
+    "AXIS_UNITS",
+    "Axes",
+    "Axis",
     "BEAM_ROUTES",
     "STAGE_COMMAND_ROUTES",
     "STAGE_RESOURCE",
@@ -84,5 +96,6 @@ __all__ = [
     "Resources",
     "Stage",
     "StageLimitError",
+    "UNLIMITED",
     "command",
 ]

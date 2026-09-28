@@ -150,13 +150,15 @@ _DEGREE_AXES = ("r", "t")
 
 
 class DemoStage(Stage):
-    """The Demo stage. Each method is what the matching part of ``DemoMicroscope`` does today, reading and
-    writing the same ``stage_system``, so the old call and the device touch the same
-    state:
+    """The Demo stage.
+
+    Each method is what the matching part of ``DemoMicroscope`` does today, reading
+    and writing the same ``stage_system``, so the old call and the device touch the
+    same state:
 
     - ``read_position``: the ``stage_position`` branch of ``_get``;
     - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked`` branches;
-    - ``metadata_<axis>``: ``_get_axis_limits``;
+    - ``metadata_position``: ``_get_axis_limits``, which also says which axes exist;
     - ``_move_absolute`` / ``_move_relative``: ``move_stage_absolute`` /
       ``move_stage_relative``;
     - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
@@ -173,68 +175,21 @@ class DemoStage(Stage):
         # Read once at connect, as a vendor's limits would be.
         self._axis_limits = parent._get_axis_limits()
 
-    # -- position and axes ----------------------------------------------------------
+    # -- position ----------------------------------------------------------------
 
     def read_position(self) -> FibsemStagePosition:
         sim_sleep(0.1)  # the read delay the Demo branch has
         return deepcopy(self._system.position)
 
-    def _read_axis(self, axis: str) -> float:
-        return float(getattr(self._system.position, axis))
-
-    def _axis_metadata(self, axis: str) -> ParameterMetadata:
-        limit = self._axis_limits[axis]
-        low, high = limit.min, limit.max
-        if axis in _DEGREE_AXES:
-            low, high = float(np.radians(low)), float(np.radians(high))
-        return ParameterMetadata(limits=(low, high))
-
-    # An axis exists when the simulator reports limits for it: a compustage has no r.
-
-    def available_x(self) -> bool:
-        return "x" in self._axis_limits
-
-    def read_x(self) -> float:
-        return self._read_axis("x")
-
-    def metadata_x(self) -> ParameterMetadata:
-        return self._axis_metadata("x")
-
-    def available_y(self) -> bool:
-        return "y" in self._axis_limits
-
-    def read_y(self) -> float:
-        return self._read_axis("y")
-
-    def metadata_y(self) -> ParameterMetadata:
-        return self._axis_metadata("y")
-
-    def available_z(self) -> bool:
-        return "z" in self._axis_limits
-
-    def read_z(self) -> float:
-        return self._read_axis("z")
-
-    def metadata_z(self) -> ParameterMetadata:
-        return self._axis_metadata("z")
-
-    def available_r(self) -> bool:
-        return "r" in self._axis_limits
-
-    def read_r(self) -> float:
-        return self._read_axis("r")
-
-    def metadata_r(self) -> ParameterMetadata:
-        return self._axis_metadata("r")
-
-    def available_t(self) -> bool:
-        return "t" in self._axis_limits
-
-    def read_t(self) -> float:
-        return self._read_axis("t")
-
-    def metadata_t(self) -> ParameterMetadata:
-        return self._axis_metadata("t")
+    def metadata_position(self) -> ParameterMetadata:
+        # The axes are the ones the simulator gives limits for: a compustage has no r.
+        limits = {}
+        for axis, limit in self._axis_limits.items():
+            low, high = limit.min, limit.max
+            if axis in _DEGREE_AXES:
+                low, high = float(np.radians(low)), float(np.radians(high))
+            limits[axis] = (low, high)
+        return ParameterMetadata(limits=limits)
 
     # -- homing and linking -----------------------------------------------------------
 

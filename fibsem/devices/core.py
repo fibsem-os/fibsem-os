@@ -53,11 +53,19 @@ class ParameterReadOnly(Exception):
     """The parameter is bound but cannot be set."""
 
 
+Range = Tuple[float, float]
+Limits = Union[Range, Mapping[str, Range]]
+
+
 @dataclass(frozen=True)
 class ParameterMetadata:
-    """What a parameter allows. Filled from the vendor API once, then cached."""
+    """What a parameter allows. Filled from the vendor API once, then cached.
 
-    limits: Optional[Tuple[float, float]] = None
+    ``limits`` is ``(low, high)`` for a number. For a composite value, such as a stage
+    position, it is one ``(low, high)`` per field, by field name.
+    """
+
+    limits: Optional[Limits] = None
     choices: Optional[Sequence[Any]] = None
     settable: bool = True
 
@@ -154,6 +162,8 @@ class BoundParameter:
         self._metadata_source = metadata
         self.needs_channel = needs_channel
         self._cached: Any = _UNSET
+        self.previous: Any = None
+        """The value before the last change, for a ``changed`` handler to compare with."""
         self.metadata = ParameterMetadata()
         self.refresh_metadata(emit=False)
 
@@ -172,7 +182,7 @@ class BoundParameter:
         return self.spec.unit
 
     @property
-    def limits(self) -> Optional[Tuple[float, float]]:
+    def limits(self) -> Optional[Limits]:
         return self.metadata.limits
 
     @property
@@ -271,7 +281,7 @@ class BoundParameter:
             value = _match_choice(
                 value, self.choices, f"{self.device.name}.{self.name}"
             )
-        if self.limits is not None and isinstance(value, (int, float)):
+        if isinstance(self.limits, tuple) and isinstance(value, (int, float)):
             low, high = self.limits
             clipped = min(max(value, low), high)
             if clipped != value:
@@ -293,7 +303,8 @@ class BoundParameter:
                 "value": value,
             }
         )
-        self._cached = value
+        previous, self._cached = self._cached, value
+        self.previous = None if previous is _UNSET else previous
         self._emit(value)
         self.device._dependency_changed(self.name)
 
@@ -301,6 +312,7 @@ class BoundParameter:
         previous, self._cached = self._cached, value
         if previous is _UNSET or not _same(previous, value):
             if previous is not _UNSET:
+                self.previous = previous
                 self._emit(value)
 
     def _emit(self, value: Any) -> None:
@@ -509,7 +521,7 @@ class Device:
             name: {
                 "type": p.type.__name__,
                 "unit": p.unit,
-                "limits": p.limits,
+                "limits": dict(p.limits) if isinstance(p.limits, Mapping) else p.limits,
                 "choices": list(p.choices) if p.choices is not None else None,
                 "settable": p.settable,
             }
