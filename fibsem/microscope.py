@@ -937,25 +937,50 @@ class FibsemMicroscope(ABC):
         each backend builds exactly the FM it always has. An FM on its own PC
         (`fm.driver: remote`) must not be looked for on the beams' connection: an
         Aquilos with a METEOR would otherwise get an iFLM driver that finds nothing.
-        The remote FM itself is not built yet (FIB-294), so such a site gets no FM and
-        says why, rather than the wrong one.
+        Such a site gets its FM from `_connect_remote_fluorescence` instead.
         """
         driver = self.system.fm.driver
         if driver is None:
             return True
-        if driver == FM_DRIVER_REMOTE:
-            logging.error(
-                f"The fluorescence microscope is configured as remote "
-                f"({self.system.fm.address}:{self.system.fm.port}), which is not "
-                "supported yet. No fluorescence microscope will be available."
-            )
-        else:
+        if driver != FM_DRIVER_REMOTE:
             logging.error(
                 f"Unknown fluorescence microscope driver {driver!r}; the supported "
                 f"value is {FM_DRIVER_REMOTE!r}, or no `driver` key to use the "
                 "microscope's own. No fluorescence microscope will be available."
             )
         return False
+
+    def _connect_remote_fluorescence(self) -> Optional[FluorescenceMicroscope]:
+        """The FM on its own PC (`fm.driver: remote`), or None.
+
+        None when the configuration names no remote FM, and when it does but the FM's
+        device server can't be reached: the microscope connects without an FM and
+        says why, as it does when an FM driver of its own fails. Retrying in the
+        background is FIB-1086.
+        """
+        fm = self.system.fm
+        if fm.driver != FM_DRIVER_REMOTE or not self._fluorescence_is_configured():
+            return None
+        if fm.address is None or fm.port is None:
+            logging.error(
+                "The fluorescence microscope is configured as remote but has no "
+                "`address` and `port`. No fluorescence microscope will be available."
+            )
+            return None
+        try:
+            from fibsem.fm.remote import RemoteFluorescenceMicroscope
+
+            remote = RemoteFluorescenceMicroscope.connect(
+                fm.address, fm.port, parent=self
+            )
+        except Exception as e:
+            logging.error(
+                f"Could not connect to the fluorescence microscope at "
+                f"{fm.address}:{fm.port}: {e}. No fluorescence microscope will be "
+                "available."
+            )
+            return None
+        return remote
 
     def _refuse_rotation_at_the_fluorescence_microscope(
         self, stage_position: FibsemStagePosition

@@ -211,20 +211,35 @@ def test_the_driver_keys_are_known_configuration_keys():
 def test_a_remote_fm_is_not_looked_for_on_the_beams_connection(tmp_path, caplog):
     """An offset system with a METEOR on its own PC must not get the iFLM driver.
 
-    The remote FM is not built yet, so the site gets none, and the log says why.
+    Nothing serves the FM here, so the site gets none, and the log says why. Getting
+    the remote FM when it is served is `tests/server/test_remote_fm_api.py`.
     """
     settings = utils.load_yaml(IFLM_CONFIG)
-    settings["hardware"]["fm"].update(driver="remote", address="10.0.0.2", port=8765)
+    settings["hardware"]["fm"].update(driver="remote", address="127.0.0.1", port=1)
 
     microscope = _from(settings, tmp_path)
 
     assert microscope.system.fm.driver == "remote"
     assert microscope.fm is None
+    assert microscope._fluorescence_uses_own_driver() is False
     # setup_session reconfigures the root logger, which drops caplog's handler
     logging.getLogger().addHandler(caplog.handler)
     caplog.clear()
-    assert microscope._fluorescence_uses_own_driver() is False
-    assert "10.0.0.2:8765" in caplog.text
+    assert microscope._connect_remote_fluorescence() is None
+    assert "127.0.0.1:1" in caplog.text
+
+
+def test_a_remote_fm_without_an_address_gets_no_fm(tmp_path, caplog):
+    settings = utils.load_yaml(IFLM_CONFIG)
+    settings["hardware"]["fm"]["driver"] = "remote"
+
+    microscope = _from(settings, tmp_path)
+
+    assert microscope.fm is None
+    logging.getLogger().addHandler(caplog.handler)
+    caplog.clear()
+    assert microscope._connect_remote_fluorescence() is None
+    assert "no `address` and `port`" in caplog.text
 
 
 def test_an_unknown_driver_gets_no_fm(tmp_path, caplog):
