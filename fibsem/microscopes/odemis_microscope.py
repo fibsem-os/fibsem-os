@@ -301,6 +301,8 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             logging.info(f"Fluorescence support is not available: {e}")
         except Exception as e:
             logging.warning(f"Failed to initialize fluorescence microscope: {e}")
+        if self.fm is None:
+            self.fm = self._connect_remote_fluorescence()
         self._apply_fluorescence_calibration()
 
         try:

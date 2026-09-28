@@ -552,8 +552,9 @@ class DemoMicroscope(FibsemMicroscope):
             # operation's job.
             self.fm.set_active_channel()
         else:
-            logging.info("No fluorescence microscope in this simulated system.")
-            self.fm = None
+            self.fm = self._connect_remote_fluorescence()
+            if self.fm is None:
+                logging.info("No fluorescence microscope in this simulated system.")
 
         self._apply_fluorescence_calibration()
         self._warn_on_fluorescence_geometry()
