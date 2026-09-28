@@ -25,6 +25,7 @@ from skimage import transform
 
 from fibsem.microscope import (
     FibsemMicroscope,
+    RequiredDeviceUnavailable,
     _records_beam_shift,
     _records_stage_move,
 )
@@ -1068,6 +1069,8 @@ class ThermoMicroscope(FibsemMicroscope):
                 logging.info(
                     "Thermo Fisher Fluorescence Microscope initialized successfully."
                 )
+        except RequiredDeviceUnavailable:
+            raise
         except Exception as e:
             logging.error(
                 f"Failed to initialize Thermo Fisher Fluorescence Microscope: {e}"

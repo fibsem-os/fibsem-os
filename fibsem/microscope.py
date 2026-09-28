@@ -166,6 +166,10 @@ def _records_beam_shift(method):
     return wrapper
 
 
+class RequiredDeviceUnavailable(RuntimeError):
+    """A device the configuration marks `required` could not be reached at connect."""
+
+
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
 
@@ -781,33 +785,46 @@ class FibsemMicroscope(ABC):
     def _connect_remote_fluorescence(self) -> Optional[FluorescenceMicroscope]:
         """The FM on its own PC (`fm.driver: remote`), or None.
 
-        None when the configuration names no remote FM, and when it does but the FM's
-        device server can't be reached: the microscope connects without an FM and
-        says why, as it does when an FM driver of its own fails. Retrying in the
-        background is FIB-1086.
+        A server that isn't answering yet gives an FM that is offline: its reads fail
+        closed, and it comes online by itself when the server starts (FIB-1086). The
+        beams never wait for the FM's PC. With `fm.required: true` an unreachable FM
+        raises `RequiredDeviceUnavailable` and the connect fails instead.
+
+        The objective calibration is pushed again each time the FM comes (back)
+        online, since a restarted FM computer starts from its own defaults.
+
+        None when the configuration names no remote FM, and when it can't be used
+        at all (no address, a server that serves no FM): the microscope connects
+        without an FM and says why, as when an FM driver of its own fails.
         """
         fm = self.system.fm
         if fm.driver != FM_DRIVER_REMOTE or not self._fluorescence_is_configured():
             return None
         if fm.address is None or fm.port is None:
-            logging.error(
+            message = (
                 "The fluorescence microscope is configured as remote but has no "
-                "`address` and `port`. No fluorescence microscope will be available."
+                "`address` and `port`."
             )
+            if fm.required:
+                raise RequiredDeviceUnavailable(message)
+            logging.error(f"{message} No fluorescence microscope will be available.")
             return None
         try:
             from fibsem.fm.remote import RemoteFluorescenceMicroscope
 
             remote = RemoteFluorescenceMicroscope.connect(
-                fm.address, fm.port, parent=self
+                fm.address, fm.port, parent=self, offline=not fm.required
             )
         except Exception as e:
-            logging.error(
+            message = (
                 f"Could not connect to the fluorescence microscope at "
-                f"{fm.address}:{fm.port}: {e}. No fluorescence microscope will be "
-                "available."
+                f"{fm.address}:{fm.port}: {e}."
             )
+            if fm.required:
+                raise RequiredDeviceUnavailable(message) from e
+            logging.error(f"{message} No fluorescence microscope will be available.")
             return None
+        remote.client.reconnected.connect(self._apply_fluorescence_calibration)
         return remote
 
     def _refuse_rotation_at_the_fluorescence_microscope(

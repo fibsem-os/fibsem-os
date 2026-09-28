@@ -196,37 +196,62 @@ def test_no_driver_key_follows_the_microscope():
 
 def test_the_driver_keys_survive_a_round_trip():
     """A remote FM's address must not be dropped when the configuration is saved."""
-    block = {"enabled": True, "driver": "remote", "address": "10.0.0.2", "port": 8765}
+    block = {
+        "enabled": True,
+        "driver": "remote",
+        "address": "10.0.0.2",
+        "port": 8765,
+        "required": True,
+    }
 
     assert FluorescenceSystemSettings.from_dict(block).to_dict() == block
 
 
 def test_the_driver_keys_are_known_configuration_keys():
     """Otherwise loading a remote configuration reports them as ignored."""
-    block = {"enabled": True, "driver": "remote", "address": "10.0.0.2", "port": 8765}
+    block = {
+        "enabled": True,
+        "driver": "remote",
+        "address": "10.0.0.2",
+        "port": 8765,
+        "required": True,
+    }
 
     assert utils.unrecognised_configuration_keys({"hardware": {"fm": block}}) == []
 
 
-def test_a_remote_fm_is_not_looked_for_on_the_beams_connection(tmp_path, caplog):
+def test_a_remote_fm_is_not_looked_for_on_the_beams_connection(tmp_path):
     """An offset system with a METEOR on its own PC must not get the iFLM driver.
 
-    Nothing serves the FM here, so the site gets none, and the log says why. Getting
-    the remote FM when it is served is `tests/server/test_remote_fm_api.py`.
+    Nothing serves the FM here. With the server extra installed the site gets the
+    remote FM offline, waiting for its server; without it, none. Either way, never
+    the simulated iFLM. The remote FM itself is `tests/server/test_remote_fm_api.py`.
     """
+    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+
     settings = utils.load_yaml(IFLM_CONFIG)
     settings["hardware"]["fm"].update(driver="remote", address="127.0.0.1", port=1)
 
     microscope = _from(settings, tmp_path)
 
     assert microscope.system.fm.driver == "remote"
-    assert microscope.fm is None
     assert microscope._fluorescence_uses_own_driver() is False
-    # setup_session reconfigures the root logger, which drops caplog's handler
-    logging.getLogger().addHandler(caplog.handler)
-    caplog.clear()
-    assert microscope._connect_remote_fluorescence() is None
-    assert "127.0.0.1:1" in caplog.text
+    assert not isinstance(microscope.fm, SimulatedFluorescenceMicroscope)
+    if microscope.fm is not None:
+        assert not microscope.fm.online
+        microscope.fm.client.close()
+
+
+def test_a_required_remote_fm_that_is_not_served_fails_the_connect(tmp_path):
+    from fibsem.microscope import RequiredDeviceUnavailable
+
+    settings = utils.load_yaml(IFLM_CONFIG)
+    settings["hardware"]["fm"].update(
+        driver="remote", address="127.0.0.1", port=1, required=True
+    )
+
+    with pytest.raises(RequiredDeviceUnavailable, match="127.0.0.1:1"):
+        _from(settings, tmp_path)
 
 
 def test_a_remote_fm_without_an_address_gets_no_fm(tmp_path, caplog):

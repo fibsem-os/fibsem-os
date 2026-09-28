@@ -36,9 +36,26 @@ from fibsem.fm.microscope import (
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage
 
 if TYPE_CHECKING:
-    from fibsem.devices.core import Device
+    from fibsem.devices.core import BoundParameter, Device
     from fibsem.devices.drivers.remote import DeviceClient
     from fibsem.microscope import FibsemMicroscope
+
+
+def _param(device: Device, name: str) -> BoundParameter:
+    """A remote part's parameter, failing closed while its server has never answered.
+
+    A part built offline has no parameters yet, so a guard reading
+    ``fm.objective.state`` gets the same ``RemoteDeviceUnreachable`` as one whose
+    server went away later, not an ``AttributeError`` that reads like a missing
+    feature.
+    """
+    from fibsem.devices.drivers.remote import RemoteDeviceUnreachable
+
+    if not getattr(device, "online", True):
+        raise RemoteDeviceUnreachable(
+            f"{device.name} at {device.client.base_url} has not connected yet"
+        )
+    return getattr(device, name)
 
 
 class RemoteObjectiveLens(ObjectiveLens):
@@ -49,32 +66,32 @@ class RemoteObjectiveLens(ObjectiveLens):
 
     @property
     def magnification(self) -> float:
-        return self._device.magnification.get_value()
+        return _param(self._device, "magnification").get_value()
 
     @property
     def numerical_aperture(self) -> float:
-        return self._device.numerical_aperture.get_value()
+        return _param(self._device, "numerical_aperture").get_value()
 
     @property
     def position(self) -> float:
-        return self._device.position.get_value()
+        return _param(self._device, "position").get_value()
 
     @property
     def limit_position(self) -> float:
-        return self._device.limit_position.get_value()
+        return _param(self._device, "limit_position").get_value()
 
     @limit_position.setter
     def limit_position(self, position: float) -> None:
-        self._device.limit_position.write_through(position)
+        _param(self._device, "limit_position").write_through(position)
 
     @property
     def limits(self) -> Tuple[float, float]:
-        limits = self._device.position.limits
+        limits = _param(self._device, "position").limits
         return (limits.min, limits.max)
 
     @property
     def state(self) -> str:
-        return self._device.state.get_value()
+        return _param(self._device, "state").get_value()
 
     def move_relative(self, delta: float) -> None:
         self._device.move_relative(delta)
@@ -103,52 +120,52 @@ class RemoteCamera(Camera):
 
     @property
     def exposure_time(self) -> float:
-        return self._device.exposure_time.get_value()
+        return _param(self._device, "exposure_time").get_value()
 
     @exposure_time.setter
     def exposure_time(self, value: float) -> None:
-        self._device.exposure_time.write_through(value)
+        _param(self._device, "exposure_time").write_through(value)
 
     @property
     def binning(self) -> int:
-        return self._device.binning.get_value()
+        return _param(self._device, "binning").get_value()
 
     @binning.setter
     def binning(self, value: int) -> None:
-        self._device.binning.write_through(value)
+        _param(self._device, "binning").write_through(value)
 
     @property
     def available_binnings(self) -> Tuple[int, ...]:
-        return tuple(self._device.binning.choices or ())
+        return tuple(_param(self._device, "binning").choices or ())
 
     @property
     def exposure_time_limits(self) -> Tuple[float, float]:
-        limits = self._device.exposure_time.limits
+        limits = _param(self._device, "exposure_time").limits
         return (limits.min, limits.max)
 
     @property
     def gain(self) -> float:
-        return self._device.gain.get_value()
+        return _param(self._device, "gain").get_value()
 
     @gain.setter
     def gain(self, value: float) -> None:
-        self._device.gain.write_through(value)
+        _param(self._device, "gain").write_through(value)
 
     @property
     def offset(self) -> float:
-        return self._device.offset.get_value()
+        return _param(self._device, "offset").get_value()
 
     @offset.setter
     def offset(self, value: float) -> None:
-        self._device.offset.write_through(value)
+        _param(self._device, "offset").write_through(value)
 
     @property
     def pixel_size(self) -> Tuple[float, float]:
-        return tuple(self._device.pixel_size.get_value())
+        return tuple(_param(self._device, "pixel_size").get_value())
 
     @property
     def resolution(self) -> Tuple[int, int]:
-        return tuple(self._device.resolution.get_value())
+        return tuple(_param(self._device, "resolution").get_value())
 
 
 class RemoteLightSource(LightSource):
@@ -158,15 +175,15 @@ class RemoteLightSource(LightSource):
 
     @property
     def power(self) -> float:
-        return self._device.power.get_value()
+        return _param(self._device, "power").get_value()
 
     @power.setter
     def power(self, value: float) -> None:
-        self._device.power.write_through(value)
+        _param(self._device, "power").write_through(value)
 
     @property
     def power_limits(self) -> Tuple[float, float]:
-        limits = self._device.power.limits
+        limits = _param(self._device, "power").limits
         return (limits.min, limits.max)
 
 
@@ -177,27 +194,27 @@ class RemoteFilterSet(FilterSet):
 
     @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
-        return tuple(self._device.excitation_wavelength.choices or ())
+        return tuple(_param(self._device, "excitation_wavelength").choices or ())
 
     @property
     def available_emission_wavelengths(self) -> Tuple[Union[None, str, float], ...]:
-        return tuple(self._device.emission_wavelength.choices or ())
+        return tuple(_param(self._device, "emission_wavelength").choices or ())
 
     @property
     def excitation_wavelength(self) -> float:
-        return self._device.excitation_wavelength.get_value()
+        return _param(self._device, "excitation_wavelength").get_value()
 
     @excitation_wavelength.setter
     def excitation_wavelength(self, value: float) -> None:
-        self._device.excitation_wavelength.write_through(value)
+        _param(self._device, "excitation_wavelength").write_through(value)
 
     @property
     def emission_wavelength(self) -> Optional[Union[float, str]]:
-        return self._device.emission_wavelength.get_value()
+        return _param(self._device, "emission_wavelength").get_value()
 
     @emission_wavelength.setter
     def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
-        self._device.emission_wavelength.write_through(value)
+        _param(self._device, "emission_wavelength").write_through(value)
 
 
 class RemoteFluorescenceMicroscope(FluorescenceMicroscope):
@@ -227,12 +244,17 @@ class RemoteFluorescenceMicroscope(FluorescenceMicroscope):
         port: int,
         parent: Optional[FibsemMicroscope] = None,
         client: Optional[DeviceClient] = None,
+        offline: bool = False,
     ) -> RemoteFluorescenceMicroscope:
-        """Connect to the FM's device server. Raises ``RemoteDeviceUnreachable``
-        if it isn't running."""
+        """Connect to the FM's device server.
+
+        Raises ``RemoteDeviceUnreachable`` if it isn't running, unless ``offline``:
+        then the FM is built offline, every read fails closed, and it comes online by
+        itself when the server starts (``client.reconnected`` fires).
+        """
         from fibsem.devices.drivers.remote import connect_remote_fm
 
-        devices = connect_remote_fm(host, port, client=client)
+        devices = connect_remote_fm(host, port, client=client, offline=offline)
         missing = {"fm", "camera", "light_source", "filter_set", "objective"} - set(
             devices
         )
@@ -240,8 +262,16 @@ class RemoteFluorescenceMicroscope(FluorescenceMicroscope):
             if devices:
                 next(iter(devices.values())).client.close()
             raise RuntimeError(f"{host}:{port} serves no FM {sorted(missing)}")
-        logging.info(f"Connected to the fluorescence microscope at {host}:{port}")
-        return cls(devices, parent=parent)
+        fm = cls(devices, parent=parent)
+        if fm.online:
+            logging.info(f"Connected to the fluorescence microscope at {host}:{port}")
+        return fm
+
+    @property
+    def online(self) -> bool:
+        """Whether the FM's server has answered and its parts are bound. A server
+        that answered once and then went away reads True until its next read fails."""
+        return all(device.online for device in self.devices.values())
 
     @property
     def client(self) -> Any:

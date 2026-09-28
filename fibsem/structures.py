@@ -2801,6 +2801,12 @@ class FluorescenceSystemSettings:
     address: Optional[str] = None
     port: Optional[int] = None
 
+    # A remote FM whose server isn't answering at connect is built offline and comes
+    # online by itself (FIB-1086), so the beams are never held up by the FM's PC.
+    # `required: true` makes the connect fail instead, for a site where an FM that is
+    # quietly missing would be worse than no session.
+    required: Optional[bool] = None
+
     # The objective's calibration, in metres: where it is in focus, and how far it
     # may be inserted. Measured at this instrument, so it is written under
     # `calibration.objective` by `SystemSettings.to_dict` rather than in this
@@ -2816,6 +2822,7 @@ class FluorescenceSystemSettings:
             "driver": self.driver,
             "address": self.address,
             "port": self.port,
+            "required": self.required,
         }
 
     def objective_to_dict(self) -> dict:
@@ -2837,6 +2844,11 @@ class FluorescenceSystemSettings:
             driver=settings.get("driver"),
             address=settings.get("address"),
             port=int(port) if port is not None else None,
+            required=(
+                bool(settings["required"])
+                if settings.get("required") is not None
+                else None
+            ),
         )
 
 

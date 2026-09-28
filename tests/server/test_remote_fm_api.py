@@ -191,3 +191,102 @@ def test_a_configuration_naming_a_remote_fm_connects_to_it(tmp_path):
         microscope.fm.client.close()
     finally:
         server.stop()
+
+
+# ── a server that starts after the microscope (FIB-1086) ─────────────
+
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _wait_for(condition, timeout: float) -> bool:
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if condition():
+            return True
+        time.sleep(0.02)
+    return condition()
+
+
+def test_without_offline_an_unserved_fm_refuses_to_connect():
+    with pytest.raises(RemoteDeviceUnreachable):
+        RemoteFluorescenceMicroscope.connect("127.0.0.1", _free_port())
+
+
+def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
+    port = _free_port()
+    client = DeviceClient("127.0.0.1", port, heartbeat=0.5)
+    fm = RemoteFluorescenceMicroscope.connect(
+        "127.0.0.1", port, client=client, offline=True
+    )
+    came_online = []
+    client.reconnected.connect(lambda: came_online.append(True))
+    server = None
+    try:
+        assert not fm.online
+        assert fm.devices["objective"].parameters == {}  # absent until it answers
+        with pytest.raises(RemoteDeviceUnreachable):
+            fm.objective.state  # the guard's read fails closed
+        with pytest.raises(RemoteDeviceUnreachable):
+            fm.acquire_image()
+
+        local = {d.name: d for d in demo_fm_devices()}
+        server = DeviceServer(local.values(), port=port).start()
+
+        assert _wait_for(lambda: fm.online and client.connected, timeout=5)
+        assert came_online == [True]
+        assert fm.objective.state == "Retracted"
+        power = fm.devices["light_source"].power
+        assert power.cached == local["light_source"].power.get_value()  # primed
+        fm.set_power(0.3)
+        assert local["fm"]._fm.light_source.power == 0.3
+        assert isinstance(fm.acquire_image(), FluorescenceImage)
+    finally:
+        client.close()
+        if server is not None:
+            server.stop()
+
+
+def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
+    tmp_path,
+):
+    """The beams connect without waiting for the FM's PC. When its server starts,
+    the FM binds, and the configured objective limit is pushed to it."""
+    import os
+
+    import fibsem.config as cfg
+    from fibsem import utils
+
+    port = _free_port()
+    settings = utils.load_yaml(
+        os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+    )
+    settings["hardware"]["fm"].update(driver="remote", address="127.0.0.1", port=port)
+    settings.setdefault("calibration", {})["objective"] = {"limit_position": 0.004}
+    path = tmp_path / "remote-fm-configuration.yaml"
+    utils.save_yaml(path, settings)
+
+    microscope, _ = utils.setup_session(config_path=str(path))
+    fm = microscope.fm
+    server = None
+    try:
+        assert isinstance(fm, RemoteFluorescenceMicroscope)
+        assert not fm.online
+        microscope.get_stage_position()  # the beams' side works meanwhile
+
+        local = {d.name: d for d in demo_fm_devices()}
+        server = DeviceServer(local.values(), port=port).start()
+
+        far = local["fm"]._fm
+        assert _wait_for(lambda: far.objective.limit_position == 0.004, timeout=10)
+        assert fm.online
+        assert fm.objective.limit_position == 0.004
+    finally:
+        fm.client.close()
+        if server is not None:
+            server.stop()
