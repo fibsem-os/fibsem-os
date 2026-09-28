@@ -116,6 +116,7 @@ from fibsem.ui.stylesheets import (
     DANGER_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
     MENU_BUTTON_STYLESHEET,
+    MUTED_GHOST_BUTTON_STYLESHEET,
     NAPARI_STYLE,
     PRIMARY_BUTTON_STYLESHEET,
     PROGRESS_BAR_STYLESHEET,
@@ -2588,13 +2589,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # The same words as the Connection tab's button and the File menu
             # entry: three doors to one action should not each name it differently.
             self.btn_connection.setText("Connect to Microscope")
+            self.btn_connection.setIcon(QIcon())
             self.btn_connection.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
             self.btn_connection.setToolTip("Choose a configuration and connect")
             return
 
         # `system.info` is a stored record, not a question put to the instrument.
         info = microscope.system.info
-        self.btn_connection.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        # Flat and muted, like the experiment name beside it: once connected this
+        # says where you are, and only the unconnected state asks for a click.
+        set_button_icon(self.btn_connection, "mdi:connection")
+        self.btn_connection.setStyleSheet(MUTED_GHOST_BUTTON_STYLESHEET)
         self.btn_connection.setToolTip(
             f"{info.manufacturer} {info.model} at {info.ip_address}\n"
             f"Serial number: {info.serial_number}\n"
