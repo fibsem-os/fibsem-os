@@ -23,7 +23,7 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
     connect_remote_beams,
 )
 from fibsem.server.devices import DeviceServer, demo_devices  # noqa: E402
-from fibsem.structures import BeamType  # noqa: E402
+from fibsem.structures import BeamType, Point  # noqa: E402
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 
@@ -250,3 +250,18 @@ def test_the_client_reconnects_and_catches_up_on_what_it_missed(served):
         assert wait_for(lambda: seen == [456e-6, 789e-6])
     finally:
         restarted.stop()
+
+
+def test_a_structured_value_crosses_the_wire_as_itself(served):
+    """A ``Point`` parameter reads back as a ``Point``, and a remote set of one is
+    written on the far side and signalled once."""
+    local, remote, _ = served
+    shift = remote[BeamType.ELECTRON].shift
+    assert isinstance(shift.get_value(), Point)
+    seen = []
+    shift.changed.connect(seen.append)
+    shift.set_value(Point(1e-6, -2e-6))
+    far = local[BeamType.ELECTRON].shift.get_value()
+    assert (far.x, far.y) == (1e-6, -2e-6)
+    time.sleep(0.2)  # time for the server's event to arrive and be matched
+    assert len(seen) == 1 and (seen[0].x, seen[0].y) == (1e-6, -2e-6)
