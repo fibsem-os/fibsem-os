@@ -1,4 +1,4 @@
-"""Devices, self-describing parameters, actions and shared resources.
+"""Devices, self-describing parameters, commands and shared resources.
 
 A device declares which parameters it can have on its class (type and unit). A backend
 binds the ones its hardware has to two small functions, read and write, and supplies
@@ -302,24 +302,24 @@ class BoundParameter:
 
 
 @dataclass(frozen=True)
-class ActionInfo:
+class CommandInfo:
     name: str
     signature: str
     available: bool
     doc: str
 
 
-def action(
+def command(
     fn: Optional[Callable] = None, *, available: Optional[Callable[[Any], bool]] = None
 ) -> Any:
-    """Mark a device method as an action. It stays a plain method.
+    """Mark a device method as a command. It stays a plain method.
 
     The mark records only what a UI, the agent API or a remote proxy needs to list it:
     its name, its arguments and whether it is available on this device right now.
     """
 
     def mark(method: Callable) -> Callable:
-        method.__device_action__ = available  # type: ignore[attr-defined]
+        method.__device_command__ = available  # type: ignore[attr-defined]
         return method
 
     return mark(fn) if fn is not None else mark
@@ -352,7 +352,7 @@ class Resources:
 
 
 class Device:
-    """One piece of hardware: named, with parameters and actions, and a parent."""
+    """One piece of hardware: named, with parameters and commands, and a parent."""
 
     changed = Signal(str, object)
     """(parameter name, value) for any parameter on the device."""
@@ -457,15 +457,15 @@ class Device:
         return dict(self._bound)
 
     @property
-    def actions(self) -> Dict[str, ActionInfo]:
+    def commands(self) -> Dict[str, CommandInfo]:
         found = {}
         for name, attr in inspect.getmembers(type(self), inspect.isfunction):
-            if not hasattr(attr, "__device_action__"):
+            if not hasattr(attr, "__device_command__"):
                 continue
-            available = attr.__device_action__
+            available = attr.__device_command__
             signature = inspect.signature(attr)
             arguments = list(signature.parameters.values())[1:]  # without self
-            found[name] = ActionInfo(
+            found[name] = CommandInfo(
                 name=name,
                 signature=str(signature.replace(parameters=arguments)),
                 available=True if available is None else bool(available(self)),

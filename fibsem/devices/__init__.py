@@ -2,7 +2,7 @@
 
 Nothing in fibsem uses this package yet, and ``FibsemMicroscope`` is unchanged. It
 shows the device model on the Demo backend: parameters that describe themselves,
-actions, named shared resources, and a key router that sends today's
+commands, named shared resources, and a key router that sends today's
 ``get``/``set`` keys to parameters without changing what the old calls do.
 
     from fibsem import utils
@@ -19,7 +19,7 @@ actions, named shared resources, and a key router that sends today's
     sem.scan_rotation.set_value(7.0)        # clipped to 2*pi, with a warning
     sem.hfw.value = 100e-6                  # shorthand for set_value / get_value
     "preset" in sem.parameters              # False: Demo has no presets
-    sem.actions["acquire"].signature        # "(image_settings=None)"
+    sem.commands["acquire"].signature        # "(image_settings=None)"
 
     router = KeyRouter(microscope, beams)
     router.get("current", BeamType.ELECTRON) == microscope.get("current", BeamType.ELECTRON)
@@ -28,22 +28,22 @@ actions, named shared resources, and a key router that sends today's
 from fibsem.devices.beam import BEAM_ROUTES, Beam, KeyRouter
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
-    ActionInfo,
     BoundParameter,
+    CommandInfo,
     Device,
     Parameter,
     ParameterReadOnly,
     ParameterUnavailable,
     ParamMeta,
     Resources,
-    action,
+    command,
 )
 from fibsem.devices.demo import DemoBeam, bind_demo_beams
 
 __all__ = [
     "BEAM_ROUTES",
     "IMAGING_CHANNEL",
-    "ActionInfo",
+    "CommandInfo",
     "Beam",
     "BoundParameter",
     "KeyRouter",
@@ -54,6 +54,6 @@ __all__ = [
     "ParameterReadOnly",
     "ParameterUnavailable",
     "Resources",
-    "action",
+    "command",
     "bind_demo_beams",
 ]

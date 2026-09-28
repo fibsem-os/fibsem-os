@@ -12,7 +12,7 @@ import logging
 from math import pi
 from typing import Any, Dict, List, Mapping, Optional
 
-from fibsem.devices.core import BoundParameter, Device, Parameter, action
+from fibsem.devices.core import BoundParameter, Device, Parameter, command
 from fibsem.structures import BeamType, FibsemImage, ImageSettings
 
 
@@ -32,19 +32,19 @@ class Beam(Device):
         super().__init__(name=beam_type.name.lower(), parent=parent, **kwargs)
         self.beam_type = beam_type
 
-    @action(available=lambda beam: "blanked" in beam.parameters)
+    @command(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:
         """Blank the beam."""
         self.blanked.set_value(True)
 
-    @action(available=lambda beam: "blanked" in beam.parameters)
+    @command(available=lambda beam: "blanked" in beam.parameters)
     def unblank(self) -> None:
         """Unblank the beam."""
         self.blanked.set_value(False)
 
-    @action
+    @command
     def acquire(self, image_settings: Optional[ImageSettings] = None) -> FibsemImage:
-        """Acquire an image with this beam. Imaging is a beam action, not a device."""
+        """Acquire an image with this beam. Imaging is a beam command, not a device."""
         return self.parent.acquire_image(image_settings, beam_type=self.beam_type)
 
 

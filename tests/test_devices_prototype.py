@@ -2,7 +2,7 @@
 
 Two kinds of test. Parity: every call through the key router gives what the
 untouched old call gives, including its no-ops and missing checks. And the new API:
-metadata, validation, signals, dependencies, resources and actions.
+metadata, validation, signals, dependencies, resources and commands.
 """
 
 import logging
@@ -22,8 +22,8 @@ from fibsem.devices import (
     ParameterUnavailable,
     ParamMeta,
     Resources,
-    action,
     bind_demo_beams,
+    command,
 )
 from fibsem.structures import BeamType, FibsemImage
 
@@ -317,10 +317,10 @@ def test_a_claimed_resource_blocks_another_thread():
 
 def test_actions_are_plain_methods_that_describe_themselves(beams):
     sem = beams[BeamType.ELECTRON]
-    actions = sem.actions
-    assert set(actions) == {"acquire", "blank", "unblank"}
-    assert actions["acquire"].signature.startswith("(image_settings")
-    assert actions["blank"].available
+    commands = sem.commands
+    assert set(commands) == {"acquire", "blank", "unblank"}
+    assert commands["acquire"].signature.startswith("(image_settings")
+    assert commands["blank"].available
 
     sem.blank()
     assert sem.parent.get("blanked", BeamType.ELECTRON) is True
@@ -329,11 +329,11 @@ def test_actions_are_plain_methods_that_describe_themselves(beams):
 
 def test_an_action_can_be_unavailable():
     class Gun(Device):
-        @action(available=lambda gun: False)
+        @command(available=lambda gun: False)
         def fire(self) -> None:
             pass
 
-    assert Gun("gun").actions["fire"].available is False
+    assert Gun("gun").commands["fire"].available is False
 
 
 def test_value_property_is_shorthand_for_get_value_and_set_value(beams, caplog):
