@@ -141,8 +141,13 @@ def test_vertical_move_from_fib_sends_the_pure_delta(
     assert microscope.sent == [expected]
 
 
-def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(microscope):
-    pose = _pose(microscope, 18, 0, 0.0)
+@pytest.mark.parametrize("tilt_deg, rotation_deg, scan_rotation", POSES)
+def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(
+    microscope, tilt_deg, rotation_deg, scan_rotation
+):
+    """Across poses, so both the milling-angle scaling (SEM and MILLING orientations)
+    and its absence (elsewhere), and both scan-rotation signs, are reached."""
+    pose = _pose(microscope, tilt_deg, rotation_deg, scan_rotation)
 
     microscope.vertical_move(dy=5e-6, dx=3e-6, beam_type=BeamType.ELECTRON)
 
@@ -151,12 +156,12 @@ def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(microscop
     if microscope.get_stage_orientation(pose) in ("SEM", "MILLING"):
         milling_angle = microscope.get_current_milling_angle(pose)
     dy = fib_offset_after_sem_move(
-        stage_dy=stable.y, ion_scan_rotation=0.0, milling_angle=milling_angle
+        stage_dy=stable.y, ion_scan_rotation=scan_rotation, milling_angle=milling_angle
     )
     expected = vertical_move_delta(
         dx=0,
         dy=dy,
-        scan_rotation=0.0,
+        scan_rotation=scan_rotation,
         fib_column_tilt=microscope.system.ion.column_tilt,
         stage_tilt=pose.t,
         is_compustage=microscope.stage_is_compustage,
@@ -165,7 +170,7 @@ def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(microscop
     assert (vertical.x, vertical.y, vertical.z) == pytest.approx(
         (expected.x, expected.y, expected.z), rel=1e-9, abs=1e-18
     )
-    assert vertical.y != 0.0
+    assert (vertical.y, vertical.z) != (0.0, 0.0)
 
 
 class TestTheOrientationOverride:

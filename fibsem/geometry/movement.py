@@ -81,47 +81,6 @@ def image_to_stage_delta(
     )
 
 
-def stable_move_delta(
-    dx: float,
-    dy: float,
-    scan_rotation: float,
-    view_tilt: float,
-    geometry: FibsemHardwareGeometry,
-    stage_rotation: float,
-    stage_tilt: float,
-    is_fib_orientation: Optional[bool] = None,
-) -> FibsemStagePosition:
-    """Relative stage movement for a displacement seen in a beam image.
-
-    The scan rotation is undone first, then the displacement is projected through the
-    view as :func:`image_to_stage_delta` does.
-
-    Args:
-        dx: displacement along the displayed image x-axis, in metres.
-        dy: displacement along the displayed image y-axis, in metres.
-        scan_rotation: the beam's scan rotation, in radians.
-        view_tilt: tilt of the beam's axis from the electron column, in radians: 0 for
-            the electron beam, the ion column tilt for the ion beam.
-        geometry: the instrument geometry.
-        stage_rotation: stage rotation, in radians.
-        stage_tilt: stage tilt, in radians.
-        is_fib_orientation: see :func:`image_to_stage_delta`.
-
-    Returns:
-        FibsemStagePosition: relative movement in the RAW coordinate system.
-    """
-    dx, dy = undo_scan_rotation(dx, dy, scan_rotation)
-    return image_to_stage_delta(
-        dx,
-        dy,
-        view_tilt=view_tilt,
-        geometry=geometry,
-        stage_rotation=stage_rotation,
-        stage_tilt=stage_tilt,
-        is_fib_orientation=is_fib_orientation,
-    )
-
-
 def vertical_move_delta(
     dx: float,
     dy: float,
