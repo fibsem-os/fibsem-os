@@ -294,7 +294,7 @@ class RemoteDevice(Device):
                 name,
                 read=self._reader(name),
                 write=self._writer(name) if info["settable"] else None,
-                metadata=self._metadata_reader(name),
+                metadata=self._metadata_reader(name, first=info),
             )
         self.client.register(self)
         # Fill the cache once, after the event stream is open so no change falls in
@@ -328,9 +328,20 @@ class RemoteDevice(Device):
 
         return write
 
-    def _metadata_reader(self, name: str) -> Callable[[], ParameterMetadata]:
+    def _metadata_reader(
+        self, name: str, first: Dict[str, Any]
+    ) -> Callable[[], ParameterMetadata]:
+        """The description already carries the metadata, so binding costs no request;
+        a later refresh (a dependency changed, a reconnect) asks the server again."""
         path = f"devices/{self.name}/{name}/metadata"
-        return lambda: _metadata(self.client.request("GET", path, READ_TIMEOUT))
+        pending = [first]
+
+        def read() -> ParameterMetadata:
+            if pending:
+                return _metadata(pending.pop())
+            return _metadata(self.client.request("GET", path, READ_TIMEOUT))
+
+        return read
 
 
 class RemoteBeam(RemoteDevice, Beam):
