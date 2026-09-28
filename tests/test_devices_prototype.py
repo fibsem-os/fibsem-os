@@ -25,7 +25,7 @@ from fibsem.devices import (
     command,
 )
 from fibsem.devices.drivers.demo import bind_demo_beams
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures import BeamType, FibsemImage, RangeLimit
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 
@@ -141,7 +141,9 @@ def test_parameters_describe_themselves(beams):
     assert sem.current.choices == [
         c for c in sem.parent.get_available_values("current", BeamType.ELECTRON)
     ]
-    assert sem.scan_rotation.limits == (0.0, 2 * math.pi)  # static, from the class
+    assert sem.scan_rotation.limits == RangeLimit(
+        min=0.0, max=2 * math.pi
+    )  # static, from the class
     assert sem.hfw.limits is None and sem.hfw.settable
     assert sem.describe()["voltage"] == {
         "type": "float",
@@ -262,7 +264,7 @@ def test_needs_channel_claims_the_resource_and_selects_the_channel():
     events = []
 
     class Detector(Device):
-        contrast = Parameter(float, limits=(0.0, 1.0))
+        contrast = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
 
     det = Detector("sem-detector", resources=resources)
     det.bind_channel(lambda: events.append("select"))
@@ -372,9 +374,13 @@ def test_a_backend_cannot_change_a_parameters_type_or_unit():
             hfw = Parameter(float, unit="um")
 
     class NarrowerRotation(Beam):  # same type and unit, new static limits: allowed
-        scan_rotation = Parameter(float, unit="rad", limits=(0.0, 1.0))
+        scan_rotation = Parameter(
+            float, unit="rad", limits=RangeLimit(min=0.0, max=1.0)
+        )
 
-    assert NarrowerRotation.declared_parameters()["scan_rotation"].limits == (0.0, 1.0)
+    assert NarrowerRotation.declared_parameters()["scan_rotation"].limits == RangeLimit(
+        min=0.0, max=1.0
+    )
 
 
 def test_needs_channel_is_declared_on_the_backend_class():

@@ -40,6 +40,8 @@ from typing import (
 
 from psygnal import Signal
 
+from fibsem.structures import RangeLimit
+
 IMAGING_CHANNEL = "imaging_channel"
 _SHARED = "shared"
 _UNSET = object()
@@ -53,11 +55,18 @@ class ParameterReadOnly(Exception):
     """The parameter is bound but cannot be set."""
 
 
+Limits = Union[RangeLimit, Mapping[str, RangeLimit]]
+
+
 @dataclass(frozen=True)
 class ParameterMetadata:
-    """What a parameter allows. Filled from the vendor API once, then cached."""
+    """What a parameter allows. Filled from the vendor API once, then cached.
 
-    limits: Optional[Tuple[float, float]] = None
+    ``limits`` is a ``RangeLimit`` for a number. For a composite value, such as a
+    stage position, it is one ``RangeLimit`` per field, by field name.
+    """
+
+    limits: Optional[Limits] = None
     choices: Optional[Sequence[Any]] = None
     settable: bool = True
 
@@ -94,7 +103,7 @@ class Parameter:
         self,
         type_: type,
         unit: Optional[str] = None,
-        limits: Optional[Tuple[float, float]] = None,
+        limits: Optional[RangeLimit] = None,
         choices: Optional[Sequence[Any]] = None,
         depends_on: Sequence[str] = (),
         doc: str = "",
@@ -154,6 +163,8 @@ class BoundParameter:
         self._metadata_source = metadata
         self.needs_channel = needs_channel
         self._cached: Any = _UNSET
+        self.previous: Any = None
+        """The value before the last change, for a ``changed`` handler to compare with."""
         self.metadata = ParameterMetadata()
         self.refresh_metadata(emit=False)
 
@@ -172,7 +183,7 @@ class BoundParameter:
         return self.spec.unit
 
     @property
-    def limits(self) -> Optional[Tuple[float, float]]:
+    def limits(self) -> Optional[Limits]:
         return self.metadata.limits
 
     @property
@@ -182,6 +193,11 @@ class BoundParameter:
     @property
     def settable(self) -> bool:
         return self.metadata.settable
+
+    @property
+    def writable(self) -> bool:
+        """Whether the backend has a write at all: what the old API's path needs."""
+        return self._write is not None
 
     def refresh_metadata(self, emit: bool = True) -> ParameterMetadata:
         """Read the metadata again from the backend. Called at bind and on dependencies."""
@@ -266,9 +282,8 @@ class BoundParameter:
             value = _match_choice(
                 value, self.choices, f"{self.device.name}.{self.name}"
             )
-        if self.limits is not None and isinstance(value, (int, float)):
-            low, high = self.limits
-            clipped = min(max(value, low), high)
+        if isinstance(self.limits, RangeLimit) and isinstance(value, (int, float)):
+            clipped = self.limits.clamp(value)
             if clipped != value:
                 logging.warning(
                     f"{self.device.name}.{self.name}: {value} is outside {self.limits}, "
@@ -288,7 +303,8 @@ class BoundParameter:
                 "value": value,
             }
         )
-        self._cached = value
+        previous, self._cached = self._cached, value
+        self.previous = None if previous is _UNSET else previous
         self._emit(value)
         self.device._dependency_changed(self.name)
 
@@ -296,6 +312,7 @@ class BoundParameter:
         previous, self._cached = self._cached, value
         if previous is _UNSET or not _same(previous, value):
             if previous is not _UNSET:
+                self.previous = previous
                 self._emit(value)
 
     def _emit(self, value: Any) -> None:
@@ -504,7 +521,7 @@ class Device:
             name: {
                 "type": p.type.__name__,
                 "unit": p.unit,
-                "limits": p.limits,
+                "limits": _limits_to_dict(p.limits),
                 "choices": list(p.choices) if p.choices is not None else None,
                 "settable": p.settable,
             }
@@ -534,6 +551,14 @@ class Device:
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} '{self.name}': {sorted(self._bound)}>"
+
+
+def _limits_to_dict(limits: Optional[Limits]) -> Any:
+    if isinstance(limits, RangeLimit):
+        return limits.to_dict()
+    if isinstance(limits, Mapping):
+        return {name: limit.to_dict() for name, limit in limits.items()}
+    return None
 
 
 def _coerce(type_: type, value: Any, label: str) -> Any:
