@@ -1,6 +1,6 @@
 """A device server: devices on this computer, reachable from a coordinator on another.
 
-A prototype of the far side of a remote device (the METEOR PC, say). It wraps any
+The far side of a remote device (the METEOR PC, say). It wraps any
 ``fibsem.devices.Device`` and exposes what the device already describes about itself:
 
     GET  /health                               up, and each device's hardware reachable
@@ -19,7 +19,7 @@ The coordinator side is ``fibsem.devices.drivers.remote``. A write runs the devi
 Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
 
-Not in the prototype: authentication (``fibsem.server`` has bearer tokens; this
+Not yet: authentication (``fibsem.server`` has bearer tokens; this
 would be mounted there), the one-commander lease.
 
 Try it on one computer:

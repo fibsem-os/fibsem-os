@@ -1,6 +1,6 @@
 """The remote driver: devices that live on another computer, used as if they were local.
 
-A prototype of the coordinator side of ``fibsem.server.devices``. ``RemoteDevice`` is
+The coordinator side of ``fibsem.server.devices``. ``RemoteDevice`` is
 a mixin: combined with a device type it gives that type's parameters, backed by HTTP.
 
     class RemoteBeam(RemoteDevice, Beam): ...
@@ -33,7 +33,7 @@ A command that returns an array (a camera frame, an FM channel) comes back as
 ``RemoteObjective`` are the FM's parts from ``fibsem.devices.fm``; ``connect_remote_fm``
 builds them from what a server has.
 
-Not in the prototype: the one-commander lease, and a beam's ``acquire`` (a
+Not yet: the one-commander lease, and a beam's ``acquire`` (a
 ``FibsemImage`` with its metadata).
 """
 
@@ -360,8 +360,8 @@ class RemoteBeam(RemoteDevice, Beam):
 
     @command(available=lambda beam: False)
     def acquire(self, image_settings: Any = None) -> Any:
-        """Not in the prototype: a FibsemImage needs its metadata sent too."""
-        raise NotImplementedError("remote beam acquisition is not in the prototype")
+        """Not yet: a FibsemImage needs its metadata sent too."""
+        raise NotImplementedError("remote beam acquisition is not supported yet")
 
 
 def connect_remote_beams(
