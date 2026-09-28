@@ -54,6 +54,7 @@ from fibsem.devices.core import (
     ParameterUnavailable,
     _limits_to_dict,
 )
+from fibsem.devices.wire import from_wire, to_wire
 
 NPY_MEDIA_TYPE = "application/x-npy"
 """A command that returns an array (an image) answers with ``np.save`` bytes."""
@@ -127,7 +128,7 @@ class _EventHub:
             "device": device.name,
             "parameter": parameter,
             "kind": kind,
-            "value": jsonable_encoder(value),
+            "value": jsonable_encoder(to_wire(value)),
         }
         for queue in list(self._queues):
             loop.call_soon_threadsafe(queue.put_nowait, event)
@@ -208,12 +209,14 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
 
     @app.get("/devices/{device}/{parameter}")
     def read(device: str, parameter: str) -> Dict[str, Any]:
-        return {"value": run(lambda: parameter_of(device, parameter).get_value())}
+        value = run(lambda: parameter_of(device, parameter).get_value())
+        return {"value": to_wire(value)}
 
     @app.put("/devices/{device}/{parameter}")
     def write(device: str, parameter: str, body: Dict[str, Any]) -> Dict[str, Any]:
         param = run(lambda: parameter_of(device, parameter))
-        return {"value": run(lambda: param.set_value(body["value"]))}
+        value = from_wire(param.type, body["value"])
+        return {"value": to_wire(run(lambda: param.set_value(value)))}
 
     @app.get("/devices/{device}/{parameter}/metadata")
     def metadata(device: str, parameter: str) -> Dict[str, Any]:
