@@ -63,6 +63,7 @@ from fibsem.devices.core import (
     command,
 )
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
+from fibsem.devices.wire import from_wire, to_wire
 from fibsem.structures import BeamType, RangeLimit
 
 NPY_MEDIA_TYPE = "application/x-npy"  # as fibsem.server.devices sends arrays
@@ -94,13 +95,6 @@ def _limits(payload: Any) -> Any:
     if set(payload) == {"min", "max"}:
         return RangeLimit.from_dict(payload)
     return {name: RangeLimit.from_dict(limit) for name, limit in payload.items()}
-
-
-def _from_wire(type_: type, value: Any) -> Any:
-    """JSON has no tuple: a tuple parameter arrives as a list."""
-    if type_ is tuple and isinstance(value, list):
-        return tuple(value)
-    return value
 
 
 def _metadata(payload: Dict[str, Any]) -> ParameterMetadata:
@@ -281,7 +275,7 @@ class DeviceClient:
         if event["kind"] == "changed":
             if self._take_echo((event["device"], event["parameter"]), event["value"]):
                 return  # our own write: its write path signals it
-            param.report(_from_wire(param.type, event["value"]))  # only if news
+            param.report(from_wire(param.type, event["value"]))  # only if news
         elif event["kind"] == "metadata":
             param.refresh_metadata()
 
@@ -371,7 +365,7 @@ class RemoteDevice(Device):
     def _reader(self, name: str) -> Callable[[], Any]:
         path = f"devices/{self.name}/{name}"
         type_ = self.declared_parameters()[name].type
-        return lambda: _from_wire(
+        return lambda: from_wire(
             type_, self.client.request("GET", path, READ_TIMEOUT)["value"]
         )
 
@@ -379,12 +373,12 @@ class RemoteDevice(Device):
         path = f"devices/{self.name}/{name}"
 
         def write(value: Any) -> None:
-            key = (self.name, name)
-            self.client._expect_echo(key, value)
+            key, wire = (self.name, name), to_wire(value)
+            self.client._expect_echo(key, wire)  # matched in the form it comes back
             try:
-                self.client.request("PUT", path, WRITE_TIMEOUT, json={"value": value})
+                self.client.request("PUT", path, WRITE_TIMEOUT, json={"value": wire})
             except Exception:
-                self.client._take_echo(key, value)  # no write, so no echo
+                self.client._take_echo(key, wire)  # no write, so no echo
                 raise
 
         return write
