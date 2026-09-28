@@ -15,8 +15,8 @@ actions, named shared resources, and a compatibility front that routes today's
 
     sem.current.choices                     # cached metadata, no instrument call
     sem.current.changed.connect(print)      # every change, with the value
-    sem.current.set(1e-9)                   # the new API: checked, then written
-    sem.scan_rotation.set(7.0)              # clipped to 2*pi, with a warning
+    sem.current.set_value(1e-9)             # the new API: checked, then written
+    sem.scan_rotation.set_value(7.0)        # clipped to 2*pi, with a warning
     "preset" in sem.parameters              # False: Demo has no presets
     sem.actions["acquire"].signature        # "(image_settings=None)"
 

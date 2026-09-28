@@ -159,13 +159,13 @@ def test_absent_read_only_and_settable_are_distinct(beams):
     assert "preset" not in sem.parameters
     assert not hasattr(sem, "preset")
     with pytest.raises(ParameterUnavailable):
-        sem.preset.set("x")
+        sem.preset.set_value("x")
     # read-only: bound without a write
     sem.bind("preset", read=lambda: "default")
-    assert sem.preset.value == "default"
+    assert sem.preset.get_value() == "default"
     assert not sem.preset.settable
     with pytest.raises(ParameterReadOnly):
-        sem.preset.set("x")
+        sem.preset.set_value("x")
     # settable
     assert sem.voltage.settable
 
@@ -173,28 +173,28 @@ def test_absent_read_only_and_settable_are_distinct(beams):
 def test_numeric_values_clip_to_limits_with_a_warning(beams, caplog):
     sem = beams[BeamType.ELECTRON]
     with caplog.at_level(logging.WARNING):
-        written = sem.scan_rotation.set(7.0)
+        written = sem.scan_rotation.set_value(7.0)
     assert written == pytest.approx(2 * math.pi)
-    assert sem.scan_rotation.value == pytest.approx(2 * math.pi)
+    assert sem.scan_rotation.get_value() == pytest.approx(2 * math.pi)
     assert "outside" in caplog.text
 
 
 def test_invalid_choice_and_wrong_type_raise(beams):
     sem = beams[BeamType.ELECTRON]
-    before = sem.current.value
+    before = sem.current.get_value()
     with pytest.raises(ValueError):
-        sem.current.set(1.234e-9)
+        sem.current.set_value(1.234e-9)
     with pytest.raises(TypeError):
-        sem.current.set("1 nA")
+        sem.current.set_value("1 nA")
     with pytest.raises(TypeError):
-        sem.hfw.set(True)
-    assert sem.current.value == before
+        sem.hfw.set_value(True)
+    assert sem.current.get_value() == before
 
 
 def test_a_choice_matches_within_float_noise(beams):
     fib = beams[BeamType.ION]
     choice = fib.current.choices[3]
-    assert fib.current.set(choice * (1 + 1e-9)) == choice
+    assert fib.current.set_value(choice * (1 + 1e-9)) == choice
 
 
 def test_changed_carries_the_value_from_both_apis(microscope, beams):
@@ -204,7 +204,7 @@ def test_changed_carries_the_value_from_both_apis(microscope, beams):
     sem.hfw.changed.connect(seen.append)
     sem.changed.connect(lambda name, value: on_device.append((name, value)))
 
-    sem.hfw.set(100e-6)
+    sem.hfw.set_value(100e-6)
     front.set("hfw", 50e-6, BeamType.ELECTRON)
 
     assert seen == [100e-6, 50e-6]
@@ -213,15 +213,15 @@ def test_changed_carries_the_value_from_both_apis(microscope, beams):
 
 def test_a_live_read_that_finds_a_new_value_emits_changed(microscope, beams):
     sem = beams[BeamType.ELECTRON]
-    sem.hfw.value  # prime the cache
+    sem.hfw.get_value()  # prime the cache
     seen = []
     sem.hfw.changed.connect(seen.append)
 
     microscope.electron_system.beam.hfw = 42e-6  # changed behind our back
     assert sem.hfw.cached == 150e-6  # the cache does not read the instrument
-    assert sem.hfw.value == 42e-6
+    assert sem.hfw.get_value() == 42e-6
     assert seen == [42e-6]
-    assert sem.hfw.value == 42e-6
+    assert sem.hfw.get_value() == 42e-6
     assert seen == [42e-6]  # no change, no event
 
 
@@ -233,7 +233,7 @@ def test_cached_reads_do_not_touch_the_instrument():
 
     thing = Thing("thing")
     thing.bind("level", read=lambda: reads.append(1) or 3.0, write=lambda v: None)
-    thing.level.set(5.0)
+    thing.level.set_value(5.0)
     for _ in range(3):
         assert thing.level.cached == 5.0
     assert reads == []
@@ -246,7 +246,7 @@ def test_dependent_metadata_is_refreshed_and_announced():
     metas = []
     fib.current.meta_changed.connect(metas.append)
 
-    fib.plasma_gas.set("Argon")
+    fib.plasma_gas.set_value("Argon")
 
     assert fib.current.choices == microscope.get_available_values(
         "current", BeamType.ION
@@ -254,7 +254,7 @@ def test_dependent_metadata_is_refreshed_and_announced():
     assert fib.current.choices != xenon
     assert metas == [fib.current.meta]
     with pytest.raises(ValueError):
-        fib.plasma_gas.set("Helium")
+        fib.plasma_gas.set_value("Helium")
 
 
 def test_needs_channel_claims_the_resource_and_selects_the_channel():
@@ -280,8 +280,8 @@ def test_needs_channel_claims_the_resource_and_selects_the_channel():
         write=lambda v: events.append(("write", v)),
         needs_channel=True,
     )
-    det.contrast.value
-    det.contrast.set(0.7)
+    det.contrast.get_value()
+    det.contrast.set_value(0.7)
     assert events == ["select", "read", "select", ("write", 0.7)]
 
 

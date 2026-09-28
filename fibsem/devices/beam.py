@@ -35,12 +35,12 @@ class Beam(Device):
     @action(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:
         """Blank the beam."""
-        self.blanked.set(True)
+        self.blanked.set_value(True)
 
     @action(available=lambda beam: "blanked" in beam.parameters)
     def unblank(self) -> None:
         """Unblank the beam."""
-        self.blanked.set(False)
+        self.blanked.set_value(False)
 
     @action
     def acquire(self, image_settings: Optional[ImageSettings] = None) -> FibsemImage:
@@ -94,7 +94,7 @@ class CompatibilityFront:
     def get(self, key: str, beam_type: Optional[BeamType] = None) -> Any:
         param = self.route(key, beam_type)
         if param is not None:
-            value = param.read()
+            value = param.get_value()
         else:
             value = self.microscope._get(key, beam_type)
         beam_name = "None" if beam_type is None else beam_type.name

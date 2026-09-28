@@ -7,7 +7,7 @@ repeats today (checking, logging, caching, change events) happens here, once.
 
 Two paths reach the hardware:
 
-- the new API, ``param.set(v)``: type and choice checks raise, numeric values clip to
+- the new API, ``param.set_value(v)``: type and choice checks raise, numeric values clip to
   their limits with a warning, and then the write path runs;
 - the old API, through a compatibility front, ``param.write_through(v)``: no new
   validation, so each backend keeps its current behaviour, and then the same write path.
@@ -184,16 +184,14 @@ class BoundParameter:
         Only the very first access, before anything was read or written, reads live.
         """
         if self._cached is _UNSET:
-            return self.value
+            return self.get_value()
         return self._cached
 
-    @property
-    def value(self) -> Any:
-        """A live read from the instrument. For guards and anything that needs it now."""
-        return self.read()
+    def get_value(self) -> Any:
+        """A live read from the instrument, for guards and anything that needs it now.
 
-    def read(self) -> Any:
-        """Read the instrument, the same call the old branch made, and update the cache."""
+        It makes the same call the old branch made, and updates the cache.
+        """
         with self.device._claim(self):
             value = self._read()
         self._remember(value)
@@ -201,7 +199,7 @@ class BoundParameter:
 
     # -- writes -------------------------------------------------------------------
 
-    def set(self, value: Any) -> Any:
+    def set_value(self, value: Any) -> Any:
         """The new API: validate, then write. Returns the value actually written.
 
         Wrong type or a value outside the choices raises. A number outside the limits
