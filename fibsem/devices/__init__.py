@@ -66,6 +66,7 @@ from fibsem.devices.core import (
     Resources,
     command,
 )
+from fibsem.devices.gis import GIS_RESOURCE, GasInjector
 from fibsem.devices.manipulator import (
     MANIPULATOR_RESOURCE,
     Manipulator,
@@ -90,6 +91,8 @@ __all__ = [
     "STAGE_COMMAND_ROUTES",
     "STAGE_RESOURCE",
     "STAGE_ROUTES",
+    "GIS_RESOURCE",
+    "GasInjector",
     "IMAGING_CHANNEL",
     "MANIPULATOR_RESOURCE",
     "Manipulator",

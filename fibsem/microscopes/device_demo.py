@@ -12,13 +12,14 @@ compares them call by call, so the two can't drift while both exist.
 
 Select it with ``sim: {devices: true}`` in a Demo configuration.
 
-Devices so far: the beams (``DemoBeam``), the stage (``DemoStage``), the chamber
-(``DemoChamber``) and the manipulator (``DemoManipulator``), from
-``fibsem.devices.drivers.demo``. The beams' keys are routed. The others are
-``stage_device``, ``chamber_device`` and ``manipulator_device`` (temporary names
-until the stage redesign settles them); their keys are not routed, because only
-the base class's own methods read them, and those methods use the devices
-directly.
+Devices so far, from ``fibsem.devices.drivers.demo``: the beams (``DemoBeam``),
+the stage (``DemoStage``), the chamber (``DemoChamber``), the manipulator
+(``DemoManipulator``) and the gas injection system (``DemoGasInjector``).
+The beams' keys are routed. The others are ``stage_device``, ``chamber_device``,
+``manipulator_device`` and ``gis_device`` (temporary names until the stage
+redesign settles them); their keys are not routed, because only the base class's
+own methods read them, and those methods use the devices directly. The GIS has no
+keys; ``cryo_deposition_v2`` runs its sequence through the device's commands.
 """
 
 from __future__ import annotations
@@ -27,10 +28,12 @@ import logging
 from types import MappingProxyType
 from typing import Optional
 
+from fibsem._timing import sim_sleep
 from fibsem.devices.beam import BEAM_ROUTES
 from fibsem.devices.drivers.demo import (
     bind_demo_beams,
     bind_demo_chamber,
+    bind_demo_gis,
     bind_demo_manipulator,
     bind_demo_stage,
 )
@@ -38,6 +41,7 @@ from fibsem.microscope import _records_stage_move
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import (
     BeamType,
+    FibsemGasInjectionSettings,
     FibsemManipulatorPosition,
     FibsemStagePosition,
 )
@@ -57,6 +61,7 @@ class DeviceDemoMicroscope(DemoMicroscope):
         self.stage_device = bind_demo_stage(self)
         self.chamber_device = bind_demo_chamber(self)
         self.manipulator_device = bind_demo_manipulator(self)
+        self.gis_device = bind_demo_gis(self)
 
     # The old moves go through the device without its limit check, as today.
 
@@ -114,3 +119,26 @@ class DeviceDemoMicroscope(DemoMicroscope):
         self, name: str = "PARK"
     ) -> FibsemManipulatorPosition:
         return self.manipulator_device.saved_position(name)
+
+    def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
+        """Demo's deposition, step for step, through the GIS device.
+
+        Demo never opens the valve (its ``gis.open()`` is commented out) but closes
+        it after the wait; this keeps that.
+        """
+        gis = self.gis_device
+        logging.info({"msg": "inserting gis", "settings": gis_settings.to_dict()})
+        logging.info(
+            f"Inserting Gas Injection System at {gis_settings.insert_position}"
+        )
+        gis.insert(gis_settings.insert_position)
+        logging.info(f"Turning on heater for {gis_settings.gas}")
+        gis.heater_on(gis_settings.gas)
+        sim_sleep(3)  # wait for the heat
+        logging.info(f"Running deposition for {gis_settings.duration} seconds")
+        sim_sleep(gis_settings.duration)
+        gis.close()
+        logging.info(f"Turning off heater for {gis_settings.gas}")
+        gis.heater_off()
+        logging.info("Retracting Gas Injection System")
+        gis.retract()

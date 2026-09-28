@@ -30,6 +30,7 @@ from fibsem import config as cfg
 from fibsem import utils
 from fibsem.structures import (
     BeamType,
+    FibsemGasInjectionSettings,
     FibsemImage,
     FibsemManipulatorPosition,
     FibsemRectangle,
@@ -198,6 +199,29 @@ def test_device_demo_moves_its_manipulator_device():
         "_move_absolute",
     ]
     assert manipulator.inserted.cached is False
+
+
+def test_device_demo_deposits_through_its_gis_device():
+    microscope = _connect("DeviceDemo")
+    gis = microscope.gis_device
+    calls = []
+    hooks = ("_insert", "_retract", "_heater_on", "_heater_off", "_open", "_close")
+    for name in hooks:
+        original = getattr(gis, name)
+        setattr(
+            gis,
+            name,
+            lambda *args, name=name, original=original: (
+                calls.append(name),
+                original(*args),
+            ),
+        )
+    settings = FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0)
+    microscope.cryo_deposition_v2(settings)
+    # Demo's order: it never opens the valve, but closes it.
+    assert calls == ["_insert", "_heater_on", "_close", "_heater_off", "_retract"]
+    assert gis.inserted.cached is False
+    assert gis.heated.cached is False
 
 
 def test_device_demo_moves_its_stage_device():
@@ -655,6 +679,23 @@ def test_unknown_saved_manipulator_position_raises(microscope):
 
 
 # ---------------------------------------------------------------------------
+# Gas injection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("insert_position", [None, "ELECTRON_DEFAULT"])
+def test_cryo_deposition_leaves_the_microscope_as_it_was(microscope, insert_position):
+    before = _snapshot(microscope)
+    settings = FibsemGasInjectionSettings(
+        port="Pt cryo", gas="Pt cryo", duration=0, insert_position=insert_position
+    )
+    assert microscope.cryo_deposition_v2(settings) is None
+    assert not _first_difference(
+        [("start", None, before)], [("start", None, _snapshot(microscope))]
+    )
+
+
+# ---------------------------------------------------------------------------
 # State and imaging
 # ---------------------------------------------------------------------------
 
@@ -740,6 +781,11 @@ CALL_SEQUENCE = [
     ),
     ("move_manipulator_absolute", (FibsemManipulatorPosition(x=3e-6, z=1e-5),), {}),
     ("retract_manipulator", (), {}),
+    (
+        "cryo_deposition_v2",
+        (FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0),),
+        {},
+    ),
     ("set_spot_scanning_mode", (Point(0.25, 0.75), BeamType.ION), {}),
     ("set_full_frame_scanning_mode", (BeamType.ION,), {}),
     ("set", ("not_a_key", 1), {}),
