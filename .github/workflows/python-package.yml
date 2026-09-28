@@ -174,7 +174,7 @@ jobs:
       # imports, so a broken install empties the run instead of reddening it.
       # Pillow is asserted too — the preview endpoints need it, and today it
       # only arrives transitively.
-      run: python -c "import fastapi, uvicorn, httpx, mcp, PIL"
+      run: python -c "import fastapi, uvicorn, httpx, mcp, PIL, websockets.sync.client"
     - name: Test with pytest
       run: pytest tests/server/ -q --timeout=300
 

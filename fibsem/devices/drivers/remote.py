@@ -1,0 +1,270 @@
+"""The remote driver: devices that live on another computer, used as if they were local.
+
+A prototype of the coordinator side of ``fibsem.server.devices``. ``RemoteDevice`` is
+a mixin: combined with a device type it gives that type's parameters, backed by HTTP.
+
+    class RemoteBeam(RemoteDevice, Beam): ...
+
+At ``connect()`` it asks the server what the device has and binds exactly that: a
+parameter the server doesn't list stays absent, as on any backend. Its type and unit
+must match the local declaration, or connect raises. Limits, choices and settable
+come from the server. After that:
+
+- ``get_value()`` is a live read over the network. It raises
+  ``RemoteDeviceUnreachable`` when the server can't be reached, so a guard fails
+  closed and never trusts a stale value;
+- ``set_value()`` checks locally with the server's metadata, then the server checks
+  again and writes;
+- ``cached`` needs no network: the event stream keeps it current, including changes
+  made on the far side (the far computer's own UI, another client);
+- commands run on the server with ``call_command``.
+
+Not in the prototype: reconnecting after a lost connection, the one-commander lease,
+and commands that return images.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import threading
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+import requests
+from psygnal import Signal
+
+from fibsem.devices.beam import Beam
+from fibsem.devices.core import (
+    Device,
+    ParameterMetadata,
+    ParameterReadOnly,
+    ParameterUnavailable,
+    command,
+)
+from fibsem.structures import BeamType, RangeLimit
+
+READ_TIMEOUT = 5.0
+WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
+
+
+class RemoteDeviceError(RuntimeError):
+    """The server answered, but with an error that has no local meaning."""
+
+
+class RemoteDeviceUnreachable(ConnectionError):
+    """The server could not be reached. Nothing about the device is known right now."""
+
+
+_ERRORS: Dict[str, Callable[[str], Exception]] = {
+    "ParameterUnavailable": ParameterUnavailable,
+    "ParameterReadOnly": ParameterReadOnly,
+    "TypeError": TypeError,
+    "ValueError": ValueError,
+}
+
+
+def _limits(payload: Any) -> Any:
+    """The inverse of the server's limits: a RangeLimit, or one per field."""
+    if payload is None:
+        return None
+    if set(payload) == {"min", "max"}:
+        return RangeLimit.from_dict(payload)
+    return {name: RangeLimit.from_dict(limit) for name, limit in payload.items()}
+
+
+def _metadata(payload: Dict[str, Any]) -> ParameterMetadata:
+    return ParameterMetadata(
+        limits=_limits(payload.get("limits")),
+        choices=payload.get("choices"),
+        settable=payload.get("settable", True),
+    )
+
+
+class DeviceClient:
+    """One connection to one device server, shared by all its remote devices."""
+
+    disconnected = Signal()
+    """The event stream closed: the server stopped or the network dropped."""
+
+    def __init__(self, host: str, port: int):
+        self.base_url = f"http://{host}:{port}"
+        self.events_url = f"ws://{host}:{port}/events"
+        self._session = requests.Session()
+        self._devices: Dict[str, Device] = {}
+        self._events: Optional[threading.Thread] = None
+        self._ready = threading.Event()
+        self._socket: Any = None
+        # Values this client wrote whose change event hasn't come back yet. The
+        # event can arrive before or after the write returns, so it is matched by
+        # value, once, rather than by timing.
+        self._echoes: Dict[Tuple[str, str], List[Any]] = {}
+        self._echoes_lock = threading.Lock()
+        self.connected = False
+
+    # -- requests -------------------------------------------------------------------
+
+    def request(self, method: str, path: str, timeout: float, **kwargs: Any) -> Any:
+        try:
+            response = self._session.request(
+                method, f"{self.base_url}/{path}", timeout=timeout, **kwargs
+            )
+        except requests.RequestException as error:
+            raise RemoteDeviceUnreachable(f"{self.base_url}: {error}") from error
+        if response.ok:
+            return response.json()
+        try:
+            detail = response.json().get("detail")
+        except ValueError:  # not JSON: an unhandled server error
+            detail = response.text
+        if isinstance(detail, dict) and detail.get("error") in _ERRORS:
+            raise _ERRORS[detail["error"]](detail["detail"])
+        raise RemoteDeviceError(f"{method} {path}: {response.status_code} {detail}")
+
+    def describe(self) -> Dict[str, Any]:
+        return self.request("GET", "devices", READ_TIMEOUT)
+
+    # -- events ---------------------------------------------------------------------
+
+    def register(self, device: Device) -> None:
+        self._devices[device.name] = device
+        if self._events is None:
+            self._events = threading.Thread(target=self._listen, daemon=True)
+            self._events.start()
+            self._ready.wait(READ_TIMEOUT)
+
+    def _listen(self) -> None:
+        from websockets.sync.client import connect
+
+        try:
+            with connect(self.events_url, open_timeout=READ_TIMEOUT) as socket:
+                self._socket = socket
+                self.connected = True
+                self._ready.set()
+                for message in socket:
+                    self._dispatch(json.loads(message))
+        except Exception as error:  # closed, refused or dropped: all the same here
+            logging.warning(f"device events from {self.base_url} stopped: {error}")
+        finally:
+            self.connected = False
+            self._ready.set()
+            self.disconnected.emit()
+
+    def _dispatch(self, event: Dict[str, Any]) -> None:
+        device = self._devices.get(event["device"])
+        param = device.parameters.get(event["parameter"]) if device else None
+        if param is None:
+            return
+        if event["kind"] == "changed":
+            if self._take_echo((event["device"], event["parameter"]), event["value"]):
+                return  # our own write: its write path signals it
+            param.report(event["value"])  # emits only if the value is news here
+        elif event["kind"] == "metadata":
+            param.refresh_metadata()
+
+    def _expect_echo(self, key: Tuple[str, str], value: Any) -> None:
+        with self._echoes_lock:
+            self._echoes.setdefault(key, []).append(value)
+
+    def _take_echo(self, key: Tuple[str, str], value: Any) -> bool:
+        with self._echoes_lock:
+            pending = self._echoes.get(key, [])
+            for i, expected in enumerate(pending):
+                if expected == value:
+                    del pending[i]
+                    return True
+            return False
+
+    def close(self) -> None:
+        if self._socket is not None:
+            self._socket.close()
+        self._session.close()
+
+
+class RemoteDevice(Device):
+    """Parameters and commands of a device served by ``fibsem.server.devices``.
+
+    Mix it in before a device type. The device's ``name`` is its name on the server.
+    """
+
+    def __init__(self, *args: Any, client: DeviceClient, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self.client = client
+
+    def connect(self, description: Optional[Dict[str, Any]] = None) -> Device:
+        if description is None:
+            description = self.client.request(
+                "GET", f"devices/{self.name}", READ_TIMEOUT
+            )
+        declared = self.declared_parameters()
+        for name, info in description["parameters"].items():
+            spec = declared.get(name)
+            if spec is None:
+                logging.debug(
+                    f"{self.name}: the server has '{name}', not declared here"
+                )
+                continue
+            if (info["type"], info["unit"]) != (spec.type.__name__, spec.unit):
+                raise TypeError(
+                    f"{self.name}.{name} is {info['type']} in {info['unit']!r} on the "
+                    f"server, but is declared {spec.type.__name__} in {spec.unit!r}"
+                )
+            self.bind(
+                name,
+                read=self._reader(name),
+                write=self._writer(name) if info["settable"] else None,
+                metadata=self._metadata_reader(name),
+            )
+        self.client.register(self)
+        return self
+
+    def call_command(self, command: str, **kwargs: Any) -> Any:
+        """Run one of the device's commands on the server."""
+        path = f"devices/{self.name}/commands/{command}"
+        body = {"kwargs": kwargs}
+        return self.client.request("POST", path, WRITE_TIMEOUT, json=body)["result"]
+
+    def _reader(self, name: str) -> Callable[[], Any]:
+        path = f"devices/{self.name}/{name}"
+        return lambda: self.client.request("GET", path, READ_TIMEOUT)["value"]
+
+    def _writer(self, name: str) -> Callable[[Any], None]:
+        path = f"devices/{self.name}/{name}"
+
+        def write(value: Any) -> None:
+            key = (self.name, name)
+            self.client._expect_echo(key, value)
+            try:
+                self.client.request("PUT", path, WRITE_TIMEOUT, json={"value": value})
+            except Exception:
+                self.client._take_echo(key, value)  # no write, so no echo
+                raise
+
+        return write
+
+    def _metadata_reader(self, name: str) -> Callable[[], ParameterMetadata]:
+        path = f"devices/{self.name}/{name}/metadata"
+        return lambda: _metadata(self.client.request("GET", path, READ_TIMEOUT))
+
+
+class RemoteBeam(RemoteDevice, Beam):
+    """A beam on another computer. ``blank`` and ``unblank`` work unchanged: they set
+    ``blanked``, which is remote."""
+
+    @command(available=lambda beam: False)
+    def acquire(self, image_settings: Any = None) -> Any:
+        """Not in the prototype: images need a binary transfer, not JSON."""
+        raise NotImplementedError("remote image acquisition is not in the prototype")
+
+
+def connect_remote_beams(
+    host: str, port: int, client: Optional[DeviceClient] = None
+) -> Dict[BeamType, Beam]:
+    """Build ``beams[BeamType]`` from the beams a device server has."""
+    client = client if client is not None else DeviceClient(host, port)
+    beams: Dict[BeamType, Beam] = {}
+    for name, description in client.describe().items():
+        beam_type = BeamType.__members__.get(name.upper())
+        if beam_type is None:
+            continue
+        beams[beam_type] = RemoteBeam(beam_type, client=client).connect(description)
+    return beams
