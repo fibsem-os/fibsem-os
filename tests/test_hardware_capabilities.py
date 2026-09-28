@@ -349,3 +349,21 @@ def test_switching_plasma_on_with_a_gas_is_quiet(microscope, caplog):
 
     assert microscope.is_available("ion_plasma") is True
     assert "ion_plasma" not in caplog.text
+
+
+def test_the_source_of_each_answer_is_recorded(microscope, monkeypatch):
+    """The configuration window says whether the instrument answered or the backend's
+    default stood in; the two look the same in `is_available`."""
+    monkeypatch.setattr(microscope, "_probe_gis_installed", lambda: True)
+    monkeypatch.setattr(microscope, "_probe_manipulator_installed", lambda: None)
+
+    def boom():
+        raise RuntimeError("connection reset")
+
+    monkeypatch.setattr(microscope, "_probe_multichem_installed", boom)
+
+    microscope._read_hardware_capabilities()
+
+    assert microscope.capability_sources["gis"] == "instrument"
+    assert microscope.capability_sources["manipulator"] == "backend"
+    assert microscope.capability_sources["gis_multichem"] == "backend"

@@ -22,6 +22,9 @@ from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
+from fibsem.ui.widgets.microscope_configuration_window import (
+    MicroscopeConfigurationWindow,
+)
 from fibsem.ui.widgets.microscope_defaults_widget import (
     MicroscopeDefaultsDialog,
     MicroscopeDefaultsWidget,
@@ -84,6 +87,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         # configuration window, and until that lands it is opened from the
         # Development menu (`open_defaults`).
         self.defaults_button_shown = False
+        # The whole configuration, read-only, by kind. Built when opened so it shows
+        # the live session; opened from the Development menu for now.
+        self.configurationWindow: Optional[MicroscopeConfigurationWindow] = None
         self.gridLayout.addWidget(self.label_connection_status, 5, 0, 1, 3)
         self.gridLayout.addWidget(self.label_connection_information, 6, 0, 1, 3)
         self.gridLayout.addItem(
@@ -492,6 +498,18 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         # apply the configuration
         self.microscope.apply_configuration(system_settings=system_settings)
 
+    def open_configuration(self) -> None:
+        if self.microscope is None:
+            return
+        if self.configurationWindow is not None:
+            self.configurationWindow.close()
+        self.configurationWindow = MicroscopeConfigurationWindow(
+            self.microscope, parent=self
+        )
+        self.configurationWindow.show()
+        self.configurationWindow.raise_()
+        self.configurationWindow.activateWindow()
+
     def open_defaults(self) -> None:
         if self.microscope is None:
             return
@@ -511,6 +529,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         )
         if not is_microscope_connected:
             self.defaultsDialog.hide()
+            if self.configurationWindow is not None:
+                self.configurationWindow.close()
+                self.configurationWindow = None
         self.defaultsWidget.set_microscope(
             self.microscope or None,
             image_settings=getattr(self.settings, "image", None),

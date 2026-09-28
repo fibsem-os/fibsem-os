@@ -375,8 +375,13 @@ class FibsemMicroscope(ABC):
     def _probe_sputter_coater_installed(self) -> Optional[bool]:
         return None
 
+    #: Who answered each fitted-subsystem question at connect: ``"instrument"`` when
+    #: a probe did, ``"backend"`` when the backend's `DEFAULT_FITTED` stood in.
+    capability_sources: Dict[str, str]
+
     def _read_hardware_capabilities(self) -> None:
         """Ask the instrument which subsystems are fitted, and record the answers."""
+        self.capability_sources = {}
         probes = (
             ("manipulator", self._probe_manipulator_installed),
             ("gis", self._probe_gis_installed),
@@ -393,6 +398,9 @@ class FibsemMicroscope(ABC):
                 present = None
             if present is None:
                 present = self.DEFAULT_FITTED[key]
+                self.capability_sources[key] = "backend"
+            else:
+                self.capability_sources[key] = "instrument"
             self.set_available(key, bool(present))
         self._read_plasma_source()
 

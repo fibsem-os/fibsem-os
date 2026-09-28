@@ -286,3 +286,18 @@ def test_the_session_directory_is_not_tracked_by_git():
     if result.returncode == 128:
         pytest.skip("not a git checkout")
     assert result.returncode == 0
+
+
+def test_sections_reads_everything_and_writes_nothing(store):
+    store.save_section("fm", {"a": 1})
+    store.save_section("saved_positions", [{"name": "p"}])
+    before = store.path.read_text()
+
+    sections = store.sections()
+
+    assert sections == {"fm": {"a": 1}, "saved_positions": [{"name": "p"}]}
+    assert store.path.read_text() == before
+
+
+def test_sections_of_a_missing_file_is_empty(tmp_path):
+    assert SessionState("site.yaml", directory=str(tmp_path)).sections() == {}
