@@ -2262,6 +2262,26 @@ DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
 }
 
 
+# Where a half turn of the stage is centred, in raw stage coordinates (x, y), metres:
+# a position p recorded on one side of the stage is at 2c - p on the other. This is
+# the value `reprojection._transform_position` has always used, which it wrote as a
+# specimen offset (X_OFFSET, Y_OFFSET) plus a (+50, +25) um "compucentric rotation
+# error" -- one centre, spelled as two constants, since p -> 2O - p + e reflects
+# through O + e/2. It was calibrated on one ThermoFisher instrument (FIB-655).
+LEGACY_ROTATION_CENTRE: Tuple[float, float] = (
+    -0.0005127403888932854 + 25e-6,
+    0.0007937916666666666 + 12.5e-6,
+)
+
+
+def _parse_rotation_centre(value) -> Optional[Tuple[float, float]]:
+    """A stored rotation centre as an (x, y) tuple of floats, or None."""
+    if value is None:
+        return None
+    x, y = value
+    return (float(x), float(y))
+
+
 @dataclass
 class StageSystemSettings:
     rotation_reference: float
@@ -2469,14 +2489,34 @@ def _detector_block_from(settings: dict) -> dict:
     return block
 
 
+# Written by `BeamSettings` / `FibsemDetectorSettings` and not defaults: the column's
+# alignment (working distance, stigmation, beam shift) and what the last autocontrast
+# left on the detector. A configuration does not record them, and Apply does not set
+# them (`FibsemMicroscope.set_beam_system_settings`).
+NOT_BEAM_DEFAULTS = (
+    "working_distance",
+    "stigmation",
+    "shift",
+    "detector_brightness",
+    "detector_contrast",
+)
+
+# Written by `ImageSettings` and not defaults: where this session saves its images,
+# and the reduced area of the last acquisition.
+NOT_IMAGING_DEFAULTS = ("path", "filename", "reduced_area")
+
+
 def _split_defaults(beam: dict) -> dict:
     """Move the session defaults out of a written beam block, in place.
 
-    Returns the keys that went. What stays is the hardware description.
+    Returns the keys that went. What stays is the hardware description. Alignment
+    state is dropped from both.
     """
     moved = {
         k: beam.pop(k) for k in list(beam) if k not in SystemSettings.HARDWARE_BEAM_KEYS
     }
+    for key in NOT_BEAM_DEFAULTS:
+        moved.pop(key, None)
     return moved
 
 
@@ -3002,19 +3042,29 @@ class FibsemHardwareGeometry:
     rotation_reference: float = 0.0
     rotation_180: float = 180.0
     is_compustage: bool = False
+    # Where a half turn of the stage is centred, raw (x, y) in metres; used to draw a
+    # position recorded on the other side of the stage. Defaults to the value every
+    # image was reprojected with before this field existed, so an image saved without
+    # it draws exactly as it did (FIB-1081).
+    rotation_centre: Tuple[float, float] = LEGACY_ROTATION_CENTRE
     # Fluorescence only; left at these defaults for a beam image.
     camera_tilt: float = 0.0  # viewing axis, from the electron column
     transform: CameraImageTransform = CameraImageTransform.NONE
 
     @classmethod
     def from_system_settings(
-        cls, system: SystemSettings, is_compustage: bool = False
+        cls,
+        system: SystemSettings,
+        is_compustage: bool = False,
+        rotation_centre: Optional[Tuple[float, float]] = None,
     ) -> "FibsemHardwareGeometry":
         """Gather the geometry terms out of a full system configuration.
 
         ``is_compustage`` is a parameter because ``SystemSettings`` does not carry it:
         it is a property of the installed hardware, which only the connected
         microscope knows. Callers holding one should pass ``microscope.stage_is_compustage``.
+        ``rotation_centre`` likewise comes from the driver (``microscope.rotation_centre``);
+        None records LEGACY_ROTATION_CENTRE.
         """
         return cls(
             column_tilt=system.electron.column_tilt,
@@ -3023,6 +3073,11 @@ class FibsemHardwareGeometry:
             rotation_reference=system.stage.rotation_reference,
             rotation_180=system.stage.rotation_180,
             is_compustage=is_compustage,
+            rotation_centre=(
+                rotation_centre
+                if rotation_centre is not None
+                else LEGACY_ROTATION_CENTRE
+            ),
         )
 
     def to_dict(self) -> dict:
@@ -3033,6 +3088,7 @@ class FibsemHardwareGeometry:
             "rotation_reference": self.rotation_reference,
             "rotation_180": self.rotation_180,
             "is_compustage": self.is_compustage,
+            "rotation_centre": list(self.rotation_centre),
             "camera_tilt": self.camera_tilt,
             "transform": self.transform.value,
         }
@@ -3049,6 +3105,10 @@ class FibsemHardwareGeometry:
             rotation_reference=ddict.get("rotation_reference", 0.0),
             rotation_180=ddict.get("rotation_180", 180.0),
             is_compustage=ddict.get("is_compustage", False),
+            rotation_centre=(
+                _parse_rotation_centre(ddict.get("rotation_centre"))
+                or LEGACY_ROTATION_CENTRE
+            ),
             camera_tilt=ddict.get("camera_tilt", 0.0),
             # Not a bare CameraImageTransform(...): stored configurations may hold a
             # rotation that is no longer a member, which the parser migrates.
@@ -3089,7 +3149,10 @@ class MicroscopeSettings:
         # Into the `defaults:` block `SystemSettings.to_dict` just created, beside the
         # beams: the acquire tab's opening state is the same kind of thing as the
         # voltage a session begins at.
-        settings_dict["defaults"]["imaging"] = self.image.to_dict()
+        imaging = self.image.to_dict()
+        for key in NOT_IMAGING_DEFAULTS:
+            imaging.pop(key, None)
+        settings_dict["defaults"]["imaging"] = imaging
 
         return settings_dict
 

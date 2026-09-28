@@ -9,6 +9,7 @@ through the baked-in inverse here.
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from typing import List, Tuple
 
 import numpy as np
@@ -16,6 +17,7 @@ import numpy as np
 from fibsem import manufacturers, movement
 from fibsem.conversions import is_inside_image_bounds
 from fibsem.structures import (
+    LEGACY_ROTATION_CENTRE,
     BeamType,
     FibsemHardwareGeometry,
     FibsemImage,
@@ -102,7 +104,7 @@ def reproject_stage_positions_onto_image(
         # currently only one way: Flat to Ion -> Flat to Electron
         dr = abs(np.rad2deg(image.metadata.microscope_state.stage_position.r - pos.r))
         if np.isclose(dr, 180, atol=2):
-            pos = _transform_position(pos)
+            pos = _transform_position(pos, _rotation_centre(image))
 
         pt = calculate_reprojected_stage_position(image, pos)
         pt.name = pos.name
@@ -229,7 +231,7 @@ def reproject_stage_positions_onto_image2(
         # automate logic for transforming positions
         dr = abs(np.rad2deg(image.metadata.microscope_state.stage_position.r - pos.r))
         if np.isclose(dr, 180, atol=2):
-            pos = _transform_position(pos)
+            pos = _transform_position(pos, _rotation_centre(image))
 
         pt = calculate_reprojected_stage_position2(image, pos)
         pt.name = pos.name
@@ -242,6 +244,8 @@ def reproject_stage_positions_onto_image2(
     return points
 
 
+# The specimen offset of the instrument LEGACY_ROTATION_CENTRE was calibrated on. Only
+# the specimen/raw helpers below still read it; the half turn uses the centre.
 X_OFFSET = -0.0005127403888932854
 Y_OFFSET = 0.0007937916666666666
 
@@ -268,32 +272,36 @@ def _to_raw_coordinate_system(pos: FibsemStagePosition):
     return raw_position
 
 
-def _transform_position(pos: FibsemStagePosition) -> FibsemStagePosition:
+def _rotation_centre(image: FibsemImage) -> Tuple[float, float]:
+    """The half-turn centre an image was acquired under; the legacy one if unrecorded."""
+    geometry = getattr(image.metadata, "hardware_geometry", None)
+    if geometry is None:
+        return LEGACY_ROTATION_CENTRE
+    return geometry.rotation_centre
+
+
+def _transform_position(
+    pos: FibsemStagePosition,
+    rotation_centre: Tuple[float, float] = LEGACY_ROTATION_CENTRE,
+) -> FibsemStagePosition:
     """This function takes in a position flat to a beam, and outputs the position if stage was rotated / tilted flat to the other beam).
+
+    A half turn reflects x and y through the rotation centre: p -> 2c - p. It is its
+    own inverse, so it serves both directions. z, r and t are carried unchanged.
+
     Args:
         pos: The position flat to the beam.
+        rotation_centre: where the half turn is centred, raw (x, y) in metres. The
+            default is the one this function always used (LEGACY_ROTATION_CENTRE);
+            callers holding an image pass the centre it was acquired under.
     Returns:
         The position flat to the other beam."""
 
-    specimen_position = _to_specimen_coordinate_system(pos)
-    # print("raw      pos: ", pos)
-    # print("specimen pos: ", specimen_position)
+    cx, cy = rotation_centre
+    transformed_position = deepcopy(pos)
+    transformed_position.x = 2 * cx - pos.x
+    transformed_position.y = 2 * cy - pos.y
 
-    # # inverse xy (rotate 180 degrees)
-    specimen_position.x = -specimen_position.x
-    specimen_position.y = -specimen_position.y
-
-    # movement offset (calibration for compucentric rotation error)
-    specimen_position.x += 50e-6
-    specimen_position.y += 25e-6
-
-    # print("rotated pos: ", specimen_position)
-
-    # _to_raw_coordinates
-    transformed_position = _to_raw_coordinate_system(specimen_position)
-    transformed_position.name = pos.name
-
-    # print("trans   pos: ", transformed_position)
     # Debug, not info: this runs for every position drawn from the other side of the
     # stage -- three times per aligned image per redraw -- and at info it buried the
     # rest of the log (366 lines in five minutes of aligning an image).

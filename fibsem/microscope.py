@@ -10,6 +10,7 @@ import time
 import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from dataclasses import replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -178,6 +179,14 @@ class FibsemMicroscope(ABC):
     # values vertical_move accepts. The FIB view is universal; the SEM view
     # needs a backend that knows how to slide along the FIB line of sight.
     vertical_move_views: Tuple[BeamType, ...] = (BeamType.ION,)
+
+    # Where a half turn of this backend's stage is centred, raw (x, y) in metres: a
+    # position p on one side of the stage is at 2c - p on the other. A property of the
+    # hardware, so the driver sets it, not the configuration. None keeps each path as
+    # it was: stage moves use `_get_compucentric_rotation_offset` (ThermoFisher
+    # measures it, the rest assume the stage origin), and images record
+    # LEGACY_ROTATION_CENTRE for reprojection (FIB-1081).
+    rotation_centre: Optional[Tuple[float, float]] = None
 
     # live acquisition
     sem_acquisition_signal = Signal(FibsemImage)
@@ -1177,8 +1186,19 @@ class FibsemMicroscope(ABC):
         beam_type = settings.beam_type
         logging.debug(f"Setting {settings.beam_type.name} beam system settings...")
         self.set("beam_enabled", settings.enabled, beam_type)
-        self.set_beam_settings(settings.beam)
-        self.set_detector_settings(settings.detector, beam_type)
+        # What the configuration decides, not what the column is aligned to. The
+        # working distance, stigmation and beam shift are the column's current
+        # alignment, and the detector's brightness and contrast are what the last
+        # autocontrast left; a configuration that does not state them used to load
+        # them as 0 (and the working distance as the eucentric height), and Apply
+        # pushed those -- refocusing both columns and blacking out the detectors.
+        self.set_beam_settings(
+            replace(settings.beam, working_distance=None, stigmation=None, shift=None)
+        )
+        if settings.detector.type is not None:
+            self.set_detector_type(settings.detector.type, beam_type)
+        if settings.detector.mode is not None:
+            self.set_detector_mode(settings.detector.mode, beam_type)
         self.set("eucentric_height", settings.eucentric_height, beam_type)
         self.set("column_tilt", settings.column_tilt, beam_type)
 
@@ -1829,7 +1849,18 @@ class FibsemMicroscope(ABC):
         return self.get("preset", beam_type)
 
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
-        return FibsemStagePosition(x=0, y=0)  # assume no offset to rotation centre
+        """Specimen minus raw coordinates: the offset a half turn is taken about.
+
+        `_get_compucentric_rotation_position` reflects a position through minus this,
+        so a driver's `rotation_centre` c is an offset of -c -- the same centre its
+        images are reprojected with (FIB-1081). Without one, the rotation centre is
+        assumed to be the stage origin, as it always was here. ThermoFisher overrides
+        this and measures it instead.
+        """
+        centre = self.rotation_centre
+        if centre is None:
+            return FibsemStagePosition(x=0, y=0)
+        return FibsemStagePosition(x=-centre[0], y=-centre[1])
 
     def _get_compucentric_rotation_position(
         self, position: FibsemStagePosition
@@ -2515,7 +2546,9 @@ class FibsemMicroscope(ABC):
         the reprojection stop inferring it from the model name (FIB-481).
         """
         return FibsemHardwareGeometry.from_system_settings(
-            self.system, is_compustage=self.stage_is_compustage
+            self.system,
+            is_compustage=self.stage_is_compustage,
+            rotation_centre=self.rotation_centre,
         )
 
     def record_event(self, kind: str, payload: Dict[str, Any]) -> None:

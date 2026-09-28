@@ -340,15 +340,20 @@ def test_the_detector_keys_in_every_shipped_file_are_read():
 
 
 def test_the_detector_round_trips_through_a_saved_file():
-    """Brightness and contrast too: written as `detector_brightness`, they were read
-    as `brightness` and came back as the default."""
+    """Type and mode are defaults and come back. Brightness and contrast are what the
+    last autocontrast left, so a saved configuration does not record them -- it used
+    to record 0.0, and Apply blacked out the detector with it."""
     settings = MicroscopeSettings.from_dict(_load("microscope-configuration.yaml"))
+    settings.system.ion.detector.type = "TLD"
+    settings.system.ion.detector.mode = "BackscatterElectrons"
     settings.system.ion.detector.brightness = 0.37
-    settings.system.ion.detector.contrast = 0.62
 
-    reloaded = MicroscopeSettings.from_dict(copy.deepcopy(settings.to_dict()))
+    written = copy.deepcopy(settings.to_dict())
+    reloaded = MicroscopeSettings.from_dict(written)
 
-    assert reloaded.system.ion.detector == settings.system.ion.detector
+    assert reloaded.system.ion.detector.type == "TLD"
+    assert reloaded.system.ion.detector.mode == "BackscatterElectrons"
+    assert "detector_brightness" not in written["defaults"]["ion"]
 
 
 def test_capturing_one_beam_leaves_the_other(microscope):
