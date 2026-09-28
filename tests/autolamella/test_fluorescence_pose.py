@@ -345,7 +345,9 @@ def test_back_to_back_the_objective_is_out_before_the_stage_tilts(
         flipped.fluorescence_pose.stage_position.t
         != at_milling.fluorescence_pose.stage_position.t
     )
-    config = AcquireFluorescenceImageConfig(retract_objective=False)
+    config = AcquireFluorescenceImageConfig(
+        channel_settings=[ChannelSettings(name="GFP")], retract_objective=False
+    )
     seen = _objective_during_moves(fm_microscope)
 
     for lamella in (flipped, at_milling):
@@ -368,7 +370,9 @@ def test_back_to_back_in_one_pose_the_objective_stays_in(
     first = _marked(fm_microscope, tmp_path, "FIB")
     second = _marked(fm_microscope, tmp_path / "b", "FIB")
     second.fluorescence_pose.stage_position.x += 50e-6
-    config = AcquireFluorescenceImageConfig(retract_objective=False)
+    config = AcquireFluorescenceImageConfig(
+        channel_settings=[ChannelSettings(name="GFP")], retract_objective=False
+    )
     seen = _objective_during_moves(fm_microscope)
 
     for lamella in (first, second):

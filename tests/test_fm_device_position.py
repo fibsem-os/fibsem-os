@@ -670,7 +670,8 @@ def test_with_one_place_the_range_does_not_decide_the_device(x_mm):
 
 @pytest.mark.parametrize("x_mm", [25.0, -30.0])
 def test_with_one_place_a_beam_position_far_along_converts_to_the_fm(x_mm):
-    microscope, position = _arctis_at("SEM", x_mm * 1e-3)
+    # FIB: the one beam pose this compustage does not declare for its objective.
+    microscope, position = _arctis_at("FIB", x_mm * 1e-3)
 
     fm = microscope.to_device(position, "FM")
 
@@ -679,8 +680,8 @@ def test_with_one_place_a_beam_position_far_along_converts_to_the_fm(x_mm):
 
 
 def test_with_one_place_the_pose_still_decides():
-    """The place stops deciding; the pose does not. SEM is still a re-pose away."""
-    microscope, position = _arctis_at("SEM", 25e-3)
+    """The place stops deciding; the pose does not. FIB is still a re-pose away."""
+    microscope, position = _arctis_at("FIB", 25e-3)
 
     assert (
         microscope.get_device_imaging_state("FM", position)
