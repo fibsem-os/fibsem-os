@@ -121,11 +121,10 @@ def test_saving_writes_the_defaults_section_and_nothing_else(widget, microscope)
     assert reloaded.system.ion.beam.voltage == 8000
 
 
-def test_saving_writes_the_seven_keys_and_no_alignment_state(widget, microscope):
-    """Not the beam shift, stigmation, scan rotation or working distance -- those
-    are alignment state, and written here Apply would push them back."""
+def test_saving_writes_the_eight_keys_and_no_alignment_state(widget, microscope):
+    """Not the beam shift, stigmation or working distance -- those are alignment
+    state, and written here Apply would push them back."""
     microscope.system.electron.beam.working_distance = 0.0042
-    microscope.system.electron.beam.scan_rotation = 1.5
 
     widget.save_to_configuration()
 
@@ -138,6 +137,7 @@ def test_saving_writes_the_seven_keys_and_no_alignment_state(widget, microscope)
         "dwell_time",
         "detector_type",
         "detector_mode",
+        "scan_rotation",
     }
 
 
@@ -152,3 +152,140 @@ def test_saving_does_not_touch_the_column(widget, microscope):
         microscope.get_beam_settings(microscope.system.ion.beam_type).voltage
         == live_before
     )
+
+
+# ---------------------------------------------------------------------------
+# Imaging: what the acquire tab opens with, `defaults.imaging`
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def imaging_widget(qapp, microscope):
+    settings = utils.load_microscope_configuration(microscope.configuration_path)
+    w = MicroscopeDefaultsWidget()
+    w.set_microscope(microscope, image_settings=settings.image)
+    yield w, settings.image
+    w.close()
+    w.deleteLater()
+
+
+def _acquire_tab_settings():
+    from fibsem.structures import BeamType, ImageSettings
+
+    return ImageSettings(
+        beam_type=BeamType.ION,
+        hfw=80e-6,
+        resolution=(3072, 2048),
+        dwell_time=0.5e-6,
+        autocontrast=False,
+    )
+
+
+def test_the_imaging_form_shows_the_configured_defaults(imaging_widget):
+    widget, image = imaging_widget
+    assert widget.imaging.beam_type.value() == image.beam_type.name
+    assert widget.imaging.hfw.value() == pytest.approx(image.hfw * 1e6)
+    assert widget.imaging.resolution.value() == "1536x1024"
+    assert widget.imaging.autocontrast.isChecked() is bool(image.autocontrast)
+
+
+def test_reading_from_the_acquire_tab_fills_the_imaging_form(imaging_widget):
+    widget, _ = imaging_widget
+    assert not widget.button_read_imaging.isEnabled()  # no tab offered yet
+
+    widget.set_current_imaging(_acquire_tab_settings)
+    assert widget.button_read_imaging.isEnabled()
+    widget.read_from_acquire_tab()
+
+    assert widget.imaging.beam_type.value() == "ION"
+    assert widget.imaging.hfw.value() == pytest.approx(80.0)
+    assert widget.imaging.resolution.value() == "3072x2048"
+    assert widget.imaging.dwell_time.value() == pytest.approx(0.5)
+    assert widget.imaging.autocontrast.isChecked() is False
+
+
+def test_saving_writes_the_imaging_defaults_and_keeps_save(imaging_widget, microscope):
+    widget, image = imaging_widget
+    before = utils.load_yaml(microscope.configuration_path)["defaults"]["imaging"]
+    widget.set_current_imaging(_acquire_tab_settings)
+    widget.read_from_acquire_tab()
+
+    widget.save_to_configuration()
+
+    written = utils.load_yaml(microscope.configuration_path)
+    assert written["defaults"]["imaging"] == {
+        **before,
+        "beam_type": "ION",
+        "hfw": pytest.approx(80e-6),
+        "resolution": [3072, 2048],
+        "dwell_time": pytest.approx(0.5e-6),
+        "autocontrast": False,
+    }
+    assert utils.unrecognised_configuration_keys(written) == []
+    reloaded = utils.load_microscope_configuration(microscope.configuration_path)
+    assert reloaded.image.hfw == pytest.approx(80e-6)
+    assert tuple(reloaded.image.resolution) == (3072, 2048)
+    assert image.hfw == pytest.approx(80e-6)  # the session's record follows
+
+
+def test_without_the_loaded_settings_imaging_is_left_alone(widget, microscope):
+    """The panel was not told what the configuration was loaded with: showing the
+    form's own starting values and saving them would overwrite the file."""
+    before = utils.load_yaml(microscope.configuration_path)["defaults"]["imaging"]
+    assert not widget.imaging.isEnabled()
+    widget.set_current_imaging(_acquire_tab_settings)
+    assert not widget.button_read_imaging.isEnabled()
+
+    widget.save_to_configuration()
+
+    written = utils.load_yaml(microscope.configuration_path)["defaults"]["imaging"]
+    assert written == before
+
+
+def test_disconnecting_forgets_the_acquire_tab(imaging_widget):
+    widget, _ = imaging_widget
+    widget.set_current_imaging(_acquire_tab_settings)
+
+    widget.set_microscope(None)
+
+    assert not widget.button_read_imaging.isEnabled()
+
+
+def test_reading_one_beam_leaves_the_other_form_alone(widget, microscope):
+    """Each beam's header reads that beam: an unsaved edit to the other survives."""
+    widget.ion.voltage.set_value(8000)  # an edit not yet saved
+    live = microscope.get_microscope_state().electron_beam.voltage
+    microscope.system.electron.beam.voltage = (live or 0) + 4321  # stale
+
+    widget.button_read_electron.click()
+
+    assert widget.electron.voltage.value() == live
+    assert widget.ion.voltage.value() == 8000
+
+
+def test_scan_rotation_is_shown_in_degrees_and_saved_in_radians(widget, microscope):
+    import math
+
+    microscope.system.ion.beam.scan_rotation = math.pi
+    widget.show_system()
+    assert widget.ion.scan_rotation.value() == pytest.approx(180.0)
+
+    widget.ion.scan_rotation.setValue(180.0)
+    widget.save_to_configuration()
+
+    written = utils.load_yaml(microscope.configuration_path)["defaults"]["ion"]
+    assert written["scan_rotation"] == pytest.approx(math.pi)
+    reloaded = utils.load_microscope_configuration(microscope.configuration_path)
+    assert reloaded.system.ion.beam.scan_rotation == pytest.approx(math.pi)
+
+
+def test_reading_a_beam_takes_its_scan_rotation(widget, microscope):
+    import math
+
+    from fibsem.structures import BeamType
+
+    microscope.set_scan_rotation(math.pi, BeamType.ION)
+
+    widget.button_read_ion.click()
+
+    assert widget.ion.scan_rotation.value() == pytest.approx(180.0)

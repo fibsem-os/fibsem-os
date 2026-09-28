@@ -20,10 +20,12 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 from fibsem.ui.widgets.custom_widgets import (
-    TitledPanel,
     ValueComboBox,
 )
-from fibsem.ui.widgets.microscope_defaults_widget import MicroscopeDefaultsWidget
+from fibsem.ui.widgets.microscope_defaults_widget import (
+    MicroscopeDefaultsDialog,
+    MicroscopeDefaultsWidget,
+)
 
 
 class FibsemSystemSetupWidget(QtWidgets.QWidget):
@@ -65,14 +67,23 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.gridLayout.addWidget(self.pushButton_connect_to_microscope, 2, 0, 1, 3)
         self.gridLayout.addWidget(self.pushButton_apply_configuration, 3, 0, 1, 3)
         # The defaults a session starts from: read off the instrument, edited, saved
-        # into the configuration. Beside Apply, which is what consumes them.
+        # into the configuration. Opened beside Apply, which is what consumes them;
+        # its own window, because the sections are wider than this column.
         self.defaultsWidget = MicroscopeDefaultsWidget()
-        self.defaultsPanel = TitledPanel(
-            "Defaults", content=self.defaultsWidget, collapsible=True
+        self.defaultsDialog = MicroscopeDefaultsDialog(self.defaultsWidget, parent=self)
+        self.pushButton_edit_defaults = QtWidgets.QPushButton("Edit Defaults…")
+        self.pushButton_edit_defaults.setToolTip(
+            "The beam and imaging defaults a session starts from, and Apply sets."
         )
-        self.defaultsPanel.collapse()
-        self.defaultsPanel.setVisible(False)
-        self.gridLayout.addWidget(self.defaultsPanel, 4, 0, 1, 3)
+        self.pushButton_edit_defaults.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
+        self.pushButton_edit_defaults.setVisible(False)
+        self.gridLayout.addWidget(self.pushButton_edit_defaults, 4, 0, 1, 3)
+        # Not offered on this tab yet: the editor becomes one tab of a microscope
+        # configuration window, and until that lands it is opened from the
+        # Development menu (`open_defaults`).
+        self.defaults_button_shown = False
         self.gridLayout.addWidget(self.label_connection_status, 5, 0, 1, 3)
         self.gridLayout.addWidget(self.label_connection_information, 6, 0, 1, 3)
         self.gridLayout.addItem(
@@ -309,6 +320,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.pushButton_apply_configuration.clicked.connect(
             lambda: self.apply_microscope_configuration(None)
         )
+        self.pushButton_edit_defaults.clicked.connect(self.open_defaults)
         self.pushButton_apply_configuration.setToolTip(
             "Apply configuration can take some time. Please make sure the microscope beams are both on."
         )
@@ -480,6 +492,13 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         # apply the configuration
         self.microscope.apply_configuration(system_settings=system_settings)
 
+    def open_defaults(self) -> None:
+        if self.microscope is None:
+            return
+        self.defaultsDialog.show()
+        self.defaultsDialog.raise_()
+        self.defaultsDialog.activateWindow()
+
     def update_ui(self):
 
         is_microscope_connected = bool(self.microscope)
@@ -487,8 +506,15 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.pushButton_apply_configuration.setEnabled(
             is_microscope_connected and cfg.APPLY_CONFIGURATION_ENABLED
         )
-        self.defaultsPanel.setVisible(is_microscope_connected)
-        self.defaultsWidget.set_microscope(self.microscope or None)
+        self.pushButton_edit_defaults.setVisible(
+            is_microscope_connected and self.defaults_button_shown
+        )
+        if not is_microscope_connected:
+            self.defaultsDialog.hide()
+        self.defaultsWidget.set_microscope(
+            self.microscope or None,
+            image_settings=getattr(self.settings, "image", None),
+        )
 
         if is_microscope_connected:
             self.pushButton_connect_to_microscope.setVisible(False)

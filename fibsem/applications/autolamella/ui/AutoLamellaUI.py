@@ -832,6 +832,11 @@ class AutoLamellaUI(QMainWindow):
                 parent=self,
             )
 
+            # The defaults panel's "Read from Acquire Tab" reads this tab.
+            self.system_widget.defaultsWidget.set_current_imaging(
+                self.image_widget._get_image_settings_from_ui
+            )
+
             # add widgets to tabs
             self.tabWidget.addTab(self.image_widget, "Image")
             self.tabWidget.addTab(self.movement_widget, "Movement")
@@ -940,6 +945,7 @@ class AutoLamellaUI(QMainWindow):
                 )
                 self.image_widget.deleteLater()
                 self.image_widget = None
+                self.system_widget.defaultsWidget.set_current_imaging(None)
 
     def import_fm_configuration(self) -> None:
         """Load a fluorescence microscope configuration via the control widget."""

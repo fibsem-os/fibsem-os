@@ -455,7 +455,7 @@ class FibsemMicroscope(ABC):
             except Exception as e:
                 logging.warning(f"Could not apply configured objective {name}: {e}")
 
-    def capture_defaults(self) -> None:
+    def capture_defaults(self, beam_type: Optional[BeamType] = None) -> None:
         """Record what the instrument is doing now as the defaults a session starts from.
 
         The gesture the `defaults:` block exists for. Nobody wants to type 2.00 kV,
@@ -472,17 +472,21 @@ class FibsemMicroscope(ABC):
         calibration, not a default.
 
         Writes into the settings only. Saving the configuration to disk is a separate
-        act, so pressing this is reversible until someone means it.
+        act, so pressing this is reversible until someone means it. *beam_type*
+        limits it to one column; by default both are captured.
         """
         state = self.get_microscope_state()
         for beam, detector, record in (
             (state.electron_beam, state.electron_detector, self.system.electron),
             (state.ion_beam, state.ion_detector, self.system.ion),
         ):
+            if beam_type is not None and record.beam_type is not beam_type:
+                continue
             # Only the defaults. `BeamSettings` also carries the beam shift, the
-            # stigmation, the scan rotation and the working distance, and those are
-            # alignment state: capturing them would put the shift the column
-            # happened to have into the file, and Apply would push it back.
+            # stigmation and the working distance, and those are alignment state:
+            # capturing them would put the shift the column happened to have into
+            # the file, and Apply would push it back. Scan rotation is a standing
+            # choice (a FIB run at 180 degrees), so it is captured with the rest.
             if beam is not None:
                 for name in (
                     "voltage",
@@ -490,6 +494,7 @@ class FibsemMicroscope(ABC):
                     "hfw",
                     "resolution",
                     "dwell_time",
+                    "scan_rotation",
                 ):
                     setattr(record.beam, name, deepcopy(getattr(beam, name)))
             if detector is not None:
