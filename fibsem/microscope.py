@@ -1088,10 +1088,19 @@ class FibsemMicroscope(ABC):
     # them. The name is temporary: `stage` is taken by the vendor object on Thermo
     # and Odemis, and the final name is decided with the stage redesign.
     stage_device: Optional[Any] = None
+    # The chamber as a device (fibsem.devices.Chamber), named like `stage_device`
+    # because `chamber` is taken on Demo. pump() and vent() use its commands.
+    chamber_device: Optional[Any] = None
     _beam_routes: Mapping[str, str] = MappingProxyType({})
+    # Keys with no beam: old key -> (attribute of the device, parameter name).
+    _device_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
 
     def _route(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
         """The device parameter a key has moved to, or None to use `_get`/`_set`."""
+        route = self._device_routes.get(key)
+        if route is not None:
+            device = getattr(self, route[0], None)
+            return None if device is None else device.parameters.get(route[1])
         name = self._beam_routes.get(key)
         if name is None or beam_type is None:
             return None
@@ -1589,11 +1598,15 @@ class FibsemMicroscope(ABC):
 
     def pump(self) -> str:
         """ "Pump the chamber."""
+        if self.chamber_device is not None:
+            return self.chamber_device.pump()
         self.set("pump_chamber", True)
         return self.get("chamber_state")
 
     def vent(self) -> str:
         """Vent the chamber."""
+        if self.chamber_device is not None:
+            return self.chamber_device.vent()
         self.set("vent_chamber", True)
         return self.get("chamber_state")
 

@@ -127,6 +127,36 @@ def test_device_demo_serves_its_beam_keys_from_devices(key, beam_type):
     assert param.device is microscope.beams[beam_type]
 
 
+DEVICE_DEMO_ROUTED_KEYS = ["chamber_state", "chamber_pressure"]
+
+
+@pytest.mark.parametrize("key", DEVICE_DEMO_ROUTED_KEYS)
+@pytest.mark.parametrize("beam_type", [None, *BEAMS])
+def test_device_demo_serves_its_keys_from_devices(key, beam_type):
+    """Keys with no beam route to their device whatever beam type is passed."""
+    microscope = _connect("DeviceDemo")
+    param = microscope._route(key, beam_type)
+    assert param is not None
+    assert param.device is microscope.chamber_device
+
+
+def test_device_demo_pumps_and_vents_through_its_chamber_device():
+    microscope = _connect("DeviceDemo")
+    chamber = microscope.chamber_device
+    calls = []
+    for name in ("_pump", "_vent"):
+        original = getattr(chamber, name)
+        setattr(
+            chamber,
+            name,
+            lambda name=name, original=original: (calls.append(name), original()),
+        )
+    assert microscope.vent() == "Vented"
+    assert chamber.pressure.cached == microscope.get("chamber_pressure")
+    assert microscope.pump() == "Pumped"
+    assert calls == ["_vent", "_pump"]
+
+
 def test_device_demo_moves_its_stage_device():
     """DeviceDemo's stage methods go through its stage device, not the Demo chain."""
     microscope = _connect("DeviceDemo")

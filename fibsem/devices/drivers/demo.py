@@ -16,6 +16,7 @@ import numpy as np
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
+from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import Stage
 from fibsem.structures import (
@@ -306,3 +307,45 @@ def bind_demo_stage(
 ) -> DemoStage:
     """Build ``stage`` for a connected Demo microscope."""
     return DemoStage(microscope, resources).connect()
+
+
+class DemoChamber(Chamber):
+    """The Demo chamber.
+
+    Each method is what the matching part of ``DemoMicroscope`` does today, reading
+    and writing the same ``chamber`` system:
+
+    - ``read_state`` / ``read_pressure``: the ``chamber_state`` / ``chamber_pressure``
+      branches of ``_get``;
+    - ``_pump`` / ``_vent``: the ``pump_chamber`` / ``vent_chamber`` branches of
+      ``_set``.
+    """
+
+    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
+        super().__init__(parent=parent, resources=resources)
+        self._system = parent.chamber
+
+    def read_state(self) -> str:
+        return self._system.state
+
+    def read_pressure(self) -> float:
+        return self._system.pressure
+
+    def _pump(self) -> None:
+        logging.info("Pumping chamber...")
+        self._system.state = "Pumped"
+        self._system.pressure = 1e-6
+        logging.info("Chamber pumped.")
+
+    def _vent(self) -> None:
+        logging.info("Venting chamber...")
+        self._system.state = "Vented"
+        self._system.pressure = 1e5
+        logging.info("Chamber vented.")
+
+
+def bind_demo_chamber(
+    microscope: DemoMicroscope, resources: Optional[Resources] = None
+) -> DemoChamber:
+    """Build ``chamber`` for a connected Demo microscope."""
+    return DemoChamber(microscope, resources).connect()

@@ -12,10 +12,12 @@ compares them call by call, so the two can't drift while both exist.
 
 Select it with ``sim: {devices: true}`` in a Demo configuration.
 
-Devices so far: the beams (``DemoBeam``) and the stage (``DemoStage``), from
-``fibsem.devices.drivers.demo``. The stage is ``stage_device``, a temporary name
-until the stage redesign settles it; its keys are not routed, the stage methods
-use it directly.
+Devices so far: the beams (``DemoBeam``), the stage (``DemoStage``) and the
+chamber (``DemoChamber``), from ``fibsem.devices.drivers.demo``. The stage is
+``stage_device``, a temporary name until the stage redesign settles it; its keys
+are not routed, the stage methods use it directly. The chamber is
+``chamber_device``; its state and pressure keys are routed, and ``pump``/``vent``
+call its commands.
 """
 
 from __future__ import annotations
@@ -23,7 +25,12 @@ from __future__ import annotations
 from types import MappingProxyType
 
 from fibsem.devices.beam import BEAM_ROUTES
-from fibsem.devices.drivers.demo import bind_demo_beams, bind_demo_stage
+from fibsem.devices.chamber import CHAMBER_ROUTES
+from fibsem.devices.drivers.demo import (
+    bind_demo_beams,
+    bind_demo_chamber,
+    bind_demo_stage,
+)
 from fibsem.microscope import _records_stage_move
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import FibsemStagePosition
@@ -41,6 +48,10 @@ class DeviceDemoMicroscope(DemoMicroscope):
         self.beams = MappingProxyType(bind_demo_beams(self))
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
         self.stage_device = bind_demo_stage(self)
+        self.chamber_device = bind_demo_chamber(self)
+        self._device_routes = MappingProxyType(
+            {key: ("chamber_device", name) for key, name in CHAMBER_ROUTES.items()}
+        )
 
     # The old moves go through the device without its limit check, as today.
 
