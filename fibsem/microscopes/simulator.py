@@ -1121,24 +1121,6 @@ class DemoMicroscope(FibsemMicroscope):
         elif beam_type == BeamType.ION:
             self.ion_system.beam.shift += Point(float(dx), float(dy))
 
-    def _safe_rotation_movement(self, stage_position: FibsemStagePosition) -> None:
-        return ThermoMicroscope._safe_rotation_movement(self, stage_position)
-
-    def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
-        """Move the stage to the specified position using safe strategy"""
-        return ThermoMicroscope.safe_absolute_stage_movement(self, stage_position)
-
-    def project_stable_move(
-        self,
-        dx: float,
-        dy: float,
-        beam_type: BeamType,
-        base_position: FibsemStagePosition,
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope.project_stable_move(
-            self, dx, dy, beam_type, base_position
-        )
-
     # ---- fitted subsystems, as the simulated instrument reports them ---------
     #
     # The `sim:` block is where a simulated configuration stands in for a hardware
@@ -1219,58 +1201,6 @@ class DemoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "move_stage_relative", "position": position.to_dict()})
 
         return self.get_stage_position()
-
-    def stable_move(
-        self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope.stable_move(self, dx, dy, beam_type, static_wd)
-
-    def vertical_move(
-        self,
-        dy: float,
-        dx: float = 0.0,
-        beam_type: BeamType = BeamType.ION,
-        relaxation: float = 1.0,
-    ) -> FibsemStagePosition:
-        """Restore the coincidence point from an offset measured in one beam view."""
-        return ThermoMicroscope.vertical_move(self, dy, dx, beam_type, relaxation)
-
-    def _vertical_move_from_fib(
-        self, dy: float, dx: float = 0.0, relaxation: float = 1.0
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_fib(
-            self, dy=dy, dx=dx, relaxation=relaxation
-        )
-
-    def _vertical_move_from_sem(
-        self, dx: float, dy: float, relaxation: float = 1.0
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_sem(
-            self, dx=dx, dy=dy, relaxation=relaxation
-        )
-
-    def _y_corrected_stage_movement(
-        self, expected_y: float, beam_type: BeamType
-    ) -> FibsemStagePosition:
-        """
-        Calculate the corrected stage movements based on the beam_type, and then move the stage relatively.
-
-        Args:
-            dx (float): distance along the x-axis (image coordinates)
-            dy (float): distance along the y-axis (image coordinates)
-            beam_type (BeamType): beam type to move in
-            static_wd (bool, optional): whether to fix the working distance. Defaults to False.
-        """
-        return ThermoMicroscope._y_corrected_stage_movement(
-            self, expected_y=expected_y, beam_type=beam_type
-        )
-
-    def _inverse_y_corrected_stage_movement(
-        self, dy: float, dz: float, beam_type: BeamType = BeamType.ELECTRON
-    ) -> float:
-        return ThermoMicroscope._inverse_y_corrected_stage_movement(
-            self, dy=dy, dz=dz, beam_type=beam_type
-        )
 
     def insert_manipulator(self, name: str = "PARK") -> FibsemManipulatorPosition:
         """Insert the manipulator to the specified position."""
@@ -1913,10 +1843,10 @@ class DemoMicroscope(FibsemMicroscope):
         # system properties
         if key == "beam_enabled":
             if beam_type is BeamType.ELECTRON:
-                self.system.electron.beam.enabled = value
+                self.system.electron.enabled = value
                 return
             elif beam_type is BeamType.ION:
-                self.system.ion.beam.enabled = value
+                self.system.ion.enabled = value
                 return
             else:
                 raise ValueError(f"Unknown beam type: {beam_type} for {key}")

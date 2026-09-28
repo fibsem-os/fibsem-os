@@ -2862,11 +2862,13 @@ class SystemSettings:
     info: SystemInfo
     sim: Dict[str, Union[str, bool]] = field(default_factory=dict)
     fm: FluorescenceSystemSettings = field(default_factory=FluorescenceSystemSettings)
-    # Whether `defaults:` is pushed to the instrument at connect. Read and written
-    # so the file can state it; nothing acts on it yet. Pushing a kV to a shared
-    # instrument at connect is a behaviour change that gets its own change and a
-    # look on a bench, and this field is here so that change is one `if`.
+    # Whether `defaults:` is pushed to the instrument at connect
+    # (`utils.setup_session`, `FibsemMicroscope.apply_defaults`). Off unless the
+    # file says so: pushing a kV to a shared instrument at connect is opted into.
     apply_defaults_on_connect: bool = False
+    # Whether each column is turned on at connect (`turn_beams_on`), before the
+    # defaults are applied. Only ever on; off unless the file says so.
+    beams_on_at_connect: bool = False
 
     #: What a column *is*: the keys that stay in `electron:` / `ion:`. Everything
     #: else a `BeamSystemSettings` writes -- voltage, current, hfw, detector, the
@@ -2902,6 +2904,7 @@ class SystemSettings:
         ion = self.ion.to_dict()
         defaults = {
             "apply_on_connect": self.apply_defaults_on_connect,
+            "beams_on_at_connect": self.beams_on_at_connect,
             "electron": _split_defaults(electron),
             "ion": _split_defaults(ion),
         }
@@ -2964,6 +2967,7 @@ class SystemSettings:
 
         return SystemSettings(
             apply_defaults_on_connect=bool(defaults.get("apply_on_connect", False)),
+            beams_on_at_connect=bool(defaults.get("beams_on_at_connect", False)),
             stage=StageSystemSettings.from_dict(stage),
             electron=BeamSystemSettings.from_dict(electron),
             ion=BeamSystemSettings.from_dict(ion),

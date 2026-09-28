@@ -425,6 +425,8 @@ def setup_session(
     ip_address: str = None,
     manufacturer: str = None,
     debug: bool = False,
+    apply_defaults: Optional[bool] = None,
+    beams_on: Optional[bool] = None,
 ) -> Tuple["FibsemMicroscope", "MicroscopeSettings"]:
     """Setup microscope session
 
@@ -432,6 +434,11 @@ def setup_session(
         session_path (Path): path to logging directory
         config_path (Path): path to config directory
         protocol_path (Path): path to protocol file
+        apply_defaults (bool, optional): set the columns to the configured defaults
+            once connected. None (the default) does what the configuration's
+            `defaults.apply_on_connect` says.
+        beams_on (bool, optional): turn the beams on once connected. None (the
+            default) does what `defaults.beams_on_at_connect` says.
 
     Returns:
         tuple: microscope, settings
@@ -486,7 +493,13 @@ def setup_session(
         microscope = OdemisThermoMicroscope(settings.system)
 
     elif manufacturer == manufacturers.DEMO:
-        from fibsem.microscopes.simulator import DemoMicroscope
+        if settings.system.sim.get("devices"):
+            # The Demo backend rebuilt from devices, while the migration grows it.
+            from fibsem.microscopes.device_demo import (
+                DeviceDemoMicroscope as DemoMicroscope,
+            )
+        else:
+            from fibsem.microscopes.simulator import DemoMicroscope
 
         microscope = DemoMicroscope(settings.system)
         microscope.connect_to_microscope(ip_address, port=7520)
@@ -507,9 +520,38 @@ def setup_session(
     if stage is not None:
         stage.restore_occupancy()
 
+    # What connecting did beyond connecting, as the file (or the caller) asked:
+    # {"beams_on": worked, "defaults": worked}, for each one asked for. A failure
+    # does not fail the connection -- the microscope is connected, only a column was
+    # not set -- so it is recorded for the caller to report rather than raised.
+    if beams_on is None:
+        beams_on = settings.system.beams_on_at_connect
+    if apply_defaults is None:
+        apply_defaults = settings.system.apply_defaults_on_connect
+    microscope.connect_actions = {}
+    # The beams first, so the defaults are set on a live column.
+    if beams_on:
+        microscope.connect_actions["beams_on"] = _at_connect(
+            "turn the beams on", microscope.turn_beams_on
+        )
+    if apply_defaults:
+        microscope.connect_actions["defaults"] = _at_connect(
+            "apply the configured defaults", microscope.apply_defaults
+        )
+
     logging.info(f"Finished setup for session: {session}")
 
     return microscope, settings
+
+
+def _at_connect(what: str, action) -> bool:
+    """Run one of the things a configuration asks for at connect; whether it worked."""
+    try:
+        action()
+        return True
+    except Exception as e:
+        logging.error(f"Could not {what} at connect: {e}")
+        return False
 
 
 def load_microscope_configuration(

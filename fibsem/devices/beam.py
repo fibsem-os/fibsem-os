@@ -14,7 +14,14 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from fibsem.devices.core import BoundParameter, Device, Parameter, command
 from fibsem.devices.stage import Stage
-from fibsem.structures import BeamType, FibsemImage, ImageSettings, RangeLimit
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    FibsemRectangle,
+    ImageSettings,
+    Point,
+    RangeLimit,
+)
 
 
 class Beam(Device):
@@ -28,6 +35,16 @@ class Beam(Device):
     preset = Parameter(str)
     detector_type = Parameter(str)
     detector_mode = Parameter(str)
+    detector_contrast = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
+    detector_brightness = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
+    resolution = Parameter(tuple, unit="px", doc="(width, height)")
+    dwell_time = Parameter(float, unit="s")
+    stigmation = Parameter(Point)
+    shift = Parameter(Point, unit="m", doc="Beam shift.")
+    on = Parameter(bool, doc="The beam is switched on.")
+    scanning_mode = Parameter(
+        str, doc='"full_frame", "reduced_area" or "spot"; the scan commands set it.'
+    )
 
     def __init__(self, beam_type: BeamType, parent: Any = None, **kwargs: Any):
         super().__init__(name=beam_type.name.lower(), parent=parent, **kwargs)
@@ -42,6 +59,37 @@ class Beam(Device):
     def unblank(self) -> None:
         """Unblank the beam."""
         self.blanked.set_value(False)
+
+    # The scan area. Each command changes scanning_mode; a backend implements
+    # _spot, _reduced_area and _full_frame, and a beam that can't set the scan area
+    # has no scanning_mode, so the commands are unavailable.
+
+    @command(available=lambda beam: "scanning_mode" in beam.parameters)
+    def spot(self, point: Point) -> None:
+        """Park the beam on a point, in image coordinates (0 to 1)."""
+        self._spot(point)
+        self.scanning_mode.get_value()
+
+    @command(available=lambda beam: "scanning_mode" in beam.parameters)
+    def reduced_area(self, area: FibsemRectangle) -> None:
+        """Scan only a rectangle of the frame, in image coordinates (0 to 1)."""
+        self._reduced_area(area)
+        self.scanning_mode.get_value()
+
+    @command(available=lambda beam: "scanning_mode" in beam.parameters)
+    def full_frame(self) -> None:
+        """Scan the whole frame."""
+        self._full_frame()
+        self.scanning_mode.get_value()
+
+    def _spot(self, point: Point) -> None:
+        raise NotImplementedError
+
+    def _reduced_area(self, area: FibsemRectangle) -> None:
+        raise NotImplementedError
+
+    def _full_frame(self) -> None:
+        raise NotImplementedError
 
     @command
     def acquire(self, image_settings: Optional[ImageSettings] = None) -> FibsemImage:
@@ -62,6 +110,14 @@ BEAM_ROUTES: Dict[str, str] = {
     "preset": "preset",
     "detector_type": "detector_type",
     "detector_mode": "detector_mode",
+    "detector_contrast": "detector_contrast",
+    "detector_brightness": "detector_brightness",
+    "resolution": "resolution",
+    "dwell_time": "dwell_time",
+    "stigmation": "stigmation",
+    "shift": "shift",
+    "on": "on",
+    "scanning_mode": "scanning_mode",
 }
 
 

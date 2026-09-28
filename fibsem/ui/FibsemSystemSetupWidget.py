@@ -27,6 +27,14 @@ from fibsem.ui.widgets.microscope_configuration_window import (
     MicroscopeConfigurationWindow,
 )
 
+# What connecting did beyond connecting (`utils.setup_session`'s `connect_actions`),
+# said in the connect message.
+DID = {"beams_on": "turned the beams on", "defaults": "applied its defaults"}
+FAILED = {
+    "beams_on": "the beams could not be turned on",
+    "defaults": "its defaults could not be applied",
+}
+
 
 class FibsemSystemSetupWidget(QtWidgets.QWidget):
     connected_signal = pyqtSignal()
@@ -490,7 +498,19 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                 # user notification
                 msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
                 logging.info(msg)
-                notification_service.show_toast(msg, "info")
+                actions = getattr(self.microscope, "connect_actions", None) or {}
+                done = [DID[k] for k, ok in actions.items() if ok and k in DID]
+                failed = [
+                    FAILED[k] for k, ok in actions.items() if not ok and k in FAILED
+                ]
+                if done:
+                    msg = f"{msg}, and {' and '.join(done)}"
+                if failed:
+                    notification_service.show_toast(
+                        f"{msg}, but {' and '.join(failed)}. See the log.", "warning"
+                    )
+                else:
+                    notification_service.show_toast(msg, "info")
 
         self.update_ui()
 
