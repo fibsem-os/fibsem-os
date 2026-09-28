@@ -77,6 +77,65 @@ def test_disabled_until_there_is_a_microscope(qapp):
     w.deleteLater()
 
 
+def test_a_loaded_form_has_no_changes(widget):
+    assert not widget.is_modified()
+
+
+def test_an_edit_is_a_change_and_saving_it_is_not(widget):
+    changes = []
+    widget.changed.connect(lambda: changes.append(widget.is_modified()))
+
+    widget.electron.hfw.setValue(80.0)
+    assert widget.is_modified()
+    assert changes[-1] is True
+
+    assert widget.save_to_configuration()
+    assert not widget.is_modified()
+    assert changes[-1] is False
+
+
+def test_editing_back_to_the_saved_value_is_no_change(widget):
+    saved = widget.electron.hfw.value()
+
+    widget.electron.hfw.setValue(saved + 10)
+    widget.electron.hfw.setValue(saved)
+
+    assert not widget.is_modified()
+
+
+def test_a_save_that_fails_keeps_the_change(widget, microscope, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(utils, "write_configuration", refuse)
+    widget.electron.hfw.setValue(80.0)
+
+    assert not widget.save_to_configuration()
+    assert widget.is_modified()
+
+
+def test_saved_values_are_what_was_typed(widget, microscope):
+    """100 µm is written as 1e-4, not the 9.999999999999999e-05 the unit conversion
+    leaves."""
+    widget.electron.hfw.setValue(100.0)
+    widget.ion.dwell_time.setValue(0.3)
+
+    widget.save_to_configuration()
+
+    written = utils.load_yaml(microscope.configuration_path)["defaults"]
+    assert written["electron"]["hfw"] == 1e-4
+    assert written["ion"]["dwell_time"] == 3e-7
+    assert microscope.system.electron.beam.hfw == 1e-4
+
+
+def test_apply_on_connect_is_shown_but_cannot_be_changed(widget, microscope):
+    """Stored in the file, not acted on yet: shipped disabled."""
+    assert not widget.apply_on_connect.isEnabled()
+    assert widget.apply_on_connect.isChecked() is bool(
+        microscope.system.apply_defaults_on_connect
+    )
+
+
 def test_the_form_shows_the_configured_defaults(widget, microscope):
     assert widget.electron.voltage.value() == microscope.system.electron.beam.voltage
     # The shipped 1536x1024, not the first item in the list: a tuple did not

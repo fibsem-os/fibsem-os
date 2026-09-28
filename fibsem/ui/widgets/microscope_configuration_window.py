@@ -11,16 +11,20 @@ kinds the configuration file is divided into:
 - **Calibration**: what was measured at this instrument -- the holder's slots and the
   fluorescence objective. Never typed in: the holder's slots come from its guided
   calibration, opened from here.
+- **Defaults**: what the columns and the acquire tab start at -- read off the
+  instrument, edited, and saved by the window's Save; Apply to Microscope sets them.
 - **Session**: what the application remembers for this configuration between
   sessions (`fibsem.session_state`) -- the file it is kept in and everything each
   section holds. Shown, not edited: each section is changed where it is used.
 
-Only while connected: everything here is read from the live session.
+Only while connected: everything here is read from the live session. The Defaults tab
+is the only one with anything to save; the window says when it has unsaved changes.
 """
 
+import logging
 import math
 import os
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -30,6 +34,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -38,8 +43,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
-from fibsem.ui import stylesheets
+from fibsem.structures import ImageSettings
+from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.tokens import (
     OK_COLOR,
     PANEL_COLOR,
@@ -51,6 +58,7 @@ from fibsem.ui.tokens import (
     WARN_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.microscope_defaults_widget import MicroscopeDefaultsWidget
 
 NOT_STATED = "—"
 
@@ -620,14 +628,28 @@ def session_tab(microscope: FibsemMicroscope) -> QWidget:
 # ---- the window -----------------------------------------------------------------------
 
 
-class MicroscopeConfigurationWindow(QDialog):
-    """The connected microscope's configuration, by kind. Non-modal, read-only."""
+DEFAULTS = "Defaults"
 
-    def __init__(self, microscope: FibsemMicroscope, parent: Optional[QWidget] = None):
+
+class MicroscopeConfigurationWindow(QDialog):
+    """The connected microscope's configuration, by kind. Non-modal.
+
+    Everything is read-only except the Defaults tab, which the window's one Save
+    writes into the configuration file.
+    """
+
+    def __init__(
+        self,
+        microscope: FibsemMicroscope,
+        parent: Optional[QWidget] = None,
+        image_settings: Optional[ImageSettings] = None,
+        current_imaging: Optional[Callable[[], ImageSettings]] = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Microscope Configuration")
         self.setModal(False)
         self.microscope = microscope
+        self._closing_without_asking = False
 
         info = microscope.system.info
         title = QLabel("Microscope Configuration")
@@ -645,19 +667,45 @@ class MicroscopeConfigurationWindow(QDialog):
         head.addLayout(texts, 1)
         head.addWidget(_status("Connected", OK_COLOR), alignment=Qt.AlignTop)
 
+        self.defaults = MicroscopeDefaultsWidget()
+        self.defaults.set_microscope(microscope, image_settings=image_settings)
+        self.defaults.set_current_imaging(current_imaging)
+
         self.tabs = QTabWidget()
         self.tabs.addTab(instrument_tab(microscope), "Instrument")
         self.tabs.addTab(geometry_tab(microscope), "Geometry")
         self.tabs.addTab(self._calibration_tab(), "Calibration")
+        self.tabs.addTab(self.defaults, DEFAULTS)
         self.tabs.addTab(session_tab(microscope), "Session")
         self._calibration_dialog = None
 
+        path = getattr(microscope, "configuration_path", None)
+        self._file_name = os.path.basename(path) if path else ""
+        self.label_unsaved = _status("", WARN_COLOR)
+        self.pushButton_apply = QPushButton("Apply to Microscope")
+        self.pushButton_apply.setToolTip(
+            "Set the columns and detectors to the defaults on the Defaults tab, "
+            "saved or not. The beams should be on."
+        )
+        self.pushButton_apply.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_apply.setEnabled(cfg.APPLY_CONFIGURATION_ENABLED)
+        self.pushButton_save = QPushButton("Save")
+        self.pushButton_save.setToolTip(
+            "Write the defaults into the configuration file this session was started "
+            "from. Nothing else in the file is changed."
+        )
+        self.pushButton_save.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_close = QPushButton("Close")
         self.pushButton_close.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_close.clicked.connect(self.close)
         foot = QHBoxLayout()
+        foot.addWidget(self.label_unsaved)
         foot.addStretch()
-        foot.addWidget(self.pushButton_close)
+        for button in (
+            self.pushButton_apply,
+            self.pushButton_save,
+            self.pushButton_close,
+        ):
+            foot.addWidget(button)
 
         layout = QVBoxLayout(self)
         layout.addLayout(head)
@@ -665,6 +713,67 @@ class MicroscopeConfigurationWindow(QDialog):
         layout.addLayout(foot)
         self.setStyleSheet(f"QDialog {{ background: {SURFACE_COLOR}; }}")
         self.resize(1040, 560)
+
+        self.defaults.changed.connect(self._show_unsaved)
+        self.pushButton_apply.clicked.connect(self.apply_to_microscope)
+        self.pushButton_save.clicked.connect(self.save)
+        self.pushButton_close.clicked.connect(self.close)
+        self._show_unsaved()
+
+    # -- saving -----------------------------------------------------------------------
+
+    def has_unsaved_changes(self) -> bool:
+        return self.defaults.is_modified()
+
+    def _show_unsaved(self) -> None:
+        unsaved = self.has_unsaved_changes()
+        where = f"  ·  {self._file_name}" if self._file_name else ""
+        self.label_unsaved.setText(
+            f"Unsaved changes  ·  {DEFAULTS}{where}" if unsaved else ""
+        )
+        self.pushButton_save.setEnabled(unsaved)
+        index = self.tabs.indexOf(self.defaults)
+        self.tabs.setTabText(index, f"{DEFAULTS} •" if unsaved else DEFAULTS)
+
+    def save(self) -> bool:
+        """Write the window's changes into the configuration. Returns whether saved."""
+        return self.defaults.save_to_configuration()
+
+    def apply_to_microscope(self) -> None:
+        """Set the instrument to the defaults the Defaults tab shows."""
+        self.defaults.write_form_into_system()
+        try:
+            self.microscope.apply_configuration()
+        except Exception as e:  # a slot: nothing may reach Qt
+            logging.error(f"Could not apply the defaults: {e}")
+            notification_service.show_toast(
+                f"Could not apply the defaults: {e}", "error"
+            )
+            return
+        notification_service.show_toast("Defaults applied to the microscope.", "info")
+
+    def reject(self) -> None:
+        """Close, Escape and the title bar all come here: offer to save first."""
+        if self._closing_without_asking or not self.has_unsaved_changes():
+            super().reject()
+            return
+        answer = QMessageBox.question(
+            self,
+            "Unsaved changes",
+            "The defaults have changes that are not saved to the configuration.",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Save,
+        )
+        if answer == QMessageBox.Cancel:
+            return
+        if answer == QMessageBox.Save and not self.save():
+            return  # the save said why; stay open
+        super().reject()
+
+    def close_without_asking(self) -> None:
+        """Close now, dropping unsaved changes: the microscope went away."""
+        self._closing_without_asking = True
+        self.close()
 
     # -- calibration ------------------------------------------------------------------
 

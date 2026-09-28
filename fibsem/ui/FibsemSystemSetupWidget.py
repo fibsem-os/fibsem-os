@@ -1,6 +1,6 @@
 import logging
 from pprint import pprint
-from typing import Optional
+from typing import Callable, Optional
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import pyqtSignal
@@ -8,7 +8,7 @@ from PyQt5.QtCore import pyqtSignal
 from fibsem import config as cfg
 from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import MicroscopeSettings, SystemSettings
+from fibsem.structures import ImageSettings, MicroscopeSettings, SystemSettings
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -24,10 +24,6 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.microscope_configuration_window import (
     MicroscopeConfigurationWindow,
-)
-from fibsem.ui.widgets.microscope_defaults_widget import (
-    MicroscopeDefaultsDialog,
-    MicroscopeDefaultsWidget,
 )
 
 
@@ -69,27 +65,13 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.gridLayout.addWidget(self.toolButton_import_configuration, 1, 2, 1, 1)
         self.gridLayout.addWidget(self.pushButton_connect_to_microscope, 2, 0, 1, 3)
         self.gridLayout.addWidget(self.pushButton_apply_configuration, 3, 0, 1, 3)
-        # The defaults a session starts from: read off the instrument, edited, saved
-        # into the configuration. Opened beside Apply, which is what consumes them;
-        # its own window, because the sections are wider than this column.
-        self.defaultsWidget = MicroscopeDefaultsWidget()
-        self.defaultsDialog = MicroscopeDefaultsDialog(self.defaultsWidget, parent=self)
-        self.pushButton_edit_defaults = QtWidgets.QPushButton("Edit Defaults…")
-        self.pushButton_edit_defaults.setToolTip(
-            "The beam and imaging defaults a session starts from, and Apply sets."
-        )
-        self.pushButton_edit_defaults.setStyleSheet(
-            stylesheets.SECONDARY_BUTTON_STYLESHEET
-        )
-        self.pushButton_edit_defaults.setVisible(False)
-        self.gridLayout.addWidget(self.pushButton_edit_defaults, 4, 0, 1, 3)
-        # Not offered on this tab yet: the editor becomes one tab of a microscope
-        # configuration window, and until that lands it is opened from the
-        # Development menu (`open_defaults`).
-        self.defaults_button_shown = False
-        # The whole configuration, read-only, by kind. Built when opened so it shows
-        # the live session; opened from the Development menu for now.
+        # The whole configuration, by kind, with the defaults editor as one tab. Built
+        # when opened so it shows the live session; opened from the Development menu
+        # for now.
         self.configurationWindow: Optional[MicroscopeConfigurationWindow] = None
+        # Where the defaults' "Read from Acquire Tab" reads: the application's
+        # acquire tab, once it has one.
+        self._current_imaging: Optional[Callable[[], ImageSettings]] = None
         self.gridLayout.addWidget(self.label_connection_status, 5, 0, 1, 3)
         self.gridLayout.addWidget(self.label_connection_information, 6, 0, 1, 3)
         self.gridLayout.addItem(
@@ -326,7 +308,6 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.pushButton_apply_configuration.clicked.connect(
             lambda: self.apply_microscope_configuration(None)
         )
-        self.pushButton_edit_defaults.clicked.connect(self.open_defaults)
         self.pushButton_apply_configuration.setToolTip(
             "Apply configuration can take some time. Please make sure the microscope beams are both on."
         )
@@ -498,24 +479,39 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         # apply the configuration
         self.microscope.apply_configuration(system_settings=system_settings)
 
+    def set_current_imaging(
+        self, provider: Optional[Callable[[], ImageSettings]]
+    ) -> None:
+        """The acquire tab's settings, for the defaults' "Read from Acquire Tab"."""
+        self._current_imaging = provider
+        if self.configurationWindow is not None:
+            self.configurationWindow.defaults.set_current_imaging(provider)
+
     def open_configuration(self) -> None:
         if self.microscope is None:
             return
-        if self.configurationWindow is not None:
-            self.configurationWindow.close()
+        window = self.configurationWindow
+        if window is not None and window.isVisible():
+            # Shown again rather than rebuilt: it may hold unsaved defaults.
+            window.raise_()
+            window.activateWindow()
+            return
+        self._drop_configuration_window()
         self.configurationWindow = MicroscopeConfigurationWindow(
-            self.microscope, parent=self
+            self.microscope,
+            parent=self,
+            image_settings=getattr(self.settings, "image", None),
+            current_imaging=self._current_imaging,
         )
         self.configurationWindow.show()
         self.configurationWindow.raise_()
         self.configurationWindow.activateWindow()
 
-    def open_defaults(self) -> None:
-        if self.microscope is None:
-            return
-        self.defaultsDialog.show()
-        self.defaultsDialog.raise_()
-        self.defaultsDialog.activateWindow()
+    def _drop_configuration_window(self) -> None:
+        window, self.configurationWindow = self.configurationWindow, None
+        if window is not None:
+            window.close_without_asking()
+            window.deleteLater()
 
     def update_ui(self):
 
@@ -524,18 +520,8 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.pushButton_apply_configuration.setEnabled(
             is_microscope_connected and cfg.APPLY_CONFIGURATION_ENABLED
         )
-        self.pushButton_edit_defaults.setVisible(
-            is_microscope_connected and self.defaults_button_shown
-        )
         if not is_microscope_connected:
-            self.defaultsDialog.hide()
-            if self.configurationWindow is not None:
-                self.configurationWindow.close()
-                self.configurationWindow = None
-        self.defaultsWidget.set_microscope(
-            self.microscope or None,
-            image_settings=getattr(self.settings, "image", None),
-        )
+            self._drop_configuration_window()
 
         if is_microscope_connected:
             self.pushButton_connect_to_microscope.setVisible(False)

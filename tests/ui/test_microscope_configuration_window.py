@@ -1,4 +1,4 @@
-"""The configuration window: what the connected instrument is, read-only."""
+"""The configuration window: what the connected instrument is, and its defaults."""
 
 import os
 
@@ -46,6 +46,7 @@ def test_the_window_has_its_tabs(qapp, microscope):
         "Instrument",
         "Geometry",
         "Calibration",
+        "Defaults",
         "Session",
     ]
 
@@ -226,8 +227,152 @@ def test_the_session_tab_shows_this_configuration_s_file(qapp, microscope):
         [FibsemStagePosition(name="cryo")], session_state_for(microscope, writable=True)
     )
     window = MicroscopeConfigurationWindow(microscope)
-    text = _texts(window.tabs.widget(3))
+    text = _texts(window.tabs.widget(4))
 
     assert session_state_for(microscope).path.name in text
     assert "Saved positions  ·  1" in text
     assert "cryo" in text
+
+
+# ---------------------------------------------------------------------------
+# The Defaults tab: one Save for the window
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def toasts(monkeypatch):
+    from fibsem.ui import notification_service
+
+    shown = []
+    monkeypatch.setattr(
+        notification_service,
+        "show_toast",
+        lambda message, notification_type="info": shown.append(
+            (notification_type, message)
+        ),
+    )
+    return shown
+
+
+@pytest.fixture
+def site(tmp_path):
+    """A copy of a shipped configuration, so Save writes somewhere disposable."""
+    import shutil
+
+    path = tmp_path / "site.yaml"
+    shutil.copy(os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"), path)
+    microscope, _ = utils.setup_session(
+        config_path=str(path), manufacturer="Demo", setup_logging=False
+    )
+    yield microscope
+    microscope.disconnect()
+
+
+def _edit(window, micrometres: float = 80.0) -> None:
+    window.defaults.electron.hfw.setValue(micrometres)
+
+
+def test_a_new_window_has_nothing_to_save(qapp, site, toasts):
+    window = MicroscopeConfigurationWindow(site)
+
+    assert not window.has_unsaved_changes()
+    assert window.label_unsaved.text() == ""
+    assert not window.pushButton_save.isEnabled()
+    assert window.tabs.tabText(3) == "Defaults"
+
+
+def test_an_edit_says_where_the_unsaved_change_is(qapp, site, toasts):
+    window = MicroscopeConfigurationWindow(site)
+
+    _edit(window)
+
+    assert window.label_unsaved.text() == "Unsaved changes  ·  Defaults  ·  site.yaml"
+    assert window.tabs.tabText(3) == "Defaults •"
+    assert window.pushButton_save.isEnabled()
+
+
+def test_save_writes_the_defaults_and_clears_the_change(qapp, site, toasts):
+    window = MicroscopeConfigurationWindow(site)
+    _edit(window)
+
+    window.pushButton_save.click()
+
+    written = utils.load_yaml(site.configuration_path)
+    assert written["defaults"]["electron"]["hfw"] == pytest.approx(80.0e-6)
+    assert not window.has_unsaved_changes()
+    assert window.tabs.tabText(3) == "Defaults"
+
+
+@pytest.mark.parametrize(
+    "answer, closed, saved",
+    [("Cancel", False, False), ("Discard", True, False), ("Save", True, True)],
+)
+def test_closing_with_unsaved_changes_asks_first(
+    qapp, site, toasts, monkeypatch, answer, closed, saved
+):
+    from PyQt5.QtWidgets import QMessageBox
+
+    asked = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *a, **k: asked.append(a) or getattr(QMessageBox, answer),
+    )
+    before = utils.load_yaml(site.configuration_path)["defaults"]["electron"]["hfw"]
+    window = MicroscopeConfigurationWindow(site)
+    window.show()
+    _edit(window)
+
+    window.pushButton_close.click()
+
+    assert len(asked) == 1
+    assert window.isVisible() is not closed
+    after = utils.load_yaml(site.configuration_path)["defaults"]["electron"]["hfw"]
+    assert (after == pytest.approx(80.0e-6)) is saved
+    assert saved or after == before
+    window.close_without_asking()
+
+
+def test_closing_with_nothing_to_save_does_not_ask(qapp, site, toasts, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: pytest.fail("asked"))
+    window = MicroscopeConfigurationWindow(site)
+    window.show()
+
+    window.pushButton_close.click()
+
+    assert not window.isVisible()
+
+
+def test_apply_sets_the_microscope_to_what_the_tab_shows(qapp, site, toasts):
+    from fibsem.structures import BeamType
+
+    window = MicroscopeConfigurationWindow(site)
+    _edit(window, 123.0)
+
+    window.pushButton_apply.click()
+
+    assert site.get_field_of_view(BeamType.ELECTRON) == pytest.approx(123.0e-6)
+    assert ("info", "Defaults applied to the microscope.") in toasts
+    assert window.has_unsaved_changes()  # applied, not saved
+
+
+def test_an_apply_that_fails_is_reported_not_raised(qapp, site, toasts, monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError("beam off")
+
+    monkeypatch.setattr(site, "apply_configuration", fail)
+    window = MicroscopeConfigurationWindow(site)
+
+    window.apply_to_microscope()
+
+    assert ("error", "Could not apply the defaults: beam off") in toasts
+
+
+def test_apply_follows_the_application_s_switch(qapp, site, toasts, monkeypatch):
+    monkeypatch.setattr(cfg, "APPLY_CONFIGURATION_ENABLED", False)
+
+    window = MicroscopeConfigurationWindow(site)
+
+    assert not window.pushButton_apply.isEnabled()
