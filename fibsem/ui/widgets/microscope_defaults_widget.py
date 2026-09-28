@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import utils
-from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
+from fibsem.constants import METRE_TO_MICRON
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSystemSettings, BeamType, ImageSettings
 from fibsem.ui import notification_service
@@ -49,6 +49,13 @@ STANDARD_RESOLUTIONS: List[Tuple[int, int]] = [
     (3072, 2048),
     (6144, 4096),
 ]
+
+
+def _micro(value: float) -> float:
+    """A µm or µs spin box value in metres or seconds, without the float noise the
+    conversion leaves (100 µm is 1e-4, not 9.999999999999999e-05), so the file reads
+    back what was typed."""
+    return float(f"{value * 1e-6:.9g}")
 
 
 def _format_voltage(v) -> str:
@@ -172,9 +179,9 @@ class BeamDefaultsForm(QWidget):
         return {
             "voltage": self.voltage.value(),
             "current": self.current.value(),
-            "hfw": self.hfw.value() * MICRON_TO_METRE,
+            "hfw": _micro(self.hfw.value()),
             "resolution": list(_resolution_from_key(key)) if key else None,
-            "dwell_time": self.dwell_time.value() * 1e-6,
+            "dwell_time": _micro(self.dwell_time.value()),
             "detector_type": self.detector_type.value(),
             "detector_mode": self.detector_mode.value(),
             "scan_rotation": math.radians(self.scan_rotation.value()),
@@ -184,10 +191,10 @@ class BeamDefaultsForm(QWidget):
         """Copy the form into the record. Only the defaults; nothing about the column."""
         record.beam.voltage = self.voltage.value()
         record.beam.beam_current = self.current.value()
-        record.beam.hfw = self.hfw.value() * MICRON_TO_METRE
+        record.beam.hfw = _micro(self.hfw.value())
         key = self.resolution.value()
         record.beam.resolution = _resolution_from_key(key) if key else None
-        record.beam.dwell_time = self.dwell_time.value() * 1e-6
+        record.beam.dwell_time = _micro(self.dwell_time.value())
         record.detector.type = self.detector_type.value()
         record.detector.mode = self.detector_mode.value()
         record.beam.scan_rotation = math.radians(self.scan_rotation.value())
@@ -237,20 +244,20 @@ class ImagingDefaultsForm(QWidget):
         key = self.resolution.value()
         return {
             "beam_type": self.beam_type.value(),
-            "hfw": self.hfw.value() * MICRON_TO_METRE,
+            "hfw": _micro(self.hfw.value()),
             "resolution": list(_resolution_from_key(key)) if key else None,
-            "dwell_time": self.dwell_time.value() * 1e-6,
+            "dwell_time": _micro(self.dwell_time.value()),
             "autocontrast": self.autocontrast.isChecked(),
         }
 
     def write_into(self, settings: ImageSettings) -> None:
         """Copy the form into the record; the rest of it (save, path) is left."""
         settings.beam_type = BeamType[self.beam_type.value()]
-        settings.hfw = self.hfw.value() * MICRON_TO_METRE
+        settings.hfw = _micro(self.hfw.value())
         key = self.resolution.value()
         if key:
             settings.resolution = _resolution_from_key(key)
-        settings.dwell_time = self.dwell_time.value() * 1e-6
+        settings.dwell_time = _micro(self.dwell_time.value())
         settings.autocontrast = self.autocontrast.isChecked()
 
 
