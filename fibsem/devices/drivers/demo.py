@@ -18,7 +18,7 @@ from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import Stage
-from fibsem.structures import BeamType, FibsemStagePosition, RangeLimit
+from fibsem.structures import BeamType, FibsemStagePosition, Point, RangeLimit
 
 if TYPE_CHECKING:
     from fibsem.microscopes.simulator import DemoMicroscope
@@ -106,6 +106,55 @@ class DemoBeam(Beam):
 
     def metadata_detector_mode(self) -> ParameterMetadata:
         return self._choices("detector_mode")
+
+    def read_detector_contrast(self) -> float:
+        return self._system.detector.contrast
+
+    def write_detector_contrast(self, value: float) -> None:
+        self._system.detector.contrast = value
+
+    def read_detector_brightness(self) -> float:
+        return self._system.detector.brightness
+
+    def write_detector_brightness(self, value: float) -> None:
+        self._system.detector.brightness = value
+
+    def read_resolution(self) -> tuple:
+        return self._system.beam.resolution
+
+    def write_resolution(self, value: tuple) -> None:
+        self._system.beam.resolution = value
+
+    def read_dwell_time(self) -> float:
+        return self._system.beam.dwell_time
+
+    def write_dwell_time(self, value: float) -> None:
+        self._system.beam.dwell_time = value
+
+    # Reads hand back a new Point, as the Demo branch does, so a caller can't change
+    # the simulator's state through the value it was given.
+    def read_stigmation(self) -> Point:
+        return Point(self._system.beam.stigmation.x, self._system.beam.stigmation.y)
+
+    def write_stigmation(self, value: Point) -> None:
+        self._system.beam.stigmation = value
+
+    def read_shift(self) -> Point:
+        return Point(self._system.beam.shift.x, self._system.beam.shift.y)
+
+    def write_shift(self, value: Point) -> None:
+        self._system.beam.shift = value
+
+    def read_on(self) -> bool:
+        return self._system.on
+
+    def write_on(self, value: bool) -> None:
+        self._system.on = value
+
+    # Written only by the scan-mode keys (spot_mode, reduced_area, full_frame), which
+    # stay on the Demo chain for now.
+    def read_scanning_mode(self) -> str:
+        return self._system.scanning_mode
 
     # Only a plasma ion column has a gas.
     def available_plasma_gas(self) -> bool:

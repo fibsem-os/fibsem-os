@@ -106,6 +106,14 @@ DEVICE_DEMO_ROUTED_BEAM_KEYS = [
     "blanked",
     "detector_type",
     "detector_mode",
+    "detector_contrast",
+    "detector_brightness",
+    "resolution",
+    "dwell_time",
+    "stigmation",
+    "shift",
+    "on",
+    "scanning_mode",
 ]
 
 

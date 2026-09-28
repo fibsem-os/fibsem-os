@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from fibsem.devices.core import BoundParameter, Device, Parameter, command
 from fibsem.devices.stage import Stage
-from fibsem.structures import BeamType, FibsemImage, ImageSettings, RangeLimit
+from fibsem.structures import BeamType, FibsemImage, ImageSettings, Point, RangeLimit
 
 
 class Beam(Device):
@@ -28,6 +28,16 @@ class Beam(Device):
     preset = Parameter(str)
     detector_type = Parameter(str)
     detector_mode = Parameter(str)
+    detector_contrast = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
+    detector_brightness = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
+    resolution = Parameter(tuple, unit="px", doc="(width, height)")
+    dwell_time = Parameter(float, unit="s")
+    stigmation = Parameter(Point)
+    shift = Parameter(Point, unit="m", doc="Beam shift.")
+    on = Parameter(bool, doc="The beam is switched on.")
+    scanning_mode = Parameter(
+        str, doc='"full_frame", "reduced_area" or "spot"; set by the scan commands.'
+    )
 
     def __init__(self, beam_type: BeamType, parent: Any = None, **kwargs: Any):
         super().__init__(name=beam_type.name.lower(), parent=parent, **kwargs)
@@ -62,6 +72,14 @@ BEAM_ROUTES: Dict[str, str] = {
     "preset": "preset",
     "detector_type": "detector_type",
     "detector_mode": "detector_mode",
+    "detector_contrast": "detector_contrast",
+    "detector_brightness": "detector_brightness",
+    "resolution": "resolution",
+    "dwell_time": "dwell_time",
+    "stigmation": "stigmation",
+    "shift": "shift",
+    "on": "on",
+    "scanning_mode": "scanning_mode",
 }
 
 
