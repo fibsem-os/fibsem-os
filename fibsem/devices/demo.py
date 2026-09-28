@@ -36,57 +36,79 @@ class DemoBeam(Beam):
     def _choices(self, key: str) -> ParamMeta:
         return ParamMeta(choices=self.parent.get_available_values(key, self.beam_type))
 
-    # Plain attributes: the Demo branches read and assign them directly.
-    working_distance = Beam.working_distance.attribute("_system.beam.working_distance")
-    hfw = Beam.hfw.attribute("_system.beam.hfw")
-    # Demo's get returns float(scan_rotation) and its set stores float(value).
-    scan_rotation = Beam.scan_rotation.attribute(
-        "_system.beam.scan_rotation", cast=float
-    )
+    # Each parameter is the matching Demo branch as it stands.
 
-    voltage = Beam.voltage.attribute("_system.beam.voltage")
+    def read_voltage(self) -> float:
+        return self._system.beam.voltage
 
-    @voltage.meta
-    def voltage(self) -> ParamMeta:
+    def write_voltage(self, value: float) -> None:
+        self._system.beam.voltage = value
+
+    def meta_voltage(self) -> ParamMeta:
         return self._choices("voltage")
 
-    current = Beam.current.attribute("_system.beam.beam_current")
+    def read_current(self) -> float:
+        return self._system.beam.beam_current
 
-    @current.meta
-    def current(self) -> ParamMeta:
+    def write_current(self, value: float) -> None:
+        self._system.beam.beam_current = value
+
+    def meta_current(self) -> ParamMeta:
         return self._choices("current")
 
-    detector_type = Beam.detector_type.attribute("_system.detector.type")
+    def read_working_distance(self) -> float:
+        return self._system.beam.working_distance
 
-    @detector_type.meta
-    def detector_type(self) -> ParamMeta:
-        return self._choices("detector_type")
+    def write_working_distance(self, value: float) -> None:
+        self._system.beam.working_distance = value
 
-    detector_mode = Beam.detector_mode.attribute("_system.detector.mode")
+    def read_hfw(self) -> float:
+        return self._system.beam.hfw
 
-    @detector_mode.meta
-    def detector_mode(self) -> ParamMeta:
-        return self._choices("detector_mode")
+    def write_hfw(self, value: float) -> None:
+        self._system.beam.hfw = value
 
-    # The Demo "blanked" branch as it stands, spot burn included.
-    @Beam.blanked.reader
-    def blanked(self) -> bool:
+    def read_scan_rotation(self) -> float:
+        return float(self._system.beam.scan_rotation)
+
+    def write_scan_rotation(self, value: float) -> None:
+        self._system.beam.scan_rotation = float(value)
+
+    def read_blanked(self) -> bool:
         return self._system.blanked
 
-    @blanked.writer
-    def blanked(self, value: bool) -> None:
+    def write_blanked(self, value: bool) -> None:
         self._system.blanked = value
         if not value and self._system.scanning_mode == "spot":
-            self.parent._burn_into_sample_scene(self.beam_type)
+            self.parent._burn_into_sample_scene(self.beam_type)  # the spot burn
 
-    # Only a plasma ion column has a gas. An unavailable gas logs and is ignored,
-    # as the Demo branch does.
-    @Beam.plasma_gas.reader
-    def plasma_gas(self) -> str:
+    def read_detector_type(self) -> str:
+        return self._system.detector.type
+
+    def write_detector_type(self, value: str) -> None:
+        self._system.detector.type = value
+
+    def meta_detector_type(self) -> ParamMeta:
+        return self._choices("detector_type")
+
+    def read_detector_mode(self) -> str:
+        return self._system.detector.mode
+
+    def write_detector_mode(self, value: str) -> None:
+        self._system.detector.mode = value
+
+    def meta_detector_mode(self) -> ParamMeta:
+        return self._choices("detector_mode")
+
+    # Only a plasma ion column has a gas.
+    def available_plasma_gas(self) -> bool:
+        return self.beam_type is BeamType.ION and self.parent.system.ion.plasma
+
+    def read_plasma_gas(self) -> str:
         return self.parent.system.ion.plasma_gas
 
-    @plasma_gas.writer
-    def plasma_gas(self, value: str) -> None:
+    def write_plasma_gas(self, value: str) -> None:
+        # An unavailable gas logs and is ignored, as the Demo branch does.
         microscope = self.parent
         if not microscope.check_available_values("plasma_gas", value, BeamType.ION):
             logging.warning(
@@ -98,13 +120,8 @@ class DemoBeam(Beam):
         microscope.system.ion.plasma_gas = value
         logging.info(f"Plasma gas set to {value}.")
 
-    @plasma_gas.meta
-    def plasma_gas(self) -> ParamMeta:
+    def meta_plasma_gas(self) -> ParamMeta:
         return self._choices("plasma_gas")
-
-    @plasma_gas.available
-    def plasma_gas(self) -> bool:
-        return self.beam_type is BeamType.ION and self.parent.system.ion.plasma
 
     # "preset" is not implemented: Demo has no presets, so it is absent on the new
     # API while the old set("preset", ...) keeps its no-op through the Demo chain.

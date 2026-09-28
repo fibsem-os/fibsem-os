@@ -350,3 +350,31 @@ def test_value_property_is_shorthand_for_get_value_and_set_value(beams, caplog):
     assert "outside" in caplog.text
     with pytest.raises(ValueError):
         sem.current.value = 1.234e-9
+
+
+def test_a_misnamed_implementation_is_an_error_not_an_absent_parameter():
+    with pytest.raises(TypeError, match="curent"):
+
+        class Typo(Beam):
+            def read_curent(self):
+                return 1.0
+
+
+def test_needs_channel_is_declared_on_the_backend_class():
+    events = []
+
+    class Detector(Device):
+        contrast = Parameter(float)
+        needs_channel = frozenset({"contrast"})
+
+        def select_channel(self):
+            events.append("select")
+
+        def read_contrast(self):
+            events.append("read")
+            return 0.5
+
+    det = Detector("det").connect()
+    det.contrast.get_value()
+    assert events == ["select", "read"]
+    assert not det.contrast.settable  # no write_contrast: read-only
