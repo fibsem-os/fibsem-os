@@ -1,4 +1,4 @@
-"""The Demo backend's beams as devices, beside the untouched Demo microscope.
+"""The Demo backend's beams and stage as devices, beside the untouched Demo microscope.
 
 ``DemoBeam`` implements each parameter with what the matching branch of
 ``DemoMicroscope._get`` and ``_set`` reads and writes, so the old call and the new
@@ -9,11 +9,16 @@ implement"); the Demo chain itself is unchanged.
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from typing import TYPE_CHECKING, Dict, Optional
 
+import numpy as np
+
+from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
-from fibsem.structures import BeamType
+from fibsem.devices.stage import Stage
+from fibsem.structures import BeamType, FibsemStagePosition
 
 if TYPE_CHECKING:
     from fibsem.microscopes.simulator import DemoMicroscope
@@ -138,3 +143,144 @@ def bind_demo_beams(
         beam_type: DemoBeam(beam_type, microscope, resources).connect()
         for beam_type in (BeamType.ELECTRON, BeamType.ION)
     }
+
+
+# ``_get_axis_limits`` gives these in degrees.
+_DEGREE_AXES = ("r", "t")
+
+
+class DemoStage(Stage):
+    """The Demo stage. Each method is what the matching part of ``DemoMicroscope`` does today, reading and
+    writing the same ``stage_system``, so the old call and the device touch the same
+    state:
+
+    - ``read_position``: the ``stage_position`` branch of ``_get``;
+    - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked`` branches;
+    - ``metadata_<axis>``: ``_get_axis_limits``;
+    - ``_move_absolute`` / ``_move_relative``: ``move_stage_absolute`` /
+      ``move_stage_relative``;
+    - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
+
+    Two things differ from the old calls, both on purpose. Positions come back as a
+    copy, never the simulator's live object, so the cached value can't change under a
+    reader. And ``_get_axis_limits`` gives r and t in degrees while positions are in
+    radians; the metadata here converts them, so limits and values share one unit.
+    """
+
+    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
+        super().__init__(parent=parent, resources=resources)
+        self._system = parent.stage_system
+        # Read once at connect, as a vendor's limits would be.
+        self._axis_limits = parent._get_axis_limits()
+
+    # -- position and axes ----------------------------------------------------------
+
+    def read_position(self) -> FibsemStagePosition:
+        sim_sleep(0.1)  # the read delay the Demo branch has
+        return deepcopy(self._system.position)
+
+    def _read_axis(self, axis: str) -> float:
+        return float(getattr(self._system.position, axis))
+
+    def _axis_metadata(self, axis: str) -> ParameterMetadata:
+        limit = self._axis_limits[axis]
+        low, high = limit.min, limit.max
+        if axis in _DEGREE_AXES:
+            low, high = float(np.radians(low)), float(np.radians(high))
+        return ParameterMetadata(limits=(low, high))
+
+    # An axis exists when the simulator reports limits for it: a compustage has no r.
+
+    def available_x(self) -> bool:
+        return "x" in self._axis_limits
+
+    def read_x(self) -> float:
+        return self._read_axis("x")
+
+    def metadata_x(self) -> ParameterMetadata:
+        return self._axis_metadata("x")
+
+    def available_y(self) -> bool:
+        return "y" in self._axis_limits
+
+    def read_y(self) -> float:
+        return self._read_axis("y")
+
+    def metadata_y(self) -> ParameterMetadata:
+        return self._axis_metadata("y")
+
+    def available_z(self) -> bool:
+        return "z" in self._axis_limits
+
+    def read_z(self) -> float:
+        return self._read_axis("z")
+
+    def metadata_z(self) -> ParameterMetadata:
+        return self._axis_metadata("z")
+
+    def available_r(self) -> bool:
+        return "r" in self._axis_limits
+
+    def read_r(self) -> float:
+        return self._read_axis("r")
+
+    def metadata_r(self) -> ParameterMetadata:
+        return self._axis_metadata("r")
+
+    def available_t(self) -> bool:
+        return "t" in self._axis_limits
+
+    def read_t(self) -> float:
+        return self._read_axis("t")
+
+    def metadata_t(self) -> ParameterMetadata:
+        return self._axis_metadata("t")
+
+    # -- homing and linking -----------------------------------------------------------
+
+    def read_homed(self) -> bool:
+        return self._system.is_homed
+
+    # A compustage can't link: the old set("stage_link") logs and does nothing there,
+    # so on the new API "linked" is absent and link() is unavailable.
+    def available_linked(self) -> bool:
+        return not self.parent.stage_is_compustage
+
+    def read_linked(self) -> bool:
+        return self._system.is_linked
+
+    # -- commands ---------------------------------------------------------------------
+
+    def _move_absolute(self, position: FibsemStagePosition) -> None:
+        from fibsem.microscopes.simulator import STAGE_MOVEMENT_SLEEP_TIME
+
+        sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)
+        for axis in ("x", "y", "z", "r", "t"):
+            value = getattr(position, axis)
+            if value is not None:
+                setattr(self._system.position, axis, value)
+        logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
+
+    def _move_relative(self, delta: FibsemStagePosition) -> None:
+        from fibsem.microscopes.simulator import STAGE_MOVEMENT_SLEEP_TIME
+
+        sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)
+        self._system.position += delta
+        logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
+
+    def _home(self) -> None:
+        logging.info("Homing stage...")
+        self._system.is_homed = True
+        logging.info("Stage homed.")
+
+    def _link(self) -> None:
+        logging.info("Linking stage...")
+        self._system.is_linked = True
+        logging.info("Stage linked.")
+
+
+def bind_demo_stage(
+    microscope: DemoMicroscope, resources: Optional[Resources] = None
+) -> DemoStage:
+    """Build ``stage`` for a connected Demo microscope."""
+    return DemoStage(microscope, resources).connect()

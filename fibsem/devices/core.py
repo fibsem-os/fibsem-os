@@ -183,6 +183,11 @@ class BoundParameter:
     def settable(self) -> bool:
         return self.metadata.settable
 
+    @property
+    def writable(self) -> bool:
+        """Whether the backend has a write at all: what the old API's path needs."""
+        return self._write is not None
+
     def refresh_metadata(self, emit: bool = True) -> ParameterMetadata:
         """Read the metadata again from the backend. Called at bind and on dependencies."""
         source = self._metadata_source

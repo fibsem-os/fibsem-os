@@ -26,9 +26,31 @@ the old calls do.
 
     router = KeyRouter(microscope, beams)
     router.get("current", BeamType.ELECTRON) == microscope.get("current", BeamType.ELECTRON)
+
+The stage is a device the same way, with moves as commands:
+
+    from fibsem.devices.drivers.demo import bind_demo_stage
+    from fibsem.structures import FibsemStagePosition
+
+    stage = bind_demo_stage(microscope)
+    stage.axes                              # ("x", "y", "z", "r", "t"); no r on a compustage
+    stage.t.limits                          # radians, cached at connect
+    stage.position.changed.connect(print)   # every move, and every read that differs
+    stage.move_absolute(FibsemStagePosition(x=1e-3))   # refused outside the limits
+    stage.move_through(FibsemStagePosition(x=1e-3))    # the old API's move: no new check
+    stage.home()
+
+    router = KeyRouter(microscope, beams, stage=stage)
+    router.get("stage_position") == microscope.get("stage_position")
 """
 
-from fibsem.devices.beam import BEAM_ROUTES, Beam, KeyRouter
+from fibsem.devices.beam import (
+    BEAM_ROUTES,
+    STAGE_COMMAND_ROUTES,
+    STAGE_ROUTES,
+    Beam,
+    KeyRouter,
+)
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
     BoundParameter,
@@ -41,9 +63,14 @@ from fibsem.devices.core import (
     Resources,
     command,
 )
+from fibsem.devices.stage import AXES, STAGE_RESOURCE, Stage, StageLimitError
 
 __all__ = [
+    "AXES",
     "BEAM_ROUTES",
+    "STAGE_COMMAND_ROUTES",
+    "STAGE_RESOURCE",
+    "STAGE_ROUTES",
     "IMAGING_CHANNEL",
     "CommandInfo",
     "Beam",
@@ -55,5 +82,7 @@ __all__ = [
     "ParameterReadOnly",
     "ParameterUnavailable",
     "Resources",
+    "Stage",
+    "StageLimitError",
     "command",
 ]
