@@ -30,6 +30,13 @@ from psygnal import Signal
 import fibsem.constants as constants
 from fibsem import manufacturers
 from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.geometry.movement import (
+    apply_delta,
+    fib_offset_after_sem_move,
+    image_to_stage_delta,
+    undo_scan_rotation,
+    vertical_move_delta,
+)
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
 from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.milling.progress import MillingProgress
@@ -561,17 +568,67 @@ class FibsemMicroscope(ABC):
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         pass
 
-    @abstractmethod
-    def stable_move(
-        self, dx: float, dy: float, beam_type: BeamType
-    ) -> FibsemStagePosition:
-        pass
+    # The view-corrected moves below are shared by every backend but Tescan, which has
+    # its own stage model. The geometry is in `fibsem.geometry.movement`; these read the
+    # instrument, command the move and look after the working distance.
 
-    @abstractmethod
+    # TODO: migrate from stable_move vocab to sample_stage
+    @_records_stage_move
+    def stable_move(
+        self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
+    ) -> FibsemStagePosition:
+        """
+        Calculate the corrected stage movements based on the beam_type stage tilt, shuttle pre-tilt,
+        and then move the stage relatively.
+
+        Args:
+            dx (float): distance along the x-axis (image coordinates)
+            dy (float): distance along the y-axis (image coordinates)
+            beam_type (BeamType): beam type to move in
+            static_wd (bool, optional): whether to fix the working distance to the eucentric heights. Defaults to False.
+        """
+
+        wd = self.get_working_distance(beam_type=BeamType.ELECTRON)
+
+        scan_rotation = self.get_scan_rotation(beam_type=beam_type)
+        dx, dy = undo_scan_rotation(dx, dy, scan_rotation)
+
+        # calculate stable movement
+        stage_position = self._view_stage_delta(
+            dx, dy, view_tilt=self._beam_view_tilt(beam_type)
+        )
+
+        # move stage
+        self.move_stage_relative(stage_position)
+
+        # adjust working distance to compensate for stage movement
+        if static_wd:
+            wd = self.system.electron.eucentric_height
+
+        if not self.stage_is_compustage:  # TODO: can replace with self.stage.is_linked
+            self.set_working_distance(wd, BeamType.ELECTRON)
+
+        # logging
+        logging.debug(
+            {
+                "msg": "stable_move",
+                "dx": dx,
+                "dy": dy,
+                "beam_type": beam_type.name,
+                "static_wd": static_wd,
+                "working_distance": wd,
+                "scan_rotation": scan_rotation,
+                "position": stage_position.to_dict(),
+            }
+        )
+
+        return self.get_stage_position()
+
+    @_records_stage_move
     def vertical_move(
         self,
         dy: float,
-        dx: float = 0,
+        dx: float = 0.0,
         beam_type: BeamType = BeamType.ION,
         relaxation: float = 1.0,
     ) -> FibsemStagePosition:
@@ -584,7 +641,11 @@ class FibsemMicroscope(ABC):
                 the historical behaviour) corrects a feature already centred in the
                 SEM; ELECTRON corrects one already centred in the FIB.
             relaxation: under-relaxation of the correction. 1.0 applies the
-                geometrically exact move; below 1.0 deliberately undershoots it.
+                geometrically exact move; below 1.0 deliberately undershoots it,
+                which keeps a manual look-correct-look loop convergent where a
+                slight model error would otherwise make it oscillate. This replaces
+                the old hard-coded 0.9, which was found to be absorbing a
+                decomposition error rather than correcting perspective (FIB-773).
                 Every backend must accept it, because ensure_coincident passes it;
                 a backend may ignore it (Tescan does).
 
@@ -592,7 +653,105 @@ class FibsemMicroscope(ABC):
             NotImplementedError: if this backend cannot correct from that view.
                 Ask supports_vertical_move first rather than catching this.
         """
-        pass
+        self._check_vertical_move_supported(beam_type)
+        if beam_type is BeamType.ELECTRON:
+            return self._vertical_move_from_sem(dx=dx, dy=dy, relaxation=relaxation)
+        return self._vertical_move_from_fib(dx=dx, dy=dy, relaxation=relaxation)
+
+    def _vertical_move_from_fib(
+        self,
+        dy: float,
+        dx: float = 0.0,
+        relaxation: float = 1.0,
+    ) -> FibsemStagePosition:
+        """Move the stage vertically to correct coincidence point
+
+        The offset is measured in the FIB view: the feature is already centred in
+        the SEM, and a chamber-vertical move is invisible to the electron beam.
+
+        Args:
+            dy (float): distance along the y-axis (image coordinates)
+            dx (float, optional): distance along the x-axis (image coordinates). Defaults to 0.0.
+        """
+
+        # get current working distance, to be restored later
+        wd = self.get_working_distance(beam_type=BeamType.ELECTRON)
+
+        scan_rotation = self.get_scan_rotation(beam_type=BeamType.ION)
+        stage_position = vertical_move_delta(
+            dx=dx,
+            dy=dy,
+            scan_rotation=scan_rotation,
+            fib_column_tilt=self.system.ion.column_tilt,
+            stage_tilt=self.get_stage_position().t,
+            is_compustage=self.stage_is_compustage,
+            relaxation=relaxation,
+        )
+        logging.info(f"Vertical movement: {stage_position}")
+        self.move_stage_relative(
+            stage_position
+        )  # NOTE: this seems to be a bit less than previous... -> perspective correction?
+
+        # Vertical moves re-establish the coincidence plane. Always restore the
+        # pre-move SEM (electron) working distance so fine corrections keep their
+        # focus. For a large correction, snap the FIB (ion) WD to eucentric (the
+        # best estimate at the new coincidence plane); small corrections keep the
+        # current FIB focus.
+        EUCENTRIC_RESET_THRESHOLD = 100e-6  # m (stage-z travel)
+        self.set_working_distance(wd=wd, beam_type=BeamType.ELECTRON)
+        if abs(stage_position.z) > EUCENTRIC_RESET_THRESHOLD:
+            self.set_working_distance(
+                wd=self.system.ion.eucentric_height, beam_type=BeamType.ION
+            )
+
+        # logging
+        logging.debug(
+            {
+                "msg": "vertical_move",
+                "dy": stage_position.y,
+                "dx": stage_position.x,
+                "wd": wd,
+                "scan_rotation": scan_rotation,
+                "position": stage_position.to_dict(),
+            }
+        )
+
+        return self.get_stage_position()
+
+    def _vertical_move_from_sem(
+        self, dx: float, dy: float, relaxation: float = 1.0
+    ) -> FibsemStagePosition:
+        """Correct the coincidence point from an offset measured in the SEM view.
+
+        Not the mirror image of the FIB path but a superset: a stable move first
+        brings the feature to the centre of the SEM, and the height correction
+        that follows puts the FIB back.
+        """
+
+        # move to position in SEM
+        base_position = self.get_stage_position()
+        self.stable_move(dx=dx, dy=dy, beam_type=BeamType.ELECTRON)
+
+        # calculate the difference in position after SEM move
+        position_after_sem_move = self.get_stage_position()
+
+        # correct for the stage tilt and milling angle
+        milling_angle = None
+        if self.get_stage_orientation() in ["SEM", "MILLING"]:
+            milling_angle = self.get_current_milling_angle()  # deg
+
+        dy = fib_offset_after_sem_move(
+            stage_dy=position_after_sem_move.y - base_position.y,
+            ion_scan_rotation=self.get_scan_rotation(beam_type=BeamType.ION),
+            milling_angle=milling_angle,
+        )
+
+        # apply the vertical move to correct the position. (The old 1.11
+        # here was 1/0.9: it existed to cancel the magic constant inside
+        # vertical_move from the outside, and is gone with it - FIB-773.)
+        self._vertical_move_from_fib(dx=0, dy=dy, relaxation=relaxation)
+
+        return self.get_stage_position()
 
     def supports_vertical_move(self, beam_type: BeamType = BeamType.ION) -> bool:
         """Whether coincidence can be restored from the given view on this system."""
@@ -606,7 +765,6 @@ class FibsemMicroscope(ABC):
                 f"{beam_type.name} view."
             )
 
-    @abstractmethod
     def project_stable_move(
         self,
         dx: float,
@@ -614,7 +772,18 @@ class FibsemMicroscope(ABC):
         beam_type: BeamType,
         base_position: FibsemStagePosition,
     ) -> FibsemStagePosition:
-        pass
+        """Where the stage would end up after a stable move from ``base_position``.
+
+        Nothing moves. The projection is taken at the current stage pose, not at
+        ``base_position``, as it always has been.
+        """
+        scan_rotation = self.get_scan_rotation(beam_type=beam_type)
+        dx, dy = undo_scan_rotation(dx, dy, scan_rotation)
+
+        delta = self._view_stage_delta(
+            dx, dy, view_tilt=self._beam_view_tilt(beam_type)
+        )
+        return apply_delta(base_position, delta)
 
     def move_flat_to_beam(self, beam_type: BeamType, _safe: bool = True) -> None:
         """Move the sample surface flat to the electron or ion beam.
@@ -858,9 +1027,49 @@ class FibsemMicroscope(ABC):
         self.safe_absolute_stage_movement(stage_position)
         return self._stage.position
 
-    @abstractmethod
-    def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
-        pass
+    def _safe_rotation_movement(self, stage_position: FibsemStagePosition):
+        """Tilt the stage flat when performing a large rotation to prevent collision.
+
+        Args:
+            stage_position (StagePosition): desired stage position.
+        """
+        current_position = self.get_stage_position()
+
+        # tilt flat for large rotations to prevent collisions
+        from fibsem import movement
+
+        if movement.rotation_angle_is_larger(stage_position.r, current_position.r):
+            self.move_stage_absolute(FibsemStagePosition(t=0))
+            logging.info("tilting to flat for large rotation.")
+
+        return
+
+    @_records_stage_move
+    def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
+        """Move the stage to the desired position in a safe manner, using compucentric rotation.
+        Supports movements in the stage_position coordinate system
+        """
+        # Before anything moves. The staged move below rotates the stage where it
+        # stands, which is the correct order leaving the beams and the wrong one
+        # coming back from the FM -- see FIB-841.
+        self._refuse_rotation_at_the_fluorescence_microscope(stage_position)
+
+        # safe movements are not required on the compustage, because it doesn't rotate
+        if not self.stage_is_compustage:
+            # tilt flat for large rotations to prevent collisions
+            self._safe_rotation_movement(stage_position)
+
+            # move to compucentric rotation
+            self.move_stage_absolute(
+                FibsemStagePosition(r=stage_position.r, coordinate_system="RAW")
+            )  # TODO: support compucentric rotation directly
+
+        logging.debug(f"safe moving to {stage_position}")
+        self.move_stage_absolute(stage_position)
+
+        logging.debug("safe movement complete.")
+
+        return
 
     def get_manipulator_state(self) -> bool:
         """Get the manipulator state (Inserted = True, Retracted = False)"""
@@ -2431,71 +2640,81 @@ class FibsemMicroscope(ABC):
             FibsemStagePosition: y-corrected stage movement (relative position)
         """
 
+        delta = self._view_stage_delta(0, expected_y, view_tilt=view_tilt)
+        return FibsemStagePosition(x=0, y=delta.y, z=delta.z)
+
+    def _view_stage_delta(
+        self, dx: float, dy: float, view_tilt: float
+    ) -> FibsemStagePosition:
+        """:func:`fibsem.geometry.movement.image_to_stage_delta` at the current pose.
+
+        On a compustage, which side of the stage faces the FIB is decided by the
+        microscope's own orientation table (`get_stage_orientation`), as the stage
+        moves always have; the saved-image path derives it from the pose instead.
+        """
         # TODO: replace with camera matrix * inverse kinematics
-
-        # all angles in radians
-        sem_column_tilt = np.deg2rad(self.system.electron.column_tilt)
-
-        stage_pretilt = np.deg2rad(self.system.stage.shuttle_pre_tilt)
-
-        stage_rotation_flat_to_eb = np.deg2rad(self.system.stage.rotation_reference) % (
-            2 * np.pi
-        )
-        stage_rotation_flat_to_ion = np.deg2rad(self.system.stage.rotation_180) % (
-            2 * np.pi
-        )
-
-        # current stage position
-        current_stage_position = self.get_stage_position()
-        stage_rotation = current_stage_position.r % (2 * np.pi)
-        stage_tilt = current_stage_position.t
-
-        # the compustage does not have pre-tilt, cannot rotate, but tilts 180 deg.
+        position = self.get_stage_position()
+        is_fib_orientation = None
         if self.stage_is_compustage:
-            # if stage_tilt < 0:
-            expected_y *= -1.0
+            is_fib_orientation = self.get_stage_orientation() == "FIB"
+        return image_to_stage_delta(
+            dx,
+            dy,
+            view_tilt=view_tilt,
+            geometry=self.hardware_geometry(),
+            stage_rotation=position.r,
+            stage_tilt=position.t,
+            is_fib_orientation=is_fib_orientation,
+        )
 
-            stage_tilt += np.pi
+    def _y_corrected_stage_movement(
+        self,
+        expected_y: float,
+        beam_type: BeamType = BeamType.ELECTRON,
+    ) -> FibsemStagePosition:
+        """
+        Calculate the y corrected stage movement, corrected for the additional tilt of the sample holder (pre-tilt angle).
 
-        PRETILT_SIGN = 1.0
-        # pretilt angle depends on rotation # TODO: migrate to orientation
-        from fibsem import movement
+        Thin wrapper over :meth:`_view_corrected_stage_movement`: a beam is just a
+        view whose axis is tilted from the electron column by its ``column_tilt``.
 
-        if movement.rotation_angle_is_smaller(
-            stage_rotation, stage_rotation_flat_to_eb, atol=5
-        ):
-            PRETILT_SIGN = 1.0
-        if movement.rotation_angle_is_smaller(
-            stage_rotation, stage_rotation_flat_to_ion, atol=5
-        ):
-            PRETILT_SIGN = -1.0
+        Args:
+            expected_y (float, optional): distance along y-axis.
+            beam_type (BeamType, optional): beam_type to move in. Defaults to BeamType.ELECTRON.
 
-        if self.stage_is_compustage and self.get_stage_orientation() == "FIB":
-            # Stays after FIB-834 made `rotation_180` derived. A compustage does not
-            # rotate, so it derives to `rotation_reference` -- the same value the
-            # configuration used to state, which is why both comparisons above still
-            # match and this flip is still what separates the two sides. Deriving it to
-            # a half turn instead would have moved the sign here, silently.
-            expected_y *= -1.0
-            PRETILT_SIGN = -1.0
+        Returns:
+            StagePosition: y corrected stage movement (relative position)
+        """
+        return self._view_corrected_stage_movement(
+            expected_y=expected_y,
+            view_tilt=self._beam_view_tilt(beam_type),
+        )
 
-        corrected_pretilt_angle = PRETILT_SIGN * (
-            stage_pretilt + sem_column_tilt
-        )  # electron angle = 0, ion = 52
+    def _inverse_y_corrected_stage_movement(
+        self,
+        dy: float,
+        dz: float,
+        beam_type: BeamType = BeamType.ELECTRON,
+    ) -> float:
+        """
+        Calculate the expected_y input from dy, dz stage movements and beam_type.
+        This is the inverse of _y_corrected_stage_movement.
 
-        # perspective tilt adjustment (difference between perspective view and sample coordinate system)
-        perspective_tilt_adjustment = -corrected_pretilt_angle - view_tilt
+        Thin wrapper over :meth:`_inverse_view_corrected_stage_movement`.
 
-        # the amount the sample has to move in the y-axis
-        y_sample_move = expected_y / np.cos(stage_tilt + perspective_tilt_adjustment)
+        Args:
+            dy (float): actual y stage movement
+            dz (float): actual z stage movement
+            beam_type (BeamType, optional): beam_type used. Defaults to BeamType.ELECTRON.
 
-        # the amount the stage has to move in each axis
-        y_move = y_sample_move * np.cos(corrected_pretilt_angle)
-        z_move = -y_sample_move * np.sin(
-            corrected_pretilt_angle
-        )  # TODO: investigate this
-
-        return FibsemStagePosition(x=0, y=y_move, z=z_move)
+        Returns:
+            float: expected_y input that would produce the given dy, dz movements
+        """
+        return self._inverse_view_corrected_stage_movement(
+            dy=dy,
+            dz=dz,
+            view_tilt=self._beam_view_tilt(beam_type),
+        )
 
     def _inverse_view_corrected_stage_movement(
         self,
@@ -2590,13 +2809,7 @@ class FibsemMicroscope(ABC):
 
         dx, dy = self._fm_image_to_stage_delta(dx, dy)
 
-        yz_move = self._view_corrected_stage_movement(
-            expected_y=dy,
-            view_tilt=np.deg2rad(self.fm.camera_tilt),
-        )
-        return FibsemStagePosition(
-            x=dx, y=yz_move.y, z=yz_move.z, r=0, t=0, coordinate_system="RAW"
-        )
+        return self._view_stage_delta(dx, dy, view_tilt=np.deg2rad(self.fm.camera_tilt))
 
     def project_fm_stable_move(
         self, dx: float, dy: float, base_position: FibsemStagePosition
@@ -2627,14 +2840,7 @@ class FibsemMicroscope(ABC):
         Raises:
             ValueError: if no fluorescence microscope is available.
         """
-        delta = self._fm_stage_delta(dx, dy)
-
-        new_position = deepcopy(base_position)
-        new_position.x += delta.x
-        new_position.y += delta.y
-        new_position.z += delta.z
-
-        return new_position
+        return apply_delta(base_position, self._fm_stage_delta(dx, dy))
 
     def hardware_geometry(self) -> FibsemHardwareGeometry:
         """The fixed geometry this instrument is arranged in.
