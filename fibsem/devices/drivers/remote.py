@@ -91,6 +91,13 @@ def _limits(payload: Any) -> Any:
     return {name: RangeLimit.from_dict(limit) for name, limit in payload.items()}
 
 
+def _from_wire(type_: type, value: Any) -> Any:
+    """JSON has no tuple: a tuple parameter arrives as a list."""
+    if type_ is tuple and isinstance(value, list):
+        return tuple(value)
+    return value
+
+
 def _metadata(payload: Dict[str, Any]) -> ParameterMetadata:
     return ParameterMetadata(
         limits=_limits(payload.get("limits")),
@@ -238,7 +245,7 @@ class DeviceClient:
         if event["kind"] == "changed":
             if self._take_echo((event["device"], event["parameter"]), event["value"]):
                 return  # our own write: its write path signals it
-            param.report(event["value"])  # emits only if the value is news here
+            param.report(_from_wire(param.type, event["value"]))  # only if news
         elif event["kind"] == "metadata":
             param.refresh_metadata()
 
@@ -312,7 +319,10 @@ class RemoteDevice(Device):
 
     def _reader(self, name: str) -> Callable[[], Any]:
         path = f"devices/{self.name}/{name}"
-        return lambda: self.client.request("GET", path, READ_TIMEOUT)["value"]
+        type_ = self.declared_parameters()[name].type
+        return lambda: _from_wire(
+            type_, self.client.request("GET", path, READ_TIMEOUT)["value"]
+        )
 
     def _writer(self, name: str) -> Callable[[Any], None]:
         path = f"devices/{self.name}/{name}"

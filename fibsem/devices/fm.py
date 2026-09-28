@@ -28,6 +28,8 @@ class Camera(Device):
     binning = Parameter(int)
     gain = Parameter(float)
     offset = Parameter(float)
+    pixel_size = Parameter(tuple, unit="m", doc="(x, y), after binning.")
+    resolution = Parameter(tuple, doc="(width, height) in pixels, after binning.")
 
     @command
     def acquire(self) -> np.ndarray:

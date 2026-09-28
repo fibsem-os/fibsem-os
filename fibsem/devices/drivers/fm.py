@@ -57,6 +57,12 @@ class FMCamera(Camera):
     def write_offset(self, value: float) -> None:
         self._camera.offset = value
 
+    def read_pixel_size(self) -> tuple:
+        return tuple(self._camera.pixel_size)
+
+    def read_resolution(self) -> tuple:
+        return tuple(self._camera.resolution)
+
     def _acquire(self) -> np.ndarray:
         return self._camera.acquire_image()
 
