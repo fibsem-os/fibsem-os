@@ -1,6 +1,6 @@
 """The device prototype on the Demo backend.
 
-Two kinds of test. Parity: every call through the compatibility front gives what the
+Two kinds of test. Parity: every call through the key router gives what the
 untouched old call gives, including its no-ops and missing checks. And the new API:
 metadata, validation, signals, dependencies, resources and actions.
 """
@@ -15,8 +15,8 @@ from fibsem import utils
 from fibsem.devices import (
     BEAM_ROUTES,
     Beam,
-    CompatibilityFront,
     Device,
+    KeyRouter,
     Parameter,
     ParameterReadOnly,
     ParameterUnavailable,
@@ -47,21 +47,21 @@ def beams(microscope):
     return bind_demo_beams(microscope)
 
 
-# -- parity: the old API through the front behaves exactly as before ---------------
+# -- parity: the old API through the router behaves exactly as before ---------------
 
 
 @pytest.mark.parametrize("plasma", [False, True])
-def test_front_get_matches_old_get_for_every_routed_key(plasma):
+def test_router_get_matches_old_get_for_every_routed_key(plasma):
     microscope = _demo(plasma)
-    front = CompatibilityFront(microscope, bind_demo_beams(microscope))
+    router = KeyRouter(microscope, bind_demo_beams(microscope))
     for beam_type in BEAMS:
         for key in list(BEAM_ROUTES) + ["shift", "on", "no_such_key"]:
-            assert front.get(key, beam_type) == microscope.get(key, beam_type), key
-    assert front.get("stage_position") == microscope.get("stage_position")
+            assert router.get(key, beam_type) == microscope.get(key, beam_type), key
+    assert router.get("stage_position") == microscope.get("stage_position")
 
 
-def test_front_available_values_match_old(microscope, beams):
-    front = CompatibilityFront(microscope, beams)
+def test_router_available_values_match_old(microscope, beams):
+    router = KeyRouter(microscope, beams)
     for beam_type in BEAMS:
         for key in (
             "voltage",
@@ -70,7 +70,7 @@ def test_front_available_values_match_old(microscope, beams):
             "detector_mode",
             "scan_direction",
         ):
-            assert front.get_available_values(key, beam_type) == (
+            assert router.get_available_values(key, beam_type) == (
                 microscope.get_available_values(key, beam_type)
             ), key
 
@@ -92,35 +92,35 @@ OLD_SETS = [
 
 @pytest.mark.parametrize("beam_type", BEAMS)
 @pytest.mark.parametrize("key, value", OLD_SETS)
-def test_front_set_leaves_the_same_state_as_old_set(beam_type, key, value):
+def test_router_set_leaves_the_same_state_as_old_set(beam_type, key, value):
     old, new = _demo(), _demo()
-    front = CompatibilityFront(new, bind_demo_beams(new))
+    router = KeyRouter(new, bind_demo_beams(new))
 
     old.set(key, value, beam_type)
-    front.set(key, value, beam_type)
+    router.set(key, value, beam_type)
 
     for read_key in list(BEAM_ROUTES) + ["shift", "stigmation", "resolution"]:
         assert new.get(read_key, beam_type) == old.get(read_key, beam_type), read_key
 
 
-def test_front_keeps_the_spot_burn_side_effect_of_unblanking(monkeypatch):
+def test_router_keeps_the_spot_burn_side_effect_of_unblanking(monkeypatch):
     burns = []
     microscope = _demo()
     monkeypatch.setattr(microscope, "_burn_into_sample_scene", burns.append)
-    front = CompatibilityFront(microscope, bind_demo_beams(microscope))
+    router = KeyRouter(microscope, bind_demo_beams(microscope))
     microscope.ion_system.scanning_mode = "spot"
 
-    front.set("blanked", False, BeamType.ION)
+    router.set("blanked", False, BeamType.ION)
 
     assert burns == [BeamType.ION]
 
 
-def test_front_keeps_ignoring_an_unavailable_plasma_gas():
+def test_router_keeps_ignoring_an_unavailable_plasma_gas():
     old, new = _demo(plasma=True), _demo(plasma=True)
-    front = CompatibilityFront(new, bind_demo_beams(new))
+    router = KeyRouter(new, bind_demo_beams(new))
 
     old.set("plasma_gas", "Helium", BeamType.ION)
-    front.set("plasma_gas", "Helium", BeamType.ION)
+    router.set("plasma_gas", "Helium", BeamType.ION)
 
     assert new.get("plasma_gas", BeamType.ION) == old.get("plasma_gas", BeamType.ION)
     assert new.get("plasma_gas", BeamType.ION) == "Xenon"
@@ -199,13 +199,13 @@ def test_a_choice_matches_within_float_noise(beams):
 
 def test_changed_carries_the_value_from_both_apis(microscope, beams):
     sem = beams[BeamType.ELECTRON]
-    front = CompatibilityFront(microscope, beams)
+    router = KeyRouter(microscope, beams)
     seen, on_device = [], []
     sem.hfw.changed.connect(seen.append)
     sem.changed.connect(lambda name, value: on_device.append((name, value)))
 
     sem.hfw.set_value(100e-6)
-    front.set("hfw", 50e-6, BeamType.ELECTRON)
+    router.set("hfw", 50e-6, BeamType.ELECTRON)
 
     assert seen == [100e-6, 50e-6]
     assert on_device == [("hfw", 100e-6), ("hfw", 50e-6)]

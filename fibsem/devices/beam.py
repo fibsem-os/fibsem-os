@@ -1,7 +1,7 @@
-"""The Beam device, and the compatibility front that keeps today's get/set working.
+"""The Beam device, and the key router that keeps today's get/set working.
 
 One ``Beam`` class serves both columns; a parameter one column lacks is simply not
-bound on it. ``CompatibilityFront`` is what ``FibsemMicroscope.get``/``set`` would
+bound on it. ``KeyRouter`` is what ``FibsemMicroscope.get``/``set`` would
 become: a key that has moved to a device is routed to its parameter, and every other
 key falls through to the backend's untouched if/elif chain.
 """
@@ -64,7 +64,7 @@ BEAM_ROUTES: Dict[str, str] = {
 }
 
 
-class CompatibilityFront:
+class KeyRouter:
     """Today's ``get``/``set``/``get_available_values``, routed where a key has moved.
 
     Routed calls make the same instrument call the old branch made and skip the new

@@ -9,7 +9,7 @@ Two paths reach the hardware:
 
 - the new API, ``param.set_value(v)``: type and choice checks raise, numeric values clip to
   their limits with a warning, and then the write path runs;
-- the old API, through a compatibility front, ``param.write_through(v)``: no new
+- the old API, through the key router, ``param.write_through(v)``: no new
   validation, so each backend keeps its current behaviour, and then the same write path.
 
 The write path claims the parameter's resource, selects the imaging channel when the

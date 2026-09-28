@@ -2,11 +2,11 @@
 
 Nothing in fibsem uses this package yet, and ``FibsemMicroscope`` is unchanged. It
 shows the device model on the Demo backend: parameters that describe themselves,
-actions, named shared resources, and a compatibility front that routes today's
+actions, named shared resources, and a key router that sends today's
 ``get``/``set`` keys to parameters without changing what the old calls do.
 
     from fibsem import utils
-    from fibsem.devices import CompatibilityFront, bind_demo_beams
+    from fibsem.devices import KeyRouter, bind_demo_beams
     from fibsem.structures import BeamType
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -21,11 +21,11 @@ actions, named shared resources, and a compatibility front that routes today's
     "preset" in sem.parameters              # False: Demo has no presets
     sem.actions["acquire"].signature        # "(image_settings=None)"
 
-    front = CompatibilityFront(microscope, beams)
-    front.get("current", BeamType.ELECTRON) == microscope.get("current", BeamType.ELECTRON)
+    router = KeyRouter(microscope, beams)
+    router.get("current", BeamType.ELECTRON) == microscope.get("current", BeamType.ELECTRON)
 """
 
-from fibsem.devices.beam import BEAM_ROUTES, Beam, CompatibilityFront
+from fibsem.devices.beam import BEAM_ROUTES, Beam, KeyRouter
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
     ActionInfo,
@@ -46,7 +46,7 @@ __all__ = [
     "ActionInfo",
     "Beam",
     "BoundParameter",
-    "CompatibilityFront",
+    "KeyRouter",
     "Device",
     "ParamMeta",
     "Parameter",
