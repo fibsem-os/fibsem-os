@@ -66,6 +66,11 @@ from fibsem.devices.core import (
     Resources,
     command,
 )
+from fibsem.devices.manipulator import (
+    MANIPULATOR_RESOURCE,
+    MANIPULATOR_ROUTES,
+    Manipulator,
+)
 from fibsem.devices.stage import (
     AXIS_UNITS,
     STAGE_RESOURCE,
@@ -88,6 +93,9 @@ __all__ = [
     "STAGE_RESOURCE",
     "STAGE_ROUTES",
     "IMAGING_CHANNEL",
+    "MANIPULATOR_RESOURCE",
+    "MANIPULATOR_ROUTES",
+    "Manipulator",
     "CommandInfo",
     "Beam",
     "BoundParameter",
