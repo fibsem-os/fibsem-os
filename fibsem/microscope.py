@@ -20,16 +20,16 @@ from psygnal import Signal
 import fibsem.constants as constants
 from fibsem import manufacturers
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
-from fibsem.imaging.tiling.progress import TiledProgress
-from fibsem.milling.progress import MillingProgress
-from fibsem.movement_geometry import (
+from fibsem.geometry.movement import (
     apply_delta,
     fib_offset_after_sem_move,
     image_to_stage_delta,
     undo_scan_rotation,
     vertical_move_delta,
 )
+from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
+from fibsem.imaging.tiling.progress import TiledProgress
+from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
@@ -555,7 +555,7 @@ class FibsemMicroscope(ABC):
         pass
 
     # The view-corrected moves below are shared by every backend but Tescan, which has
-    # its own stage model. The geometry is in `fibsem.movement_geometry`; these read the
+    # its own stage model. The geometry is in `fibsem.geometry.movement`; these read the
     # instrument, command the move and look after the working distance.
 
     # TODO: migrate from stable_move vocab to sample_stage
@@ -2512,7 +2512,7 @@ class FibsemMicroscope(ABC):
     def _view_stage_delta(
         self, dx: float, dy: float, view_tilt: float
     ) -> FibsemStagePosition:
-        """:func:`fibsem.movement_geometry.image_to_stage_delta` at the current pose.
+        """:func:`fibsem.geometry.movement.image_to_stage_delta` at the current pose.
 
         On a compustage, which side of the stage faces the FIB is decided by the
         microscope's own orientation table (`get_stage_orientation`), as the stage

@@ -1,6 +1,6 @@
 """The pure movement geometry, and the stage moves every backend but Tescan shares.
 
-`fibsem.movement_geometry` holds the maths the view-corrected moves used to carry
+`fibsem.geometry.movement` holds the maths the view-corrected moves used to carry
 inline in `ThermoMicroscope`, which Demo and Odemis borrowed by calling
 `ThermoMicroscope.stable_move(self, ...)`. The moves now live once on
 `FibsemMicroscope`, so these pin two things: that the commands a move sends are exactly
@@ -16,16 +16,16 @@ import numpy as np
 import pytest
 
 from fibsem import utils
-from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.autoscript import ThermoMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope
-from fibsem.movement_geometry import (
+from fibsem.geometry.movement import (
     apply_delta,
     fib_offset_after_sem_move,
     image_to_stage_delta,
     undo_scan_rotation,
     vertical_move_delta,
 )
+from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.autoscript import ThermoMicroscope
+from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
 
 # -128 is the compustage FIB orientation at the default pretilt of 0
