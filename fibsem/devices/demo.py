@@ -12,7 +12,7 @@ import logging
 from typing import TYPE_CHECKING, Dict, Optional
 
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import ParamMeta, Resources
+from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.structures import BeamType
 
 if TYPE_CHECKING:
@@ -33,8 +33,10 @@ class DemoBeam(Beam):
             else parent.ion_system
         )
 
-    def _choices(self, key: str) -> ParamMeta:
-        return ParamMeta(choices=self.parent.get_available_values(key, self.beam_type))
+    def _choices(self, key: str) -> ParameterMetadata:
+        return ParameterMetadata(
+            choices=self.parent.get_available_values(key, self.beam_type)
+        )
 
     # Each parameter is the matching Demo branch as it stands.
 
@@ -44,7 +46,7 @@ class DemoBeam(Beam):
     def write_voltage(self, value: float) -> None:
         self._system.beam.voltage = value
 
-    def meta_voltage(self) -> ParamMeta:
+    def metadata_voltage(self) -> ParameterMetadata:
         return self._choices("voltage")
 
     def read_current(self) -> float:
@@ -53,7 +55,7 @@ class DemoBeam(Beam):
     def write_current(self, value: float) -> None:
         self._system.beam.beam_current = value
 
-    def meta_current(self) -> ParamMeta:
+    def metadata_current(self) -> ParameterMetadata:
         return self._choices("current")
 
     def read_working_distance(self) -> float:
@@ -88,7 +90,7 @@ class DemoBeam(Beam):
     def write_detector_type(self, value: str) -> None:
         self._system.detector.type = value
 
-    def meta_detector_type(self) -> ParamMeta:
+    def metadata_detector_type(self) -> ParameterMetadata:
         return self._choices("detector_type")
 
     def read_detector_mode(self) -> str:
@@ -97,7 +99,7 @@ class DemoBeam(Beam):
     def write_detector_mode(self, value: str) -> None:
         self._system.detector.mode = value
 
-    def meta_detector_mode(self) -> ParamMeta:
+    def metadata_detector_mode(self) -> ParameterMetadata:
         return self._choices("detector_mode")
 
     # Only a plasma ion column has a gas.
@@ -120,7 +122,7 @@ class DemoBeam(Beam):
         microscope.system.ion.plasma_gas = value
         logging.info(f"Plasma gas set to {value}.")
 
-    def meta_plasma_gas(self) -> ParamMeta:
+    def metadata_plasma_gas(self) -> ParameterMetadata:
         return self._choices("plasma_gas")
 
     # "preset" is not implemented: Demo has no presets, so it is absent on the new

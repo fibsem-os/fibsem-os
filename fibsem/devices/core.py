@@ -54,7 +54,7 @@ class ParameterReadOnly(Exception):
 
 
 @dataclass(frozen=True)
-class ParamMeta:
+class ParameterMetadata:
     """What a parameter allows. Filled from the vendor API once, then cached."""
 
     limits: Optional[Tuple[float, float]] = None
@@ -79,8 +79,8 @@ class Parameter:
             def write_current(self, value):
                 self._beam.beam_current.value = value
 
-            def meta_current(self):  # optional: limits, choices, settable
-                return ParamMeta(limits=...)
+            def metadata_current(self):  # optional: limits, choices, settable
+                return ParameterMetadata(limits=...)
 
     ``available_<name>`` (optional) says whether this instance has it at all. Without
     ``read_<name>`` the parameter stays absent; without ``write_<name>`` it is
@@ -123,7 +123,7 @@ class Parameter:
         return f"Parameter({self.type.__name__}{unit})"
 
 
-MetaSource = Union[ParamMeta, Callable[[], ParamMeta], None]
+MetadataSource = Union[ParameterMetadata, Callable[[], ParameterMetadata], None]
 
 
 class BoundParameter:
@@ -133,8 +133,8 @@ class BoundParameter:
     """The new value, after every change: a set, a write through the old API, a live
     read that found a different value, or a change the backend reports."""
 
-    meta_changed = Signal(object)
-    """The new ParamMeta, after a parameter this one depends on changed."""
+    metadata_changed = Signal(object)
+    """The new ParameterMetadata, after a parameter this one depends on changed."""
 
     def __init__(
         self,
@@ -142,18 +142,18 @@ class BoundParameter:
         spec: Parameter,
         read: Callable[[], Any],
         write: Optional[Callable[[Any], None]],
-        meta: MetaSource,
+        metadata: MetadataSource,
         needs_channel: bool,
     ):
         self.device = device
         self.spec = spec
         self._read = read
         self._write = write
-        self._meta_source = meta
+        self._metadata_source = metadata
         self.needs_channel = needs_channel
         self._cached: Any = _UNSET
-        self.meta = ParamMeta()
-        self.refresh_meta(emit=False)
+        self.metadata = ParameterMetadata()
+        self.refresh_metadata(emit=False)
 
     # -- description --------------------------------------------------------------
 
@@ -171,28 +171,32 @@ class BoundParameter:
 
     @property
     def limits(self) -> Optional[Tuple[float, float]]:
-        return self.meta.limits
+        return self.metadata.limits
 
     @property
     def choices(self) -> Optional[Sequence[Any]]:
-        return self.meta.choices
+        return self.metadata.choices
 
     @property
     def settable(self) -> bool:
-        return self.meta.settable
+        return self.metadata.settable
 
-    def refresh_meta(self, emit: bool = True) -> ParamMeta:
+    def refresh_metadata(self, emit: bool = True) -> ParameterMetadata:
         """Read the metadata again from the backend. Called at bind and on dependencies."""
-        source = self._meta_source
-        meta = source() if callable(source) else (source or ParamMeta())
-        limits = meta.limits if meta.limits is not None else self.spec.limits
-        choices = meta.choices if meta.choices is not None else self.spec.choices
-        settable = meta.settable and self._write is not None
-        self.meta = replace(meta, limits=limits, choices=choices, settable=settable)
+        source = self._metadata_source
+        metadata = source() if callable(source) else (source or ParameterMetadata())
+        limits = metadata.limits if metadata.limits is not None else self.spec.limits
+        choices = (
+            metadata.choices if metadata.choices is not None else self.spec.choices
+        )
+        settable = metadata.settable and self._write is not None
+        self.metadata = replace(
+            metadata, limits=limits, choices=choices, settable=settable
+        )
         if emit:
-            self.meta_changed.emit(self.meta)
-            self.device.meta_changed.emit(self.name, self.meta)
-        return self.meta
+            self.metadata_changed.emit(self.metadata)
+            self.device.metadata_changed.emit(self.name, self.metadata)
+        return self.metadata
 
     # -- reads --------------------------------------------------------------------
 
@@ -298,7 +302,7 @@ class BoundParameter:
 
     def __repr__(self) -> str:
         cached = "?" if self._cached is _UNSET else repr(self._cached)
-        return f"<{self.device.name}.{self.name} = {cached} {self.meta}>"
+        return f"<{self.device.name}.{self.name} = {cached} {self.metadata}>"
 
 
 @dataclass(frozen=True)
@@ -357,8 +361,8 @@ class Device:
     changed = Signal(str, object)
     """(parameter name, value) for any parameter on the device."""
 
-    meta_changed = Signal(str, object)
-    """(parameter name, ParamMeta) when a parameter's metadata was refreshed."""
+    metadata_changed = Signal(str, object)
+    """(parameter name, ParameterMetadata) when a parameter's metadata was refreshed."""
 
     def __init__(
         self,
@@ -388,7 +392,7 @@ class Device:
         name: str,
         read: Callable[[], Any],
         write: Optional[Callable[[Any], None]] = None,
-        meta: MetaSource = None,
+        metadata: MetadataSource = None,
         needs_channel: bool = False,
     ) -> BoundParameter:
         """Give a declared parameter to this device. Without ``write`` it is read-only."""
@@ -397,11 +401,11 @@ class Device:
             raise AttributeError(
                 f"{type(self).__name__} declares no parameter '{name}'"
             )
-        param = BoundParameter(self, spec, read, write, meta, needs_channel)
+        param = BoundParameter(self, spec, read, write, metadata, needs_channel)
         self._bound[name] = param
         return param
 
-    IMPLEMENTATION_PREFIXES = ("read_", "write_", "meta_", "available_")
+    IMPLEMENTATION_PREFIXES = ("read_", "write_", "metadata_", "available_")
 
     needs_channel: FrozenSet[str] = frozenset()
     """Parameters whose read and write claim the imaging channel on this backend."""
@@ -440,7 +444,7 @@ class Device:
                 name,
                 read=read,
                 write=getattr(self, f"write_{name}", None),
-                meta=getattr(self, f"meta_{name}", None),
+                metadata=getattr(self, f"metadata_{name}", None),
                 needs_channel=name in self.needs_channel,
             )
         return self
@@ -505,7 +509,7 @@ class Device:
     def _dependency_changed(self, name: str) -> None:
         for param in self._bound.values():
             if name in param.spec.depends_on:
-                param.refresh_meta()
+                param.refresh_metadata()
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} '{self.name}': {sorted(self._bound)}>"

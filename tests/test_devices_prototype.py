@@ -18,9 +18,9 @@ from fibsem.devices import (
     Device,
     KeyRouter,
     Parameter,
+    ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
-    ParamMeta,
     Resources,
     bind_demo_beams,
     command,
@@ -243,8 +243,8 @@ def test_dependent_metadata_is_refreshed_and_announced():
     microscope = _demo(plasma=True)
     fib = bind_demo_beams(microscope)[BeamType.ION]
     xenon = list(fib.current.choices)
-    metas = []
-    fib.current.meta_changed.connect(metas.append)
+    metadatas = []
+    fib.current.metadata_changed.connect(metadatas.append)
 
     fib.plasma_gas.set_value("Argon")
 
@@ -252,7 +252,7 @@ def test_dependent_metadata_is_refreshed_and_announced():
         "current", BeamType.ION
     )
     assert fib.current.choices != xenon
-    assert metas == [fib.current.meta]
+    assert metadatas == [fib.current.metadata]
     with pytest.raises(ValueError):
         fib.plasma_gas.set_value("Helium")
 
