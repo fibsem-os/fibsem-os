@@ -18,6 +18,7 @@ from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import ParameterMetadata, Resources
+from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage
 from fibsem.structures import (
@@ -424,3 +425,53 @@ def bind_demo_manipulator(
 ) -> DemoManipulator:
     """Build ``manipulator`` for a connected Demo microscope."""
     return DemoManipulator(microscope, resources).connect()
+
+
+class DemoGasInjector(GasInjector):
+    """The Demo gas injection system.
+
+    Each read and hook is the matching field or method of Demo's ``gis_system``,
+    the ``GasInjectionSystem`` that ``cryo_deposition_v2`` drives. Demo's GIS
+    takes no insert position or gas, so those arguments are only logged.
+    """
+
+    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
+        super().__init__(parent=parent, resources=resources)
+        self._system = parent.gis_system
+
+    def read_gas(self) -> str:
+        return self._system.gas
+
+    def read_inserted(self) -> bool:
+        return self._system.inserted
+
+    def read_heated(self) -> bool:
+        return self._system.heated
+
+    def read_opened(self) -> bool:
+        return self._system.opened
+
+    def _insert(self, position: Optional[str]) -> None:
+        self._system.insert()
+
+    def _retract(self) -> None:
+        self._system.retract()
+
+    def _heater_on(self, gas: Optional[str]) -> None:
+        self._system.turn_heater_on()
+
+    def _heater_off(self) -> None:
+        self._system.turn_heater_off()
+
+    def _open(self) -> None:
+        self._system.open()
+
+    def _close(self) -> None:
+        self._system.close()
+
+
+def bind_demo_gis(
+    microscope: DemoMicroscope, resources: Optional[Resources] = None
+) -> DemoGasInjector:
+    """Build ``gis`` for a connected Demo microscope."""
+    return DemoGasInjector(microscope, resources).connect()
