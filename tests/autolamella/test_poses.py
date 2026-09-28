@@ -481,6 +481,54 @@ def test_a_derived_milling_pose_follows_a_fluorescence_move(tmp_path):
     assert lamella.milling_angle != 999.0
 
 
+def _nowhere(microscope):
+    """A position in no supported orientation: a drag can land anywhere."""
+    return FibsemStagePosition(
+        x=400e-6, y=-200e-6, z=0.0, r=np.radians(11), t=np.radians(37)
+    )
+
+
+@pytest.mark.parametrize("marked_at", [MILLING_ORIENTATION, FLUORESCENCE_ORIENTATION])
+def test_a_fluorescence_pose_is_not_moved_where_the_objective_cannot_see(
+    tmp_path, marked_at
+):
+    """Refused before anything is written, whichever pose was the observed one.
+
+    Moving the fluorescence pose used to go through the creation rule, which refused
+    this. Without the check, an observed milling pose left a fluorescence pose stored
+    somewhere unusable; a derived one could not follow, and was left stale."""
+    from copy import deepcopy
+
+    from fibsem.applications.autolamella.structures import Lamella
+
+    microscope = _microscope()
+    poses = build_lamella_poses(microscope, _at(microscope, marked_at))
+    lamella = Lamella(petname="Lamella-01", path=str(tmp_path / "L01"), number=1)
+    poses.write_to(lamella)
+    before = deepcopy(lamella.poses), dict(lamella.pose_provenance)
+
+    with pytest.raises(ValueError, match="fluorescence position"):
+        move_pose(microscope, lamella, FLUORESCENCE_POSE, position=_nowhere(microscope))
+
+    assert (lamella.poses, dict(lamella.pose_provenance)) == before
+
+
+def test_a_fluorescence_pose_is_not_moved_mid_traverse(tmp_path):
+    """The offset mount's way of being nowhere: between the beams and the FM."""
+    from fibsem.applications.autolamella.structures import Lamella
+
+    microscope = _iflm()
+    at_the_fm = microscope.to_device(_at(microscope, "FIB"), "FM")
+    lamella = Lamella(petname="Lamella-01", path=str(tmp_path / "L01"), number=1)
+    build_lamella_poses(microscope, at_the_fm).write_to(lamella)
+    between = _at(microscope, "FIB", x=24e-3)
+
+    with pytest.raises(ValueError, match="fluorescence position"):
+        move_pose(microscope, lamella, FLUORESCENCE_POSE, position=between)
+
+    assert lamella.fluorescence_pose.stage_position.x == pytest.approx(at_the_fm.x)
+
+
 def test_derive_overwrites_an_observed_pose_because_it_was_asked_to(tmp_path):
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)

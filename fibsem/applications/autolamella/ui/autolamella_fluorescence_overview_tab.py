@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import QWidget
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_POSE,
     Followed,
+    check_fluorescence_position,
     followed_note,
     move_consequence,
     move_pose,
@@ -148,6 +149,14 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             notification_service.show_toast(
                 f"{name} has no milling pose to move.", "warning"
             )
+            return
+
+        # Refused before asking: a question about a move that cannot happen is noise.
+        try:
+            check_fluorescence_position(self.microscope, position)
+        except ValueError as e:
+            logger.error(f"Could not move {name} from the FM overview: {e}")
+            notification_service.show_toast(str(e), "error")
             return
 
         history = (

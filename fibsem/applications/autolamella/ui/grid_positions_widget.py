@@ -34,6 +34,8 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_POSE,
     MILLING_POSE,
+    Followed,
+    check_fluorescence_position,
     followed_note,
     move_consequence,
     move_pose,
@@ -451,6 +453,12 @@ class GridPositionsWidget(QWidget):
                 )
                 return
             moved = FLUORESCENCE_POSE
+            try:
+                check_fluorescence_position(microscope, position)
+            except ValueError as e:
+                logger.error(f"Could not move {name} on the FM view: {e}")
+                notification_service.show_toast(str(e), "error")
+                return
             if not self._confirm(
                 f"Move {name}?",
                 f"Move {name} to {position.pretty_string}?"
@@ -465,8 +473,9 @@ class GridPositionsWidget(QWidget):
         # the Overview tabs off this.
         experiment.positions.events.changed.emit()
         self.refresh()
+        level = "warning" if followed is Followed.FAILED else "info"
         notification_service.show_toast(
-            f"Moved {name}. {followed_note(moved, followed)}".strip(), "info"
+            f"Moved {name}. {followed_note(moved, followed)}".strip(), level
         )
 
     def _on_remove_requested(self, lamella) -> None:

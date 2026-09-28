@@ -245,6 +245,24 @@ class TestMarking:
         assert _names(widget) == []
         assert widget.count_label.text() == "Positions on grid-oak · 0"
 
+    def test_a_move_on_the_fm_view_the_objective_cannot_image_from_is_refused(
+        self, widget, ui
+    ):
+        """Refused before asking, and nothing is written."""
+        widget.canvas.show_view(VIEW_FM)
+        lamella = ui.experiment.positions[0]
+        before = deepcopy(lamella.poses)
+        asked = []
+        widget._confirm = lambda title, text: asked.append(title) or True
+        nowhere = FibsemStagePosition(
+            x=400e-6, y=-200e-6, z=0.0, r=np.radians(11), t=np.radians(37)
+        )
+
+        widget.canvas.position_move_requested.emit(lamella.name, nowhere)
+
+        assert asked == []
+        assert lamella.poses == before
+
     def test_without_a_microscope_the_add_is_refused(self, widget, ui, grid):
         widget.set_autolamella_ui(None)
         cx, cy = _centre(widget)

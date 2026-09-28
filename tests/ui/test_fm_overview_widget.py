@@ -3566,6 +3566,43 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
     host._teardown_fm_overview_widget()
 
 
+def test_a_move_the_objective_cannot_image_from_is_refused_before_asking(
+    qapp, tmp_path, monkeypatch
+):
+    """A drop in no supported orientation is refused with the reason, and nothing is
+    asked, written or saved."""
+    from fibsem.applications.autolamella.ui import (
+        autolamella_fluorescence_overview_tab as module,
+    )
+
+    host = _wired_host(qapp, tmp_path)
+    microscope = host.autolamella_ui.microscope
+    lamella = _real_lamella("Lamella-01", microscope, tmp_path)
+    host.autolamella_ui.experiment.positions[:] = [lamella]
+    before = deepcopy(lamella.poses)
+    asked, toasts = [], []
+    monkeypatch.setattr(
+        module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or True
+    )
+    monkeypatch.setattr(
+        module.notification_service,
+        "show_toast",
+        lambda message, level="info", *a, **k: toasts.append((message, level)),
+    )
+
+    host.fm_overview_tab._on_move_requested(
+        "Lamella-01", _named("target", 400e-6, -200e-6, tilt_deg=37.0)
+    )
+
+    assert asked == []
+    assert lamella.poses == before
+    assert host.autolamella_ui.experiment.saves == 0
+    assert toasts and toasts[-1][1] == "error"
+    assert "fluorescence position" in toasts[-1][0]
+
+    host._teardown_fm_overview_widget()
+
+
 def test_a_move_leaves_a_milling_pose_set_at_the_beams_and_says_so(
     qapp, tmp_path, monkeypatch
 ):

@@ -272,9 +272,17 @@ def move_pose(
 
     A fluorescence pose moved on a lamella that has none is built on its milling
     pose's state, with *objective_position* if given.
+
+    Raises:
+        ValueError: for a fluorescence pose moved to a *position* the objective does
+            not see the sample from (`check_fluorescence_position`), before anything
+            is written. A canvas drag can land anywhere; a pose stored there would
+            look usable and not be.
     """
     if name not in (MILLING_POSE, FLUORESCENCE_POSE):
         raise ValueError(f"No pose named {name!r} to move.")
+    if name == FLUORESCENCE_POSE and state is None and position is not None:
+        check_fluorescence_position(microscope, position)
     if state is not None:
         # A recorded microscope state does not capture the objective, so replacing a
         # pose outright would wipe the focus somebody set on it.
@@ -432,6 +440,26 @@ def _kept_orientation(
     return current if current in allowed else None
 
 
+def check_fluorescence_position(
+    microscope: "FibsemMicroscope", position: FibsemStagePosition
+) -> None:
+    """Raise unless the objective sees the sample from *position*.
+
+    The one test of whether a position can be written down as a fluorescence pose: the
+    FM is `READY` there -- right place and a pose it images from. Anything else, a
+    position in no supported orientation or part-way through a traverse, is refused in
+    the words that say what is wrong with it. Nothing to check without an FM.
+    """
+    if microscope.fm is None:
+        return
+    imaging = microscope.get_device_imaging_state(FM_DEVICE, position)
+    if imaging is not DeviceImagingState.READY:
+        raise ValueError(
+            "Cannot take this as a fluorescence position: "
+            + microscope.describe_device_imaging_state(FM_DEVICE, imaging, position)
+        )
+
+
 def _to_milling(
     microscope: "FibsemMicroscope", position: FibsemStagePosition
 ) -> FibsemStagePosition:
@@ -449,13 +477,7 @@ def _to_milling(
     position, and re-posing it "for milling" would write a milling pose somewhere the
     lamella is not. Refused instead, in the words that say what is wrong with it.
     """
-    if microscope.fm is not None:
-        imaging = microscope.get_device_imaging_state(FM_DEVICE, position)
-        if imaging is not DeviceImagingState.READY:
-            raise ValueError(
-                "Cannot take this as a fluorescence position: "
-                + microscope.describe_device_imaging_state(FM_DEVICE, imaging, position)
-            )
+    check_fluorescence_position(microscope, position)
     try:
         return microscope.to_device(position, BEAMS_DEVICE, MILLING_ORIENTATION)
     except ValueError as e:
