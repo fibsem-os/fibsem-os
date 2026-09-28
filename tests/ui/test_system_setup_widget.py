@@ -276,3 +276,81 @@ def test_opening_again_keeps_the_window_and_its_unsaved_defaults(
     widget.microscope = None
     widget.update_ui()  # disconnecting closes it without asking
     assert widget.configurationWindow is None
+
+
+def _connect(widget, monkeypatch, microscope) -> None:
+    monkeypatch.setattr(utils, "setup_session", lambda *a, **k: (microscope, object()))
+    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
+    widget.connect_to_microscope()
+
+
+def test_the_configuration_is_locked_while_connected(
+    widget, monkeypatch, toasts, demo_microscope
+):
+    """The session runs on the file it started from; picking or adding another
+    would show a configuration it is not using."""
+    assert widget.comboBox_configuration.isEnabled()
+    assert widget.action_add_configuration.isEnabled()
+    assert not widget.action_edit_configuration.isEnabled()
+    assert widget.pushButton_connect_to_microscope.isVisibleTo(widget)
+
+    _connect(widget, monkeypatch, demo_microscope)
+
+    assert not widget.comboBox_configuration.isEnabled()
+    assert not widget.action_add_configuration.isEnabled()
+    assert widget.action_edit_configuration.isEnabled()
+    assert not widget.pushButton_connect_to_microscope.isVisibleTo(widget)
+
+    widget.microscope = None
+    widget.update_ui()
+    assert widget.comboBox_configuration.isEnabled()
+    assert widget.action_add_configuration.isEnabled()
+
+
+def test_edit_configuration_opens_the_window(
+    widget, monkeypatch, toasts, demo_microscope
+):
+    _connect(widget, monkeypatch, demo_microscope)
+
+    widget.action_edit_configuration.trigger()
+
+    assert widget.configurationWindow.isVisible()
+    widget.microscope = None
+    widget.update_ui()
+
+
+def test_the_selected_file_says_what_it_connects_to(widget, monkeypatch, tmp_path):
+    """Read before connecting, so a wrong configuration shows before Connect."""
+    import yaml
+
+    import fibsem.config as cfg
+
+    path = tmp_path / "bay-2.yaml"
+    path.write_text(
+        yaml.safe_dump({"info": {"manufacturer": "Thermo", "ip_address": "10.0.0.2"}})
+    )
+    monkeypatch.setitem(cfg.USER_CONFIGURATIONS, "bay-2", {"path": str(path)})
+    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: str(path))
+
+    widget.comboBox_configuration.addItem("bay-2")
+    widget.comboBox_configuration.setCurrentText("bay-2")
+
+    assert widget.label_configuration_info.text() == "Thermo  ·  10.0.0.2"
+    assert widget.label_configuration_info.toolTip() == str(path)
+
+
+def test_a_file_that_cannot_be_read_says_so_quietly(
+    widget, monkeypatch, tmp_path, toasts
+):
+    import fibsem.config as cfg
+
+    path = tmp_path / "broken.yaml"
+    path.write_text("info: [unclosed")
+    monkeypatch.setitem(cfg.USER_CONFIGURATIONS, "broken", {"path": str(path)})
+    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: None)
+
+    widget.comboBox_configuration.addItem("broken")
+    widget.comboBox_configuration.setCurrentText("broken")
+
+    assert widget.label_configuration_info.text() == "This file could not be read."
+    assert toasts == []
