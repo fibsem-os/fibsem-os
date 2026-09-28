@@ -5,10 +5,9 @@ the microscope did not, so what a backend promises was spread across every test 
 happens to use Demo. This file writes it down, through the public API only: `get`/`set`
 keys, their base-class wrappers, stage moves, state, and image acquisition.
 
-It exists so a second implementation of the demo backend, built from devices rather
-than from a `_get`/`_set` chain, can be held to exactly what `DemoMicroscope` does
-today. Adding it to `BACKENDS` runs every test here against it, and the differential
-test at the bottom compares the two call by call.
+It holds `DeviceDemoMicroscope`, the demo backend being rebuilt from devices, to
+exactly what `DemoMicroscope` does today: every test runs against both, and the
+differential test at the bottom compares them call by call.
 
 What is pinned is today's behaviour, including the parts nobody would design on
 purpose (a beam key read without a beam type raises; `stage_link` links whatever value
@@ -18,12 +17,16 @@ Where a test pins such a quirk, its docstring says so.
 
 import logging
 import numbers
+import os
+import tempfile
 from copy import deepcopy
 from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 import pytest
+import yaml
 
+from fibsem import config as cfg
 from fibsem import utils
 from fibsem.structures import (
     BeamType,
@@ -35,10 +38,11 @@ from fibsem.structures import (
     Point,
 )
 
-# The manufacturer names this suite runs against. Each is built the way a session
-# builds it, through `utils.setup_session`, so the backend is chosen exactly as a
-# configuration file would choose it.
-BACKENDS = ["Demo"]
+# The backends this suite runs against. Each is built the way a session builds it,
+# through `utils.setup_session`, so it is chosen exactly as a configuration file
+# would choose it. "DeviceDemo" is the Demo backend rebuilt from devices
+# (`fibsem.microscopes.device_demo`), selected by `sim: {devices: true}`.
+BACKENDS = ["Demo", "DeviceDemo"]
 
 # The backend every other one is compared against in the differential test.
 REFERENCE_BACKEND = "Demo"
@@ -46,9 +50,32 @@ REFERENCE_BACKEND = "Demo"
 BEAMS = [BeamType.ELECTRON, BeamType.ION]
 
 
-def _connect(manufacturer: str):
-    microscope, _ = utils.setup_session(manufacturer=manufacturer, setup_logging=False)
+def _device_demo_configuration() -> str:
+    """The default configuration with the device-built Demo selected."""
+    with open(cfg.DEFAULT_CONFIGURATION_PATH) as f:
+        configuration = yaml.safe_load(f)
+    configuration.setdefault("sim", {})
+    configuration["sim"] = {**(configuration["sim"] or {}), "devices": True}
+    path = os.path.join(tempfile.mkdtemp(), "device-demo-configuration.yaml")
+    with open(path, "w") as f:
+        yaml.safe_dump(configuration, f)
+    return path
+
+
+def _connect(backend: str):
+    config_path = _device_demo_configuration() if backend == "DeviceDemo" else None
+    microscope, _ = utils.setup_session(
+        config_path=config_path, manufacturer="Demo", setup_logging=False
+    )
     return microscope
+
+
+def test_backends_are_what_they_say():
+    from fibsem.microscopes.device_demo import DeviceDemoMicroscope
+    from fibsem.microscopes.simulator import DemoMicroscope
+
+    assert type(_connect("Demo")) is DemoMicroscope
+    assert type(_connect("DeviceDemo")) is DeviceDemoMicroscope
 
 
 @pytest.fixture(params=BACKENDS)
@@ -66,6 +93,29 @@ def _is_pair_of_ints(value) -> bool:
         and len(value) == 2
         and all(isinstance(v, numbers.Integral) for v in value)
     )
+
+
+# The keys DeviceDemo serves from its devices rather than the Demo chain. The
+# contract above runs through them; this checks that it really does.
+DEVICE_DEMO_ROUTED_BEAM_KEYS = [
+    "voltage",
+    "current",
+    "working_distance",
+    "hfw",
+    "scan_rotation",
+    "blanked",
+    "detector_type",
+    "detector_mode",
+]
+
+
+@pytest.mark.parametrize("key", DEVICE_DEMO_ROUTED_BEAM_KEYS)
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_device_demo_serves_its_beam_keys_from_devices(key, beam_type):
+    microscope = _connect("DeviceDemo")
+    param = microscope._route(key, beam_type)
+    assert param is not None
+    assert param.device is microscope.beams[beam_type]
 
 
 # ---------------------------------------------------------------------------
@@ -137,9 +187,6 @@ BEAM_KEYS: Dict[str, Tuple[Callable[[Any], bool], Any]] = {
 # Keys that are read with a beam type but not written through `set`.
 BEAM_READ_ONLY_KEYS = {"scanning_mode"}
 
-# Keys whose write does not come back on a read; each has its own test below.
-BEAM_KEYS_THAT_DO_NOT_ROUND_TRIP = {"beam_enabled"}
-
 
 def _new_value(microscope, key: str, beam_type: BeamType):
     """A valid value for `key` that differs from the one it has now."""
@@ -173,7 +220,7 @@ def test_beam_key_without_beam_type_raises(microscope, key):
 
 @pytest.mark.parametrize(
     "key",
-    sorted(set(BEAM_KEYS) - BEAM_READ_ONLY_KEYS - BEAM_KEYS_THAT_DO_NOT_ROUND_TRIP),
+    sorted(set(BEAM_KEYS) - BEAM_READ_ONLY_KEYS),
 )
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_beam_key_round_trips(microscope, key, beam_type):
@@ -182,15 +229,20 @@ def test_beam_key_round_trips(microscope, key, beam_type):
     assert microscope.get(key, beam_type) == value
 
 
-@pytest.mark.parametrize("beam_type", BEAMS)
-def test_beam_enabled_write_does_not_read_back(microscope, beam_type):
-    """Pinned quirk: on Demo, `set("beam_enabled")` writes the beam's settings
-    (`system.<beam>.beam.enabled`) while `get` reads the beam system
-    (`system.<beam>.enabled`), so the write never shows on a read.
-    """
-    before = microscope.get("beam_enabled", beam_type)
-    microscope.set("beam_enabled", not before, beam_type)
-    assert microscope.get("beam_enabled", beam_type) == before
+@pytest.mark.parametrize(
+    "beam_type,system",
+    [(BeamType.ELECTRON, "electron_beam"), (BeamType.ION, "ion_beam")],
+)
+def test_each_beam_can_be_disabled_on_its_own(microscope, beam_type, system):
+    """`beam_enabled` is what `is_available` and `get_available_beams` answer from."""
+    other = BeamType.ION if beam_type is BeamType.ELECTRON else BeamType.ELECTRON
+    microscope.set("beam_enabled", False, beam_type)
+    assert microscope.get("beam_enabled", beam_type) is False
+    assert not microscope.is_available(system)
+    assert microscope.get_available_beams() == [other]
+    microscope.set("beam_enabled", True, beam_type)
+    assert microscope.is_available(system)
+    assert microscope.get_available_beams() == BEAMS
 
 
 @pytest.mark.parametrize("key", sorted(set(BEAM_KEYS) - BEAM_READ_ONLY_KEYS))
