@@ -54,7 +54,8 @@ def served():
     """(local devices by beam type, remote beams, server), all on 127.0.0.1."""
     local = {d.beam_type: d for d in demo_devices()}
     server = DeviceServer(local.values()).start()
-    remote = connect_remote_beams("127.0.0.1", server.port)
+    client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
+    remote = connect_remote_beams("127.0.0.1", server.port, client=client)
     yield local, remote, server
     for beam in remote.values():
         beam.client.close()
@@ -216,3 +217,36 @@ def test_a_frozen_server_is_noticed_without_a_read(served):
     finally:
         for beam in beams.values():
             beam.client.close()
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_a_connected_remote_beam_starts_with_every_value_cached(served, beam_type):
+    local, remote, _ = served
+    for name, param in remote[beam_type].parameters.items():
+        assert param._cached == local[beam_type].parameters[name].get_value()
+
+
+def test_the_client_reconnects_and_catches_up_on_what_it_missed(served):
+    local, remote, server = served
+    sem = remote[BeamType.ELECTRON]
+    events = []
+    sem.client.disconnected.connect(lambda: events.append("down"))
+    sem.client.reconnected.connect(lambda: events.append("up"))
+    seen = []
+    sem.hfw.changed.connect(seen.append)
+
+    port = server.port
+    server.stop()
+    assert wait_for(lambda: events == ["down"])
+    local[BeamType.ELECTRON].hfw.set_value(456e-6)  # changed while nobody listened
+
+    restarted = DeviceServer(local.values(), port=port).start()
+    try:
+        assert wait_for(lambda: events == ["down", "up"], timeout=10)
+        assert sem.client.connected
+        assert seen == [456e-6]  # the missed change, signalled on resync
+        assert sem.hfw.cached == 456e-6
+        local[BeamType.ELECTRON].hfw.set_value(789e-6)  # and events flow again
+        assert wait_for(lambda: seen == [456e-6, 789e-6])
+    finally:
+        restarted.stop()

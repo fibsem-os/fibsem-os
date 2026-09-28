@@ -22,10 +22,11 @@ come from the server. After that:
 The event stream carries a heartbeat: when the server stops answering pings (a
 pulled cable, a frozen PC), ``DeviceClient.disconnected`` fires within two heartbeats,
 without waiting for the next read. ``DeviceClient.health()`` asks the server how its
-devices are.
+devices are. The client keeps retrying; when the server is back it reads every
+parameter's metadata and value again, so anything that changed in the gap is
+signalled, and then fires ``DeviceClient.reconnected``.
 
-Not in the prototype: reconnecting after a lost connection, the one-commander lease,
-and commands that return images.
+Not in the prototype: the one-commander lease, and commands that return images.
 """
 
 from __future__ import annotations
@@ -92,6 +93,10 @@ class DeviceClient:
     disconnected = Signal()
     """The event stream closed: the server stopped or the network dropped."""
 
+    reconnected = Signal()
+    """The server is back. Metadata and values were read again, and every parameter
+    that changed in the gap emitted ``changed``."""
+
     def __init__(self, host: str, port: int, heartbeat: float = HEARTBEAT):
         self.heartbeat = heartbeat
         self.base_url = f"http://{host}:{port}"
@@ -101,6 +106,7 @@ class DeviceClient:
         self._events: Optional[threading.Thread] = None
         self._ready = threading.Event()
         self._socket: Any = None
+        self._closing = threading.Event()
         # Values this client wrote whose change event hasn't come back yet. The
         # event can arrive before or after the write returns, so it is matched by
         # value, once, rather than by timing.
@@ -158,27 +164,57 @@ class DeviceClient:
             self._ready.wait(READ_TIMEOUT)
 
     def _listen(self) -> None:
+        """Hold the event stream open; when it drops, retry until the server is back."""
+        delay, first = 0.5, True
+        while not self._closing.is_set():
+            try:
+                self._stream(resync=not first)
+                delay = 0.5  # it was up: retry quickly next time
+            except Exception as error:  # refused, dropped or timed out: all the same
+                if self.connected or first:
+                    logging.warning(f"device events from {self.base_url}: {error}")
+            finally:
+                first = False
+                if self.connected:
+                    self.connected = False
+                    self.disconnected.emit()
+                self._ready.set()
+            if self._closing.wait(delay):
+                return
+            delay = min(delay * 2, self.heartbeat)
+
+    def _stream(self, resync: bool) -> None:
         from websockets.sync.client import connect
 
-        try:
-            with connect(
-                self.events_url,
-                open_timeout=READ_TIMEOUT,
-                ping_interval=self.heartbeat,
-                ping_timeout=self.heartbeat,
-                close_timeout=self.heartbeat,  # a silent server won't answer the close
-            ) as socket:
-                self._socket = socket
-                self.connected = True
-                self._ready.set()
-                for message in socket:
-                    self._dispatch(json.loads(message))
-        except Exception as error:  # closed, refused or dropped: all the same here
-            logging.warning(f"device events from {self.base_url} stopped: {error}")
-        finally:
-            self.connected = False
+        with connect(
+            self.events_url,
+            open_timeout=READ_TIMEOUT,
+            ping_interval=self.heartbeat,
+            ping_timeout=self.heartbeat,
+            close_timeout=self.heartbeat,  # a silent server won't answer the close
+        ) as socket:
+            self._socket = socket
+            if resync:
+                self._resync()
+            self.connected = True
             self._ready.set()
-            self.disconnected.emit()
+            if resync:
+                logging.info(f"device events from {self.base_url} resumed")
+                self.reconnected.emit()
+            for message in socket:
+                self._dispatch(json.loads(message))
+
+    def _resync(self) -> None:
+        """After a gap, events may have been missed: read metadata and values again."""
+        for device in self._devices.values():
+            for param in device.parameters.values():
+                try:
+                    param.refresh_metadata()
+                    param.get_value()  # emits changed if it moved while we were away
+                except Exception as error:
+                    logging.warning(
+                        f"{device.name}.{param.name} after reconnect: {error}"
+                    )
 
     def _dispatch(self, event: Dict[str, Any]) -> None:
         device = self._devices.get(event["device"])
@@ -206,6 +242,7 @@ class DeviceClient:
             return False
 
     def close(self) -> None:
+        self._closing.set()
         if self._socket is not None:
             self._socket.close()
         self._session.close()
@@ -246,6 +283,10 @@ class RemoteDevice(Device):
                 metadata=self._metadata_reader(name),
             )
         self.client.register(self)
+        # Fill the cache once, after the event stream is open so no change falls in
+        # between: displays read ``cached`` and must not start empty.
+        for param in self.parameters.values():
+            param.get_value()
         return self
 
     def call_command(self, command: str, **kwargs: Any) -> Any:
