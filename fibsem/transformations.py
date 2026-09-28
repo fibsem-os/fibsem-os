@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import numpy as np
 
@@ -112,6 +112,7 @@ def _projection_terms(
     geometry: "FibsemHardwareGeometry",
     stage_rotation: float,
     stage_tilt: float,
+    is_fib_orientation: Optional[bool] = None,
 ) -> Tuple[float, float, float]:
     """The sign and angle terms both directions of the projection share.
 
@@ -119,6 +120,12 @@ def _projection_terms(
     the arithmetic that follows, and a sign convention that drifts between them would
     make a click land somewhere other than where the marker was drawn -- while each
     direction on its own still looked self-consistent.
+
+    ``is_fib_orientation`` lets a caller that has already classified the pose say
+    whether a compustage is at its FIB orientation, instead of having it derived here.
+    The live stage move classifies it against the microscope's orientation table and
+    passes the answer in, so moving through this function changed nothing about where
+    it decides the FIB side is. Ignored off a compustage, which has no FIB flip.
 
     Returns:
         (compustage_sign, corrected_pretilt_angle, stage_tilt), where `stage_tilt` has
@@ -132,8 +139,8 @@ def _projection_terms(
     stage_rotation = stage_rotation % (2 * np.pi)
 
     # The forward flips expected_y once for a compustage and a second time at the FIB
-    # orientation, so the two cancel there. The orientation is derived from the pose
-    # rather than from a live microscope's `get_stage_orientation`.
+    # orientation, so the two cancel there. Unless the caller says, the orientation is
+    # derived from the pose rather than from a live microscope's `get_stage_orientation`.
     #
     # The rotation test is not redundant with the tilt test: a compustage cannot
     # rotate, so `get_stage_orientation` reports FIB only at the reference rotation.
@@ -143,15 +150,19 @@ def _projection_terms(
     # still keys on tilt alone; that is FIB-500, deliberately left for its own change
     # because it moves a stage sign.
     compustage_sign = 1.0
-    is_fib_orientation = False
-    if geometry.is_compustage:
-        fib_orientation_tilt = np.deg2rad(
-            geometry.fib_column_tilt - geometry.shuttle_pre_tilt - 180
-        )
-        is_fib_orientation = bool(
-            np.isclose(stage_tilt, fib_orientation_tilt, atol=0.1)
-            and rotation_angle_is_smaller(stage_rotation, rotation_flat_to_eb, atol=5)
-        )
+    if not geometry.is_compustage:
+        is_fib_orientation = False
+    else:
+        if is_fib_orientation is None:
+            fib_orientation_tilt = np.deg2rad(
+                geometry.fib_column_tilt - geometry.shuttle_pre_tilt - 180
+            )
+            is_fib_orientation = bool(
+                np.isclose(stage_tilt, fib_orientation_tilt, atol=0.1)
+                and rotation_angle_is_smaller(
+                    stage_rotation, rotation_flat_to_eb, atol=5
+                )
+            )
         compustage_sign = 1.0 if is_fib_orientation else -1.0
         stage_tilt = stage_tilt + np.pi
 
@@ -174,6 +185,7 @@ def view_corrected_stage_movement(
     geometry: "FibsemHardwareGeometry",
     stage_rotation: float,
     stage_tilt: float,
+    is_fib_orientation: Optional[bool] = None,
 ) -> Tuple[float, float]:
     """Split an in-image y-displacement across the stage y- and z-axes.
 
@@ -188,12 +200,14 @@ def view_corrected_stage_movement(
         geometry: the geometry the image was captured under.
         stage_rotation: stage rotation at acquisition, in radians.
         stage_tilt: stage tilt at acquisition, in radians.
+        is_fib_orientation: whether a compustage is at its FIB orientation, when the
+            caller has classified the pose itself; None derives it from the pose.
 
     Returns:
         (dy, dz) stage movement, in metres.
     """
     compustage_sign, corrected_pretilt_angle, stage_tilt = _projection_terms(
-        geometry, stage_rotation, stage_tilt
+        geometry, stage_rotation, stage_tilt, is_fib_orientation
     )
 
     if geometry.is_compustage:

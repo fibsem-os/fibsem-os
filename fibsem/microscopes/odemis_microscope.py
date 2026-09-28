@@ -861,66 +861,12 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         f.result()
         return self.get_stage_position()
 
-    def stable_move(
-        self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope.stable_move(
-            self, dx=dx, dy=dy, beam_type=beam_type, static_wd=static_wd
-        )
-
-    def vertical_move(
-        self,
-        dy: float,
-        dx: float = 0.0,
-        beam_type: BeamType = BeamType.ION,
-        relaxation: float = 1.0,
-    ) -> FibsemStagePosition:
-        """Restore the coincidence point from an offset measured in one beam view."""
-        return ThermoMicroscope.vertical_move(self, dy, dx, beam_type, relaxation)
-
-    def _vertical_move_from_fib(
-        self, dy: float, dx: float = 0.0, relaxation: float = 1.0
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_fib(
-            self, dy=dy, dx=dx, relaxation=relaxation
-        )
-
-    def _vertical_move_from_sem(
-        self, dx: float, dy: float, relaxation: float = 1.0
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_sem(
-            self, dx=dx, dy=dy, relaxation=relaxation
-        )
-
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.
 
         Deprecated: call ``vertical_move(dy, dx, beam_type=BeamType.ELECTRON)``.
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
-    def _y_corrected_stage_movement(
-        self, expected_y: float, beam_type: BeamType
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope._y_corrected_stage_movement(self, expected_y, beam_type)
-
-    def _inverse_y_corrected_stage_movement(
-        self, dy: float, dz: float, beam_type: BeamType = BeamType.ELECTRON
-    ) -> float:
-        return ThermoMicroscope._inverse_y_corrected_stage_movement(
-            self, dy=dy, dz=dz, beam_type=beam_type
-        )
-
-    def project_stable_move(
-        self,
-        dx: float,
-        dy: float,
-        beam_type: BeamType,
-        base_position: FibsemStagePosition,
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope.project_stable_move(
-            self, dx=dx, dy=dy, beam_type=beam_type, base_position=base_position
-        )
 
     def _safe_rotation_movement(self, stage_position: FibsemStagePosition) -> None:
         return ThermoMicroscope._safe_rotation_movement(self, stage_position)

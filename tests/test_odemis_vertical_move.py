@@ -1,9 +1,10 @@
-"""OdemisThermoMicroscope.vertical_move reaches the ThermoFisher bodies intact.
+"""OdemisThermoMicroscope.vertical_move is the ThermoFisher one, intact.
 
-Odemis delegates to ``ThermoMicroscope.vertical_move``, which calls
+Odemis used to delegate to ``ThermoMicroscope.vertical_move``, which calls
 ``self._vertical_move_from_fib/sem(..., relaxation=...)``. On an Odemis
-microscope ``self`` resolves to Odemis's own overrides, so every one of them
-has to take ``relaxation`` or every vertical move raises ``TypeError``.
+microscope ``self`` resolved to Odemis's own overrides, so every one of them
+had to take ``relaxation`` or every vertical move raised ``TypeError``. Both now
+inherit the one implementation on ``FibsemMicroscope`` (FIB-643).
 
 The oracle is ThermoMicroscope itself: given the same stage state, an Odemis
 vertical move must command exactly the moves a ThermoFisher one does.
@@ -116,3 +117,20 @@ def test_odemis_takes_every_parameter_the_base_declares(odemis_microscope_cls):
     for name, param in base.items():
         assert name in override, f"OdemisThermoMicroscope.vertical_move has no {name}"
         assert override[name].default == param.default, name
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "stable_move",
+        "vertical_move",
+        "project_stable_move",
+        "_vertical_move_from_fib",
+        "_vertical_move_from_sem",
+        "_y_corrected_stage_movement",
+        "_inverse_y_corrected_stage_movement",
+    ],
+)
+def test_odemis_shares_the_base_moves(odemis_microscope_cls, name):
+    """No more ``ThermoMicroscope.x(self, ...)``: the moves are inherited."""
+    assert getattr(odemis_microscope_cls, name) is getattr(FibsemMicroscope, name)
