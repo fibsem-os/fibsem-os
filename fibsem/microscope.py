@@ -1634,8 +1634,23 @@ class FibsemMicroscope(ABC):
             available_beams.append(BeamType.ION)
         return available_beams
 
+    def _scan_beam(self, beam_type: BeamType) -> Optional[Any]:
+        """The beam device whose scan commands the scan-mode methods use, if any.
+
+        Without one, the methods set today's keys (spot_mode, reduced_area,
+        full_frame) through the backend's chain.
+        """
+        beam = self.beams.get(beam_type)
+        if beam is None or not beam.commands["spot"].available:
+            return None
+        return beam
+
     def set_spot_scanning_mode(self, point: Point, beam_type: BeamType) -> None:
         """Set the spot scanning mode for the specified beam type."""
+        beam = self._scan_beam(beam_type)
+        if beam is not None:
+            beam.spot(point)
+            return
         self.set("spot_mode", point, beam_type)
         return
 
@@ -1643,11 +1658,19 @@ class FibsemMicroscope(ABC):
         self, reduced_area: FibsemRectangle, beam_type: BeamType
     ) -> None:
         """Set the reduced area scanning mode for the specified beam type."""
+        beam = self._scan_beam(beam_type)
+        if beam is not None:
+            beam.reduced_area(reduced_area)
+            return
         self.set("reduced_area", reduced_area, beam_type)
         return
 
     def set_full_frame_scanning_mode(self, beam_type: BeamType) -> None:
         """Set the full frame scanning mode for the specified beam type."""
+        beam = self._scan_beam(beam_type)
+        if beam is not None:
+            beam.full_frame()
+            return
         self.set("full_frame", None, beam_type)
         return
 

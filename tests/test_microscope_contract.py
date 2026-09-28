@@ -32,6 +32,7 @@ from fibsem.structures import (
     BeamType,
     FibsemImage,
     FibsemManipulatorPosition,
+    FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
@@ -151,6 +152,34 @@ def test_device_demo_moves_its_stage_device():
     assert np.allclose(
         _xyzrt(microscope.get_stage_position()), _xyzrt(stage.position.cached)
     )
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_device_demo_scans_through_its_beam_commands(beam_type):
+    """DeviceDemo's scan-mode methods call the beam's commands, not the Demo chain."""
+    microscope = _connect("DeviceDemo")
+    beam = microscope.beams[beam_type]
+    calls = []
+
+    def counted(name):
+        original = getattr(beam, name)
+
+        def call(*args):
+            calls.append((name, *args))
+            return original(*args)
+
+        return call
+
+    for name in ("_spot", "_reduced_area", "_full_frame"):
+        setattr(beam, name, counted(name))
+    point, area = Point(0.5, 0.5), FibsemRectangle(0.25, 0.25, 0.5, 0.5)
+    microscope.set_spot_scanning_mode(point, beam_type)
+    assert beam.scanning_mode.cached == "spot"
+    microscope.set_reduced_area_scanning_mode(area, beam_type)
+    assert beam.scanning_mode.cached == "reduced_area"
+    microscope.set_full_frame_scanning_mode(beam_type)
+    assert beam.scanning_mode.cached == "full_frame"
+    assert calls == [("_spot", point), ("_reduced_area", area), ("_full_frame",)]
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +446,10 @@ def test_on_off_and_blanking(microscope, beam_type):
 def test_scanning_modes(microscope, beam_type):
     microscope.set_spot_scanning_mode(Point(0.5, 0.5), beam_type)
     assert microscope.get("scanning_mode", beam_type) == "spot"
+    microscope.set_reduced_area_scanning_mode(
+        FibsemRectangle(0.25, 0.25, 0.5, 0.5), beam_type
+    )
+    assert microscope.get("scanning_mode", beam_type) == "reduced_area"
     microscope.set_full_frame_scanning_mode(beam_type)
     assert microscope.get("scanning_mode", beam_type) == "full_frame"
 

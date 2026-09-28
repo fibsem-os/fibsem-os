@@ -18,7 +18,13 @@ from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import Stage
-from fibsem.structures import BeamType, FibsemStagePosition, Point, RangeLimit
+from fibsem.structures import (
+    BeamType,
+    FibsemRectangle,
+    FibsemStagePosition,
+    Point,
+    RangeLimit,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscopes.simulator import DemoMicroscope
@@ -151,10 +157,22 @@ class DemoBeam(Beam):
     def write_on(self, value: bool) -> None:
         self._system.on = value
 
-    # Written only by the scan-mode keys (spot_mode, reduced_area, full_frame), which
-    # stay on the Demo chain for now.
     def read_scanning_mode(self) -> str:
         return self._system.scanning_mode
+
+    # The scan commands: the spot_mode, reduced_area and full_frame branches of _set.
+
+    def _spot(self, point: Point) -> None:
+        self._system.scanning_mode = "spot"
+        self._system.scanning_mode_value = point
+
+    def _reduced_area(self, area: FibsemRectangle) -> None:
+        self._system.scanning_mode = "reduced_area"
+        self._system.scanning_mode_value = area
+
+    def _full_frame(self) -> None:
+        self._system.scanning_mode = "full_frame"
+        self._system.scanning_mode_value = None
 
     # Only a plasma ion column has a gas.
     def available_plasma_gas(self) -> bool:
