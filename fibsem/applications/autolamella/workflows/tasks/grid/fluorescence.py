@@ -169,14 +169,17 @@ class FluorescenceOverviewGridTask(GridTask):
         was_inserted = objective.state == "Inserted"
 
         self.log_status_message("MOVE_TO_FM", f"Moving {self.grid.name} to the FM")
-        # Into the orientation `grid_centre` is in, asked for outright. Unasked,
-        # `move_to_device` keeps a pose the objective images from, which on a
-        # compustage that images from the beam side is wherever the stage stands --
-        # not the pose this overview is centred and tiled in.
+        # Into the orientation `grid_centre` is in. Unasked, `move_to_device` keeps a
+        # pose the objective images from, which on a compustage that images from the
+        # beam side is wherever the stage stands -- not the pose this overview is
+        # centred and tiled in. Asked only when the stage is not already in it: an
+        # explicit ask re-poses even in place, which on an offset mount already at the
+        # FM is a trip to the beams and back.
         declared = fm.acquisition_orientations
-        self.microscope.move_to_device(
-            "FM", orientation=declared[0] if declared else None
-        )
+        wanted = declared[0] if declared else None
+        if wanted is not None and self.microscope.get_stage_orientation() == wanted:
+            wanted = None
+        self.microscope.move_to_device("FM", orientation=wanted)
         self._check_for_abort()
 
         if objective.state != "Inserted":
