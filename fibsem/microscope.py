@@ -10,6 +10,7 @@ import time
 import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from dataclasses import replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -1180,8 +1181,19 @@ class FibsemMicroscope(ABC):
         beam_type = settings.beam_type
         logging.debug(f"Setting {settings.beam_type.name} beam system settings...")
         self.set("beam_enabled", settings.enabled, beam_type)
-        self.set_beam_settings(settings.beam)
-        self.set_detector_settings(settings.detector, beam_type)
+        # What the configuration decides, not what the column is aligned to. The
+        # working distance, stigmation and beam shift are the column's current
+        # alignment, and the detector's brightness and contrast are what the last
+        # autocontrast left; a configuration that does not state them used to load
+        # them as 0 (and the working distance as the eucentric height), and Apply
+        # pushed those -- refocusing both columns and blacking out the detectors.
+        self.set_beam_settings(
+            replace(settings.beam, working_distance=None, stigmation=None, shift=None)
+        )
+        if settings.detector.type is not None:
+            self.set_detector_type(settings.detector.type, beam_type)
+        if settings.detector.mode is not None:
+            self.set_detector_mode(settings.detector.mode, beam_type)
         self.set("eucentric_height", settings.eucentric_height, beam_type)
         self.set("column_tilt", settings.column_tilt, beam_type)
 
