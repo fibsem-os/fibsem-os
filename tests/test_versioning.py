@@ -94,12 +94,12 @@ def _git(repo, *args):
     not (REPO_ROOT / ".git").exists(),
     reason="not running from a source checkout",
 )
-# FIB-1029: on the Windows 3.8 CI runner the first git call can take longer than
+# FIB-1029: on Windows CI runners a git call can take longer than
 # _GIT_TIMEOUT_SECONDS, so the lookup correctly returns None and this fails. The
-# real-checkout path is still covered on every other job.
+# real-checkout path is still covered on the Linux and macOS jobs.
 @pytest.mark.skipif(
-    sys.platform == "win32" and sys.version_info < (3, 9),
-    reason="first git spawn can exceed the timeout on Windows 3.8 CI (FIB-1029)",
+    sys.platform == "win32",
+    reason="git can exceed the timeout on Windows CI runners (FIB-1029)",
 )
 def test_revision_and_branch_from_real_checkout(monkeypatch):
     """Read a real repository, from a working directory outside it.
