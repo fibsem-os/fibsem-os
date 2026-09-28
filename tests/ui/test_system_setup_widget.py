@@ -354,3 +354,32 @@ def test_a_file_that_cannot_be_read_says_so_quietly(
 
     assert widget.label_configuration_info.text() == "This file could not be read."
     assert toasts == []
+
+
+@pytest.mark.parametrize(
+    "actions, level, says",
+    [
+        ({}, "info", "Connected to microscope at"),
+        ({"defaults": True}, "info", "and applied its defaults"),
+        (
+            {"beams_on": True, "defaults": True},
+            "info",
+            "and turned the beams on and applied its defaults",
+        ),
+        ({"defaults": False}, "warning", "but its defaults could not be applied"),
+        (
+            {"beams_on": False, "defaults": True},
+            "warning",
+            "applied its defaults, but the beams could not be turned on",
+        ),
+    ],
+)
+def test_the_connect_message_says_what_connecting_did(
+    widget, monkeypatch, toasts, demo_microscope, actions, level, says
+):
+    demo_microscope.connect_actions = actions
+    _connect(widget, monkeypatch, demo_microscope)
+
+    assert any(lvl == level and says in message for lvl, message in toasts), toasts
+    widget.microscope = None
+    widget.update_ui()

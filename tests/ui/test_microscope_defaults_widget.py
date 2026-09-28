@@ -128,12 +128,33 @@ def test_saved_values_are_what_was_typed(widget, microscope):
     assert microscope.system.electron.beam.hfw == 1e-4
 
 
-def test_apply_on_connect_is_shown_but_cannot_be_changed(widget, microscope):
-    """Stored in the file, not acted on yet: shipped disabled."""
-    assert not widget.apply_on_connect.isEnabled()
-    assert widget.apply_on_connect.isChecked() is bool(
-        microscope.system.apply_defaults_on_connect
-    )
+def test_beams_on_at_connect_is_a_change_and_is_saved(widget, microscope):
+    assert widget.beams_on_at_connect.isEnabled()
+    assert not widget.beams_on_at_connect.isChecked()  # the shipped file says false
+
+    widget.beams_on_at_connect.setChecked(True)
+    assert widget.is_modified()
+    widget.save_to_configuration()
+
+    written = utils.load_yaml(microscope.configuration_path)["defaults"]
+    assert written["beams_on_at_connect"] is True
+    assert written["apply_on_connect"] is False
+    assert microscope.system.beams_on_at_connect is True
+    assert not widget.is_modified()
+
+
+def test_apply_on_connect_is_a_change_and_is_saved(widget, microscope):
+    assert widget.apply_on_connect.isEnabled()
+    assert not widget.apply_on_connect.isChecked()  # the shipped file says false
+
+    widget.apply_on_connect.setChecked(True)
+    assert widget.is_modified()
+    widget.save_to_configuration()
+
+    written = utils.load_yaml(microscope.configuration_path)["defaults"]
+    assert written["apply_on_connect"] is True
+    assert microscope.system.apply_defaults_on_connect is True
+    assert not widget.is_modified()
 
 
 def test_the_form_shows_the_configured_defaults(widget, microscope):

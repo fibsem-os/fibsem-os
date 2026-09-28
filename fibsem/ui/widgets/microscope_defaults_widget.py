@@ -307,13 +307,18 @@ class MicroscopeDefaultsWidget(QWidget):
         )
         self.imaging_panel.add_header_widget(self.button_read_imaging)
 
-        # Stored in the file (`defaults.apply_on_connect`) but not acted on yet, so
-        # it is shown and cannot be changed.
+        # `defaults.beams_on_at_connect` and `defaults.apply_on_connect`: saved with
+        # the rest, acted on at connect, in this order.
+        self.beams_on_at_connect = QCheckBox("Turn the beams on when connecting")
+        self.beams_on_at_connect.setToolTip(
+            "Turn on each column that is off each time the application connects. "
+            "A beam that is on is never turned off."
+        )
         self.apply_on_connect = QCheckBox("Apply these defaults when connecting")
-        self.apply_on_connect.setEnabled(False)
         self.apply_on_connect.setToolTip(
-            "Not available yet: connecting does not set the columns. Use Apply to "
-            "Microscope."
+            "Set the columns and detectors to these defaults each time the "
+            "application connects. Beams are not switched on or off, and the stage "
+            "and plasma gas are left alone."
         )
 
         sections = QHBoxLayout()
@@ -321,6 +326,7 @@ class MicroscopeDefaultsWidget(QWidget):
             sections.addWidget(panel, alignment=Qt.AlignTop)
         layout = QVBoxLayout()
         layout.addLayout(sections)
+        layout.addWidget(self.beams_on_at_connect)
         layout.addWidget(self.apply_on_connect)
         layout.addStretch()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -334,6 +340,8 @@ class MicroscopeDefaultsWidget(QWidget):
             field.valueChanged.connect(self.changed)
         for field in self.imaging.findChildren(QCheckBox):
             field.toggled.connect(self.changed)
+        self.beams_on_at_connect.toggled.connect(self.changed)
+        self.apply_on_connect.toggled.connect(self.changed)
 
         self.button_read_electron.clicked.connect(
             lambda: self.read_from_microscope(BeamType.ELECTRON)
@@ -363,6 +371,7 @@ class MicroscopeDefaultsWidget(QWidget):
         for form in (self.electron, self.ion):
             form.populate_choices(microscope)
         self.show_system()
+        self.beams_on_at_connect.setChecked(bool(microscope.system.beams_on_at_connect))
         self.apply_on_connect.setChecked(
             bool(microscope.system.apply_defaults_on_connect)
         )
@@ -394,6 +403,8 @@ class MicroscopeDefaultsWidget(QWidget):
         }
         if self.image_settings is not None:
             values["imaging"] = self.imaging.defaults_to_dict()
+        values["beams_on_at_connect"] = self.beams_on_at_connect.isChecked()
+        values["apply_on_connect"] = self.apply_on_connect.isChecked()
         return values
 
     def is_modified(self) -> bool:
@@ -433,6 +444,12 @@ class MicroscopeDefaultsWidget(QWidget):
             return
         self.electron.write_into(self.microscope.system.electron)
         self.ion.write_into(self.microscope.system.ion)
+        self.microscope.system.beams_on_at_connect = (
+            self.beams_on_at_connect.isChecked()
+        )
+        self.microscope.system.apply_defaults_on_connect = (
+            self.apply_on_connect.isChecked()
+        )
         if self.image_settings is not None:
             self.imaging.write_into(self.image_settings)
 
@@ -453,7 +470,6 @@ class MicroscopeDefaultsWidget(QWidget):
         # carries the beam shift, stigmation and working distance, which are
         # alignment state -- written here they would be pushed back by Apply. Not the
         # whole image record either: its save path is the session's.
-        # `apply_on_connect` is not this panel's to change.
         updates = {"defaults": self._values()}
         try:
             utils.write_configuration(path, updates)

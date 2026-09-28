@@ -97,6 +97,7 @@ def test_the_defaults_block_holds_the_session_state(filename: str):
     assert set(defaults["ion"]) == DEFAULT_KEYS
     assert "beam_type" in defaults["imaging"]
     assert defaults["apply_on_connect"] is False
+    assert defaults["beams_on_at_connect"] is False
     assert "imaging" not in config, "the top-level imaging block should have moved"
 
 
@@ -168,6 +169,7 @@ def test_writing_a_configuration_produces_the_split_shape():
 
     assert set(written["defaults"]) == {
         "apply_on_connect",
+        "beams_on_at_connect",
         "electron",
         "ion",
         "imaging",
@@ -208,25 +210,190 @@ def test_a_default_that_is_not_stated_is_not_pushed(microscope):
     assert after.dwell_time == before.dwell_time
 
 
-def test_apply_on_connect_is_read_and_written_and_does_nothing(monkeypatch):
-    """Groundwork, disabled. The key is in the structure and the file so a later
-    change is one `if`; until then connecting with it set pushes nothing."""
+def _site(tmp_path, apply_on_connect: bool = False, beams_on: bool = False) -> str:
+    """The shipped default configuration, with its ion field of view made distinct
+    so an applied default can be told from the simulator's own."""
+    import yaml
+
+    config = copy.deepcopy(_load("microscope-configuration.yaml"))
+    config["defaults"]["apply_on_connect"] = apply_on_connect
+    config["defaults"]["beams_on_at_connect"] = beams_on
+    config["defaults"]["ion"]["hfw"] = 321.0e-6
+    path = tmp_path / "site.yaml"
+    path.write_text(yaml.safe_dump(config))
+    return str(path)
+
+
+def _connect(path: str, **kwargs):
+    return utils.setup_session(
+        config_path=path, manufacturer="Demo", setup_logging=False, **kwargs
+    )
+
+
+def test_apply_on_connect_is_read_and_written():
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
     config["defaults"]["apply_on_connect"] = True
     settings = MicroscopeSettings.from_dict(config)
     assert settings.system.apply_defaults_on_connect is True
     assert settings.to_dict()["defaults"]["apply_on_connect"] is True
 
+
+def test_connecting_leaves_the_columns_alone_unless_the_file_says(tmp_path):
+    microscope, _ = _connect(_site(tmp_path, apply_on_connect=False))
+    try:
+        assert "defaults" not in microscope.connect_actions
+        assert microscope.get_field_of_view(BeamType.ION) != pytest.approx(321.0e-6)
+    finally:
+        microscope.disconnect()
+
+
+def test_connecting_applies_the_defaults_when_the_file_says(tmp_path):
+    microscope, _ = _connect(_site(tmp_path, apply_on_connect=True))
+    try:
+        assert microscope.connect_actions["defaults"] is True
+        assert microscope.get_field_of_view(BeamType.ION) == pytest.approx(321.0e-6)
+    finally:
+        microscope.disconnect()
+
+
+def test_a_caller_can_decline_what_the_file_asks(tmp_path):
+    """A script that must not touch a shared instrument's columns says so."""
+    microscope, _ = _connect(
+        _site(tmp_path, apply_on_connect=True), apply_defaults=False
+    )
+    try:
+        assert "defaults" not in microscope.connect_actions
+        assert microscope.get_field_of_view(BeamType.ION) != pytest.approx(321.0e-6)
+    finally:
+        microscope.disconnect()
+
+
+def test_applying_at_connect_sets_only_the_defaults(tmp_path, monkeypatch):
+    """Not the beams on or off, the column geometry or the plasma gas -- connecting
+    must not change those -- and not the stage."""
     from fibsem.microscope import FibsemMicroscope
 
-    def refuse(self, *args, **kwargs):
-        raise AssertionError("apply_configuration ran at connect")
+    keys = []
+    original = FibsemMicroscope.set
 
-    monkeypatch.setattr(FibsemMicroscope, "apply_configuration", refuse)
-    monkeypatch.setattr(FibsemMicroscope, "set_beam_system_settings", refuse)
-    microscope, _ = utils.setup_session(manufacturer="Demo")
+    def spy(self, key, *args, **kwargs):
+        keys.append(key)
+        return original(self, key, *args, **kwargs)
+
+    monkeypatch.setattr(FibsemMicroscope, "set", spy)
+    moved = []
+    monkeypatch.setattr(
+        FibsemMicroscope, "move_stage_absolute", lambda *a, **k: moved.append(a)
+    )
+    microscope, _ = _connect(_site(tmp_path, apply_on_connect=True))
     try:
-        assert microscope.system.apply_defaults_on_connect is False
+        assert microscope.connect_actions["defaults"] is True
+        assert "hfw" in keys
+        for key in ("beam_enabled", "plasma_gas", "eucentric_height", "column_tilt"):
+            assert key not in keys, key
+        assert moved == []
+    finally:
+        microscope.disconnect()
+
+
+def _beams_off(monkeypatch):
+    """Connect to a simulator whose columns start off, and count what turns on."""
+    from fibsem.microscopes.simulator import DemoMicroscope
+
+    turned_on = []
+    original = DemoMicroscope.connect_to_microscope
+
+    def connect_off(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        for beam_type in (BeamType.ELECTRON, BeamType.ION):
+            self.set("on", False, beam_type)
+
+    original_turn_on = DemoMicroscope.turn_on
+
+    def turn_on(self, beam_type):
+        turned_on.append(beam_type)
+        return original_turn_on(self, beam_type)
+
+    monkeypatch.setattr(DemoMicroscope, "connect_to_microscope", connect_off)
+    monkeypatch.setattr(DemoMicroscope, "turn_on", turn_on)
+    return turned_on
+
+
+def test_connecting_leaves_the_beams_off_unless_the_file_says(tmp_path, monkeypatch):
+    turned_on = _beams_off(monkeypatch)
+    microscope, _ = _connect(_site(tmp_path))
+    try:
+        assert turned_on == []
+        assert not microscope.is_on(BeamType.ELECTRON)
+        assert microscope.connect_actions == {}
+    finally:
+        microscope.disconnect()
+
+
+def test_connecting_turns_the_beams_on_when_the_file_says(tmp_path, monkeypatch):
+    turned_on = _beams_off(monkeypatch)
+    microscope, _ = _connect(_site(tmp_path, beams_on=True))
+    try:
+        assert turned_on == [BeamType.ELECTRON, BeamType.ION]
+        assert microscope.is_on(BeamType.ELECTRON) and microscope.is_on(BeamType.ION)
+        assert microscope.connect_actions == {"beams_on": True}
+    finally:
+        microscope.disconnect()
+
+
+def test_a_beam_that_is_on_is_left_alone(tmp_path, monkeypatch):
+    """Only ever on: a column already running is not turned on again."""
+    from fibsem.microscopes.simulator import DemoMicroscope
+
+    calls = []
+    monkeypatch.setattr(
+        DemoMicroscope, "turn_on", lambda self, beam_type: calls.append(beam_type)
+    )
+    microscope, _ = _connect(_site(tmp_path, beams_on=True))
+    try:
+        assert microscope.is_on(BeamType.ELECTRON)  # the simulator starts them on
+        assert calls == []
+    finally:
+        microscope.disconnect()
+
+
+def test_the_beams_go_on_before_the_defaults_are_applied(tmp_path, monkeypatch):
+    from fibsem.microscope import FibsemMicroscope
+
+    order = []
+    for name in ("turn_beams_on", "apply_defaults"):
+        original = getattr(FibsemMicroscope, name)
+        monkeypatch.setattr(
+            FibsemMicroscope,
+            name,
+            lambda self, _n=name, _o=original: (order.append(_n), _o(self))[1],
+        )
+    microscope, _ = _connect(_site(tmp_path, apply_on_connect=True, beams_on=True))
+    try:
+        assert order == ["turn_beams_on", "apply_defaults"]
+    finally:
+        microscope.disconnect()
+
+
+def test_a_caller_can_decline_the_beams(tmp_path, monkeypatch):
+    turned_on = _beams_off(monkeypatch)
+    microscope, _ = _connect(_site(tmp_path, beams_on=True), beams_on=False)
+    try:
+        assert turned_on == []
+    finally:
+        microscope.disconnect()
+
+
+def test_a_failed_apply_does_not_fail_the_connection(tmp_path, monkeypatch):
+    from fibsem.microscope import FibsemMicroscope
+
+    def fail(self):
+        raise RuntimeError("beam off")
+
+    monkeypatch.setattr(FibsemMicroscope, "apply_defaults", fail)
+    microscope, _ = _connect(_site(tmp_path, apply_on_connect=True))
+    try:
+        assert microscope.connect_actions["defaults"] is False
     finally:
         microscope.disconnect()
 
