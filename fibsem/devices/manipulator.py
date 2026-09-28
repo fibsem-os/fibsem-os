@@ -18,7 +18,7 @@ their caches and emits their change signals.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from fibsem.devices.core import Device, Parameter, command
 from fibsem.structures import FibsemManipulatorPosition
@@ -93,10 +93,3 @@ class Manipulator(Device):
 
     def _move_relative(self, delta: FibsemManipulatorPosition) -> None:
         raise NotImplementedError
-
-
-# Old key -> parameter name, as BEAM_ROUTES is for the beams.
-MANIPULATOR_ROUTES: Dict[str, str] = {
-    "manipulator_position": "position",
-    "manipulator_state": "inserted",
-}

@@ -865,10 +865,14 @@ class FibsemMicroscope(ABC):
     def get_manipulator_state(self) -> bool:
         """Get the manipulator state (Inserted = True, Retracted = False)"""
         # TODO: convert to enum
+        if self.manipulator_device is not None:
+            return self.manipulator_device.inserted.get_value()
         return self.get("manipulator_state")
 
     def get_manipulator_position(self) -> FibsemManipulatorPosition:
         """Get the manipulator position."""
+        if self.manipulator_device is not None:
+            return self.manipulator_device.position.get_value()
         return self.get("manipulator_position")
 
     @abstractmethod
@@ -1088,19 +1092,16 @@ class FibsemMicroscope(ABC):
     # them. The name is temporary: `stage` is taken by the vendor object on Thermo
     # and Odemis, and the final name is decided with the stage redesign.
     stage_device: Optional[Any] = None
-    # The chamber as a device (fibsem.devices.Chamber), named like `stage_device`
-    # because `chamber` is taken on Demo. pump() and vent() use its commands.
+    # The chamber and the manipulator as devices (fibsem.devices.Chamber and
+    # .Manipulator), named like `stage_device` because `chamber` is taken on Demo.
+    # As with the stage, their keys are not routed: the methods that read them
+    # (pump/vent, get_manipulator_state/position) use the device directly.
     chamber_device: Optional[Any] = None
+    manipulator_device: Optional[Any] = None
     _beam_routes: Mapping[str, str] = MappingProxyType({})
-    # Keys with no beam: old key -> (attribute of the device, parameter name).
-    _device_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
 
     def _route(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
         """The device parameter a key has moved to, or None to use `_get`/`_set`."""
-        route = self._device_routes.get(key)
-        if route is not None:
-            device = getattr(self, route[0], None)
-            return None if device is None else device.parameters.get(route[1])
         name = self._beam_routes.get(key)
         if name is None or beam_type is None:
             return None

@@ -12,7 +12,7 @@ caches and emits their change signals.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from fibsem.devices.core import Device, Parameter, command
 
@@ -53,12 +53,3 @@ class Chamber(Device):
 
     def _vent(self) -> None:
         raise NotImplementedError
-
-
-# Old key -> parameter name, as BEAM_ROUTES is for the beams. pump_chamber and
-# vent_chamber are not here: they are set-only keys that only pump() and vent() use,
-# and those methods call the commands directly.
-CHAMBER_ROUTES: Dict[str, str] = {
-    "chamber_state": "state",
-    "chamber_pressure": "pressure",
-}

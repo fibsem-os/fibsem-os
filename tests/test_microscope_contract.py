@@ -127,23 +127,26 @@ def test_device_demo_serves_its_beam_keys_from_devices(key, beam_type):
     assert param.device is microscope.beams[beam_type]
 
 
-# Keys with no beam that DeviceDemo serves from devices -> the device's attribute.
-DEVICE_DEMO_ROUTED_KEYS = {
-    "chamber_state": "chamber_device",
-    "chamber_pressure": "chamber_device",
-    "manipulator_position": "manipulator_device",
-    "manipulator_state": "manipulator_device",
-}
-
-
-@pytest.mark.parametrize("key", sorted(DEVICE_DEMO_ROUTED_KEYS))
-@pytest.mark.parametrize("beam_type", [None, *BEAMS])
-def test_device_demo_serves_its_keys_from_devices(key, beam_type):
-    """Keys with no beam route to their device whatever beam type is passed."""
+def test_device_demo_reads_the_manipulator_and_chamber_from_their_devices():
+    """The wrappers over these keys never reach the Demo chain on DeviceDemo."""
     microscope = _connect("DeviceDemo")
-    param = microscope._route(key, beam_type)
-    assert param is not None
-    assert param.device is getattr(microscope, DEVICE_DEMO_ROUTED_KEYS[key])
+    chain_get = microscope._get
+    keys = ("manipulator_position", "manipulator_state", "chamber_state")
+
+    def refuse(key, beam_type=None):
+        assert key not in keys, f"{key} went to the Demo chain"
+        return chain_get(key, beam_type)
+
+    microscope._get = refuse
+    assert microscope.get_manipulator_state() is False
+    microscope.insert_manipulator("PARK")
+    assert microscope.get_manipulator_state() is True
+    assert (
+        microscope.get_manipulator_position()
+        == microscope.manipulator_device.position.cached
+    )
+    assert microscope.vent() == "Vented"
+    assert microscope.pump() == "Pumped"
 
 
 def test_device_demo_pumps_and_vents_through_its_chamber_device():
