@@ -114,6 +114,20 @@ def test_a_save_that_fails_keeps_the_change(widget, microscope, monkeypatch):
     assert widget.is_modified()
 
 
+def test_saved_values_are_what_was_typed(widget, microscope):
+    """100 µm is written as 1e-4, not the 9.999999999999999e-05 the unit conversion
+    leaves."""
+    widget.electron.hfw.setValue(100.0)
+    widget.ion.dwell_time.setValue(0.3)
+
+    widget.save_to_configuration()
+
+    written = utils.load_yaml(microscope.configuration_path)["defaults"]
+    assert written["electron"]["hfw"] == 1e-4
+    assert written["ion"]["dwell_time"] == 3e-7
+    assert microscope.system.electron.beam.hfw == 1e-4
+
+
 def test_apply_on_connect_is_shown_but_cannot_be_changed(widget, microscope):
     """Stored in the file, not acted on yet: shipped disabled."""
     assert not widget.apply_on_connect.isEnabled()
