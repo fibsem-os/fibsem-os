@@ -1,6 +1,7 @@
 import logging
+import os
 from pprint import pprint
-from typing import Optional
+from typing import Callable, Optional
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import pyqtSignal
@@ -8,7 +9,7 @@ from PyQt5.QtCore import pyqtSignal
 from fibsem import config as cfg
 from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import MicroscopeSettings, SystemSettings
+from fibsem.structures import ImageSettings, MicroscopeSettings, SystemSettings
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -24,10 +25,6 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.microscope_configuration_window import (
     MicroscopeConfigurationWindow,
-)
-from fibsem.ui.widgets.microscope_defaults_widget import (
-    MicroscopeDefaultsDialog,
-    MicroscopeDefaultsWidget,
 )
 
 
@@ -46,67 +43,55 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         # keep showing until the next attempt.
         self._last_connection_error: Optional[str] = None
 
-        # grid layout
-        self.gridLayout = QtWidgets.QGridLayout(self)
         self.pushButton_connect_to_microscope = QtWidgets.QPushButton(
-            "Connect To Microscope"
-        )
-        self.pushButton_apply_configuration = QtWidgets.QPushButton(
-            "Apply Microscope Configuration"
+            "Connect to Microscope"
         )
         self.comboBox_configuration = ValueComboBox()
-        self.toolButton_import_configuration = QtWidgets.QToolButton()
-        self.label_connection_status = QtWidgets.QLabel("No Connected")
-        self.label_connection_information = QtWidgets.QLabel("No Connected")
-        self.label_connection = QtWidgets.QLabel("Configuration")
+        self.comboBox_configuration.setToolTip(
+            "The configuration to connect with. Disconnect to change it."
+        )
+        # What the selected file says it connects to, read before connecting, so a
+        # wrong configuration shows before Connect rather than after.
+        self.label_configuration_info = QtWidgets.QLabel("")
+        self.label_configuration_info.setWordWrap(True)
+        self.label_configuration_info.setStyleSheet(
+            f"color: {NEUTRAL_500}; font-size: 10px; background: transparent;"
+        )
 
-        # Row 0 is the first-run offer, above the configuration it is offering to
-        # create. Everything else sits a row lower than it reads in the file.
-        self._frame_first_run = self._create_first_run_callout()
-        self.gridLayout.addWidget(self._frame_first_run, 0, 0, 1, 3)
-        self.gridLayout.addWidget(self.label_connection, 1, 0, 1, 1)
-        self.gridLayout.addWidget(self.comboBox_configuration, 1, 1, 1, 1)
-        self.gridLayout.addWidget(self.toolButton_import_configuration, 1, 2, 1, 1)
-        self.gridLayout.addWidget(self.pushButton_connect_to_microscope, 2, 0, 1, 3)
-        self.gridLayout.addWidget(self.pushButton_apply_configuration, 3, 0, 1, 3)
-        # The defaults a session starts from: read off the instrument, edited, saved
-        # into the configuration. Opened beside Apply, which is what consumes them;
-        # its own window, because the sections are wider than this column.
-        self.defaultsWidget = MicroscopeDefaultsWidget()
-        self.defaultsDialog = MicroscopeDefaultsDialog(self.defaultsWidget, parent=self)
-        self.pushButton_edit_defaults = QtWidgets.QPushButton("Edit Defaults…")
-        self.pushButton_edit_defaults.setToolTip(
-            "The beam and imaging defaults a session starts from, and Apply sets."
+        # Adding a configuration, and opening the one in use.
+        self.toolButton_configuration = QtWidgets.QToolButton()
+        self.toolButton_configuration.setToolTip("Configurations")
+        self.toolButton_configuration.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+        self.toolButton_configuration.setStyleSheet(
+            "QToolButton::menu-indicator { image: none; width: 0px; }"
         )
-        self.pushButton_edit_defaults.setStyleSheet(
-            stylesheets.SECONDARY_BUTTON_STYLESHEET
-        )
-        self.pushButton_edit_defaults.setVisible(False)
-        self.gridLayout.addWidget(self.pushButton_edit_defaults, 4, 0, 1, 3)
-        # Not offered on this tab yet: the editor becomes one tab of a microscope
-        # configuration window, and until that lands it is opened from the
-        # Development menu (`open_defaults`).
-        self.defaults_button_shown = False
-        # The whole configuration, read-only, by kind. Built when opened so it shows
-        # the live session; opened from the Development menu for now.
+        menu = QtWidgets.QMenu(self.toolButton_configuration)
+        self.action_add_configuration = menu.addAction("Add Configuration…")
+        self.action_edit_configuration = menu.addAction("Edit Configuration…")
+        self.toolButton_configuration.setMenu(menu)
+        # The whole configuration, by kind, with the defaults editor as one tab. Built
+        # when opened so it shows the live session.
         self.configurationWindow: Optional[MicroscopeConfigurationWindow] = None
-        self.gridLayout.addWidget(self.label_connection_status, 5, 0, 1, 3)
-        self.gridLayout.addWidget(self.label_connection_information, 6, 0, 1, 3)
-        self.gridLayout.addItem(
-            QtWidgets.QSpacerItem(
-                20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
-            ),
-            7,
-            0,
-            1,
-            3,
-        )
+        # Where the defaults' "Read from Acquire Tab" reads: the application's
+        # acquire tab, once it has one.
+        self._current_imaging: Optional[Callable[[], ImageSettings]] = None
 
-        # hide the old status labels and replace with a card
-        self.label_connection_status.setVisible(False)
-        self.label_connection_information.setVisible(False)
         self._frame_status = self._create_connection_status_card()
-        self.gridLayout.addWidget(self._frame_status, 5, 0, 1, 3)
+
+        picker = QtWidgets.QHBoxLayout()
+        picker.addWidget(self.comboBox_configuration, 1)
+        picker.addWidget(self.toolButton_configuration)
+
+        # No panel header: the tab already names this, and it is the only section.
+        # The first-run offer sits above the configuration it is offering to create.
+        self._frame_first_run = self._create_first_run_callout()
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(self._frame_first_run)
+        layout.addLayout(picker)
+        layout.addWidget(self.label_configuration_info)
+        layout.addWidget(self.pushButton_connect_to_microscope)
+        layout.addWidget(self._frame_status)
+        layout.addStretch()
 
         self.setup_connections()
         self.update_ui()
@@ -242,6 +227,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         combo.setCurrentIndex(index)
         combo.blockSignals(False)
         self.load_configuration(name)
+        self._show_configuration_info()
         notification_service.show_toast(f"Configuration {name} is ready.", "info")
         return name
 
@@ -261,7 +247,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         layout.setSpacing(10)
 
         self._label_status_icon = QtWidgets.QLabel()
-        self._label_status_icon.setStyleSheet("border: none;")
+        self._label_status_icon.setStyleSheet("background: transparent; border: none;")
         self._label_status_icon.setFixedSize(20, 20)
         layout.addWidget(self._label_status_icon)
 
@@ -283,8 +269,8 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         text_layout.addWidget(self._label_status_title)
         text_layout.addWidget(self._label_status_subtitle)
-        layout.addLayout(text_layout)
-        layout.addStretch()
+        # The text takes the free width, so a short status is not wrapped narrow.
+        layout.addLayout(text_layout, 1)
 
         self._button_disconnect = QtWidgets.QPushButton("Disconnect")
         self._button_disconnect.setStyleSheet(f"""
@@ -319,20 +305,41 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.comboBox_configuration.currentTextChanged.connect(
             lambda: self.load_configuration(None)
         )
-        self.toolButton_import_configuration.clicked.connect(
+        self.comboBox_configuration.currentTextChanged.connect(
+            self._show_configuration_info
+        )
+        self._show_configuration_info()
+        self.action_add_configuration.triggered.connect(
             self.import_configuration_from_file
         )
+        self.action_edit_configuration.triggered.connect(self.open_configuration)
+        self.toolButton_configuration.setIcon(
+            fibsem_icon("mdi:cog-outline", color=NEUTRAL_500)
+        )
 
-        self.pushButton_apply_configuration.clicked.connect(
-            lambda: self.apply_microscope_configuration(None)
-        )
-        self.pushButton_edit_defaults.clicked.connect(self.open_defaults)
-        self.pushButton_apply_configuration.setToolTip(
-            "Apply configuration can take some time. Please make sure the microscope beams are both on."
-        )
-        self.toolButton_import_configuration.setIcon(
-            fibsem_icon("mdi:add", color=NEUTRAL_500)
-        )
+    def _show_configuration_info(self, *_) -> None:
+        """What the selected file connects to. Read quietly: nothing is loaded, and a
+        file that cannot be read says so here rather than in a toast."""
+        name = self.comboBox_configuration.currentText()
+        configuration = cfg.USER_CONFIGURATIONS.get(name)
+        path = configuration.get("path") if configuration else None
+        # The picker already names the file (by its stem); the full path is here for
+        # telling apart two files that share one.
+        self.label_configuration_info.setToolTip(str(path or ""))
+        if not path:
+            self.label_configuration_info.setText("")
+            return
+        try:
+            info = (utils.load_yaml(path) or {}).get("info") or {}
+        except Exception as e:  # a slot: nothing may reach Qt
+            logging.debug(f"Could not read configuration {path}: {e}")
+            self.label_configuration_info.setText("This file could not be read.")
+            return
+        parts = [
+            str(info.get("manufacturer") or ""),
+            str(info.get("ip_address") or ""),
+        ]
+        self.label_configuration_info.setText("  ·  ".join(p for p in parts if p))
 
     def load_configuration(
         self, configuration_name: Optional[str] = None
@@ -415,6 +422,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         combo.blockSignals(False)
 
         self.load_configuration(configuration_name)
+        self._show_configuration_info()
 
     def connect_to_microscope(self):
 
@@ -486,62 +494,53 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         self.update_ui()
 
-    def apply_microscope_configuration(
-        self, system_settings: Optional[SystemSettings] = None
-    ):
-        """Apply the microscope configuration to the microscope."""
-
-        if self.microscope is None:
-            notification_service.show_toast("Microscope not connected.", "error")
-            return
-
-        # apply the configuration
-        self.microscope.apply_configuration(system_settings=system_settings)
+    def set_current_imaging(
+        self, provider: Optional[Callable[[], ImageSettings]]
+    ) -> None:
+        """The acquire tab's settings, for the defaults' "Read from Acquire Tab"."""
+        self._current_imaging = provider
+        if self.configurationWindow is not None:
+            self.configurationWindow.defaults.set_current_imaging(provider)
 
     def open_configuration(self) -> None:
         if self.microscope is None:
             return
-        if self.configurationWindow is not None:
-            self.configurationWindow.close()
+        window = self.configurationWindow
+        if window is not None and window.isVisible():
+            # Shown again rather than rebuilt: it may hold unsaved defaults.
+            window.raise_()
+            window.activateWindow()
+            return
+        self._drop_configuration_window()
         self.configurationWindow = MicroscopeConfigurationWindow(
-            self.microscope, parent=self
+            self.microscope,
+            parent=self,
+            image_settings=getattr(self.settings, "image", None),
+            current_imaging=self._current_imaging,
         )
         self.configurationWindow.show()
         self.configurationWindow.raise_()
         self.configurationWindow.activateWindow()
 
-    def open_defaults(self) -> None:
-        if self.microscope is None:
-            return
-        self.defaultsDialog.show()
-        self.defaultsDialog.raise_()
-        self.defaultsDialog.activateWindow()
+    def _drop_configuration_window(self) -> None:
+        window, self.configurationWindow = self.configurationWindow, None
+        if window is not None:
+            window.close_without_asking()
+            window.deleteLater()
 
     def update_ui(self):
 
         is_microscope_connected = bool(self.microscope)
-        self.pushButton_apply_configuration.setVisible(is_microscope_connected)
-        self.pushButton_apply_configuration.setEnabled(
-            is_microscope_connected and cfg.APPLY_CONFIGURATION_ENABLED
-        )
-        self.pushButton_edit_defaults.setVisible(
-            is_microscope_connected and self.defaults_button_shown
-        )
+        # Locked while connected: the session runs on the file it was started from,
+        # and picking or adding another would show one it is not using.
+        self.comboBox_configuration.setEnabled(not is_microscope_connected)
+        self.action_add_configuration.setEnabled(not is_microscope_connected)
+        self.action_edit_configuration.setEnabled(is_microscope_connected)
         if not is_microscope_connected:
-            self.defaultsDialog.hide()
-            if self.configurationWindow is not None:
-                self.configurationWindow.close()
-                self.configurationWindow = None
-        self.defaultsWidget.set_microscope(
-            self.microscope or None,
-            image_settings=getattr(self.settings, "image", None),
-        )
+            self._drop_configuration_window()
 
         if is_microscope_connected:
             self.pushButton_connect_to_microscope.setVisible(False)
-            self.pushButton_apply_configuration.setStyleSheet(
-                stylesheets.SECONDARY_BUTTON_STYLESHEET
-            )
             self.connected_signal.emit()
 
             info = self.microscope.system.info
@@ -558,12 +557,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         else:
             self.pushButton_connect_to_microscope.setVisible(True)
-            self.pushButton_connect_to_microscope.setText("Connect To Microscope")
+            self.pushButton_connect_to_microscope.setText("Connect to Microscope")
             self.pushButton_connect_to_microscope.setStyleSheet(
                 stylesheets.PRIMARY_BUTTON_STYLESHEET
-            )
-            self.pushButton_apply_configuration.setStyleSheet(
-                stylesheets.SECONDARY_BUTTON_STYLESHEET
             )
             self.disconnected_signal.emit()
 

@@ -292,7 +292,11 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         try:
             from fibsem.fm.odemis import OdemisFluorescenceMicroscope
 
-            self.fm = OdemisFluorescenceMicroscope(self)
+            if (
+                self._fluorescence_is_configured()
+                and self._fluorescence_uses_own_driver()
+            ):
+                self.fm = OdemisFluorescenceMicroscope(self)
         except (ImportError, AttributeError) as e:
             logging.info(f"Fluorescence support is not available: {e}")
         except Exception as e:
@@ -454,6 +458,10 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         current_shift = self.get_beam_shift(beam_type=beam_type)
         new_shift = Point(x=current_shift.x + dx, y=current_shift.y + dy)
         self.set_beam_shift(new_shift, beam_type=beam_type)
+
+    def _fluorescence_default(self) -> bool:
+        """The Odemis stack drives its own FM, and has always built one unasked."""
+        return True
 
     def _get(self, key: str, beam_type: BeamType = None) -> str:
         if beam_type is not None:

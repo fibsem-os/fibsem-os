@@ -541,7 +541,11 @@ class DemoMicroscope(FibsemMicroscope):
         # configuration representable: an FM detected on a system nothing is
         # configured for -- a site upgrading -- gets no FM, and that is the case worth
         # being able to test.
-        if has_fm and self._fluorescence_is_configured():
+        if (
+            has_fm
+            and self._fluorescence_is_configured()
+            and self._fluorescence_uses_own_driver()
+        ):
             self.fm = SimulatedFluorescenceMicroscope(self)
             # Bringing the FM up leaves the shared channel on it, as
             # `ThermoMicroscope.__init__` does; taking it back is the next beam

@@ -230,7 +230,7 @@ class FibsemUI(QMainWindow):
                 self._add_control_tab(self.manipulator_widget, "Manipulator")
 
             self.system_widget.image_widget = self.image_widget
-            self.system_widget.defaultsWidget.set_current_imaging(
+            self.system_widget.set_current_imaging(
                 self.image_widget._get_image_settings_from_ui
             )
             self.system_widget.milling_widget = self.milling_widget

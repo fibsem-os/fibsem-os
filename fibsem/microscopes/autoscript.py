@@ -1057,6 +1057,9 @@ class ThermoMicroscope(FibsemMicroscope):
                 )
                 self.fm = None
                 self.set_channel(BeamType.ELECTRON)
+            elif not self._fluorescence_uses_own_driver():
+                self.fm = None
+                self.set_channel(BeamType.ELECTRON)
             else:
                 from fibsem.fm.autoscript import ThermoFisherFluorescenceMicroscope
 
