@@ -179,6 +179,14 @@ class FibsemMicroscope(ABC):
     # needs a backend that knows how to slide along the FIB line of sight.
     vertical_move_views: Tuple[BeamType, ...] = (BeamType.ION,)
 
+    # Where a half turn of this backend's stage is centred, raw (x, y) in metres: a
+    # position p on one side of the stage is at 2c - p on the other. A property of the
+    # hardware, so the driver sets it, not the configuration. None keeps each path as
+    # it was: stage moves use `_get_compucentric_rotation_offset` (ThermoFisher
+    # measures it, the rest assume the stage origin), and images record
+    # LEGACY_ROTATION_CENTRE for reprojection (FIB-1081).
+    rotation_centre: Optional[Tuple[float, float]] = None
+
     # live acquisition
     sem_acquisition_signal = Signal(FibsemImage)
     fib_acquisition_signal = Signal(FibsemImage)
@@ -1824,7 +1832,18 @@ class FibsemMicroscope(ABC):
         return self.get("preset", beam_type)
 
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
-        return FibsemStagePosition(x=0, y=0)  # assume no offset to rotation centre
+        """Specimen minus raw coordinates: the offset a half turn is taken about.
+
+        `_get_compucentric_rotation_position` reflects a position through minus this,
+        so a driver's `rotation_centre` c is an offset of -c -- the same centre its
+        images are reprojected with (FIB-1081). Without one, the rotation centre is
+        assumed to be the stage origin, as it always was here. ThermoFisher overrides
+        this and measures it instead.
+        """
+        centre = self.rotation_centre
+        if centre is None:
+            return FibsemStagePosition(x=0, y=0)
+        return FibsemStagePosition(x=-centre[0], y=-centre[1])
 
     def _get_compucentric_rotation_position(
         self, position: FibsemStagePosition
@@ -2510,7 +2529,9 @@ class FibsemMicroscope(ABC):
         the reprojection stop inferring it from the model name (FIB-481).
         """
         return FibsemHardwareGeometry.from_system_settings(
-            self.system, is_compustage=self.stage_is_compustage
+            self.system,
+            is_compustage=self.stage_is_compustage,
+            rotation_centre=self.rotation_centre,
         )
 
     def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
