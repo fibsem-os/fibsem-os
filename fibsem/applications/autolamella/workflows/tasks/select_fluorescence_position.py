@@ -128,5 +128,7 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
             ask_user(self.parent_ui, msg=msg, pos="Continue")
             self.microscope.fm.stop_acquisition()
 
-        # refresh the recorded fluorescence pose (preserving the configured objective position)
-        self._update_fluorescence_pose()
+        # Refresh the recorded fluorescence pose, keeping the configured objective
+        # position. Confirmed by a person, who could re-centre it, it is observed;
+        # run unattended, the task only re-read where it drove to.
+        self._update_fluorescence_pose(observed=self.validate)

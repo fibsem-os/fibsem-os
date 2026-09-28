@@ -33,6 +33,7 @@ import numpy as np
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
 from fibsem.acting import TASK, acting
+from fibsem.applications.autolamella.poses import FLUORESCENCE_POSE, move_pose
 from fibsem.applications.autolamella.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
@@ -681,22 +682,32 @@ class AutoLamellaTask(ABC):
         if self._stop_event is not None and self._stop_event.is_set():
             raise InterruptedError("Workflow aborted by user.")
 
-    def _update_fluorescence_pose(self) -> None:
+    def _update_fluorescence_pose(self, observed: bool = False) -> None:
         """Refresh the lamella's recorded fluorescence pose from the current microscope state.
 
         The configured objective (focus) position is preserved: get_microscope_state()
         does not capture the objective position, so overwriting the pose here (and
         re-reading the live objective position) previously wiped the user's configured
         focus.
+
+        By default the pose keeps the provenance it had. A task that drove to the pose
+        and re-read the stage has not looked at anything: a derived pose re-recorded
+        where it already was is still a guess, and must go on following its milling
+        pose. Pass *observed* when a person had the chance to centre it; the pose is then
+        observed, and a derived milling pose follows it.
         """
         configured_objective_position = (
             self.lamella.fluorescence_pose.objective_position
             if self.lamella.fluorescence_pose is not None
             else None
         )
-        self.lamella.fluorescence_pose = self.microscope.get_microscope_state()
-        self.lamella.fluorescence_pose.objective_position = (
-            configured_objective_position
+        state = self.microscope.get_microscope_state()
+        state.objective_position = configured_objective_position
+        if observed:
+            move_pose(self.microscope, self.lamella, FLUORESCENCE_POSE, state=state)
+            return
+        self.lamella.set_pose(
+            FLUORESCENCE_POSE, state, self.lamella.provenance_of(FLUORESCENCE_POSE)
         )
 
     def update_milling_config_ui(
