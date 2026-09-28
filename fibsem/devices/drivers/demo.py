@@ -16,9 +16,18 @@ import numpy as np
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
+from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import ParameterMetadata, Resources
+from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage
-from fibsem.structures import BeamType, FibsemStagePosition, RangeLimit
+from fibsem.structures import (
+    BeamType,
+    FibsemManipulatorPosition,
+    FibsemRectangle,
+    FibsemStagePosition,
+    Point,
+    RangeLimit,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscopes.simulator import DemoMicroscope
@@ -106,6 +115,67 @@ class DemoBeam(Beam):
 
     def metadata_detector_mode(self) -> ParameterMetadata:
         return self._choices("detector_mode")
+
+    def read_detector_contrast(self) -> float:
+        return self._system.detector.contrast
+
+    def write_detector_contrast(self, value: float) -> None:
+        self._system.detector.contrast = value
+
+    def read_detector_brightness(self) -> float:
+        return self._system.detector.brightness
+
+    def write_detector_brightness(self, value: float) -> None:
+        self._system.detector.brightness = value
+
+    def read_resolution(self) -> tuple:
+        return self._system.beam.resolution
+
+    def write_resolution(self, value: tuple) -> None:
+        self._system.beam.resolution = value
+
+    def read_dwell_time(self) -> float:
+        return self._system.beam.dwell_time
+
+    def write_dwell_time(self, value: float) -> None:
+        self._system.beam.dwell_time = value
+
+    # Reads hand back a new Point, as the Demo branch does, so a caller can't change
+    # the simulator's state through the value it was given.
+    def read_stigmation(self) -> Point:
+        return Point(self._system.beam.stigmation.x, self._system.beam.stigmation.y)
+
+    def write_stigmation(self, value: Point) -> None:
+        self._system.beam.stigmation = value
+
+    def read_shift(self) -> Point:
+        return Point(self._system.beam.shift.x, self._system.beam.shift.y)
+
+    def write_shift(self, value: Point) -> None:
+        self._system.beam.shift = value
+
+    def read_on(self) -> bool:
+        return self._system.on
+
+    def write_on(self, value: bool) -> None:
+        self._system.on = value
+
+    def read_scanning_mode(self) -> str:
+        return self._system.scanning_mode
+
+    # The scan commands: the spot_mode, reduced_area and full_frame branches of _set.
+
+    def _spot(self, point: Point) -> None:
+        self._system.scanning_mode = "spot"
+        self._system.scanning_mode_value = point
+
+    def _reduced_area(self, area: FibsemRectangle) -> None:
+        self._system.scanning_mode = "reduced_area"
+        self._system.scanning_mode_value = area
+
+    def _full_frame(self) -> None:
+        self._system.scanning_mode = "full_frame"
+        self._system.scanning_mode_value = None
 
     # Only a plasma ion column has a gas.
     def available_plasma_gas(self) -> bool:
@@ -239,3 +309,118 @@ def bind_demo_stage(
 ) -> DemoStage:
     """Build ``stage`` for a connected Demo microscope."""
     return DemoStage(microscope, resources).connect()
+
+
+class DemoChamber(Chamber):
+    """The Demo chamber.
+
+    Each method is what the matching part of ``DemoMicroscope`` does today, reading
+    and writing the same ``chamber`` system:
+
+    - ``read_state`` / ``read_pressure``: the ``chamber_state`` / ``chamber_pressure``
+      branches of ``_get``;
+    - ``_pump`` / ``_vent``: the ``pump_chamber`` / ``vent_chamber`` branches of
+      ``_set``.
+    """
+
+    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
+        super().__init__(parent=parent, resources=resources)
+        self._system = parent.chamber
+
+    def read_state(self) -> str:
+        return self._system.state
+
+    def read_pressure(self) -> float:
+        return self._system.pressure
+
+    def _pump(self) -> None:
+        logging.info("Pumping chamber...")
+        self._system.state = "Pumped"
+        self._system.pressure = 1e-6
+        logging.info("Chamber pumped.")
+
+    def _vent(self) -> None:
+        logging.info("Venting chamber...")
+        self._system.state = "Vented"
+        self._system.pressure = 1e5
+        logging.info("Chamber vented.")
+
+
+def bind_demo_chamber(
+    microscope: DemoMicroscope, resources: Optional[Resources] = None
+) -> DemoChamber:
+    """Build ``chamber`` for a connected Demo microscope."""
+    return DemoChamber(microscope, resources).connect()
+
+
+# Demo's two saved positions. insert_manipulator goes to PARK and
+# retract_manipulator to the origin, which is also EUCENTRIC.
+_DEMO_PARK = FibsemManipulatorPosition(x=0, y=0, z=180e-6, r=0, t=0)
+_DEMO_ORIGIN = FibsemManipulatorPosition(x=0, y=0, z=0, r=0, t=0)
+
+
+class DemoManipulator(Manipulator):
+    """The Demo manipulator.
+
+    Each method is what the matching part of ``DemoMicroscope`` does today, reading
+    and writing the same ``manipulator_system``:
+
+    - ``read_position`` / ``read_inserted``: the ``manipulator_position`` /
+      ``manipulator_state`` branches of ``_get``;
+    - ``saved_position``: ``_get_saved_manipulator_position``;
+    - ``_insert`` / ``_retract``: ``insert_manipulator`` / ``retract_manipulator``,
+      which go to one fixed position each, whatever name is asked for;
+    - ``_move_absolute`` / ``_move_relative``: ``move_manipulator_absolute`` /
+      ``move_manipulator_relative``.
+
+    As with the stage, positions come back as a copy, and a move keeps a copy of
+    the position it was given, so neither side can change the other's object.
+    """
+
+    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
+        super().__init__(parent=parent, resources=resources)
+        self._system = parent.manipulator_system
+
+    def read_position(self) -> FibsemManipulatorPosition:
+        return deepcopy(self._system.position)
+
+    def read_inserted(self) -> bool:
+        return self._system.inserted
+
+    def saved_position(self, name: str = "PARK") -> FibsemManipulatorPosition:
+        if name == "PARK":
+            return deepcopy(_DEMO_PARK)
+        if name == "EUCENTRIC":
+            return deepcopy(_DEMO_ORIGIN)
+        raise ValueError(f"Unknown manipulator position: {name}")
+
+    def _insert(self, name: str) -> None:
+        logging.info(f"Inserting manipulator to {name}...")
+        self._move_absolute(_DEMO_PARK)
+        self._system.inserted = True
+        logging.debug({"msg": "insert_manipulator", "name": name})
+
+    def _retract(self) -> None:
+        logging.info("Retracting manipulator...")
+        self._move_absolute(_DEMO_ORIGIN)
+        self._system.inserted = False
+        logging.debug({"msg": "retract_manipulator"})
+
+    def _move_absolute(self, position: FibsemManipulatorPosition) -> None:
+        logging.info(f"Moving manipulator: {position} (Absolute)")
+        self._system.position = deepcopy(position)
+        logging.debug(
+            {"msg": "move_manipulator_absolute", "position": position.to_dict()}
+        )
+
+    def _move_relative(self, delta: FibsemManipulatorPosition) -> None:
+        logging.info(f"Moving manipulator: {delta} (Relative)")
+        self._system.position += delta
+        logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
+
+
+def bind_demo_manipulator(
+    microscope: DemoMicroscope, resources: Optional[Resources] = None
+) -> DemoManipulator:
+    """Build ``manipulator`` for a connected Demo microscope."""
+    return DemoManipulator(microscope, resources).connect()

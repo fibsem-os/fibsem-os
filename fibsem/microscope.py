@@ -1074,10 +1074,14 @@ class FibsemMicroscope(ABC):
     def get_manipulator_state(self) -> bool:
         """Get the manipulator state (Inserted = True, Retracted = False)"""
         # TODO: convert to enum
+        if self.manipulator_device is not None:
+            return self.manipulator_device.inserted.get_value()
         return self.get("manipulator_state")
 
     def get_manipulator_position(self) -> FibsemManipulatorPosition:
         """Get the manipulator position."""
+        if self.manipulator_device is not None:
+            return self.manipulator_device.position.get_value()
         return self.get("manipulator_position")
 
     @abstractmethod
@@ -1297,6 +1301,12 @@ class FibsemMicroscope(ABC):
     # them. The name is temporary: `stage` is taken by the vendor object on Thermo
     # and Odemis, and the final name is decided with the stage redesign.
     stage_device: Optional[Any] = None
+    # The chamber and the manipulator as devices (fibsem.devices.Chamber and
+    # .Manipulator), named like `stage_device` because `chamber` is taken on Demo.
+    # As with the stage, their keys are not routed: the methods that read them
+    # (pump/vent, get_manipulator_state/position) use the device directly.
+    chamber_device: Optional[Any] = None
+    manipulator_device: Optional[Any] = None
     _beam_routes: Mapping[str, str] = MappingProxyType({})
 
     def _route(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
@@ -1834,11 +1844,15 @@ class FibsemMicroscope(ABC):
 
     def pump(self) -> str:
         """ "Pump the chamber."""
+        if self.chamber_device is not None:
+            return self.chamber_device.pump()
         self.set("pump_chamber", True)
         return self.get("chamber_state")
 
     def vent(self) -> str:
         """Vent the chamber."""
+        if self.chamber_device is not None:
+            return self.chamber_device.vent()
         self.set("vent_chamber", True)
         return self.get("chamber_state")
 
@@ -1879,8 +1893,23 @@ class FibsemMicroscope(ABC):
             available_beams.append(BeamType.ION)
         return available_beams
 
+    def _scan_beam(self, beam_type: BeamType) -> Optional[Any]:
+        """The beam device whose scan commands the scan-mode methods use, if any.
+
+        Without one, the methods set today's keys (spot_mode, reduced_area,
+        full_frame) through the backend's chain.
+        """
+        beam = self.beams.get(beam_type)
+        if beam is None or not beam.commands["spot"].available:
+            return None
+        return beam
+
     def set_spot_scanning_mode(self, point: Point, beam_type: BeamType) -> None:
         """Set the spot scanning mode for the specified beam type."""
+        beam = self._scan_beam(beam_type)
+        if beam is not None:
+            beam.spot(point)
+            return
         self.set("spot_mode", point, beam_type)
         return
 
@@ -1888,11 +1917,19 @@ class FibsemMicroscope(ABC):
         self, reduced_area: FibsemRectangle, beam_type: BeamType
     ) -> None:
         """Set the reduced area scanning mode for the specified beam type."""
+        beam = self._scan_beam(beam_type)
+        if beam is not None:
+            beam.reduced_area(reduced_area)
+            return
         self.set("reduced_area", reduced_area, beam_type)
         return
 
     def set_full_frame_scanning_mode(self, beam_type: BeamType) -> None:
         """Set the full frame scanning mode for the specified beam type."""
+        beam = self._scan_beam(beam_type)
+        if beam is not None:
+            beam.full_frame()
+            return
         self.set("full_frame", None, beam_type)
         return
 

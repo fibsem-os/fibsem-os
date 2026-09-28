@@ -32,6 +32,7 @@ from fibsem.structures import (
     BeamType,
     FibsemImage,
     FibsemManipulatorPosition,
+    FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
@@ -106,6 +107,14 @@ DEVICE_DEMO_ROUTED_BEAM_KEYS = [
     "blanked",
     "detector_type",
     "detector_mode",
+    "detector_contrast",
+    "detector_brightness",
+    "resolution",
+    "dwell_time",
+    "stigmation",
+    "shift",
+    "on",
+    "scanning_mode",
 ]
 
 
@@ -116,6 +125,79 @@ def test_device_demo_serves_its_beam_keys_from_devices(key, beam_type):
     param = microscope._route(key, beam_type)
     assert param is not None
     assert param.device is microscope.beams[beam_type]
+
+
+def test_device_demo_reads_the_manipulator_and_chamber_from_their_devices():
+    """The wrappers over these keys never reach the Demo chain on DeviceDemo."""
+    microscope = _connect("DeviceDemo")
+    chain_get = microscope._get
+    keys = ("manipulator_position", "manipulator_state", "chamber_state")
+
+    def refuse(key, beam_type=None):
+        assert key not in keys, f"{key} went to the Demo chain"
+        return chain_get(key, beam_type)
+
+    microscope._get = refuse
+    assert microscope.get_manipulator_state() is False
+    microscope.insert_manipulator("PARK")
+    assert microscope.get_manipulator_state() is True
+    assert (
+        microscope.get_manipulator_position()
+        == microscope.manipulator_device.position.cached
+    )
+    assert microscope.vent() == "Vented"
+    assert microscope.pump() == "Pumped"
+
+
+def test_device_demo_pumps_and_vents_through_its_chamber_device():
+    microscope = _connect("DeviceDemo")
+    chamber = microscope.chamber_device
+    calls = []
+    for name in ("_pump", "_vent"):
+        original = getattr(chamber, name)
+        setattr(
+            chamber,
+            name,
+            lambda name=name, original=original: (calls.append(name), original()),
+        )
+    assert microscope.vent() == "Vented"
+    assert chamber.pressure.cached == microscope.get("chamber_pressure")
+    assert microscope.pump() == "Pumped"
+    assert calls == ["_vent", "_pump"]
+
+
+def test_device_demo_moves_its_manipulator_device():
+    microscope = _connect("DeviceDemo")
+    manipulator = microscope.manipulator_device
+    calls = []
+    for name in ("_insert", "_retract", "_move_absolute", "_move_relative"):
+        original = getattr(manipulator, name)
+        setattr(
+            manipulator,
+            name,
+            lambda *args, name=name, original=original: (
+                calls.append(name),
+                original(*args),
+            ),
+        )
+    microscope.insert_manipulator("PARK")
+    microscope.move_manipulator_relative(FibsemManipulatorPosition(x=1e-6))
+    microscope.move_manipulator_corrected(1e-6, 1e-6, BeamType.ELECTRON)
+    microscope.move_manipulator_to_position_offset(FibsemManipulatorPosition())
+    microscope.move_manipulator_absolute(FibsemManipulatorPosition(z=1e-6))
+    microscope.retract_manipulator()
+    # insert and retract move through _move_absolute, as Demo's do.
+    assert calls == [
+        "_insert",
+        "_move_absolute",
+        "_move_relative",
+        "_move_relative",
+        "_move_absolute",
+        "_move_absolute",
+        "_retract",
+        "_move_absolute",
+    ]
+    assert manipulator.inserted.cached is False
 
 
 def test_device_demo_moves_its_stage_device():
@@ -143,6 +225,34 @@ def test_device_demo_moves_its_stage_device():
     assert np.allclose(
         _xyzrt(microscope.get_stage_position()), _xyzrt(stage.position.cached)
     )
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_device_demo_scans_through_its_beam_commands(beam_type):
+    """DeviceDemo's scan-mode methods call the beam's commands, not the Demo chain."""
+    microscope = _connect("DeviceDemo")
+    beam = microscope.beams[beam_type]
+    calls = []
+
+    def counted(name):
+        original = getattr(beam, name)
+
+        def call(*args):
+            calls.append((name, *args))
+            return original(*args)
+
+        return call
+
+    for name in ("_spot", "_reduced_area", "_full_frame"):
+        setattr(beam, name, counted(name))
+    point, area = Point(0.5, 0.5), FibsemRectangle(0.25, 0.25, 0.5, 0.5)
+    microscope.set_spot_scanning_mode(point, beam_type)
+    assert beam.scanning_mode.cached == "spot"
+    microscope.set_reduced_area_scanning_mode(area, beam_type)
+    assert beam.scanning_mode.cached == "reduced_area"
+    microscope.set_full_frame_scanning_mode(beam_type)
+    assert beam.scanning_mode.cached == "full_frame"
+    assert calls == [("_spot", point), ("_reduced_area", area), ("_full_frame",)]
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +519,10 @@ def test_on_off_and_blanking(microscope, beam_type):
 def test_scanning_modes(microscope, beam_type):
     microscope.set_spot_scanning_mode(Point(0.5, 0.5), beam_type)
     assert microscope.get("scanning_mode", beam_type) == "spot"
+    microscope.set_reduced_area_scanning_mode(
+        FibsemRectangle(0.25, 0.25, 0.5, 0.5), beam_type
+    )
+    assert microscope.get("scanning_mode", beam_type) == "reduced_area"
     microscope.set_full_frame_scanning_mode(beam_type)
     assert microscope.get("scanning_mode", beam_type) == "full_frame"
 
@@ -497,6 +611,50 @@ def test_safe_absolute_stage_movement_arrives(microscope):
 
 
 # ---------------------------------------------------------------------------
+# Manipulator
+# ---------------------------------------------------------------------------
+
+
+def test_manipulator_inserts_and_retracts(microscope):
+    inserted = microscope.insert_manipulator("PARK")
+    assert isinstance(inserted, FibsemManipulatorPosition)
+    assert _xyzrt(inserted) == _xyzrt(microscope.get_manipulator_position())
+    assert microscope.get_manipulator_state() is True
+    assert microscope.retract_manipulator() is None
+    assert microscope.get_manipulator_state() is False
+
+
+def test_manipulator_moves_absolute_and_relative(microscope):
+    target = FibsemManipulatorPosition(x=1e-6, y=2e-6, z=3e-6)
+    moved = microscope.move_manipulator_absolute(deepcopy(target))
+    assert np.allclose(_xyzrt(moved), _xyzrt(target))
+    moved = microscope.move_manipulator_relative(FibsemManipulatorPosition(x=1e-6))
+    assert np.allclose(_xyzrt(moved), [2e-6, 2e-6, 3e-6, 0, 0])
+    assert _xyzrt(moved) == _xyzrt(microscope.get_manipulator_position())
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_manipulator_corrected_move_returns_where_it_is(microscope, beam_type):
+    moved = microscope.move_manipulator_corrected(1e-6, -1e-6, beam_type)
+    assert isinstance(moved, FibsemManipulatorPosition)
+    assert _xyzrt(moved) == _xyzrt(microscope.get_manipulator_position())
+
+
+def test_manipulator_moves_to_an_offset_from_a_saved_position(microscope):
+    eucentric = microscope._get_saved_manipulator_position("EUCENTRIC")
+    offset = FibsemManipulatorPosition(x=1e-6, z=-2e-6)
+    moved = microscope.move_manipulator_to_position_offset(
+        deepcopy(offset), "EUCENTRIC"
+    )
+    assert np.allclose(_xyzrt(moved), _xyzrt(eucentric + offset))
+
+
+def test_unknown_saved_manipulator_position_raises(microscope):
+    with pytest.raises(ValueError):
+        microscope._get_saved_manipulator_position("NOWHERE")
+
+
+# ---------------------------------------------------------------------------
 # State and imaging
 # ---------------------------------------------------------------------------
 
@@ -572,6 +730,16 @@ CALL_SEQUENCE = [
     ),
     ("vent", (), {}),
     ("pump", (), {}),
+    ("insert_manipulator", ("PARK",), {}),
+    ("move_manipulator_relative", (FibsemManipulatorPosition(x=1e-6, z=-2e-6),), {}),
+    ("move_manipulator_corrected", (2e-6, -1e-6, BeamType.ION), {}),
+    (
+        "move_manipulator_to_position_offset",
+        (FibsemManipulatorPosition(y=1e-6), "EUCENTRIC"),
+        {},
+    ),
+    ("move_manipulator_absolute", (FibsemManipulatorPosition(x=3e-6, z=1e-5),), {}),
+    ("retract_manipulator", (), {}),
     ("set_spot_scanning_mode", (Point(0.25, 0.75), BeamType.ION), {}),
     ("set_full_frame_scanning_mode", (BeamType.ION,), {}),
     ("set", ("not_a_key", 1), {}),
@@ -598,7 +766,7 @@ def _record(microscope) -> List[Tuple[str, Any, Dict[str, Any]]]:
     record = [("start", None, _snapshot(microscope))]
     for method, args, kwargs in CALL_SEQUENCE:
         returned = getattr(microscope, method)(*deepcopy(args), **deepcopy(kwargs))
-        if isinstance(returned, FibsemStagePosition):
+        if isinstance(returned, (FibsemStagePosition, FibsemManipulatorPosition)):
             returned = [round(float(v), 12) for v in _xyzrt(returned)]
         elif isinstance(returned, Point):
             returned = (returned.x, returned.y)

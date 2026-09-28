@@ -320,7 +320,14 @@ def test_a_claimed_resource_blocks_another_thread():
 def test_actions_are_plain_methods_that_describe_themselves(beams):
     sem = beams[BeamType.ELECTRON]
     commands = sem.commands
-    assert set(commands) == {"acquire", "blank", "unblank"}
+    assert set(commands) == {
+        "acquire",
+        "blank",
+        "unblank",
+        "spot",
+        "reduced_area",
+        "full_frame",
+    }
     assert commands["acquire"].signature.startswith("(image_settings")
     assert commands["blank"].available
 

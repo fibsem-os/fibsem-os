@@ -53,6 +53,7 @@ from fibsem.devices.beam import (
     Beam,
     KeyRouter,
 )
+from fibsem.devices.chamber import CHAMBER_RESOURCE, Chamber
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
     BoundParameter,
@@ -64,6 +65,10 @@ from fibsem.devices.core import (
     ParameterUnavailable,
     Resources,
     command,
+)
+from fibsem.devices.manipulator import (
+    MANIPULATOR_RESOURCE,
+    Manipulator,
 )
 from fibsem.devices.stage import (
     AXIS_UNITS,
@@ -80,10 +85,14 @@ __all__ = [
     "Axes",
     "Axis",
     "BEAM_ROUTES",
+    "CHAMBER_RESOURCE",
+    "Chamber",
     "STAGE_COMMAND_ROUTES",
     "STAGE_RESOURCE",
     "STAGE_ROUTES",
     "IMAGING_CHANNEL",
+    "MANIPULATOR_RESOURCE",
+    "Manipulator",
     "CommandInfo",
     "Beam",
     "BoundParameter",
