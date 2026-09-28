@@ -187,6 +187,21 @@ def test_a_microscope_without_fluorescence_gets_no_fluorescence_pose():
     assert poses.milling is not None
 
 
+@pytest.mark.parametrize("x", [24e-3, -30e-3])
+def test_without_fluorescence_every_position_is_a_milling_pose(x):
+    """No FM, no other side: a position past the beams' device window is still the
+    milling pose verbatim, not refused for want of a fluorescence position."""
+    microscope = _iflm()
+    microscope.fm = None
+    marked = _at(microscope, MILLING_ORIENTATION, x=x)
+    assert microscope.get_current_device(marked) is None
+
+    poses = build_lamella_poses(microscope, marked)
+
+    assert poses.milling.stage_position == marked
+    assert poses.fluorescence is None
+
+
 # ── an offset mount: the side is a place, not a pose ────────────────────
 
 

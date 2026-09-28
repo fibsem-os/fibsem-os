@@ -162,7 +162,13 @@ def _is_beam_side(
     decides: t = -180 is the FM's alone, and every other supported pose -- SEM, FIB,
     MILLING -- is somewhere a beam looks at the sample, whether or not the objective
     can image from it too.
+
+    With no FM there is no other side: every position is the beams', wherever along
+    the stage it is. Asking the device window there would refuse a lamella marked
+    past it for want of a fluorescence position the system cannot have.
     """
+    if microscope.fm is None:
+        return True
     if microscope.stage_is_compustage:
         return microscope.get_stage_orientation(position) != FLUORESCENCE_ORIENTATION
     return microscope.is_at_device(BEAMS_DEVICE, position)
