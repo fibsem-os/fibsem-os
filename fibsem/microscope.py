@@ -314,7 +314,10 @@ class FibsemMicroscope(ABC):
             FibsemStagePosition: The current stage position.
         """
 
-        stage_position = self.get("stage_position")
+        if self.stage_device is not None:
+            stage_position = self.stage_device.position.get_value()
+        else:
+            stage_position = self.get("stage_position")
 
         if not isinstance(stage_position, FibsemStagePosition):
             raise TypeError(f"Expected FibsemStagePosition, got {type(stage_position)}")
@@ -1079,6 +1082,12 @@ class FibsemMicroscope(ABC):
     # are empty until a backend builds its devices, so today every key takes the old
     # path. They are read-only here; a backend replaces them, never mutates them.
     beams: Mapping[BeamType, Any] = MappingProxyType({})
+    # The stage as a device (fibsem.devices.Stage), once a backend builds one. The
+    # stage methods below use it when it is there and today's keys when it is not;
+    # the keys themselves are not routed, since nothing outside these methods uses
+    # them. The name is temporary: `stage` is taken by the vendor object on Thermo
+    # and Odemis, and the final name is decided with the stage redesign.
+    stage_device: Optional[Any] = None
     _beam_routes: Mapping[str, str] = MappingProxyType({})
 
     def _route(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
@@ -1560,11 +1569,21 @@ class FibsemMicroscope(ABC):
 
     def home(self) -> bool:
         """Home the stage."""
+        if (
+            self.stage_device is not None
+            and self.stage_device.commands["home"].available
+        ):
+            return self.stage_device.home()
         self.set("stage_home", True)
         return self.get("stage_homed")
 
     def link_stage(self) -> bool:
         """Link the stage to the working distance"""
+        if (
+            self.stage_device is not None
+            and self.stage_device.commands["link"].available
+        ):
+            return self.stage_device.link()
         self.set("stage_link", True)
         return self.get("stage_linked")
 
