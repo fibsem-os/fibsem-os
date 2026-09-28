@@ -36,6 +36,7 @@ from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
+    FM_DRIVER_REMOTE,
     BeamSettings,
     BeamSystemSettings,
     BeamType,
@@ -741,10 +742,48 @@ class FibsemMicroscope(ABC):
         hardware (`compustage.is_installed`), not from configuration, and no shipped
         Arctis configuration carries the flag -- `tfs-arctis-configuration.yaml` has
         no `fm:` block at all. Replacing the old check rather than widening it would
-        take the FM away from every Arctis site on upgrade. So the compustage stays
-        exactly as it was, and an offset mount must opt in.
+        take the FM away from every Arctis site on upgrade. So a configuration that
+        does not state the flag keeps the compustage exactly as it was, and an offset
+        mount must opt in. An explicit `false` turns the FM off on either.
         """
-        return self.system.fm.enabled or self.stage_is_compustage
+        if self.system.fm.enabled is None:
+            return self._fluorescence_default()
+        return self.system.fm.enabled
+
+    def _fluorescence_default(self) -> bool:
+        """Whether this backend has an FM when the configuration does not say.
+
+        The answer each backend gave before the flag was read: a compustage has one.
+        An explicit `fm.enabled` overrides it either way.
+        """
+        return self.stage_is_compustage
+
+    def _fluorescence_uses_own_driver(self) -> bool:
+        """Whether the FM, if there is one, comes from this microscope's own driver.
+
+        True when the configuration names no FM driver, which is every site today, so
+        each backend builds exactly the FM it always has. An FM on its own PC
+        (`fm.driver: remote`) must not be looked for on the beams' connection: an
+        Aquilos with a METEOR would otherwise get an iFLM driver that finds nothing.
+        The remote FM itself is not built yet (FIB-294), so such a site gets no FM and
+        says why, rather than the wrong one.
+        """
+        driver = self.system.fm.driver
+        if driver is None:
+            return True
+        if driver == FM_DRIVER_REMOTE:
+            logging.error(
+                f"The fluorescence microscope is configured as remote "
+                f"({self.system.fm.address}:{self.system.fm.port}), which is not "
+                "supported yet. No fluorescence microscope will be available."
+            )
+        else:
+            logging.error(
+                f"Unknown fluorescence microscope driver {driver!r}; the supported "
+                f"value is {FM_DRIVER_REMOTE!r}, or no `driver` key to use the "
+                "microscope's own. No fluorescence microscope will be available."
+            )
+        return False
 
     def _refuse_rotation_at_the_fluorescence_microscope(
         self, stage_position: FibsemStagePosition

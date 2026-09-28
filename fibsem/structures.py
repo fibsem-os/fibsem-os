@@ -2760,6 +2760,10 @@ class SystemInfo:
         )
 
 
+# The one FM driver a configuration names today; see `FluorescenceSystemSettings.driver`.
+FM_DRIVER_REMOTE = "remote"
+
+
 @dataclass
 class FluorescenceSystemSettings:
     """Whether this site's instrument has a fluorescence microscope.
@@ -2775,11 +2779,27 @@ class FluorescenceSystemSettings:
     here, not the goal: the flag decides, and the driver's own probe only confirms the
     hardware is really there once a site has said it should be.
 
+    **Absent is not false.** `enabled` is `None` when the configuration does not say,
+    and then each backend keeps the answer it always gave (`_fluorescence_default`):
+    off on an offset mount, on for a compustage and for the Odemis stack, whose
+    configurations have never carried the key. An explicit `false` means no FM on
+    every backend -- a device switched off in the configuration is never built.
+    So never test the raw flag for truth: ask `_fluorescence_is_configured()`.
+
     The key already existed in the file format and was read by nothing; `config` is
     the only part of the block anything consumed.
     """
 
-    enabled: bool = False
+    enabled: Optional[bool] = None
+
+    # Which driver the FM comes from. `None` follows the microscope's own driver --
+    # the iFLM and the Arctis FM are on the AutoScript connection, the Odemis stack
+    # drives its own -- which is every site today. `FM_DRIVER_REMOTE` is an FM on its
+    # own PC, reached at `address`:`port` (a METEOR beside natively driven beams,
+    # FIB-835). The address belongs to the driver, so it is read only with one.
+    driver: Optional[str] = None
+    address: Optional[str] = None
+    port: Optional[int] = None
 
     # The objective's calibration, in metres: where it is in focus, and how far it
     # may be inserted. Measured at this instrument, so it is written under
@@ -2791,7 +2811,12 @@ class FluorescenceSystemSettings:
     limit_position: Optional[float] = None
 
     def to_dict(self) -> dict:
-        return {"enabled": self.enabled}
+        return {
+            "enabled": self.enabled,
+            "driver": self.driver,
+            "address": self.address,
+            "port": self.port,
+        }
 
     def objective_to_dict(self) -> dict:
         return {
@@ -2801,8 +2826,17 @@ class FluorescenceSystemSettings:
 
     @staticmethod
     def from_dict(settings: dict) -> "FluorescenceSystemSettings":
+        settings = settings or {}
+        port = settings.get("port")
         return FluorescenceSystemSettings(
-            enabled=bool((settings or {}).get("enabled", False))
+            enabled=(
+                bool(settings["enabled"])
+                if settings.get("enabled") is not None
+                else None
+            ),
+            driver=settings.get("driver"),
+            address=settings.get("address"),
+            port=int(port) if port is not None else None,
         )
 
 
