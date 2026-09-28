@@ -22,9 +22,9 @@ from fibsem.devices import (
     ParameterReadOnly,
     ParameterUnavailable,
     Resources,
-    bind_demo_beams,
     command,
 )
+from fibsem.devices.drivers.demo import bind_demo_beams
 from fibsem.structures import BeamType, FibsemImage
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)

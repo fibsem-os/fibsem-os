@@ -1,12 +1,15 @@
 """A prototype of the microscope as a container of devices.
 
-Nothing in fibsem uses this package yet, and ``FibsemMicroscope`` is unchanged. It
-shows the device model on the Demo backend: parameters that describe themselves,
-commands, named shared resources, and a key router that sends today's
-``get``/``set`` keys to parameters without changing what the old calls do.
+Nothing in fibsem uses this package yet, and ``FibsemMicroscope`` is unchanged. This
+package is the vendor-neutral API, and backend implementations live in
+``fibsem.devices.drivers``. It shows the device model on the Demo backend:
+parameters that describe themselves, commands, named shared resources, and a key
+router that sends today's ``get``/``set`` keys to parameters without changing what
+the old calls do.
 
     from fibsem import utils
-    from fibsem.devices import KeyRouter, bind_demo_beams
+    from fibsem.devices import KeyRouter
+    from fibsem.devices.drivers.demo import bind_demo_beams
     from fibsem.structures import BeamType
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -38,7 +41,6 @@ from fibsem.devices.core import (
     Resources,
     command,
 )
-from fibsem.devices.demo import DemoBeam, bind_demo_beams
 
 __all__ = [
     "BEAM_ROUTES",
@@ -47,7 +49,6 @@ __all__ = [
     "Beam",
     "BoundParameter",
     "KeyRouter",
-    "DemoBeam",
     "Device",
     "ParameterMetadata",
     "Parameter",
@@ -55,5 +56,4 @@ __all__ = [
     "ParameterUnavailable",
     "Resources",
     "command",
-    "bind_demo_beams",
 ]
