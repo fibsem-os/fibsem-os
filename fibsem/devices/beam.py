@@ -1,0 +1,123 @@
+"""The Beam device, and the compatibility front that keeps today's get/set working.
+
+One ``Beam`` class serves both columns; a parameter one column lacks is simply not
+bound on it. ``CompatibilityFront`` is what ``FibsemMicroscope.get``/``set`` would
+become: a key that has moved to a device is routed to its parameter, and every other
+key falls through to the backend's untouched if/elif chain.
+"""
+
+from __future__ import annotations
+
+import logging
+from math import pi
+from typing import Any, Dict, List, Mapping, Optional
+
+from fibsem.devices.core import BoundParameter, Device, Parameter, action
+from fibsem.structures import BeamType, FibsemImage, ImageSettings
+
+
+class Beam(Device):
+    voltage = Parameter(float, unit="V")
+    current = Parameter(float, unit="A", depends_on=("plasma_gas",))
+    plasma_gas = Parameter(str)
+    working_distance = Parameter(float, unit="m")
+    hfw = Parameter(float, unit="m")
+    scan_rotation = Parameter(float, unit="rad", limits=(0.0, 2 * pi))
+    blanked = Parameter(bool)
+    preset = Parameter(str)
+    detector_type = Parameter(str)
+    detector_mode = Parameter(str)
+
+    def __init__(self, beam_type: BeamType, parent: Any = None, **kwargs: Any):
+        super().__init__(name=beam_type.name.lower(), parent=parent, **kwargs)
+        self.beam_type = beam_type
+
+    @action(available=lambda beam: "blanked" in beam.parameters)
+    def blank(self) -> None:
+        """Blank the beam."""
+        self.blanked.set(True)
+
+    @action(available=lambda beam: "blanked" in beam.parameters)
+    def unblank(self) -> None:
+        """Unblank the beam."""
+        self.blanked.set(False)
+
+    @action
+    def acquire(self, image_settings: Optional[ImageSettings] = None) -> FibsemImage:
+        """Acquire an image with this beam. Imaging is a beam action, not a device."""
+        return self.parent.acquire_image(image_settings, beam_type=self.beam_type)
+
+
+# Old key -> parameter name. Every beam key keeps its old name here, so the table is
+# also the list of what has moved. A key missing from it has not moved yet.
+BEAM_ROUTES: Dict[str, str] = {
+    "voltage": "voltage",
+    "current": "current",
+    "plasma_gas": "plasma_gas",
+    "working_distance": "working_distance",
+    "hfw": "hfw",
+    "scan_rotation": "scan_rotation",
+    "blanked": "blanked",
+    "preset": "preset",
+    "detector_type": "detector_type",
+    "detector_mode": "detector_mode",
+}
+
+
+class CompatibilityFront:
+    """Today's ``get``/``set``/``get_available_values``, routed where a key has moved.
+
+    Routed calls make the same instrument call the old branch made and skip the new
+    API's validation, so a half-migrated backend behaves exactly like an unmigrated one.
+    Logging matches ``FibsemMicroscope.get`` and ``set``.
+    """
+
+    def __init__(
+        self,
+        microscope: Any,
+        beams: Mapping[BeamType, Beam],
+        routes: Optional[Mapping[str, str]] = None,
+    ):
+        self.microscope = microscope
+        self.beams = dict(beams)
+        self.routes = dict(BEAM_ROUTES if routes is None else routes)
+
+    def route(
+        self, key: str, beam_type: Optional[BeamType]
+    ) -> Optional[BoundParameter]:
+        name = self.routes.get(key)
+        beam = self.beams.get(beam_type) if beam_type is not None else None
+        if name is None or beam is None:
+            return None
+        return beam.parameters.get(name)
+
+    def get(self, key: str, beam_type: Optional[BeamType] = None) -> Any:
+        param = self.route(key, beam_type)
+        if param is not None:
+            value = param.read()
+        else:
+            value = self.microscope._get(key, beam_type)
+        beam_name = "None" if beam_type is None else beam_type.name
+        logging.debug(
+            {"msg": "get", "key": key, "beam_type": beam_name, "value": value}
+        )
+        return value
+
+    def set(self, key: str, value: Any, beam_type: Optional[BeamType] = None) -> None:
+        param = self.route(key, beam_type)
+        if param is not None:
+            param.write_through(value)
+        else:
+            self.microscope._set(key, value, beam_type)
+        beam_name = "None" if beam_type is None else beam_type.name
+        logging.debug(
+            {"msg": "set", "key": key, "beam_type": beam_name, "value": value}
+        )
+
+    def get_available_values(
+        self, key: str, beam_type: Optional[BeamType] = None
+    ) -> List[Any]:
+        param = self.route(key, beam_type)
+        if param is not None and param.choices is not None:
+            return list(param.choices)
+        return self.microscope.get_available_values(key, beam_type)
