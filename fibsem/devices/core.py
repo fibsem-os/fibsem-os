@@ -85,7 +85,9 @@ class Parameter:
     ``available_<name>`` (optional) says whether this instance has it at all. Without
     ``read_<name>`` the parameter stays absent; without ``write_<name>`` it is
     read-only. A method named for a parameter the device doesn't declare is an error
-    when the class is defined, so a typo can't silently hide a parameter.
+    when the class is defined, so a typo can't silently hide a parameter. So is a
+    subclass redeclaring a parameter with another type or unit: what differs between
+    backends goes in metadata, and the parameter keeps one meaning everywhere.
     """
 
     def __init__(
@@ -412,6 +414,25 @@ class Device:
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        # A parameter means the same thing on every backend: a subclass may redeclare
+        # one (new static limits, choices, doc) but not change its type or unit.
+        inherited = {
+            name: param
+            for base in cls.__bases__
+            if issubclass(base, Device)
+            for name, param in base.declared_parameters().items()
+        }
+        for name, attr in vars(cls).items():
+            base_param = inherited.get(name)
+            if not isinstance(attr, Parameter) or base_param is None:
+                continue
+            if (attr.type, attr.unit) != (base_param.type, base_param.unit):
+                raise TypeError(
+                    f"{cls.__name__}.{name} is {attr.type.__name__} in {attr.unit!r}, "
+                    f"but is declared {base_param.type.__name__} in "
+                    f"{base_param.unit!r}; a backend can't change a parameter's type "
+                    f"or unit"
+                )
         declared = cls.declared_parameters()
         for attr, value in vars(cls).items():
             if not callable(value):

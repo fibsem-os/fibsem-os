@@ -360,6 +360,23 @@ def test_a_misnamed_implementation_is_an_error_not_an_absent_parameter():
                 return 1.0
 
 
+def test_a_backend_cannot_change_a_parameters_type_or_unit():
+    with pytest.raises(TypeError, match="current"):
+
+        class CurrentAsLabel(Beam):
+            current = Parameter(str)
+
+    with pytest.raises(TypeError, match="hfw"):
+
+        class HfwInMicrons(Beam):
+            hfw = Parameter(float, unit="um")
+
+    class NarrowerRotation(Beam):  # same type and unit, new static limits: allowed
+        scan_rotation = Parameter(float, unit="rad", limits=(0.0, 1.0))
+
+    assert NarrowerRotation.declared_parameters()["scan_rotation"].limits == (0.0, 1.0)
+
+
 def test_needs_channel_is_declared_on_the_backend_class():
     events = []
 
