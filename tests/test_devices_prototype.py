@@ -401,3 +401,56 @@ def test_needs_channel_is_declared_on_the_backend_class():
     det.contrast.get_value()
     assert events == ["select", "read"]
     assert not det.contrast.settable  # no write_contrast: read-only
+
+
+# FibsemMicroscope.get/set route a moved key to its device parameter.
+
+
+def _routed_demo(plasma: bool = False):
+    microscope = _demo(plasma)
+    microscope.beams = bind_demo_beams(microscope)
+    microscope._beam_routes = dict(BEAM_ROUTES)
+    return microscope
+
+
+def test_get_and_set_take_the_old_path_until_a_backend_routes_keys(monkeypatch):
+    microscope = _demo()
+    assert dict(microscope.beams) == {} and dict(microscope._beam_routes) == {}
+    calls = []
+    monkeypatch.setattr(microscope, "_get", lambda *a: calls.append(("get", a)) or 1)
+    monkeypatch.setattr(microscope, "_set", lambda *a: calls.append(("set", a)))
+
+    assert microscope.get("current", BeamType.ELECTRON) == 1
+    microscope.set("current", 2e-9, BeamType.ELECTRON)
+    assert calls == [
+        ("get", ("current", BeamType.ELECTRON)),
+        ("set", ("current", 2e-9, BeamType.ELECTRON)),
+    ]
+
+
+@pytest.mark.parametrize("plasma", [False, True])
+def test_routed_get_matches_the_old_chain(plasma):
+    microscope = _routed_demo(plasma)
+    for beam_type in BEAMS:
+        for key in list(BEAM_ROUTES) + ["shift", "stage_position"]:
+            assert microscope.get(key, beam_type) == microscope._get(key, beam_type)
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+@pytest.mark.parametrize("key, value", OLD_SETS)
+def test_routed_set_leaves_the_same_state_as_the_old_chain(beam_type, key, value):
+    old, new = _demo(), _routed_demo()
+
+    old.set(key, value, beam_type)
+    new.set(key, value, beam_type)
+
+    for read_key in list(BEAM_ROUTES) + ["shift", "stigmation", "resolution"]:
+        assert new._get(read_key, beam_type) == old._get(read_key, beam_type), read_key
+
+
+def test_routed_set_emits_the_parameter_change():
+    microscope = _routed_demo()
+    seen = []
+    microscope.beams[BeamType.ELECTRON].hfw.changed.connect(seen.append)
+    microscope.set("hfw", 150e-6, BeamType.ELECTRON)
+    assert seen == [150e-6]
