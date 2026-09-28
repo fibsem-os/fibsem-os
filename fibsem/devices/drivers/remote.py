@@ -26,16 +26,26 @@ devices are. The client keeps retrying; when the server is back it reads every
 parameter's metadata and value again, so anything that changed in the gap is
 signalled, and then fires ``DeviceClient.reconnected``.
 
-Not in the prototype: the one-commander lease, and commands that return images.
+A command that returns an array (a camera frame, an FM channel) comes back as
+``np.save`` bytes rather than JSON, and arrives as the same array.
+
+``RemoteFM``, ``RemoteCamera``, ``RemoteLightSource``, ``RemoteFilterSet`` and
+``RemoteObjective`` are the FM's parts from ``fibsem.devices.fm``; ``connect_remote_fm``
+builds them from what a server has.
+
+Not in the prototype: the one-commander lease, and a beam's ``acquire`` (a
+``FibsemImage`` with its metadata).
 """
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import numpy as np
 import requests
 from psygnal import Signal
 
@@ -47,8 +57,10 @@ from fibsem.devices.core import (
     ParameterUnavailable,
     command,
 )
+from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.structures import BeamType, RangeLimit
 
+NPY_MEDIA_TYPE = "application/x-npy"  # as fibsem.server.devices sends arrays
 READ_TIMEOUT = 5.0
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
@@ -133,6 +145,8 @@ class DeviceClient:
                 f"{method} {self.base_url}/{path}: {reason}"
             ) from None
         if response.ok:
+            if response.headers.get("content-type", "").startswith(NPY_MEDIA_TYPE):
+                return np.load(io.BytesIO(response.content), allow_pickle=False)
             return response.json()
         try:
             detail = response.json().get("detail")
@@ -293,7 +307,8 @@ class RemoteDevice(Device):
         """Run one of the device's commands on the server."""
         path = f"devices/{self.name}/commands/{command}"
         body = {"kwargs": kwargs}
-        return self.client.request("POST", path, WRITE_TIMEOUT, json=body)["result"]
+        answer = self.client.request("POST", path, WRITE_TIMEOUT, json=body)
+        return answer if isinstance(answer, np.ndarray) else answer["result"]
 
     def _reader(self, name: str) -> Callable[[], Any]:
         path = f"devices/{self.name}/{name}"
@@ -324,8 +339,8 @@ class RemoteBeam(RemoteDevice, Beam):
 
     @command(available=lambda beam: False)
     def acquire(self, image_settings: Any = None) -> Any:
-        """Not in the prototype: images need a binary transfer, not JSON."""
-        raise NotImplementedError("remote image acquisition is not in the prototype")
+        """Not in the prototype: a FibsemImage needs its metadata sent too."""
+        raise NotImplementedError("remote beam acquisition is not in the prototype")
 
 
 def connect_remote_beams(
@@ -340,3 +355,60 @@ def connect_remote_beams(
             continue
         beams[beam_type] = RemoteBeam(beam_type, client=client).connect(description)
     return beams
+
+
+class RemoteCamera(RemoteDevice, Camera):
+    def _acquire(self) -> np.ndarray:
+        return self.call_command("acquire")
+
+
+class RemoteLightSource(RemoteDevice, LightSource):
+    pass
+
+
+class RemoteFilterSet(RemoteDevice, FilterSet):
+    pass
+
+
+class RemoteObjective(RemoteDevice, Objective):
+    """Moves run on the server; position and state follow through the events."""
+
+    def _insert(self) -> None:
+        self.call_command("insert")
+
+    def _retract(self) -> None:
+        self.call_command("retract")
+
+    def _move_absolute(self, position: float) -> None:
+        self.call_command("move_absolute", position=position)
+
+    def _move_relative(self, delta: float) -> None:
+        self.call_command("move_relative", delta=delta)
+
+
+class RemoteFM(RemoteDevice, FM):
+    """Channel acquisition runs on the FM's computer, in one call."""
+
+    def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
+        return self.call_command("acquire_channel", channel=channel)
+
+
+REMOTE_FM_PARTS = {
+    "fm": RemoteFM,
+    "camera": RemoteCamera,
+    "light_source": RemoteLightSource,
+    "filter_set": RemoteFilterSet,
+    "objective": RemoteObjective,
+}
+
+
+def connect_remote_fm(
+    host: str, port: int, client: Optional[DeviceClient] = None
+) -> Dict[str, Device]:
+    """The FM's group and parts a device server has, by name."""
+    client = client if client is not None else DeviceClient(host, port)
+    return {
+        name: REMOTE_FM_PARTS[name](name=name, client=client).connect(description)
+        for name, description in client.describe().items()
+        if name in REMOTE_FM_PARTS
+    }

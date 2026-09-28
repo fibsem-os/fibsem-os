@@ -9,7 +9,8 @@ A prototype of the far side of a remote device (the METEOR PC, say). It wraps an
     GET  /devices/{device}/{parameter}         a live read       -> {"value": ...}
     PUT  /devices/{device}/{parameter}         {"value": ...}    -> {"value": written}
     GET  /devices/{device}/{parameter}/metadata                  -> limits, choices, settable
-    POST /devices/{device}/commands/{command}  {"kwargs": {...}} -> {"result": ...}
+    POST /devices/{device}/commands/{command}  {"kwargs": {...}} -> {"result": ...},
+                                               or np.save bytes for an image
     WS   /events                               {"device", "parameter", "kind", "value"},
                                                with pings as a heartbeat
 
@@ -19,11 +20,12 @@ Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
 
 Not in the prototype: authentication (``fibsem.server`` has bearer tokens; this
-would be mounted there), the one-commander lease, commands that return images.
+would be mounted there), the one-commander lease.
 
 Try it on one computer:
 
     python -m fibsem.server.devices --port 8765        # terminal 1: Demo beams
+    python -m fibsem.server.devices --serve fm         # or a simulated FM's parts
 
     from fibsem.devices.drivers.remote import connect_remote_beams   # terminal 2
     beams = connect_remote_beams("127.0.0.1", 8765)
@@ -33,14 +35,17 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import json
 import logging
 import threading
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set
 
+import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import Response
 
 from fibsem.devices.core import (
     Device,
@@ -49,6 +54,9 @@ from fibsem.devices.core import (
     ParameterUnavailable,
     _limits_to_dict,
 )
+
+NPY_MEDIA_TYPE = "application/x-npy"
+"""A command that returns an array (an image) answers with ``np.save`` bytes."""
 
 # An error keeps its type across the wire; anything else is a plain failure.
 ERROR_STATUS = {
@@ -212,11 +220,15 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
         return metadata_payload(run(lambda: parameter_of(device, parameter).metadata))
 
     @app.post("/devices/{device}/commands/{command}")
-    def call(device: str, command: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    def call(device: str, command: str, body: Dict[str, Any]) -> Any:
         d = lookup(device)
         if command not in d.commands:
             raise HTTPException(404, f"'{device}' has no command '{command}'")
         result = run(lambda: getattr(d, command)(**body.get("kwargs", {})))
+        if isinstance(result, np.ndarray):  # an image: binary, not JSON
+            buffer = io.BytesIO()
+            np.save(buffer, result, allow_pickle=False)
+            return Response(buffer.getvalue(), media_type=NPY_MEDIA_TYPE)
         return {"result": jsonable_encoder(result)}
 
     @app.websocket("/events")
@@ -272,12 +284,32 @@ def demo_devices() -> List[Device]:
     return list(bind_demo_beams(microscope).values())
 
 
+def demo_fm_devices() -> List[Device]:
+    """The simulated FM's parts and group, as a METEOR PC would serve its FM."""
+    from fibsem.devices.drivers.fm import bind_fm_devices
+    from fibsem.fm.microscope import FluorescenceMicroscope
+
+    return list(bind_fm_devices(FluorescenceMicroscope()).values())
+
+
 def main(argv: Optional[List[str]] = None) -> None:
-    parser = argparse.ArgumentParser(description="Serve the Demo devices over HTTP.")
+    parser = argparse.ArgumentParser(description="Serve simulated devices over HTTP.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--serve",
+        nargs="+",
+        choices=("beams", "fm"),
+        default=["beams"],
+        help="beams: the Demo microscope's beams; fm: a simulated FM's parts",
+    )
     args = parser.parse_args(argv)
-    devices: Mapping[str, Device] = {d.name: d for d in demo_devices()}
+    served: List[Device] = []
+    if "beams" in args.serve:
+        served += demo_devices()
+    if "fm" in args.serve:
+        served += demo_fm_devices()
+    devices: Mapping[str, Device] = {d.name: d for d in served}
     logging.info(f"serving {sorted(devices)} on http://{args.host}:{args.port}")
     uvicorn.run(build_device_app(devices.values()), host=args.host, port=args.port)
 
