@@ -211,3 +211,26 @@ def test_a_successful_connection_still_reports_and_holds_the_microscope(
     assert widget.microscope is demo_microscope
     infos = [message for level, message in toasts if level == "info"]
     assert any("Connected to microscope at" in message for message in infos)
+
+
+def test_the_defaults_editor_is_not_offered_on_the_tab_yet(
+    widget, monkeypatch, toasts, demo_microscope
+):
+    """It opens from the Development menu until the configuration window lands."""
+    monkeypatch.setattr(
+        utils, "setup_session", lambda *a, **k: (demo_microscope, object())
+    )
+    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
+
+    widget.connect_to_microscope()
+
+    assert not widget.pushButton_edit_defaults.isVisibleTo(widget)
+    widget.open_defaults()
+    assert widget.defaultsDialog.isVisible()
+    widget.defaultsDialog.hide()
+
+
+def test_the_defaults_editor_needs_a_microscope(widget):
+    widget.open_defaults()
+
+    assert not widget.defaultsDialog.isVisible()

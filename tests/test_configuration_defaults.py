@@ -282,7 +282,7 @@ def test_capturing_snapshots_rather_than_aliasing(microscope):
 
 
 def test_capturing_takes_only_the_defaults(microscope):
-    """Not the beam shift, stigmation, scan rotation or working distance.
+    """Not the beam shift, stigmation or working distance.
 
     Those are alignment state. Captured, they would land in the file on Save and
     be pushed back by Apply -- a working distance from one sample refocusing the
@@ -299,7 +299,6 @@ def test_capturing_takes_only_the_defaults(microscope):
     assert after.working_distance == before.working_distance
     assert after.shift == before.shift
     assert after.stigmation == before.stigmation
-    assert after.scan_rotation == before.scan_rotation
     assert after.voltage == live.voltage
 
 
@@ -355,3 +354,23 @@ def test_the_detector_round_trips_through_a_saved_file():
     assert reloaded.system.ion.detector.type == "TLD"
     assert reloaded.system.ion.detector.mode == "BackscatterElectrons"
     assert "detector_brightness" not in written["defaults"]["ion"]
+
+
+def test_capturing_one_beam_leaves_the_other(microscope):
+    microscope.system.ion.beam.voltage = 1234  # not what the column is doing
+
+    microscope.capture_defaults(BeamType.ELECTRON)
+
+    assert microscope.system.ion.beam.voltage == 1234
+
+
+def test_capturing_takes_the_scan_rotation(microscope):
+    """A standing choice -- a FIB run at 180 degrees -- so it is a default: Apply
+    sets it, and without capturing it Apply would turn the column back to 0."""
+    import math
+
+    microscope.set_scan_rotation(math.pi, BeamType.ION)
+
+    microscope.capture_defaults(BeamType.ION)
+
+    assert microscope.system.ion.beam.scan_rotation == pytest.approx(math.pi)
