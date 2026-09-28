@@ -1116,13 +1116,6 @@ class DemoMicroscope(FibsemMicroscope):
         elif beam_type == BeamType.ION:
             self.ion_system.beam.shift += Point(float(dx), float(dy))
 
-    def _safe_rotation_movement(self, stage_position: FibsemStagePosition) -> None:
-        return ThermoMicroscope._safe_rotation_movement(self, stage_position)
-
-    def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
-        """Move the stage to the specified position using safe strategy"""
-        return ThermoMicroscope.safe_absolute_stage_movement(self, stage_position)
-
     # ---- fitted subsystems, as the simulated instrument reports them ---------
     #
     # The `sim:` block is where a simulated configuration stands in for a hardware

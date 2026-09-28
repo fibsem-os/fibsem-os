@@ -129,6 +129,8 @@ def test_odemis_takes_every_parameter_the_base_declares(odemis_microscope_cls):
         "_vertical_move_from_sem",
         "_y_corrected_stage_movement",
         "_inverse_y_corrected_stage_movement",
+        "safe_absolute_stage_movement",
+        "_safe_rotation_movement",
     ],
 )
 def test_odemis_shares_the_base_moves(odemis_microscope_cls, name):

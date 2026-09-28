@@ -868,12 +868,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
 
-    def _safe_rotation_movement(self, stage_position: FibsemStagePosition) -> None:
-        return ThermoMicroscope._safe_rotation_movement(self, stage_position)
-
-    def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
-        return ThermoMicroscope.safe_absolute_stage_movement(self, position)
-
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
         pass
 

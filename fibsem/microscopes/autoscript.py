@@ -1709,50 +1709,6 @@ class ThermoMicroscope(FibsemMicroscope):
             )
         return limits
 
-    def _safe_rotation_movement(self, stage_position: FibsemStagePosition):
-        """Tilt the stage flat when performing a large rotation to prevent collision.
-
-        Args:
-            stage_position (StagePosition): desired stage position.
-        """
-        current_position = self.get_stage_position()
-
-        # tilt flat for large rotations to prevent collisions
-        from fibsem import movement
-
-        if movement.rotation_angle_is_larger(stage_position.r, current_position.r):
-            self.move_stage_absolute(FibsemStagePosition(t=0))
-            logging.info("tilting to flat for large rotation.")
-
-        return
-
-    @_records_stage_move
-    def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
-        """Move the stage to the desired position in a safe manner, using compucentric rotation.
-        Supports movements in the stage_position coordinate system
-        """
-        # Before anything moves. The staged move below rotates the stage where it
-        # stands, which is the correct order leaving the beams and the wrong one
-        # coming back from the FM -- see FIB-841.
-        self._refuse_rotation_at_the_fluorescence_microscope(stage_position)
-
-        # safe movements are not required on the compustage, because it doesn't rotate
-        if not self.stage_is_compustage:
-            # tilt flat for large rotations to prevent collisions
-            self._safe_rotation_movement(stage_position)
-
-            # move to compucentric rotation
-            self.move_stage_absolute(
-                FibsemStagePosition(r=stage_position.r, coordinate_system="RAW")
-            )  # TODO: support compucentric rotation directly
-
-        logging.debug(f"safe moving to {stage_position}")
-        self.move_stage_absolute(stage_position)
-
-        logging.debug("safe movement complete.")
-
-        return
-
     def insert_manipulator(self, name: str = "PARK"):
         """Insert the manipulator to the specified position"""
 
