@@ -188,3 +188,58 @@ class TestProgressEndsTheRun:
                 stop_event=stop,
             )
         assert reports[-1].status is TiledStatus.CANCELLED
+
+
+class TestWhereTheOverviewIsTaken:
+    def test_on_the_arctis_it_is_taken_flipped_whatever_the_stage_stood_in(
+        self, microscope, experiment
+    ):
+        """This Arctis's objective also images from the SEM pose; the overview is
+        still taken in the FM's first declared pose, where `grid_centre` is."""
+        microscope.move_to_orientation("SEM")
+        grid = experiment.get_grid_by_name("grid-aspen")
+
+        run_grid_task(microscope, "overview_fm", experiment, grid)
+
+        assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+        assert microscope.get_stage_orientation() == "FM"
+
+    def test_on_an_offset_mount_already_at_the_fm_the_stage_stays_there(
+        self, experiment
+    ):
+        """Asking for the FIB pose it is already in used to re-pose in place, which
+        on an offset mount is a traverse to the beams and back."""
+        from fibsem.structures import FibsemStagePosition
+
+        iflm, _ = utils.setup_session(
+            manufacturer="Demo",
+            config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"),
+        )
+        slot = iflm._stage.holder.slots["Slot-01"]
+        slot.loaded_grid = SampleGrid(name="grid-aspen")
+        sem = iflm.get_orientation("SEM")
+        slot.position = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=sem.r, t=sem.t)
+        iflm.move_to_orientation("FIB")
+        iflm.move_to_device("FM")
+        at_the_fm = iflm.get_stage_position().x
+        visited = []
+        for name in (
+            "move_stage_absolute",
+            "move_stage_relative",
+            "safe_absolute_stage_movement",
+        ):
+            real = getattr(iflm, name)
+
+            def record(*args, _real=real, **kwargs):
+                result = _real(*args, **kwargs)
+                visited.append(iflm.get_stage_position().x)
+                return result
+
+            setattr(iflm, name, record)
+        grid = experiment.get_grid_by_name("grid-aspen")
+
+        run_grid_task(iflm, "overview_fm", experiment, grid)
+
+        assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+        assert visited, "the tiles move the stage"
+        assert all(x == pytest.approx(at_the_fm, abs=1e-3) for x in visited)

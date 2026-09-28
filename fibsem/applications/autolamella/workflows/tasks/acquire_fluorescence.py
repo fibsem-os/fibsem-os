@@ -10,6 +10,8 @@ from typing import (
     Type,
 )
 
+import numpy as np
+
 import fibsem.utils as utils
 from fibsem import timing
 from fibsem.applications.autolamella.proposals import STATE
@@ -22,6 +24,7 @@ from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import AutoFocusResult, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
+from fibsem.movement import angle_difference
 from fibsem.structures import field_meta
 
 
@@ -286,13 +289,15 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         elif not self.microscope.get_device_imaging_state(
             "FM", stage_position
         ).allows_acquisition:
+            # To where the FM sees this position: its own orientation on a compustage,
+            # its own place on an offset mount. Not a fixed "SEM", which is somewhere
+            # the objective images from only on an instrument that says so.
             logging.warning(
                 f"Stage Position {self.lamella.name} is not one the fluorescence "
-                f"microscope can acquire from: {stage_position}, moving to SEM orientation..."
+                f"microscope can acquire from: {stage_position}, moving to where it "
+                f"can..."
             )
-            stage_position = self.microscope.get_target_position(
-                stage_position=stage_position, target_orientation="SEM"
-            )
+            stage_position = self.microscope.to_device(stage_position, "FM")
 
         # Check for cancellation before each position
         if self._stop_event and self._stop_event.is_set():
@@ -302,8 +307,40 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
             return
 
         # Move stage to the saved stage position and objective position
+        self._clear_the_objective_for(stage_position)
         self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
         self.microscope.safe_absolute_stage_movement(stage_position)
+
+    # How far rotation or tilt may differ before a move counts as turning the stage.
+    _SAME_POSE_TOLERANCE_RAD = float(np.radians(0.5))
+
+    def _clear_the_objective_for(self, target) -> None:
+        """Retract the objective before a move that turns or tilts the stage.
+
+        A back-to-back run (`retract_objective` off) leaves the objective inserted
+        between lamellae. That was only safe while every fluorescence pose was in one
+        orientation; once the FM images from more than one, the next lamella can be in
+        another, and the stage would tilt under an inserted objective. A move within
+        one pose -- the usual step to the next lamella -- keeps it inserted.
+
+        Raises rather than logs if the retract fails: the move is what it protects.
+        """
+        objective = self.microscope.fm.objective
+        if objective.state != "Inserted":
+            return
+        current = self.microscope.get_stage_position()
+        same_pose = all(
+            a is not None
+            and b is not None
+            and abs(angle_difference(a, b)) <= self._SAME_POSE_TOLERANCE_RAD
+            for a, b in ((target.r, current.r), (target.t, current.t))
+        )
+        if same_pose:
+            return
+        self.log_status_message(
+            "RETRACT_OBJECTIVE", "Retracting the objective before re-posing..."
+        )
+        objective.retract()
 
     def _move_to_objective_position(self):
         # move objective to saved position
