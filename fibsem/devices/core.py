@@ -211,6 +211,20 @@ class BoundParameter:
         self._write_path(value)
         return value
 
+    @property
+    def value(self) -> Any:
+        """Shorthand for scripts: reading is ``get_value()``, assigning is ``set_value()``.
+
+        Both are live instrument calls. Assignment checks, clips and signals exactly as
+        ``set_value`` does, but cannot return the clipped value; call ``set_value`` when
+        the value actually written matters.
+        """
+        return self.get_value()
+
+    @value.setter
+    def value(self, value: Any) -> None:
+        self.set_value(value)
+
     def write_through(self, value: Any) -> None:
         """The old API: the same write path with no new checks, so no behaviour changes."""
         if self._write is None:

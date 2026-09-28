@@ -334,3 +334,19 @@ def test_an_action_can_be_unavailable():
             pass
 
     assert Gun("gun").actions["fire"].available is False
+
+
+def test_value_property_is_shorthand_for_get_value_and_set_value(beams, caplog):
+    sem = beams[BeamType.ELECTRON]
+    seen = []
+    sem.current.changed.connect(seen.append)
+
+    sem.current.value = 1e-9
+    assert sem.current.value == sem.current.get_value() == 1e-9
+    assert seen == [1e-9]
+    with caplog.at_level(logging.WARNING):
+        sem.scan_rotation.value = 7.0
+    assert sem.scan_rotation.value == pytest.approx(2 * math.pi)
+    assert "outside" in caplog.text
+    with pytest.raises(ValueError):
+        sem.current.value = 1.234e-9
