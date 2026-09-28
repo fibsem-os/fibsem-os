@@ -118,6 +118,33 @@ def test_device_demo_serves_its_beam_keys_from_devices(key, beam_type):
     assert param.device is microscope.beams[beam_type]
 
 
+def test_device_demo_moves_its_stage_device():
+    """DeviceDemo's stage methods go through its stage device, not the Demo chain."""
+    microscope = _connect("DeviceDemo")
+    stage = microscope.stage_device
+    assert stage is not None
+    calls = []
+
+    def counted(name):
+        original = getattr(stage, name)
+
+        def call(*args):
+            calls.append(name)
+            return original(*args)
+
+        return call
+
+    for name in ("_move_absolute", "_move_relative", "_home"):
+        setattr(stage, name, counted(name))
+    microscope.move_stage_absolute(FibsemStagePosition(x=1e-3))
+    microscope.move_stage_relative(FibsemStagePosition(y=1e-3))
+    microscope.home()
+    assert calls == ["_move_absolute", "_move_relative", "_home"]
+    assert np.allclose(
+        _xyzrt(microscope.get_stage_position()), _xyzrt(stage.position.cached)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Keys that take no beam type
 # ---------------------------------------------------------------------------
