@@ -21,7 +21,6 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 from fibsem.ui.widgets.custom_widgets import (
-    TitledPanel,
     ValueComboBox,
 )
 from fibsem.ui.widgets.microscope_configuration_window import (
@@ -82,22 +81,16 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         picker = QtWidgets.QHBoxLayout()
         picker.addWidget(self.comboBox_configuration, 1)
         picker.addWidget(self.toolButton_configuration)
-        body = QtWidgets.QWidget()
-        body_layout = QtWidgets.QVBoxLayout(body)
-        body_layout.setContentsMargins(8, 6, 8, 8)
-        body_layout.addLayout(picker)
-        body_layout.addWidget(self.label_configuration_info)
-        body_layout.addWidget(self.pushButton_connect_to_microscope)
-        body_layout.addWidget(self._frame_status)
-        self.panel_microscope = TitledPanel(
-            "Microscope", content=body, collapsible=False
-        )
 
+        # No panel header: the tab already names this, and it is the only section.
         # The first-run offer sits above the configuration it is offering to create.
         self._frame_first_run = self._create_first_run_callout()
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(self._frame_first_run)
-        layout.addWidget(self.panel_microscope)
+        layout.addLayout(picker)
+        layout.addWidget(self.label_configuration_info)
+        layout.addWidget(self.pushButton_connect_to_microscope)
+        layout.addWidget(self._frame_status)
         layout.addStretch()
 
         self.setup_connections()
@@ -330,6 +323,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         name = self.comboBox_configuration.currentText()
         configuration = cfg.USER_CONFIGURATIONS.get(name)
         path = configuration.get("path") if configuration else None
+        # The picker already names the file (by its stem); the full path is here for
+        # telling apart two files that share one.
+        self.label_configuration_info.setToolTip(str(path or ""))
         if not path:
             self.label_configuration_info.setText("")
             return
@@ -342,7 +338,6 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         parts = [
             str(info.get("manufacturer") or ""),
             str(info.get("ip_address") or ""),
-            os.path.basename(path),
         ]
         self.label_configuration_info.setText("  ·  ".join(p for p in parts if p))
 

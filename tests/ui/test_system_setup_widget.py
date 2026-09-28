@@ -335,9 +335,8 @@ def test_the_selected_file_says_what_it_connects_to(widget, monkeypatch, tmp_pat
     widget.comboBox_configuration.addItem("bay-2")
     widget.comboBox_configuration.setCurrentText("bay-2")
 
-    assert (
-        widget.label_configuration_info.text() == "Thermo  ·  10.0.0.2  ·  bay-2.yaml"
-    )
+    assert widget.label_configuration_info.text() == "Thermo  ·  10.0.0.2"
+    assert widget.label_configuration_info.toolTip() == str(path)
 
 
 def test_a_file_that_cannot_be_read_says_so_quietly(
