@@ -9,20 +9,21 @@ this"), lets them be adjusted, and writes them into the configuration file the s
 was started from -- that section and nothing else.
 
 Nothing here touches the column. Apply, beside this panel, is what pushes the
-defaults to the instrument; this panel only decides what they are.
+defaults to the instrument; this panel only decides what they are. It is the Defaults
+tab of the Microscope Configuration window, whose Save writes it.
 """
 
 import logging
 import math
 from typing import Callable, List, Optional, Tuple
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QDialog,
+    QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -31,7 +32,7 @@ from fibsem import utils
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSystemSettings, BeamType, ImageSettings
-from fibsem.ui import notification_service, stylesheets
+from fibsem.ui import notification_service
 from fibsem.ui.icon import ICON_READ_FROM_ACQUIRE_TAB, ICON_READ_FROM_MICROSCOPE
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
@@ -256,6 +257,10 @@ class ImagingDefaultsForm(QWidget):
 class MicroscopeDefaultsWidget(QWidget):
     """Read the defaults from the instrument, edit them, save them to the configuration."""
 
+    # Any value in the form changed; `is_modified` says whether it now differs
+    # from what was last loaded or saved.
+    changed = pyqtSignal()
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.microscope: Optional[FibsemMicroscope] = None
@@ -295,21 +300,33 @@ class MicroscopeDefaultsWidget(QWidget):
         )
         self.imaging_panel.add_header_widget(self.button_read_imaging)
 
-        self.pushButton_save = QPushButton("Save to Configuration")
-        self.pushButton_save.setToolTip(
-            "Write these defaults into the configuration file this session was "
-            "started from. Nothing else in the file is changed."
+        # Stored in the file (`defaults.apply_on_connect`) but not acted on yet, so
+        # it is shown and cannot be changed.
+        self.apply_on_connect = QCheckBox("Apply these defaults when connecting")
+        self.apply_on_connect.setEnabled(False)
+        self.apply_on_connect.setToolTip(
+            "Not available yet: connecting does not set the columns. Use Apply to "
+            "Microscope."
         )
-        self.pushButton_save.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
         sections = QHBoxLayout()
         for panel in (self.electron_panel, self.ion_panel, self.imaging_panel):
             sections.addWidget(panel, alignment=Qt.AlignTop)
         layout = QVBoxLayout()
         layout.addLayout(sections)
-        layout.addWidget(self.pushButton_save)
+        layout.addWidget(self.apply_on_connect)
+        layout.addStretch()
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
+
+        # What the form held when it was last loaded or saved.
+        self._saved: Optional[dict] = None
+        for field in self.findChildren(QComboBox):
+            field.currentIndexChanged.connect(self.changed)
+        for field in self.findChildren(QDoubleSpinBox):
+            field.valueChanged.connect(self.changed)
+        for field in self.imaging.findChildren(QCheckBox):
+            field.toggled.connect(self.changed)
 
         self.button_read_electron.clicked.connect(
             lambda: self.read_from_microscope(BeamType.ELECTRON)
@@ -318,7 +335,6 @@ class MicroscopeDefaultsWidget(QWidget):
             lambda: self.read_from_microscope(BeamType.ION)
         )
         self.button_read_imaging.clicked.connect(self.read_from_acquire_tab)
-        self.pushButton_save.clicked.connect(self.save_to_configuration)
         self.setEnabled(False)
 
     def set_microscope(
@@ -335,10 +351,16 @@ class MicroscopeDefaultsWidget(QWidget):
         self.imaging_panel.setEnabled(image_settings is not None)
         if microscope is None:
             self.set_current_imaging(None)
+            self._saved = None
             return
         for form in (self.electron, self.ion):
             form.populate_choices(microscope)
         self.show_system()
+        self.apply_on_connect.setChecked(
+            bool(microscope.system.apply_defaults_on_connect)
+        )
+        self._saved = self._values()
+        self.changed.emit()
 
     def set_current_imaging(
         self, provider: Optional[Callable[[], ImageSettings]]
@@ -357,6 +379,19 @@ class MicroscopeDefaultsWidget(QWidget):
         self.ion.show_settings(self.microscope.system.ion)
         if self.image_settings is not None:
             self.imaging.show_settings(self.image_settings)
+
+    def _values(self) -> dict:
+        values = {
+            "electron": self.electron.defaults_to_dict(),
+            "ion": self.ion.defaults_to_dict(),
+        }
+        if self.image_settings is not None:
+            values["imaging"] = self.imaging.defaults_to_dict()
+        return values
+
+    def is_modified(self) -> bool:
+        """Whether the form differs from what was last loaded or saved."""
+        return self._saved is not None and self._values() != self._saved
 
     def read_from_microscope(self, beam_type: Optional[BeamType] = None) -> None:
         """Take the live values of one beam, or of both, into the form."""
@@ -394,9 +429,10 @@ class MicroscopeDefaultsWidget(QWidget):
         if self.image_settings is not None:
             self.imaging.write_into(self.image_settings)
 
-    def save_to_configuration(self) -> None:
+    def save_to_configuration(self) -> bool:
+        """Write the form into the configuration file. Returns whether it was saved."""
         if self.microscope is None:
-            return
+            return False
         path = getattr(self.microscope, "configuration_path", None)
         if not path:
             notification_service.show_toast(
@@ -404,20 +440,14 @@ class MicroscopeDefaultsWidget(QWidget):
                 "nowhere to save the defaults.",
                 "warning",
             )
-            return
+            return False
         self.write_form_into_system()
         # Exactly the keys the forms show. Not the whole beam record: that also
         # carries the beam shift, stigmation and working distance, which are
-        # alignment state -- written here they would be pushed back by Apply. Not the whole image record either: its save path is the session's.
+        # alignment state -- written here they would be pushed back by Apply. Not the
+        # whole image record either: its save path is the session's.
         # `apply_on_connect` is not this panel's to change.
-        updates = {
-            "defaults": {
-                "electron": self.electron.defaults_to_dict(),
-                "ion": self.ion.defaults_to_dict(),
-            }
-        }
-        if self.image_settings is not None:
-            updates["defaults"]["imaging"] = self.imaging.defaults_to_dict()
+        updates = {"defaults": self._values()}
         try:
             utils.write_configuration(path, updates)
         except Exception as e:
@@ -425,26 +455,9 @@ class MicroscopeDefaultsWidget(QWidget):
             notification_service.show_toast(
                 f"Could not save the defaults: {e}", "error"
             )
-            return
+            return False
         logging.info(f"Beam defaults saved to {path}")
         notification_service.show_toast("Defaults saved to the configuration.", "info")
-
-
-class MicroscopeDefaultsDialog(QDialog):
-    """The defaults editor, opened from the connection tab.
-
-    A window of its own rather than a panel in the control column: the three
-    sections sit side by side, which is wider than the column. Non-modal, so the
-    acquire tab can be adjusted and read while it is open.
-    """
-
-    def __init__(
-        self, widget: MicroscopeDefaultsWidget, parent: Optional[QWidget] = None
-    ):
-        super().__init__(parent)
-        self.setWindowTitle("Microscope Defaults")
-        self.setModal(False)
-        self.defaults = widget
-        layout = QVBoxLayout(self)
-        layout.addWidget(widget)
-        self.resize(self.sizeHint())
+        self._saved = self._values()
+        self.changed.emit()
+        return True

@@ -213,29 +213,6 @@ def test_a_successful_connection_still_reports_and_holds_the_microscope(
     assert any("Connected to microscope at" in message for message in infos)
 
 
-def test_the_defaults_editor_is_not_offered_on_the_tab_yet(
-    widget, monkeypatch, toasts, demo_microscope
-):
-    """It opens from the Development menu until the configuration window lands."""
-    monkeypatch.setattr(
-        utils, "setup_session", lambda *a, **k: (demo_microscope, object())
-    )
-    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
-
-    widget.connect_to_microscope()
-
-    assert not widget.pushButton_edit_defaults.isVisibleTo(widget)
-    widget.open_defaults()
-    assert widget.defaultsDialog.isVisible()
-    widget.defaultsDialog.hide()
-
-
-def test_the_defaults_editor_needs_a_microscope(widget):
-    widget.open_defaults()
-
-    assert not widget.defaultsDialog.isVisible()
-
-
 def test_the_configuration_window_opens_when_connected_and_closes_on_disconnect(
     widget, monkeypatch, toasts, demo_microscope
 ):
@@ -252,4 +229,50 @@ def test_the_configuration_window_opens_when_connected_and_closes_on_disconnect(
 
     widget.microscope = None
     widget.update_ui()
+    assert widget.configurationWindow is None
+
+
+def test_the_acquire_tab_reaches_the_window_s_defaults(
+    widget, monkeypatch, toasts, demo_microscope
+):
+    """The application hands over its acquire tab before the window exists, and
+    takes it away while the window is open."""
+
+    def provider():
+        return None
+
+    monkeypatch.setattr(
+        utils, "setup_session", lambda *a, **k: (demo_microscope, object())
+    )
+    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
+    widget.connect_to_microscope()
+    widget.set_current_imaging(provider)
+
+    widget.open_configuration()
+    assert widget.configurationWindow.defaults._current_imaging is provider
+
+    widget.set_current_imaging(None)
+    assert widget.configurationWindow.defaults._current_imaging is None
+    widget.microscope = None
+    widget.update_ui()
+
+
+def test_opening_again_keeps_the_window_and_its_unsaved_defaults(
+    widget, monkeypatch, toasts, demo_microscope
+):
+    monkeypatch.setattr(
+        utils, "setup_session", lambda *a, **k: (demo_microscope, object())
+    )
+    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
+    widget.connect_to_microscope()
+    widget.open_configuration()
+    window = widget.configurationWindow
+    window.defaults.electron.hfw.setValue(window.defaults.electron.hfw.value() + 10)
+
+    widget.open_configuration()
+
+    assert widget.configurationWindow is window
+    assert window.has_unsaved_changes()
+    widget.microscope = None
+    widget.update_ui()  # disconnecting closes it without asking
     assert widget.configurationWindow is None

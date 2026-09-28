@@ -856,17 +856,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         action_save_fm_configuration.triggered.connect(self._export_fm_configuration)
         dev_menu.addAction(action_save_fm_configuration)
 
-        # The configuration window: read-only, instrument and geometry so far.
+        # The configuration window, with the defaults editor as one of its tabs.
         action_microscope_configuration = QAction("Microscope Configuration…", self)
         action_microscope_configuration.triggered.connect(
             self._open_microscope_configuration
         )
         dev_menu.addAction(action_microscope_configuration)
-
-        # The defaults editor, until it is a tab of the configuration window.
-        action_microscope_defaults = QAction("Microscope Defaults…", self)
-        action_microscope_defaults.triggered.connect(self._open_microscope_defaults)
-        dev_menu.addAction(action_microscope_defaults)
 
         dev_menu.addSeparator()
 
@@ -1407,13 +1402,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.show_toast("Connect to a microscope first.", "warning")
             return
         system_widget.open_configuration()
-
-    def _open_microscope_defaults(self) -> None:
-        system_widget = getattr(self.autolamella_ui, "system_widget", None)
-        if system_widget is None or system_widget.microscope is None:
-            self.show_toast("Connect to a microscope first.", "warning")
-            return
-        system_widget.open_defaults()
 
     def _import_fm_configuration(self):
         """Load a fluorescence microscope configuration."""
