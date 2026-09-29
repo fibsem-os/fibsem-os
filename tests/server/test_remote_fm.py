@@ -54,8 +54,10 @@ def test_remote_parameters_write_the_far_side(served):
     local, remote = served
     remote["camera"].exposure_time.set_value(0.25)
     assert local["camera"].exposure_time.get_value() == 0.25
-    remote["filter_set"].emission_wavelength.set_value("Fluorescence")
-    assert local["filter_set"].emission_wavelength.get_value() == "Fluorescence"
+    remote["filter_set"].filter_mode.set_value("reflection")
+    assert local["filter_set"].filter_mode.get_value() == "reflection"
+    remote["filter_set"].emission_wavelength.set_value(None)  # optional crosses too
+    assert local["filter_set"].emission_wavelength.get_value() is None
     with pytest.raises(ValueError):
         remote["camera"].binning.set_value(3)
 

@@ -336,10 +336,11 @@ class RemoteDevice(Device):
                     f"{self.name}: the server has '{name}', not declared here"
                 )
                 continue
-            if (info["type"], info["unit"]) != (spec.type.__name__, spec.unit):
+            served = (info["type"], info["unit"], info.get("optional", False))
+            if served != (spec.type.__name__, spec.unit, spec.optional):
                 raise TypeError(
-                    f"{self.name}.{name} is {info['type']} in {info['unit']!r} on the "
-                    f"server, but is declared {spec.type.__name__} in {spec.unit!r}"
+                    f"{self.name}.{name} is {_shape_text(*served)} on the server, but "
+                    f"is declared {_shape_text(spec.type.__name__, spec.unit, spec.optional)}"
                 )
             self.bind(
                 name,
@@ -430,6 +431,10 @@ class RemoteCamera(RemoteDevice, Camera):
 
 class RemoteLightSource(RemoteDevice, LightSource):
     pass
+
+
+def _shape_text(type_name: str, unit: Optional[str], optional: bool) -> str:
+    return f"{type_name} in {unit!r}" + (" (optional)" if optional else "")
 
 
 class RemoteFilterSet(RemoteDevice, FilterSet):

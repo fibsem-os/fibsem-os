@@ -22,6 +22,14 @@ from fibsem.devices.core import Device, Parameter, command
 
 OBJECTIVE_STATES = ("Inserted", "Retracted", "Busy", "Error", "Other")
 
+REFLECTION = "reflection"
+FLUORESCENCE = "fluorescence"
+FILTER_MODES = (REFLECTION, FLUORESCENCE)
+
+# What today's FM classes put in emission_wavelength for a multi-band filter, which
+# has no single emission band (Thermo and the simulator).
+MULTI_BAND = "Fluorescence"
+
 
 class Camera(Device):
     exposure_time = Parameter(float, unit="s")
@@ -46,10 +54,13 @@ class LightSource(Device):
 
 class FilterSet(Device):
     excitation_wavelength = Parameter(float, unit="nm")
+    filter_mode = Parameter(str, choices=FILTER_MODES)
     emission_wavelength = Parameter(
-        object,
-        doc="A wavelength in nm, a filter's name, or None for reflection. Mixed, as "
-        "the FM classes have it; one type would need a decision.",
+        float,
+        unit="nm",
+        optional=True,
+        doc="The bottom of the emission band, or None when there isn't a single band: "
+        "in reflection, or behind a multi-band filter.",
     )
 
 

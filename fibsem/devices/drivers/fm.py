@@ -14,7 +14,16 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import numpy as np
 
 from fibsem.devices.core import Device, ParameterMetadata, Resources
-from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
+from fibsem.devices.fm import (
+    FLUORESCENCE,
+    FM,
+    MULTI_BAND,
+    REFLECTION,
+    Camera,
+    FilterSet,
+    LightSource,
+    Objective,
+)
 from fibsem.structures import RangeLimit
 
 if TYPE_CHECKING:
@@ -99,16 +108,46 @@ class FMFilterSet(FilterSet):
             choices=list(self._filters.available_excitation_wavelengths)
         )
 
-    def read_emission_wavelength(self) -> Any:
-        return self._filters.emission_wavelength
+    # The FM classes keep the mode and the band in one value: None for reflection,
+    # MULTI_BAND for a multi-band filter, else the band's bottom in nm.
 
-    def write_emission_wavelength(self, value: Any) -> None:
+    def read_filter_mode(self) -> str:
+        return REFLECTION if self._filters.emission_wavelength is None else FLUORESCENCE
+
+    def write_filter_mode(self, value: str) -> None:
+        if value == REFLECTION:
+            self._filters.emission_wavelength = None
+        elif self._filters.emission_wavelength is None:
+            bands = [
+                c for c in self._filters.available_emission_wavelengths if c is not None
+            ]
+            self._filters.emission_wavelength = bands[0]
+        self.emission_wavelength.report(self.read_emission_wavelength())
+
+    def metadata_filter_mode(self) -> ParameterMetadata:
+        available = self._filters.available_emission_wavelengths
+        modes = [REFLECTION] if None in available else []
+        if any(c is not None for c in available):
+            modes.append(FLUORESCENCE)
+        return ParameterMetadata(choices=modes)
+
+    def read_emission_wavelength(self) -> Optional[float]:
+        value = self._filters.emission_wavelength
+        return None if value is None or isinstance(value, str) else float(value)
+
+    def write_emission_wavelength(self, value: Optional[float]) -> None:
+        # No single band: the multi-band filter where there is one, else reflection
+        # (Odemis's pass-through).
+        if value is None:
+            available = self._filters.available_emission_wavelengths
+            value = MULTI_BAND if MULTI_BAND in available else None
         self._filters.emission_wavelength = value
+        self.filter_mode.report(self.read_filter_mode())
 
     def metadata_emission_wavelength(self) -> ParameterMetadata:
-        return ParameterMetadata(
-            choices=list(self._filters.available_emission_wavelengths)
-        )
+        available = self._filters.available_emission_wavelengths
+        bands = [c for c in available if c is not None and not isinstance(c, str)]
+        return ParameterMetadata(choices=[float(c) for c in bands])
 
 
 class FMObjective(Objective):

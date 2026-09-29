@@ -107,9 +107,11 @@ class Parameter:
         choices: Optional[Sequence[Any]] = None,
         depends_on: Sequence[str] = (),
         doc: str = "",
+        optional: bool = False,
     ):
         self.type = type_
         self.unit = unit
+        self.optional = optional
         self.limits = limits
         self.choices = choices
         self.depends_on = tuple(depends_on)
@@ -131,7 +133,8 @@ class Parameter:
 
     def __repr__(self) -> str:
         unit = f", unit={self.unit!r}" if self.unit else ""
-        return f"Parameter({self.type.__name__}{unit})"
+        optional = ", optional=True" if self.optional else ""
+        return f"Parameter({self.type.__name__}{unit}{optional})"
 
 
 MetadataSource = Union[ParameterMetadata, Callable[[], ParameterMetadata], None]
@@ -181,6 +184,10 @@ class BoundParameter:
     @property
     def unit(self) -> Optional[str]:
         return self.spec.unit
+
+    @property
+    def optional(self) -> bool:
+        return self.spec.optional
 
     @property
     def limits(self) -> Optional[Limits]:
@@ -277,6 +284,8 @@ class BoundParameter:
         self._remember(value)
 
     def validate(self, value: Any) -> Any:
+        if value is None and self.optional:
+            return None
         value = _coerce(self.type, value, f"{self.device.name}.{self.name}")
         if self.choices is not None:
             value = _match_choice(
@@ -443,12 +452,11 @@ class Device:
             base_param = inherited.get(name)
             if not isinstance(attr, Parameter) or base_param is None:
                 continue
-            if (attr.type, attr.unit) != (base_param.type, base_param.unit):
+            if _shape(attr) != _shape(base_param):
                 raise TypeError(
-                    f"{cls.__name__}.{name} is {attr.type.__name__} in {attr.unit!r}, "
-                    f"but is declared {base_param.type.__name__} in "
-                    f"{base_param.unit!r}; a backend can't change a parameter's type "
-                    f"or unit"
+                    f"{cls.__name__}.{name} is {_describe_shape(attr)}, but is declared "
+                    f"{_describe_shape(base_param)}; a backend can't change a "
+                    f"parameter's type or unit"
                 )
         declared = cls.declared_parameters()
         for attr, value in vars(cls).items():
@@ -521,6 +529,7 @@ class Device:
             name: {
                 "type": p.type.__name__,
                 "unit": p.unit,
+                "optional": p.optional,
                 "limits": _limits_to_dict(p.limits),
                 "choices": list(p.choices) if p.choices is not None else None,
                 "settable": p.settable,
@@ -559,6 +568,15 @@ def _limits_to_dict(limits: Optional[Limits]) -> Any:
     if isinstance(limits, Mapping):
         return {name: limit.to_dict() for name, limit in limits.items()}
     return None
+
+
+def _shape(param: Parameter) -> tuple:
+    return (param.type, param.unit, param.optional)
+
+
+def _describe_shape(param: Parameter) -> str:
+    optional = " (optional)" if param.optional else ""
+    return f"{param.type.__name__} in {param.unit!r}{optional}"
 
 
 def _coerce(type_: type, value: Any, label: str) -> Any:

@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 
+from fibsem.devices.fm import FLUORESCENCE, MULTI_BAND, REFLECTION
 from fibsem.fm.microscope import (
     Camera,
     FilterSet,
@@ -198,7 +199,10 @@ class RemoteFilterSet(FilterSet):
 
     @property
     def available_emission_wavelengths(self) -> Tuple[Union[None, str, float], ...]:
-        return tuple(_param(self._device, "emission_wavelength").choices or ())
+        modes = _param(self._device, "filter_mode").choices or ()
+        bands = tuple(_param(self._device, "emission_wavelength").choices or ())
+        multi_band = (MULTI_BAND,) if FLUORESCENCE in modes and not bands else ()
+        return ((None,) if REFLECTION in modes else ()) + multi_band + bands
 
     @property
     def excitation_wavelength(self) -> float:
@@ -208,13 +212,23 @@ class RemoteFilterSet(FilterSet):
     def excitation_wavelength(self, value: float) -> None:
         _param(self._device, "excitation_wavelength").write_through(value)
 
+    # Today's API keeps the mode and the band in one value; the device has one of each.
+
     @property
     def emission_wavelength(self) -> Optional[Union[float, str]]:
-        return _param(self._device, "emission_wavelength").get_value()
+        if _param(self._device, "filter_mode").get_value() == REFLECTION:
+            return None
+        band = _param(self._device, "emission_wavelength").get_value()
+        return MULTI_BAND if band is None else band
 
     @emission_wavelength.setter
     def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
-        _param(self._device, "emission_wavelength").write_through(value)
+        if value is None:
+            _param(self._device, "filter_mode").write_through(REFLECTION)
+        elif isinstance(value, str):
+            _param(self._device, "filter_mode").write_through(FLUORESCENCE)
+        else:
+            _param(self._device, "emission_wavelength").write_through(value)
 
 
 class RemoteFluorescenceMicroscope(FluorescenceMicroscope):

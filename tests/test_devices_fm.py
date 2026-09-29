@@ -87,3 +87,48 @@ def test_a_channel_sets_up_the_parts_and_signals_their_changes(fm):
     assert seen == [0.2]
     assert devices["filter_set"].excitation_wavelength.cached == 450
     assert devices["camera"].exposure_time.cached == 0.01
+
+
+def test_the_filter_mode_and_band_map_to_the_one_old_value(fm):
+    microscope, devices = fm
+    filters = devices["filter_set"]
+    assert filters.filter_mode.choices == ["reflection", "fluorescence"]
+    assert filters.emission_wavelength.choices == []  # multi-band only
+    filters.filter_mode.set_value("reflection")
+    assert microscope.filter_set.emission_wavelength is None
+    assert filters.emission_wavelength.get_value() is None
+    filters.filter_mode.set_value("fluorescence")
+    assert microscope.filter_set.emission_wavelength == "Fluorescence"
+    assert filters.emission_wavelength.get_value() is None
+    with pytest.raises(ValueError):
+        filters.emission_wavelength.set_value(520.0)  # no single band to pick
+
+
+class _BandFilters:
+    """Filters with single emission bands, as Odemis has them (bottom edge, nm)."""
+
+    available_excitation_wavelengths = (470.0,)
+    available_emission_wavelengths = (None, 425.0, 510.0)
+    excitation_wavelength = 470.0
+    emission_wavelength = None
+
+
+def test_single_bands_are_emission_wavelength_choices():
+    from fibsem.devices.drivers.fm import FMFilterSet
+
+    old = _BandFilters()
+    filters = FMFilterSet(old).connect()
+    assert filters.emission_wavelength.get_value() is None
+    changes = []
+    filters.changed.connect(lambda name, value: changes.append((name, value)))
+    assert filters.filter_mode.choices == ["reflection", "fluorescence"]
+    assert filters.emission_wavelength.choices == [425.0, 510.0]
+    filters.filter_mode.set_value("fluorescence")
+    assert old.emission_wavelength == 425.0  # the first band
+    assert ("emission_wavelength", 425.0) in changes  # the other half signals too
+    filters.emission_wavelength.set_value(510)
+    assert old.emission_wavelength == 510.0
+    assert filters.filter_mode.get_value() == "fluorescence"
+    filters.emission_wavelength.set_value(None)  # no single band: pass-through
+    assert old.emission_wavelength is None
+    assert filters.filter_mode.get_value() == "reflection"
