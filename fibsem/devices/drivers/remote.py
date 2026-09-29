@@ -31,6 +31,12 @@ A server that isn't running yet need not stop the coordinator connecting: with
 retry loop binds them when the server first answers, then fires ``reconnected``.
 Until then each device's ``online`` is False and its parameters are absent.
 
+A device server can require a token (``fibsem.server.devices``): ``token`` is sent
+on every request and on the event stream. A refused token raises
+``RemoteDeviceRefused`` and is never retried, since retrying cannot fix it. Both
+computers keep the token in a file, named by ``FIBSEM_DEVICE_TOKEN_FILE``
+(``read_device_token``).
+
 A command that returns an array (a camera frame, an FM channel) comes back as
 ``np.save`` bytes rather than JSON, and arrives as the same array.
 
@@ -47,7 +53,9 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import threading
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -70,6 +78,7 @@ NPY_MEDIA_TYPE = "application/x-npy"  # as fibsem.server.devices sends arrays
 READ_TIMEOUT = 5.0
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
+DEVICE_TOKEN_FILE_ENV = "FIBSEM_DEVICE_TOKEN_FILE"
 
 
 class RemoteDeviceError(RuntimeError):
@@ -78,6 +87,30 @@ class RemoteDeviceError(RuntimeError):
 
 class RemoteDeviceUnreachable(ConnectionError):
     """The server could not be reached. Nothing about the device is known right now."""
+
+
+class RemoteDeviceRefused(PermissionError):
+    """The server refused this client's token. Retrying won't help: the token files
+    on the two computers differ, or this one has none."""
+
+
+def read_device_token(path: Optional[str] = None) -> Optional[str]:
+    """The shared device server token, from ``path`` or the file that
+    ``FIBSEM_DEVICE_TOKEN_FILE`` names; None when neither is set. A named file that
+    is missing or empty raises, since a token was meant to be there."""
+    path = path or os.environ.get(DEVICE_TOKEN_FILE_ENV)
+    if not path:
+        return None
+    token = Path(path).expanduser().read_text(encoding="utf-8").strip()
+    if not token:
+        raise ValueError(f"the device token file {path} is empty")
+    return token
+
+
+def _refused_handshake(error: Exception) -> bool:
+    """A websocket handshake the server refused for the token (401 or 403)."""
+    response = getattr(error, "response", None)
+    return getattr(response, "status_code", None) in (401, 403)
 
 
 _ERRORS: Dict[str, Callable[[str], Exception]] = {
@@ -116,11 +149,19 @@ class DeviceClient:
     read again, and every parameter that changed in the gap emitted ``changed``;
     devices built offline are bound."""
 
-    def __init__(self, host: str, port: int, heartbeat: float = HEARTBEAT):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        heartbeat: float = HEARTBEAT,
+        token: Optional[str] = None,
+    ):
         self.heartbeat = heartbeat
         self.base_url = f"http://{host}:{port}"
         self.events_url = f"ws://{host}:{port}/events"
+        self._headers = {"Authorization": f"Bearer {token}"} if token else {}
         self._session = requests.Session()
+        self._session.headers.update(self._headers)
         self._devices: Dict[str, Device] = {}
         self._events: Optional[threading.Thread] = None
         self._ready = threading.Event()
@@ -151,6 +192,11 @@ class DeviceClient:
             raise RemoteDeviceUnreachable(
                 f"{method} {self.base_url}/{path}: {reason}"
             ) from None
+        if response.status_code == 401:
+            raise RemoteDeviceRefused(
+                f"{self.base_url} refused this computer's token: the token files on "
+                "the two computers must match"
+            )
         if response.ok:
             if response.headers.get("content-type", "").startswith(NPY_MEDIA_TYPE):
                 return np.load(io.BytesIO(response.content), allow_pickle=False)
@@ -195,7 +241,14 @@ class DeviceClient:
                 self._stream(resync=not first)
                 delay = 0.5  # it was up: retry quickly next time
             except Exception as error:  # refused, dropped or timed out: all the same
-                if self.connected or first:
+                if _refused_handshake(error):
+                    # Not a network fault: retrying would only repeat the refusal.
+                    logging.error(
+                        f"device events from {self.base_url}: the server refused "
+                        "this computer's token. Not retrying."
+                    )
+                    self._closing.set()
+                elif self.connected or first:
                     logging.warning(f"device events from {self.base_url}: {error}")
             finally:
                 first = False
@@ -212,6 +265,7 @@ class DeviceClient:
 
         with connect(
             self.events_url,
+            additional_headers=self._headers,
             open_timeout=READ_TIMEOUT,
             ping_interval=self.heartbeat,
             ping_timeout=self.heartbeat,
@@ -410,10 +464,13 @@ class RemoteBeam(RemoteDevice, Beam):
 
 
 def connect_remote_beams(
-    host: str, port: int, client: Optional[DeviceClient] = None
+    host: str,
+    port: int,
+    client: Optional[DeviceClient] = None,
+    token: Optional[str] = None,
 ) -> Dict[BeamType, Beam]:
     """Build ``beams[BeamType]`` from the beams a device server has."""
-    client = client if client is not None else DeviceClient(host, port)
+    client = client if client is not None else DeviceClient(host, port, token=token)
     beams: Dict[BeamType, Beam] = {}
     for name, description in client.describe().items():
         beam_type = BeamType.__members__.get(name.upper())
@@ -473,13 +530,14 @@ def connect_remote_fm(
     port: int,
     client: Optional[DeviceClient] = None,
     offline: bool = False,
+    token: Optional[str] = None,
 ) -> Dict[str, Device]:
     """The FM's group and parts a device server has, by name.
 
     If the server can't be reached this raises ``RemoteDeviceUnreachable``, unless
     ``offline``: then every part is built unbound, and binds when the server answers.
     """
-    client = client if client is not None else DeviceClient(host, port)
+    client = client if client is not None else DeviceClient(host, port, token=token)
     try:
         descriptions = client.describe()
     except RemoteDeviceUnreachable as error:

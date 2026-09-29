@@ -982,10 +982,15 @@ class FibsemMicroscope(ABC):
             logging.error(f"{message} No fluorescence microscope will be available.")
             return None
         try:
+            from fibsem.devices.drivers.remote import read_device_token
             from fibsem.fm.remote import RemoteFluorescenceMicroscope
 
             remote = RemoteFluorescenceMicroscope.connect(
-                fm.address, fm.port, parent=self, offline=not fm.required
+                fm.address,
+                fm.port,
+                parent=self,
+                offline=not fm.required,
+                token=read_device_token(),
             )
         except Exception as e:
             message = (

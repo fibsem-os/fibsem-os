@@ -19,8 +19,18 @@ The coordinator side is ``fibsem.devices.drivers.remote``. A write runs the devi
 Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
 
-Not yet: authentication (``fibsem.server`` has bearer tokens; this
-would be mounted there), the one-commander lease.
+Given a token, every route needs it as ``Authorization: Bearer <token>``, the
+websocket included (its handshake is refused before it opens), and ``/docs`` is off.
+The token is one shared secret, kept in a file on both computers and named by
+``FIBSEM_DEVICE_TOKEN_FILE`` or ``--token-file``: whoever holds it has full control.
+It crosses the network in plain HTTP, so this suits a direct cable, not a shared
+network. Without a token the server is open, and so it refuses any address but
+loopback. Not yet: the one-commander lease.
+
+Make a token file once, copy it to the other computer, and keep it readable by the
+fibsem account only:
+
+    python -c "import secrets; print(secrets.token_urlsafe(32))" > ~/.fibsem/device-token
 
 Try it on one computer:
 
@@ -35,7 +45,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hmac
 import io
+import ipaddress
 import json
 import logging
 import threading
@@ -43,7 +55,14 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Set
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
@@ -54,6 +73,7 @@ from fibsem.devices.core import (
     ParameterUnavailable,
     _limits_to_dict,
 )
+from fibsem.devices.drivers.remote import DEVICE_TOKEN_FILE_ENV, read_device_token
 from fibsem.devices.wire import from_wire, to_wire
 
 NPY_MEDIA_TYPE = "application/x-npy"
@@ -163,12 +183,39 @@ class _EventHub:
             return
 
 
-def build_device_app(devices: Iterable[Device]) -> FastAPI:
-    """The server's routes over these devices, looked up by ``device.name``."""
+def token_matches(header: Optional[str], token: bytes) -> bool:
+    """Whether an ``Authorization`` header carries the token. Compared as bytes, so a
+    header that isn't ASCII is a mismatch rather than an error."""
+    if header is None or not header.startswith("Bearer "):
+        return False
+    presented = header[len("Bearer ") :].encode("utf-8", "surrogateescape")
+    return hmac.compare_digest(presented, token)
+
+
+def build_device_app(devices: Iterable[Device], token: Optional[str] = None) -> FastAPI:
+    """The server's routes over these devices, looked up by ``device.name``.
+
+    With ``token``, every route and the websocket need it; without, the app is open.
+    """
     by_name: Dict[str, Device] = {device.name: device for device in devices}
     hub = _EventHub()
     hub.attach(by_name.values())
-    app = FastAPI(title="fibsem devices")
+    secret = token.encode("utf-8") if token is not None else None
+    if secret is None:
+        app = FastAPI(title="fibsem devices")
+    else:  # the API description is not for anyone without the token either
+        app = FastAPI(
+            title="fibsem devices", docs_url=None, redoc_url=None, openapi_url=None
+        )
+
+    def authorized(header: Optional[str]) -> bool:
+        return secret is None or token_matches(header, secret)
+
+    def require_token(request: Request) -> None:
+        if not authorized(request.headers.get("Authorization")):
+            raise HTTPException(401, "missing or wrong device server token")
+
+    guard = [Depends(require_token)]
 
     def lookup(name: str) -> Device:
         try:
@@ -193,36 +240,36 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
                 status, {"error": type(error).__name__, "detail": str(error)}
             ) from None
 
-    @app.get("/health")
+    @app.get("/health", dependencies=guard)
     def health() -> Dict[str, Any]:
         """Up, and for each device whether its driver can reach the hardware."""
         devices = {name: device_health(d) for name, d in by_name.items()}
         return {"ok": all(d["ok"] for d in devices.values()), "devices": devices}
 
-    @app.get("/devices")
+    @app.get("/devices", dependencies=guard)
     def list_devices() -> Dict[str, Any]:
         return {name: describe_device(d) for name, d in by_name.items()}
 
-    @app.get("/devices/{device}")
+    @app.get("/devices/{device}", dependencies=guard)
     def get_device(device: str) -> Dict[str, Any]:
         return describe_device(lookup(device))
 
-    @app.get("/devices/{device}/{parameter}")
+    @app.get("/devices/{device}/{parameter}", dependencies=guard)
     def read(device: str, parameter: str) -> Dict[str, Any]:
         value = run(lambda: parameter_of(device, parameter).get_value())
         return {"value": to_wire(value)}
 
-    @app.put("/devices/{device}/{parameter}")
+    @app.put("/devices/{device}/{parameter}", dependencies=guard)
     def write(device: str, parameter: str, body: Dict[str, Any]) -> Dict[str, Any]:
         param = run(lambda: parameter_of(device, parameter))
         value = from_wire(param.type, body["value"])
         return {"value": to_wire(run(lambda: param.set_value(value)))}
 
-    @app.get("/devices/{device}/{parameter}/metadata")
+    @app.get("/devices/{device}/{parameter}/metadata", dependencies=guard)
     def metadata(device: str, parameter: str) -> Dict[str, Any]:
         return metadata_payload(run(lambda: parameter_of(device, parameter).metadata))
 
-    @app.post("/devices/{device}/commands/{command}")
+    @app.post("/devices/{device}/commands/{command}", dependencies=guard)
     def call(device: str, command: str, body: Dict[str, Any]) -> Any:
         d = lookup(device)
         if command not in d.commands:
@@ -236,6 +283,10 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
 
     @app.websocket("/events")
     async def events(websocket: WebSocket) -> None:
+        if not authorized(websocket.headers.get("Authorization")):
+            # Closing before accepting refuses the handshake: nothing is streamed.
+            await websocket.close(code=1008)
+            return
         await hub.stream(websocket)
 
     return app
@@ -245,10 +296,14 @@ class DeviceServer:
     """Runs the app with uvicorn on a background thread, for tests and scripts."""
 
     def __init__(
-        self, devices: Iterable[Device], host: str = "127.0.0.1", port: int = 0
+        self,
+        devices: Iterable[Device],
+        host: str = "127.0.0.1",
+        port: int = 0,
+        token: Optional[str] = None,
     ):
         config = uvicorn.Config(
-            build_device_app(devices),
+            build_device_app(devices, token=token),
             host=host,
             port=port,
             log_level="warning",
@@ -306,15 +361,44 @@ def main(argv: Optional[List[str]] = None) -> None:
         default=["beams"],
         help="beams: the Demo microscope's beams; fm: a simulated FM's parts",
     )
+    parser.add_argument(
+        "--token-file",
+        help=f"the shared token (default: the file ${DEVICE_TOKEN_FILE_ENV} names)",
+    )
     args = parser.parse_args(argv)
+    try:
+        token = read_device_token(args.token_file)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
+    if token is None and not is_loopback(args.host):
+        parser.error(
+            f"refusing to serve on {args.host} without a token: set "
+            f"{DEVICE_TOKEN_FILE_ENV} or --token-file"
+        )
     served: List[Device] = []
     if "beams" in args.serve:
         served += demo_devices()
     if "fm" in args.serve:
         served += demo_fm_devices()
     devices: Mapping[str, Device] = {d.name: d for d in served}
-    logging.info(f"serving {sorted(devices)} on http://{args.host}:{args.port}")
-    uvicorn.run(build_device_app(devices.values()), host=args.host, port=args.port)
+    access = "token required" if token is not None else "open, loopback only"
+    logging.info(
+        f"serving {sorted(devices)} on http://{args.host}:{args.port} ({access})"
+    )
+    uvicorn.run(
+        build_device_app(devices.values(), token=token),
+        host=args.host,
+        port=args.port,
+    )
+
+
+def is_loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:  # a host name: only its resolver knows
+        return False
 
 
 if __name__ == "__main__":

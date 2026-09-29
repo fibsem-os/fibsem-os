@@ -245,16 +245,20 @@ class RemoteFluorescenceMicroscope(FluorescenceMicroscope):
         parent: Optional[FibsemMicroscope] = None,
         client: Optional[DeviceClient] = None,
         offline: bool = False,
+        token: Optional[str] = None,
     ) -> RemoteFluorescenceMicroscope:
         """Connect to the FM's device server.
 
         Raises ``RemoteDeviceUnreachable`` if it isn't running, unless ``offline``:
         then the FM is built offline, every read fails closed, and it comes online by
-        itself when the server starts (``client.reconnected`` fires).
+        itself when the server starts (``client.reconnected`` fires). ``token`` is
+        the device server's shared token, when it requires one.
         """
         from fibsem.devices.drivers.remote import connect_remote_fm
 
-        devices = connect_remote_fm(host, port, client=client, offline=offline)
+        devices = connect_remote_fm(
+            host, port, client=client, offline=offline, token=token
+        )
         missing = {"fm", "camera", "light_source", "filter_set", "objective"} - set(
             devices
         )
