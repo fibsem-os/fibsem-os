@@ -14,10 +14,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import LamellaDefaultConfig
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
-from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
-from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
 from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, Point
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.tokens import (
@@ -25,6 +21,10 @@ from fibsem.ui.tokens import (
     NEUTRAL_750,
     SEMANTIC_WARNING_COLOR,
 )
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
+from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
 
 _DEFAULT_AA = FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
 _DEFAULT_POI = Point(0, 0)

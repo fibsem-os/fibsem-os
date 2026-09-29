@@ -10,12 +10,14 @@ __version__ = "$Revision: 1311 $"
 
 
 import logging
+
 import numpy
 import scipy
 import scipy.linalg as linalg
 
-from .points import Points
 from .affine import Affine
+from .points import Points
+
 
 class Affine2D(Affine):
     """

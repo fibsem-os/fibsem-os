@@ -1,9 +1,9 @@
 import numpy as np
 import scipy.ndimage as ndi
+
 from fibsem import conversions
 from fibsem.imaging import utils as image_utils
-from fibsem.structures import Point, FibsemImage
-from PIL import Image, ImageDraw
+from fibsem.structures import FibsemImage, Point
 
 
 ### MASKING
@@ -113,11 +113,13 @@ def create_rect_mask(
 
     mask = np.zeros_like(img)
 
-    y_min, y_max = int(np.clip(pt.y - h / 2, 0, img.shape[1])), int(
-        np.clip(pt.y + h / 2, 0, img.shape[1])
+    y_min, y_max = (
+        int(np.clip(pt.y - h / 2, 0, img.shape[1])),
+        int(np.clip(pt.y + h / 2, 0, img.shape[1])),
     )
-    x_min, x_max = int(np.clip(pt.x - w / 2, 0, img.shape[1])), int(
-        np.clip(pt.x + w / 2, 0, img.shape[1])
+    x_min, x_max = (
+        int(np.clip(pt.x - w / 2, 0, img.shape[1])),
+        int(np.clip(pt.x + w / 2, 0, img.shape[1])),
     )
 
     mask[y_min:y_max, x_min:x_max] = 1
@@ -227,7 +229,6 @@ def create_vertical_mask(arr, width=128):
     return mask
 
 
-
 def create_mask(arr: np.ndarray, mask_info: dict) -> np.ndarray:
 
     # mask_info = {
@@ -238,10 +239,18 @@ def create_mask(arr: np.ndarray, mask_info: dict) -> np.ndarray:
     # }
 
     if mask_info["type"] == "circle":
-        mask = create_circle_mask(arr.shape, radius=mask_info["radius"], sigma=mask_info["sigma"])
+        mask = create_circle_mask(
+            arr.shape, radius=mask_info["radius"], sigma=mask_info["sigma"]
+        )
 
     if mask_info["type"] == "rect":
-        mask = create_rect_mask(arr, pt=mask_info["pt"], w=mask_info["w"], h=mask_info["h"], sigma=mask_info["sigma"])
+        mask = create_rect_mask(
+            arr,
+            pt=mask_info["pt"],
+            w=mask_info["w"],
+            h=mask_info["h"],
+            sigma=mask_info["sigma"],
+        )
 
     if mask_info["invert"]:
         mask = np.logical_not(mask)

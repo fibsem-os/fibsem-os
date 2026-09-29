@@ -8,13 +8,13 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui import stylesheets
+from fibsem import manufacturers
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategy, get_strategy
 from fibsem.milling.patterning import get_pattern
 from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import BeamType, FibsemMillingSettings
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.milling_settings_widget import FibsemMillingSettingsWidget
 from fibsem.ui.widgets.milling_stage_list_widget import MillingStageListWidget
 from fibsem.ui.widgets.pattern_settings_widget import FibsemPatternSettingsWidget
@@ -28,7 +28,7 @@ class FibsemMillingStagesWidget(QWidget):
     """
 
     stages_changed = pyqtSignal(list)  # List[FibsemMillingStage]
-    eye_toggled = pyqtSignal(bool)     # True = patterns visible
+    eye_toggled = pyqtSignal(bool)  # True = patterns visible
 
     def __init__(
         self,
@@ -59,9 +59,13 @@ class FibsemMillingStagesWidget(QWidget):
 
         # Stage list. Tescan mills by preset — milling_current is a no-op on that backend —
         # so it gets a Preset column where every other backend gets Current.
-        _show_preset = self.microscope.manufacturer.upper() == "TESCAN"
-        _current_values = self.microscope.get_available_values_cached("current", BeamType.ION)
-        _preset_values = self.microscope.get_available_values_cached("preset", BeamType.ION)
+        _show_preset = manufacturers.is_tescan(self.microscope.manufacturer)
+        _current_values = self.microscope.get_available_values_cached(
+            "current", BeamType.ION
+        )
+        _preset_values = self.microscope.get_available_values_cached(
+            "preset", BeamType.ION
+        )
         self._list = MillingStageListWidget(
             current_values=_current_values,
             preset_values=_preset_values,
@@ -80,71 +84,48 @@ class FibsemMillingStagesWidget(QWidget):
             microscope=self.microscope,
             settings=FibsemMillingSettings(),
         )
-        self._btn_advanced = IconToolButton(
-            icon="mdi:tune",
-            checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
-            tooltip="Show advanced settings",
-            checked_tooltip="Hide advanced settings",
-        )
 
-        milling_panel = TitledPanel("Milling", content=self._milling_widget)
-        milling_panel.add_header_widget(self._btn_advanced)
-        milling_panel._btn_collapse.setChecked(False)
-        detail_layout.addWidget(milling_panel)
+        self._milling_panel = TitledPanel("Milling", content=self._milling_widget)
+        self._milling_panel._btn_collapse.setChecked(False)
+        detail_layout.addWidget(self._milling_panel)
 
         # Pattern settings
         self._pattern_widget = FibsemPatternSettingsWidget(
             microscope=self.microscope,
             pattern=get_pattern("Rectangle"),
         )
-        self._btn_advanced_pattern = IconToolButton(
-            icon="mdi:tune",
-            checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
-            tooltip="Show advanced settings",
-            checked_tooltip="Hide advanced settings",
-        )
 
-        pattern_panel = TitledPanel("Pattern", content=self._pattern_widget)
-        pattern_panel.add_header_widget(self._btn_advanced_pattern)
-        pattern_panel._btn_collapse.setChecked(False)
-        detail_layout.addWidget(pattern_panel)
+        self._pattern_panel = TitledPanel("Pattern", content=self._pattern_widget)
+        self._pattern_panel._btn_collapse.setChecked(False)
+        detail_layout.addWidget(self._pattern_panel)
 
         # Strategy settings
         self._strategy_widget = FibsemStrategySettingsWidget(
             strategy=get_strategy("Standard"),
         )
-        self._btn_advanced_strategy = IconToolButton(
-            icon="mdi:tune",
-            checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
-            tooltip="Show advanced settings",
-            checked_tooltip="Hide advanced settings",
-        )
 
-        strategy_panel = TitledPanel("Strategy", content=self._strategy_widget)
-        strategy_panel.add_header_widget(self._btn_advanced_strategy)
-        strategy_panel._btn_collapse.setChecked(False)
-        detail_layout.addWidget(strategy_panel)
+        self._strategy_panel = TitledPanel("Strategy", content=self._strategy_widget)
+        self._strategy_panel._btn_collapse.setChecked(False)
+        detail_layout.addWidget(self._strategy_panel)
 
         layout.addWidget(self._detail_widget)
         self._detail_widget.setVisible(False)
 
     def _connect_signals(self) -> None:
         self._list.stage_selected.connect(self._on_row_selected)
-        self._list.stage_added.connect(lambda _: self.stages_changed.emit(self._list.get_stages()))
+        self._list.stage_added.connect(
+            lambda _: self.stages_changed.emit(self._list.get_stages())
+        )
         self._list.stage_removed.connect(self._on_stage_removed)
         self._list.order_changed.connect(self.stages_changed.emit)
-        self._list.enabled_changed.connect(lambda _: self.stages_changed.emit(self._list.get_stages()))
+        self._list.enabled_changed.connect(
+            lambda _: self.stages_changed.emit(self._list.get_stages())
+        )
         self._list.stage_changed.connect(self._on_inline_stage_changed)
         self._list.eye_toggled.connect(self.eye_toggled)
         self._milling_widget.settings_changed.connect(self._on_milling_settings_changed)
-        self._btn_advanced.toggled.connect(self._on_advanced_toggled)
         self._pattern_widget.pattern_changed.connect(self._on_pattern_changed)
-        self._btn_advanced_pattern.toggled.connect(self._on_advanced_pattern_toggled)
         self._strategy_widget.strategy_changed.connect(self._on_strategy_changed)
-        self._btn_advanced_strategy.toggled.connect(self._on_advanced_strategy_toggled)
 
     # ------------------------------------------------------------------
     # Private slots
@@ -155,6 +136,13 @@ class FibsemMillingStagesWidget(QWidget):
         self._milling_widget.set_settings(stage.milling)
         self._pattern_widget.set_pattern(stage.pattern)
         self._strategy_widget.set_strategy(stage.strategy)
+        # Selecting a stage used to reveal three closed headers, so the click
+        # looked like it did nothing. Milling and Pattern open with the first
+        # selection; Strategy stays as the operator left it, since it usually has
+        # nothing to show. After that the panels keep whatever state they were put in.
+        if not self._detail_widget.isVisible():
+            self._milling_panel.expand()
+            self._pattern_panel.expand()
         self._detail_widget.setVisible(True)
 
     def _on_row_selected(self, stage: Optional[FibsemMillingStage]) -> None:
@@ -188,20 +176,11 @@ class FibsemMillingStagesWidget(QWidget):
             self._list.refresh_stage(self._selected_stage)
             self.stages_changed.emit(self._list.get_stages())
 
-    def _on_advanced_toggled(self, checked: bool) -> None:
-        self._milling_widget.set_advanced_visible(checked)
-
-    def _on_advanced_pattern_toggled(self, checked: bool) -> None:
-        self._pattern_widget.set_advanced_visible(checked)
-
     def _on_strategy_changed(self, strategy: MillingStrategy) -> None:
         if self._selected_stage is not None:
             self._selected_stage.strategy = strategy
             self._list.refresh_stage(self._selected_stage)
             self.stages_changed.emit(self._list.get_stages())
-
-    def _on_advanced_strategy_toggled(self, checked: bool) -> None:
-        self._strategy_widget.set_advanced_visible(checked)
 
     def _on_inline_stage_changed(self, stage: FibsemMillingStage) -> None:
         """Handle an inline field edit from the row widget and sync detail panels if selected."""
@@ -261,8 +240,7 @@ class FibsemMillingStagesWidget(QWidget):
         self._milling_widget.set_manufacturer(manufacturer)
 
     def set_advanced_visible(self, show: bool) -> None:
-        self._btn_advanced.blockSignals(True)
-        self._btn_advanced.setChecked(show)
-        self._btn_advanced.blockSignals(False)
-        self._btn_advanced.set_icon_state(show)
+        """Advanced fields in all three detail panels: one switch for one idea."""
         self._milling_widget.set_advanced_visible(show)
+        self._pattern_widget.set_advanced_visible(show)
+        self._strategy_widget.set_advanced_visible(show)

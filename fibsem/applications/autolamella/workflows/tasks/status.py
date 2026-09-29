@@ -1,0 +1,179 @@
+"""The typed payloads on ``workflow_status_signal``.
+
+``WorkflowStatusUpdate`` began as the record nested inside the dict
+``workflow_update_signal``'s ``status`` key; that signal is gone (FIB-826), and
+the record now rides inside :class:`WorkflowStatusEvent`. This record is
+independent of that work in both directions and can land before or after it.
+
+Unlike the other progress signals, there was no vocabulary to design here. ``status``
+has always been a real ``AutoLamellaTaskStatus`` on the wire; what was missing was a
+declared shape around it.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
+
+
+@dataclass(frozen=True, eq=False)
+class WorkflowStatusUpdate:
+    """One report on a task's lifecycle, from ``TaskManager._emit_status``.
+
+    ``eq=False`` is load-bearing, for a different reason than ``TiledProgress``'s.
+    Three fields hold lists, and ``WorkItem`` is a *mutable* dataclass, so it is
+    unhashable. ``frozen=True`` with the default ``eq=True`` generates a ``__hash__``
+    over every field, which raises ``TypeError: unhashable type: 'list'`` the moment
+    anything puts a report in a set or uses it as a key. There is no numpy here --
+    if you came looking for the tiled contract's reason, this is not it.
+    """
+
+    task_name: str = "Unknown Task"
+    item_name: str = "Unknown Lamella"
+    status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
+    timestamp: Optional[float] = None
+    error_message: Optional[str] = None
+    task_duration: Optional[float] = None
+    skip_reason: Optional[str] = None
+    # Position in the *live* queue, and ALREADY 1-based: the producer writes
+    # `position + 1`. Deliberately unlike `milling_progress_signal`'s 0-based
+    # `current_stage`, which seven consumers each increment. There is nothing to
+    # correct here, so do not port a `display_*` property over -- it would
+    # double-count.
+    queue_position: Optional[int] = None
+    queue_total: int = 0
+    # A snapshot of copies, not the live queue: `Queue.items` returns
+    # `[copy.copy(i) for i in self._items]` under a lock. Safe to read from the GUI
+    # thread, and no further defensive copying is wanted.
+    #
+    # `None` rather than `[]` when absent, and the difference is load-bearing: the
+    # timeline treats "this payload carries no snapshot" as "leave the rows alone",
+    # and "the snapshot is empty" as "reconcile to zero rows". Defaulting to `[]`
+    # would collapse the two and leave stale rows on screen when a queue empties.
+    queue_items: Optional[List["WorkItem"]] = None
+    # The plan this run was launched with. Informational only -- the live queue may
+    # since have diverged from it. No in-repo production consumer reads either of
+    # these; they are kept for the same reason `lamella_name` is, and should be
+    # dropped together with it.
+    task_names: List[str] = field(default_factory=list)
+    lamella_names: List[str] = field(default_factory=list)
+
+    @property
+    def lamella_name(self) -> str:
+        """Deprecated alias for :attr:`item_name`.
+
+        A property rather than a field so there is one source of truth and the two
+        cannot drift. Drop it alongside the ``HookContext`` shims after v0.6.
+        """
+        return self.item_name
+
+    @classmethod
+    def from_payload(
+        cls, payload: Union["WorkflowStatusUpdate", Dict[str, Any], None]
+    ) -> "WorkflowStatusUpdate":
+        """Accept either the typed report or the dict the signal still carries.
+
+        Total by construction, and that is the point rather than politeness. This
+        runs inside a queued Qt slot, where PyQt5 turns any escaping exception into
+        ``qFatal`` -- the process aborts mid-run and the abort reaches no logfile
+        (FIB-329). This signal has already killed the app that way once, over a
+        missing ``msg`` key. So every field has a default and nothing here indexes.
+
+        Deleted once the producer flips; until then the dict is the live path.
+        """
+        if isinstance(payload, cls):
+            return payload
+        if not payload:
+            return cls()
+
+        status = payload.get("status")
+        if not isinstance(status, AutoLamellaTaskStatus):
+            # Not a lie worth telling loudly: `NotStarted` fires no consumer branch,
+            # so an unrecognised value renders as "nothing in particular happened"
+            # rather than crashing or picking a wrong outcome.
+            status = AutoLamellaTaskStatus.NotStarted
+
+        return cls(
+            task_name=payload.get("task_name") or "Unknown Task",
+            item_name=payload.get("item_name") or "Unknown Lamella",
+            status=status,
+            timestamp=payload.get("timestamp"),
+            error_message=payload.get("error_message"),
+            task_duration=payload.get("task_duration"),
+            skip_reason=payload.get("skip_reason"),
+            queue_position=payload.get("queue_position"),
+            queue_total=payload.get("queue_total") or 0,
+            queue_items=(
+                list(payload["queue_items"])
+                if payload.get("queue_items") is not None
+                else None
+            ),
+            task_names=list(payload.get("task_names") or []),
+            lamella_names=list(payload.get("lamella_names") or []),
+        )
+
+
+@dataclass(frozen=True)
+class WorkflowStatusEvent:
+    """One fire-and-forget status update, on ``workflow_status_signal``.
+
+    Everything the workflow says without needing an answer travels as one of
+    these — its own channel, so that saying something can never release a
+    blocked waiter (the defect the deleted dict ``workflow_update_signal`` had:
+    its handler freed *every* waiter on *any* emission). Instructions and
+    questions do not ride a signal at all; they are requests to the responder
+    (``workflows/interaction.py``).
+
+    Three text destinations and one structured report, and every field optional
+    because the emit sites say different subsets:
+
+    * ``message`` — the instruction label. ``None`` says nothing about the prompt
+      and leaves it alone — the responder's chrome-refresh events must not take
+      down the question they just put up. ``""`` clears it (how a prompt comes
+      down); any other text replaces it.
+    * ``workflow_info`` — the workflow-information label. ``None`` leaves its text
+      alone (it still shows the label; pinned behaviour).
+    * ``status_bar`` — transient main-window status-bar text.
+    * ``report`` — a task-lifecycle report, for the timeline and run controls.
+    """
+
+    message: Optional[str] = None
+    workflow_info: Optional[str] = None
+    status_bar: Optional[str] = None
+    report: Optional[WorkflowStatusUpdate] = None
+
+
+class HoldKind(str, Enum):
+    """Who is holding the run."""
+
+    question = "question"  # a supervised question is up, for the operator
+    agent = "agent"  # the same question, addressed to a connected agent
+    # parked: nothing can run until a decision lands in the Review tab
+    decision = "decision"
+
+
+@dataclass(frozen=True)
+class Hold:
+    """The run is active and nothing is executing because someone has to act.
+
+    One value in place of the flags it replaced (``WAITING_FOR_USER_INTERACTION``,
+    ``WAITING_FOR_REVIEW`` and the watchdog's expired bit): who holds the run
+    and what releases it. ``AutoLamellaUI.hold`` carries it; None means the
+    run is not held. Written by whoever takes the hold -- the responder for a
+    question, the task manager for a park, the main window when it hands an
+    agent's question to the operator -- and read by the window chrome: border
+    colour, attention button, status-bar sentence.
+    """
+
+    kind: HoldKind
+    # what releases it, as a sentence fragment: "answer the question on the
+    # Microscope tab", "decide 01-a and 02-b in the Review tab"
+    releases: str
+    # the lamella/task pairs waiting, when there are some
+    items: Tuple[str, ...] = ()

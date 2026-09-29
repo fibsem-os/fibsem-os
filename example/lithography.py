@@ -3,11 +3,15 @@ from pprint import pprint
 
 import numpy as np
 from autoscript_sdb_microscope_client.structures import (
-    BitmapPatternDefinition, StagePosition)
+    BitmapPatternDefinition,
+    StagePosition,
+)
+from PIL import Image
+
 from fibsem import acquire, milling, movement, utils
+
 # from fibsem.ui import windows
 from fibsem.structures import BeamType
-from PIL import Image
 
 BASE_PATH = os.path.dirname(__file__)
 

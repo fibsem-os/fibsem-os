@@ -1,5 +1,7 @@
+from typing import Optional, Tuple
+
 import numpy as np
-from typing import Tuple, Optional
+
 
 def draw_character(char: str, size: Tuple[int, int] = (32, 24), thickness: int = 2, image_shape: Optional[Tuple[int, int]] = None) -> np.ndarray:
     """Draw any alphanumeric character as a numpy array.

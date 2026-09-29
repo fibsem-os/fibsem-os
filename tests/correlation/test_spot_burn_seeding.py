@@ -93,11 +93,11 @@ def test_seed_noop_with_empty_coordinates(qapp):
 
 
 def test_spot_burn_coordinates_matches_by_type():
-    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
-        SpotBurnFiducialTaskConfig,
-    )
     from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+        SpotBurnFiducialTaskConfig,
     )
 
     burns = [Point(0.1, 0.2), Point(0.3, 0.4)]

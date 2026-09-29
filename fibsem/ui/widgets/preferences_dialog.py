@@ -7,10 +7,12 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QListWidget,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -29,63 +31,83 @@ from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 # ---------------------------------------------------------------------------
 
 # Display
-_LBL_SOUND         = "Enable Sound Notifications"
-_TIP_SOUND         = "Play an audio alert when the workflow requires the user's attention."
-_LBL_TOASTS        = "Enable Toast Notifications"
-_TIP_TOASTS        = "Show brief pop-up messages in the corner of the screen for workflow events."
-_LBL_BORDER        = "Enable Workflow Border"
-_TIP_BORDER        = "Highlight the viewport border while an automated workflow is running."
-_LBL_CARD_MODE     = "Lamella Card Layout"
-_TIP_CARD_MODE     = (
+_LBL_SOUND = "Enable Sound Notifications"
+_TIP_SOUND = "Play an audio alert when the workflow requires the user's attention."
+_LBL_BORDER = "Enable Workflow Border"
+_TIP_BORDER = "Highlight the viewport border while an automated workflow is running."
+_LBL_CARD_MODE = "Lamella Card Layout"
+_TIP_CARD_MODE = (
     "How each lamella is drawn in the Lamella tab's strip: a large thumbnail, a "
     "compact row, or a single line with no thumbnail."
 )
-_LBL_DEV_MODE      = "Enable Development Mode"
-_TIP_DEV_MODE      = "Show advanced developer tools and diagnostic menus. Intended for developers only."
+_LBL_DEV_MODE = "Enable Development Mode"
+_TIP_DEV_MODE = (
+    "Show advanced developer tools and diagnostic menus. Intended for developers only."
+)
 
 # Features
-_LBL_COINCIDENCE   = "Enable Coincidence Milling Viewer"
-_TIP_COINCIDENCE   = (
+_LBL_COINCIDENCE = "Enable Coincidence Milling Viewer"
+_TIP_COINCIDENCE = (
     "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
     "Restricted to ThermoFisher Arctis with the modified sample holder."
 )
-_LBL_SAMPLE_HOLDER = "Enable Sample Holder Widget"
-_TIP_SAMPLE_HOLDER = "Show the sample holder navigation widget in the main interface."
-_LBL_BUG_REPORT    = "Enable Bug Reporter"
-_TIP_BUG_REPORT    = (
-    "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
-    "optionally submitting experiment data privately to the maintainers."
+_LBL_CONNECTION_CHIP = "Enable Connection Chip"
+_TIP_CONNECTION_CHIP = (
+    "Show the connected instrument in the tab bar, beside the experiment, and add "
+    "File > Connect to Microscope, which opens a dialog for connecting, "
+    "reconnecting and disconnecting. The Connection tab still works and is still "
+    "where connecting happens; this is the header half of replacing it."
 )
-_LBL_OVERVIEW_CANVAS = "Enable Overview (Canvas) Tab"
-_TIP_OVERVIEW_CANVAS = (
-    "Add a rebuilt Overview tab on the real-space canvas, beside the existing one. "
-    "Tiles are placed where they were acquired rather than stitched first. Still being "
-    "finished, and it drives the same microscope as the Overview tab it will replace."
+_LBL_GRID_WORKFLOW = "Enable Grid Workflow"
+_TIP_GRID_WORKFLOW = (
+    "Show the Grids tab and the Workflow tab's Grids view: inventory the grids in "
+    "the holder or autoloader, and acquire SEM, FIB and fluorescence overviews of "
+    "each. In development; the Microscope tab's Sample view is available either way."
 )
-_LBL_SCRIPTS       = "Enable User Scripts"
-_TIP_SCRIPTS       = (
-    "Show Tools > Scripts, for running your own .py files against the open "
-    "experiment. A script has the same access to the microscope as the application "
-    "itself and none of its safety checks — nothing validates what it does."
+_LBL_PROPOSE_REVIEW = "Review workflow (early access)"
+_TIP_PROPOSE_REVIEW = (
+    "Show the Review tab and let a task's answer wait there for you to confirm "
+    "or reject, instead of the next task running straight away. Every task "
+    "records what it did whether this is on or not; this shows the tab and "
+    "allows a task to be set to Review. Early access."
+)
+_LBL_AGENT_SERVER = "Enable Agent Server"
+_LBL_WATCHDOG = "Hand questions to me after"
+_TIP_WATCHDOG = (
+    "If the agent leaves a question unanswered this long, it becomes yours — "
+    "orange border, attention button, sound. Applies only to tasks the agent "
+    "supervises."
+)
+_TIP_AGENT_SERVER = (
+    "Host a local, token-protected API over this session when a microscope "
+    "connects, so an AI agent (via the fibsem-mcp sidecar) can observe it. "
+    "Read-only until you grant permissions for the session in Tools → Agent "
+    "Server, which also shows the session token."
 )
 
 # Experiment defaults
-_LBL_EXP_DIR       = "Default Experiment Directory"
-_TIP_EXP_DIR       = "Directory where new experiments will be saved. Pre-fills the directory field when creating a new experiment."
-_LBL_EXP_PROTOCOL  = "Default Protocol File"
-_TIP_EXP_PROTOCOL  = "Protocol file (.yaml) to load automatically when creating a new experiment."
-_LBL_EXP_USER      = "Default User"
-_TIP_EXP_USER      = "User name pre-filled in the metadata fields when creating a new experiment."
-_LBL_EXP_PROJECT   = "Default Project"
-_TIP_EXP_PROJECT   = "Project name pre-filled in the metadata fields when creating a new experiment."
-_LBL_EXP_ORG       = "Default Organisation"
-_TIP_EXP_ORG       = "Organisation name pre-filled in the metadata fields when creating a new experiment."
+_LBL_EXP_DIR = "Default Experiment Directory"
+_TIP_EXP_DIR = "Directory where new experiments will be saved. Pre-fills the directory field when creating a new experiment."
+_LBL_EXP_PROTOCOL = "Default Protocol File"
+_TIP_EXP_PROTOCOL = (
+    "Protocol file (.yaml) to load automatically when creating a new experiment."
+)
+_LBL_EXP_USER = "Default User"
+_TIP_EXP_USER = (
+    "User name pre-filled in the metadata fields when creating a new experiment."
+)
+_LBL_EXP_PROJECT = "Default Project"
+_TIP_EXP_PROJECT = (
+    "Project name pre-filled in the metadata fields when creating a new experiment."
+)
+_LBL_EXP_ORG = "Default Organisation"
+_TIP_EXP_ORG = "Organisation name pre-filled in the metadata fields when creating a new experiment."
 
 # Movement
-_LBL_ACQ_SEM       = "Acquire SEM After Stage Movement"
-_TIP_ACQ_SEM       = "Automatically acquire a new SEM image after each stage movement."
-_LBL_ACQ_FIB       = "Acquire FIB After Stage Movement"
-_TIP_ACQ_FIB       = "Automatically acquire a new FIB image after each stage movement."
+_LBL_ACQ_SEM = "Acquire SEM After Stage Movement"
+_TIP_ACQ_SEM = "Automatically acquire a new SEM image after each stage movement."
+_LBL_ACQ_FIB = "Acquire FIB After Stage Movement"
+_TIP_ACQ_FIB = "Automatically acquire a new FIB image after each stage movement."
 
 
 class PreferencesDialog(QDialog):
@@ -100,8 +122,9 @@ class PreferencesDialog(QDialog):
         self._load_from_preferences(preferences)
         # Connected after loading, so opening this dialog with a flag already on does
         # not fire its warning.
-        self._chk_coincidence_milling.toggled.connect(self._on_coincidence_milling_toggled)
-        self._chk_scripts.toggled.connect(self._on_scripts_toggled)
+        self._chk_coincidence_milling.toggled.connect(
+            self._on_coincidence_milling_toggled
+        )
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -113,7 +136,9 @@ class PreferencesDialog(QDialog):
 
         self._sidebar = QListWidget()
         self._sidebar.setFixedWidth(120)
-        self._sidebar.addItems(["Display", "Features", "Experiment", "Movement"])
+        self._sidebar.addItems(
+            ["Display", "Features", "Experiment", "Movement", "Agent"]
+        )
         self._sidebar.setCurrentRow(0)
 
         self._stack = QStackedWidget()
@@ -126,8 +151,6 @@ class PreferencesDialog(QDialog):
         display_form = QFormLayout(display_page)
         self._chk_sound = QCheckBox()
         self._chk_sound.setToolTip(_TIP_SOUND)
-        self._chk_toasts = QCheckBox()
-        self._chk_toasts.setToolTip(_TIP_TOASTS)
         self._chk_border = QCheckBox()
         self._chk_border.setToolTip(_TIP_BORDER)
         self._chk_dev_mode = QCheckBox()
@@ -140,7 +163,6 @@ class PreferencesDialog(QDialog):
         for mode in CARD_MODES:
             self._combo_card_mode.addItem(card_mode_label(mode), mode)
         display_form.addRow(_LBL_SOUND, self._chk_sound)
-        display_form.addRow(_LBL_TOASTS, self._chk_toasts)
         display_form.addRow(_LBL_BORDER, self._chk_border)
         display_form.addRow(_LBL_CARD_MODE, self._combo_card_mode)
         display_form.addRow(_LBL_DEV_MODE, self._chk_dev_mode)
@@ -151,19 +173,16 @@ class PreferencesDialog(QDialog):
         features_form = QFormLayout(features_page)
         self._chk_coincidence_milling = QCheckBox()
         self._chk_coincidence_milling.setToolTip(_TIP_COINCIDENCE)
-        self._chk_sample_holder = QCheckBox()
-        self._chk_sample_holder.setToolTip(_TIP_SAMPLE_HOLDER)
-        self._chk_bug_report = QCheckBox()
-        self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
-        self._chk_scripts = QCheckBox()
-        self._chk_scripts.setToolTip(_TIP_SCRIPTS)
-        self._chk_overview_canvas = QCheckBox()
-        self._chk_overview_canvas.setToolTip(_TIP_OVERVIEW_CANVAS)
+        self._chk_connection_chip = QCheckBox()
+        self._chk_connection_chip.setToolTip(_TIP_CONNECTION_CHIP)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
-        features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
-        features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
-        features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
-        features_form.addRow(_LBL_OVERVIEW_CANVAS, self._chk_overview_canvas)
+        features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
+        self._chk_grid_workflow = QCheckBox()
+        self._chk_grid_workflow.setToolTip(_TIP_GRID_WORKFLOW)
+        features_form.addRow(_LBL_GRID_WORKFLOW, self._chk_grid_workflow)
+        self._chk_propose_review = QCheckBox()
+        self._chk_propose_review.setToolTip(_TIP_PROPOSE_REVIEW)
+        features_form.addRow(_LBL_PROPOSE_REVIEW, self._chk_propose_review)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -197,6 +216,30 @@ class PreferencesDialog(QDialog):
         movement_form.addRow(_LBL_ACQ_FIB, self._chk_acquire_fib)
         self._stack.addWidget(movement_page)
 
+        # --- Agent ---
+        # Durable policy only. Scope ARMING is deliberately absent: arming is
+        # consent, granted per session in Tools -> Agent Server, and must not
+        # survive a restart via this file.
+        agent_page = QWidget()
+        agent_form = QFormLayout(agent_page)
+        self._chk_agent_server = QCheckBox()
+        self._chk_agent_server.setToolTip(_TIP_AGENT_SERVER)
+        self._spin_watchdog = QSpinBox()
+        self._spin_watchdog.setRange(1, 120)
+        self._spin_watchdog.setSuffix(" min")
+        self._spin_watchdog.setToolTip(_TIP_WATCHDOG)
+        agent_intro = QLabel(
+            "Let an AI agent watch this session — and, with permission you "
+            "grant per session in Tools → Agent Server, act on it — over a "
+            "local, token-protected connection."
+        )
+        agent_intro.setWordWrap(True)
+        agent_intro.setStyleSheet("color: #868e93; font-size: 11px;")
+        agent_form.addRow(agent_intro)
+        agent_form.addRow(_LBL_AGENT_SERVER, self._chk_agent_server)
+        agent_form.addRow(_LBL_WATCHDOG, self._spin_watchdog)
+        self._stack.addWidget(agent_page)
+
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
 
         # Buttons
@@ -215,7 +258,6 @@ class PreferencesDialog(QDialog):
         """Populate widgets from a UserPreferences instance."""
         d = prefs.display
         self._chk_sound.setChecked(d.sound_enabled)
-        self._chk_toasts.setChecked(d.toasts_enabled)
         self._chk_border.setChecked(d.border_enabled)
         self._chk_dev_mode.setChecked(d.dev_mode)
         card_index = self._combo_card_mode.findData(d.lamella_card_mode)
@@ -232,10 +274,12 @@ class PreferencesDialog(QDialog):
 
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
-        self._chk_sample_holder.setChecked(f.sample_holder_widget)
-        self._chk_bug_report.setChecked(f.bug_report_enabled)
-        self._chk_scripts.setChecked(f.scripts_enabled)
-        self._chk_overview_canvas.setChecked(f.overview_canvas_tab)
+        self._chk_agent_server.setChecked(f.agent_server_enabled)
+        self._chk_connection_chip.setChecked(f.connection_chip)
+        self._chk_grid_workflow.setChecked(f.grid_workflow)
+        self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
+
+        self._spin_watchdog.setValue(prefs.agent.watchdog_minutes)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -270,23 +314,10 @@ class PreferencesDialog(QDialog):
             "running the fluorescence microscope while milling.",
         )
 
-    def _on_scripts_toggled(self, checked: bool):
-        """Same shape as the coincidence-milling warning: state the consequence once,
-        on the way in, and never on the way out."""
-        if not checked:
-            return
-        QMessageBox.warning(
-            self,
-            "User Scripts — No Safety Checks",
-            "A script you run from Tools > Scripts has the same access to the "
-            "microscope as the application itself, with none of its limits or "
-            "interlocks, and nothing validates what it does before it runs.\n\n"
-            "Scripts you did not write yourself should be read before they are run.",
-        )
-
     def get_preferences(self) -> UserPreferences:
         """Build a UserPreferences instance from current widget state."""
         from fibsem.config import (
+            AgentPreferences,
             DisplayPreferences,
             ExperimentPreferences,
             FeatureFlags,
@@ -296,21 +327,23 @@ class PreferencesDialog(QDialog):
         return UserPreferences(
             display=DisplayPreferences(
                 sound_enabled=self._chk_sound.isChecked(),
-                toasts_enabled=self._chk_toasts.isChecked(),
                 border_enabled=self._chk_border.isChecked(),
                 dev_mode=self._chk_dev_mode.isChecked(),
                 lamella_card_mode=self._combo_card_mode.currentData(),
             ),
             features=FeatureFlags(
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
-                sample_holder_widget=self._chk_sample_holder.isChecked(),
-                bug_report_enabled=self._chk_bug_report.isChecked(),
-                scripts_enabled=self._chk_scripts.isChecked(),
-                overview_canvas_tab=self._chk_overview_canvas.isChecked(),
+                agent_server_enabled=self._chk_agent_server.isChecked(),
+                connection_chip=self._chk_connection_chip.isChecked(),
+                grid_workflow=self._chk_grid_workflow.isChecked(),
+                proposer_reviewer_workflow_enabled=self._chk_propose_review.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
                 acquire_fib_after_stage_movement=self._chk_acquire_fib.isChecked(),
+            ),
+            agent=AgentPreferences(
+                watchdog_minutes=self._spin_watchdog.value(),
             ),
             experiment=ExperimentPreferences(
                 default_experiment_directory=self._dir_experiment.text(),

@@ -23,6 +23,7 @@ Imports are ordered leaf-first to avoid partial-initialisation issues.
 
 # Leaf modules first (canvas_state, fm_composite, contrast_gamma_control have no
 # intra-cluster deps), then overlays, then image_canvas, fm_canvas, quad_view.
+from fibsem.ui.widgets.canvas.canvas_base import ContentRect, FibsemCanvasBase
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
     CanvasState,
@@ -32,16 +33,15 @@ from fibsem.ui.widgets.canvas.canvas_state import (
     PointsSpec,
     SceneModel,
 )
-from fibsem.ui.widgets.canvas.fm_composite import FMLayer, composite_fm_layers
-from fibsem.ui.widgets.canvas.canvas_base import ContentRect, FibsemCanvasBase
-from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
+from fibsem.ui.widgets.canvas.fm_composite import FMLayer, composite_fm_layers
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.quad_view import (
     LamellaEditorView,
     MicroscopeViewController,
     QuadViewWidget,
 )
+from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 
 __all__ = [
     # canvas_base

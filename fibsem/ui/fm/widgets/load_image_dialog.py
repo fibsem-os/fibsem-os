@@ -10,15 +10,15 @@ from typing import List, Optional
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog,
-    QVBoxLayout,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
-    QPushButton,
-    QFileDialog,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QProgressBar,
-    QListWidget,
+    QPushButton,
+    QVBoxLayout,
 )
 
 from fibsem.fm.structures import FluorescenceImage

@@ -5,13 +5,13 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtCore, QtWidgets
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.tools.reporting import generate_report2
 from fibsem.ui.stylesheets import (
-    PRIMARY_BUTTON_STYLESHEET,
     CONFIRM_BUTTON_STYLESHEET,
+    PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
 
@@ -501,6 +501,7 @@ def generate_report_dialog(
 def main():
     """Test the AutoLamellaGenerateReportWidget."""
     import sys
+
     from PyQt5.QtWidgets import QApplication
 
     app = QApplication(sys.argv)

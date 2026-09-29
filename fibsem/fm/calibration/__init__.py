@@ -4,6 +4,7 @@ This module provides focus measure algorithms used in focus stacking and autofoc
 applications. Different algorithms are suitable for different types of samples
 and imaging conditions.
 """
+
 from __future__ import annotations
 
 import logging
@@ -13,26 +14,33 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 import numpy as np
 
 from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult
-from fibsem.fm.structures import AutoFocusSettings, ZParameters
-from fibsem.structures import FibsemRectangle
+from fibsem.autofunctions.integration import (
+    adaptive_frame_integration,
+    frame_integration,
+)
 from fibsem.autofunctions.metrics import (
+    calculate_focus_quality,
+    find_best_focus_plane,
     get_focus_measure_function,
     laplacian_focus_measure,
     sobel_focus_measure,
-    variance_focus_measure,
     tenengrad_focus_measure,
-    find_best_focus_plane,
-    calculate_focus_quality,
+    variance_focus_measure,
 )
+from fibsem.autofunctions.plotting import plot_autofocus_result as plot_autofocus
 from fibsem.autofunctions.stacking import (
     block_based_focus_selection,
-    create_focus_stack_from_selection,
-    pixel_based_focus_selection,
-    create_pixel_based_focus_stack,
     create_block_based_focus_stack,
+    create_focus_stack_from_selection,
+    create_pixel_based_focus_stack,
+    pixel_based_focus_selection,
 )
-from fibsem.autofunctions.integration import frame_integration, adaptive_frame_integration
-from fibsem.autofunctions.plotting import plot_autofocus_result as plot_autofocus
+from fibsem.fm.progress import (
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
+from fibsem.fm.structures import AutoFocusSettings, ZParameters
+from fibsem.structures import FibsemRectangle
 
 __all__ = [
     "get_focus_measure_function",
@@ -112,8 +120,12 @@ def run_autofocus(
         >>> best_z = run_autofocus(microscope, roi=roi)
     """
 
-    if not microscope.has_valid_orientation():
-        raise ValueError("Microscope orientation is not valid for autofocus")
+    state = microscope.parent.get_device_imaging_state("FM")
+    if not state.allows_acquisition:
+        raise ValueError(
+            "Cannot start autofocus. "
+            + microscope.parent.describe_device_imaging_state("FM", state)
+        )
 
     # Held for the whole sweep, as a tileset holds it for a whole run. Without it
     # every step took and returned the channel on its own -- measured at 43 scopes
@@ -136,8 +148,9 @@ def run_autofocus(
         if channel_settings is not None:
             microscope.set_channel(channel_settings=channel_settings)
 
-        microscope.acquisition_progress_signal.emit({"state": "autofocus"})
-        logging.info(f"Starting autofocus: {len(z_positions)} positions, method='{method}'")
+        logging.info(
+            f"Starting autofocus: {len(z_positions)} positions, method='{method}'"
+        )
 
         initial_z = microscope.objective.position
         iterations: list[AutoFocusIteration] = []
@@ -148,29 +161,40 @@ def run_autofocus(
                 microscope.objective.move_absolute(initial_z)
                 return None
 
-            # Same payload shape the z-stack and channel loops emit, so a viewer that
+            # The same shape the z-stack and channel loops emit, so a viewer that
             # renders within-tile progress renders this too. Without it the bars froze for
             # the whole sweep -- which on per-tile autofocus is most of the run.
-            microscope.acquisition_progress_signal.emit({
-                "state": "acquiring",
-                "task": "autofocus",
-                "channel": channel_settings.name if channel_settings is not None else "",
-                "zlevel": i + 1,
-                "total_zlevels": len(z_positions),
-                "pass_index": pass_index,
-                "total_passes": total_passes,
-            })
+            #
+            # Emitted at the top of the loop, before the objective move and the exposure,
+            # so it lands microseconds after the sweep begins. That is what made a
+            # separate sweep-start announcement redundant: it set "Running Autofocus…"
+            # and reset the bar, and this overwrote both almost immediately with
+            # something strictly better, having named the channel and the step.
+            microscope.acquisition_progress_signal.emit(
+                FluorescenceAcquisitionProgress(
+                    status=FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS,
+                    channel=channel_settings.name
+                    if channel_settings is not None
+                    else "",
+                    zlevel=i + 1,
+                    total_zlevels=len(z_positions),
+                    pass_index=pass_index,
+                    total_passes=total_passes,
+                )
+            )
 
             microscope.objective.move_absolute(z_pos)
             image = microscope.acquire_image()
             image_data = image.crop(roi) if roi is not None else image.data
             focus_score = calculate_focus_quality(image_data, method=method)
-            iterations.append(AutoFocusIteration(
-                working_distance=float(z_pos),
-                focus_score=float(focus_score),
-                pass_index=0,
-                image=image_data,
-            ))
+            iterations.append(
+                AutoFocusIteration(
+                    working_distance=float(z_pos),
+                    focus_score=float(focus_score),
+                    pass_index=0,
+                    image=image_data,
+                )
+            )
             logging.debug(
                 f"Z[{i + 1}/{len(z_positions)}]: {z_pos * 1e6:.1f} μm, Score: {focus_score:.4f}"
             )
@@ -179,7 +203,9 @@ def run_autofocus(
         best = iterations[best_idx]
 
         microscope.objective.move_absolute(best.working_distance)
-        logging.info(f"Autofocus complete: Best position {best.working_distance * 1e6:.1f} μm (score: {best.focus_score:.4f})")
+        logging.info(
+            f"Autofocus complete: Best position {best.working_distance * 1e6:.1f} μm (score: {best.focus_score:.4f})"
+        )
 
         result = AutoFocusResult(
             image=best.image,
@@ -249,7 +275,9 @@ def run_coarse_fine_autofocus(
             if last_result is None:
                 logging.warning("Autofocus cancelled during first pass")
                 return None
-            logging.warning("Autofocus cancelled at pass %d — keeping previous result", pass_index)
+            logging.warning(
+                "Autofocus cancelled at pass %d — keeping previous result", pass_index
+            )
             break
 
         for it in result.iterations:
@@ -262,6 +290,20 @@ def run_coarse_fine_autofocus(
         last_result.working_distance * 1e3,
         (last_result.working_distance - initial_position) * 1e6,
     )
+
+    record = getattr(microscope.parent, "record_event", None)
+    if record is not None:  # for the experiment's record; it never raises
+        record(
+            "fm_autofocus",
+            {
+                "method": str(last_result.method),
+                "passes": len(active_passes),
+                "completed_passes": len({it.pass_index for it in all_iterations}),
+                "initial_position": initial_position,
+                "position": last_result.working_distance,
+                "focus_score": last_result.focus_score,
+            },
+        )
 
     return AutoFocusResult(
         image=last_result.image,
@@ -358,7 +400,9 @@ def run_multi_position_autofocus(
         for pos_name, data in focus_map.items():
             focus_z = data["focus_z"]
             stage_pos = data["stage_position"]
-            focus_z_str = f"{focus_z * 1e6:.1f} μm" if focus_z is not None else "cancelled"
+            focus_z_str = (
+                f"{focus_z * 1e6:.1f} μm" if focus_z is not None else "cancelled"
+            )
             logging.info(
                 f"  {pos_name}: {focus_z_str} at ({stage_pos.x * 1e6:.1f}, {stage_pos.y * 1e6:.1f}) μm"
             )

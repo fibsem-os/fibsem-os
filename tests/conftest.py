@@ -12,6 +12,122 @@ os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
 
 
 @pytest.fixture(autouse=True)
+def _isolate_sample_holder_config(tmp_path_factory, monkeypatch):
+    """Point every test at a private copy of the shipped sample holder config.
+
+    ``fibsem/config/sample-holder.yaml`` is the operator's calibration, written by
+    the calibration wizard and ignored by git. Reading it in tests would make the
+    suite depend on whichever holder was last calibrated on this machine, and the
+    holder widget's auto-save would overwrite that calibration with test data --
+    which it did, before this fixture existed. Both readers resolve the path at
+    call time, so patching the two module attributes is enough.
+    """
+    import fibsem.config as cfg
+    import fibsem.microscopes._stage as stage_module
+    from fibsem.structures import default_sample_holder
+
+    # Its own directory, not the test's tmp_path: tests assert on that staying empty.
+    holder_dir = tmp_path_factory.mktemp("sample-holder")
+    path = holder_dir / "sample-holder.yaml"
+    # Written from the code default rather than copied from a shipped file. The
+    # pre-tilt here is irrelevant -- `_resolve_configured_holder` overwrites it from
+    # the configuration -- but the field is required, so it has to be stated.
+    default_sample_holder(pre_tilt=0.0).save(path)
+    monkeypatch.setattr(cfg, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+    monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+    # The file the occupancy lived in before the session state: imported from, so a
+    # developer's real one must not be.
+    occupancy = holder_dir / "sample-holder-occupancy.yaml"  # absent until written
+    monkeypatch.setattr(cfg, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(occupancy))
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_user_configurations(tmp_path_factory):
+    """Pin the default configuration to the shipped `microscope-configuration.yaml`.
+
+    ``fibsem/config/user-configurations.yaml`` is the operator's list of
+    configurations and which one is the default, ignored by git and read once at
+    import. ``setup_session`` without a ``config_path`` connects with that default,
+    so a developer who had switched it to ``sim-iflm-configuration`` saw 44 tests
+    fail that pass on CI, where the file does not exist. Every reader looks the
+    module attributes up at call time, so patching them is enough; they are set to
+    what the module computes when the file is absent. The file path is pointed away
+    too, so registering or choosing a configuration in a test never writes to it.
+
+    Session-scoped, unlike the fixtures around it: module-scoped fixtures in
+    tests/ui/ connect a microscope once per file, before any function-scoped
+    fixture has run.
+    """
+    import fibsem.config as cfg
+
+    configurations = {
+        "default-configuration": {"path": cfg.MICROSCOPE_CONFIGURATION_PATH}
+    }
+    yaml_state = {"configurations": configurations, "default": "default-configuration"}
+    # Absent until written, as in a fresh checkout.
+    directory = tmp_path_factory.mktemp("user-configurations")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(cfg, "USER_CONFIGURATIONS_YAML", yaml_state)
+        mp.setattr(cfg, "USER_CONFIGURATIONS", configurations)
+        mp.setattr(cfg, "DEFAULT_CONFIGURATION_NAME", "default-configuration")
+        mp.setattr(cfg, "DEFAULT_CONFIGURATION_PATH", cfg.MICROSCOPE_CONFIGURATION_PATH)
+        mp.setattr(
+            cfg, "USER_CONFIGURATIONS_PATH", str(directory / "user-configurations.yaml")
+        )
+        yield
+
+
+def _point_session_state_at(monkeypatch, directory):
+    import fibsem.config as cfg
+    import fibsem.session_state as session_state
+
+    monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(directory))
+    monkeypatch.setattr(
+        cfg, "FM_CONFIGURATION_PATH", str(directory / "fm-configuration.yaml")
+    )
+    monkeypatch.setattr(
+        cfg, "FM_RECENT_CHANNELS_PATH", str(directory / "fm-recent-channels.yaml")
+    )
+    # and the two files saved positions are imported from
+    monkeypatch.setattr(cfg, "POSITION_PATH", str(directory / "saved-positions.yaml"))
+    monkeypatch.setattr(cfg, "LEGACY_POSITIONS_PATH", str(directory / "positions.yaml"))
+    # the coincidence viewer saves its milling config when it closes
+    monkeypatch.setattr(
+        cfg,
+        "COINCIDENCE_MILLING_CONFIG_PATH",
+        str(directory / "coincidence-milling-config.yaml"),
+    )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_session_state_for_module_fixtures(tmp_path_factory):
+    """Session state written outside any test goes to one shared tmp directory.
+
+    The per-test fixture below only starts with the test, so a module-scoped
+    fixture that connects a microscope and builds an FM widget used to write to
+    `fibsem/config/session/` -- it did, as `sim-iflm-configuration.yaml`, whenever
+    that configuration was the default. This catches those writes; each test still
+    gets its own directory.
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        _point_session_state_at(mp, tmp_path_factory.mktemp("session-state-shared"))
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_session_state(tmp_path_factory, monkeypatch):
+    """Session state goes to a per-test directory, never to `fibsem/config/session/`.
+
+    Any test that connects a microscope and builds an FM widget writes session
+    state as the application would. Without this it lands in the checkout -- and in
+    the next test's reads. The two files the FM state lived in before are pointed
+    away too, and so are the saved-positions files, so nothing is imported from a
+    developer's real ones.
+    """
+    _point_session_state_at(monkeypatch, tmp_path_factory.mktemp("session-state"))
+
+
+@pytest.fixture(autouse=True)
 def _isolate_cwd(tmp_path, monkeypatch):
     """Run every test from its own tmp dir.
 
@@ -23,6 +139,37 @@ def _isolate_cwd(tmp_path, monkeypatch):
     collide between workers under ``pytest -n``.
     """
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _refuse_downloads(monkeypatch):
+    """Refuse ``urllib.request.urlretrieve`` in every test.
+
+    It is here for the refractive-index lookup table. When
+    ``fibsem/correlation/data/table_refractive_index_lookup.csv`` is absent (as in
+    every fresh checkout and CI runner), ``_ensure_lut`` downloads it -- 9 MB from
+    the GitHub data release -- and building a ``RefractiveIndexWidget`` reaches it
+    twice: directly, and through ``_default_factor`` -> ``lookup_zeta`` ->
+    ``SliceScalingFactorLUT``. The per-file ``monkeypatch.setattr(riw, "_ensure_lut",
+    ...)`` in tests/correlation/ only covers the first, and tests/ui/ builds
+    ``CorrelationTabWidget`` without either, so the suite fetched the table partway
+    through a run and a test that checks for it at run time passed or skipped
+    depending on what ran before it.
+
+    The guard sits on ``urlretrieve`` rather than on ``_ensure_lut`` because the widget
+    module binds ``_ensure_lut`` by name at import, so patching the defining module
+    would miss it, and importing that module here would pull pandas and scipy into
+    every session. ``_ensure_lut`` looks ``urlretrieve`` up at call time, so this
+    catches every path to it, and the widget already treats a failed download as "no
+    table": tests see what an offline machine sees, and the LUT-gated tests skip
+    whenever the file is absent.
+    """
+    import urllib.request
+
+    def refuse(url, *args, **kwargs):
+        raise RuntimeError(f"tests must not download files: refused {url}")
+
+    monkeypatch.setattr(urllib.request, "urlretrieve", refuse)
 
 
 @pytest.fixture(scope="module")
@@ -65,3 +212,41 @@ def qapp():
         gc.collect()
         if gc_was_enabled:
             gc.enable()
+
+
+@pytest.fixture
+def destroy_widgets_after_test(qapp):
+    """Destroy every top-level widget the test creates, once it is over.
+
+    ``close()`` is not destruction -- it hides. A test that builds a window, closes it
+    in teardown and drops its reference leaves the window alive for the rest of the
+    session, because the Qt object outlives the Python wrapper and nothing has asked
+    for it to go. ``tests/ui/`` reaches 2541 live top-level widgets in a full run this
+    way, and the files that leak most are the ones that *do* call ``close()``.
+
+    That matters less for memory than for what the next test sees.
+    ``QApplication.activeWindow()`` is process-global, so an abandoned window is still
+    a candidate answer to it -- which is how three tests in
+    test_coincidence_viewer_layering.py came to assert about the window stack rather
+    than about the code (#583).
+
+    Two things are needed and neither is obvious. ``deleteLater()`` posts a
+    ``DeferredDelete`` event rather than deleting anything, and ``processEvents()``
+    does **not** deliver that event -- only ``sendPostedEvents`` with the type named
+    explicitly does. Using ``processEvents`` here measures as a complete no-op: the
+    widget count does not move, which reads as "the fix does not work" rather than as
+    "the deletion never ran".
+
+    Only widgets that appear during the test are touched, so a module-scoped fixture's
+    widget built by an earlier test is left alone.
+    """
+    from PyQt5.QtCore import QEvent
+    from PyQt5.QtWidgets import QApplication
+
+    before = set(QApplication.topLevelWidgets())
+    yield
+    for widget in QApplication.topLevelWidgets():
+        if widget not in before:
+            widget.close()
+            widget.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)

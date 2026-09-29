@@ -20,7 +20,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 from uuid import uuid4
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
@@ -28,11 +28,22 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
 @dataclass
 class WorkItem:
-    """A single (lamella, task) work unit."""
-    lamella_name: str
+    """A single (item, task) work unit.
+
+    The item is whatever the run is over: a lamella on the lamella workflow, a
+    grid on the grid workflow. ``item_name`` is the vocabulary the hooks, the
+    status payload and the timeline already speak.
+    """
+
+    item_name: str
     task_name: str
     status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
     id: str = field(default_factory=lambda: str(uuid4()))
+
+    @property
+    def lamella_name(self) -> str:
+        """Deprecated alias for :attr:`item_name`; drop with the v0.6 shims."""
+        return self.item_name
 
     @property
     def is_pending(self) -> bool:
@@ -42,11 +53,12 @@ class WorkItem:
 
 class QueueOp(Enum):
     """Outcome of a queue mutation."""
+
     OK = auto()
-    NOT_FOUND = auto()    # no item with that id
+    NOT_FOUND = auto()  # no item with that id
     NOT_PENDING = auto()  # item is active, already run, or removed
-    BAD_ANCHOR = auto()   # the target item is missing or not pending
-    NO_OP = auto()        # already in the requested position
+    BAD_ANCHOR = auto()  # the target item is missing or not pending
+    NO_OP = auto()  # already in the requested position
 
 
 @dataclass(frozen=True)
@@ -56,6 +68,7 @@ class QueueResult:
     The distinct :class:`QueueOp` values exist so the UI can explain a refusal
     ("already running") instead of failing silently.
     """
+
     op: QueueOp
     version: int
 
@@ -74,26 +87,71 @@ class TaskQueue:
 
     def __init__(self):
         self._items: List[WorkItem] = []
-        self._lock = threading.Lock()
+        # Re-entrant: next() holds it while it asks the skip predicate, and the
+        # predicate may ask the queue (has_pending_pair) on the same thread.
+        self._lock = threading.RLock()
         self._active: Optional[WorkItem] = None
         self._version = 0
         # Original matrix dimensions for status dict compat
         self._task_names: List[str] = []
-        self._lamella_names: List[str] = []
+        self._item_names: List[str] = []
 
     # --- Build ---
 
-    def build_from_matrix(self, task_names: List[str],
-                          lamella_names: List[str]) -> List[WorkItem]:
-        """Populate queue from task x lamella matrix (task-outer, lamella-inner)."""
+    def build_from_matrix(
+        self, task_names: List[str], item_names: List[str], item_outer: bool = False
+    ) -> List[WorkItem]:
+        """Populate queue from a task x item matrix.
+
+        Task-outer by default (every item's Trench, then every item's Undercut),
+        which is the lamella workflow's order. ``item_outer`` runs every task on
+        one item before moving to the next -- the grid workflow's order, where
+        an item costs a grid exchange to reach and is exchanged once.
+        """
         with self._lock:
             self._task_names = list(task_names)
-            self._lamella_names = list(lamella_names)
-            self._items = [
-                WorkItem(lamella_name=ln, task_name=tn)
-                for tn in task_names
-                for ln in lamella_names
-            ]
+            self._item_names = list(item_names)
+            if item_outer:
+                self._items = [
+                    WorkItem(item_name=name, task_name=tn)
+                    for name in item_names
+                    for tn in task_names
+                ]
+            else:
+                self._items = [
+                    WorkItem(item_name=name, task_name=tn)
+                    for tn in task_names
+                    for name in item_names
+                ]
+            self._active = None
+            self._version += 1
+            return [copy.copy(i) for i in self._items]
+
+    def build_from_pairs(
+        self,
+        pairs: List[Tuple[str, str]],
+        task_names: Optional[List[str]] = None,
+        item_names: Optional[List[str]] = None,
+    ) -> List[WorkItem]:
+        """Populate the queue from an explicit ``(item_name, task_name)`` plan.
+
+        For a run whose steps are not a plain matrix -- the grid workflow puts a
+        load step ahead of each grid's tasks. ``task_names`` and ``item_names``
+        are the launch plan the status payload reports; by default they are read
+        off the pairs in first-seen order.
+        """
+        with self._lock:
+            self._task_names = (
+                list(task_names)
+                if task_names is not None
+                else list(dict.fromkeys(t for _, t in pairs))
+            )
+            self._item_names = (
+                list(item_names)
+                if item_names is not None
+                else list(dict.fromkeys(n for n, _ in pairs))
+            )
+            self._items = [WorkItem(item_name=n, task_name=t) for n, t in pairs]
             self._active = None
             self._version += 1
             return [copy.copy(i) for i in self._items]
@@ -157,9 +215,15 @@ class TaskQueue:
 
     # --- Mutation (all thread-safe) ---
 
-    def add(self, lamella_name: str, task_name: str, *,
-            before: Optional[str] = None, after: Optional[str] = None,
-            front: bool = False) -> Optional[WorkItem]:
+    def add(
+        self,
+        item_name: str,
+        task_name: str,
+        *,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
+        front: bool = False,
+    ) -> Optional[WorkItem]:
         """Add a work item, anchored to an existing item or to the queue ends.
 
         Position is one of: ``before``/``after`` an existing *pending* item,
@@ -169,14 +233,14 @@ class TaskQueue:
         or no longer pending. Adding a duplicate of an already-completed pair is
         allowed: that is how a task is re-run.
         """
-        item = WorkItem(lamella_name=lamella_name, task_name=task_name)
+        item = WorkItem(item_name=item_name, task_name=task_name)
         with self._lock:
             if before is not None or after is not None:
                 anchor_id = before if before is not None else after
                 anchor = self._find(anchor_id)  # type: ignore[arg-type]
                 if anchor is None or not anchor.is_pending:
                     logging.warning(
-                        f"Cannot add {task_name} for {lamella_name}: anchor "
+                        f"Cannot add {task_name} for {item_name}: anchor "
                         f"{anchor_id} is missing or no longer pending."
                     )
                     return None
@@ -270,17 +334,38 @@ class TaskQueue:
 
     # --- Iteration (called by worker thread) ---
 
-    def next(self) -> Optional[WorkItem]:
-        """Return the next pending item, mark it InProgress, or None if empty."""
+    def next(
+        self, skip: Optional[Callable[[WorkItem], bool]] = None
+    ) -> Optional[WorkItem]:
+        """Return the next pending item, mark it InProgress, or None if none.
+
+        ``skip`` passes over a pending item *for this call only*: it stays
+        pending and is offered again on the next call. That is how work that
+        cannot run yet -- its prerequisite is still queued, or its proposal is
+        awaiting a decision -- is deferred rather than retired. Skipping keeps
+        the queue's order; nothing is reordered around a deferred item.
+
+        None means nothing is runnable now, which is not the same as nothing
+        is left: ask ``is_empty`` to tell "done" from "everything left is
+        deferred".
+        """
         with self._lock:
             for item in self._items:
-                if item.is_pending:
+                if item.is_pending and not (skip is not None and skip(item)):
                     item.status = AutoLamellaTaskStatus.InProgress
                     self._active = item
                     self._version += 1
                     return item
             self._active = None
             return None
+
+    def has_pending_pair(self, item_name: str, task_name: str) -> bool:
+        """Whether a (item, task) pair is still waiting to run."""
+        with self._lock:
+            return any(
+                i.is_pending and i.item_name == item_name and i.task_name == task_name
+                for i in self._items
+            )
 
     def mark_done(self, item: WorkItem, status: AutoLamellaTaskStatus) -> None:
         """Mark item as completed/failed/skipped.
@@ -342,6 +427,11 @@ class TaskQueue:
         return list(self._task_names)
 
     @property
+    def item_names(self) -> List[str]:
+        """Original item names list (for status dict compat)."""
+        return list(self._item_names)
+
+    @property
     def lamella_names(self) -> List[str]:
-        """Original lamella names list (for status dict compat)."""
-        return list(self._lamella_names)
+        """Deprecated alias for :attr:`item_names`; drop with the v0.6 shims."""
+        return self.item_names

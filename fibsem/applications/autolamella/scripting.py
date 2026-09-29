@@ -15,13 +15,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, List, Optional
 
 from fibsem.cancellation import raise_if_cancelled
-
 from fibsem.scripting import (  # noqa: F401 - re-exported for callers
     DiscoveredScript,
     ScriptResult,
-    discover_scripts as _discover_scripts,
     load_script,
     run_script,
+)
+from fibsem.scripting import (
+    discover_scripts as _discover_scripts,
 )
 
 if TYPE_CHECKING:

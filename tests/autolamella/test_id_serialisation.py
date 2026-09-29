@@ -29,7 +29,7 @@ def test_the_experiment_id_is_still_written_under_underscore_id(tmp_path: Path) 
     os.makedirs(exp.path, exist_ok=True)
     exp.save()
 
-    written = yaml.safe_load((Path(exp.path) / "experiment.yaml").read_text())
+    written = yaml.safe_load((Path(exp.path) / "experiment.yaml").read_text(encoding="utf-8"))
 
     assert written["_id"] == exp.id
     assert "id" not in written, "the key moved -- existing experiments would lose their id"
@@ -43,7 +43,7 @@ def test_an_experiment_written_before_the_rename_still_loads(tmp_path: Path) -> 
     exp.save()
 
     path = Path(exp.path) / "experiment.yaml"
-    on_disk = yaml.safe_load(path.read_text())
+    on_disk = yaml.safe_load(path.read_text(encoding="utf-8"))
     original_id = on_disk["_id"]
 
     reloaded = Experiment.load(path)

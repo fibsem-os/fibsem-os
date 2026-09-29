@@ -14,6 +14,7 @@ The tests drive the public API the hosts actually call, and additionally the hea
 signal, because that is the path where the old code was already correct and a fix must
 not regress it.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -31,7 +32,9 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
 from fibsem.applications.autolamella.ui.lamella_list_widget import LamellaListWidget
-from fibsem.applications.autolamella.ui.workflow_config_widget import WorkflowConfigWidget
+from fibsem.applications.autolamella.ui.workflow_config_widget import (
+    WorkflowConfigWidget,
+)
 
 
 @pytest.fixture(scope="module")
@@ -41,14 +44,15 @@ def qapp():
 
 @pytest.fixture()
 def lamellae(tmp_path):
-    return [Lamella(path=str(tmp_path), number=i, petname=f"lamella-{i}") for i in range(3)]
+    return [
+        Lamella(path=str(tmp_path), number=i, petname=f"lamella-{i}") for i in range(3)
+    ]
 
 
 @pytest.fixture()
 def tasks():
     return [
-        AutoLamellaTaskDescription(name=f"task-{i}", supervise=False, required=True)
-        for i in range(3)
+        AutoLamellaTaskDescription(name=f"task-{i}", required=True) for i in range(3)
     ]
 
 

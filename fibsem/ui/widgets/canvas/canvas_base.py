@@ -39,19 +39,20 @@ import numpy as np
 from matplotlib.backend_bases import MouseEvent
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy
 
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import CANVAS_BG as _BG, PRIMARY_ACCENT as _ACCENT
-from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
+from fibsem.ui.stylesheets import CANVAS_BG as _BG
+from fibsem.ui.stylesheets import PRIMARY_ACCENT as _ACCENT
 from fibsem.ui.tokens import (
     GRAY_WHITE_COLOR,
     NEUTRAL_400,
     NEUTRAL_450,
     WHITE_ICON_COLOR,
 )
+from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
@@ -1007,11 +1008,19 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """Register an overlay and attach it to the current axes."""
         self._overlays.append(overlay)
         overlay.attach(self._ax, self)
-        if self._img_w is not None:
-            try:
-                self._notify_overlay(overlay, self._content_rect())
-            except Exception:
-                _logger.exception("Overlay content update failed: %r", overlay)
+        # Unconditionally, and `_content_rect()` decides whether there is anything to
+        # report. The guard here used to be `self._img_w is not None`, which is a
+        # *single image* canvas's notion of content and is never set by one that places
+        # images in stage space -- so an overlay added to a real-space canvas was never
+        # told what it had been added to. Harmless for an overlay its host redraws by
+        # hand (a tile grid), and fatal for one that builds its artists on the first
+        # content report (a rectangle), which simply never appeared. The guard was
+        # redundant even here: the base `_content_rect` already answers `EMPTY_CONTENT`
+        # when there is no image, and every overlay checks `rect.is_empty`.
+        try:
+            self._notify_overlay(overlay, self._content_rect())
+        except Exception:
+            _logger.exception("Overlay content update failed: %r", overlay)
         self.draw_idle()
 
     def remove_overlay(self, overlay: CanvasOverlay) -> None:

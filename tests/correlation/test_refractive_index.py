@@ -3,9 +3,9 @@
 import pytest
 
 from fibsem.correlation.refractive_index import (
+    _LUT_PATH,
     SliceScalingFactorLUT,
     ZetaParams,
-    _LUT_PATH,
     get_lut,
     lookup_zeta,
 )

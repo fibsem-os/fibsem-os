@@ -201,6 +201,7 @@ class CameraWidget(QWidget):
 if __name__ == "__main__":
     # Example usage
     from PyQt5.QtWidgets import QApplication
+
     from fibsem import utils
 
     microscope, settings = utils.setup_session()

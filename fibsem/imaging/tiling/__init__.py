@@ -7,8 +7,10 @@ remain in `fibsem.imaging.tiled` for now.
 from fibsem.imaging.tiling.geometry import (
     TilePosition,
     compute_tile_grid,
+    grid_centre_offset,
     order_tiles,
     raise_if_outside_stage_limits,
+    unreachable_tiles,
     validate_tile_stage_positions,
 )
 from fibsem.imaging.tiling.plotting import (
@@ -29,6 +31,7 @@ __all__ = [
     "calculate_reprojected_stage_position",
     "calculate_reprojected_stage_position2",
     "compute_tile_grid",
+    "grid_centre_offset",
     "order_tiles",
     "plot_minimap",
     "plot_stage_positions_on_image",
@@ -37,5 +40,6 @@ __all__ = [
     "raise_if_outside_stage_limits",
     "reproject_stage_positions_onto_image",
     "reproject_stage_positions_onto_image2",
+    "unreachable_tiles",
     "validate_tile_stage_positions",
 ]

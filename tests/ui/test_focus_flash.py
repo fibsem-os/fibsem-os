@@ -22,11 +22,10 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+import numpy as np
 from PyQt5.QtCore import QPoint, Qt
 from PyQt5.QtGui import QWheelEvent
 from PyQt5.QtWidgets import QApplication, QWidget
-
-import numpy as np
 
 from fibsem.constants import METRE_TO_MICRON
 from fibsem.fm.microscope import FluorescenceMicroscope

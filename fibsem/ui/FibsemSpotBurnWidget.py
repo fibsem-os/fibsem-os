@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QFormLayout,
     QLabel,
@@ -11,10 +11,14 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from superqt import ensure_main_thread
 
-from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
+from fibsem.imaging.spot import (
+    SpotBurnProgress,
+    SpotBurnSettings,
+    SpotBurnStatus,
+    run_spot_burn,
+)
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service, stylesheets
@@ -24,27 +28,40 @@ from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpda
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 from fibsem.utils import format_value
 
-DEFAULT_BEAM_CURRENT = 60e-12  # 60 pA
+DEFAULT_BEAM_CURRENT = 100e-12  # 100 pA
 HIDE_PROGRESS_DELAY_MS = 2000  # how long the "Done" bar stays up before hiding
 
 
-def build_spot_burn_progress_update(ddict: dict) -> ProgressUpdate:
-    """Map a spot-burn progress dict (see run_spot_burn) to a ProgressUpdate.
+def build_spot_burn_progress_update(report: SpotBurnProgress) -> ProgressUpdate:
+    """Map a spot-burn progress report to a ProgressUpdate.
 
     Shared by the spot burn widget and the main-window status bar so both render
-    progress with identical text and formatting.
+    progress with identical text and formatting. That sharing is why typing this
+    signal was cheap: there was one decode to migrate, not one per consumer.
     """
-    if ddict.get("finished"):
-        if ddict.get("error"):
-            return ProgressUpdate.failed("Spot burn failed")
-        return ProgressUpdate.done()
+    if report.status.is_terminal:
+        return _spot_burn_outcome(report)
     return ProgressUpdate.combined(
-        current=ddict.get("current_point", 0),
-        total=ddict.get("total_points", 0),
-        remaining_seconds=ddict.get("total_remaining_time", 0.0),
-        total_seconds=ddict.get("total_estimated_time", 0.0),
+        current=report.current_point or 0,
+        total=report.total_points or 0,
+        remaining_seconds=report.total_remaining_time or 0.0,
+        total_seconds=report.total_estimated_time or 0.0,
         message="Burning spots",
     )
+
+
+def _spot_burn_outcome(report: SpotBurnProgress) -> ProgressUpdate:
+    """How a finished burn reads once the bar is full.
+
+    A cancel is deliberately not `failed`, which paints the bar red: it is someone
+    getting what they asked for. Mirrors `AutoLamellaSingleWindowUI._overview_outcome`,
+    which makes the same distinction for a tiled acquisition.
+    """
+    if report.status is SpotBurnStatus.FAILED:
+        return ProgressUpdate.failed(report.error or "Spot burn failed")
+    if report.status is SpotBurnStatus.CANCELLED:
+        return ProgressUpdate(finished=True, message="Cancelled")
+    return ProgressUpdate.done()
 
 
 class FibsemSpotBurnWidget(QWidget):
@@ -56,12 +73,13 @@ class FibsemSpotBurnWidget(QWidget):
     ``coordinates``, the form writes current/exposure, and the burn runs the settings.
 
     Progress is driven by ``microscope.spot_burn_progress_signal`` (shared with the
-    status bar). The burn runs directly from the widget's button, or — in a supervised
-    workflow — via ``start_spot_burn_signal`` (mirrors milling's task-orchestrated hook).
+    status bar). The burn runs from the widget's button — in a supervised workflow
+    QtResponder drives ``run_spot_burn_worker`` directly on the GUI thread.
     """
 
-    # emitted by the workflow task to trigger a burn (mirrors milling's start_milling_signal)
-    start_spot_burn_signal = pyqtSignal()
+    # emitted when a burn ends, success and failure alike (mirrors milling's
+    # finished_milling_signal); listeners take it to mean the widget is idle again
+    finished_spot_burn_signal = pyqtSignal()
 
     def __init__(self, parent: QWidget):
         super().__init__(parent=parent)
@@ -84,7 +102,9 @@ class FibsemSpotBurnWidget(QWidget):
 
         # coordinate editor (shared canvas overlay + list)
         self.coord_editor = SpotBurnCoordinatesWidget(
-            controller=self._view_controller(), beam=BeamType.ION, parent=self,
+            controller=self._view_controller(),
+            beam=BeamType.ION,
+            parent=self,
         )
         layout.addWidget(self.coord_editor)
 
@@ -92,10 +112,16 @@ class FibsemSpotBurnWidget(QWidget):
         beam_currents = self.microscope.get_available_values("current", BeamType.ION)
         closest = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
         self.comboBox_beam_current = ValueComboBox(
-            items=beam_currents, value=closest, unit="A", decimals=1,
+            items=beam_currents,
+            value=closest,
+            unit="A",
+            decimals=1,
         )
         self.doubleSpinBox_exposure_time = ValueSpinBox(
-            suffix="s", minimum=0.1, maximum=60, decimals=3,
+            suffix="s",
+            minimum=0.1,
+            maximum=60,
+            decimals=3,
         )
         self.doubleSpinBox_exposure_time.setValue(10)
         form = QFormLayout()
@@ -135,16 +161,10 @@ class FibsemSpotBurnWidget(QWidget):
 
         # run button
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_run_spot_burn.setEnabled(False)
-
-        # the workflow task drives the burn via start_spot_burn_signal (mirrors milling).
-        # BlockingQueuedConnection: emit() returns only after run_spot_burn_worker has run,
-        # so the burn is then either in progress (is_burning=True) or was refused (no
-        # in-bounds points), in which case the task re-prompts.
-        self.start_spot_burn_signal.connect(
-            self.run_spot_burn_worker, Qt.BlockingQueuedConnection  # type: ignore
+        self.pushButton_run_spot_burn.setStyleSheet(
+            stylesheets.PRIMARY_BUTTON_STYLESHEET
         )
+        self.pushButton_run_spot_burn.setEnabled(False)
 
         # coordinate signal
         self.coord_editor.settings_changed.connect(self._refresh_info)
@@ -226,7 +246,9 @@ class FibsemSpotBurnWidget(QWidget):
         would fire ``_update_progress_bar`` on a deleted object.
         """
         try:
-            self.microscope.spot_burn_progress_signal.disconnect(self._update_progress_bar)
+            self.microscope.spot_burn_progress_signal.disconnect(
+                self._update_progress_bar
+            )
         except Exception:
             pass
 
@@ -274,7 +296,9 @@ class FibsemSpotBurnWidget(QWidget):
 
         self._feed_image_shape()
         # the editor only owns coordinates; current/exposure live on the form
-        self.coord_editor.set_settings(SpotBurnSettings(coordinates=list(settings.coordinates)))
+        self.coord_editor.set_settings(
+            SpotBurnSettings(coordinates=list(settings.coordinates))
+        )
         self._refresh_info()  # set_settings is programmatic (no settings_changed)
 
     def get_settings(self) -> SpotBurnSettings:
@@ -327,7 +351,9 @@ class FibsemSpotBurnWidget(QWidget):
         self.stop_event.clear()
         self._is_burning = True
         self.pushButton_run_spot_burn.setText("Cancel")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
+        self.pushButton_run_spot_burn.setStyleSheet(
+            stylesheets.DANGER_BUTTON_STYLESHEET
+        )
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.cancel_spot_burn)
         # in workflow mode the button is hidden when idle — show it as "Cancel" while burning
@@ -348,10 +374,12 @@ class FibsemSpotBurnWidget(QWidget):
         ``microscope.spot_burn_progress_signal``; completion is delivered on the GUI
         thread via the FunctionWorker's returned / errored signals, so a failure anywhere
         here — including the post-burn acquire — resets the UI via spot_burn_errored."""
-        run_spot_burn(microscope=self.microscope,
-                      settings=settings,
-                      beam_type=BeamType.ION,
-                      stop_event=self.stop_event)
+        run_spot_burn(
+            microscope=self.microscope,
+            settings=settings,
+            beam_type=BeamType.ION,
+            stop_event=self.stop_event,
+        )
         # acquire a post-burn fib image and push it to the view (off the GUI thread)
         image = self.microscope.acquire_image(beam_type=BeamType.ION)
         self.microscope.fib_acquisition_signal.emit(image)
@@ -362,16 +390,22 @@ class FibsemSpotBurnWidget(QWidget):
         # hide the "Done" bar after a moment, so it doesn't linger for the rest of the
         # session (mirrors the status bar). reset_if_finished leaves the widget alone if
         # another burn has already started rendering progress in the meantime.
-        QTimer.singleShot(HIDE_PROGRESS_DELAY_MS, self.progress_widget.reset_if_finished)
+        QTimer.singleShot(
+            HIDE_PROGRESS_DELAY_MS, self.progress_widget.reset_if_finished
+        )
 
     def spot_burn_errored(self, error) -> None:
         """Called when the spot burn fails.
+
+        Restores the button only. The failure terminal is emitted by `run_spot_burn`
+        itself (FIB-824), because this widget only ever sees a burn it started: an
+        unsupervised workflow burn calls the producer directly, and used to report no
+        failure at all.
 
         The failed bar is deliberately left on screen (no auto-hide) so the failure is
         still visible if the user was not watching when it happened.
         """
         logging.error(f"Spot burn failed: {error}")
-        self.microscope.spot_burn_progress_signal.emit({"finished": True, "error": True})
         self._restore_idle_state()
 
     def _restore_idle_state(self) -> None:
@@ -381,9 +415,12 @@ class FibsemSpotBurnWidget(QWidget):
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
         self.pushButton_run_spot_burn.setEnabled(True)
         self.pushButton_run_spot_burn.setText("Run Spot Burn")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_run_spot_burn.setStyleSheet(
+            stylesheets.PRIMARY_BUTTON_STYLESHEET
+        )
         # in workflow mode, hide the button again now the burn is done
         self._update_run_button_visibility()
+        self.finished_spot_burn_signal.emit()
 
     @ensure_main_thread
     def _update_progress_bar(self, ddict: dict) -> None:

@@ -8,7 +8,7 @@ import threading
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QRectF, QThread, Qt, pyqtSignal
+from PyQt5.QtCore import QRectF, Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QImage, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,

@@ -85,6 +85,7 @@ def task(tmp_path):
         AutoLamellaTaskState,
         Lamella,
     )
+
     # A real, registered config: `task_type` is a ClassVar the abstract base leaves
     # unset, so the base class cannot be instantiated on its own.
     from fibsem.applications.autolamella.workflows.tasks import MillTrenchTaskConfig

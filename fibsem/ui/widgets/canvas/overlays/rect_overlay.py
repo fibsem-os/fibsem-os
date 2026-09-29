@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from matplotlib.patches import Rectangle as MplRectangle
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay  # noqa: F401  (re-exported by package)
-
-from typing import TYPE_CHECKING
+from fibsem.ui.widgets.canvas.overlays.base import (
+    CanvasOverlay,  # noqa: F401  (re-exported by package)
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -141,6 +141,21 @@ class RectOverlay(QObject):
         return _xywh_to_dict(
             self._x0, self._y0, self._x1 - self._x0, self._y1 - self._y0
         )
+
+    def set_color(self, color: str, facecolor: Optional[str] = None) -> None:
+        """Recolour the rectangle and its handles.
+
+        For a host drawing more than one and needing to say which is selected. Rebuilds
+        rather than recolouring in place: the handles are separate artists created with
+        the colour baked in, so setting it on the patch alone would leave them behind.
+        """
+        self._color = color
+        if facecolor is not None:
+            self._facecolor = facecolor
+        if self._ax is not None and self._rect is not None:
+            self._rebuild()
+            if self._canvas is not None:
+                self._canvas.draw_idle()
 
     def set_rect(self, x0: float, y0: float, width: float, height: float) -> None:
         self._x0, self._y0 = x0, y0

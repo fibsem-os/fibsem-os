@@ -1,7 +1,10 @@
 import os
 import sys
+
 import win32com.client
+
 from fibsem.config import BASE_PATH
+
 # Get the user's desktop folder
 desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
 

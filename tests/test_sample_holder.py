@@ -1,20 +1,26 @@
 import pytest
 
 from fibsem import utils
-from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder, Stage, _create_sample_stage
+from fibsem.microscopes._stage import (
+    GridSlot,
+    SampleGrid,
+    SampleHolder,
+    Stage,
+    _create_sample_stage,
+)
 from fibsem.structures import FibsemStagePosition
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_position(name: str = "Slot-01") -> FibsemStagePosition:
     return FibsemStagePosition(name=name, x=1e-3, y=2e-3, z=3e-3)
 
 
 def _make_holder(capacity: int = 2, name: str = "Test Holder") -> SampleHolder:
-    h = SampleHolder(name=name, capacity=capacity)
+    h = SampleHolder(pre_tilt=0.0, name=name, capacity=capacity)
     h._ensure_slots()
     return h
 
@@ -22,6 +28,7 @@ def _make_holder(capacity: int = 2, name: str = "Test Holder") -> SampleHolder:
 # ---------------------------------------------------------------------------
 # SampleGrid
 # ---------------------------------------------------------------------------
+
 
 class TestSampleGrid:
     def test_defaults(self):
@@ -41,6 +48,7 @@ class TestSampleGrid:
 # GridSlot
 # ---------------------------------------------------------------------------
 
+
 class TestGridSlot:
     def test_roundtrip_empty(self):
         slot = GridSlot(name="Slot-01", index=0, position=_make_position())
@@ -51,7 +59,9 @@ class TestGridSlot:
 
     def test_roundtrip_with_grid(self):
         grid = SampleGrid(name="Grid-A", description="desc")
-        slot = GridSlot(name="Slot-01", index=0, position=_make_position(), loaded_grid=grid)
+        slot = GridSlot(
+            name="Slot-01", index=0, position=_make_position(), loaded_grid=grid
+        )
         slot2 = GridSlot.from_dict(slot.to_dict())
         assert slot2.loaded_grid is not None
         assert slot2.loaded_grid.name == "Grid-A"
@@ -62,27 +72,48 @@ class TestGridSlot:
 # SampleHolder construction and properties
 # ---------------------------------------------------------------------------
 
+
 class TestSampleHolderConstruction:
     def test_defaults(self):
-        h = SampleHolder()
+        h = SampleHolder(pre_tilt=0.0)
         assert h.name == "Sample Holder"
         assert h.description == ""
         assert h.capacity == 2
         assert h.slots == {}
 
-    def test_pre_tilt_no_parent(self):
-        h = SampleHolder()
-        assert h.pre_tilt == 0.0
+    def test_a_holder_cannot_be_built_without_stating_a_pre_tilt(self):
+        """The field is required, and that is the whole guarantee.
+
+        The alternatives both fail quietly. A default of 0.0 turns a construction site
+        that forgot into a flat shuttle and wrongs every projection made from it; a
+        `None` sentinel spreads its handling into every reader, and the one reader that
+        formatted it instead took down CI -- PyQt5 turns an exception inside a slot
+        into `qFatal`, so it arrived as a bare `exit 134`.
+
+        The site that forgot was real: the compustage holder is built inline in
+        `_create_sample_stage` and never passes through `_resolve_configured_holder`.
+        This is what makes that omission a `TypeError` at the call rather than a wrong
+        number a long way downstream.
+        """
+        with pytest.raises(TypeError, match="pre_tilt"):
+            SampleHolder(name="no pre-tilt stated")
 
     def test_reference_rotation_no_parent(self):
-        h = SampleHolder()
+        h = SampleHolder(pre_tilt=0.0)
         assert h.reference_rotation == 0.0
 
-    def test_pre_tilt_with_parent(self):
-        h = SampleHolder()
+    def test_pre_tilt_is_the_holders_own_and_not_read_from_the_stage(self):
+        """The direction reversed.
+
+        It used to be a property reading back from
+        `_parent.system.stage.shuttle_pre_tilt`. The stage now reads the holder, so a
+        holder that read the stage would recurse until the interpreter gave up -- the
+        two cannot both exist, and this is the one that stores.
+        """
+        h = SampleHolder(pre_tilt=35.0)
 
         class _FakeStage:
-            shuttle_pre_tilt = 35.0
+            shuttle_pre_tilt = 12.0
             rotation_reference = 0.0
 
         class _FakeSystem:
@@ -91,11 +122,12 @@ class TestSampleHolderConstruction:
         class _FakeMicroscope:
             system = _FakeSystem()
 
-        h._parent = _FakeMicroscope()
+        microscope = _FakeMicroscope()  # held here: the holder's reference is weak
+        h._parent = microscope
         assert h.pre_tilt == 35.0
 
     def test_reference_rotation_with_parent(self):
-        h = SampleHolder()
+        h = SampleHolder(pre_tilt=0.0)
 
         class _FakeStage:
             shuttle_pre_tilt = 0.0
@@ -107,20 +139,27 @@ class TestSampleHolderConstruction:
         class _FakeMicroscope:
             system = _FakeSystem()
 
-        h._parent = _FakeMicroscope()
+        microscope = _FakeMicroscope()  # held here: the holder's reference is weak
+        h._parent = microscope
         assert h.reference_rotation == 180.0
 
-    def test_pre_tilt_not_serialised(self):
-        h = SampleHolder(capacity=1)
+    def test_pre_tilt_is_serialised_and_reference_rotation_is_not(self):
+        """Only the pre-tilt moved onto the holder.
+
+        A reference rotation is the stage's: it describes where the stage's own zero
+        is, and that does not change because a different shuttle was fitted.
+        """
+        h = SampleHolder(capacity=1, pre_tilt=35.0)
         h._ensure_slots()
         d = h.to_dict()
-        assert "pre_tilt" not in d
+        assert d["pre_tilt"] == 35.0
         assert "reference_rotation" not in d
 
 
 # ---------------------------------------------------------------------------
 # _ensure_slots
 # ---------------------------------------------------------------------------
+
 
 class TestEnsureSlots:
     def test_creates_correct_count(self):
@@ -147,15 +186,17 @@ class TestEnsureSlots:
         h._ensure_slots()
         assert len(h.slots) == 2
 
-    def test_slots_have_valid_positions(self):
+    def test_new_slots_are_uncalibrated(self):
         h = _make_holder(capacity=2)
         for slot in h.slots.values():
-            assert slot.position is not None
+            assert slot.position is None
+            assert not slot.is_calibrated
 
 
 # ---------------------------------------------------------------------------
 # Serialisation roundtrip
 # ---------------------------------------------------------------------------
+
 
 class TestSerialization:
     def test_to_dict_keys(self):
@@ -167,7 +208,7 @@ class TestSerialization:
         assert "description" in d
 
     def test_roundtrip_empty_slots(self):
-        h = SampleHolder(name="H1", description="desc", capacity=2)
+        h = SampleHolder(pre_tilt=0.0, name="H1", description="desc", capacity=2)
         h._ensure_slots()
         h2 = SampleHolder.from_dict(h.to_dict())
         assert h2.name == "H1"
@@ -182,26 +223,37 @@ class TestSerialization:
         assert h2.slots["Slot-01"].loaded_grid is not None
         assert h2.slots["Slot-01"].loaded_grid.name == "Grid-A"
 
-    def test_from_dict_ignores_old_pre_tilt_key(self):
-        d = {
-            "name": "Old Holder",
-            "capacity": 1,
-            "description": "",
-            "pre_tilt": 15.0,
-            "reference_rotation": 90.0,
-            "slots": {},
-        }
-        h = SampleHolder.from_dict(d)
+    def test_from_dict_reads_pre_tilt_and_still_ignores_reference_rotation(self):
+        """`pre_tilt` is the holder's again; `reference_rotation` never comes back.
+
+        Note what this means for a *file* carrying a stale `pre_tilt` -- holder files
+        did once, and it has been ignored since the value became derived.
+        `_resolve_configured_holder` overwrites it with the configured one on the way
+        in rather than resurrecting a number nobody has seen in months. See
+        `tests/test_holder_in_configuration.py`.
+        """
+        h = SampleHolder.from_dict(
+            {
+                "name": "Old Holder",
+                "capacity": 1,
+                "description": "",
+                "pre_tilt": 15.0,
+                "reference_rotation": 90.0,
+                "slots": {},
+            }
+        )
         assert h.name == "Old Holder"
-        assert h.pre_tilt == 0.0
+        assert h.pre_tilt == 15.0
+        assert not hasattr(h, "_reference_rotation")
 
 
 # ---------------------------------------------------------------------------
 # save / load
 # ---------------------------------------------------------------------------
 
+
 class TestSaveLoad:
-    def test_save_and_load(self, tmp_path):
+    def test_save_and_load_keeps_geometry_not_grids(self, tmp_path):
         path = tmp_path / "holder.yaml"
         h = _make_holder(capacity=2, name="SavedHolder")
         h.slots["Slot-01"].loaded_grid = SampleGrid(name="Grid-A")
@@ -210,8 +262,38 @@ class TestSaveLoad:
         h2 = SampleHolder.load(path)
         assert h2.name == "SavedHolder"
         assert len(h2.slots) == 2
-        assert h2.slots["Slot-01"].loaded_grid.name == "Grid-A"
+        # what is in a slot is session state, kept in the occupancy file instead
+        assert h2.slots["Slot-01"].loaded_grid is None
         assert h2.slots["Slot-02"].loaded_grid is None
+
+    def test_occupancy_round_trips_separately(self, tmp_path):
+        from fibsem.microscopes._stage import (
+            load_holder_occupancy,
+            save_holder_occupancy,
+        )
+        from fibsem.session_state import SessionState
+
+        state = SessionState("bench.yaml", writable=True, directory=str(tmp_path))
+        h = _make_holder(capacity=2)
+        h.slots["Slot-02"].loaded_grid = SampleGrid(name="Grid-B", description="d")
+        save_holder_occupancy(h, state)
+
+        h2 = _make_holder(capacity=2)
+        h2.slots["Slot-01"].loaded_grid = SampleGrid(name="stale")
+        assert load_holder_occupancy(h2, state) is True
+        assert h2.slots["Slot-01"].loaded_grid is None  # unlisted slots are emptied
+        assert h2.slots["Slot-02"].loaded_grid.name == "Grid-B"
+        assert h2.slots["Slot-02"].loaded_grid.description == "d"
+
+    def test_nothing_recorded_changes_nothing(self, tmp_path):
+        from fibsem.microscopes._stage import load_holder_occupancy
+        from fibsem.session_state import SessionState
+
+        h = _make_holder(capacity=1)
+        h.slots["Slot-01"].loaded_grid = SampleGrid(name="keep")
+        state = SessionState("bench.yaml", directory=str(tmp_path))
+        assert load_holder_occupancy(h, state) is False
+        assert h.slots["Slot-01"].loaded_grid.name == "keep"
 
     def test_load_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
@@ -221,6 +303,7 @@ class TestSaveLoad:
 # ---------------------------------------------------------------------------
 # Slot lookup helpers
 # ---------------------------------------------------------------------------
+
 
 class TestSlotLookup:
     def test_find_slot_for_grid(self):
@@ -251,6 +334,7 @@ class TestSlotLookup:
 # ---------------------------------------------------------------------------
 # _create_sample_stage
 # ---------------------------------------------------------------------------
+
 
 class TestCreateSampleStage:
     def test_compustage_returns_stage(self):
@@ -297,18 +381,23 @@ class TestCreateSampleStage:
         stage = _create_sample_stage(microscope)
         assert stage.holder._parent is microscope
 
-    def test_non_compustage_slots_have_sem_orientation(self):
+    def test_non_compustage_shipped_slots_are_uncalibrated(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
         microscope.stage_is_compustage = False
         stage = _create_sample_stage(microscope)
-        sem = microscope.get_orientation("SEM")
+        # the shipped file carries no calibrated positions, and nothing invents one
         for slot in stage.holder.slots.values():
-            assert slot.position.r == sem.r
-            assert slot.position.t == sem.t
+            assert slot.position is None
+            assert not slot.is_calibrated
 
     def test_non_compustage_falls_back_to_default(self, tmp_path, monkeypatch):
         import fibsem.microscopes._stage as stage_module
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(tmp_path / "missing.yaml"))
+
+        monkeypatch.setattr(
+            stage_module,
+            "SAMPLE_HOLDER_CONFIGURATION_PATH",
+            str(tmp_path / "missing.yaml"),
+        )
         microscope, _ = utils.setup_session(manufacturer="Demo")
         microscope.stage_is_compustage = False
         stage = _create_sample_stage(microscope)
@@ -317,8 +406,9 @@ class TestCreateSampleStage:
 
     def test_non_compustage_loads_user_config_when_present(self, tmp_path, monkeypatch):
         import fibsem.microscopes._stage as stage_module
+
         path = tmp_path / "holder.yaml"
-        h = SampleHolder(name="UserHolder", capacity=3)
+        h = SampleHolder(pre_tilt=0.0, name="UserHolder", capacity=3)
         h._ensure_slots()
         h.save(path)
         monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))

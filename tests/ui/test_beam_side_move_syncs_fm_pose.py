@@ -12,9 +12,11 @@ what made it worth pinning.
 covers the other half: that these two callers actually call it. A correct helper nothing
 invokes is not a fix.
 
-The methods are borrowed onto stubs rather than driven through real widgets, because the
-minimap needs a napari viewer and those segfault under the offscreen platform.
+The methods are borrowed onto stubs rather than driven through real widgets, because
+standing up an overview widget needs a microscope, a canvas and an experiment to assert
+one call.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -101,30 +103,38 @@ class _SelectedLamellaPanel:
         self.refreshed[pose_name] = pretty
 
 
-def test_dragging_a_lamella_on_the_minimap_moves_its_fluorescence_pose(tmp_path):
-    """`FibsemMinimapWidget._update_selected_position` -- right-click the FIB/SEM
-    overview, Move Selected Position Here."""
-    from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
+def test_dragging_a_lamella_on_the_overview_moves_its_fluorescence_pose(tmp_path):
+    """`AutoLamellaOverviewTab._on_move_requested` -- drag a marker on the FIB/SEM
+    overview canvas.
+
+    This used to be asked of `FibsemMinimapWidget._update_selected_position`, which was
+    the same gesture on the napari tab that this one replaced.
+
+    `test_overview_tab_host.py` also drives this handler, but only checks that the
+    fluorescence pose *moved*. The orientation assertion at the end is what this test is
+    for: x and y moving is equally true of the milling pose copied across, and on a
+    compustage the two poses differ only in tilt (FIB-709).
+    """
+    from fibsem.applications.autolamella.ui.autolamella_overview_tab import (
+        AutoLamellaOverviewTab,
+    )
 
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)
     before = lamella.fluorescence_pose.stage_position.x
 
-    class _Minimap:
-        _update_selected_position = FibsemMinimapWidget._update_selected_position
+    class _Tab:
+        _on_move_requested = AutoLamellaOverviewTab._on_move_requested
 
         def __init__(self):
             self.microscope = microscope
-            self.lamella_list = _SelectedList()
-            self.parent_widget = type(
-                "_UI", (), {"experiment": _Experiment([lamella])}
-            )()
+            self.experiment = _Experiment([lamella])
 
-        def _update_position_display(self):
+        def refresh_positions(self):
             pass
 
-    _Minimap()._update_selected_position(
-        _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
+    _Tab()._on_move_requested(
+        lamella.name, _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
     )
 
     assert lamella.milling_pose.stage_position.x == pytest.approx(400e-6)
@@ -137,7 +147,9 @@ def test_dragging_a_lamella_on_the_minimap_moves_its_fluorescence_pose(tmp_path)
     )
 
 
-def test_saving_a_new_position_from_the_lamella_list_moves_it_too(tmp_path, monkeypatch):
+def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
+    tmp_path, monkeypatch
+):
     """`AutoLamellaUI.update_lamella_position_ui` -- the list row's Update Position,
     which records wherever the stage is now onto the selected lamella."""
     module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
@@ -222,7 +234,9 @@ def _pose_row_ui(module, microscope, lamella):
     """A stub carrying `AutoLamellaUI._set_current_position_as_pose` and nothing else."""
 
     class _UI:
-        _set_current_position_as_pose = module.AutoLamellaUI._set_current_position_as_pose
+        _set_current_position_as_pose = (
+            module.AutoLamellaUI._set_current_position_as_pose
+        )
 
         def __init__(self):
             self.microscope = microscope

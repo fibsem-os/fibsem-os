@@ -14,6 +14,7 @@ Driven through `LamellaNameListWidget` rather than a bare `_LamellaRow`: the def
 button is hidden until `enable_defect_button(True)`, and `refresh` skips a hidden
 button, so a bare row silently asserts nothing.
 """
+
 import ast
 import os
 
@@ -26,7 +27,10 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget, _LamellaRow
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
+    LamellaNameListWidget,
+    _LamellaRow,
+)
 
 
 @pytest.fixture(scope="module")
@@ -113,10 +117,12 @@ def test_the_workflow_update_refreshes_the_name_list(row, lamella):
         AutoLamellaSingleWindowUI,
     )
 
-    source = inspect.getsource(AutoLamellaSingleWindowUI._on_workflow_update)
+    # Lifecycle reports arrive on workflow_status_signal now; the refresh lives
+    # in _apply_status_report, which _on_workflow_status runs for every report.
+    source = inspect.getsource(AutoLamellaSingleWindowUI._apply_status_report)
 
     assert "autolamella_ui.lamella_list.refresh_lamella(" in source, (
-        "`_on_workflow_update` does not refresh the name list, and the row no longer "
+        "`_apply_status_report` does not refresh the name list, and the row no longer "
         "subscribes -- so nothing keeps it current while a workflow runs"
     )
 
@@ -124,7 +130,11 @@ def test_the_workflow_update_refreshes_the_name_list(row, lamella):
 @pytest.mark.parametrize(
     "module, widget, handler",
     [
-        ("fibsem.ui.FibsemMinimapWidget", "FibsemMinimapWidget", "_on_defect_changed"),
+        (
+            "fibsem.applications.autolamella.ui.autolamella_overview_tab",
+            "AutoLamellaOverviewTab",
+            "_on_defect_changed",
+        ),
         (
             "fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget",
             "FluorescenceCoincidenceViewerWidget",
@@ -135,15 +145,17 @@ def test_the_workflow_update_refreshes_the_name_list(row, lamella):
 def test_every_host_of_the_list_can_persist_a_defect(module, widget, handler):
     """Both hosts embedding the list need somewhere for `defect_changed` to go.
 
-    Read as source text rather than by construction: the minimap needs a napari viewer
-    and the coincidence viewer a microscope and an experiment, neither worth standing up
-    to assert a connection exists. What is pinned is that the signal is wired and the
-    handler saves -- which the text carries.
+    Read as source text rather than by construction: both need a microscope and an
+    experiment, neither worth standing up to assert a connection exists. What is pinned
+    is that the signal is wired and the handler saves -- which the text carries.
+
+    The first entry was `FibsemMinimapWidget` until that widget was deleted; the beam
+    Overview tab is the host that replaced it, and embeds the same list.
     """
     import importlib
     from pathlib import Path
 
-    src = Path(importlib.import_module(module).__file__).read_text()
+    src = Path(importlib.import_module(module).__file__).read_text(encoding="utf-8")
     assert f"defect_changed.connect(self.{handler})" in src, (
         f"{widget} embeds the lamella list but never wires defect_changed -- "
         f"a defect set there is not persisted (FIB-564)"
@@ -220,7 +232,7 @@ def test_no_widget_holds_a_live_task_state_subscription(module, widget):
     import importlib
     from pathlib import Path
 
-    src = Path(importlib.import_module(module).__file__).read_text()
+    src = Path(importlib.import_module(module).__file__).read_text(encoding="utf-8")
     live = [c for c in _connect_chains(src) if "task_state" in c]
 
     assert live == [], (
@@ -255,7 +267,7 @@ def test_every_refresh_stays_marshalled(module, widget):
     import importlib
     from pathlib import Path
 
-    src = Path(importlib.import_module(module).__file__).read_text()
+    src = Path(importlib.import_module(module).__file__).read_text(encoding="utf-8")
 
     assert "from superqt import ensure_main_thread" in src, f"{widget} lost the import"
     assert "    @ensure_main_thread\n    def refresh(self)" in src, (

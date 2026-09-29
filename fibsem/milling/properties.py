@@ -1,5 +1,7 @@
-from fibsem import constants, config as cfg
 from typing import List
+
+from fibsem import config as cfg
+from fibsem import constants
 from fibsem.structures import CrossSectionPattern, field_meta
 from fibsem.utils import format_resolution_as_str
 

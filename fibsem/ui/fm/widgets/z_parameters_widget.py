@@ -1,6 +1,7 @@
 
 from typing import Optional
 
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -8,14 +9,14 @@ from PyQt5.QtWidgets import (
     QLabel,
     QWidget,
 )
+
 from fibsem.fm.structures import ZParameters, ZStackOrder
-from PyQt5.QtCore import pyqtSignal
+from fibsem.ui.tokens import (
+    NEUTRAL_650,
+)
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
-)
-from fibsem.ui.tokens import (
-    NEUTRAL_650,
 )
 
 Z_PARAMETERS_CONFIG = {

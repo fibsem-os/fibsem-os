@@ -10,6 +10,7 @@ Each of these let wrong data reach the experiment or the disk silently:
   the previous image;
 * FIB-318 — adopting new coordinates kept (and re-saved) the previous result.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -75,8 +76,9 @@ def test_legacy_result_load_copies_the_snapshot(tmp_path):
 
     state = load_correlation_file(str(path))
     assert state.input_data is not state.result.input_data
-    assert state.input_data.fib_coordinates[0] is not (
-        state.result.input_data.fib_coordinates[0]
+    assert (
+        state.input_data.fib_coordinates[0]
+        is not (state.result.input_data.fib_coordinates[0])
     )
 
     # editing the live point must make the result stale
@@ -114,6 +116,7 @@ def test_serialisation_survives_an_image_without_metadata():
 def test_autosave_failure_is_reported_not_swallowed(qapp, tmp_path, monkeypatch):
     w = _widget()
     w.set_project_dir(str(tmp_path))
+    w.set_data(CorrelationInputData())  # a load arms the auto-save (FIB-977)
 
     def _boom(self, filename):
         raise OSError("disk on fire")
@@ -137,8 +140,9 @@ def test_autosave_failure_is_reported_not_swallowed(qapp, tmp_path, monkeypatch)
 
 def _load_via_picker(w, monkeypatch, answer):
     """Drive a user-initiated image load, answering the confirm with `answer`."""
-    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
     from PyQt5.QtWidgets import QMessageBox
+
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     monkeypatch.setattr(
         ctw.FibsemImage,
@@ -158,7 +162,9 @@ def test_changing_the_image_clears_coordinates_and_result(qapp, monkeypatch):
     from PyQt5.QtWidgets import QMessageBox
 
     w = _widget()
-    w.set_fib_image(FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6))
+    w.set_fib_image(
+        FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6)
+    )
     w.set_data(_inputs(x=1382.0))
     w._load_result(_result(w.data), adopt_inputs=False)
 
@@ -209,8 +215,9 @@ def test_image_combo_is_guarded_against_the_mouse_wheel(qapp):
     event: without the guard an event-based check *hangs* offscreen instead of
     failing, which is a useless diagnostic in CI.
     """
-    from fibsem.ui.utils import _WHEEL_GUARD_PROPERTY
     from PyQt5.QtCore import Qt
+
+    from fibsem.ui.utils import _WHEEL_GUARD_PROPERTY
 
     combo = _widget()._images_tab._fib_picker.combo
     assert combo.property(_WHEEL_GUARD_PROPERTY) is True
@@ -231,7 +238,7 @@ def test_adopting_a_state_without_a_result_discards_the_old_one(qapp, tmp_path):
     w._adopt_state(CorrelationState(input_data=_inputs(x=5.0), result=None))
     assert w._result is None
 
-    saved = json.loads((tmp_path / "correlation.json").read_text())
+    saved = json.loads((tmp_path / "correlation.json").read_text(encoding="utf-8"))
     assert saved["result"] is None  # not re-saved against the new coordinates
 
 

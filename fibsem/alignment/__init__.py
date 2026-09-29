@@ -355,10 +355,11 @@ def _apply_shift(
             beam_type=beam_type,
         )
     elif subsystem is AlignmentSubsystem.STAGE_VERTICAL:
-        if beam_type is BeamType.ELECTRON and hasattr(microscope, "move_coincident_from_sem"):
-            microscope.move_coincident_from_sem(dx=dx, dy=-dy)  # type: ignore
-            return
-        microscope.vertical_move(dy=-dy, dx=dx)
+        # the shift was measured in beam_type's view, so the correction is too.
+        # A backend that cannot correct from that view raises rather than falling
+        # back to the other view's geometry, which used to apply the FIB's
+        # 1/sin(column_tilt) to an SEM-measured shift.
+        microscope.vertical_move(dy=-dy, dx=dx, beam_type=beam_type)
 
 
 def align_with_reference_image(
@@ -516,102 +517,33 @@ def multi_step_alignment_v2(
     )
 
     save_path: str = path if path is not None else _alignment_save_path(ref_image)[0]
-    run.save(save_path, plot_title=run_name)
+    run_dir = run.save(save_path, plot_title=run_name)
+    _record_alignment(microscope, run, steps, aborted, run_dir)
 
     return run
 
 
-def _eucentric_tilt_alignment(
+def _record_alignment(
     microscope: FibsemMicroscope,
-    image_settings: ImageSettings,
-    target_angle: float,
-    step_size: float,
-    beam_type: Optional[BeamType] = None,
-    show: bool = False,
+    run: AlignmentResult,
+    steps: int,
+    aborted: bool,
+    path: str,
 ) -> None:
-    """Perform eucentric tilt alignment by moving the stage in steps towards the target angle,
-    acquiring images at each step, and performing alignment.
-    Args:
-        microscope (FibsemMicroscope): The microscope to use for alignment.
-        image_settings (ImageSettings): The image settings to use for image acquisition.
-        target_angle (float): The target tilt angle in degrees.
-        step_size (float): The step size in degrees.
-        beam_type (Optional[BeamType]): The beam type to use for image acquisition. If None, both beams are used.
-        show (bool): Whether to show the images at each step. Defaults to False.
-    Returns:
-        None
+    """Record an alignment run: one event, with every step's measured shift.
+
+    The corrections are recorded by the microscope, as beam shifts or stage
+    moves. Never raises: an alignment that cannot be described still aligned.
     """
-    import matplotlib.pyplot as plt
-
-    from fibsem.structures import FibsemStagePosition
-
-    stage_position = microscope.get_stage_position()
-    current_angle = np.degrees(stage_position.t)
-
-    n_steps = int(abs(int(current_angle) - target_angle) // step_size)
-
-    logging.info(
-        f"Current Tilt: {current_angle}, Target Tilt:  {target_angle}, Step Size: {step_size},  Num Steps: {n_steps}"
-    )
-    steps = np.linspace(current_angle, target_angle, num=n_steps)
-
-    image_settings.hfw = 150e-6
-    image_settings.save = False
-    if beam_type is not None:
-        image_settings.beam_type = beam_type
-        reference_image = acquire.acquire_image(microscope, image_settings)
-    else:
-        ref_sem_image, ref_fib_image = acquire.acquire_channels(
-            microscope, image_settings
-        )
-
-    fib_images = []
-    sem_images = []
-
-    for i, angle in enumerate(steps[1:]):
-        microscope.move_stage_absolute(FibsemStagePosition(t=np.radians(angle)))
-
-        if beam_type is not None:
-            beam_shift_alignment_v2(
-                microscope, reference_image, subsystem=AlignmentSubsystem.STAGE
-            )
-        else:
-            beam_shift_alignment_v2(
-                microscope, ref_sem_image, subsystem=AlignmentSubsystem.STAGE
-            )
-            beam_shift_alignment_v2(
-                microscope, ref_fib_image, subsystem=AlignmentSubsystem.STAGE_VERTICAL
-            )
-
-        sem_image, fib_image = acquire.acquire_channels(microscope, image_settings)
-
-        if show:
-            fig, ax = plt.subplots(1, 2, figsize=(10, 7))
-            ax[0].imshow(sem_image.data, cmap="gray")
-            ax[0].plot(
-                sem_image.data.shape[1] // 2, sem_image.data.shape[0] // 2, "y+", ms=50
-            )
-            ax[1].imshow(fib_image.data, cmap="gray")
-            ax[1].plot(
-                fib_image.data.shape[1] // 2, fib_image.data.shape[0] // 2, "y+", ms=50
-            )
-            plt.show()
-
-        sem_images.append(sem_image)
-        fib_images.append(fib_image)
-        if beam_type is None:
-            ref_sem_image = sem_image
-            ref_fib_image = fib_image
-        elif beam_type is BeamType.ELECTRON:
-            reference_image = sem_image
-        elif beam_type is BeamType.ION:
-            reference_image = fib_image
-
-    # TODO: have a metric to measure if it failed? how??
-    final_position = microscope.get_stage_position()
-    diff = stage_position - final_position
-    logging.info(f"Start Position: {stage_position.pretty}")
-    logging.info(f"Final Position: {final_position.pretty}")
-    logging.info(f"Difference: {diff.pretty}")
-
-    return sem_images, fib_images
+    try:
+        payload = {
+            **run.to_dict(),
+            "beam_type": run.reference_image.metadata.beam_type.name,
+            "steps": steps,
+            "aborted": aborted,
+            "path": path,
+        }
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug("could not record an alignment", exc_info=True)
+        return
+    microscope.record_event("alignment", payload)

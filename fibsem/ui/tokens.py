@@ -45,9 +45,18 @@ PRIMARY_ACCENT = "#3a6ea5"  # matches the quad-view selection border
 # on one and something else on the other is worse than either colour alone. They were
 # defined privately in the FM overview and would have been copied verbatim into the
 # second one, which is how two constants that must agree stop agreeing.
-CURRENT_POSITION_COLOUR = "#ffee58"   # where the stage is now
-SAVED_POSITION_COLOUR = "#26c6da"     # a marked position
+CURRENT_POSITION_COLOUR = "#ffee58"  # where the stage is now
+# Cyan A400, not Cyan 400: an accent, matching SELECTED's Light Green A400 below,
+# and the value already used for points drawn over image data elsewhere (the
+# correlation overlay's FM points, the tile-grid colour picker). The 400-series
+# value it replaced was muted enough to disappear into a bright overview.
+SAVED_POSITION_COLOUR = "#00e5ff"  # a marked position
 SELECTED_POSITION_COLOUR = "#76ff03"  # the marked position under the selection
+# A position placed but not yet committed: a mark in a review that creates the
+# lamellae when it is confirmed. Magenta because the two above are taken and
+# this has to read as a different kind of thing rather than another state of
+# the same one -- one is on the experiment, the other is a proposal.
+DRAFT_POSITION_COLOUR = "#e040fb"  # placed, not yet created
 
 # The sample holder, drawn under everything else on the same canvases. Here for the
 # same reason as the markers above, and they had already drifted: the FIB/SEM overview
@@ -55,8 +64,8 @@ SELECTED_POSITION_COLOUR = "#76ff03"  # the marked position under the selection
 # which are pure #ffff00 and #ff0000 -- the two most saturated colours available, and
 # the only things in the app that shout. Structural context should not out-shout a
 # position someone marked.
-SLOT_COLOUR = "#90a4ae"           # holder slots: context, so muted
-STAGE_LIMITS_COLOUR = "#ffca28"   # how far the stage can travel
+SLOT_COLOUR = "#90a4ae"  # holder slots: context, so muted
+STAGE_LIMITS_COLOUR = "#ffca28"  # how far the stage can travel
 GRID_BOUNDARY_COLOUR = "#ff5252"  # the edge of the specimen grid
 
 # ---------------------------------------------------------------------------
@@ -73,17 +82,22 @@ GRID_BOUNDARY_COLOUR = "#ff5252"  # the edge of the specimen grid
 #
 # So: prefer these when styling a new dialog, and do not add a third spelling
 # of a colour that is already here twice.
-SURFACE_COLOR = "#262930"       # dialog background
-PANEL_COLOR = "#1e2027"         # inset panels, table headers
-ROW_ALT_COLOR = "#2b2f38"       # alternating row tint, hover
-BORDER_COLOR = "#3d4251"        # panel and control borders
-TEXT_COLOR = "#d6d6d6"          # body text
-TEXT_STRONG_COLOR = "#f0f1f2"   # titles, emphasis
-TEXT_MUTED_COLOR = "#868e93"    # secondary text, disabled
-ACCENT_COLOR = "#50a6ff"        # links, selected state, informational chips
-OK_COLOR = "#4caf50"            # success
-WARN_COLOR = "#e0a030"          # loaded but inactive, degraded, needs attention
-ERROR_COLOR = "#d04040"         # failure
+SURFACE_COLOR = "#262930"  # dialog background
+PANEL_COLOR = "#1e2027"  # inset panels, table headers
+ROW_ALT_COLOR = "#2b2f38"  # alternating row tint, hover
+BORDER_COLOR = "#3d4251"  # panel and control borders
+TEXT_COLOR = "#d6d6d6"  # body text
+TEXT_STRONG_COLOR = "#f0f1f2"  # titles, emphasis
+TEXT_MUTED_COLOR = "#868e93"  # secondary text, disabled
+ACCENT_COLOR = "#50a6ff"  # links, selected state, informational chips
+OK_COLOR = "#4caf50"  # success
+WARN_COLOR = "#e0a030"  # loaded but inactive, degraded, needs attention
+ERROR_COLOR = "#d04040"  # failure
+# The Review chip: the task will wait on you, in the Review tab. The same
+# orange as the border's "waiting on you now" and the inbox's waiting rows, on
+# purpose: one colour for one meaning, at rest on the chip and live on the
+# border when it happens. Not red (error) and not amber (degraded, cancelled).
+REVIEW_COLOR = ORANGE_COLOR
 
 # The disabled pair. Every semantic button sheet renders its :disabled state in
 # these two, and until now both were bare literals repeated across the file --
@@ -94,8 +108,8 @@ ERROR_COLOR = "#d04040"         # failure
 # NAPARI_STYLE use this value where ROW_ALT_COLOR is the token that means hover;
 # collapsing those is a real (if invisible) change, so they are left flagged in
 # place rather than folded in silently.
-DISABLED_BG_COLOR = "#2d313b"   # disabled control background
-DISABLED_TEXT_COLOR = "#6b6b6b" # disabled label and control text
+DISABLED_BG_COLOR = "#2d313b"  # disabled control background
+DISABLED_TEXT_COLOR = "#6b6b6b"  # disabled label and control text
 
 # ---------------------------------------------------------------------------
 # Neutral ramp
@@ -129,6 +143,52 @@ NEUTRAL_900 = "#1a1b1e"
 # Role name for the workflow border's "queued, but nothing is executing" state.
 # Points at the neutral the workflow timeline already uses for StepStatus.PENDING
 # (its ``_DOT_PENDING``), so a parked run reads the same on both surfaces instead
+# ---------------------------------------------------------------------------
+# Text roles
+#
+# A widget that styles each label inline picks a size and a colour every time,
+# and across the correlation widgets that produced 33 labels at 11 px, 17 at
+# 12 px, and five different "muted" greys for the same job (FIB-978). These are
+# the roles a label can have; a widget names the role, not the numbers.
+#
+# Stylesheet fragments, so they compose: ``f"{CAPTION_STYLE} margin-left: 8px;"``.
+PANEL_TITLE_STYLE = f"color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 600;"
+BODY_STYLE = f"color: {TEXT_COLOR}; font-size: 12px;"  # labels, status, instructions
+BODY_MUTED_STYLE = (
+    f"color: {TEXT_MUTED_COLOR}; font-size: 12px;"  # secondary at body size
+)
+CAPTION_STYLE = (
+    f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"  # table headers, counts, notes
+)
+CAPTION_VALUE_STYLE = (
+    f"color: {TEXT_COLOR}; font-size: 11px;"  # the value beside a caption
+)
+NUMBER_FONT = "Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+NUMBER_STYLE = f"font-family: {NUMBER_FONT}; font-size: 11px; color: {TEXT_COLOR};"
+CONTROL_STYLE = "font-size: 12px;"  # combos, buttons, checkboxes sitting among captions
+TABLE_STYLE = (
+    "QTableWidget { font-size: 11px; } "
+    "QHeaderView::section { font-size: 11px; padding: 2px 4px; }"
+)
+
+_STATE_COLORS = {
+    "ok": OK_COLOR,
+    "warn": WARN_COLOR,
+    "error": ERROR_COLOR,
+    "info": ACCENT_COLOR,
+    "muted": TEXT_MUTED_COLOR,
+}
+
+
+def state_style(tone: str, size: int = 12) -> str:
+    """Text in a semantic colour: ``tone`` is ok / warn / error / info / muted."""
+    return f"color: {_STATE_COLORS[tone]}; font-size: {size}px;"
+
+
+def state_color(tone: str) -> str:
+    return _STATE_COLORS[tone]
+
+
 # of inventing a seventh colour for an idea the app already has one for.
 PENDING_COLOR = NEUTRAL_700
 

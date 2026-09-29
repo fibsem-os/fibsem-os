@@ -22,7 +22,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.versioning import get_branch, get_revision
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     ACCENT_COLOR,
@@ -36,6 +35,7 @@ from fibsem.ui.stylesheets import (
     TEXT_STRONG_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, _SpinnerLabel
+from fibsem.versioning import get_branch, get_revision
 
 _logger = logging.getLogger(__name__)
 

@@ -17,8 +17,8 @@ import types
 import pytest
 
 from fibsem import utils
-from fibsem.milling import FibsemMillingStage
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
+from fibsem.milling import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import TrenchPattern
 from fibsem.milling.strategy.overtilt import OvertiltTrenchMillingStrategy
 from fibsem.milling.strategy.standard import StandardMillingStrategy

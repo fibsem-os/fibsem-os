@@ -4,9 +4,9 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QCursor, QFontMetrics, QIcon, QPainter
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -14,26 +14,30 @@ from PyQt5.QtWidgets import (
     QAction,
     QComboBox,
     QDoubleSpinBox,
-    QSpinBox,
     QFileDialog,
+    QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QMenu,
+    QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon, qta
 
 from fibsem.ui import stylesheets as stylesheets
-from fibsem.ui.utils import install_wheel_blocker
-from fibsem.utils import format_value
+from fibsem.ui.icon import fibsem_icon, qta
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    TEXT_MUTED_COLOR,
 )
+from fibsem.ui.utils import install_wheel_blocker
+from fibsem.utils import format_value
 
 
 class QFilePathLineEdit(QWidget):
@@ -71,7 +75,7 @@ class QFilePathLineEdit(QWidget):
 
     def text(self) -> str:
         return self.lineEdit.text()
-    
+
     def setText(self, text: str) -> None:
         self.lineEdit.setText(text)
 
@@ -100,7 +104,9 @@ class QDirectoryLineEdit(QWidget):
         self.lineEdit.editingFinished.connect(self.editingFinished.emit)
 
     def browse_directory(self):
-        directory = QFileDialog.getExistingDirectory(self, "Select Directory", self.lineEdit.text())
+        directory = QFileDialog.getExistingDirectory(
+            self, "Select Directory", self.lineEdit.text()
+        )
         if directory:
             self.lineEdit.setText(directory)
             self.textChanged.emit(directory)
@@ -111,6 +117,7 @@ class QDirectoryLineEdit(QWidget):
 
     def setText(self, text: str) -> None:
         self.lineEdit.setText(text)
+
 
 class QFileLineEdit(QWidget):
     """Line edit with a browse button that opens a file picker dialog."""
@@ -153,11 +160,13 @@ class QFileLineEdit(QWidget):
         self.lineEdit.setText(text)
 
 
-def _create_combobox_control(value: Union[str, int, float, Enum],
-                             items: list, 
-                             units: Optional[str], 
-                             format_fn: Optional[Callable] = None, 
-                             control: Optional[QComboBox] = None) -> QComboBox:
+def _create_combobox_control(
+    value: Union[str, int, float, Enum],
+    items: list,
+    units: Optional[str],
+    format_fn: Optional[Callable] = None,
+    control: Optional[QComboBox] = None,
+) -> QComboBox:
     """Create a QComboBox control for selecting from a list of items."""
     if control is None:
         control = QComboBox()
@@ -165,7 +174,7 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
         if isinstance(item, (float, int)):
             item_str = format_value(val=item, unit=units, precision=1)
         elif isinstance(item, Enum):
-            item_str = item.name # TODO: migrate to QEnumComboBox
+            item_str = item.name  # TODO: migrate to QEnumComboBox
         elif format_fn is not None:
             item_str = format_fn(item)
         else:
@@ -186,7 +195,9 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
         if len(items) == 0:
             logging.warning(f"No items available for combobox with value {value}")
         else:
-            logging.debug(f"Warning: No matching item or nearest found for {items} with value {value}. Using first item.")
+            logging.debug(
+                f"Warning: No matching item or nearest found for {items} with value {value}. Using first item."
+            )
             idx = 0
 
     if idx >= 0:
@@ -327,7 +338,10 @@ class ValueSpinBox(QDoubleSpinBox):
         super().__init__(parent)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setRange(minimum if minimum is not None else 0.0, maximum if maximum is not None else 1e6)
+        self.setRange(
+            minimum if minimum is not None else 0.0,
+            maximum if maximum is not None else 1e6,
+        )
         self.setSingleStep(step if step is not None else 0.01)
         self.setDecimals(decimals if decimals is not None else 3)
         if tooltip:
@@ -341,6 +355,7 @@ class ValueSpinBox(QDoubleSpinBox):
 @dataclass
 class ContextMenuAction:
     """Represents a single action in a context menu."""
+
     label: str
     callback: Optional[Callable] = None
     icon: Optional[QIcon] = None
@@ -353,6 +368,7 @@ class ContextMenuAction:
 @dataclass
 class ContextMenuConfig:
     """Configuration for a context menu."""
+
     actions: list[ContextMenuAction] = field(default_factory=list)
 
     def add_action(
@@ -366,15 +382,17 @@ class ContextMenuConfig:
         data: Optional[Any] = None,
     ) -> "ContextMenuConfig":
         """Add an action to the menu configuration. Returns self for chaining."""
-        self.actions.append(ContextMenuAction(
-            label=label,
-            callback=callback,
-            icon=icon,
-            tooltip=tooltip,
-            enabled=enabled,
-            separator_after=separator_after,
-            data=data,
-        ))
+        self.actions.append(
+            ContextMenuAction(
+                label=label,
+                callback=callback,
+                icon=icon,
+                tooltip=tooltip,
+                enabled=enabled,
+                separator_after=separator_after,
+                data=data,
+            )
+        )
         return self
 
     def add_separator(self) -> "ContextMenuConfig":
@@ -476,7 +494,9 @@ class ContextMenu(QMenu):
             if menu_action.callback is not None:
                 menu_action.callback()
         except Exception:
-            logging.exception("Context menu action '%s' raised an exception.", menu_action.label)
+            logging.exception(
+                "Context menu action '%s' raised an exception.", menu_action.label
+            )
             try:
                 from fibsem.ui import notification_service
 
@@ -514,6 +534,25 @@ def show_context_menu(
     selected = menu.show_at_cursor()
     return selected.label if selected else None
 
+
+def scrollable(widget: QWidget) -> QScrollArea:
+    """*widget* inside a vertical-only QScrollArea that resizes it to the viewport.
+
+    For a tab or column whose content can outgrow the window. Widgets should not
+    scroll themselves: a scroll area inside another only adds a second bar, and the
+    host is the one that knows whether there is room.
+    """
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setWidget(widget)
+    return scroll
+
+
+# Panel headers share one height: tall enough for a 24px icon button.
+_PANEL_HEADER_HEIGHT = 24
+
+
 class TitledPanel(QWidget):
     """A styled panel with a dark header row (title label + optional widgets) and a collapsible content area.
 
@@ -525,8 +564,13 @@ class TitledPanel(QWidget):
         fixed = TitledPanel("Setup", content=setup_widget, collapsible=False)
     """
 
-    def __init__(self, title: str, content: Optional[QWidget] = None,
-                 collapsible: bool = True, parent=None) -> None:
+    def __init__(
+        self,
+        title: str,
+        content: Optional[QWidget] = None,
+        collapsible: bool = True,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self._collapsible = collapsible
         self.setObjectName("TitledPanel")
@@ -540,20 +584,35 @@ class TitledPanel(QWidget):
 
         # Header
         self._header = QWidget()
-        self._header.setStyleSheet(f"background: {CANVAS_BG}; border-radius: 3px 3px 0 0;")
+        self._header.setStyleSheet(
+            f"background: {CANVAS_BG}; border-radius: 3px 3px 0 0;"
+        )
+        # One height whatever the header holds: a bare title made 22px, a 24px icon
+        # button beside it 26px, a push button 32px, and a column of panels read as
+        # uneven. Fixed at the icon button's height with no vertical margin, and
+        # add_header_widget caps what it is handed to fit.
+        self._header.setFixedHeight(_PANEL_HEADER_HEIGHT)
         self._header_layout = QHBoxLayout(self._header)
-        self._header_layout.setContentsMargins(8, 3, 4, 3)
+        self._header_layout.setContentsMargins(8, 0, 3, 0)
         self._header_layout.setSpacing(4)
         self._title_label = QLabel(title)
         self._title_label.setStyleSheet("font-weight: bold; background: transparent;")
         self._header_layout.addWidget(self._title_label)
         self._header_layout.addStretch()
 
-        # Collapse toggle — always the last item in the header; checked=expanded
+        # Collapse toggle — always the last item in the header; checked=expanded.
+        # Its own stylesheet rather than the shared toolbutton one: that draws a
+        # bordered, filled box for the checked state, and here checked means
+        # expanded, so every open panel wore a permanent pressed button. The chevron
+        # already says which state this is. No hover box either -- the whole header
+        # is chrome, and a lit rectangle in it draws the eye for nothing.
         self._btn_collapse = QToolButton()
         self._btn_collapse.setCheckable(True)
         self._btn_collapse.setChecked(True)
-        self._btn_collapse.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self._btn_collapse.setStyleSheet(
+            "QToolButton { border: none; padding: 0px 3px; background: transparent; }"
+        )
+        self._btn_collapse.setIconSize(QSize(14, 14))
         self._btn_collapse.toggled.connect(self._on_collapse_toggled)
         self._header_layout.addWidget(self._btn_collapse)
 
@@ -587,7 +646,7 @@ class TitledPanel(QWidget):
             expanded = True
         self._body.setVisible(expanded)
         icon = "mdi:chevron-up" if expanded else "mdi:chevron-down"
-        self._btn_collapse.setIcon(fibsem_icon(icon, color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_collapse.setIcon(fibsem_icon(icon, color=TEXT_MUTED_COLOR))
         self._btn_collapse.setToolTip("Collapse" if expanded else "Expand")
 
     def set_title(self, title: str) -> None:
@@ -595,9 +654,22 @@ class TitledPanel(QWidget):
         self._title_label.setText(title)
 
     def add_header_widget(self, widget: QWidget) -> None:
-        """Add a widget to the right side of the header, before the collapse button."""
+        """Add a widget to the right side of the header, before the collapse button.
+
+        Capped to the header's height: a stock QPushButton is 30px and would
+        otherwise grow the header, so it becomes a compact header button instead.
+        """
+        # Cap, never raise: a widget that fixed itself smaller (a 14px chip) keeps
+        # that, and is centred rather than stretched to the header -- which is what
+        # raising its maximum did, and left the chip touching both edges.
+        if widget.minimumHeight() > _PANEL_HEADER_HEIGHT:
+            widget.setMinimumHeight(_PANEL_HEADER_HEIGHT)
+        if widget.maximumHeight() > _PANEL_HEADER_HEIGHT:
+            widget.setMaximumHeight(_PANEL_HEADER_HEIGHT)
         # Insert before the collapse button (always the last item)
-        self._header_layout.insertWidget(self._header_layout.count() - 1, widget)
+        self._header_layout.insertWidget(
+            self._header_layout.count() - 1, widget, 0, Qt.AlignVCenter
+        )
 
     def set_content(self, widget: QWidget) -> None:
         """Replace the body content with widget."""
@@ -615,8 +687,15 @@ class _SpinnerLabel(QLabel):
     it ``autostart`` and drive visibility via :meth:`start`/:meth:`stop`.
     """
 
-    def __init__(self, icon_name="mdi:loading", color="#4fc3f7", size=24,
-                 step_deg=20, interval_ms=40, parent=None):
+    def __init__(
+        self,
+        icon_name="mdi:loading",
+        color="#4fc3f7",
+        size=24,
+        step_deg=20,
+        interval_ms=40,
+        parent=None,
+    ):
         super().__init__(parent)
         self._spin = qta.Spin(self, interval=interval_ms, step=step_deg)
         self._icon = fibsem_icon(icon_name, color=color, animation=self._spin)
@@ -645,7 +724,7 @@ class _SpinnerLabel(QLabel):
     def stop(self):
         self._active = False
         self._spin.stop()
-        self.update()        # repaint blank
+        self.update()  # repaint blank
 
     def clear(self):
         # blanking the spinner implies stopping its animation
@@ -699,13 +778,19 @@ class IconToolButton(QToolButton):
         self._icon = icon
         self._color = color
         self._checked_icon = checked_icon if checked_icon is not None else icon
-        self._checked_color = checked_color if checked_color is not None else stylesheets.GRAY_WHITE_COLOR
+        self._checked_color = (
+            checked_color if checked_color is not None else stylesheets.GRAY_WHITE_COLOR
+        )
         self._tooltip = tooltip
-        self._checked_tooltip = checked_tooltip if checked_tooltip is not None else tooltip
+        self._checked_tooltip = (
+            checked_tooltip if checked_tooltip is not None else tooltip
+        )
 
-        self._has_state = checkable or checked_icon is not None or checked_color is not None
+        self._has_state = (
+            checkable or checked_icon is not None or checked_color is not None
+        )
 
-        self.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.setStyleSheet(stylesheets.ICON_TOOLBUTTON_STYLESHEET)
         if size is not None:
             self.setFixedSize(size, size)
 
@@ -758,14 +843,19 @@ class TaskNameListWidget(QWidget):
         header = QWidget()
         header.setStyleSheet(f"background: {CANVAS_BG};")
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(8, 3, 4, 3)
+        # The same header as TitledPanel, at the same fixed height, so the list
+        # sits level with the panels under it.
+        header.setFixedHeight(_PANEL_HEADER_HEIGHT)
+        header_layout.setContentsMargins(8, 0, 3, 0)
         header_layout.setSpacing(4)
         lbl = QLabel("Task Name")
         lbl.setStyleSheet("font-weight: bold; background: transparent;")
         header_layout.addWidget(lbl)
         header_layout.addStretch()
-        self.btn_add = IconToolButton("mdi:plus", tooltip="Add task", size=24)
-        self.btn_remove = IconToolButton("mdi:trash-can-outline", tooltip="Remove task", size=24)
+        self.btn_add = IconToolButton("mdi:plus", tooltip="Add task", size=22)
+        self.btn_remove = IconToolButton(
+            "mdi:trash-can-outline", tooltip="Remove task", size=22
+        )
         header_layout.addWidget(self.btn_add)
         header_layout.addWidget(self.btn_remove)
         outer.addWidget(header)
@@ -776,12 +866,49 @@ class TaskNameListWidget(QWidget):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         outer.addWidget(self._list)
 
+        # Per-task status chips and tooltips, by task name; reapplied when the
+        # list repopulates.
+        self._states: Dict[str, Tuple[str, str]] = {}
+        self._tooltips: Dict[str, str] = {}
+
         # Wire signals
         self._list.itemSelectionChanged.connect(
             lambda: self.task_selected.emit(self.selected_task)
         )
         self.btn_add.clicked.connect(self.add_clicked)
         self.btn_remove.clicked.connect(self.remove_clicked)
+
+    def set_task_states(self, states: Mapping[str, Tuple[str, str]]) -> None:
+        """Show a status chip at the right of each named row: ``{name: (text, colour)}``.
+
+        Rows not in *states* show nothing, which is what "not started" looks like.
+        The chip rides in an item widget that is transparent to the mouse and paints
+        no background, so the row's text, selection and click behaviour are the
+        list's own.
+        """
+        self._states = dict(states)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            # Replacing an item widget only schedules the old one for deletion, and
+            # it keeps painting until then -- so a chip changing from Completed to
+            # In Progress drew both on top of each other. Take it down now.
+            previous = self._list.itemWidget(item)
+            if previous is not None:
+                self._list.removeItemWidget(item)
+                previous.hide()
+                previous.deleteLater()
+            state = self._states.get(item.text())
+            if state is None:
+                continue
+            text, colour = state
+            row = QWidget()
+            row.setAttribute(Qt.WA_TransparentForMouseEvents)
+            row.setStyleSheet("background: transparent;")
+            layout = QHBoxLayout(row)
+            layout.setContentsMargins(0, 0, 8, 0)
+            layout.addStretch()
+            layout.addWidget(chip(text, colour, font_size=10))
+            self._list.setItemWidget(item, row)
 
     def set_buttons_visible(self, add: bool, remove: bool) -> None:
         """Show or hide the add and remove header buttons independently."""
@@ -807,6 +934,18 @@ class TaskNameListWidget(QWidget):
             self._list.addItem(name)
         self._restore_selection(names, current)
         self._list.blockSignals(False)
+        if self._states:
+            self.set_task_states(self._states)
+        if self._tooltips:
+            self.set_task_tooltips(self._tooltips)
+
+    def set_task_tooltips(self, tooltips: Mapping[str, str]) -> None:
+        """A tooltip per named row. The row itself stays plain text: what a task is
+        and how the workflow runs it are read here, edited elsewhere."""
+        self._tooltips = dict(tooltips)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            item.setToolTip(self._tooltips.get(item.text(), ""))
 
     def select(self, name: str) -> None:
         """Select the item with the given name (exact match)."""
@@ -819,8 +958,6 @@ class TaskNameListWidget(QWidget):
             self.select(preferred)
         elif self._list.count() > 0:
             self._list.setCurrentRow(0)
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -857,8 +994,21 @@ class ElidedLabel(QLabel):
     fit; a caller wanting a different tooltip sets it after `setText`.
     """
 
-    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        text: str = "",
+        parent: Optional[QWidget] = None,
+        mode: Qt.TextElideMode = Qt.ElideRight,
+    ) -> None:
+        """
+        Args:
+            mode: which end goes. `ElideRight` for prose, where the start carries the
+                sense. **`ElideLeft` for a path**, where it is the tail -- the
+                experiment and the run -- that answers "am I writing where I meant
+                to", and the leading directories are the same on every line.
+        """
         super().__init__(parent)
+        self._mode = mode
         self._full_text = ""
         # Ignored horizontally: the label neither asks for room nor refuses to shrink,
         # which is the whole point -- its content must not set anyone's minimum.
@@ -866,6 +1016,13 @@ class ElidedLabel(QLabel):
         self.setText(text)
 
     def setText(self, text: Optional[str]) -> None:  # noqa: N802 - Qt naming
+        if (text or "") == self._full_text:
+            # Re-measuring costs a QFontMetrics and an elidedText per call, and callers
+            # that refresh a whole row on a timer re-set the same string every time --
+            # the workflow timeline does it for every row of every status update, where
+            # this was a third of the cost. Nothing else here depends on width, which
+            # resizeEvent and paintEvent handle.
+            return
         self._full_text = text or ""
         self.setToolTip(self._full_text)
         self._elide()
@@ -887,13 +1044,101 @@ class ElidedLabel(QLabel):
     def _elide(self) -> None:
         metrics = QFontMetrics(self.font())
         elided = metrics.elidedText(
-            self._full_text, Qt.ElideRight, max(0, self.width() - 2)
+            self._full_text, self._mode, max(0, self.width() - 2)
         )
         # `super().text()`, not ours: ours returns the full string, so this would differ
         # on every paint of an elided label and schedule another one forever. QLabel
         # draws the elided string, so the stylesheet colour survives.
         if elided != super().text():
             super().setText(elided)
+
+
+# One label column for every settings form in a column of panels, so the controls
+# line up from panel to panel. Wide enough for "Reacquire Alignment Reference".
+FORM_LABEL_WIDTH = 150
+
+
+class FormGrid(QGridLayout):
+    """A two-column form that folds its hidden rows away.
+
+    QFormLayout keeps the vertical spacing of a row whose widgets are hidden, so
+    a form with its advanced rows hidden ended in a band of nothing the height
+    of those rows' gaps. QGridLayout drops an empty row's spacing along with the
+    row. This speaks the three QFormLayout calls the generated forms use --
+    addRow, rowCount, removeRow -- over a grid, so those forms fold correctly
+    without changing how they are built. `align_form` treats it as the grid it is.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._rows: List[Tuple[QWidget, QWidget]] = []
+
+    def addRow(self, label, field: QWidget) -> None:  # noqa: N802 - Qt naming
+        if isinstance(label, str):
+            label = QLabel(label)
+        row = len(self._rows)
+        self.addWidget(label, row, 0)
+        self.addWidget(field, row, 1)
+        self._rows.append((label, field))
+
+    def rowCount(self) -> int:  # noqa: N802 - Qt naming
+        # QGridLayout.rowCount never shrinks; the forms ask how many rows are live.
+        return len(self._rows)
+
+    def removeRow(self, row: int) -> None:  # noqa: N802 - Qt naming
+        label, field = self._rows.pop(row)
+        for widget in (label, field):
+            self.removeWidget(widget)
+            widget.setParent(None)
+            widget.deleteLater()
+
+
+def align_form(layout) -> None:
+    """Give *layout* the shared label column: labels FORM_LABEL_WIDTH, fields the rest.
+
+    Forms in the editor column used to size their label column each to their own
+    longest label, or split the width in half, so reading down the column no two
+    panels lined their controls up. Works on a QGridLayout (labels in column 0)
+    and a QFormLayout (labels in the label role); call it after the rows exist for
+    a form that is rebuilt.
+    """
+    if isinstance(layout, QGridLayout):
+        layout.setColumnMinimumWidth(0, FORM_LABEL_WIDTH)
+        layout.setColumnStretch(1, 1)
+    elif isinstance(layout, QFormLayout):
+        # AllNonFixedFieldsGrow, not ExpandingFieldsGrow: the generated controls
+        # keep Qt's Preferred policy, which the latter leaves at natural width.
+        layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        for row in range(layout.rowCount()):
+            item = layout.itemAt(row, QFormLayout.LabelRole)
+            if item is not None and item.widget() is not None:
+                item.widget().setMinimumWidth(FORM_LABEL_WIDTH)
+
+
+def header_chip(text: str, colour: str) -> QLabel:
+    """A `chip` sized for a panel header: 14px tall, 9px text, tinted like the rest.
+
+    For state a header should show while the panel is collapsed -- "on", "off",
+    "3 stages". `chip()` is built for a card or a row and comes out 20px, which in a
+    24px header reads as a button.
+    """
+    label = QLabel(text)
+    label.setAlignment(Qt.AlignCenter)
+    label.setFixedHeight(14)
+    set_header_chip(label, text, colour)
+    return label
+
+
+def set_header_chip(label: QLabel, text: str, colour: str) -> None:
+    """Re-word and re-tint a `header_chip`: "on" in the accent, "off" muted."""
+    rgb = QColor(colour)
+    tint = f"rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15)"
+    label.setText(text)
+    style_with_tooltip(
+        label,
+        f"background-color: {tint}; color: {colour};"
+        " padding: 0px 5px; border-radius: 7px; font-size: 9px;",
+    )
 
 
 def chip(text: str, colour: str, font_size: int = 11) -> QLabel:

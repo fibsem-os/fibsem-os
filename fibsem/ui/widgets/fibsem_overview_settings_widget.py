@@ -21,6 +21,7 @@ Two panels open, three folded, which is the fluorescence column's budget. It mat
 because these sit above a `Display` panel and the pinned action row: a third expanded
 panel puts the grid below the fold on a laptop-height window.
 """
+
 from typing import List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -28,25 +29,28 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QLabel,
+    QLineEdit,  # noqa: E402  (grouped with the Qt imports above)
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem import constants
-from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP, DEFAULT_SQUARE_RESOLUTION
+from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP
 from fibsem.structures import (
+    AutoContrastMode,
     AutoFocusMode,
-    AutoFocusSettings,
     BeamType,
     FocusStackSettings,
     ImageSettings,
     OverviewAcquisitionSettings,
     TileOrderStrategy,
 )
-from fibsem.ui.tokens import TEXT_MUTED_COLOR
+from fibsem.ui import stylesheets
+from fibsem.ui.tokens import NEUTRAL_400, TEXT_MUTED_COLOR
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
     QDirectoryLineEdit,
     TitledPanel,
     ValueComboBox,
@@ -56,8 +60,6 @@ from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     default_overview_acquisition_settings,
 )
 from fibsem.ui.widgets.overview_grid_settings_widget import OverviewGridSettingsWidget
-
-from PyQt5.QtWidgets import QLineEdit  # noqa: E402  (grouped with the Qt imports above)
 
 _MUTED = f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"
 _FIELD_MIN_WIDTH = 90
@@ -127,19 +129,44 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.combo_beam = self._field(
             ValueComboBox(items=list(BeamType), format_fn=lambda b: b.name)
         )
-        self.combo_resolution = self._field(ValueComboBox(
-            items=[value for _, value in AVAILABLE_RESOLUTIONS_ZIP],
-            format_fn=lambda r: f"{r[0]}x{r[1]}",
-        ))
-        self.spin_dwell = self._field(ValueSpinBox(
-            suffix=f" {constants.MICROSECOND_SYMBOL}",
-            minimum=0.01, maximum=1000.0, step=0.5, decimals=2,
-        ))
-        self.spin_hfw = self._field(ValueSpinBox(
-            suffix=f" {constants.MICRON_SYMBOL}",
-            minimum=1.0, maximum=10000.0, step=50.0, decimals=1,
-        ))
-        self.check_autocontrast = QCheckBox()
+        self.combo_resolution = self._field(
+            ValueComboBox(
+                items=[value for _, value in AVAILABLE_RESOLUTIONS_ZIP],
+                format_fn=lambda r: f"{r[0]}x{r[1]}",
+            )
+        )
+        self.spin_dwell = self._field(
+            ValueSpinBox(
+                suffix=f" {constants.MICROSECOND_SYMBOL}",
+                minimum=0.01,
+                maximum=1000.0,
+                step=0.5,
+                decimals=2,
+            )
+        )
+        self.spin_hfw = self._field(
+            ValueSpinBox(
+                suffix=f" {constants.MICRON_SYMBOL}",
+                minimum=1.0,
+                maximum=10000.0,
+                step=50.0,
+                decimals=1,
+            )
+        )
+        # Once: one contrast for the whole mosaic, set at the grid centre before
+        # the first tile, so the tiles stitch without seams. Each tile: what the
+        # flag means for any image, before every tile, which flattens a gradient
+        # across the grid at the cost of seams.
+        self.combo_autocontrast = self._field(
+            ValueComboBox(
+                items=list(AutoContrastMode),
+                format_fn=lambda m: m.name.replace("_", " ").title(),
+            )
+        )
+        self.combo_autocontrast.setToolTip(
+            "Once: one contrast for the whole mosaic, set at the grid centre before "
+            "the first tile. Each tile: before every tile, as for any image."
+        )
 
         # The one number that says whether the dwell just typed means seconds or hours.
         # Scan time, not run time -- see `OverviewAcquisitionSettings.scan_time`.
@@ -150,30 +177,112 @@ class FibsemOverviewSettingsWidget(QWidget):
             "run takes longer than this."
         )
 
+        # The scan's integration controls, as the Image tab's advanced toggle
+        # shows them: line and frame integration, interlacing, drift correction.
+        # A value of 1 is "off" and reads as None on the settings, as it does
+        # there. Behind a toggle, since a tile at 1 us and no integration is the
+        # usual overview and four more rows would bury the grid below the fold.
+        self.btn_advanced = IconToolButton(
+            icon="mdi:tune",
+            color=NEUTRAL_400,
+            checked_icon="mdi:tune-variant",
+            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            tooltip="Show advanced settings",
+            checked_tooltip="Hide advanced settings",
+            checkable=True,
+        )
+        self.spin_line_integration = self._field(
+            ValueSpinBox(minimum=1, maximum=255, step=1, decimals=0)
+        )
+        self.spin_scan_interlacing = self._field(
+            ValueSpinBox(minimum=1, maximum=8, step=1, decimals=0)
+        )
+        self.spin_frame_integration = self._field(
+            ValueSpinBox(minimum=1, maximum=512, step=1, decimals=0)
+        )
+        self.check_drift_correction = QCheckBox()
+
         form = self._form()
         form.addRow("Beam", self.combo_beam)
         form.addRow("Resolution", self.combo_resolution)
         form.addRow("Dwell time", self.spin_dwell)
         form.addRow("Field of view", self.spin_hfw)
-        form.addRow("Auto contrast", self.check_autocontrast)
+        form.addRow("Auto contrast", self.combo_autocontrast)
         form.addRow("Scan time", self.label_scan_time)
-        self.imaging_panel = self._panel("Imaging", form)
+        # The advanced rows go in and out of the form rather than hiding in
+        # place: a form layout keeps its row spacing for a hidden row, and four
+        # of them left a blank band above Scan time. Labels are kept here, so
+        # they survive being taken out.
+        self._advanced_rows = [
+            (QLabel("Line integration"), self.spin_line_integration),
+            (QLabel("Scan interlacing"), self.spin_scan_interlacing),
+            (QLabel("Frame integration"), self.spin_frame_integration),
+            (QLabel("Drift correction"), self.check_drift_correction),
+        ]
+        self._advanced_fields = [field for _, field in self._advanced_rows]
+        self._advanced_labels = [label for label, _ in self._advanced_rows]
+        self._imaging_form = form
+        self._advanced_shown = False
+        for label, field in self._advanced_rows:
+            label.hide()
+            field.hide()
+        self.imaging_panel = self._panel("Imaging", form, header=self.btn_advanced)
+        self._apply_advanced_visibility()
         return self.imaging_panel
+
+    def _apply_advanced_visibility(self, *_) -> None:
+        show = self.btn_advanced.isChecked()
+        if show != self._advanced_shown:
+            form = self._imaging_form
+            if show:
+                # After Auto contrast, ahead of Scan time.
+                row = form.getWidgetPosition(self.combo_autocontrast)[0] + 1
+                for offset, (label, field) in enumerate(self._advanced_rows):
+                    form.insertRow(row + offset, label, field)
+                    label.show()
+                    field.show()
+            else:
+                for label, field in self._advanced_rows:
+                    form.takeRow(field)
+                    label.hide()
+                    field.hide()
+            self._advanced_shown = show
+        self._apply_drift_correction_state()
+
+    def _apply_drift_correction_state(self, *_) -> None:
+        """Drift correction is a frame-integration option: greyed, and unticked,
+        without it, as on the Image tab."""
+        enabled = self.spin_frame_integration.value() > 1
+        tooltip = "" if enabled else "Requires frame integration above 1"
+        self.check_drift_correction.setEnabled(enabled)
+        self.check_drift_correction.setToolTip(tooltip)
+        label = self._advanced_labels[-1]
+        if label is not None:
+            label.setEnabled(enabled)
+            label.setToolTip(tooltip)
+        if not enabled and self.check_drift_correction.isChecked():
+            self.check_drift_correction.setChecked(False)
 
     def _focus_panel(self) -> TitledPanel:
         """*When* to focus while walking the grid. Not the same question as the focus
         stack below, which is whether to acquire a stack at each tile -- either can be
         wanted without the other, and putting them in one panel said otherwise.
 
-        One row, because a mode is all the runner can currently act on: it calls the
-        instrument's own routine, which takes a beam and a reduced area and nothing
-        else. Method and sweep passes arrive with FIB-646, which connects the tiled
-        runner to `run_auto_focus` like every other autofocus caller in the codebase.
+        One row, and no longer because that is all the runner can act on. Until FIB-646
+        the runner called the instrument's own routine -- a beam, a reduced area, nothing
+        else -- so a mode was genuinely everything there was to offer. It now runs
+        `run_auto_focus` against a full sweep config: method, passes, probe frame.
+
+        None of that is exposed here, so the sweep runs at its default. Adding controls
+        for it is unbuilt rather than pending -- there is no issue tracking it, which is
+        worth knowing before assuming one exists.
         """
-        self.combo_autofocus = self._field(ValueComboBox(
-            items=list(AutoFocusMode),
-            format_fn=lambda m: m.name.replace("_", " ").title(),
-        ))
+        self.combo_autofocus = self._field(
+            ValueComboBox(
+                items=list(AutoFocusMode),
+                format_fn=lambda m: m.name.replace("_", " ").title(),
+            )
+        )
 
         # The runner silently promotes EACH_ROW to EACH_TILE for a spiral, because a
         # spiral has no rows -- correct, and until now invisible. The fluorescence tab
@@ -184,7 +293,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.label_focus_note.hide()
 
         form = self._form()
-        form.addRow("Auto-focus", self.combo_autofocus)
+        form.addRow("Auto focus", self.combo_autofocus)
         form.addRow("", self.label_focus_note)
         self.focus_panel = self._panel("Focus", form, collapsed=True)
         return self.focus_panel
@@ -201,7 +310,7 @@ class FibsemOverviewSettingsWidget(QWidget):
 
         form = self._form()
         form.addRow("Steps", self.spin_focus_steps)
-        form.addRow("Auto-focus each", self.check_focus_autofocus)
+        form.addRow("Auto focus each", self.check_focus_autofocus)
         # "Stack", not "Focus stack": it sits directly under "Focus", which already
         # supplies that half of the name, and it is the counterpart to the fluorescence
         # tab's "Z-Stack" -- one word each, differing only in what is varied.
@@ -231,7 +340,15 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.combo_resolution.currentIndexChanged.connect(self._on_changed)
         self.spin_dwell.valueChanged.connect(self._on_changed)
         self.spin_hfw.valueChanged.connect(self._on_changed)
-        self.check_autocontrast.toggled.connect(self._on_changed)
+        self.combo_autocontrast.currentIndexChanged.connect(self._on_changed)
+        self.btn_advanced.toggled.connect(self._apply_advanced_visibility)
+        self.spin_line_integration.valueChanged.connect(self._on_changed)
+        self.spin_scan_interlacing.valueChanged.connect(self._on_changed)
+        self.spin_frame_integration.valueChanged.connect(
+            self._apply_drift_correction_state
+        )
+        self.spin_frame_integration.valueChanged.connect(self._on_changed)
+        self.check_drift_correction.toggled.connect(self._on_changed)
         self.check_focus_stack.toggled.connect(self._on_focus_stack_toggled)
         self.spin_focus_steps.valueChanged.connect(self._on_changed)
         self.check_focus_autofocus.toggled.connect(self._on_changed)
@@ -286,7 +403,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         the setting read one thing and the run did another.
         """
         promoted = (
-            settings.autofocus_settings.mode is AutoFocusMode.EACH_ROW
+            settings.autofocus_mode is AutoFocusMode.EACH_ROW
             and settings.tile_order is TileOrderStrategy.SPIRAL
         )
         self.label_focus_note.setVisible(promoted)
@@ -315,17 +432,34 @@ class FibsemOverviewSettingsWidget(QWidget):
         is a coupling to this widget's internal shape rather than to what it does."""
         self.path_edit.setText(str(path) if path else "")
 
+    @staticmethod
+    def _integration(spin: ValueSpinBox) -> Optional[int]:
+        """1 is "off", and the settings spell that None."""
+        value = int(spin.value())
+        return value if value > 1 else None
+
     def get_settings(self) -> OverviewAcquisitionSettings:
+        frame_integration = self._integration(self.spin_frame_integration)
+        autocontrast_mode = self.combo_autocontrast.value()
         return OverviewAcquisitionSettings(
             image_settings=ImageSettings(
                 resolution=tuple(self.combo_resolution.value()),
                 dwell_time=self.spin_dwell.value() * constants.MICRO_TO_SI,
                 hfw=self.spin_hfw.value() * constants.MICRO_TO_SI,
-                autocontrast=self.check_autocontrast.isChecked(),
+                # The per-image flag follows the mode; the runner sets it the
+                # same way, so a file written here reads back as the same choice.
+                autocontrast=autocontrast_mode is AutoContrastMode.EACH_TILE,
                 beam_type=self.combo_beam.value(),
                 save=True,
                 path=self.path_edit.text() or None,
                 filename=self.filename_edit.text(),
+                line_integration=self._integration(self.spin_line_integration),
+                scan_interlacing=self._integration(self.spin_scan_interlacing),
+                frame_integration=frame_integration,
+                drift_correction=(
+                    frame_integration is not None
+                    and self.check_drift_correction.isChecked()
+                ),
             ),
             nrows=self.grid.rows,
             ncols=self.grid.cols,
@@ -336,7 +470,8 @@ class FibsemOverviewSettingsWidget(QWidget):
                 n_steps=int(self.spin_focus_steps.value()),
                 auto_focus=self.check_focus_autofocus.isChecked(),
             ),
-            autofocus_settings=AutoFocusSettings(mode=self.combo_autofocus.value()),
+            autofocus_mode=self.combo_autofocus.value(),
+            autocontrast_mode=autocontrast_mode,
             tile_order=self.grid.tile_order,
         )
 
@@ -344,9 +479,20 @@ class FibsemOverviewSettingsWidget(QWidget):
         """Load every value without emitting on the way through."""
         image = settings.image_settings
         widgets = [
-            self.combo_beam, self.combo_resolution, self.spin_dwell, self.spin_hfw,
-            self.check_autocontrast, self.check_focus_stack, self.spin_focus_steps,
-            self.check_focus_autofocus, self.combo_autofocus, self.filename_edit,
+            self.combo_beam,
+            self.combo_resolution,
+            self.spin_dwell,
+            self.spin_hfw,
+            self.combo_autocontrast,
+            self.spin_line_integration,
+            self.spin_scan_interlacing,
+            self.spin_frame_integration,
+            self.check_drift_correction,
+            self.check_focus_stack,
+            self.spin_focus_steps,
+            self.check_focus_autofocus,
+            self.combo_autofocus,
+            self.filename_edit,
             self.path_edit.lineEdit,
         ]
         for widget in widgets:
@@ -356,13 +502,17 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.combo_resolution.set_value(list(image.resolution))
             self.spin_dwell.setValue(image.dwell_time * constants.SI_TO_MICRO)
             self.spin_hfw.setValue(image.hfw * constants.SI_TO_MICRO)
-            self.check_autocontrast.setChecked(image.autocontrast)
+            self.combo_autocontrast.set_value(settings.autocontrast_mode)
+            self.spin_line_integration.setValue(image.line_integration or 1)
+            self.spin_scan_interlacing.setValue(image.scan_interlacing or 1)
+            self.spin_frame_integration.setValue(image.frame_integration or 1)
+            self.check_drift_correction.setChecked(bool(image.drift_correction))
             self.check_focus_stack.setChecked(settings.focus_stack_settings.enabled)
             self.spin_focus_steps.setValue(settings.focus_stack_settings.n_steps)
             self.check_focus_autofocus.setChecked(
                 settings.focus_stack_settings.auto_focus
             )
-            self.combo_autofocus.set_value(settings.autofocus_settings.mode)
+            self.combo_autofocus.set_value(settings.autofocus_mode)
             self.filename_edit.setText(image.filename or "")
             self.path_edit.setText(str(image.path) if image.path else "")
         finally:
@@ -376,5 +526,6 @@ class FibsemOverviewSettingsWidget(QWidget):
             tile_order=settings.tile_order,
             mask=settings.tile_mask,
         )
+        self._apply_drift_correction_state()
         self._on_focus_stack_toggled()
         self._refresh_derived()

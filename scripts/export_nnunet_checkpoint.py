@@ -1,9 +1,9 @@
+import argparse
 import glob
 import json
 import os
-import torch
 
-import argparse
+import torch
 
 
 def export_model_checkpoint(

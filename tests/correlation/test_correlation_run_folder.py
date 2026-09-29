@@ -68,7 +68,7 @@ def _result(inp=None):
 
 
 def _saved(run_dir):
-    return json.loads((run_dir / CORRELATION_JSON).read_text())
+    return json.loads((run_dir / CORRELATION_JSON).read_text(encoding="utf-8"))
 
 
 def _saved_fib_x(run_dir):

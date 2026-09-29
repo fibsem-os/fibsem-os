@@ -31,6 +31,7 @@ check that used to be each caller's problem. So the second property is now
 pinned on what each row ends up drawing, plus a guard that no module goes back
 to naming the asset itself.
 """
+
 from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Tuple
@@ -38,7 +39,7 @@ from typing import List, Tuple
 import pytest
 
 pytest.importorskip("PyQt5")
-pytest.importorskip("napari")
+pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import (  # noqa: E402
     Qt,
@@ -48,19 +49,8 @@ from PyQt5.QtCore import (  # noqa: E402
 from PyQt5.QtGui import QPixmap  # noqa: E402
 from PyQt5.QtWidgets import QLabel  # noqa: E402
 
-from fibsem.correlation.structures import Coordinate  # noqa: E402
-from fibsem.fm.structures import ChannelSettings  # noqa: E402
-from fibsem.milling.base import FibsemMillingStage  # noqa: E402
-from fibsem.milling.patterning import get_pattern_names  # noqa: E402
-from fibsem.milling.strategy import get_strategy_names  # noqa: E402
-from fibsem.ui import icon  # noqa: E402
-from fibsem.ui.icon import (  # noqa: E402
-    DRAG_HANDLE_HEIGHT,
-    DRAG_HANDLE_PATH,
-    DRAG_HANDLE_WIDTH,
-    drag_handle_pixmap,
-)
 from fibsem.applications.autolamella.structures import (  # noqa: E402
+    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
@@ -70,10 +60,22 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (  # noqa
 from fibsem.applications.autolamella.ui.workflow_config_widget import (  # noqa: E402
     WorkflowTaskRowWidget,
 )
+from fibsem.correlation.structures import Coordinate  # noqa: E402
+from fibsem.fm.structures import ChannelSettings  # noqa: E402
+from fibsem.milling.base import FibsemMillingStage  # noqa: E402
+from fibsem.milling.patterning import get_pattern_names  # noqa: E402
+from fibsem.milling.strategy import get_strategy_names  # noqa: E402
+from fibsem.ui import icon  # noqa: E402
 from fibsem.ui.correlation.widgets.coordinate_list_widget import (  # noqa: E402
     CoordinateRowWidget,
 )
 from fibsem.ui.fm.widgets.channel_list_widget import ChannelRowWidget  # noqa: E402
+from fibsem.ui.icon import (  # noqa: E402
+    DRAG_HANDLE_HEIGHT,
+    DRAG_HANDLE_PATH,
+    DRAG_HANDLE_WIDTH,
+    drag_handle_pixmap,
+)
 from fibsem.ui.widgets.milling_stage_list_widget import (  # noqa: E402
     MillingStageRowWidget,
 )
@@ -105,7 +107,9 @@ def _coordinate_row():
 
 def _workflow_row():
     return WorkflowTaskRowWidget(
-        AutoLamellaTaskDescription(name="Mill Rough", supervise=True, required=True)
+        AutoLamellaTaskDescription(
+            name="Mill Rough", attention=Attention.supervised, required=True
+        )
     )
 
 
@@ -136,10 +140,7 @@ def captured_qt_messages():
 
 def _workflow_config() -> AutoLamellaWorkflowConfig:
     return AutoLamellaWorkflowConfig(
-        tasks=[
-            AutoLamellaTaskDescription(name=name, supervise=False, required=False)
-            for name in TASKS
-        ]
+        tasks=[AutoLamellaTaskDescription(name=name, required=False) for name in TASKS]
     )
 
 
@@ -215,7 +216,7 @@ def test_building_a_row_emits_no_null_pixmap_warning(qapp, module_name):
 def test_row_module_uses_the_shared_handle(qapp, module_name):
     """No module names the asset itself; that is how the paths drifted apart."""
     module = __import__(module_name, fromlist=["__file__"])
-    source = Path(module.__file__).read_text()
+    source = Path(module.__file__).read_text(encoding="utf-8")
 
     assert "drag_handle.svg" not in source, f"{module_name} re-derives the asset path"
     assert "drag_handle_pixmap" in source, f"{module_name} does not use the helper"

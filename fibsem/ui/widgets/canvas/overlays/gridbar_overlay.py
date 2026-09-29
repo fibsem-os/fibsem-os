@@ -1,4 +1,4 @@
-"""A cryo grid's bars, drawn where they should be.
+"""A cryo grid's bars, drawn where they should be -- and dragged to where they are.
 
 The Overview tab has always been able to show the grid bars, as an alignment reference:
 does the overview sit where I think it does on the grid? It did that by *generating a
@@ -8,41 +8,52 @@ letting you drag it into place with napari's transform tool.
 Neither half survives the move to a real-space canvas, and neither needs to. Grid bars
 are a regular lattice at a known pitch, and a real-space canvas already knows how many
 canvas pixels a metre is -- so the bars can simply be *drawn*, exactly, at any zoom,
-with no raster to generate and no pixel size to match. What is lost is the ability to
-drag them somewhere other than where they belong, which is tracked separately (FIB-608)
-and is a better tool than the one being replaced.
+with no raster to generate and no pixel size to match. Dragging them somewhere other
+than where the holder says they belong is the gesture in
+:class:`~fibsem.ui.widgets.canvas.overlays.transform_overlay.TransformGestureOverlay`:
+move by dragging, turn by the handle, only while the canvas has made this its active
+overlay (FIB-608).
 
-Spacing and width are in metres, and the lattice is centred on a point the caller
-supplies -- the grid centre, in practice, which is the stage origin.
+The lattice is square on the sample and drawn through the view: a beam looking at the
+sample from off its normal sees the pitch along the squashed axis shortened by the
+view's foreshortening, so the bars land on the bars in the picture in every view rather
+than in the two the tab was built against (FIB-615). Spacing and width are in canvas
+units along the unsquashed axis; the squash is the caller's, read off its frame.
 """
+
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
+from fibsem.ui.widgets.canvas.overlays.transform_overlay import (
+    TransformGestureOverlay,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
-    from fibsem.ui.widgets.canvas.canvas_base import ContentRect, FibsemCanvasBase
+    from PyQt5.QtCore import QObject
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_COLOUR = "#4dd0e1"
-# Light: a full-coverage lattice at a typical pitch covers ~40% of the canvas, and
-# at 0.45 it washed the overview out rather than annotating it.
-_DEFAULT_ALPHA = 0.28
+# A faint fill with a crisp edge: a bar is aligned by its edges, and a solid fill at
+# a real bar's width covers a third of the picture it is meant to be checked against.
+_DEFAULT_FILL_ALPHA = 0.08
+_DEFAULT_EDGE_ALPHA = 0.55
 
 
-class GridBarOverlay(CanvasOverlay):
+class GridBarOverlay(TransformGestureOverlay):
     """A lattice of grid bars, in canvas coordinates.
 
     Call :meth:`set_lattice` with a centre, a pitch and a bar width -- all already in
-    canvas units -- and :meth:`set_visible` to show or hide it. Converting from metres
-    is the caller's job, because only the caller knows the frame; see
+    canvas units -- plus the rotation and the view's squash, and :meth:`set_visible`
+    to show or hide it. Converting from metres is the caller's job, because only the
+    caller knows the frame; see
     :class:`~fibsem.ui.widgets.canvas.stage_frame.StageFrame`.
 
-    Display-only: captures no mouse events, so it coexists with pan/zoom and with
-    whatever else the canvas is doing.
+    Display-only until the canvas makes it the active overlay, so it coexists with
+    pan/zoom and with whatever else the canvas is doing.
     """
 
     # Bars either side of centre, per axis. The span is whatever the canvas is
@@ -56,86 +67,58 @@ class GridBarOverlay(CanvasOverlay):
         self,
         *,
         colour: str = _DEFAULT_COLOUR,
-        alpha: float = _DEFAULT_ALPHA,
+        fill_alpha: float = _DEFAULT_FILL_ALPHA,
+        edge_alpha: float = _DEFAULT_EDGE_ALPHA,
         zorder: float = 3.0,
+        parent: Optional["QObject"] = None,
     ) -> None:
-        self._ax = None
-        self._canvas: "FibsemCanvasBase | None" = None
-        self._artists: list = []
-        self._centre: Optional[Tuple[float, float]] = None
+        super().__init__(parent)
         self._pitch: float = 0.0
         self._bar_width: float = 0.0
-        self._visible: bool = False
+        self._radius: Optional[float] = None
         self._colour = colour
-        self._alpha = alpha
+        self._fill_alpha = fill_alpha
+        self._edge_alpha = edge_alpha
         self._zorder = zorder
-        # The rectangle the canvas is showing, so the lattice can be extended to fill
-        # it. Bars are drawn across the content rather than for a fixed count: a
-        # lattice that stopped at the edge of the first overview would say the grid
-        # stops there too.
-        self._rect: Optional["ContentRect"] = None
-
-    # ── overlay protocol ──────────────────────────────────────────────────
-
-    def attach(self, ax, canvas: "FibsemCanvasBase") -> None:
-        self._ax = ax
-        self._canvas = canvas
-
-    def detach(self) -> None:
-        self._remove_artists()
-        self._ax = None
-        self._canvas = None
-
-    def on_content_changed(self, rect: "ContentRect") -> None:
-        self._rect = rect
-        self._remove_artists()
-        if self._visible and not rect.is_empty:
-            self._draw()
 
     # ── public API ────────────────────────────────────────────────────────
 
     def set_lattice(
-        self, centre: Tuple[float, float], pitch: float, bar_width: float
+        self,
+        centre: Tuple[float, float],
+        pitch: float,
+        bar_width: float,
+        rotation: float = 0.0,
+        squash: float = 1.0,
+        radius: Optional[float] = None,
     ) -> None:
-        """Place the lattice, in canvas coordinates. A pitch of 0 draws nothing."""
-        self._centre = centre
+        """Place the lattice, in canvas coordinates. A pitch of 0 draws nothing.
+
+        `pitch`, `bar_width` and `radius` are along the unsquashed axis; `squash` is
+        the view's surface foreshortening, applied along canvas y; `rotation` is
+        degrees, clockwise on screen. `radius` clips the bars to the grid's own disc
+        about the lattice centre -- a grid's bars stop at its rim -- and None lets
+        them run to the edge of whatever is shown.
+        """
         self._pitch = float(pitch)
         self._bar_width = float(bar_width)
-        self._redraw()
-
-    def set_visible(self, visible: bool) -> None:
-        """Show or hide the bars without discarding the lattice."""
-        visible = bool(visible)
-        if visible == self._visible:
-            return
-        self._visible = visible
-        self._redraw()
+        self._radius = float(radius) if radius else None
+        self.set_placement(centre, rotation, squash)
 
     @property
-    def is_visible(self) -> bool:
-        return self._visible
+    def pitch(self) -> float:
+        return self._pitch
+
+    @property
+    def radius(self) -> Optional[float]:
+        return self._radius
 
     @property
     def bar_count(self) -> int:
-        """How many bars are currently drawn. Two artists per bar (one per axis)."""
-        return len(self._artists)
+        """How many bars are currently drawn. One artist per bar."""
+        return sum(1 for a in self._artists if getattr(a, "_gridbar", False))
 
     # ── drawing ───────────────────────────────────────────────────────────
-
-    def _redraw(self) -> None:
-        self._remove_artists()
-        if self._visible:
-            self._draw()
-        if self._canvas is not None:
-            self._canvas.draw_idle()
-
-    def _remove_artists(self) -> None:
-        for artist in self._artists:
-            try:
-                artist.remove()
-            except Exception:
-                pass
-        self._artists.clear()
 
     def _offsets(self, half_span: float) -> List[float]:
         """Bar centres either side of the lattice centre, out to *half_span*."""
@@ -150,62 +133,70 @@ class GridBarOverlay(CanvasOverlay):
             count = self.MAX_BARS_PER_AXIS
         return [i * self._pitch for i in range(-count, count + 1)]
 
-    def _draw(self) -> None:
-        if self._ax is None or self._centre is None or self._rect is None:
-            return
-        if self._pitch <= 0 or self._bar_width <= 0:
-            return
+    def _half_span(self) -> float:
+        """How far, in the lattice's own frame, a bar has to reach to cross the view.
 
-        rect = self._rect
-        cx, cy = self._centre
-        # Out to the far corner of what is shown, so the lattice reaches the edges
-        # whichever way the view is panned.
-        half_x = max(abs(rect.x0 - cx), abs(rect.x1 - cx))
-        half_y = max(abs(rect.y0 - cy), abs(rect.y1 - cy))
-
-        style = dict(
-            color=self._colour,
-            alpha=self._alpha,
-            zorder=self._zorder,
-            solid_capstyle="butt",
-        )
-        # Drawn as wide lines rather than filled rectangles: matplotlib scales a
-        # line's width in *points*, not data units, so a bar would keep its on-screen
-        # thickness through a zoom and stop describing a real width. `_bar_width` is
-        # in canvas units, so the conversion has to happen against the axes -- see
-        # `_linewidth_points`.
-        linewidth = self._linewidth_points()
-        for offset in self._offsets(half_y):
-            (line,) = self._ax.plot(
-                [rect.x0, rect.x1], [cy + offset, cy + offset],
-                linewidth=linewidth, **style,
-            )
-            self._artists.append(line)
-        for offset in self._offsets(half_x):
-            (line,) = self._ax.plot(
-                [cx + offset, cx + offset], [rect.y0, rect.y1],
-                linewidth=linewidth, **style,
-            )
-            self._artists.append(line)
-
-    def _linewidth_points(self) -> float:
-        """The bar width in points, so it tracks the zoom like the image does.
-
-        A bar is a physical thing with a physical width; drawn at a fixed point size it
-        would grow relative to the sample as you zoomed out, which is exactly the lie
-        an alignment reference must not tell. Falls back to a thin line if the axes
-        cannot be measured yet -- visible and honest about being approximate, rather
-        than absent.
+        Out to the farthest corner of what is shown, so the lattice reaches the edges
+        whichever way the view is panned and however the lattice is turned. Measured
+        in the lattice frame -- the corners brought back through the inverse map --
+        so a squashed view asks for the bars it can actually see.
         """
-        try:
-            bbox = self._ax.get_window_extent()
-            xmin, xmax = self._ax.get_xlim()
-            if xmax == xmin or bbox.width <= 0:
-                return 1.0
-            pixels_per_unit = bbox.width / abs(xmax - xmin)
-            # 72 points per inch; matplotlib's dpi converts pixels to inches.
-            dpi = self._ax.figure.dpi or 72.0
-            return max(0.5, self._bar_width * pixels_per_unit * 72.0 / dpi)
-        except Exception as e:
-            logger.debug(f"Could not size the grid bars against the axes: {e}")
-            return 1.0
+        rect = self._rect
+        corners = (
+            (rect.x0, rect.y0),
+            (rect.x1, rect.y0),
+            (rect.x0, rect.y1),
+            (rect.x1, rect.y1),
+        )
+        return max(math.hypot(*self.from_canvas(x, y)) for x, y in corners)
+
+    def _draw_body(self, animated: bool) -> list:
+        from matplotlib.colors import to_rgba
+        from matplotlib.patches import Polygon
+
+        if self._pitch <= 0 or self._bar_width <= 0:
+            return []
+        half = self._radius if self._radius is not None else self._half_span()
+        style = dict(
+            closed=True,
+            facecolor=to_rgba(self._colour, self._fill_alpha),
+            edgecolor=to_rgba(self._colour, self._edge_alpha),
+            linewidth=1.0,
+            zorder=self._zorder,
+            animated=animated,
+        )
+        # Polygons in canvas units rather than wide lines: a line's width is in
+        # points, so it only described the bar's real width at the zoom it was drawn
+        # at, and a zoom later the bars were the wrong size until something redrew
+        # them. A polygon scales with the picture, and its edge is what gets aligned.
+        w = self._bar_width / 2.0
+        artists = []
+        for offset in self._offsets(half):
+            if self._radius is not None:
+                # The chord of the disc at this offset: bars stop at the grid's rim.
+                reach = math.sqrt(max(self._radius**2 - offset**2, 0.0))
+                if reach <= 0:
+                    continue
+            else:
+                reach = half
+            for corners in (
+                # A bar of constant u runs along v ...
+                (
+                    (offset - w, -reach),
+                    (offset + w, -reach),
+                    (offset + w, reach),
+                    (offset - w, reach),
+                ),
+                # ... and a bar of constant v runs along u.
+                (
+                    (-reach, offset - w),
+                    (reach, offset - w),
+                    (reach, offset + w),
+                    (-reach, offset + w),
+                ),
+            ):
+                bar = Polygon([self.to_canvas(u, v) for u, v in corners], **style)
+                bar._gridbar = True
+                self._ax.add_patch(bar)
+                artists.append(bar)
+        return artists

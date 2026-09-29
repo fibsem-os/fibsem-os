@@ -1,8 +1,10 @@
 import os
 from typing import List
+
 CLASS_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "segmentation_config.yaml")
 
 import yaml
+
 with open(CLASS_CONFIG_PATH) as f:
     CLASS_CONFIG = yaml.load(f, Loader=yaml.FullLoader)
     
@@ -10,6 +12,8 @@ CLASS_COLORS = CLASS_CONFIG["CLASS_COLORS"]
 CLASS_LABELS = CLASS_CONFIG["CLASS_LABELS"]
 
 import matplotlib.colors as mcolors
+
+
 def convert_color_names_to_rgb(color_names: List[str]):
     if isinstance(color_names, dict):
         color_names = color_names.values()

@@ -13,10 +13,11 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from fibsem import conversions
 from fibsem.conversions import is_inside_image_bounds
-from fibsem.structures import FibsemImage, FibsemStagePosition, Point
 from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
+from fibsem.structures import FibsemImage, FibsemStagePosition, Point
 from fibsem.ui.tokens import (
     NEUTRAL_400,
     NEUTRAL_750,
@@ -24,6 +25,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_850,
     SURFACE_COLOR,
 )
+
 try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
     from matplotlib.figure import Figure

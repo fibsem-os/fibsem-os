@@ -3,17 +3,17 @@
 Run from the repo root:
     PYTHONPATH=. python scripts/test_acb.py
 """
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
-from fibsem.structures import FibsemImage
-from fibsem.imaging.utils import percentile_stretch
 from fibsem.autofunctions.acb import (
     AutoContrastBrightnessIteration,
     AutoContrastBrightnessResult,
     AutoContrastBrightnessSettings,
 )
 from fibsem.autofunctions.plotting import plot_acb_result
+from fibsem.imaging.utils import percentile_stretch
+from fibsem.structures import FibsemImage
 
 
 def make_probe_image(mean_frac: float, noise_frac: float = 0.05) -> FibsemImage:

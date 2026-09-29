@@ -2,13 +2,13 @@ import numpy as np
 import pytest
 
 from fibsem.fm.calibration import (
+    calculate_focus_quality,
+    find_best_focus_plane,
+    get_focus_measure_function,
     laplacian_focus_measure,
     sobel_focus_measure,
-    variance_focus_measure,
     tenengrad_focus_measure,
-    get_focus_measure_function,
-    find_best_focus_plane,
-    calculate_focus_quality,
+    variance_focus_measure,
 )
 
 
@@ -347,7 +347,10 @@ def test_create_focus_stack_from_selection():
 
 def test_block_vs_pixel_focus_comparison():
     """Compare block-based vs pixel-based focus selection."""
-    from fibsem.fm.calibration import block_based_focus_selection, create_focus_stack_from_selection
+    from fibsem.fm.calibration import (
+        block_based_focus_selection,
+        create_focus_stack_from_selection,
+    )
     
     # Create test stack with clear structure
     nz, ny, nx = 4, 128, 128
@@ -551,7 +554,10 @@ def test_create_pixel_based_focus_stack():
 
 def test_pixel_vs_block_focus_comparison():
     """Compare pixel-based vs block-based focus selection on the same data."""
-    from fibsem.fm.calibration import create_pixel_based_focus_stack, create_block_based_focus_stack
+    from fibsem.fm.calibration import (
+        create_block_based_focus_stack,
+        create_pixel_based_focus_stack,
+    )
     
     # Create test stack with structured focus variation
     nz, ny, nx = 4, 128, 128

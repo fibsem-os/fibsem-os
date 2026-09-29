@@ -93,7 +93,7 @@ def test_export_summary_writes_a_csv_with_a_row_per_lamella(experiment):
     assert isinstance(result.value, Path) and result.value.exists()
     assert result.value.parent == Path(experiment.path)
     # header + one row per lamella
-    assert len(result.value.read_text().strip().splitlines()) == len(experiment.positions) + 1
+    assert len(result.value.read_text(encoding="utf-8").strip().splitlines()) == len(experiment.positions) + 1
 
 
 def test_export_summary_does_not_declare_itself_a_writer(experiment):

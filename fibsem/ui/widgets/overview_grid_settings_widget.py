@@ -133,17 +133,21 @@ class OverviewGridSettingsWidget(QWidget):
         body.addLayout(form)
         body.addWidget(self.tile_mask)
 
-        # Shown in the header so a sparse run announces itself even folded away. Blank
-        # at full coverage: a badge that is always there stops being read.
-        self.label_sparse = QLabel("")
-        self.label_sparse.setStyleSheet(_MUTED)
-
         self.panel = TitledPanel("Grid", content=content)
-        self.panel.add_header_widget(self.label_sparse)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.panel)
+
+    def add_header_widget(self, widget) -> None:
+        """Put a control in the Grid header.
+
+        For an owner with another way of setting the grid -- the fluorescence tab plans
+        one by selecting regions on a beam overview. Offered rather than built in, so
+        this widget stays the same for both tabs and neither inherits the other's
+        controls.
+        """
+        self.panel.add_header_widget(widget)
 
     @staticmethod
     def _field(widget: QWidget) -> QWidget:
@@ -186,9 +190,6 @@ class OverviewGridSettingsWidget(QWidget):
         self.changed.emit()
 
     def _refresh_derived(self) -> None:
-        enabled, total = self.tile_mask.n_enabled, self.rows * self.cols
-        self.label_sparse.setText("" if enabled == total else f"{enabled}/{total} tiles")
-
         if self._tile_fov is None:
             self.label_total_fov.setText("—")
             return
@@ -254,19 +255,26 @@ class OverviewGridSettingsWidget(QWidget):
         size nobody asked for -- the new row count against the old column count. That is
         invisible when a spin box is nudged and constant when an edge is dragged on the
         canvas, which emits on every motion event.
+
+        The mask is blocked along with the boxes, and resized inside the block. It emits
+        `changed` of its own when its shape moves, so resizing it outside made this emit
+        *twice* -- once for the mask and once here -- which is the very thing the method
+        exists to prevent. The fluorescence tab had it right and its test is what caught
+        this on the way in.
         """
         rows, cols = int(rows), int(cols)
         if (rows, cols) == (self.rows, self.cols):
             return
-        for spinbox in (self.spin_rows, self.spin_cols):
-            spinbox.blockSignals(True)
+        blocked = (self.spin_rows, self.spin_cols, self.tile_mask)
+        for widget in blocked:
+            widget.blockSignals(True)
         try:
             self.spin_rows.setValue(rows)
             self.spin_cols.setValue(cols)
+            self.tile_mask.set_grid_size(rows, cols)
         finally:
-            for spinbox in (self.spin_rows, self.spin_cols):
-                spinbox.blockSignals(False)
-        self.tile_mask.set_grid_size(rows, cols)
+            for widget in blocked:
+                widget.blockSignals(False)
         self._on_changed()
 
     def set_mask(self, mask: Optional[List[List[bool]]]) -> None:

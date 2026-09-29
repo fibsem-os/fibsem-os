@@ -1,21 +1,21 @@
 import logging
 from copy import deepcopy
-from typing import List, Dict
+from typing import Dict, List
 
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
+    LANDING_KEY,
+    LIFTOUT_KEY,
     MICROEXPANSION_KEY,
     MILL_POLISHING_KEY,
     MILL_ROUGH_KEY,
     MILLING_KEYS,
     NOTCH_KEY,
-    STRATEGY_KEYS,
-    LANDING_KEY,
-    LIFTOUT_KEY,
     SETUP_LAMELLA_KEY,
+    STRATEGY_KEYS,
+    STRESS_RELIEF_KEY,
     TRENCH_KEY,
     UNDERCUT_KEY,
-    STRESS_RELIEF_KEY,
 )
 
 # required milling keys

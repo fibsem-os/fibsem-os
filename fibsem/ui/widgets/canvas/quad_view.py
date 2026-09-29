@@ -10,6 +10,7 @@ control widgets in place of the napari ``Viewer``. Its surface is intentionally
 small in Phase 0 (image routing only) and grows in later phases (overlays,
 per-beam click signals).
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,6 +28,18 @@ from PyQt5.QtWidgets import (
 
 from fibsem import constants
 from fibsem.structures import BeamType, FibsemImage
+from fibsem.ui.stylesheets import (
+    CANVAS_BG as _BG,
+)
+from fibsem.ui.stylesheets import (
+    GREEN_COLOR,
+)
+from fibsem.ui.stylesheets import (
+    PRIMARY_ACCENT as _SELECT_ACCENT,
+)
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
     CanvasState,
@@ -36,16 +49,8 @@ from fibsem.ui.widgets.canvas.canvas_state import (
     PointsSpec,
     SceneModel,
 )
-from fibsem.ui.stylesheets import (
-    CANVAS_BG as _BG,
-    GREEN_COLOR,
-    PRIMARY_ACCENT as _SELECT_ACCENT,
-)
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.tokens import (
-    CANVAS_BG,
-)
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -150,7 +155,10 @@ class QuadViewWidget(QWidget):
         self._splitters = {"left": left, "right": right}
         self._all_panels = [sem_panel, fm_panel, fib_panel, placeholder_panel]
         self._panel_splitter = {
-            sem_panel: left, fm_panel: left, fib_panel: right, placeholder_panel: right,
+            sem_panel: left,
+            fm_panel: left,
+            fib_panel: right,
+            placeholder_panel: right,
         }
         self._fullscreen: Optional[object] = None
         self._saved_sizes: dict = {}
@@ -166,8 +174,12 @@ class QuadViewWidget(QWidget):
             self.fib_canvas: BeamType.ION,
             self.fm_canvas: "fm",
         }
-        self._key_canvas: Dict[object, QWidget] = {v: k for k, v in self._canvas_keys.items()}
-        self._live: set = set()  # view keys currently live-acquiring (green border + LIVE badge)
+        self._key_canvas: Dict[object, QWidget] = {
+            v: k for k, v in self._canvas_keys.items()
+        }
+        self._live: set = (
+            set()
+        )  # view keys currently live-acquiring (green border + LIVE badge)
         self._selected: Optional[object] = None
         for canvas in self._canvas_keys:
             canvas.installEventFilter(self)
@@ -307,9 +319,10 @@ class LamellaEditorView(QWidget):
 
         self._sem_panel = _titled("SEM", self.sem_canvas)
         self._sem_panel.setVisible(False)  # shown on demand via set_sem_visible()
-        self._beams_page = _splitter(
-            Qt.Horizontal, _titled("FIB", self.fib_canvas), self._sem_panel
-        )
+        # SEM on the left, FIB on the right: the same order as the Microscope
+        # tab's quad view, so a side-by-side pair reads the same everywhere.
+        self._fib_panel = _titled("FIB", self.fib_canvas)
+        self._beams_page = _splitter(Qt.Horizontal, self._sem_panel, self._fib_panel)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._beams_page)  # index 0: beams
@@ -330,6 +343,10 @@ class LamellaEditorView(QWidget):
     def set_sem_visible(self, visible: bool) -> None:
         """Show/hide the SEM canvas beside FIB on the beams page."""
         self._sem_panel.setVisible(visible)
+
+    def set_fib_visible(self, visible: bool) -> None:
+        """Show/hide the FIB canvas: hidden when there is only an SEM image."""
+        self._fib_panel.setVisible(visible)
 
 
 class MicroscopeViewController(QObject):
@@ -546,7 +563,9 @@ class MicroscopeViewController(QObject):
         state.armed_icon = icon
         self._mark_dirty(canvas)
 
-    def set_overlay_visible(self, beam: BeamType, overlay_id: str, visible: bool) -> None:
+    def set_overlay_visible(
+        self, beam: BeamType, overlay_id: str, visible: bool
+    ) -> None:
         """Toggle an overlay's visibility without replacing its spec (keeps points /
         value). Applies to specs with a ``visible`` field (e.g. PointsSpec)."""
         canvas = self._canvases.get(beam)
@@ -662,7 +681,9 @@ class MicroscopeViewController(QObject):
         """Upsert an info-bar field on the FM canvas (FM isn't a BeamType)."""
         self._set_info_on(self._widget.fm_canvas, key, text)
 
-    def _set_info_on(self, canvas: FibsemImageCanvas, key: str, text: Optional[str]) -> None:
+    def _set_info_on(
+        self, canvas: FibsemImageCanvas, key: str, text: Optional[str]
+    ) -> None:
         info = self._states[canvas].info
         for i, (k, _) in enumerate(info):
             if k == key:
@@ -676,9 +697,11 @@ class MicroscopeViewController(QObject):
             info.append((key, text))
             self._mark_dirty(canvas)
 
-    def update_info(self, microscope, stage_position=None, objective_position=None) -> None:
-        """Refresh the info bar from microscope state (mirrors napari
-        ``update_text_overlay``): STAGE on SEM+FIB, MILLING ANGLE on FIB, OBJECTIVE on
+    def update_info(
+        self, microscope, stage_position=None, objective_position=None
+    ) -> None:
+        """Refresh the info bar from microscope state (what the old napari text
+        overlay used to show): STAGE on SEM+FIB, MILLING ANGLE on FIB, OBJECTIVE on
         FM. It goes through the model + debounced render, so it is safe to call from an
         ``@ensure_main_thread`` ``update_ui`` — there is no synchronous draw to re-enter
         (which is what froze the original info bar)."""
@@ -687,14 +710,22 @@ class MicroscopeViewController(QObject):
                 return  # no stage-position display yet
             if stage_position is None:
                 stage_position = microscope._stage_position
-            orientation = microscope.get_stage_orientation(stage_position=stage_position)
+            orientation = microscope.get_stage_orientation(
+                stage_position=stage_position
+            )
             grid = microscope.current_grid
-            milling_angle = microscope.get_current_milling_angle(stage_position=stage_position)
-            stage_txt = f"STAGE: {stage_position.pretty_string} [{orientation}] [{grid}]"
+            milling_angle = microscope.get_current_milling_angle(
+                stage_position=stage_position
+            )
+            stage_txt = (
+                f"STAGE: {stage_position.pretty_string} [{orientation}] [{grid}]"
+            )
             self.set_info(BeamType.ELECTRON, "stage", stage_txt)
             self.set_info(BeamType.ION, "stage", stage_txt)
             self.set_fm_info("stage", stage_txt)  # universal context (before objective)
-            self.set_info(BeamType.ION, "milling", f"MILLING ANGLE: {milling_angle:.1f}°")
+            self.set_info(
+                BeamType.ION, "milling", f"MILLING ANGLE: {milling_angle:.1f}°"
+            )
             if microscope.fm is not None:
                 # Remembered rather than read. This runs on every stage-position update
                 # (`FibsemMovementWidget._update_position_readout`, which passes no
@@ -725,7 +756,9 @@ class MicroscopeViewController(QObject):
                         f"OBJECTIVE: {self._objective_position * constants.METRE_TO_MICRON:.1f} µm",
                     )
         except Exception:
-            _logger.warning("MicroscopeViewController.update_info failed", exc_info=True)
+            _logger.warning(
+                "MicroscopeViewController.update_info failed", exc_info=True
+            )
 
     # ── render loop ───────────────────────────────────────────────────────
     def _mark_dirty(self, canvas: FibsemImageCanvas) -> None:
@@ -769,11 +802,15 @@ class MicroscopeViewController(QObject):
         if (canvas._info_text or "") != info_text:
             canvas.set_info_text(info_text)
 
-    def _create_overlay(self, canvas: FibsemImageCanvas, overlay_id: str, spec: OverlaySpec):
+    def _create_overlay(
+        self, canvas: FibsemImageCanvas, overlay_id: str, spec: OverlaySpec
+    ):
         """Construct the overlay object for *spec* and wire its edit signal (if any)
         back to :attr:`overlay_edited` (one branch per migrated slice)."""
         if isinstance(spec, MillingSpec):
-            from fibsem.ui.widgets.canvas.overlays.milling_overlay import MillingPatternOverlay
+            from fibsem.ui.widgets.canvas.overlays.milling_overlay import (
+                MillingPatternOverlay,
+            )
 
             return MillingPatternOverlay()
         if isinstance(spec, MaskSpec):
@@ -781,7 +818,9 @@ class MicroscopeViewController(QObject):
 
             return MaskOverlay()
         if isinstance(spec, AlignmentSpec):
-            from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
+            from fibsem.ui.widgets.canvas.overlays.alignment_overlay import (
+                AlignmentAreaOverlay,
+            )
 
             obj = AlignmentAreaOverlay(editable=spec.editing)
             beam = self._beams.get(canvas)
@@ -813,8 +852,8 @@ class MicroscopeViewController(QObject):
                     )
                 )
             obj.point_selected.connect(
-                lambda idx, x, y, b=beam, i=overlay_id: self.overlay_point_selected.emit(
-                    b, i, idx
+                lambda idx, x, y, b=beam, i=overlay_id: (
+                    self.overlay_point_selected.emit(b, i, idx)
                 )
             )
             return obj
@@ -823,7 +862,9 @@ class MicroscopeViewController(QObject):
         )
         return None
 
-    def _drive_overlay(self, obj, spec: OverlaySpec, image: Optional[FibsemImage]) -> None:
+    def _drive_overlay(
+        self, obj, spec: OverlaySpec, image: Optional[FibsemImage]
+    ) -> None:
         """Push *spec* data into its overlay object, injecting the canvas image."""
         if isinstance(spec, MillingSpec):
             if image is None or not spec.visible:
@@ -850,8 +891,12 @@ class MicroscopeViewController(QObject):
             # non-destructive, so it always runs.
             sig = self._points_signature(spec)
             if getattr(obj, "_reducer_pts_sig", None) != sig:
-                obj.set_points(list(spec.points), colors=spec.colors, labels=spec.labels)
-                obj.set_selected(spec.selected)  # set_points nulls the selection; re-apply
+                obj.set_points(
+                    list(spec.points), colors=spec.colors, labels=spec.labels
+                )
+                obj.set_selected(
+                    spec.selected
+                )  # set_points nulls the selection; re-apply
                 obj._reducer_pts_sig = sig
             obj.set_visible(spec.visible)
         elif isinstance(spec, MaskSpec):
@@ -865,7 +910,9 @@ class MicroscopeViewController(QObject):
         pts = [(float(p[0]), float(p[1])) for p in spec.points]
         return repr((pts, spec.colors, spec.labels, spec.selected))
 
-    def _apply_arming(self, canvas: FibsemImageCanvas, state: CanvasState, objs) -> None:
+    def _apply_arming(
+        self, canvas: FibsemImageCanvas, state: CanvasState, objs
+    ) -> None:
         """Make the model's armed overlay the canvas's active input mode (single
         arbiter). Toggles only on change; the exit is scoped to the overlay we armed,
         so it never tears down a mode another (still-direct) consumer owns."""
@@ -876,10 +923,14 @@ class MicroscopeViewController(QObject):
             return
         if desired is not None:
             canvas.enter_overlay_mode(
-                desired, state.armed_label, icon=state.armed_icon or "mdi:cursor-default-click"
+                desired,
+                state.armed_label,
+                icon=state.armed_icon or "mdi:cursor-default-click",
             )
         elif prev is not None:
-            canvas.exit_overlay_mode(prev)  # scoped: no-op unless prev still owns the mode
+            canvas.exit_overlay_mode(
+                prev
+            )  # scoped: no-op unless prev still owns the mode
         self._armed_applied[canvas] = desired
 
     def _on_overlay_edited(self, beam, overlay_id: str, value) -> None:

@@ -33,10 +33,9 @@ import traceback
 
 import napari
 import numpy as np
+import vispy.gloo.glir as glir
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QApplication
-
-import vispy.gloo.glir as glir
 
 # ---------------------------------------------------------------- detector
 

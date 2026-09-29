@@ -1,9 +1,11 @@
-from fibsem import utils, calibration, acquire
+import sys
 
-from fibsem.structures import BeamType, FibsemManipulatorPosition
 import matplotlib.pyplot as plt
 import numpy as np
-import sys
+
+from fibsem import acquire, calibration, utils
+from fibsem.structures import BeamType, FibsemManipulatorPosition
+
 
 def main():
     microscope, settings = utils.setup_session()

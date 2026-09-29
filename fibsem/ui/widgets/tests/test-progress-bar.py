@@ -1,8 +1,16 @@
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QProgressBar, QPushButton, QLabel
-from PyQt5.QtCore import Qt
 import sys
-from fibsem.ui.stylesheets import INDETERMINATE_PROGRESS_BAR_STYLESHEET
 
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QApplication,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from fibsem.ui.stylesheets import INDETERMINATE_PROGRESS_BAR_STYLESHEET
 
 
 class IndeterminateProgressExample(QWidget):

@@ -6,10 +6,12 @@ drifted: left to `PointsSpec`'s defaults it came out at size 18 with a 2.0 edge,
 visibly fatter cross than the thin one the other two draw, and with no `legend_label` it
 was the only one missing from the canvas legend.
 
-Driven by calling the method unbound against a stub, because its host is `AutoLamellaUI`
--- a napari-backed window that cannot be constructed headless. The spec it builds is the
-whole of what this pins, so the stub costs nothing in coverage.
+Driven by calling `QtResponder._pick_poi` unbound against a stub, so the spec it
+builds is pinned without a window or a running question: the marker drawing moved
+there with the PickPOI conversion, and the image now arrives in the request rather
+than being read off the host.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -21,7 +23,8 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.qt_responder import QtResponder
+from fibsem.applications.autolamella.workflows.interaction import PickPOI
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -55,8 +58,8 @@ class _Controller:
         self.armed = (beam, overlay_id)
 
 
-def _host(shape=(64, 64), pixel_size=1e-8):
-    """The one attribute `_show_poi_overlay` reads off its host: the FIB image."""
+def _image(shape=(64, 64), pixel_size=1e-8):
+    """The image the request carries — what the marker's coordinates mean against."""
     image = FibsemImage(
         data=np.zeros(shape, dtype=np.uint8),
         metadata=FibsemImageMetadata(
@@ -67,12 +70,18 @@ def _host(shape=(64, 64), pixel_size=1e-8):
             microscope_state=MicroscopeState(),
         ),
     )
-    return types.SimpleNamespace(image_widget=types.SimpleNamespace(ib_image=image))
+    return image
 
 
 def _poi_spec(initial_poi=None):
     controller = _Controller()
-    AutoLamellaUI._show_poi_overlay(_host(), controller, initial_poi)
+    stub = types.SimpleNamespace(
+        _view_controller=lambda: controller,
+        _park_question=lambda *a, **k: None,
+    )
+    QtResponder._pick_poi(
+        stub, PickPOI(image=_image(), initial=initial_poi), future=None
+    )
     return controller.overlays[(BeamType.ION, "poi")]
 
 

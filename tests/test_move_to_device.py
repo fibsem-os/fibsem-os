@@ -1,0 +1,338 @@
+"""`move_to_device(device, orientation=None)`: one call that plans the route.
+
+The old `move_to_microscope` refused what it could have done -- "Cannot move to FM
+from SEM or MILLING orientation. Please switch to FIB orientation first." was an
+instruction to the user to perform, by hand, exactly the sequence the software
+composes everywhere else. The replacement owns the safe order: retract the
+objective, re-pose at the beams, travel out. The rotation guard (FIB-841) stays
+underneath as the last-line assert -- several tests here would trip it if the legs
+were ever composed in the wrong order.
+
+See FIB-832.
+"""
+
+import os
+
+import numpy as np
+import pytest
+
+import fibsem.config as cfg
+from fibsem import utils
+from fibsem.structures import FibsemStagePosition
+
+IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+
+
+def _microscope(config_path: str = IFLM_CONFIG):
+    microscope, _ = utils.setup_session(config_path=config_path)
+    return microscope
+
+
+# ── the refusal is now a route ───────────────────────────────────────
+
+
+def test_to_the_fm_from_sem_re_poses_then_travels():
+    """The first thing a real workflow does, and the thing that used to raise."""
+    microscope = _microscope()
+    microscope.move_to_orientation("SEM")
+
+    microscope.move_to_device("FM")
+
+    assert microscope.get_current_device() == "FM"
+    assert microscope.get_stage_orientation() == "FIB"
+    assert microscope.fm.objective.state == "Inserted"
+
+
+def test_the_re_pose_happens_at_the_beams_not_at_the_fm():
+    """The bracketing order, proven by the guard underneath.
+
+    Coming back from the FM and asking for MILLING requires a half turn. Rotating
+    where the stage stands -- at the FM -- is exactly what FIB-841 refuses, so a
+    wrong leg order cannot pass this test quietly: the guard would raise.
+    """
+    microscope = _microscope()
+    microscope.move_to_orientation("FIB")
+    microscope.move_to_device("FM")
+
+    microscope.move_to_device("FIBSEM", orientation="MILLING")
+
+    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.get_stage_orientation() == "MILLING"
+
+
+def test_the_round_trip_is_one_call_each_way():
+    """The FIB-832 complaint: the last leg used to be two moves, every time."""
+    microscope = _microscope()
+    microscope.move_to_orientation("SEM")
+
+    microscope.move_to_device("FM")
+    microscope.move_to_device("FIBSEM", orientation="MILLING")
+    microscope.move_to_device("FM")
+
+    assert microscope.get_current_device() == "FM"
+    assert microscope.get_stage_orientation() == "FIB"
+
+
+# ── it arrives on the same piece of sample ──────────────────────────────
+
+
+def _off_centre(microscope, orientation: str) -> FibsemStagePosition:
+    pose = microscope.get_orientation(orientation)
+    return FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=pose.r, t=pose.t)
+
+
+def test_the_traverse_keeps_the_sample_point():
+    """Where the stage lands is where `to_device` says the same point is at the FM.
+    It used to re-pose by name, which rewrites r and t where the stage stands: the
+    half turn is compucentric about a centre that is not the sample, so the point
+    under the beam was swung away before the traverse -- and the FM ended up looking
+    at somewhere else, 200 um off on the simulator."""
+    microscope = _microscope()
+    start = _off_centre(microscope, "SEM")
+    microscope.move_stage_absolute(start)
+    expected = microscope.to_device(start, "FM")
+
+    microscope.move_to_device("FM")
+
+    arrived = microscope.get_stage_position()
+    assert arrived.x == pytest.approx(expected.x, abs=1e-9)
+    assert arrived.y == pytest.approx(expected.y, abs=1e-9)
+    assert microscope.get_stage_orientation(arrived) == "FIB"
+
+
+def test_going_out_and_back_returns_to_the_start():
+    microscope = _microscope()
+    start = _off_centre(microscope, "SEM")
+    microscope.move_stage_absolute(start)
+
+    microscope.move_to_device("FM")
+    microscope.move_to_device("FIBSEM", orientation="SEM")
+
+    back = microscope.get_stage_position()
+    assert back.x == pytest.approx(start.x, abs=1e-9)
+    assert back.y == pytest.approx(start.y, abs=1e-9)
+
+
+# ── `to_device`: the conversion the move agrees with ─────────────────────
+
+
+def test_to_device_keeps_a_pose_the_device_images_from():
+    """A FIB pose carried to the iFLM is relocated, not snapped to nominal."""
+    microscope = _microscope()
+    start = _off_centre(microscope, "FIB")
+    start.t += np.radians(1.0)  # a tilt somebody dialled in
+
+    at_fm = microscope.to_device(start, "FM")
+
+    assert microscope.is_at_device("FM", at_fm)
+    assert at_fm.t == pytest.approx(start.t)
+    assert at_fm.r == pytest.approx(start.r)
+
+
+def test_to_device_re_poses_a_pose_the_device_cannot_image_from():
+    microscope = _microscope()
+    start = _off_centre(microscope, "SEM")
+
+    at_fm = microscope.to_device(start, "FM")
+
+    assert microscope.is_at_device("FM", at_fm)
+    assert microscope.get_stage_orientation(at_fm) == "FIB"
+
+
+def test_to_device_round_trips():
+    microscope = _microscope()
+    start = _off_centre(microscope, "SEM")
+
+    back = microscope.to_device(
+        microscope.to_device(start, "FM"), "FIBSEM", orientation="SEM"
+    )
+
+    assert back.x == pytest.approx(start.x, abs=1e-9)
+    assert back.y == pytest.approx(start.y, abs=1e-9)
+
+
+def test_to_device_on_a_compustage_is_the_flip():
+    microscope = _microscope(ARCTIS_CONFIG)
+    start = _off_centre(microscope, "SEM")
+
+    at_fm = microscope.to_device(start, "FM")
+
+    assert microscope.get_stage_orientation(at_fm) == "FM"
+
+
+def test_to_device_refuses_an_unsupported_pose():
+    """`NONE` is unsupported: there is no conversion from it, and it says so."""
+    microscope = _microscope(ARCTIS_CONFIG)
+    start = _off_centre(microscope, "SEM")
+    start.t = np.radians(-90)
+    assert microscope.get_stage_orientation(start) == "NONE"
+
+    with pytest.raises(ValueError):
+        microscope.to_device(start, "FM")
+
+
+# ── a compustage arrives where the conversion says, too ─────────────────
+
+
+def _beam_side_arctis():
+    """A compustage whose objective also images from the beam side."""
+    microscope = _microscope(ARCTIS_CONFIG)
+    microscope.system.stage.devices["FM"].acquisition_orientations = [
+        "FM",
+        "SEM",
+        "MILLING",
+    ]
+    return microscope
+
+
+@pytest.mark.parametrize("orientation", ["SEM", "MILLING"])
+def test_a_compustage_stays_in_a_pose_its_objective_images_from(orientation):
+    """It used to flip to t = -180 regardless, while `to_device` kept the pose -- so
+    "move to the FM" went somewhere other than the fluorescence pose derived for a
+    lamella marked right there."""
+    microscope = _beam_side_arctis()
+    start = _off_centre(microscope, orientation)
+    microscope.move_stage_absolute(start)
+    expected = microscope.to_device(start, "FM")
+
+    microscope.move_to_device("FM")
+
+    arrived = microscope.get_stage_position()
+    assert arrived.t == pytest.approx(expected.t)
+    assert arrived.t == pytest.approx(start.t)
+    assert arrived.x == pytest.approx(start.x)
+    assert microscope.fm.objective.state == "Inserted"
+
+
+def test_a_compustage_still_flips_from_a_pose_its_objective_cannot_use():
+    microscope = _beam_side_arctis()
+    microscope.move_stage_absolute(_off_centre(microscope, "FIB"))
+
+    microscope.move_to_device("FM")
+
+    assert microscope.get_stage_orientation() == "FM"
+    assert microscope.fm.objective.state == "Inserted"
+
+
+def test_a_compustage_that_declares_only_the_flip_is_unchanged():
+    microscope = _microscope(ARCTIS_CONFIG)
+    microscope.system.stage.devices["FM"].acquisition_orientations = ["FM"]
+    microscope.move_stage_absolute(_off_centre(microscope, "SEM"))
+
+    microscope.move_to_device("FM")
+
+    assert microscope.get_stage_orientation() == "FM"
+
+
+def test_an_orientation_asked_for_on_a_compustage_is_honoured():
+    microscope = _beam_side_arctis()
+    microscope.move_stage_absolute(_off_centre(microscope, "MILLING"))
+
+    microscope.move_to_device("FM", orientation="FM")
+
+    assert microscope.get_stage_orientation() == "FM"
+
+
+# ── what a traverse still does not do ────────────────────────────────
+
+
+def test_an_acceptable_pose_is_carried_across_untouched():
+    """No orientation asked for and the pose is one the FM images from: no snap.
+
+    Three degrees off the nominal FIB tilt -- inside the band the classifier calls
+    FIB -- must survive the traverse. Routing through `move_to_orientation`
+    unconditionally would snap r and t to nominal and quietly discard it.
+    """
+    microscope = _microscope()
+    microscope.move_to_orientation("FIB")
+    position = microscope.get_stage_position()
+    position.t = position.t + np.radians(3)
+    microscope.move_stage_absolute(position)
+    tilt_before = microscope.get_stage_position().t
+
+    microscope.move_to_device("FM")
+
+    assert microscope.get_stage_position().t == pytest.approx(tilt_before)
+
+
+def test_asking_for_the_device_it_is_at_does_not_move():
+    microscope = _microscope()
+    microscope.move_to_orientation("FIB")
+    microscope.move_to_device("FM")
+    before = microscope.get_stage_position()
+
+    microscope.move_to_device("FM")
+
+    assert microscope.get_stage_position().is_close(before, tol=1e-9)
+    assert microscope.fm.objective.state == "Inserted"
+
+
+def test_travelling_from_neither_device_is_still_refused():
+    """Mid-traverse is a real state, and not one to guess a starting device for."""
+    microscope = _microscope()
+    microscope.move_to_orientation("FIB")
+    microscope.move_stage_relative(FibsemStagePosition(x=24.0e-3, y=0.0, z=0.0))
+
+    with pytest.raises(ValueError, match="not at any configured device"):
+        microscope.move_to_device("FM")
+
+
+# ── the compustage gets the same signature ───────────────────────────
+
+
+def test_a_compustage_lands_at_the_orientation_it_asked_for():
+    """The extra stage move every round trip used to pay: FIBSEM always landed at
+    SEM, and MILLING was a second call."""
+    microscope = _microscope(ARCTIS_CONFIG)
+    microscope.move_to_device("FM")
+
+    microscope.move_to_device("FIBSEM", orientation="MILLING")
+
+    assert microscope.get_stage_orientation() == "MILLING"
+
+
+def test_a_compustage_keeps_its_default_landing_poses():
+    """Unasked, FIBSEM still lands at SEM and the FM at its own orientation --
+    every existing caller relies on exactly that."""
+    microscope = _microscope(ARCTIS_CONFIG)
+
+    microscope.move_to_device("FM")
+    assert microscope.get_stage_orientation() == "FM"
+    assert microscope.fm.objective.state == "Inserted"
+
+    microscope.move_to_device("FIBSEM")
+    assert microscope.get_stage_orientation() == "SEM"
+
+
+# ── the deprecated names still work ──────────────────────────────────
+
+
+def test_move_to_microscope_is_a_shim():
+    """~15 production call sites and ~40 in tests keep working unchanged."""
+    microscope = _microscope()
+    microscope.move_to_orientation("FIB")
+
+    microscope.move_to_microscope("FM")
+    assert microscope.get_current_device() == "FM"
+
+    microscope.move_to_microscope("FIBSEM")
+    assert microscope.get_current_device() == "FIBSEM"
+
+
+# ── the FM orientation no longer exists where it never was one ───────
+
+
+def test_an_offset_mount_has_no_fm_orientation_to_ask_for():
+    """`orientations["FM"]` off a compustage was a deepcopy of FIB -- a second name
+    for a pose that already had one, never returned by the classifier, and the root
+    of the whole conflation. Deleting it changes no classification; it only stops
+    `get_orientation("FM")` naming a pose that does not exist.
+    """
+    offset = _microscope()
+    compustage = _microscope(ARCTIS_CONFIG)
+
+    with pytest.raises(Exception):
+        offset.get_orientation("FM")
+
+    assert compustage.get_orientation("FM") is not None

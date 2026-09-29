@@ -13,48 +13,13 @@ from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_c
 
 if TYPE_CHECKING:
     from psygnal.containers import EventedDict
+
     from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 
-from fibsem.applications.autolamella.workflows.tasks.tasks import AutoLamellaTask
-
-# Built-in task classes
-from fibsem.applications.autolamella.workflows.tasks.tasks import (
-    MillTrenchTask,
-    MillUndercutTask,
-    MillRoughTask,
-    MillPolishingTask,
-    SpotBurnFiducialTask,
-    MillFiducialTask,
-    AcquireReferenceImageTask,
-    BasicMillingTask,
-    SelectMillingPositionTask,
-    SelectFluorescencePositionTask,
-    AcquireFluorescenceImageTask,
-)
-
-# Built-in task config classes
-from fibsem.applications.autolamella.workflows.tasks.tasks import (
-    MillTrenchTaskConfig,
-    MillUndercutTaskConfig,
-    MillRoughTaskConfig,
-    MillPolishingTaskConfig,
-    SpotBurnFiducialTaskConfig,
-    MillFiducialTaskConfig,
-    AcquireReferenceImageConfig,
-    BasicMillingTaskConfig,
-    SelectMillingPositionTaskConfig,
-    SelectFluorescencePositionConfig,
-    AcquireFluorescenceImageConfig,
-)
-
-# Helper functions and exceptions
-from fibsem.applications.autolamella.workflows.tasks.tasks import (
-    get_task_supervision,
-)
 from fibsem.applications.autolamella.workflows.tasks.manager import (
+    TaskManager,
     run_task,
     run_tasks,
-    TaskManager,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import (
     QueueOp,
@@ -63,8 +28,46 @@ from fibsem.applications.autolamella.workflows.tasks.queue import (
     WorkItem,
 )
 
+# Built-in task classes
+# Built-in task config classes
+# Helper functions and exceptions
+from fibsem.applications.autolamella.workflows.tasks.tasks import (
+    AcquireFluorescenceImageConfig,
+    AcquireFluorescenceImageTask,
+    AcquireReferenceImageConfig,
+    AcquireReferenceImageTask,
+    AutoLamellaTask,
+    BasicMillingTask,
+    BasicMillingTaskConfig,
+    MillCoincidentTask,
+    MillCoincidentTaskConfig,
+    MillFiducialTask,
+    MillFiducialTaskConfig,
+    MillPerforationTask,
+    MillPerforationTaskConfig,
+    MillPolishingTask,
+    MillPolishingTaskConfig,
+    MillRoughTask,
+    MillRoughTaskConfig,
+    MillTrenchTask,
+    MillTrenchTaskConfig,
+    MillUndercutTask,
+    MillUndercutTaskConfig,
+    SelectFluorescencePositionConfig,
+    SelectFluorescencePositionTask,
+    SelectMillingPositionTask,
+    SelectMillingPositionTaskConfig,
+    SetupCoincidenceMillingTask,
+    SetupCoincidenceMillingTaskConfig,
+    SpotBurnFiducialTask,
+    SpotBurnFiducialTaskConfig,
+    get_task_supervision,
+)
+
+
 class TaskNotRegisteredError(Exception):
     """Exception raised when a task is not registered in the TASK_REGISTRY."""
+
     def __init__(self, task_type: str):
         super().__init__(f"Task '{task_type}' is not registered in the TASK_REGISTRY.")
         self.task_type = task_type
@@ -79,6 +82,7 @@ BUILTIN_TASKS: Dict[str, Type[AutoLamellaTask]] = {
     MillUndercutTaskConfig.task_type: MillUndercutTask,
     MillRoughTaskConfig.task_type: MillRoughTask,
     MillPolishingTaskConfig.task_type: MillPolishingTask,
+    MillPerforationTaskConfig.task_type: MillPerforationTask,
     SpotBurnFiducialTaskConfig.task_type: SpotBurnFiducialTask,
     MillFiducialTaskConfig.task_type: MillFiducialTask,
     AcquireReferenceImageConfig.task_type: AcquireReferenceImageTask,
@@ -87,6 +91,8 @@ BUILTIN_TASKS: Dict[str, Type[AutoLamellaTask]] = {
     "SETUP_LAMELLA": MillFiducialTask,  # BACKWARDS_COMPATIBILITY,
     SelectFluorescencePositionConfig.task_type: SelectFluorescencePositionTask,
     AcquireFluorescenceImageConfig.task_type: AcquireFluorescenceImageTask,
+    SetupCoincidenceMillingTaskConfig.task_type: SetupCoincidenceMillingTask,
+    MillCoincidentTaskConfig.task_type: MillCoincidentTask,
 }
 
 # Runtime registered tasks
@@ -159,9 +165,12 @@ def get_task_names() -> typing.List[str]:
     return list(get_tasks().keys())
 
 
-def load_task_config(ddict: Dict[str, Any]) -> 'EventedDict[str, AutoLamellaTaskConfig]':
+def load_task_config(
+    ddict: Dict[str, Any],
+) -> "EventedDict[str, AutoLamellaTaskConfig]":
     """Load task configurations from a dictionary."""
     from psygnal.containers import EventedDict
+
     task_registry = get_tasks()
     task_config = EventedDict()
     for name, v in ddict.items():
@@ -175,13 +184,13 @@ def load_task_config(ddict: Dict[str, Any]) -> 'EventedDict[str, AutoLamellaTask
     return task_config
 
 
-def load_config(task_type: str, ddict: Dict[str, Any]) -> 'AutoLamellaTaskConfig':
+def load_config(task_type: str, ddict: Dict[str, Any]) -> "AutoLamellaTaskConfig":
     """Load a task configuration from a dictionary."""
     config_class = get_task_config(task_type=task_type)
     return config_class.from_dict(ddict)
 
 
-def get_task_config(task_type: str) -> Type['AutoLamellaTaskConfig']:
+def get_task_config(task_type: str) -> Type["AutoLamellaTaskConfig"]:
     """Get the task configuration by name."""
     task_registry = get_tasks()
     if task_type not in task_registry:

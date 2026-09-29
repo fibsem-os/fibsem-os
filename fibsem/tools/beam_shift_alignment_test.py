@@ -1,7 +1,8 @@
-from fibsem import utils, acquire, alignment
-from fibsem.structures import BeamType, FibsemRectangle
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+
+from fibsem import acquire, alignment, utils
+from fibsem.structures import BeamType, FibsemRectangle
 
 
 def run_beam_shift_alignment_test(scan_rotation: int = 180, hfw: float = 150e-6, beam_type: BeamType = BeamType.ION):

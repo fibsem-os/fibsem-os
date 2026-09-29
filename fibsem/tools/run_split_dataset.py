@@ -1,8 +1,10 @@
-import os
-import glob
-import pandas as pd
-from pathlib import Path
 import argparse
+import glob
+import os
+from pathlib import Path
+
+import pandas as pd
+
 
 def _split_dataset(DATA_PATH: Path, OUTPUT_PATH: Path):
 

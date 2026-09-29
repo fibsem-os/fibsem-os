@@ -1,5 +1,6 @@
-from fibsem.segmentation.onnx_model import export_model_to_onnx
 import argparse
+
+from fibsem.segmentation.onnx_model import export_model_to_onnx
 
 
 def main():

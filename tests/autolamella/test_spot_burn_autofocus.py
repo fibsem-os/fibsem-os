@@ -4,6 +4,7 @@ Covers the config field round-trip, the ordering (focus before the reference ima
 the points are placed on), and the `_run_autofocus` helper — which until now read
 `self.image_settings`, an attribute the base class never defines.
 """
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,7 +13,6 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.structures import BeamType, Point
-
 
 # --- config -----------------------------------------------------------------
 
@@ -43,7 +43,9 @@ def test_autofocus_is_exposed_as_a_task_parameter():
 
 def test_autofocus_is_not_part_of_the_run_payload():
     """SpotBurnSettings is what to burn; autofocus is a workflow concern (see #211)."""
-    settings = SpotBurnFiducialTaskConfig(task_name="Spot Burn", autofocus=True).to_settings()
+    settings = SpotBurnFiducialTaskConfig(
+        task_name="Spot Burn", autofocus=True
+    ).to_settings()
     assert not hasattr(settings, "autofocus")
 
 
@@ -71,9 +73,15 @@ def _record_run(task, calls):
     """Stub out everything _run does except the autofocus/reference-image ordering."""
     task._move_to_milling_pose = lambda: calls.append(("move", None))
     task._align_reference_image = lambda *a, **k: calls.append(("align", None))
-    task._run_autofocus = lambda beam_type, hfw=None: calls.append(("autofocus", (beam_type, hfw)))
-    task._acquire_reference_image = lambda *a, **k: calls.append(("reference", k.get("field_of_view")))
-    task._acquire_set_of_reference_images = lambda *a, **k: calls.append(("final", None))
+    task._run_autofocus = lambda beam_type, hfw=None: calls.append(
+        ("autofocus", (beam_type, hfw))
+    )
+    task._acquire_reference_image = lambda *a, **k: calls.append(
+        ("reference", k.get("field_of_view"))
+    )
+    task._acquire_set_of_reference_images = lambda *a, **k: calls.append(
+        ("final", None)
+    )
     task.update_spot_burn_parameters_ui = lambda: calls.append(("burn", None))
     task.log_status_message = lambda *a, **k: None
 
@@ -202,3 +210,44 @@ def test_run_autofocus_lets_cancellation_propagate(tmp_path, monkeypatch):
         task._run_autofocus(BeamType.ION, hfw=150e-6)
 
     assert task._is_cancellation(OperationCancelledError("stopped")) is True
+
+
+# --- the None skip (FIB-508: backends that cannot set the working distance) --
+
+
+def test_run_autofocus_skips_cleanly_when_the_sweep_is_declined(tmp_path, monkeypatch):
+    """run_auto_focus returns None where the working distance is not settable
+    (TESCAN ION). The task must say "skipped" and save nothing — before the guard
+    this was an AttributeError on result.save, killing the task the first time a
+    Tescan protocol enabled autofocus. A placeholder result instead of None would
+    be worse: it would write a completed-looking artifact directory and log a
+    working distance that was never applied."""
+    import os
+
+    import fibsem.autofunctions.autofocus as af
+
+    task = _make_task(tmp_path, autofocus=True)
+    (tmp_path / "lam").mkdir(parents=True, exist_ok=True)
+    messages = []
+    task.log_status_message = lambda *a, **k: messages.append((a, k))
+    monkeypatch.setattr(af, "run_auto_focus", lambda microscope, **kwargs: None)
+
+    task._run_autofocus(BeamType.ION, hfw=150e-6)  # must not raise
+
+    assert any("skipped" in str(m).lower() for m in messages)
+    assert not os.path.exists(os.path.join(task.lamella.path, "autofunctions"))
+
+
+def test_run_autofocus_still_saves_when_the_sweep_ran(tmp_path, monkeypatch):
+    """The guard must not swallow real results: a returned result is still saved."""
+    import fibsem.autofunctions.autofocus as af
+
+    task = _make_task(tmp_path, autofocus=True)
+    (tmp_path / "lam").mkdir(parents=True, exist_ok=True)
+    task.log_status_message = lambda *a, **k: None
+    result = MagicMock(working_distance=16.5e-3, focus_score=1.0)
+    monkeypatch.setattr(af, "run_auto_focus", lambda microscope, **kwargs: result)
+
+    task._run_autofocus(BeamType.ION, hfw=150e-6)
+
+    result.save.assert_called_once()

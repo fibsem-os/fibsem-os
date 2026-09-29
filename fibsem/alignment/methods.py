@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import numpy as np
 
-from fibsem import utils
 from fibsem import config as cfg
+from fibsem import utils
 from fibsem.imaging import masks
 from fibsem.imaging import utils as image_utils
 from fibsem.structures import FibsemImage, Point
@@ -381,7 +381,10 @@ def shift_from_skimage_phase_correlation(
         shift_px in pixels, and success flag.
     """
     from skimage.registration import phase_cross_correlation
-    from fibsem.alignment import AlignmentIteration  # lazy: avoids circular import at load time
+
+    from fibsem.alignment import (
+        AlignmentIteration,  # lazy: avoids circular import at load time
+    )
 
     pixelsize_x = new_image.metadata.pixel_size.x
     pixelsize_y = new_image.metadata.pixel_size.y

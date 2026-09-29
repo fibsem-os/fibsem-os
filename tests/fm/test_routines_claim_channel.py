@@ -168,7 +168,7 @@ class TestTheClaimIsStructural:
 
         import fibsem
 
-        tree = ast.parse((Path(fibsem.__file__).parent / module).read_text())
+        tree = ast.parse((Path(fibsem.__file__).parent / module).read_text(encoding="utf-8"))
         fn = next(
             n for n in ast.walk(tree)
             if isinstance(n, ast.FunctionDef) and n.name == function

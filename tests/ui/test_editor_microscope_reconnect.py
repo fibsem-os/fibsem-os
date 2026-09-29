@@ -41,16 +41,16 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (  # noqa: E402
-    AcquireFluorescenceImageConfig,
-)
-from fibsem.fm.structures import ChannelSettings  # noqa: E402
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (  # noqa: E402
     AutoLamellaProtocolEditorWidget,
 )
 from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (  # noqa: E402
     AutoLamellaProtocolTaskConfigEditor,
 )
+from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (  # noqa: E402
+    AcquireFluorescenceImageConfig,
+)
+from fibsem.fm.structures import ChannelSettings  # noqa: E402
 
 EDITORS = [AutoLamellaProtocolTaskConfigEditor, AutoLamellaProtocolEditorWidget]
 EDITOR_IDS = ["task_config_editor", "lamella_protocol_editor"]

@@ -23,6 +23,7 @@ Hosts forward the four signals rather than making callers reach through
 `.picking`, which keeps `correlation_tab_widget` and its `_CanvasAdapter`
 untouched by the migration.
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
@@ -32,6 +33,7 @@ from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QAction, QMenu, QWidget
 
 from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.correlation.widgets.correlation_point_overlay import (
     CorrelationPointOverlay,
     CorrelationResultOverlay,
@@ -56,8 +58,14 @@ class CorrelationPicking(QObject):
         *,
         allowed_point_types: Optional[List[PointType]] = None,
         menu_parent: Optional[QWidget] = None,
+        store: Optional[CorrelationPointStore] = None,
+        side: Optional[str] = None,
     ) -> None:
         """Attach picking to *canvas*.
+
+        *store* and *side* go to the point overlay: the store the points are
+        drawn from, and which canvas of a shared store this is ("fib" | "fm").
+        Without them the overlay keeps a store of its own.
 
         *menu_parent* is the widget the add-menu hangs from — a parameter rather
         than an assumption, because neither this nor the overlay is a QWidget and
@@ -70,7 +78,7 @@ class CorrelationPicking(QObject):
         self._menu_parent = menu_parent
         self._allowed_types = allowed_point_types
 
-        self.points = CorrelationPointOverlay()
+        self.points = CorrelationPointOverlay(store=store, side=side)
         canvas.add_overlay(self.points)
         # Result markers get their own overlay: they are computed output, never
         # picked, and keeping them off `points` is what makes them unpickable
@@ -91,13 +99,17 @@ class CorrelationPicking(QObject):
         # both, so without these the swap would quietly cost two controls that
         # exist today. Same icons and tooltips it used.
         self.btn_legend = canvas.add_toolbar_button(
-            "mdi:format-list-bulleted", "Toggle legend",
-            self.set_legend_visible, checkable=True,
+            "mdi:format-list-bulleted",
+            "Toggle legend",
+            self.set_legend_visible,
+            checkable=True,
         )
         self.btn_legend.setChecked(True)
         self.btn_labels = canvas.add_toolbar_button(
-            "mdi:label-outline", "Toggle point labels",
-            self.set_labels_visible, checkable=True,
+            "mdi:label-outline",
+            "Toggle point labels",
+            self.set_labels_visible,
+            checkable=True,
         )
         self.btn_labels.setChecked(True)
 
@@ -195,7 +207,9 @@ class CorrelationPicking(QObject):
         menu is dismissed -- the point is created by the caller, not here, so the
         Coordinate still gets its z from the adapter as it does today.
         """
-        types = self._allowed_types if self._allowed_types is not None else list(PointType)
+        types = (
+            self._allowed_types if self._allowed_types is not None else list(PointType)
+        )
         if not types:
             return
 

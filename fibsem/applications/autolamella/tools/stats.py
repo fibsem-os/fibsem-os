@@ -4,17 +4,15 @@ from copy import deepcopy
 
 import pandas as pd
 import plotly.express as px
-import streamlit as st
-from fibsem.applications import autolamella
-from fibsem.applications.autolamella.tools.data import calculate_statistics_dataframe
-from fibsem.structures import FibsemImage
-from fibsem.applications.autolamella.structures import Experiment
-from fibsem.imaging import tiled
-
-from fibsem.applications.autolamella import config as cfg
-
 import plotly.io as pio
+import streamlit as st
 
+from fibsem.applications import autolamella
+from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.tools.data import calculate_statistics_dataframe
+from fibsem.imaging import tiled
+from fibsem.structures import FibsemImage
 
 pio.templates.default = "plotly_white"
 

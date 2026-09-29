@@ -1,8 +1,9 @@
 import logging
+
 import numpy as np
 from numpy.typing import NDArray
-
 from skimage import exposure
+
 from fibsem.structures import FibsemImage
 
 

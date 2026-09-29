@@ -75,7 +75,7 @@ def test_adopting_an_experiment_points_logging_at_its_logfile(tmp_path, quiet_ro
     logging.info("after adoption")
     for handler in logging.getLogger().handlers:
         handler.flush()
-    assert "after adoption" in logfile.read_text()
+    assert "after adoption" in logfile.read_text(encoding="utf-8")
 
 
 def test_adopting_an_experiment_still_does_the_rest_of_the_wiring(tmp_path, quiet_root_logger):
@@ -106,10 +106,10 @@ def test_a_second_adoption_moves_logging_to_the_new_experiment(tmp_path, quiet_r
 
     assert "belongs to the second experiment" in (
         Path(second.path) / "logfile.log"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     assert "belongs to the second experiment" not in (
         Path(first.path) / "logfile.log"
-    ).read_text()
+    ).read_text(encoding="utf-8")
 
 
 def test_previewing_an_experiment_leaves_logging_alone(tmp_path, quiet_root_logger):

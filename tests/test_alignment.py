@@ -5,11 +5,10 @@ import numpy as np
 import pytest
 
 from fibsem import acquire, alignment, utils
-from fibsem.structures import FibsemImage
 from fibsem.alignment import (
     AlignmentDifferential,
-    AlignmentMethod,
     AlignmentIteration,
+    AlignmentMethod,
     AlignmentResult,
     AlignmentSubsystem,
     compare_alignment_methods,
@@ -20,6 +19,8 @@ from fibsem.alignment import (
     shift_from_skimage_phase_correlation,
 )
 from fibsem.alignment.methods import _subpixel_peak
+from fibsem.structures import FibsemImage
+
 
 @pytest.mark.parametrize("offset", [-30, -10, 0, 10, 30])
 def test_align_from_crosscorrelation(offset):
@@ -318,7 +319,7 @@ def test_alignment_differential_to_dict_native_types():
     d = differential.to_dict()
 
     assert isinstance(d["agreement"], bool), f"agreement should be bool, got {type(d['agreement'])}"
-    assert isinstance(d["max_disagreement_px"], float), f"max_disagreement_px should be float"
+    assert isinstance(d["max_disagreement_px"], float), "max_disagreement_px should be float"
 
 
 def test_alignment_differential_to_dict_structure():

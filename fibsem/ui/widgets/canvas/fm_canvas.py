@@ -9,20 +9,30 @@ contrast — the napari layer-controls equivalent, on matplotlib.
 Display only (Phase 6a); FM canvas interactions (position select, relative move)
 are Phase 6b.
 """
+
 from __future__ import annotations
 
 from dataclasses import replace
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from PyQt5.QtCore import Qt, QPoint, QSize, pyqtSignal
+from PyQt5.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt5.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QToolButton,
-    QVBoxLayout, QWidget,
+    QApplication,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 from superqt import QRangeSlider
 
+from fibsem.imaging.reduce import downsample
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -39,13 +49,20 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
-from fibsem.ui.widgets.canvas.fm_composite import (
-    AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers, to_rgba,
-)
-from fibsem.imaging.reduce import downsample
 from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
+from fibsem.ui.widgets.canvas.fm_composite import (
+    AVAILABLE_COLORS,
+    FMLayer,
+    auto_clim,
+    composite_fm_layers,
+    to_rgba,
+)
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
+from fibsem.ui.widgets.canvas.real_space_canvas import (
+    WHOLE_IMAGE,
+    FibsemRealSpaceCanvas,
+    ImageRegion,
+)
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -57,14 +74,15 @@ _ACCENT = ACCENT_COLOR
 # ACCENT_COLOR carries the pill with it; a hand-picked hex would silently fall
 # out of step.
 _ACCENT_WASH = "rgba({}, {}, {}, 0.16)".format(
-    *(int(ACCENT_COLOR[i:i + 2], 16) for i in (1, 3, 5))
+    *(int(ACCENT_COLOR[i : i + 2], 16) for i in (1, 3, 5))
 )
 
 # The ‹ › buttons flanking the z-slider. Outside _PANEL_QSS because that stylesheet
 # is applied to the floating layers panel, and these live on the z row.
 _Z_STEP_BTN_STYLE = (
     f"QToolButton {{ color: {TEXT_COLOR}; background: {SURFACE_COLOR}; "
-    f"border: 1px solid {BORDER_COLOR}; border-radius: 3px; font-size: 13px; }}"
+    f"border: 1px solid {BORDER_COLOR}; border-radius: 3px; font-size: 16px; "
+    "padding-bottom: 2px; }"
     f"QToolButton:hover {{ background: {BORDER_COLOR}; }}"
     f"QToolButton:disabled {{ color: {TEXT_MUTED_COLOR}; }}"
 )
@@ -86,6 +104,8 @@ QFrame#channelRow {{ border-radius: 7px; background: transparent; }}
 QFrame#channelRow:hover {{ background: {ROW_ALT_COLOR}; }}
 QFrame#channelRow[selected="true"] {{ background: {BORDER_COLOR}; }}
 QToolButton#eyeBtn {{ border: none; background: transparent; padding: 0; }}
+QToolButton#closeBtn {{ border: none; background: transparent; border-radius: 9px; padding: 0; }}
+QToolButton#closeBtn:hover {{ background: {BORDER_COLOR}; }}
 #chName {{ color: {TEXT_STRONG_COLOR}; font-size: 13px; }}
 QComboBox {{ background: {PANEL_COLOR}; color: {TEXT_STRONG_COLOR}; border: 1px solid {BORDER_COLOR};
             border-radius: 6px; padding: 4px 8px; font-size: 12px; }}
@@ -116,7 +136,9 @@ def _color_icon(color: str, size: int = 14) -> QIcon:
 
 
 def _chip_css(color: str) -> str:
-    return "background: %s; border-radius: 3px;" % ("white" if color == "gray" else color)
+    return "background: %s; border-radius: 3px;" % (
+        "white" if color == "gray" else color
+    )
 
 
 class _ContrastSlider(QRangeSlider):
@@ -150,7 +172,9 @@ class _ChannelRow(QFrame):
     selected = pyqtSignal(int)
     visibility_changed = pyqtSignal(int, bool)
 
-    def __init__(self, index: int, layer: FMLayer, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, index: int, layer: FMLayer, parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self._index = index
         self.setObjectName("channelRow")
@@ -235,13 +259,17 @@ class FMCanvasWidget(QWidget):
         # rather than absent -- an AttributeError inside a paint aborts the process
         # under PyQt5 rather than raising (FIB-329).
         self._blended_planes: Dict[str, np.ndarray] = {}
-        self._shape: Optional[Tuple[int, int]] = None  # composite target shape (last upserted layer)
+        self._shape: Optional[Tuple[int, int]] = (
+            None  # composite target shape (last upserted layer)
+        )
         # z-stack scrubbing: keep the full ZYX stack per channel + display state
-        self._stacks: Dict[str, np.ndarray] = {}   # channel name -> ZYX stack
-        self._mip_clim: Dict[str, Tuple[float, float]] = {}  # fixed clim while scrubbing
+        self._stacks: Dict[str, np.ndarray] = {}  # channel name -> ZYX stack
+        self._mip_clim: Dict[
+            str, Tuple[float, float]
+        ] = {}  # fixed clim while scrubbing
         self._z_index: int = 0
-        self._z_max: int = 0                        # nz - 1
-        self._max_projection: bool = True           # default: MIP (behaviour-preserving)
+        self._z_max: int = 0  # nz - 1
+        self._max_projection: bool = True  # default: MIP (behaviour-preserving)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -276,22 +304,31 @@ class FMCanvasWidget(QWidget):
         )
         # max-projection toggle (checked = MIP; uncheck to scrub the z-slider)
         self._btn_mip = self.canvas.add_toolbar_button(
-            "mdi:arrow-collapse-vertical", "Max projection", self._on_mip_button, checkable=True
+            "mdi:arrow-collapse-vertical",
+            "Max projection",
+            self._on_mip_button,
+            checkable=True,
         )
         self._btn_mip.setChecked(True)
-        self._btn_mip.setVisible(False)  # shown only once a multi-plane z-stack is loaded
+        self._btn_mip.setVisible(
+            False
+        )  # shown only once a multi-plane z-stack is loaded
         # FM contrast/gamma is per-channel (layers popover); the canvas's built-in
         # grayscale contrast button does nothing on the RGB composite — hide it.
         self.canvas.btn_contrast.hide()
         self.canvas._reposition_overlay_buttons()
 
         self._panel = FMLayersPanel(self)
-        self._panel.changed.connect(self._recomposite)
+        self._panel.changed.connect(self._restyle)
+        self._panel.moved.connect(self._on_panel_moved)
+        self._panel.close_requested.connect(self._close_layers_panel)
         self._panel.hide()
 
     # ── public API ────────────────────────────────────────────────────────
 
-    def _upsert_layer(self, name: str, data: np.ndarray, color: Optional[str]) -> FMLayer:
+    def _upsert_layer(
+        self, name: str, data: np.ndarray, color: Optional[str]
+    ) -> FMLayer:
         """Create or update a channel's layer (2-D data + colour); display props preserved.
 
         Rebuilds the panel list only when a channel is added — a data-only update (live
@@ -351,7 +388,9 @@ class FMCanvasWidget(QWidget):
         """
         return False
 
-    def set_channel(self, name: str, data: np.ndarray, color: Optional[str] = None) -> None:
+    def set_channel(
+        self, name: str, data: np.ndarray, color: Optional[str] = None
+    ) -> None:
         """Upsert a channel's 2-D image (live path — no z-stack); display props preserved.
 
         Setting several channels? Use :meth:`set_channels`. Each call here recomposites,
@@ -408,11 +447,11 @@ class FMCanvasWidget(QWidget):
         self._mip_clim = {}
         self._z_index = 0
         for ci, channel in enumerate(md.channels):
-            if data.ndim >= 4:        # CZYX
+            if data.ndim >= 4:  # CZYX
                 stack = np.asarray(data[ci])
-            elif data.ndim == 3:      # ZYX (single channel)
+            elif data.ndim == 3:  # ZYX (single channel)
                 stack = np.asarray(data)
-            else:                      # 2-D single plane
+            else:  # 2-D single plane
                 stack = np.asarray(data)[None]
             self._stacks[channel.name] = stack
             self._upsert_layer(channel.name, stack.max(axis=0), channel.color)
@@ -473,6 +512,16 @@ class FMCanvasWidget(QWidget):
             layer.name: layer.data for layer in layers if layer.data is not None
         }
         self._show_composite(rgb, reshaped)
+
+    def _restyle(self) -> None:
+        """Redraw under the current layer settings, the pixels being unchanged.
+
+        Separate from :meth:`_recomposite` because the two are different questions that
+        happened to have the same answer here. New pixels have to be blended; a colour,
+        opacity or gamma edit only has to be *shown*, and a subclass that draws part of
+        what it holds can answer that without blending everything it holds first.
+        """
+        self._recomposite()
 
     def _show_composite(self, rgb: np.ndarray, reshaped: bool) -> None:
         """Put the blended RGB frame on the canvas.
@@ -539,7 +588,9 @@ class FMCanvasWidget(QWidget):
                 if not layer.manual:
                     layer.autocontrast = True
                     layer.clim = None
-            else:
+            elif not layer.manual:
+                # Same guard as above: a z-scrub holds one MIP-derived clim across
+                # planes, but never over a contrast range the user set by hand.
                 clim = self._mip_clim.get(layer.name)
                 if clim is None:
                     clim = auto_clim(stack.max(axis=0))
@@ -552,7 +603,9 @@ class FMCanvasWidget(QWidget):
     def _z_step_button(self, glyph: str, tooltip: str, delta: int) -> QToolButton:
         button = QToolButton()
         button.setText(glyph)
-        button.setFixedSize(20, 20)
+        # The one mouse-only way to step a single slice; 20 px read as 16 on
+        # screen and was the smallest target on the canvas (FIB-978).
+        button.setFixedSize(26, 24)
         button.setToolTip(tooltip)
         button.setStyleSheet(_Z_STEP_BTN_STYLE)
         button.clicked.connect(lambda: self.step_z(delta))
@@ -609,16 +662,56 @@ class FMCanvasWidget(QWidget):
         else:
             self._panel.hide()
 
+    # Where the user last dragged the panel to, as an offset from the canvas's
+    # top-right corner. Class-level on purpose: the correlation dialog builds a fresh
+    # FM canvas per site, and the panel should reopen where it was left, not snap
+    # back to the corner every site. None = never moved = the default spot.
+    _panel_offset: Optional[QPoint] = None
+
+    def _panel_anchor(self) -> QPoint:
+        """The canvas's top-right corner in global coordinates (the toolbar lives there)."""
+        return self.canvas.mapToGlobal(QPoint(self.canvas.width() - 8, 44))
+
     def _position_panel(self) -> None:
         self._panel.adjustSize()
-        # top-level window → anchor near the canvas top-right in global coordinates
-        anchor = self.canvas.mapToGlobal(QPoint(self.canvas.width() - 8, 44))
-        self._panel.move(anchor.x() - self._panel.width(), anchor.y())
+        anchor = self._panel_anchor()
+        if FMCanvasWidget._panel_offset is None:
+            pos = QPoint(anchor.x() - self._panel.width(), anchor.y())
+        else:
+            pos = anchor + FMCanvasWidget._panel_offset
+        self._panel.move(_clamp_to_screen(pos, self._panel.size(), anchor))
+
+    def _on_panel_moved(self) -> None:
+        FMCanvasWidget._panel_offset = self._panel.pos() - self._panel_anchor()
+
+    def _close_layers_panel(self) -> None:
+        self._panel.hide()
+        self._btn_layers.setChecked(False)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if self._panel.isVisible():
             self._position_panel()
+
+    def hideEvent(self, event) -> None:
+        # The panel is a top-level tool window, so it does not go away with this
+        # widget on its own: closing the correlation dialog for one site left it
+        # floating over whatever came next (FIB-962).
+        super().hideEvent(event)
+        # Also reached from C++ while a parent window is being destroyed: Qt hides
+        # the children first. When that destruction is a Python garbage-collection
+        # pass, this wrapper's instance dict may already have been cleared, and an
+        # exception raised inside a Qt virtual is fatal under PyQt5 (the process
+        # aborts). So look the attributes up tolerantly and never raise here.
+        panel = self.__dict__.get("_panel")
+        button = self.__dict__.get("_btn_layers")
+        if panel is None or button is None:
+            return
+        try:
+            panel.hide()
+            button.setChecked(False)
+        except RuntimeError:  # wrapped C/C++ object already deleted
+            pass
 
 
 class FMRealSpaceCanvasWidget(FMCanvasWidget):
@@ -657,10 +750,11 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         # Channel planes of everything placed, so a layer change can re-render images
         # composited long ago. Only the newest is in `_layers`; the rest are here.
         self._held: Dict[str, Dict[str, np.ndarray]] = {}
-        # The same planes at display resolution. Held images do not change while held,
-        # so their reduction is computed once here rather than on every re-render.
-        # Invalidated wherever `_held` is, and wherever the display cap moves.
-        self._held_reduced: Dict[str, Dict[str, np.ndarray]] = {}
+        # Auto contrast limits per placed image per channel, as
+        # ``{key: {channel: (source_plane, (lo, hi))}}``. See `_auto_clim`.
+        self._held_clim: Dict[
+            str, Dict[str, Tuple[np.ndarray, Tuple[float, float]]]
+        ] = {}
 
     def _make_canvas(self) -> FibsemCanvasBase:
         return FibsemRealSpaceCanvas()
@@ -671,7 +765,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         Several images share one set of controls here, so a channel dropped from the
         newest is not dropped from the canvas -- an earlier overview may well have it.
         Removing the control would leave that overview with a channel nothing can
-        style, and `_restyle_others` would quietly stop drawing it: acquire a
+        style, and its detail source would quietly stop drawing it: acquire a
         one-channel overview and the two-channel one beside it loses a colour.
         """
         return any(name in planes for planes in self._held.values())
@@ -695,11 +789,11 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         """Drop the channel planes held for one image. False if none were held.
 
         The counterpart to the canvas's `remove_image`, and it has to be called with it:
-        the planes are what `_restyle_others` re-renders from, so keeping them for an
-        image no longer placed leaks the pixels and leaves `_channel_still_shown`
-        answering for a channel nothing displays.
+        the planes are what `_patch` draws from, so keeping them for an image no longer
+        placed leaks the pixels and leaves `_channel_still_shown` answering for a channel
+        nothing displays.
         """
-        self._held_reduced.pop(key, None)
+        self._held_clim.pop(key, None)
         return self._held.pop(key, None) is not None
 
     def clear_overviews(self) -> None:
@@ -707,7 +801,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         for key in list(self._held):
             self.canvas.remove_image(key)
         self._held.clear()
-        self._held_reduced.clear()
+        self._held_clim.clear()
 
     def set_placement(self, centre: Tuple[float, float]) -> None:
         """Where the composite sits, in metres from the canvas origin.
@@ -718,9 +812,13 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         """
         self._placement = (float(centre[0]), float(centre[1]))
 
-    def set_world_extent(self, width: Optional[float], height: Optional[float] = None,
-                         centre: Tuple[float, float] = (0.0, 0.0),
-                         refit: bool = True) -> None:
+    def set_world_extent(
+        self,
+        width: Optional[float],
+        height: Optional[float] = None,
+        centre: Tuple[float, float] = (0.0, 0.0),
+        refit: bool = True,
+    ) -> None:
         """Declare the working area the canvas represents — see the canvas method."""
         self.canvas.set_world_extent(width, height, centre, refit)
 
@@ -747,22 +845,17 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         # inferring placed a mosaic reduced 10x at a tenth of its size.
         covers = None
         if self._shape:
-            covers = (self._shape[1] * self._pixel_size, self._shape[0] * self._pixel_size)
-        # Keep this image's planes, so a later layer change can re-render it once its
-        # channels are no longer the ones in `_layers`. Reduced once here rather than on
-        # every re-render: these are held at *acquisition* resolution -- a stitched 10x10
-        # mosaic is 10240px square per channel -- and they do not change while they are
-        # held, so re-reducing them per re-render is the same answer computed repeatedly.
-        # That cost nothing while the reduction was a strided view and is 9 ms a plane
-        # now it averages; `_restyle_others` runs it for every held image on every layer
-        # change, so it multiplied by both counts at once.
+            covers = (
+                self._shape[1] * self._pixel_size,
+                self._shape[0] * self._pixel_size,
+            )
+        # Keep this image's planes at *acquisition* resolution: they are what `_patch`
+        # slices, so how far a zoom can go is set by what is kept here. No reduction is
+        # cached beside them -- the canvas holds the patch it last fetched and refetches
+        # only when the view outgrows it, so a second cache would answer a question
+        # nothing asks.
         self._held[key] = {
             layer.name: layer.data for layer in self._layers if layer.data is not None
-        }
-        self._held_reduced[key] = {
-            name: reduced
-            for name, reduced in self._blended_planes.items()
-            if name in self._held[key]
         }
         # Placed over other images rather than over a background, so it goes on as
         # colour plus coverage: an opaque frame hides whatever it covers, including
@@ -779,20 +872,137 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
                 # Ordered by the *acquired* pixel size: how much detail an image holds
                 # is a property of the data, not of the blend.
                 zorder=self._detail_zorder(self._pixel_size),
+                # Bound to the key, and held by the canvas for as long as the image is
+                # placed, so dropping the image drops the source with it. `rgb` above is
+                # the whole image at the display cap -- the same answer this would give
+                # for `WHOLE_IMAGE` -- so it stands as the first patch and nothing is
+                # blended twice to get started.
+                detail=lambda region, max_px, key=key: self._patch(key, region, max_px),
             )
         else:
             self.canvas.update_image(key, placed)
-        self._restyle_others(key)
+        # Everything else placed is restyled through its own source, which asks only
+        # about images the viewport actually intersects. `_restyle_others` re-blended
+        # every held image whether it was on screen or not, which is where five
+        # overviews cost five blends a frame.
+        self.canvas.refresh_detail(force=True)
 
-    def _reduced_plane(
-        self,
-        cached: Dict[str, np.ndarray],
-        planes: Dict[str, np.ndarray],
-        name: str,
-    ) -> np.ndarray:
-        """A held plane at display resolution, from the cache when it is there."""
+    def _restyle(self) -> None:
+        """A layer edit changes no pixels, so there is nothing to blend up front.
+
+        The base re-blends everything it holds and re-places it. Here the canvas asks
+        each source for the part of its image that is on screen, at the resolution the
+        screen can use, and skips the images that are not on screen at all.
+        """
+        self.canvas.refresh_detail(force=True)
+
+    def _patch(
+        self, key: str, region: ImageRegion, max_px: int
+    ) -> Optional[Tuple[np.ndarray, ImageRegion]]:
+        """The part of a placed overview *region* names, blended, at most *max_px* across.
+
+        What the canvas asks for as the view moves. The blend runs **at patch
+        resolution** rather than over a finished composite, which is the inversion
+        `_composite_inputs` already makes for a different reason: reducing first and
+        blending second costs the pixels that survive rather than the pixels held.
+
+        Snapped outward to whole stored pixels, and the region *actually* covered is
+        returned rather than the one asked for -- the canvas draws the patch over the
+        rectangle this names, and a fractional-pixel disagreement between the two would
+        show as a seam every time the view moved.
+
+        Contrast comes from `_pinned`, so it belongs to the image rather than to this
+        region of it. Without that a dim corner would be stretched to itself and drawn as
+        bright as the sample.
+        """
+        planes = self._held.get(key)
+        if not planes:
+            return None
+        layers = [layer for layer in self._layers if layer.name in planes]
+        if not layers:
+            return None
+
+        height, width = planes[layers[0].name].shape[:2]
+        x0 = min(max(0, int(np.floor(region.left * width))), width - 1)
+        y0 = min(max(0, int(np.floor(region.top * height))), height - 1)
+        x1 = min(width, max(int(np.ceil(region.right * width)), x0 + 1))
+        y1 = min(height, max(int(np.ceil(region.bottom * height)), y0 + 1))
+
+        blended = [
+            self._pinned(
+                key,
+                layer,
+                planes[layer.name],
+                downsample(planes[layer.name][y0:y1, x0:x1], max_px),
+            )
+            for layer in layers
+        ]
+        # Shape passed explicitly so hiding every channel yields black rather than
+        # nothing: `to_rgba` turns black into transparent, which is the image
+        # disappearing. Declining here would leave the last patch drawn instead.
+        rgb = composite_fm_layers(blended, blended[0].data.shape[:2])
+        if rgb is None:
+            return None
+        return to_rgba(rgb), ImageRegion(
+            x0 / width, x1 / width, y0 / height, y1 / height
+        )
+
+    def _auto_clim(
+        self, key: str, name: str, source: np.ndarray
+    ) -> Tuple[float, float]:
+        """Auto contrast limits for one channel of one placed image, computed once.
+
+        **Pinned to the whole image, not to what is drawn of it.** `composite_fm_layers`
+        takes its own percentile from whatever array it is handed, and caches that on
+        the *identity* of the array. Both are right for a live frame and wrong for a part
+        of a stored one: drawing a region would stretch the contrast to that region, and
+        every region is a fresh array, so panning would restyle the image under the
+        cursor. Held here instead, so which part is drawn cannot change how it looks.
+
+        Measured on the **stored** plane rather than the reduced one it is drawn through,
+        which is where this differs from what the widget used to do. `downsample`
+        box-averages, and averaging narrows a histogram by however much power the image
+        has at the pixel scale -- so limits taken from the reduction are limits for one
+        particular display cap, and a patch drawn at a different reduction would not
+        match them. Measured on white noise the reduced span is 0.45x the stored one; on
+        smooth structure with shot noise, which is what fluorescence data looks like, the
+        two agree to 1.00. So this is the same picture in practice and the right answer
+        in principle.
+
+        `auto_clim` strides to ~250k samples first, so reading the full plane is cheap --
+        8.6 ms for a 12632 sq uint16 mosaic. It is handed the raw array deliberately:
+        `np.asarray(..., dtype=np.float32)` on that plane costs 150 ms and 638 MB before
+        a single percentile is taken.
+
+        Keyed on the identity of the stored plane, which a recomposite does not rebuild
+        -- keying on the reduction would miss every time and cache nothing.
+        """
+        cached = self._held_clim.setdefault(key, {})
         hit = cached.get(name)
-        return self._reduce(planes[name]) if hit is None else hit
+        if hit is not None and hit[0] is source:
+            return hit[1]
+        clim = auto_clim(np.asarray(source))
+        cached[name] = (source, clim)
+        return clim
+
+    def _pinned(
+        self, key: str, layer: FMLayer, source: np.ndarray, reduced: np.ndarray
+    ) -> FMLayer:
+        """*layer* ready to blend *reduced*, with contrast that will not drift.
+
+        A channel the user has taken off Auto keeps the limits they set -- pinning is
+        about making *automatic* contrast independent of what is on screen, not about
+        overriding a choice.
+        """
+        if not layer.autocontrast and layer.clim is not None:
+            return replace(layer, data=reduced, _clim_cache=None)
+        return replace(
+            layer,
+            data=reduced,
+            clim=self._auto_clim(key, layer.name, source),
+            autocontrast=False,
+            _clim_cache=None,
+        )
 
     def _reduce(self, plane: np.ndarray) -> np.ndarray:
         """A plane at the resolution the canvas will actually store.
@@ -816,9 +1026,11 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         continuously. Blending the reduced planes is the same picture for the cost of the
         pixels that survive.
         """
+        key = self._composite_key
         reduced = [
-            replace(layer, data=self._reduce(layer.data), _clim_cache=None)
-            if layer.data is not None else layer
+            self._pinned(key, layer, layer.data, self._reduce(layer.data))
+            if layer.data is not None
+            else layer
             for layer in self._layers
         ]
         first = next((layer.data for layer in reduced if layer.data is not None), None)
@@ -836,43 +1048,6 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         """
         return -pixel_size * 1e9  # nanometres/px, negated: smaller pixels draw on top
 
-    def _restyle_others(self, current: str) -> None:
-        """Re-render everything except *current* under the present layer settings.
-
-        Layers are display state shared by everything placed; the pixels are not. So a
-        colour or contrast change has to be applied to each held image's own planes,
-        which is why they are kept. Without this, changing a channel's colour would
-        recolour the newest overview and leave the others as they were — the same data
-        drawn two different ways, side by side.
-        """
-        for key, planes in self._held.items():
-            if key == current or key not in self.canvas.placed_keys:
-                continue
-            reduced = self._held_reduced.get(key) or {}
-            layers = [
-                replace(
-                    layer,
-                    # Cached at hold time: a held image's planes do not change, so the
-                    # reduction is the same answer on every re-render. Falls back rather
-                    # than indexing, so a cache that somehow missed an entry costs time
-                    # instead of raising out of a paint (FIB-329). Compared against None
-                    # explicitly -- `or` on an array raises rather than testing presence.
-                    data=self._reduced_plane(reduced, planes, layer.name),
-                    _clim_cache=None,
-                )
-                for layer in self._layers
-                if layer.name in planes
-            ]
-            if not layers:
-                continue
-            shape = layers[0].data.shape[:2]
-            rgb = composite_fm_layers(layers, shape)
-            if rgb is not None:
-                # Same transform as the image that triggered this: these are placed
-                # over each other too, and re-rendering one opaque would put back the
-                # occlusion `_show_composite` just avoided.
-                self.canvas.update_image(key, to_rgba(rgb))
-
     def set_pixel_size(self, pixel_size: Optional[float]) -> None:
         """Record the scale without touching the canvas's own.
 
@@ -883,12 +1058,29 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         self._pixel_size = pixel_size
 
 
+def _clamp_to_screen(pos: QPoint, size: QSize, near: QPoint) -> QPoint:
+    """Keep a top-level panel fully on the screen that holds *near*.
+
+    A remembered offset can point off-screen once the window moves to a smaller
+    display, and a frameless window with its header off-screen cannot be dragged back.
+    """
+    screen = QApplication.screenAt(near) or QApplication.primaryScreen()
+    if screen is None:
+        return pos
+    avail: QRect = screen.availableGeometry()
+    x = min(max(pos.x(), avail.left()), avail.right() - size.width() + 1)
+    y = min(max(pos.y(), avail.top()), avail.bottom() - size.height() + 1)
+    return QPoint(x, y)
+
+
 class FMLayersPanel(QFrame):
     """Floating per-channel controls — a dark channel list (eye toggle + colour chip
     + name) over a detail panel (colormap / opacity / gamma / contrast) for the
     selected channel. Emits :attr:`changed` whenever an edit needs a re-composite."""
 
     changed = pyqtSignal()
+    moved = pyqtSignal()  # the user finished dragging the panel somewhere
+    close_requested = pyqtSignal()  # the × in the header
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -896,6 +1088,8 @@ class FMLayersPanel(QFrame):
         # matplotlib canvas, and as a child widget its native sliders were forced
         # to repaint (and flicker) on every canvas redraw during a slider drag.
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        # Cursor-to-window offset while the header is being dragged; None otherwise.
+        self._drag_origin: Optional[QPoint] = None
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName("fmPanel")
         self.setStyleSheet(_PANEL_QSS)
@@ -913,42 +1107,84 @@ class FMLayersPanel(QFrame):
         root.setSpacing(0)
 
         # header
-        header = QHBoxLayout(); header.setSpacing(8)
+        header = QHBoxLayout()
+        header.setSpacing(8)
         hicon = QLabel()
         hicon.setPixmap(
-            fibsem_icon("mdi:layers-triple-outline", color=TEXT_MUTED_COLOR).pixmap(QSize(16, 16))
+            fibsem_icon("mdi:layers-triple-outline", color=TEXT_MUTED_COLOR).pixmap(
+                QSize(16, 16)
+            )
         )
-        title = QLabel("FM CHANNELS"); title.setObjectName("panelTitle")
-        header.addWidget(hicon); header.addWidget(title); header.addStretch()
-        root.addLayout(header)
+        title = QLabel("FM CHANNELS")
+        title.setObjectName("panelTitle")
+        header.addWidget(hicon)
+        header.addWidget(title)
+        header.addStretch()
+        grip = QLabel()
+        grip.setToolTip("Drag to move")
+        grip.setPixmap(
+            fibsem_icon("mdi:drag-horizontal-variant", color=TEXT_MUTED_COLOR).pixmap(
+                QSize(16, 16)
+            )
+        )
+        header.addWidget(grip)
+        self._btn_close = QToolButton()
+        self._btn_close.setObjectName("closeBtn")
+        self._btn_close.setToolTip("Close")
+        self._btn_close.setIcon(fibsem_icon("mdi:close", color=TEXT_MUTED_COLOR))
+        self._btn_close.setIconSize(QSize(14, 14))
+        self._btn_close.setFixedSize(18, 18)
+        self._btn_close.setCursor(Qt.PointingHandCursor)
+        self._btn_close.clicked.connect(self.close_requested)
+        header.addWidget(self._btn_close)
+        # The whole header row is the drag handle; kept as a widget so the mouse
+        # handlers below can tell a drag from a click on the controls beneath it.
+        self._header = QWidget()
+        self._header.setLayout(header)
+        self._header.setCursor(Qt.OpenHandCursor)
+        root.addWidget(self._header)
         root.addSpacing(12)
 
         # channel list
-        self._list_box = QVBoxLayout(); self._list_box.setSpacing(2)
+        self._list_box = QVBoxLayout()
+        self._list_box.setSpacing(2)
         root.addLayout(self._list_box)
         root.addSpacing(12)
 
-        div = QFrame(); div.setObjectName("divider"); div.setFixedHeight(1)
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
         root.addWidget(div)
         root.addSpacing(12)
 
         # detail header (selected channel)
-        dh = QHBoxLayout(); dh.setSpacing(8)
-        self.sel_chip = QLabel(); self.sel_chip.setFixedSize(11, 11)
-        self.sel_name = QLabel("—"); self.sel_name.setObjectName("selName")
-        sel_tag = QLabel("selected"); sel_tag.setObjectName("selTag")
-        dh.addWidget(self.sel_chip); dh.addWidget(self.sel_name); dh.addStretch(); dh.addWidget(sel_tag)
+        dh = QHBoxLayout()
+        dh.setSpacing(8)
+        self.sel_chip = QLabel()
+        self.sel_chip.setFixedSize(11, 11)
+        self.sel_name = QLabel("—")
+        self.sel_name.setObjectName("selName")
+        sel_tag = QLabel("selected")
+        sel_tag.setObjectName("selTag")
+        dh.addWidget(self.sel_chip)
+        dh.addWidget(self.sel_name)
+        dh.addStretch()
+        dh.addWidget(sel_tag)
         root.addLayout(dh)
         root.addSpacing(14)
 
         # colormap
         cm_row = QHBoxLayout()
-        cm_lbl = QLabel("Colormap"); cm_lbl.setObjectName("ctrlLbl")
-        self.colormap = QComboBox(); self.colormap.setFixedWidth(132)
+        cm_lbl = QLabel("Colormap")
+        cm_lbl.setObjectName("ctrlLbl")
+        self.colormap = QComboBox()
+        self.colormap.setFixedWidth(132)
         for c in AVAILABLE_COLORS:
             self.colormap.addItem(_color_icon(c), c)
         self.colormap.currentTextChanged.connect(self._on_colormap)
-        cm_row.addWidget(cm_lbl); cm_row.addStretch(); cm_row.addWidget(self.colormap)
+        cm_row.addWidget(cm_lbl)
+        cm_row.addStretch()
+        cm_row.addWidget(self.colormap)
         root.addLayout(cm_row)
         root.addSpacing(13)
 
@@ -960,41 +1196,86 @@ class FMLayersPanel(QFrame):
 
         # contrast header (label + Auto pill)
         ch = QHBoxLayout()
-        ct_lbl = QLabel("Contrast"); ct_lbl.setObjectName("ctrlLbl")
-        self.autocontrast_cb = QPushButton("Auto"); self.autocontrast_cb.setObjectName("autoPill")
-        self.autocontrast_cb.setCheckable(True); self.autocontrast_cb.setChecked(True)
+        ct_lbl = QLabel("Contrast")
+        ct_lbl.setObjectName("ctrlLbl")
+        self.autocontrast_cb = QPushButton("Auto")
+        self.autocontrast_cb.setObjectName("autoPill")
+        self.autocontrast_cb.setCheckable(True)
+        self.autocontrast_cb.setChecked(True)
         self.autocontrast_cb.setCursor(Qt.PointingHandCursor)
         self.autocontrast_cb.toggled.connect(self._on_autocontrast)
-        ch.addWidget(ct_lbl); ch.addStretch(); ch.addWidget(self.autocontrast_cb)
+        ch.addWidget(ct_lbl)
+        ch.addStretch()
+        ch.addWidget(self.autocontrast_cb)
         root.addLayout(ch)
         root.addSpacing(8)
 
         self.contrast = _ContrastSlider(Qt.Horizontal)
-        self.contrast.setRange(0, 1000); self.contrast.setValue((0, 1000))
+        self.contrast.setRange(0, 1000)
+        self.contrast.setValue((0, 1000))
         self.contrast.valueChanged.connect(self._on_contrast)
         root.addWidget(self.contrast)
         root.addSpacing(8)
 
         cv = QHBoxLayout()
-        self.cmin_val = QLabel("0"); self.cmin_val.setObjectName("valSm")
-        self.cmax_val = QLabel("0"); self.cmax_val.setObjectName("valSm")
-        cv.addWidget(self.cmin_val); cv.addStretch(); cv.addWidget(self.cmax_val)
+        self.cmin_val = QLabel("0")
+        self.cmin_val.setObjectName("valSm")
+        self.cmax_val = QLabel("0")
+        self.cmax_val.setObjectName("valSm")
+        cv.addWidget(self.cmin_val)
+        cv.addStretch()
+        cv.addWidget(self.cmax_val)
         root.addLayout(cv)
         root.addSpacing(14)
 
-        self.btn_reset = QPushButton("Reset adjustments"); self.btn_reset.setObjectName("resetBtn")
+        self.btn_reset = QPushButton("Reset adjustments")
+        self.btn_reset.setObjectName("resetBtn")
         self.btn_reset.setCursor(Qt.PointingHandCursor)
         self.btn_reset.clicked.connect(self._on_reset)
         root.addWidget(self.btn_reset)
 
+    # ── drag to move ──────────────────────────────────────────────────────
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._header.geometry().contains(
+            event.pos()
+        ):
+            self._drag_origin = event.globalPos() - self.frameGeometry().topLeft()
+            self._header.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._drag_origin is not None:
+            self.move(event.globalPos() - self._drag_origin)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._drag_origin is not None:
+            self._drag_origin = None
+            self._header.setCursor(Qt.OpenHandCursor)
+            self.moved.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
     def _slider_row(self, root, label: str, lo: int, hi: int, val: int):
         head = QHBoxLayout()
-        lbl = QLabel(label); lbl.setObjectName("ctrlLbl")
-        valw = QLabel(); valw.setObjectName("valLbl")
-        head.addWidget(lbl); head.addStretch(); head.addWidget(valw)
+        lbl = QLabel(label)
+        lbl.setObjectName("ctrlLbl")
+        valw = QLabel()
+        valw.setObjectName("valLbl")
+        head.addWidget(lbl)
+        head.addStretch()
+        head.addWidget(valw)
         root.addLayout(head)
         root.addSpacing(7)
-        s = QSlider(Qt.Horizontal); s.setRange(lo, hi); s.setValue(val)
+        s = QSlider(Qt.Horizontal)
+        s.setRange(lo, hi)
+        s.setValue(val)
         root.addWidget(s)
         root.addSpacing(13)
         return s, valw
@@ -1033,7 +1314,11 @@ class FMLayersPanel(QFrame):
             row.set_selected(i == self._selected)
 
     def _current(self) -> Optional[FMLayer]:
-        return self._layers[self._selected] if 0 <= self._selected < len(self._layers) else None
+        return (
+            self._layers[self._selected]
+            if 0 <= self._selected < len(self._layers)
+            else None
+        )
 
     def _sync_detail(self) -> None:
         layer = self._current()
@@ -1051,7 +1336,9 @@ class FMLayersPanel(QFrame):
             self.gamma.setValue(int(layer.gamma * 100))
             self.gamma_val.setText("%.2f" % layer.gamma)
             self.autocontrast_cb.setChecked(layer.autocontrast)
-            self.contrast.setEnabled(not layer.autocontrast)  # manual edits only when off
+            self.contrast.setEnabled(
+                not layer.autocontrast
+            )  # manual edits only when off
             if layer.data is not None:
                 d = np.asarray(layer.data, dtype=np.float32)
                 lo_d, hi_d = float(d.min()), float(d.max())
@@ -1061,10 +1348,12 @@ class FMLayersPanel(QFrame):
                 else:
                     clo, chi = layer.clim
                 self._data_lo, self._data_span = lo_d, span
-                self.contrast.setValue((
-                    int((clo - lo_d) / span * 1000),
-                    int((chi - lo_d) / span * 1000),
-                ))
+                self.contrast.setValue(
+                    (
+                        int((clo - lo_d) / span * 1000),
+                        int((chi - lo_d) / span * 1000),
+                    )
+                )
                 self.cmin_val.setText("%d" % round(clo))
                 self.cmax_val.setText("%d" % round(chi))
         self._updating = prev_updating
@@ -1121,7 +1410,9 @@ class FMLayersPanel(QFrame):
         if self._updating or layer is None:
             return
         layer.autocontrast = checked
-        layer.manual = not checked  # explicit user choice — survives live frames / MIP toggles
+        layer.manual = (
+            not checked
+        )  # explicit user choice — survives live frames / MIP toggles
         if not checked and layer.clim is None and layer.data is not None:
             # seed manual limits from the current auto values so the image doesn't jump
             layer.clim = auto_clim(np.asarray(layer.data, dtype=np.float32))

@@ -1,3 +1,5 @@
+from typing import List, Optional
+
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -7,13 +9,30 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from typing import List, Optional
 
 from fibsem import constants
-from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP, DEFAULT_SQUARE_RESOLUTION
-from fibsem.structures import AutoFocusMode, AutoFocusSettings, BeamType, FocusStackSettings, ImageSettings, OverviewAcquisitionSettings, TileOrderStrategy
+from fibsem.config import (
+    AVAILABLE_RESOLUTIONS_ZIP,
+    DEFAULT_STANDARD_RESOLUTION,
+    DEFAULT_STANDARD_RESOLUTION_LIST,
+)
+from fibsem.imaging.tiled import stamped_overview_name as _stamped_overview_name
+from fibsem.structures import (
+    AutoContrastMode,
+    AutoFocusMode,
+    BeamType,
+    FocusStackSettings,
+    ImageSettings,
+    OverviewAcquisitionSettings,
+    TileOrderStrategy,
+)
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueComboBox, ValueSpinBox
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    TitledPanel,
+    ValueComboBox,
+    ValueSpinBox,
+)
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 # What an overview run looks like before anyone touches it.
@@ -31,6 +50,11 @@ OVERVIEW_TILE_DWELL_TIME = 1e-6  # s
 DEFAULT_OVERVIEW_FILENAME = "overview-image"
 
 
+# Re-exported: it lives with the runners that make the folder from it, and both
+# overview tabs and the grid overview tasks import the same one.
+stamped_overview_name = _stamped_overview_name
+
+
 def default_overview_acquisition_settings() -> OverviewAcquisitionSettings:
     """A fresh set of overview settings, seeded with the house defaults.
 
@@ -44,10 +68,20 @@ def default_overview_acquisition_settings() -> OverviewAcquisitionSettings:
 
     The grid size is not named here -- `OverviewAcquisitionSettings` already defaults to
     3 x 3, and stating it twice is how the two drift apart.
+
+    The resolution is the standard 1536x1024, not the square one the rebuilt tab used to
+    open with. It is what the shipped tab has always acquired at, and the difference is
+    not cosmetic: `hfw` is the *horizontal* field, so the same 500 um tile at 1024x1024
+    is 0.49 um/px against 0.33 and half again as tall. Square was picked before there was
+    a shipped tab to compare against; there is one now, and overviews that can be put
+    side by side across the swap are worth more than the tidier number.
     """
     return OverviewAcquisitionSettings(
         image_settings=ImageSettings(
-            resolution=tuple(int(px) for px in DEFAULT_SQUARE_RESOLUTION.split("x")),
+            # `tuple`, not the config list itself: `resolution` is annotated as one, and
+            # handing every settings object the same mutable list is the sharing this
+            # factory exists to avoid.
+            resolution=tuple(DEFAULT_STANDARD_RESOLUTION_LIST),
             hfw=OVERVIEW_TILE_HFW,
             dwell_time=OVERVIEW_TILE_DWELL_TIME,
             autocontrast=True,
@@ -56,6 +90,9 @@ def default_overview_acquisition_settings() -> OverviewAcquisitionSettings:
             path=None,  # whoever owns the experiment fills this in
             filename=DEFAULT_OVERVIEW_FILENAME,
         ),
+        # One contrast for the whole mosaic; the per-image flag above is what the
+        # napari tab's widget still reads, and reads as the same choice.
+        autocontrast_mode=AutoContrastMode.ONCE,
     )
 
 
@@ -97,7 +134,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
         # Beam type
         grid_layout.addWidget(QLabel("Beam Type"), 0, 0)
-        self.beam_type_combo = ValueComboBox(items=list(BeamType), format_fn=lambda bt: bt.name)
+        self.beam_type_combo = ValueComboBox(
+            items=list(BeamType), format_fn=lambda bt: bt.name
+        )
         grid_layout.addWidget(self.beam_type_combo, 0, 1, 1, 2)
 
         # Rows / cols
@@ -125,7 +164,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
         # Overlap
         grid_layout.addWidget(QLabel("Overlap (%)"), 2, 0)
-        self.overlap_spinbox = ValueSpinBox(suffix="%", minimum=0.0, maximum=50.0, step=5.0, decimals=0)
+        self.overlap_spinbox = ValueSpinBox(
+            suffix="%", minimum=0.0, maximum=50.0, step=5.0, decimals=0
+        )
         grid_layout.addWidget(self.overlap_spinbox, 2, 1, 1, 2)
 
         # Total FOV label (read-only, auto-updated)
@@ -170,11 +211,11 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         grid_layout.addWidget(self.tile_order_combo, 8, 1, 1, 2)
 
         self._adv_widgets = [
-            (self._label_focus_stack,          self.focus_stack_enabled),
-            (self._label_focus_stack_steps,    self.focus_stack_steps),
+            (self._label_focus_stack, self.focus_stack_enabled),
+            (self._label_focus_stack_steps, self.focus_stack_steps),
             (self._label_focus_stack_autofocus, self.focus_stack_autofocus),
-            (self._label_autofocus,            self.autofocus_combo),
-            (self._label_tile_order,           self.tile_order_combo),
+            (self._label_autofocus, self.autofocus_combo),
+            (self._label_tile_order, self.tile_order_combo),
         ]
 
         self._btn_advanced = IconToolButton(
@@ -194,7 +235,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.image_settings_widget.set_show_advanced_button(False)
 
         # All standard + square resolutions are supported (non-square aspect handled in acquisition)
-        self.image_settings_widget.set_available_resolutions(AVAILABLE_RESOLUTIONS_ZIP, default=DEFAULT_SQUARE_RESOLUTION)
+        self.image_settings_widget.set_available_resolutions(
+            AVAILABLE_RESOLUTIONS_ZIP, default=DEFAULT_STANDARD_RESOLUTION
+        )
 
         self._btn_advanced_imaging = IconToolButton(
             icon="mdi:tune",
@@ -204,7 +247,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
             checked_tooltip="Hide advanced image settings",
         )
 
-        self._image_panel = TitledPanel("Tile Image Settings", content=self.image_settings_widget)
+        self._image_panel = TitledPanel(
+            "Tile Image Settings", content=self.image_settings_widget
+        )
         self._image_panel.add_header_widget(self._btn_advanced_imaging)
         self._image_panel._btn_collapse.setChecked(True)
 
@@ -229,7 +274,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self._btn_advanced.toggled.connect(self.set_show_advanced)
         self.beam_type_combo.currentIndexChanged.connect(self._on_changed)
         self.nrows_spinbox.valueChanged.connect(self._on_changed)
-        self._btn_advanced_imaging.toggled.connect(self.image_settings_widget.set_show_advanced)
+        self._btn_advanced_imaging.toggled.connect(
+            self.image_settings_widget.set_show_advanced
+        )
         self.ncols_spinbox.valueChanged.connect(self._on_changed)
         self.overlap_spinbox.valueChanged.connect(self._on_changed)
         self.focus_stack_enabled.toggled.connect(self._on_changed)
@@ -269,9 +316,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         total_w = settings.total_fov_x * constants.SI_TO_MICRO
         total_h = settings.total_fov_y * constants.SI_TO_MICRO
         sym = constants.MICRON_SYMBOL
-        self._label_total_fov.setText(
-            f"Total FOV: {total_w:.0f} × {total_h:.0f} {sym}"
-        )
+        self._label_total_fov.setText(f"Total FOV: {total_w:.0f} × {total_h:.0f} {sym}")
 
     # ------------------------------------------------------------------
     # Public API
@@ -291,7 +336,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
     @tile_mask.setter
     def tile_mask(self, mask: Optional[List[List[bool]]]) -> None:
-        self._tile_mask = None if mask is None else [[bool(v) for v in row] for row in mask]
+        self._tile_mask = (
+            None if mask is None else [[bool(v) for v in row] for row in mask]
+        )
         self._on_changed()
 
     def set_grid_size(self, rows: int, cols: int) -> None:
@@ -303,7 +350,10 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         when an edge is dragged on the canvas, which emits on every motion event.
         """
         rows, cols = int(rows), int(cols)
-        if (rows, cols) == (int(self.nrows_spinbox.value()), int(self.ncols_spinbox.value())):
+        if (rows, cols) == (
+            int(self.nrows_spinbox.value()),
+            int(self.ncols_spinbox.value()),
+        ):
             return
         for spinbox in (self.nrows_spinbox, self.ncols_spinbox):
             spinbox.blockSignals(True)
@@ -330,7 +380,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
                 n_steps=int(self.focus_stack_steps.value()),
                 auto_focus=self.focus_stack_autofocus.isChecked(),
             ),
-            autofocus_settings=AutoFocusSettings(mode=self.autofocus_combo.value()),
+            autofocus_mode=self.autofocus_combo.value(),
             tile_order=self.tile_order_combo.value(),
         )
 
@@ -358,9 +408,17 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     def update_from_settings(self, settings: OverviewAcquisitionSettings):
         """Populate all widgets from an OverviewAcquisitionSettings object."""
         # Block tile-grid signals to prevent cascading updates
-        for w in [self.beam_type_combo, self.nrows_spinbox, self.ncols_spinbox,
-                  self.overlap_spinbox, self.focus_stack_enabled, self.focus_stack_steps,
-                  self.focus_stack_autofocus, self.autofocus_combo, self.tile_order_combo]:
+        for w in [
+            self.beam_type_combo,
+            self.nrows_spinbox,
+            self.ncols_spinbox,
+            self.overlap_spinbox,
+            self.focus_stack_enabled,
+            self.focus_stack_steps,
+            self.focus_stack_autofocus,
+            self.autofocus_combo,
+            self.tile_order_combo,
+        ]:
             w.blockSignals(True)
 
         self.beam_type_combo.set_value(settings.image_settings.beam_type)
@@ -370,16 +428,25 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.focus_stack_enabled.setChecked(settings.focus_stack_settings.enabled)
         self.focus_stack_steps.setValue(settings.focus_stack_settings.n_steps)
         self.focus_stack_autofocus.setChecked(settings.focus_stack_settings.auto_focus)
-        self.autofocus_combo.set_value(settings.autofocus_settings.mode)
+        self.autofocus_combo.set_value(settings.autofocus_mode)
         self.tile_order_combo.set_value(settings.tile_order)
 
-        for w in [self.beam_type_combo, self.nrows_spinbox, self.ncols_spinbox,
-                  self.overlap_spinbox, self.focus_stack_enabled, self.focus_stack_steps,
-                  self.focus_stack_autofocus, self.autofocus_combo, self.tile_order_combo]:
+        for w in [
+            self.beam_type_combo,
+            self.nrows_spinbox,
+            self.ncols_spinbox,
+            self.overlap_spinbox,
+            self.focus_stack_enabled,
+            self.focus_stack_steps,
+            self.focus_stack_autofocus,
+            self.autofocus_combo,
+            self.tile_order_combo,
+        ]:
             w.blockSignals(False)
 
         self._tile_mask = (
-            None if settings.tile_mask is None
+            None
+            if settings.tile_mask is None
             else [[bool(v) for v in row] for row in settings.tile_mask]
         )
         self.image_settings_widget.update_from_settings(settings.image_settings)
@@ -391,6 +458,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import sys
+
     from PyQt5.QtWidgets import QApplication, QPushButton
 
     app = QApplication(sys.argv)

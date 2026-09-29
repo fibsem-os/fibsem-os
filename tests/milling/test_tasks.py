@@ -12,7 +12,6 @@ from fibsem.milling.tasks import (
 )
 from fibsem.structures import BeamType, FibsemMillingSettings, ImageSettings
 
-
 # ── MillingTaskAcquisitionSettings.estimated_time ────────────────────────────
 
 def test_acquisition_estimated_time_disabled():

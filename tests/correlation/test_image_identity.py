@@ -12,6 +12,7 @@ name the acquiring process asked for, and it is not the file:
 ``filepath`` is set by ``load()`` and ``save()`` on both image classes, whatever
 the metadata says, and is the answer to a filesystem question.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -47,7 +48,10 @@ def _fib_image(filepath=FIB_PATH, requested_name=FIB_REQUESTED_NAME):
     """A FIB image as it arrives from disk: loaded from one name, requesting another."""
     image = FibsemImage.generate_blank_image(resolution=(64, 48), hfw=100e-6)
     image.metadata.image_settings = ImageSettings(
-        resolution=(64, 48), hfw=100e-6, filename=requested_name, path="/lam/01-grand-dodo"
+        resolution=(64, 48),
+        hfw=100e-6,
+        filename=requested_name,
+        path="/lam/01-grand-dodo",
     )
     image.filepath = filepath
     return image
@@ -78,6 +82,43 @@ def _fm_image(filepath=FM_PATH, requested_name="fm_stack_as_acquired"):
         metadata=metadata,
         filepath=filepath,
     )
+
+
+def test_a_runs_image_names_survive_being_read_and_written_again():
+    """A run records the images its fiducials were picked in. Reading that run
+    and writing it back must not erase them: the images are not in the file, so
+    a re-save has no live image to ask (FIB-1019).
+
+    This is not hypothetical -- the widget arms its auto-save on load, so
+    opening a saved run and touching anything rewrote the file.
+    """
+    from fibsem.correlation.structures import CorrelationInputData
+
+    written = CorrelationInputData().to_dict()
+    written["fib_image_filename"] = "ref_Spot Burn Fiducial_final_res_02_ib.tif"
+    written["fm_image_filename"] = "02-pro-moose-zstack-20-51-25.ome.tiff"
+
+    reread = CorrelationInputData.from_dict(written)
+    assert reread.fib_image_filename == "ref_Spot Burn Fiducial_final_res_02_ib.tif"
+    assert reread.fm_image_filename == "02-pro-moose-zstack-20-51-25.ome.tiff"
+    assert reread.to_dict()["fib_image_filename"] == written["fib_image_filename"]
+    assert reread.to_dict()["fm_image_filename"] == written["fm_image_filename"]
+
+
+def test_a_loaded_image_outranks_the_name_the_file_recorded():
+    """The image in hand is the truth; the recorded name is only the fallback.
+    Opening a run against a different reference must report the one in use."""
+    from fibsem.correlation.structures import CorrelationInputData
+
+    data = CorrelationInputData(
+        fm_image=_fm_image(requested_name="ignored"),
+        stored_fib_image_filename="an_old_name_ib.tif",
+        stored_fm_image_filename="an_old_stack.ome.tiff",
+    )
+    # no FIB image loaded: the recorded name stands
+    assert data.fib_image_filename == "an_old_name_ib.tif"
+    # the FM image was loaded from FM_PATH, so its own file wins
+    assert data.fm_image_filename == os.path.basename(FM_PATH)
 
 
 def _images_tab():
@@ -282,6 +323,9 @@ def test_no_image_and_no_file_stay_none(qapp):
     """``to_dict`` is on the only persistence path, so neither may raise (FIB-316)."""
     assert CorrelationInputData().fib_image_filename is None
     assert CorrelationInputData().fm_image_filename is None
-    assert CorrelationInputData(fib_image=_fib_image(filepath=None)).to_dict()[
-        "fib_image_filename"
-    ] is None
+    assert (
+        CorrelationInputData(fib_image=_fib_image(filepath=None)).to_dict()[
+            "fib_image_filename"
+        ]
+        is None
+    )

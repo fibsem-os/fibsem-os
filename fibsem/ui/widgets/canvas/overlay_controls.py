@@ -24,10 +24,19 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, Optional, Tuple
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QCheckBox, QFrame, QVBoxLayout, QWidget
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtWidgets import (
+    QCheckBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
+)
 
-from fibsem.ui.stylesheets import CANVAS_POPOVER_STYLE
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.stylesheets import CANVAS_PANEL_STYLE
+from fibsem.ui.tokens import TEXT_MUTED_COLOR
 
 # (key, label, shown by default)
 OverlayEntry = Tuple[str, str, bool]
@@ -44,7 +53,9 @@ class CanvasOverlayControls(QWidget):
 
     toggled = pyqtSignal(str, bool)
 
-    def __init__(self, entries: Iterable[OverlayEntry], parent: Optional[QWidget] = None):
+    def __init__(
+        self, entries: Iterable[OverlayEntry], parent: Optional[QWidget] = None
+    ):
         super().__init__(parent)
         self._boxes: Dict[str, QCheckBox] = {}
 
@@ -56,7 +67,9 @@ class CanvasOverlayControls(QWidget):
             box.setChecked(shown)
             # `key=key` binds per iteration; a bare closure would capture the loop
             # variable and report the last key for every box.
-            box.toggled.connect(lambda checked, key=key: self.toggled.emit(key, checked))
+            box.toggled.connect(
+                lambda checked, key=key: self.toggled.emit(key, checked)
+            )
             layout.addWidget(box)
             self._boxes[key] = box
 
@@ -113,10 +126,13 @@ class CanvasPopover(QFrame):
         # A frame, and styled as one: the shared popover style keys off `QFrame`, and a
         # bare `QWidget` took none of it -- which drew the switches as unbacked text
         # directly over the picture they were meant to control.
-        self.setStyleSheet(CANVAS_POPOVER_STYLE)
+        self.setObjectName("canvasPanel")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(CANVAS_PANEL_STYLE)
         self._anchor: Optional[QWidget] = None
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
         layout.addWidget(content)
         self.setVisible(False)
 
@@ -138,3 +154,44 @@ class CanvasPopover(QFrame):
         x = parent.width() - self.width() - 4
         y = 4 if self._anchor is None else self._anchor.y() + self._anchor.height() + 4
         self.move(max(4, x), y)
+
+
+# ── the pieces every canvas panel is built from ──────────────────────────────
+
+
+def panel_header(icon_name: str, title: str) -> QWidget:
+    """An icon and a small-caps title: what says which panel this is."""
+    header = QWidget()
+    layout = QHBoxLayout(header)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    icon = QLabel()
+    icon.setPixmap(fibsem_icon(icon_name, color=TEXT_MUTED_COLOR).pixmap(QSize(14, 14)))
+    label = QLabel(title.upper())
+    label.setObjectName("panelTitle")
+    layout.addWidget(icon)
+    layout.addWidget(label)
+    layout.addStretch()
+    return header
+
+
+def panel_section(title: str) -> QLabel:
+    """A small-caps heading for a group of controls within a panel."""
+    label = QLabel(title.upper())
+    label.setObjectName("panelSection")
+    return label
+
+
+def panel_hint(text: str = "") -> QLabel:
+    """A muted line under a group of controls: a readout, or what a drag does."""
+    label = QLabel(text)
+    label.setObjectName("panelHint")
+    label.setWordWrap(True)
+    return label
+
+
+def panel_separator() -> QFrame:
+    line = QFrame()
+    line.setObjectName("panelSeparator")
+    line.setFrameShape(QFrame.NoFrame)
+    return line

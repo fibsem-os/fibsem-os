@@ -258,24 +258,24 @@ workflow:
     description: ''
     tasks:
     -   name: Trench Milling
-        supervise: true
+        attention: supervised
         required: false
         requires: []
     -   name: Undercut Milling
-        supervise: true
+        attention: supervised
         required: false
         requires: []
     -   name: Setup Lamella Position
-        supervise: true
+        attention: supervised
         required: true
         requires: []
     -   name: Rough Milling
-        supervise: true
+        attention: supervised
         required: true
         requires:
         - Setup Lamella Position
     -   name: Polishing
-        supervise: true
+        attention: supervised
         required: true
         requires:
         - Rough Milling

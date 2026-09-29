@@ -5,7 +5,7 @@ import re
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from enum import Enum
-from typing import Any, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import tifffile as tff
@@ -38,6 +38,15 @@ from ome_types.model import (
     Detector as OME_Detector,
 )
 
+# Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
+# so existing `from fibsem.fm.structures import ...` imports keep working.
+from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
+    AutoFocusResult,
+    AutoFocusSettings,
+    FocusMethod,
+    FocusSweepPass,
+)
+
 # AutoFocusMode is canonical in fibsem.structures -- there was a second, identical
 # enum of the same name here, so the two tilers held different objects for the same
 # concept and `is` comparisons across them silently failed. Imported (and so
@@ -59,20 +68,12 @@ from fibsem.structures import (  # noqa: F401
     _parse_image_transform,
 )
 
-# Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
-# so existing `from fibsem.fm.structures import ...` imports keep working.
-from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
-    AutoFocusResult,
-    AutoFocusSettings,
-    FocusMethod,
-    FocusSweepPass,
-)
-
 
 class ZStackOrder(Enum):
     """Acquisition order for z-stack."""
-    CHANNEL = "channel"   # default: for each channel, acquire all z-planes
-    Z_LEVEL = "z_level"   # for each z-plane, acquire all channels
+
+    CHANNEL = "channel"  # default: for each channel, acquire all z-planes
+    Z_LEVEL = "z_level"  # for each z-plane, acquire all channels
 
 
 BINNING_MAP = {
@@ -89,11 +90,15 @@ _UNIT_TO_METERS = {
     UnitsLength.METER: 1.0,
 }
 
-def _convert_length_to_meters(value: Optional[float], unit: Optional[UnitsLength]) -> Optional[float]:
+
+def _convert_length_to_meters(
+    value: Optional[float], unit: Optional[UnitsLength]
+) -> Optional[float]:
     """Convert an OME length value to meters if both value and unit are present."""
     if value is None:
         return None
     return value * _UNIT_TO_METERS.get(unit, 1.0)
+
 
 def _color_to_hex(color: Optional[Color]) -> str:
     """Convert OME Color to a hex string understood by the FM viewer."""
@@ -104,6 +109,7 @@ def _color_to_hex(color: Optional[Color]) -> str:
         return f"#{r:02X}{g:02X}{b:02X}"
     except Exception:
         return "gray"
+
 
 def safe_ome_from_tiff(filename: str) -> OMEMetadata:
     """Parse OME metadata from TIFF file, handling potential known issues with the OME XML.
@@ -128,6 +134,7 @@ def safe_ome_from_tiff(filename: str) -> OMEMetadata:
         ome_xml = re.sub(r"<Filter\b[^>]*/>", "", ome_xml)
         ome = from_xml(ome_xml)
     return ome
+
 
 @dataclass
 class FMStagePosition:
@@ -218,7 +225,7 @@ class ChannelSettings:
     name: str = "Channel-01"
     excitation_wavelength: float = 550  # nm
     emission_wavelength: Optional[Union[str, float]] = None  # nm
-    power: float = 0.01 # %
+    power: float = 0.01  # %
     exposure_time: float = 0.001  # seconds
     color: str = "gray"
     gain: float = 0.0
@@ -237,9 +244,13 @@ class ChannelSettings:
         if self.emission_wavelength is None:
             emission_str = "Reflection"
         else:
-            emission_str = f"{self.emission_wavelength}nm" if isinstance(self.emission_wavelength, float) else self.emission_wavelength
+            emission_str = (
+                f"{self.emission_wavelength}nm"
+                if isinstance(self.emission_wavelength, float)
+                else self.emission_wavelength
+            )
 
-        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {emission_str}) P:{self.power*100:.1f}%, EXP:{self.exposure_time * 1000:.1f}ms"
+        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {emission_str}) P:{self.power * 100:.1f}%, EXP:{self.exposure_time * 1000:.1f}ms"
 
     @property
     def pretty(self) -> str:
@@ -285,7 +296,7 @@ class ZParameters:
         z_positions = np.arange(
             start=z_init + self.zmin,
             stop=z_init + self.zmax + self.zstep * 0.5,
-            step=self.zstep
+            step=self.zstep,
         )
 
         return z_positions.tolist()
@@ -314,8 +325,89 @@ class ZParameters:
         if num_planes <= 1:
             return "Z-Stack: Single plane acquisition"
 
-        order_str = "channel-wise" if self.order == ZStackOrder.CHANNEL else "z-level-wise"
+        order_str = (
+            "channel-wise" if self.order == ZStackOrder.CHANNEL else "z-level-wise"
+        )
         return f"Z-Stack: {num_planes} planes ({self.zmin * 1e6:.1f}μm to {self.zmax * 1e6:.1f}μm, step {self.zstep * 1e6:.1f}μm, {order_str})"
+
+
+def open_tiff(filename: str) -> "tff.TiffFile":
+    """A TiffFile that reads an ImageJ file as ImageJ.
+
+    A METEOR ImageJ export carries OME text in its ImageJ description that is not
+    valid OME. tifffile flags such a file as OME too, tries that first, and logs an
+    ERROR before falling back to ImageJ -- on every open, for a file that reads
+    correctly. So a file that is both is opened with OME off: the ImageJ series is
+    the one tifffile would have used.
+    """
+    tif = tff.TiffFile(filename)
+    if tif.is_imagej and tif.is_ome:
+        tif.close()
+        tif = tff.TiffFile(filename, is_ome=False)
+    return tif
+
+
+# tifffile's names for an axis it cannot place: a page sequence, or unknown.
+_UNKNOWN_AXES = "IQ"
+
+
+def to_czyx(data: np.ndarray, axes: str) -> np.ndarray:
+    """*data* with tifffile *axes* arranged as (C, Z, Y, X), or (T, C, Z, Y, X) when
+    there is more than one time point.
+
+    Missing channel and z axes are added with length one. A colour axis (`S`, an RGB
+    file's samples) is taken as the channels. Axes tifffile could not name are taken
+    as they always were here: one is z, two are channel then z.
+    """
+    data = np.asarray(data)
+    axes = axes.upper()
+    if len(axes) != data.ndim:
+        raise ValueError(
+            f"axes {axes!r} do not describe an array of shape {data.shape}"
+        )
+    unknown = [a for a in axes if a in _UNKNOWN_AXES]
+    if unknown:
+        fill = [a for a in ("C", "Z") if a not in axes]
+        if len(unknown) > len(fill):
+            raise ValueError(
+                f"cannot tell which axes of {axes!r} {data.shape} are what"
+            )
+        for letter, name in zip(unknown, fill[-len(unknown) :]):
+            axes = axes.replace(letter, name, 1)
+    if "S" in axes:
+        if "C" in axes:
+            raise ValueError(f"both channels and colour samples in {axes!r}")
+        axes = axes.replace("S", "C")
+    for name in ("Z", "C"):
+        if name not in axes:
+            data = data[np.newaxis]
+            axes = name + axes
+    extra = set(axes) - set("TCZYX")
+    if extra or len(set(axes)) != len(axes) or "Y" not in axes or "X" not in axes:
+        raise ValueError(f"cannot arrange axes {axes!r} as CZYX")
+    order = "TCZYX" if "T" in axes else "CZYX"
+    data = data.transpose([axes.index(a) for a in order])
+    if order == "TCZYX" and data.shape[0] == 1:
+        data = data[0]
+    return data
+
+
+def _annotated_metadata(ome: OMEMetadata) -> Optional["FluorescenceImageMetadata"]:
+    """Our own metadata, from the map annotation `save` writes; None without one."""
+    annotations = ome.structured_annotations
+    for annotation in getattr(annotations, "map_annotations", None) or []:
+        value = annotation.value
+        if not value or "FluorescenceImageMetadata" not in value:
+            continue
+        text = value["FluorescenceImageMetadata"]
+        if not isinstance(text, str):
+            continue
+        try:
+            return FluorescenceImageMetadata.from_dict(json.loads(text))
+        except Exception as e:
+            logging.warning(f"Failed to load structured annotations: {e}")
+            return None
+    return None
 
 
 @dataclass
@@ -332,22 +424,29 @@ class FluorescenceImage:
     # so two images of the same data read from different paths are still equal.
     filepath: Optional[str] = field(default=None, compare=False, repr=False)
 
-    def save(self, filename: str) -> str:
+    def save(self, filename: str, compression: Optional[str] = None) -> str:
         """
         Save a FMImage to a TIFF file with OME metadata.
 
         Args:
             filename (str): The filename to save the image to.
+            compression (str, optional): A tifffile compression, e.g. "zlib", for a
+                copy that should not be larger than its source; with a horizontal
+                predictor, which is what makes 16-bit microscopy compress. None, the
+                default, writes uncompressed and contiguous, as acquisitions always
+                have.
         """
         # if data is 2D, reshape to 4D (CZYX)
         if self.data.ndim == 2:
             self.data = self.data.reshape(1, 1, *self.data.shape)
 
         ome_md = self.get_ome_metadata()
+        # No schema validation here: ome_types builds the XML from typed
+        # models, and tff.OmeXml.validate fetches the OME XSD over HTTP on
+        # first use. An offline microscope PC (the normal case) blocked on the
+        # socket timeout and then raised on every FM save. Outbound network
+        # calls are opt-in and must never sit on the acquisition path.
         ome_xml = ome_md.to_xml()
-
-        # Validate OME XML
-        assert tff.OmeXml.validate(ome_xml), "OME XML is not valid"
 
         # Reshape image to 5D for tifffile (CZYX -> TCZYX)
         if self.data.ndim != 5:
@@ -368,7 +467,21 @@ class FluorescenceImage:
 
         # TODO: add overwrite protection to prevent overwriting existing files
         with tff.TiffWriter(filename) as tif:
-            tif.write(data=tifffile_image, contiguous=True)
+            # Greyscale, said outright: left to guess, tifffile may take a stack
+            # of three or four planes for the samples of an RGB image.
+            if compression:
+                # Compressed pages cannot be contiguous; the per-plane mapping in
+                # the OME says where each is, as it does for any file.
+                tif.write(
+                    data=tifffile_image,
+                    photometric="minisblack",
+                    compression=compression,
+                    predictor=True,
+                )
+            else:
+                tif.write(
+                    data=tifffile_image, contiguous=True, photometric="minisblack"
+                )
             tif.overwrite_description(ome_xml)
 
         # set only after a successful write, so a recorded path is always a path that exists
@@ -537,7 +650,9 @@ class FluorescenceImage:
             pixels=Pixels(
                 id="Pixels:01",
                 channels=channels_md,
-                dimension_order=Pixels_DimensionOrder.XYCZT,
+                # The planes are written channel by channel, every z of one
+                # channel before the next: z varies fastest (FIB-279).
+                dimension_order=Pixels_DimensionOrder.XYZCT,
                 size_x=nx,
                 size_y=ny,
                 size_z=nz,
@@ -577,82 +692,46 @@ class FluorescenceImage:
 
     @classmethod
     def load(cls, filename: str) -> "FluorescenceImage":
-        """Load an image from a file with metadata recovery from structured annotations."""
-        from tifffile import imread
+        """Load an image, with its axes as the file records them and its metadata
+        recovered from our annotation, the file's own OME, or defaults, in that order.
 
-        # Load image data
-        data = imread(filename)
+        The array is arranged to (C, Z, Y, X) from the axes tifffile reads out of the
+        file -- for an OME-TIFF, from its per-plane mapping -- never from comparing
+        sizes against the metadata: that comparison cannot tell channels from z-slices
+        when there are as many of one as the other, and swapped them (FIB-279).
+        """
+        with open_tiff(filename) as tif:
+            series = tif.series[0]
+            data = series.asarray()
+            axes = series.axes
+        data = to_czyx(data, axes)
 
-        # Handle fallback reshaping for non-OME files
-        if data.ndim == 2:
-            # Simple 2D image -> CZYX (single channel, single Z)
-            data = data[np.newaxis, np.newaxis, :, :]
-        elif data.ndim == 3:
-            # 3D image -> CZYX (single channel, multi-Z)
-            data = data[np.newaxis, :, :, :]
-
-        # Try to load metadata from structured annotations
+        metadata: Optional[FluorescenceImageMetadata] = None
         try:
             ome = safe_ome_from_tiff(filename)
-
-            # Look for FluorescenceImageMetadata in structured annotations
-            if (
-                ome.structured_annotations
-                and ome.structured_annotations.map_annotations
-            ):
-                for annotation in ome.structured_annotations.map_annotations:
-                    if (
-                        annotation.value
-                        and "FluorescenceImageMetadata" in annotation.value
-                    ):
-                        # Found our custom metadata
-                        metadata_json = annotation.value["FluorescenceImageMetadata"]
-                        metadata_dict = json.loads(metadata_json)
-                        metadata = FluorescenceImageMetadata.from_dict(metadata_dict)
-
-                        # Reshape data to CZYX based on metadata
-                        nc = len(metadata.channels)
-                        nz = len(metadata.z_positions) if metadata.z_positions else 1
-
-                        if data.ndim == 4:  # Reshape from loaded format to CZYX
-                            if data.shape[0] == nc and data.shape[1] == nz:
-                                # Data is already CZYX
-                                pass
-                            elif data.shape[0] == nz and data.shape[1] == nc:
-                                # Data is ZCYX, transpose to CZYX
-                                data = data.transpose(1, 0, 2, 3)
-                        elif data.ndim == 3:
-                            if nc > 1 and nz == 1:
-                                # Multi-channel, single Z: CYX -> CZYX
-                                data = data[:, np.newaxis, :, :]
-                            else:
-                                # Single channel, multi-Z: ZYX -> CZYX
-                                data = data[np.newaxis, :, :, :]
-                        elif data.ndim == 2:
-                            # Single channel, single Z: YX -> CZYX
-                            data = data[np.newaxis, np.newaxis, :, :]
-
-                        return cls(data=data, metadata=metadata, filepath=str(filename))
-
         except Exception as e:
-            logging.warning(f"Failed to load structured annotations: {e}")
-
-            try:
-                # Fallback: try to load OME metadata only
-                ome = safe_ome_from_tiff(filename)
-                metadata = FluorescenceImageMetadata.from_ome(ome)
-
-            except Exception as e2:
-                logging.warning(f"Failed to load OME metadata: {e2}")
-                # Fallback to basic metadata
-                metadata = cls._create_basic_metadata(data.shape)
+            logging.debug(f"No OME metadata in {filename}: {e}")
+            ome = None
+        if ome is not None:
+            metadata = _annotated_metadata(ome)
+            if metadata is None:
+                # An OME-TIFF from other software: what its own OME says.
+                try:
+                    metadata = FluorescenceImageMetadata.from_ome(ome)
+                except Exception as e:
+                    logging.warning(f"Failed to load OME metadata: {e}")
+        if metadata is None:
+            metadata = cls._create_basic_metadata(data.shape)
 
         return cls(data=data, metadata=metadata, filepath=str(filename))
 
     @classmethod
     def _create_basic_metadata(cls, data_shape: tuple) -> "FluorescenceImageMetadata":
         """Create basic metadata when no structured annotations are available."""
-        # Handle different data shapes: (Y, X), (Z, Y, X), (C, Z, Y, X)
+        # Handle different data shapes: (Y, X), (Z, Y, X), (C, Z, Y, X), and
+        # (T, C, Z, Y, X), whose channels are those of any one time point.
+        if len(data_shape) == 5:
+            data_shape = tuple(data_shape[1:])
         if len(data_shape) == 2:
             ny, nx = data_shape
             nc = 1
@@ -1142,7 +1221,9 @@ class FluorescenceImage:
             pixel_size_y=pixel_size,
             resolution=resolution,
             channels=channels,
-            z_positions=[i * pixel_size for i in range(zlevels)] if zlevels > 1 else None,
+            z_positions=[i * pixel_size for i in range(zlevels)]
+            if zlevels > 1
+            else None,
         )
 
         return FluorescenceImage(data=data, metadata=metadata)
@@ -1387,9 +1468,9 @@ class FluorescenceImageMetadata:
                 else None
             ),
         )
-    
+
     @classmethod
-    def from_ome(cls, ome: OMEMetadata) -> 'FluorescenceImageMetadata':
+    def from_ome(cls, ome: OMEMetadata) -> "FluorescenceImageMetadata":
         """Convert OME metadata to FluorescenceImageMetadata with availability checks.
 
         For importing images from **external software**. `load` prefers the
@@ -1411,10 +1492,11 @@ class FluorescenceImageMetadata:
 
         if pixels_md is None:
             raise ValueError("OME metadata contains no pixel information")
-        
+
         # Pixel sizes (convert to meters where possible)
         pixel_size_x = _convert_length_to_meters(
-            pixels_md.physical_size_x, pixels_md.physical_size_x_unit)
+            pixels_md.physical_size_x, pixels_md.physical_size_x_unit
+        )
         pixel_size_y = _convert_length_to_meters(
             pixels_md.physical_size_y, pixels_md.physical_size_y_unit
         )
@@ -1465,9 +1547,7 @@ class FluorescenceImageMetadata:
             )
 
         # Use z positions only if we have at least two valid entries
-        valid_z_positions = (
-            z_positions if len(z_positions) >= 2 else None
-        )
+        valid_z_positions = z_positions if len(z_positions) >= 2 else None
 
         # Build channel metadata with fallbacks
         channels_md: List[FluorescenceChannelMetadata] = []
@@ -1584,7 +1664,8 @@ class OverviewParameters:
             "tile_order": self.tile_order.value,
             "objective_start": self.objective_start.value,
             # plain bools: np.bool_ does not survive yaml.safe_dump
-            "tile_mask": None if self.tile_mask is None
+            "tile_mask": None
+            if self.tile_mask is None
             else [[bool(v) for v in row] for row in self.tile_mask],
         }
 
@@ -1597,11 +1678,15 @@ class OverviewParameters:
             cols=ddict.get("cols", 3),
             overlap=ddict.get("overlap", 0.1),
             use_zstack=ddict.get("use_zstack", False),
-            autofocus_mode=AutoFocusMode(ddict.get("autofocus_mode", AutoFocusMode.NONE.value)),
+            autofocus_mode=AutoFocusMode(
+                ddict.get("autofocus_mode", AutoFocusMode.NONE.value)
+            ),
             tile_order=TileOrderStrategy(
                 ddict.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
             ),
-            tile_mask=None if mask is None else [[bool(v) for v in row] for row in mask],
+            tile_mask=None
+            if mask is None
+            else [[bool(v) for v in row] for row in mask],
             # Defaulted, not required: every overview saved before this existed started
             # from wherever the objective was, so that is what its parameters mean.
             objective_start=ObjectiveStartPosition(
@@ -1620,7 +1705,8 @@ class OverviewParameters:
 @dataclass
 class CameraSettings:
     """Camera settings for fluorescence microscopy acquisition."""
-    gain: float = 0.01 # 1%
+
+    gain: float = 0.01  # 1%
     offset: float = 0.0
     binning: int = 1
     transform: CameraImageTransform = CameraImageTransform.NONE
@@ -1682,9 +1768,7 @@ class FluorescenceConfiguration:
                 ddict["autofocus_settings"]
             )
         if ddict.get("camera_settings"):
-            camera_settings = CameraSettings.from_dict(
-                ddict["camera_settings"]
-            )
+            camera_settings = CameraSettings.from_dict(ddict["camera_settings"])
         else:
             camera_settings = CameraSettings()
 
@@ -1722,9 +1806,7 @@ class FluorescenceConfiguration:
         # Write to YAML file
         with open(filename, "w") as f:
             yaml.dump(
-                config_dict, f, 
-                default_flow_style=False, 
-                indent=4, sort_keys=False
+                config_dict, f, default_flow_style=False, indent=4, sort_keys=False
             )
 
         logging.info(f"FM configuration exported to: {filename}")

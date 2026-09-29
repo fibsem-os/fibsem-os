@@ -1,6 +1,11 @@
 # style sheets
 import os as _os
 
+# The application-level sheet moved to its own module; re-exported so that both
+# `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
+# keep resolving.
+from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
+
 # The colour palette lives in fibsem.ui.tokens and is imported here, at the top,
 # so the QSS constants below can interpolate it. Every name is re-exported for
 # the callers that import colours from this module rather than from tokens.
@@ -10,9 +15,9 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     BORDER_COLOR,
     CANVAS_BG,
     DEFECT_ORANGE_COLOR,
+    DEFECT_RED_COLOR,
     DISABLED_BG_COLOR,
     DISABLED_TEXT_COLOR,
-    DEFECT_RED_COLOR,
     ERROR_COLOR,
     GRAY_BACKGROUND_COLOR,
     GRAY_CANVAS_COLOR,
@@ -25,6 +30,8 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     GRAY_TEXT_COLOR,
     GRAY_WHITE_COLOR,
     GREEN_COLOR,
+    NEUTRAL_300,
+    NEUTRAL_650,
     OK_COLOR,
     ORANGE_COLOR,
     PANEL_COLOR,
@@ -35,6 +42,7 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     PRIMARY_COLOR_PRESSED,
     PURPLE_COLOR,
     RED_COLOR,
+    REVIEW_COLOR,
     ROW_ALT_COLOR,
     SEMANTIC_ERROR_COLOR,
     SEMANTIC_ERROR_HOVER_COLOR,
@@ -46,16 +54,6 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     TEXT_STRONG_COLOR,
     WARN_COLOR,
     WHITE_ICON_COLOR,
-)
-
-# The application-level sheet moved to its own module; re-exported so that both
-# `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
-# keep resolving.
-from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
-from fibsem.ui.tokens import (
-    NEUTRAL_300,
-    NEUTRAL_650,
-    SURFACE_COLOR,
 )
 
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
@@ -244,6 +242,80 @@ SECONDARY_BUTTON_STYLESHEET = f"""
     }}
 """
 
+# A button that sits flat on the header until the pointer reaches it, the way the
+# notification bell does. For controls that say where you are -- the microscope,
+# the experiment -- rather than ask you to do something: a filled pill gave them
+# more weight than anything else in the tab row. `:open` is a menu button with its
+# menu showing, which should read as held down.
+# TODO: no token -- #4a5168
+GHOST_BUTTON_STYLESHEET = f"""
+    QPushButton {{
+        background-color: transparent;
+        color: {TEXT_COLOR};
+        border: none;
+        padding: 5px 12px;
+        border-radius: 3px;
+    }}
+    QPushButton:hover {{
+        background-color: {BORDER_COLOR};
+    }}
+    QPushButton:pressed, QPushButton:open {{
+        background-color: #4a5168;
+    }}
+    QPushButton:disabled {{
+        background-color: transparent;
+        color: {DISABLED_TEXT_COLOR};
+    }}
+"""
+
+# The same, with the label muted until hovered: for a line that is context rather
+# than the thing you came to read.
+MUTED_GHOST_BUTTON_STYLESHEET = (
+    GHOST_BUTTON_STYLESHEET
+    + f"""
+    QPushButton {{
+        color: {TEXT_MUTED_COLOR};
+    }}
+    QPushButton:hover, QPushButton:pressed {{
+        color: {TEXT_COLOR};
+    }}
+"""
+)
+
+# A QPushButton that opens a menu. Qt stops drawing the native menu arrow as soon
+# as the button carries a stylesheet, so the chevron has to be put back by hand --
+# without it the control looks like a plain button and nothing says it opens.
+#
+# The contents are left-aligned because the chevron is pinned to the right edge:
+# centred, a button wider than its label splits the slack evenly and pushes the
+# label away from the left padding, which reads as a gap rather than as balance.
+#
+# padding-right is 16 rather than the chevron's own 18 because Qt has *already*
+# reserved room for a menu indicator inside the contents rect -- about 10px, whether
+# or not a stylesheet draws its own. Padding chosen to clear the chevron therefore
+# pays for that gutter twice, which put 30px between the label and the arrow against
+# 12px on the other side. 16 leaves 8 before the chevron and 8 after it.
+#
+# Flat, with the chevron muted like the icon: once there is no fill, the chevron is
+# what says the button opens, but at full strength it competes with the label.
+MENU_BUTTON_STYLESHEET = (
+    GHOST_BUTTON_STYLESHEET
+    + """
+    QPushButton {
+        text-align: left;
+        padding-right: 16px;
+    }
+    QPushButton::menu-indicator {
+        image: url("__ICONS_DIR__/chevron_down_muted.svg");
+        subcontrol-origin: padding;
+        subcontrol-position: center right;
+        width: 10px;
+        height: 10px;
+        right: 8px;
+    }
+""".replace("__ICONS_DIR__", _ICONS_DIR)
+)
+
 MESSAGE_BOX_STYLESHEET = f"""
     QMessageBox {{
         background-color: {SURFACE_COLOR};
@@ -320,6 +392,26 @@ BORDER_STATE_COLOURS = {
 
 BORDER_WIDTH_PX = 4
 
+# The agent supervision chip: same colour as the agent border state, one
+# source (BORDER_STATE_COLOURS) — hover/pressed are darkened by hand like the
+# supervised/automated chips above.
+SUPERVISION_STATUS_AGENT_STYLESHEET = f"""
+                QPushButton {{
+                    background-color: {BORDER_STATE_COLOURS["agent"]};
+                    color: white;
+                    border: none;
+                    padding: 5px 12px;
+                    border-radius: 3px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: #a300d9;
+                }}
+                QPushButton:pressed {{
+                    background-color: #8a00b8;
+                }}
+            """
+
 
 def border_stylesheet(object_name: str) -> str:
     """QSS border rules for the frame whose ``objectName`` is *object_name*.
@@ -340,6 +432,28 @@ def border_stylesheet(object_name: str) -> str:
 
 
 # TODO: no token -- #6a6a6a, #8a8a8a
+# For `IconToolButton`, whose checked state already swaps the icon: no border in any
+# state, a faint fill on hover, and an accent tint when checked. The bordered, filled
+# checked box of TOOLBUTTON_ICON_STYLESHEET below made every toggled-on button in a
+# panel header look pressed, which is the loudest thing in a row of quiet chrome.
+ICON_TOOLBUTTON_STYLESHEET = """
+    QToolButton {
+        border: none;
+        border-radius: 4px;
+        padding: 2px 4px;
+        background-color: transparent;
+    }
+    QToolButton:hover {
+        background-color: rgba(255, 255, 255, 25);
+    }
+    QToolButton:checked {
+        background-color: rgba(80, 166, 255, 45);
+    }
+    QToolButton:checked:hover {
+        background-color: rgba(80, 166, 255, 70);
+    }
+"""
+
 TOOLBUTTON_ICON_STYLESHEET = f"""
     QToolButton {{
         border: 1px solid transparent;
@@ -397,54 +511,52 @@ QDateTimeEdit:disabled {{
 
 QDateTimeEdit::up-button {{
     subcontrol-origin: border;
-    subcontrol-position: center right;
-    background-color: {BORDER_COLOR};
+    subcontrol-position: top right;
+    background-color: transparent;
     border: none;
-    border-left: 1px solid {BORDER_COLOR};
     border-top-right-radius: 3px;
-    border-bottom-right-radius: 3px;
-    width: 20px;
-    height: 100%;
+    width: 16px;
+    height: 12px;
+    margin-top: 2px;
 }}
 
-QDateTimeEdit::up-button:hover {{
+QDateTimeEdit::up-button:hover:hover {{
     background-color: #4a5168;
 }}
 
-QDateTimeEdit::up-button:pressed {{
+QDateTimeEdit::up-button:pressed:pressed {{
     background-color: {ACCENT_COLOR};
 }}
 
 QDateTimeEdit::up-arrow {{
-    image: url("__ICONS_DIR__/plus.svg");
-    width: 10px;
-    height: 10px;
+    image: url("__ICONS_DIR__/stepper-plus.svg");
+    width: 14px;
+    height: 14px;
 }}
 
 QDateTimeEdit::down-button {{
     subcontrol-origin: border;
-    subcontrol-position: center left;
-    background-color: {BORDER_COLOR};
+    subcontrol-position: bottom right;
+    background-color: transparent;
     border: none;
-    border-right: 1px solid {BORDER_COLOR};
-    border-top-left-radius: 3px;
-    border-bottom-left-radius: 3px;
-    width: 20px;
-    height: 100%;
+    border-bottom-right-radius: 3px;
+    width: 16px;
+    height: 12px;
+    margin-bottom: 2px;
 }}
 
-QDateTimeEdit::down-button:hover {{
+QDateTimeEdit::down-button:hover:hover {{
     background-color: #4a5168;
 }}
 
-QDateTimeEdit::down-button:pressed {{
+QDateTimeEdit::down-button:pressed:pressed {{
     background-color: {ACCENT_COLOR};
 }}
 
 QDateTimeEdit::down-arrow {{
-    image: url("__ICONS_DIR__/minus.svg");
-    width: 10px;
-    height: 10px;
+    image: url("__ICONS_DIR__/stepper-minus.svg");
+    width: 14px;
+    height: 14px;
 }}
 """.replace("__ICONS_DIR__", _ICONS_DIR)
 
@@ -464,16 +576,45 @@ STOP_WORKFLOW_BUTTON_STYLESHEET = DANGER_BUTTON_STYLESHEET
 
 
 # A small panel floating over a canvas, opened from a toolbar button. Shared so the
-# canvas's popovers cannot drift apart -- contrast and the overlay switches are the same
-# kind of thing in the same corner, and looked it only by coincidence while each carried
-# its own copy of these greys.
-CANVAS_POPOVER_STYLE = (
-    "QFrame { background: rgba(30,33,36,230); border: 1px solid #555;"
-    " border-radius: 4px; }"
-    "QLabel { color: #d1d2d4; font-size: 10px; background: transparent; border: none; }"
-    "QCheckBox { color: #d1d2d4; font-size: 10px; background: transparent;"
-    " border: none; }"
-    "QPushButton { background: rgba(60,63,70,200); border: 1px solid #666;"
-    " border-radius: 3px; color: #d1d2d4; font-size: 10px; padding: 2px 8px; }"
-    "QPushButton:hover { background: rgba(80,83,90,220); }"
-)
+# canvas's panels cannot drift apart -- contrast, the overlay switches, the tile grid
+# and the align controls are the same kind of thing in the same corner. One frame
+# style, one label scale, one button, one slider; a panel opts in by naming its frame
+# `canvasPanel`, and marks its title, section headings and hints by object name.
+CANVAS_PANEL_STYLE = f"""
+QFrame#canvasPanel {{ background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR}; border-radius: 6px; }}
+QLabel {{ color: {TEXT_COLOR}; font-size: 11px; background: transparent; border: none; }}
+QLabel#panelTitle {{ color: {TEXT_MUTED_COLOR}; font-size: 10px; font-weight: 600; letter-spacing: 1px; }}
+QLabel#panelSection {{ color: {TEXT_MUTED_COLOR}; font-size: 10px; font-weight: 600; letter-spacing: 1px; padding-top: 2px; }}
+QLabel#panelHint {{ color: {TEXT_MUTED_COLOR}; font-size: 10px; font-style: italic; }}
+QCheckBox {{ color: {TEXT_COLOR}; font-size: 11px; background: transparent; border: none; spacing: 6px; }}
+QPushButton {{
+    background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 4px 8px;
+}}
+QPushButton:hover:enabled {{ background: #333744; }}
+QPushButton:checked {{ background: {ACCENT_COLOR}; color: {GRAY_TEXT_COLOR}; border-color: {ACCENT_COLOR}; }}
+QPushButton:disabled {{ color: {DISABLED_TEXT_COLOR}; border-color: {DISABLED_BG_COLOR}; }}
+QComboBox {{
+    background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 3px 6px;
+}}
+QComboBox QAbstractItemView {{ background: {PANEL_COLOR}; color: {TEXT_COLOR}; selection-background-color: {ACCENT_COLOR}; }}
+QLineEdit {{
+    background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 3px 6px;
+}}
+QAbstractSpinBox {{
+    background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 2px 4px;
+}}
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{
+    width: 14px; background: transparent; border: none;
+}}
+QAbstractSpinBox::up-arrow, QAbstractSpinBox::down-arrow {{ width: 8px; height: 8px; }}
+QSlider::groove:horizontal {{ height: 4px; background: {BORDER_COLOR}; border-radius: 2px; }}
+QSlider::sub-page:horizontal {{ background: {ACCENT_COLOR}; border-radius: 2px; }}
+QSlider::handle:horizontal {{ width: 12px; margin: -5px 0; background: {TEXT_COLOR}; border-radius: 6px; }}
+QFrame#panelSeparator {{ background: {BORDER_COLOR}; border: none; max-height: 1px; min-height: 1px; }}
+"""
+# The older name, kept for its callers.
+CANVAS_POPOVER_STYLE = CANVAS_PANEL_STYLE

@@ -13,13 +13,12 @@ except:
     pass
 
 import yaml
+from skimage.color import gray2rgb
+from skimage.util import img_as_ubyte
 from tqdm import tqdm
 
 from fibsem.constants import DATE_COMPACT
 from fibsem.segmentation import dataset, utils
-
-from skimage.color import gray2rgb
-from skimage.util import img_as_ubyte
 
 
 def _convert_checkpoint_format(checkpoint: str, encoder:str, nc: int, output_filename: str):

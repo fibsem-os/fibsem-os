@@ -1,9 +1,10 @@
-import numpy as np
 import logging
 import time
-
 from datetime import datetime
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Union
+
+import numpy as np
+
 from fibsem.fm.microscope import (
     Camera,
     FilterSet,
@@ -20,6 +21,9 @@ from odemis import model
 from odemis.acq.acqmng import acquire
 from odemis.acq.stream import FluoStream
 from odemis.util import fluo
+
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
 
 # NOTES: needed to install shapely, pylibtiff, and odemis
 

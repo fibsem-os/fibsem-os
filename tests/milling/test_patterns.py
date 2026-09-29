@@ -1,32 +1,35 @@
 from __future__ import annotations
-from dataclasses import fields
 
+from dataclasses import fields
 from typing import Type
+
 import numpy as np
 import pytest
 
-from fibsem.milling.patterning.patterns2 import (
-    BasePattern,
-    CirclePattern,
-    FibsemCircleSettings,
-    FibsemLineSettings,
-    FibsemRectangleSettings,
-    LinePattern,
-    RectanglePattern,
-    TrenchPattern,
-    ArrayPattern,
-    CloverPattern,
-    FiducialPattern,
-    RulerPattern,
-)
 from fibsem.milling.patterning import (
     MILLING_PATTERNS,
     get_pattern,
+)
+from fibsem.milling.patterning.patterns2 import (
+    ArrayPattern,
+    BasePattern,
+    CirclePattern,
+    CircularSuspensionPattern,
+    CloverPattern,
+    FibsemCircleSettings,
+    FibsemLineSettings,
+    FibsemRectangleSettings,
+    FiducialPattern,
+    LinePattern,
+    RectanglePattern,
+    RulerPattern,
+    TrenchPattern,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     Point,
 )
+
 
 @pytest.mark.parametrize("pattern", list(MILLING_PATTERNS.values()))
 def test_required_attributes(pattern: Type[BasePattern]) -> None:
@@ -126,6 +129,7 @@ def test_line_settings():
     assert line_settings2.end_x == end_x
     assert line_settings2.end_y == end_y
     assert line_settings2.depth == depth
+
 
 def test_rectangle_settings():
     """Test the initialization, dictionary conversion, and reconstruction of a FibsemRectangleSettings object."""
@@ -280,7 +284,6 @@ def test_rectangle_pattern():
     assert rect.shapes[0].centre_x == 0
     assert rect.shapes[0].centre_y == 0
 
-
     # test serialization
     ddict = rect.to_dict()
     assert ddict["width"] == width
@@ -298,8 +301,6 @@ def test_rectangle_pattern():
     assert rect2.rotation == rotation
 
 
-
-
 class TestTrenchPattern:
     def test_init(self):
         # Test default initialization
@@ -308,7 +309,7 @@ class TestTrenchPattern:
             depth=50.0,
             spacing=20.0,
             upper_trench_height=30.0,
-            lower_trench_height=25.0
+            lower_trench_height=25.0,
         )
 
         assert trench.width == 100.0
@@ -332,7 +333,7 @@ class TestTrenchPattern:
             upper_trench_height=30.0,
             lower_trench_height=25.0,
             point=Point(10.0, 20.0),
-            time=5.0
+            time=5.0,
         )
 
         shapes = trench.define()
@@ -371,7 +372,7 @@ class TestTrenchPattern:
             upper_trench_height=30.0,
             lower_trench_height=25.0,
             point=Point(10.0, 20.0),
-            fillet=5.0
+            fillet=5.0,
         )
 
         shapes = trench.define()
@@ -388,8 +389,12 @@ class TestTrenchPattern:
 
         # Check fillet shapes
         fillet_shapes = shapes[2:]
-        circle_shapes = [s for s in fillet_shapes if isinstance(s, FibsemCircleSettings)]
-        rect_shapes = [s for s in fillet_shapes if isinstance(s, FibsemRectangleSettings)]
+        circle_shapes = [
+            s for s in fillet_shapes if isinstance(s, FibsemCircleSettings)
+        ]
+        rect_shapes = [
+            s for s in fillet_shapes if isinstance(s, FibsemRectangleSettings)
+        ]
 
         assert len(circle_shapes) == 4  # 4 circle fillets
         assert len(rect_shapes) == 4  # 4 rectangle fills
@@ -407,7 +412,7 @@ class TestTrenchPattern:
             upper_trench_height=30.0,
             lower_trench_height=25.0,
             point=Point(10.0, 20.0),
-            fillet=20.0  # This is more than upper_trench_height/2
+            fillet=20.0,  # This is more than upper_trench_height/2
         )
 
         shapes = trench.define()
@@ -430,7 +435,7 @@ class TestTrenchPattern:
             point=Point(10.0, 20.0),
             time=5.0,
             fillet=5.0,
-            cross_section=CrossSectionPattern.Rectangle
+            cross_section=CrossSectionPattern.Rectangle,
         )
 
         result_dict = trench.to_dict()
@@ -457,7 +462,7 @@ class TestTrenchPattern:
             "point": {"x": 10.0, "y": 20.0},
             "time": 5.0,
             "fillet": 5.0,
-            "cross_section": "Rectangle"
+            "cross_section": "Rectangle",
         }
 
         trench = TrenchPattern.from_dict(test_dict)
@@ -493,9 +498,6 @@ class TestTrenchPattern:
         assert trench.point.y == 0.0
 
 
-
-
-
 class TestArrayPattern:
     def test_init(self):
         # Test default initialization
@@ -506,7 +508,7 @@ class TestArrayPattern:
             n_columns=3,
             n_rows=2,
             pitch_vertical=50.0,
-            pitch_horizontal=40.0
+            pitch_horizontal=40.0,
         )
 
         assert array.width == 10.0
@@ -538,7 +540,7 @@ class TestArrayPattern:
             passes=2,
             rotation=45,
             scan_direction="LeftToRight",
-            point=Point(5.0, 15.0)
+            point=Point(5.0, 15.0),
         )
 
         shapes = array.define()
@@ -580,7 +582,7 @@ class TestArrayPattern:
             rotation=45,
             scan_direction="LeftToRight",
             cross_section=CrossSectionPattern.Rectangle,
-            point=Point(5.0, 15.0)
+            point=Point(5.0, 15.0),
         )
 
         result_dict = array.to_dict()
@@ -613,7 +615,7 @@ class TestArrayPattern:
             "rotation": 45,
             "scan_direction": "LeftToRight",
             "cross_section": "Rectangle",
-            "point": {"x": 5.0, "y": 15.0}
+            "point": {"x": 5.0, "y": 15.0},
         }
 
         array = ArrayPattern.from_dict(test_dict)
@@ -657,10 +659,7 @@ class TestArrayPattern:
 class TestCloverPattern:
     def test_init(self):
         # Test initialization
-        clover = CloverPattern(
-            radius=10.0,
-            depth=5.0
-        )
+        clover = CloverPattern(radius=10.0, depth=5.0)
 
         assert clover.radius == 10.0
         assert clover.depth == 5.0
@@ -705,11 +704,7 @@ class TestCloverPattern:
         assert stem.scan_direction == "TopToBottom"
 
     def test_to_dict(self):
-        clover = CloverPattern(
-            radius=10.0,
-            depth=5.0,
-            point=Point(5.0, 15.0)
-        )
+        clover = CloverPattern(radius=10.0, depth=5.0, point=Point(5.0, 15.0))
 
         result_dict = clover.to_dict()
 
@@ -720,11 +715,7 @@ class TestCloverPattern:
         assert result_dict["point"]["y"] == 15.0
 
     def test_from_dict(self):
-        test_dict = {
-            "radius": 10.0,
-            "depth": 5.0,
-            "point": {"x": 5.0, "y": 15.0}
-        }
+        test_dict = {"radius": 10.0, "depth": 5.0, "point": {"x": 5.0, "y": 15.0}}
 
         clover = CloverPattern.from_dict(test_dict)
 
@@ -737,11 +728,7 @@ class TestCloverPattern:
 class TestFiducialPattern:
     def test_init(self):
         # Test initialization
-        fiducial = FiducialPattern(
-            width=10.0,
-            height=20.0,
-            depth=5.0
-        )
+        fiducial = FiducialPattern(width=10.0, height=20.0, depth=5.0)
 
         assert fiducial.width == 10.0
         assert fiducial.height == 20.0
@@ -783,6 +770,39 @@ class TestFiducialPattern:
         # Second rectangle should be rotated 90 degrees more
         assert shapes[1].rotation == (45 + 90) * (np.pi / 180)
 
+    def test_define_at_zero_rotation_emits_no_rotated_shapes(self):
+        """A cross at 0 degrees is two axis-aligned bars, not two rotated ones.
+
+        Some vendors' scripting APIs (JEOL) cannot rotate a milling shape at all,
+        so a right-angle turn has to arrive as swapped dimensions or the second
+        bar lands on top of the first and mills a single line.
+        """
+        fiducial = FiducialPattern(
+            width=1.0, height=10.0, depth=1.0, rotation=0, point=Point(5.0, 15.0)
+        )
+
+        vertical, horizontal = fiducial.define()
+
+        assert vertical.rotation == 0.0
+        assert horizontal.rotation == 0.0
+        assert (vertical.width, vertical.height) == (1.0, 10.0)
+        assert (horizontal.width, horizontal.height) == (10.0, 1.0)
+        # the two bars must cross, not coincide
+        assert vertical.centre_x == horizontal.centre_x == 5.0
+        assert vertical.centre_y == horizontal.centre_y == 15.0
+
+    def test_define_leaves_non_right_angles_rotated(self):
+        """45 degrees genuinely needs rotation -- squaring it off would mill the
+        wrong figure, so the dimension swap must not touch it."""
+        fiducial = FiducialPattern(width=1.0, height=10.0, depth=1.0, rotation=45)
+
+        shapes = fiducial.define()
+
+        assert shapes[0].rotation == pytest.approx(np.deg2rad(45))
+        assert shapes[1].rotation == pytest.approx(np.deg2rad(135))
+        for shape in shapes:
+            assert (shape.width, shape.height) == (1.0, 10.0)
+
     def test_to_dict(self):
         fiducial = FiducialPattern(
             width=10.0,
@@ -790,7 +810,7 @@ class TestFiducialPattern:
             depth=5.0,
             rotation=45,
             cross_section=CrossSectionPattern.Rectangle,
-            point=Point(5.0, 15.0)
+            point=Point(5.0, 15.0),
         )
 
         result_dict = fiducial.to_dict()
@@ -811,7 +831,7 @@ class TestFiducialPattern:
             "depth": 5.0,
             "rotation": 45,
             "cross_section": "Rectangle",
-            "point": {"x": 5.0, "y": 15.0}
+            "point": {"x": 5.0, "y": 15.0},
         }
 
         fiducial = FiducialPattern.from_dict(test_dict)
@@ -826,11 +846,7 @@ class TestFiducialPattern:
 
     def test_from_dict_default_values(self):
         # Test with minimal dict and default values
-        test_dict = {
-            "width": 10.0,
-            "height": 20.0,
-            "depth": 5.0
-        }
+        test_dict = {"width": 10.0, "height": 20.0, "depth": 5.0}
 
         fiducial = FiducialPattern.from_dict(test_dict)
 
@@ -875,15 +891,22 @@ class TestRulerPattern:
 
     def test_every_notch_is_left_aligned(self):
         """One-sided: major notches are longer, but they grow to the right."""
-        ruler = RulerPattern(point=Point(7.0, 0.0), n_ticks=6, tick_length=2.0,
-                             major_length=5.0, major_every=3)
+        ruler = RulerPattern(
+            point=Point(7.0, 0.0),
+            n_ticks=6,
+            tick_length=2.0,
+            major_length=5.0,
+            major_every=3,
+        )
 
         lefts = {s.centre_x - s.width / 2 for s in ruler.define()}
 
         assert lefts == {7.0}
 
     def test_major_notches_land_every_nth(self):
-        ruler = RulerPattern(n_ticks=7, tick_length=2.0, major_length=5.0, major_every=3)
+        ruler = RulerPattern(
+            n_ticks=7, tick_length=2.0, major_length=5.0, major_every=3
+        )
 
         lengths = [s.width for s in ruler.define()]
 
@@ -891,7 +914,9 @@ class TestRulerPattern:
 
     def test_major_every_zero_is_a_uniform_comb(self):
         """The escape hatch, in case the real ruler turns out not to be graduated."""
-        ruler = RulerPattern(n_ticks=6, tick_length=2.0, major_length=5.0, major_every=0)
+        ruler = RulerPattern(
+            n_ticks=6, tick_length=2.0, major_length=5.0, major_every=0
+        )
 
         assert {s.width for s in ruler.define()} == {2.0}
 
@@ -907,9 +932,16 @@ class TestRulerPattern:
             assert shape.depth == 1.5
 
     def test_round_trip_through_a_protocol(self):
-        ruler = RulerPattern(point=Point(1.0, 2.0), n_ticks=9, pitch=3.0,
-                             tick_length=2.0, major_length=6.0, major_every=4,
-                             tick_thickness=0.4, depth=1.5)
+        ruler = RulerPattern(
+            point=Point(1.0, 2.0),
+            n_ticks=9,
+            pitch=3.0,
+            tick_length=2.0,
+            major_length=6.0,
+            major_every=4,
+            tick_thickness=0.4,
+            depth=1.5,
+        )
 
         restored = RulerPattern.from_dict(ruler.to_dict())
 
@@ -923,11 +955,7 @@ class TestRulerPattern:
 class TestGetPattern:
     def test_get_pattern(self):
         # Test that get_pattern correctly instantiates a pattern
-        config = {
-            "width": 10.0,
-            "height": 20.0,
-            "depth": 5.0
-        }
+        config = {"width": 10.0, "height": 20.0, "depth": 5.0}
 
         pattern = get_pattern("rectangle", config)
 
@@ -958,7 +986,7 @@ class TestGetPattern:
             # Create a basic config with sample values for required attributes
             minimal_config = {}
             for attr, t in required_attrs.items():
-                if attr != 'return' and attr not in ['point', 'shapes', 'name']:
+                if attr != "return" and attr not in ["point", "shapes", "name"]:
                     if t == float:
                         minimal_config[attr] = 10.0
                     elif t == int:
@@ -970,3 +998,90 @@ class TestGetPattern:
 
             pattern = get_pattern(pattern_name, minimal_config)
             assert isinstance(pattern, MILLING_PATTERNS[pattern_name])
+
+
+class TestCircularSuspensionPattern:
+    """Two discs, each left hanging on two anchors.
+
+    Ported from the circular-suspension plugin; the geometry below is what the
+    plugin produced, so a change here is a change to what gets milled.
+    """
+
+    PARAMS = dict(
+        inner_anchor_height=2.0e-6,
+        outer_anchor_height=3.0e-6,
+        outer_radius=2.0e-6,
+        inner_radius=1.0e-6,
+        external_radius=2.5e-6,
+        depth=1.0e-6,
+        spacing=10.0e-6,
+    )
+
+    def test_init(self):
+        pattern = CircularSuspensionPattern(**self.PARAMS)
+
+        assert pattern.name == "CircularSuspension"
+        assert pattern.shapes is None
+        assert pattern.external_radius == 2.5e-6
+
+    def test_define_draws_two_suspensions(self):
+        pattern = CircularSuspensionPattern(**self.PARAMS, point=Point(1.0e-6, 4.0e-6))
+
+        shapes = pattern.define()
+
+        # per side: the disc, the ring it leaves, two anchors
+        assert len(shapes) == 8
+        discs = [
+            s
+            for s in shapes
+            if isinstance(s, FibsemCircleSettings) and not s.is_exclusion
+        ]
+        assert len(discs) == 2
+        # centres sit `spacing` apart edge to edge, i.e. spacing + 2r between centres
+        offset = (10.0e-6 + 2 * 2.5e-6) / 2
+        assert sorted(d.centre_x for d in discs) == pytest.approx(
+            [1.0e-6 - offset, 1.0e-6 + offset]
+        )
+        assert all(d.centre_y == 4.0e-6 for d in discs)
+        assert all(d.radius == 2.5e-6 and d.thickness == 0 for d in discs)
+
+    def test_the_ring_is_an_annulus_between_the_two_radii(self):
+        shapes = CircularSuspensionPattern(**self.PARAMS).define()
+
+        rings = [
+            s for s in shapes if isinstance(s, FibsemCircleSettings) and s.is_exclusion
+        ]
+        assert len(rings) == 2
+        for ring in rings:
+            assert ring.radius == 2.0e-6  # outer_radius
+            assert ring.thickness == pytest.approx(1.0e-6)  # outer - inner
+
+    def test_the_anchors_are_asymmetric_and_face_outwards(self):
+        """The thicker anchor is on the outside of each disc, so the pair mirrors."""
+        shapes = CircularSuspensionPattern(**self.PARAMS).define()
+
+        anchors = [s for s in shapes if isinstance(s, FibsemRectangleSettings)]
+        assert len(anchors) == 4
+        assert all(a.is_exclusion for a in anchors)
+        # anchor_width = (external_radius - outer_radius) * 1.5
+        assert all(a.width == pytest.approx(0.75e-6) for a in anchors)
+
+        left = sorted((a for a in anchors if a.centre_x < 0), key=lambda a: a.centre_x)
+        right = sorted((a for a in anchors if a.centre_x > 0), key=lambda a: a.centre_x)
+        # outermost anchor of each disc carries outer_anchor_height
+        assert left[0].height == 3.0e-6 and left[-1].height == 2.0e-6
+        assert right[-1].height == 3.0e-6 and right[0].height == 2.0e-6
+
+    def test_exclusions_are_listed_first(self):
+        """The microscope applies shapes in order: an exclusion after its shape is inert."""
+        shapes = CircularSuspensionPattern(**self.PARAMS).define()
+
+        flags = [s.is_exclusion for s in shapes]
+        assert flags == sorted(flags, reverse=True)
+
+    def test_round_trip(self):
+        pattern = CircularSuspensionPattern(**self.PARAMS, point=Point(1e-6, 2e-6))
+
+        restored = CircularSuspensionPattern.from_dict(pattern.to_dict())
+
+        assert restored == pattern

@@ -1,10 +1,11 @@
 # 
 from __future__ import annotations
 
+import os
+
 from langchain.document_loaders import UnstructuredPDFLoader
 from langchain.indexes import VectorstoreIndexCreator
 from langchain.llms import OpenAI
-import os
 
 # import OpenAI API key from secret.txt
 with open("secret.txt", "r") as f:

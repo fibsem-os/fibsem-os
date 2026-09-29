@@ -13,10 +13,11 @@ import unittest
 
 import numpy as np
 import numpy.testing as np_test
-#import scipy as sp
 
+#import scipy as sp
 from pyto.affine_2d import Affine2D
 from pyto.rigid_3d import Rigid3D
+
 #from rigid_3d import Rigid3D
 
 

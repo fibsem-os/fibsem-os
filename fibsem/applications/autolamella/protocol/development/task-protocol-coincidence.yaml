@@ -189,10 +189,27 @@ tasks:
                         config: {}
                     alignment:
                         enabled: true
+    Setup Coincidence Milling:
+        task_type: SETUP_COINCIDENCE_MILLING
+        parameters:
+            field_of_view: 80.0e-6
+            intensity_drop_fraction: 0.4
+            align_coincidence: false
+        reference_imaging:
+            acquire_sem: false
+            acquire_fib: true
+        milling: {}
     Coincidence Milling:
         task_type: MILL_COINCIDENT
         parameters:
-            orientation: MILLING
+            setup_task: Setup Coincidence Milling
+            acquire_fluorescence_images: true
+        monitoring_channel:
+            name: Monitoring
+            excitation_wavelength: 550
+            emission_wavelength: Fluorescence
+            power: 0.1
+            exposure_time: 0.1
         reference_imaging:
             acquire_sem: false
             acquire_fib: true
@@ -261,30 +278,35 @@ workflow:
     description: ''
     tasks:
     -   name: Select Milling Position
-        supervise: true
+        attention: supervised
         required: false
         requires: []
     -   name: Acquire Fluorescence Image
-        supervise: false
+        attention: automated
         required: false
         requires: []
     -   name: Mill Fiducial
-        supervise: true
+        attention: supervised
         required: true
         requires: []
     -   name: Acquire Fluorescence Image
-        supervise: false
+        attention: automated
         required: false
         requires: []
     -   name: Rough Milling
-        supervise: true
+        attention: supervised
         required: true
         requires:
         - Mill Fiducial
-    -   name: Coincidence Milling
-        supervise: true
+    -   name: Setup Coincidence Milling
+        attention: supervised
         required: true
         requires:
         - Rough Milling
+    -   name: Coincidence Milling
+        attention: automated
+        required: true
+        requires:
+        - Setup Coincidence Milling
 options:
     turn_beams_off: false

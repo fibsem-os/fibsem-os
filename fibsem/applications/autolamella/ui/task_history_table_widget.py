@@ -2,9 +2,17 @@
 Widget for displaying experiment task history in a sortable table.
 """
 from typing import Optional
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QCheckBox
 
-from fibsem.applications.autolamella.structures import Experiment, AutoLamellaTaskStatus
+from PyQt5.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Experiment
 from fibsem.ui.widgets.dataframe_table_widget import DataFrameTableWidget
 from fibsem.ui.widgets.task_summary_formatting import (
     COLUMN_NAME_MAPPING,
@@ -130,8 +138,9 @@ class TaskHistoryTableWidget(QWidget):
 
 def main():
     """Example usage of TaskHistoryTableWidget."""
-    import sys
     import os
+    import sys
+
     from PyQt5.QtWidgets import QApplication
 
     # Load example experiment

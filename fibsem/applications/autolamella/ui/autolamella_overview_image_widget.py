@@ -1,5 +1,6 @@
 """Widget for generating final overview images with customizable markers and text."""
 
+import glob
 import logging
 import os
 from typing import TYPE_CHECKING, Optional
@@ -8,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QCheckBox,
     QColorDialog,
@@ -17,22 +19,16 @@ from PyQt5.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
-    QLineEdit,
     QWidget,
 )
-from PyQt5.QtGui import QColor
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.ui.widgets.custom_widgets import (
-    IntegerValueSpinBox,
-    TitledPanel,
-)
 from fibsem.imaging.tiled import plot_minimap
 from fibsem.structures import FibsemImage
-import glob
 from fibsem.ui.tokens import (
     NEUTRAL_400,
     NEUTRAL_750,
@@ -40,6 +36,11 @@ from fibsem.ui.tokens import (
     NEUTRAL_850,
     SURFACE_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import (
+    IntegerValueSpinBox,
+    TitledPanel,
+)
+
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
@@ -706,6 +707,7 @@ def create_overview_image_widget(experiment: 'Experiment',
 
 if __name__ == "__main__":
     import sys
+
     from PyQt5.QtWidgets import QApplication
 
     app = QApplication(sys.argv)

@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QListWidget,
     QListWidgetItem,
     QSizePolicy,
@@ -19,31 +20,36 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from fibsem.milling.base import FibsemMillingStage, get_strategy
 from fibsem.milling.patterning import get_pattern, get_pattern_names
+from fibsem.milling.patterning.shapes import COLOURS
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
-from fibsem.ui.napari.patterns import COLOURS
-from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_700,
     ORANGE_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 
 # Columns are flexible: each is (minimum_width, stretch). The header and every row
 # consume the SAME spec so their column boundaries stay aligned as the panel resizes,
 # while the whole row can shrink well below the old ~660px fixed-width floor.
-_COL_NAME = (90, 3)
-_COL_PATTERN = (70, 2)
-_COL_DEPTH = (70, 2)
-_COL_CURRENT = (60, 2)
-_COL_STRATEGY = (70, 2)
+# Minimums are what the cell's text needs: "200.0 pA" or "Standard" plus the combo's
+# arrow, "2.0 µm" plus the stacked stepper. Below these a cell clips mid-word.
+_COL_NAME = (80, 3)
+_COL_PATTERN = (84, 2)
+_COL_DEPTH = (84, 2)
+_COL_CURRENT = (106, 2)
+_COL_STRATEGY = (108, 2)
 _CHECKBOX_WIDTH = 24
 _DRAG_WIDTH = DRAG_HANDLE_WIDTH
-_BTN_SIZE = QSize(32, 32)
+# Icon buttons, not 32px: two per row was 64px of chrome in a row that has ~500px.
+_BTN_SIZE = QSize(24, 24)
 _ROW_HEIGHT = 40
+_MAX_VISIBLE_ROWS = 8  # beyond this the list scrolls rather than growing
 
 
 def _add_flex_column(layout: QHBoxLayout, widget: QWidget, spec: tuple) -> None:
@@ -105,10 +111,10 @@ class _DraggableStageList(QListWidget):
 
 
 class MillingStageRowWidget(QWidget):
-    enabled_changed = pyqtSignal(object, bool)   # FibsemMillingStage, enabled
-    remove_clicked = pyqtSignal(object)          # FibsemMillingStage
-    row_clicked = pyqtSignal(object)             # FibsemMillingStage
-    stage_changed = pyqtSignal(object)           # FibsemMillingStage after inline mutation
+    enabled_changed = pyqtSignal(object, bool)  # FibsemMillingStage, enabled
+    remove_clicked = pyqtSignal(object)  # FibsemMillingStage
+    row_clicked = pyqtSignal(object)  # FibsemMillingStage
+    stage_changed = pyqtSignal(object)  # FibsemMillingStage after inline mutation
 
     def __init__(
         self,
@@ -135,7 +141,7 @@ class MillingStageRowWidget(QWidget):
         self._show_preset = show_preset
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setContentsMargins(4, 3, 4, 3)
         layout.setSpacing(4)
 
         self.checkbox = QCheckBox()
@@ -154,7 +160,9 @@ class MillingStageRowWidget(QWidget):
         self.pattern_combo.setToolTip("Pattern type")
         _add_flex_column(layout, self.pattern_combo, _COL_PATTERN)
 
-        self.depth_spin = ValueSpinBox(suffix="µm", minimum=0.01, maximum=1000.0, step=0.1, decimals=1)
+        self.depth_spin = ValueSpinBox(
+            suffix="µm", minimum=0.01, maximum=1000.0, step=0.1, decimals=1
+        )
         self.depth_spin.setToolTip("Depth (µm)")
         # keep the column slot when hidden (patterns without depth) so rows stay aligned
         depth_sp = self.depth_spin.sizePolicy()
@@ -165,12 +173,18 @@ class MillingStageRowWidget(QWidget):
         # Current and Preset share one column: Tescan mills by preset (milling_current is
         # a no-op on that backend), every other backend mills by current. Exactly one is
         # ever visible, so the column boundaries still line up with the header.
-        _current_items = self._current_values if self._current_values else [stage.milling.milling_current]
+        _current_items = (
+            self._current_values
+            if self._current_values
+            else [stage.milling.milling_current]
+        )
         self.current_combo = ValueComboBox(items=_current_items, unit="A")
         self.current_combo.setToolTip("Milling current")
         _add_flex_column(layout, self.current_combo, _COL_CURRENT)
 
-        _preset_items = self._preset_values if self._preset_values else [stage.milling.preset]
+        _preset_items = (
+            self._preset_values if self._preset_values else [stage.milling.preset]
+        )
         self.preset_combo = ValueComboBox(items=_preset_items)
         self.preset_combo.setToolTip("Milling preset")
         _add_flex_column(layout, self.preset_combo, _COL_CURRENT)
@@ -205,8 +219,14 @@ class MillingStageRowWidget(QWidget):
         )
         self.btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.stage))
 
-        for w in (self.name_edit, self.pattern_combo, self.depth_spin,
-                  self.current_combo, self.preset_combo, self.strategy_combo):
+        for w in (
+            self.name_edit,
+            self.pattern_combo,
+            self.depth_spin,
+            self.current_combo,
+            self.preset_combo,
+            self.strategy_combo,
+        ):
             w.installEventFilter(self)
 
         self._connect_signals()
@@ -229,12 +249,21 @@ class MillingStageRowWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _block_controls(self, block: bool) -> None:
-        for w in (self.name_edit, self.pattern_combo, self.depth_spin,
-                  self.current_combo, self.preset_combo, self.strategy_combo):
+        for w in (
+            self.name_edit,
+            self.pattern_combo,
+            self.depth_spin,
+            self.current_combo,
+            self.preset_combo,
+            self.strategy_combo,
+        ):
             w.blockSignals(block)
 
     def _update_depth_visibility(self) -> None:
-        has_depth = hasattr(self.stage.pattern, "depth") and self.stage.pattern.depth is not None
+        has_depth = (
+            hasattr(self.stage.pattern, "depth")
+            and self.stage.pattern.depth is not None
+        )
         self.depth_spin.setVisible(has_depth)
         self.depth_spin.setEnabled(has_depth)
 
@@ -263,6 +292,8 @@ class MillingStageRowWidget(QWidget):
     def refresh(self) -> None:
         self._block_controls(True)
         self.name_edit.setText(self.stage.name)
+        # show the start of a long name, not its scrolled end
+        self.name_edit.setCursorPosition(0)
         self.name_edit.setToolTip(self.stage.summary)
         self.pattern_combo.set_value(self.stage.pattern.name)
         depth = getattr(self.stage.pattern, "depth", None)
@@ -353,12 +384,17 @@ class _MillingStageListHeader(QWidget):
         self.setStyleSheet(f"background: {CANVAS_BG};")
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
+        # 8px, not the row's 4px: the list insets each row's widget by 4px on both
+        # sides, so this puts the header's cells over the rows' cells exactly, and
+        # gives the flexible columns the same width to share.
+        layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(4)
 
         # Header mirrors the row cell-for-cell so columns stay aligned: a no-text
         # select-all checkbox (matches the row checkbox), then one flexible label
-        # per column using the SAME (min, stretch) spec as the rows.
+        # per column using the SAME (min, stretch) spec as the rows. Each label is
+        # padded on the left by the inset of its column's control text: a combo or
+        # spinbox starts its text 8px in, the name edit 3px.
         self.checkbox_all = QCheckBox()
         self.checkbox_all.setChecked(True)
         self.checkbox_all.setToolTip("Enable/disable all stages")
@@ -376,20 +412,21 @@ class _MillingStageListHeader(QWidget):
             ("Strategy", _COL_STRATEGY),
         ]:
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("font-weight: bold; background: transparent;")
+            text_inset = 3 if label_text == "Stage" else 8
+            lbl.setStyleSheet(
+                f"font-weight: bold; background: transparent; padding-left: {text_inset}px;"
+            )
             _add_flex_column(layout, lbl, spec)
             if label_text == "Pattern":
                 self.lbl_pattern = lbl  # toggled with the pattern column (eye button)
             if label_text == "Current":
-                self.lbl_current = lbl  # retitled "Preset" on backends that mill by preset
+                self.lbl_current = (
+                    lbl  # retitled "Preset" on backends that mill by preset
+                )
 
-        # trailing spacer matches the row's color+remove+drag vs the header's eye+add,
-        # so the strategy column's right edge lines up with the rows
-        spacer = QWidget()
-        spacer.setFixedWidth(_DRAG_WIDTH)
-        spacer.setStyleSheet("background: transparent;")
-        layout.addWidget(spacer)
-
+        # eye + add sit over the row's colour + remove, and a spacer the width of
+        # the row's drag handle follows them, so the strategy column's right edge
+        # and the buttons both line up with the rows
         self.btn_eye = IconToolButton(
             icon="mdi:eye",
             checked_icon="mdi:eye-off",
@@ -404,6 +441,10 @@ class _MillingStageListHeader(QWidget):
             icon="mdi:plus", tooltip="Add milling stage", size=_BTN_SIZE.width()
         )
         layout.addWidget(self.btn_add)
+        spacer = QWidget()
+        spacer.setFixedWidth(_DRAG_WIDTH)
+        spacer.setStyleSheet("background: transparent;")
+        layout.addWidget(spacer)
 
         self.checkbox_all.stateChanged.connect(
             lambda s: self.select_all_changed.emit(bool(s))
@@ -419,13 +460,15 @@ class _MillingStageListHeader(QWidget):
 class MillingStageListWidget(QWidget):
     """Multi-column list widget for FibsemMillingStage objects."""
 
-    stage_selected = pyqtSignal(object)    # FibsemMillingStage
-    stage_added = pyqtSignal(object)       # FibsemMillingStage (new stage, distinct from selection)
-    stage_removed = pyqtSignal(object)     # FibsemMillingStage
-    stage_changed = pyqtSignal(object)     # FibsemMillingStage (inline field edit)
-    enabled_changed = pyqtSignal(list)     # List[FibsemMillingStage] (enabled only)
-    order_changed = pyqtSignal(list)       # List[FibsemMillingStage] in new order
-    eye_toggled = pyqtSignal(bool)         # True = patterns visible
+    stage_selected = pyqtSignal(object)  # FibsemMillingStage
+    stage_added = pyqtSignal(
+        object
+    )  # FibsemMillingStage (new stage, distinct from selection)
+    stage_removed = pyqtSignal(object)  # FibsemMillingStage
+    stage_changed = pyqtSignal(object)  # FibsemMillingStage (inline field edit)
+    enabled_changed = pyqtSignal(list)  # List[FibsemMillingStage] (enabled only)
+    order_changed = pyqtSignal(list)  # List[FibsemMillingStage] in new order
+    eye_toggled = pyqtSignal(bool)  # True = patterns visible
 
     def __init__(
         self,
@@ -465,19 +508,29 @@ class MillingStageListWidget(QWidget):
         self._list.setDragDropMode(QAbstractItemView.InternalMove)
         self._list.setDefaultDropAction(Qt.MoveAction)
         self._list.setSpacing(0)
-        self._list.setMinimumHeight(3 * _ROW_HEIGHT)
+        # Sized to its rows (see _update_empty_state): QListWidget's default size
+        # hint is 256px, which left a band of nothing under three stages.
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Adjust, not the default Fixed: in Fixed mode a row keeps the geometry it
+        # was given when inserted, which comes from its ~680px size hint, so in any
+        # panel narrower than that the row ran off the right edge and the Strategy
+        # column read as "St". Adjust relays the rows out to the viewport on resize.
+        self._list.setResizeMode(QListView.Adjust)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
 
         self._empty_label = QLabel("No milling stages. Click + to add one.")
-        self._empty_label.setStyleSheet(f"color: {NEUTRAL_700}; font-style: italic; padding: 12px;")
+        self._empty_label.setStyleSheet(
+            f"color: {NEUTRAL_700}; font-style: italic; padding: 12px;"
+        )
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._empty_label)
 
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet(f"color: {ORANGE_COLOR}; font-style: italic; padding: 2px 12px;")
+        self._status_label.setStyleSheet(
+            f"color: {ORANGE_COLOR}; font-style: italic; padding: 2px 12px;"
+        )
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self._status_label.setVisible(False)
         layout.addWidget(self._status_label)
@@ -511,7 +564,8 @@ class MillingStageListWidget(QWidget):
         index = self._list.count()
         stage.enabled = enabled
         row = MillingStageRowWidget(
-            stage, index=index,
+            stage,
+            index=index,
             pattern_names=self._pattern_names,
             strategy_names=self._strategy_names,
             current_values=self._current_values,
@@ -611,6 +665,10 @@ class MillingStageListWidget(QWidget):
     def _update_empty_state(self) -> None:
         empty = self._list.count() == 0
         self._empty_label.setVisible(empty)
+        self._list.setVisible(not empty)
+        # Exactly as tall as its rows, up to a screenful; past that it scrolls.
+        rows = min(self._list.count(), _MAX_VISIBLE_ROWS)
+        self._list.setFixedHeight(rows * _ROW_HEIGHT + 2 * self._list.frameWidth())
 
     def _on_add_stage(self) -> None:
         count = self._list.count()
@@ -643,7 +701,11 @@ class MillingStageListWidget(QWidget):
         row.stage_changed.connect(self._on_row_stage_changed, type=Qt.QueuedConnection)
 
     def _is_name_available(self, name: str, row: MillingStageRowWidget) -> bool:
-        existing = {self._row(i).stage.name for i in range(self._list.count()) if self._row(i) is not row}
+        existing = {
+            self._row(i).stage.name
+            for i in range(self._list.count())
+            if self._row(i) is not row
+        }
         return name not in existing
 
     def _show_name_error(self, name: str) -> None:
@@ -671,7 +733,8 @@ class MillingStageListWidget(QWidget):
                 continue
             enabled = stage.enabled
             row = MillingStageRowWidget(
-                stage, index=i,
+                stage,
+                index=i,
                 pattern_names=self._pattern_names,
                 strategy_names=self._strategy_names,
                 current_values=self._current_values,

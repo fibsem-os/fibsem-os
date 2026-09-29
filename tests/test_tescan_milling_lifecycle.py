@@ -8,6 +8,7 @@ No hardware or Tescan SDK required: the microscope object is created without __i
 connection is stubbed, and the SDK names the driver imports are monkeypatched in.
 """
 
+import threading
 from typing import List, Optional
 
 import pytest
@@ -46,6 +47,7 @@ def make_microscope(monkeypatch, current_preset="30 keV; 20 pA", unload_error=No
     step raising while leaving setup's own preset set intact.
     """
     microscope = object.__new__(TescanMicroscope)
+    microscope._connection_lock = threading.RLock()
     microscope.connection = FakeConnection(unload_error)
     microscope.milling_channel = BeamType.ION
     microscope._preset_before_milling = None
@@ -68,7 +70,9 @@ def make_microscope(monkeypatch, current_preset="30 keV; 20 pA", unload_error=No
     microscope.set = fake_set
     # set_preset (real base method) resolves via the class MRO and routes through fake_set
 
-    monkeypatch.setattr(tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False)
+    monkeypatch.setattr(
+        tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
+    )
     return microscope
 
 
@@ -80,6 +84,7 @@ def preset_restores(m) -> List[str]:
 # --------------------------------------------------------------------------
 # clear_patterns
 # --------------------------------------------------------------------------
+
 
 def test_clear_patterns_unloads_the_layer(monkeypatch):
     m = make_microscope(monkeypatch)
@@ -104,6 +109,7 @@ def test_clear_patterns_is_idempotent(monkeypatch):
 # --------------------------------------------------------------------------
 # preset snapshot / restore
 # --------------------------------------------------------------------------
+
 
 def test_setup_milling_snapshots_the_active_preset(monkeypatch):
     m = make_microscope(monkeypatch, current_preset="30 keV; 20 pA")
@@ -148,8 +154,10 @@ def test_finish_milling_clears_the_snapshot_for_the_next_cycle(monkeypatch):
 
     # the two restores are the two different snapshots, not a repeat of the first
     assert preset_restores(m) == [
-        "30 keV; 2 nA", "30 keV; 20 pA",     # cycle 1: mill, restore
-        "30 keV; 2 nA", "30 keV; 100 pA",    # cycle 2: mill, restore
+        "30 keV; 2 nA",
+        "30 keV; 20 pA",  # cycle 1: mill, restore
+        "30 keV; 2 nA",
+        "30 keV; 100 pA",  # cycle 2: mill, restore
     ]
 
 
@@ -176,6 +184,7 @@ def test_finish_milling_falls_back_when_snapshot_is_none(monkeypatch):
 # --------------------------------------------------------------------------
 # cleanup independence
 # --------------------------------------------------------------------------
+
 
 def test_finish_milling_unloads_the_layer_even_if_the_preset_fails(monkeypatch):
     """The whole point of splitting the try blocks: a fragile preset restore must not

@@ -27,9 +27,61 @@ Migration is a one-line import swap::
 
 This intentionally implements only the non-generator, bare-decorator subset. A generator body
 or ``@thread_worker(connect=...)`` will fail loudly rather than silently misbehave.
+
+What belongs in a worker body
+-----------------------------
+
+**The operation, and nothing else.** A worker body runs on a plain daemon thread, so the
+widget it was started from is off limits in there. The codebase settles this two ways,
+depending on whether the worker has anything to say before it is done.
+
+**It only reports afterwards** — return a value, and put every GUI update in a slot on
+``returned`` / ``errored``. ``ObjectiveControlWidget`` is the model::
+
+    def _wheel_move_worker(self, position_m: float) -> float:
+        # Worker: move the objective, and report back where it was sent.
+        self.fm.objective.move_absolute(position_m)
+        return position_m
+
+    worker = self._wheel_move_worker(position_um * MICRON_TO_METRE)
+    worker.returned.connect(self._on_wheel_move_finished)
+    worker.errored.connect(self._on_wheel_move_error)
+
+Prefer this one. ``returned`` fires only on success and before ``finished``, so the success
+path and the failure path separate themselves and anything queued from ``returned`` is already
+under way by the time a ``finished`` slot runs.
+
+**It reports while it runs** — emit one of the widget's own ``pyqtSignal``s. Both overview
+widgets state the rule on their ``_move_worker``, and it is worth quoting whole: *"Runs off the
+GUI thread. Only signals may cross back."* Emitting is safe from any thread; calling is not.
+
+Either way, **let the exception out**. ``FunctionWorker`` logs it with a traceback and re-emits
+it as ``errored`` on the GUI thread, which is the only way the widget can tell a failed run from
+a finished one. Swallowing it inside the body left a status line reading "Moving to …" for the
+rest of the session (FIB-765).
+
+The one sanctioned exception to "no calls": ``notification_service.show_toast`` (and ``show``),
+which is a queued ``pyqtSignal`` behind a function and may be called from anywhere. Qt picks the
+connection type from the *receiver's* thread affinity, not the sender's, and every receiver here
+is a widget on the GUI thread — so this holds even though ``_get_service()`` constructs the
+service lazily and could bind it to whichever thread happens to call first. Measured, not
+assumed: a service built on a worker thread still delivers to a GUI-thread slot on the GUI
+thread.
+
+Why the rule is about coupling, not safety
+------------------------------------------
+
+``@ensure_main_thread`` (39 sites, 23 of them under ``fibsem/ui/``) marshals a widget method onto
+the GUI thread, so a worker that calls one is *correctly synchronised*. The reason not to write
+it that way anyway is that the sequence — do the thing, then update these five widgets — ends up
+expressed only as a widget method, and cannot be run, tested, or reused without the widget. A
+body holding just the operation keeps the schedule-and-report half where the widget can see it,
+and the reusable half where it can be called without one (FIB-828).
 """
+
 from __future__ import annotations
 
+import contextvars
 import functools
 import logging
 import threading
@@ -61,6 +113,11 @@ class FunctionWorker(QObject):
     use — :meth:`is_alive` and :meth:`join` — so a widget that stored a raw ``Thread`` for
     lifecycle (``is_acquiring`` / ``cancel`` / ``closeEvent``) can hold a ``FunctionWorker``
     instead with no change to those call sites.
+
+    The body runs with a copy of the context the worker was started from, which a raw
+    ``Thread`` does not do. So work started on a task's behalf is still the task's in the
+    experiment's record (``fibsem.acting``, FIB-1062), and work started from the GUI is
+    unmarked, as it was.
     """
 
     started = pyqtSignal()
@@ -74,9 +131,11 @@ class FunctionWorker(QObject):
         self._args = args
         self._kwargs = kwargs
         self._thread: Optional[threading.Thread] = None
+        self._context: Optional[contextvars.Context] = None
 
     def start(self) -> None:
         """Launch the worker on a daemon thread."""
+        self._context = contextvars.copy_context()
         _ACTIVE_WORKERS.add(self)
         # Released on the GUI thread once the worker is done (self lives there).
         self.finished.connect(lambda: _ACTIVE_WORKERS.discard(self))
@@ -105,7 +164,7 @@ class FunctionWorker(QObject):
     def _run(self) -> None:
         self.started.emit()
         try:
-            result = self._func(*self._args, **self._kwargs)
+            result = self._context.run(self._func, *self._args, **self._kwargs)
         except Exception as exc:  # noqa: BLE001 - report every failure, never swallow it
             logging.exception(
                 "worker %r failed", getattr(self._func, "__name__", self._func)

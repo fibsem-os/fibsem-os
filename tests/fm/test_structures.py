@@ -1,24 +1,26 @@
 import tempfile
-import pytest
-import numpy as np
-import yaml
 from datetime import datetime
+
+import numpy as np
+import pytest
+import tifffile as tff
+import yaml
 
 from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
+    FluorescenceChannelMetadata,
     FluorescenceConfiguration,
     FluorescenceImage,
-    FluorescenceChannelMetadata,
     FluorescenceImageMetadata,
     OverviewParameters,
     ZParameters,
     ZStackOrder,
 )
 from fibsem.fm.timing import (
-    DEFAULT_STAGE_MOVE_TIME,
     DEFAULT_AUTOFOCUS_TIME,
     DEFAULT_OVERHEAD_PER_IMAGE,
+    DEFAULT_STAGE_MOVE_TIME,
     DEFAULT_Z_MOVE_TIME,
     calculate_total_images_count,
     estimate_acquisition_time,
@@ -562,6 +564,57 @@ def test_fluorescence_image_save_creates_the_directory(tmp_path):
     assert written == str(filename)
 
 
+def test_fluorescence_image_save_load_is_offline(tmp_path, monkeypatch):
+    """save() and load() must not touch the network.
+
+    save() used to validate the OME XML with tff.OmeXml.validate, which
+    downloads the OME XSD over HTTP on first use. On an offline microscope
+    PC every FM save blocked until the socket timed out and then raised; on
+    CI it failed with URLError. Block every outbound socket and the urllib
+    entry point tifffile uses, and check the roundtrip still works.
+    """
+    import socket
+    import urllib.request
+
+    def _no_network(*args, **kwargs):
+        raise AssertionError("network access attempted during FM save/load")
+
+    monkeypatch.setattr(socket, "create_connection", _no_network)
+    monkeypatch.setattr(socket.socket, "connect", _no_network)
+    monkeypatch.setattr(urllib.request, "urlopen", _no_network)
+    # Drop any XSD tifffile cached earlier in the session so the fetch would
+    # actually be attempted if save() still validated. Older tifffile (the
+    # 3.8 pin on CI) has no cache attribute at all; raising=False skips it.
+    monkeypatch.setattr(tff.OmeXml, "_schema", [], raising=False)
+
+    channel = FluorescenceChannelMetadata(
+        name="GFP",
+        excitation_wavelength=488.0,
+        emission_wavelength=520.0,
+        power=0.3,
+        exposure_time=0.05,
+        gain=1.0,
+        offset=0.0,
+    )
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(16, 16),
+        channels=[channel],
+    )
+    image = FluorescenceImage(
+        data=np.zeros((1, 1, 16, 16), dtype=np.uint8), metadata=metadata
+    )
+    filename = tmp_path / "offline.ome.tiff"
+
+    image.save(str(filename))
+    loaded = FluorescenceImage.load(str(filename))
+
+    assert loaded.metadata.channels[0].name == "GFP"
+    assert loaded.data.shape == (1, 1, 16, 16)
+
+
 def test_fluorescence_image_save_load_roundtrip():
     """Test save/load roundtrip with structured annotations."""
     # Create test data
@@ -739,7 +792,7 @@ def test_safe_ome_from_tiff_strips_channel_filters():
         '<Filter ID="Filter:0:0" Type="pass-through" /></Channel>'
         '<Channel ID="Channel:0:1" SamplesPerPixel="1">'
         '<Filter ID="Filter:0:1" Type="pass-through" /></Channel>'
-        '<TiffData /></Pixels></Image></OME>'
+        "<TiffData /></Pixels></Image></OME>"
     )
     data = np.zeros((2, 4, 4), dtype=np.uint8)
 
@@ -1730,7 +1783,7 @@ def test_estimate_acquisition_time_single_channel():
 
     # Single channel, no z-stack, default overhead (0.5s)
     time_s = estimate_acquisition_time(channel)
-    expected_time = 0.1 + 0.5  # exposure + overhead
+    expected_time = 0.1 + DEFAULT_OVERHEAD_PER_IMAGE  # exposure + overhead
     assert time_s == expected_time
 
     # Note: Custom timing parameters are now constants in the timing module
@@ -1751,11 +1804,11 @@ def test_estimate_acquisition_time_z_stack():
 
     time_s = estimate_acquisition_time(channel, zparams)
 
-    # Expected: 5 images × (0.05s exposure + 0.5s overhead) + 4 z-moves × 0.1s
+    # Expected: 5 images × (0.05s exposure + per-image overhead) + 4 z-moves × 0.1s
     expected_exposure = 5 * 0.05  # 0.25s total exposure
-    expected_overhead = 5 * 0.5  # 2.5s total overhead
+    expected_overhead = 5 * DEFAULT_OVERHEAD_PER_IMAGE
     expected_z_moves = 4 * 0.1  # 0.4s z-movement time
-    expected_total = expected_exposure + expected_overhead + expected_z_moves  # 3.15s
+    expected_total = expected_exposure + expected_overhead + expected_z_moves
 
     assert time_s == expected_total
 
@@ -1782,8 +1835,8 @@ def test_estimate_acquisition_time_multiple_channels():
     # Multiple channels, no z-stack
     time_s = estimate_acquisition_time(channels)
     expected_exposure = 0.1 + 0.05  # 0.15s total exposure
-    expected_overhead = 2 * 0.5  # 1.0s total overhead
-    expected_total = expected_exposure + expected_overhead  # 1.15s
+    expected_overhead = 2 * DEFAULT_OVERHEAD_PER_IMAGE
+    expected_total = expected_exposure + expected_overhead
     assert time_s == expected_total
 
 
@@ -1814,9 +1867,9 @@ def test_estimate_acquisition_time_multiple_channels_z_stack():
     expected_exposure = 3 * (
         0.1 + 0.05
     )  # 3 z-planes × (0.1 + 0.05)s per z-plane = 0.45s
-    expected_overhead = total_images * 0.5  # 6 × 0.5s = 3.0s
+    expected_overhead = total_images * DEFAULT_OVERHEAD_PER_IMAGE
     expected_z_moves = 2 * 2 * 0.1  # 2 channels × 2 z-moves × 0.1s = 0.4s
-    expected_total = expected_exposure + expected_overhead + expected_z_moves  # 3.85s
+    expected_total = expected_exposure + expected_overhead + expected_z_moves
 
     assert time_s == expected_total
 
@@ -1836,11 +1889,11 @@ def test_estimate_acquisition_time_custom_parameters():
     # Test with default timing constants
     time_s = estimate_acquisition_time(channel, zparams)
 
-    # Expected: 3 images × (0.2s exposure + 0.5s overhead) + 2 z-moves × 0.1s
+    # Expected: 3 images × (0.2s exposure + per-image overhead) + 2 z-moves × 0.1s
     expected_exposure = 3 * 0.2  # 0.6s
-    expected_overhead = 3 * 0.5  # 1.5s (using DEFAULT_OVERHEAD_PER_IMAGE)
+    expected_overhead = 3 * DEFAULT_OVERHEAD_PER_IMAGE
     expected_z_moves = 2 * 0.1  # 0.2s (using DEFAULT_Z_MOVE_TIME)
-    expected_total = expected_exposure + expected_overhead + expected_z_moves  # 2.3s
+    expected_total = expected_exposure + expected_overhead + expected_z_moves
 
     assert time_s == expected_total
 
@@ -1858,7 +1911,9 @@ def test_estimate_acquisition_time_edge_cases():
     # Single z-plane (no z-movement)
     zparams_single = ZParameters(zmin=0, zmax=0, zstep=1e-6)
     time_single = estimate_acquisition_time(channel, zparams_single)
-    expected_single = 0.01 + 0.5  # exposure + overhead, no z-moves
+    expected_single = (
+        0.01 + DEFAULT_OVERHEAD_PER_IMAGE
+    )  # exposure + overhead, no z-moves
     assert time_single == expected_single
 
     # Note: Timing constants are now fixed in the timing module
@@ -2106,7 +2161,9 @@ def test_estimate_tileset_acquisition_time_counts_only_enabled_tiles():
     plus = [[(i == 2 or j == 2) for j in range(5)] for i in range(5)]
 
     full = estimate_tileset_acquisition_time(channel, grid_size=(5, 5))
-    sparse = estimate_tileset_acquisition_time(channel, grid_size=(5, 5), tile_mask=plus)
+    sparse = estimate_tileset_acquisition_time(
+        channel, grid_size=(5, 5), tile_mask=plus
+    )
 
     assert full["tiles"] == 25
     assert sparse["tiles"] == 9
@@ -2115,7 +2172,9 @@ def test_estimate_tileset_acquisition_time_counts_only_enabled_tiles():
     # per-row autofocus fires once per row that actually gets visited
     masked_rows = [[(i == 0) for j in range(4)] for i in range(4)]
     one_row = estimate_tileset_acquisition_time(
-        channel, grid_size=(4, 4), autofocus_mode=AutoFocusMode.EACH_ROW,
+        channel,
+        grid_size=(4, 4),
+        autofocus_mode=AutoFocusMode.EACH_ROW,
         tile_mask=masked_rows,
     )
     assert one_row["breakdown"]["autofocus"]["operations"] == 1
@@ -2280,6 +2339,7 @@ def test_estimate_tileset_acquisition_time_scaling():
 # FluorescenceConfiguration tests
 # ---------------------------------------------------------------------------
 
+
 def _make_minimal_config(**kwargs) -> FluorescenceConfiguration:
     """Helper: build a FluorescenceConfiguration with minimal required fields."""
     channel = ChannelSettings(
@@ -2345,6 +2405,7 @@ def test_fluorescence_configuration_yaml_roundtrip():
         assert loaded.default_orientation == "SEM"
     finally:
         import os
+
         if os.path.exists(filename):
             os.unlink(filename)
 
@@ -2360,6 +2421,7 @@ def test_fluorescence_configuration_yaml_roundtrip_fm():
         assert loaded.default_orientation == "FM"
     finally:
         import os
+
         if os.path.exists(filename):
             os.unlink(filename)
 
@@ -2438,25 +2500,27 @@ class TestCombiningImagesKeepsTheirMetadata:
     def _image(**overrides):
         from fibsem.fm.structures import (
             CameraImageTransform,
+            FibsemHardwareGeometry,
             FluorescenceChannelMetadata,
             FluorescenceImage,
             FluorescenceImageMetadata,
-            FibsemHardwareGeometry,
         )
 
         metadata = FluorescenceImageMetadata(
             acquisition_date="2026-07-31T12:00:00",
             pixel_size_x=1e-7,
             pixel_size_y=1e-7,
-            channels=[FluorescenceChannelMetadata(
-                name=overrides.pop("name", "GFP"),
-                excitation_wavelength=488.0,
-                power=0.5,
-                exposure_time=0.1,
-                gain=1.0,
-                offset=0.0,
-                objective_position=1e-3,
-            )],
+            channels=[
+                FluorescenceChannelMetadata(
+                    name=overrides.pop("name", "GFP"),
+                    excitation_wavelength=488.0,
+                    power=0.5,
+                    exposure_time=0.1,
+                    gain=1.0,
+                    offset=0.0,
+                    objective_position=1e-3,
+                )
+            ],
             geometry=FibsemHardwareGeometry(
                 transform=CameraImageTransform.FLIP_XY,
                 camera_tilt=180.0,
@@ -2465,7 +2529,9 @@ class TestCombiningImagesKeepsTheirMetadata:
             description="carried through",
             **overrides,
         )
-        return FluorescenceImage(data=np.zeros((1, 8, 8), dtype=np.uint16), metadata=metadata)
+        return FluorescenceImage(
+            data=np.zeros((1, 8, 8), dtype=np.uint16), metadata=metadata
+        )
 
     def test_a_z_stack_keeps_the_geometry(self):
         from fibsem.fm.structures import FluorescenceImage

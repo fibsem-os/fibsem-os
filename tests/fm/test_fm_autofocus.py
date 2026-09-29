@@ -1,4 +1,5 @@
 """Tests for fm autofocus: run_autofocus and run_coarse_fine_autofocus."""
+
 from __future__ import annotations
 
 import threading
@@ -7,12 +8,17 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from fibsem.autofunctions.autofocus import (
+    AutoFocusIteration,
+    AutoFocusResult,
+    FocusSweepPass,
+)
 from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
-from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult, FocusSweepPass
 from fibsem.fm.structures import AutoFocusSettings, FocusMethod, ZParameters
-
+from fibsem.structures import DeviceImagingState
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_image(score: float) -> MagicMock:
     """Return a mock FM image whose .data encodes the given sharpness score."""
@@ -29,7 +35,7 @@ def _mock_fm(best_z: float = 0.0, initial_z: float = 5e-6):
     objective.position tracks move_absolute() calls.
     """
     m = MagicMock()
-    m.has_valid_orientation.return_value = True
+    m.parent.get_device_imaging_state.return_value = DeviceImagingState.READY
     m.acquisition_progress_signal = MagicMock()
 
     current_z = [initial_z]
@@ -58,6 +64,7 @@ DEFAULT_Z_PARAMS = ZParameters(zmin=-10e-6, zmax=10e-6, zstep=2e-6)
 
 # ── ZParameters.from_focus_pass ────────────────────────────────────────────────
 
+
 def test_zparameters_from_focus_pass():
     zp = ZParameters.from_focus_pass(FocusSweepPass(search_range=10e-6, step_size=2e-6))
     assert zp.zmin == pytest.approx(-5e-6)
@@ -74,9 +81,13 @@ def test_zparameters_from_focus_pass_positions_centred():
 
 # ── run_autofocus ─────────────────────────────────────────────────────────────
 
+
 def test_run_autofocus_returns_result():
     m = _mock_fm(best_z=0.0, initial_z=0.0)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS)
     assert isinstance(result, AutoFocusResult)
 
@@ -84,7 +95,10 @@ def test_run_autofocus_returns_result():
 def test_run_autofocus_finds_best_z():
     best_z = 0.0
     m = _mock_fm(best_z=best_z, initial_z=5e-6)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS)
     assert result is not None
     assert abs(result.working_distance - best_z) <= DEFAULT_Z_PARAMS.zstep
@@ -92,7 +106,10 @@ def test_run_autofocus_finds_best_z():
 
 def test_run_autofocus_result_fields_populated():
     m = _mock_fm(best_z=0.0)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS, method="laplacian")
     scores = [it.focus_score for it in result.iterations]
     best_idx = int(np.argmax(scores))
@@ -105,7 +122,10 @@ def test_run_autofocus_result_fields_populated():
 def test_run_autofocus_moves_to_best_z():
     best_z = 0.0
     m = _mock_fm(best_z=best_z, initial_z=5e-6)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS)
     assert abs(m.objective.position - result.working_distance) < 1e-12
 
@@ -113,14 +133,20 @@ def test_run_autofocus_moves_to_best_z():
 def test_run_autofocus_sets_channel_when_provided():
     m = _mock_fm()
     channel = MagicMock()
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         run_autofocus(m, channel_settings=channel, z_parameters=DEFAULT_Z_PARAMS)
     m.set_channel.assert_called_once_with(channel_settings=channel)
 
 
 def test_run_autofocus_no_channel_does_not_set_channel():
     m = _mock_fm()
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS)
     m.set_channel.assert_not_called()
 
@@ -129,7 +155,10 @@ def test_run_autofocus_cancellation_returns_none():
     stop = threading.Event()
     stop.set()
     m = _mock_fm()
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS, stop_event=stop)
     assert result is None
 
@@ -139,24 +168,31 @@ def test_run_autofocus_cancellation_restores_position():
     stop = threading.Event()
     stop.set()
     m = _mock_fm(initial_z=initial_z)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS, stop_event=stop)
     assert abs(m.objective.position - initial_z) < 1e-12
 
 
 def test_run_autofocus_iterations_are_autofocus_iterations():
     m = _mock_fm(best_z=0.0)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS)
     assert all(isinstance(it, AutoFocusIteration) for it in result.iterations)
     assert all(it.pass_index == 0 for it in result.iterations)
     assert all(isinstance(it.image, np.ndarray) for it in result.iterations)
 
 
-def test_run_autofocus_invalid_orientation_raises():
+def test_run_autofocus_refuses_where_the_fm_cannot_image():
     m = _mock_fm()
-    m.has_valid_orientation.return_value = False
-    with pytest.raises(ValueError, match="orientation"):
+    m.parent.get_device_imaging_state.return_value = DeviceImagingState.NEEDS_TRAVEL
+    m.parent.describe_device_imaging_state.return_value = "travel there"
+    with pytest.raises(ValueError, match="autofocus"):
         run_autofocus(m)
 
 
@@ -169,13 +205,17 @@ def test_run_autofocus_invalid_method_raises():
 def test_run_autofocus_default_z_parameters():
     """run_autofocus should work with no z_parameters (uses default ±10µm / 1µm step)."""
     m = _mock_fm(best_z=0.0, initial_z=0.0)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_autofocus(m)
     assert result is not None
     assert len(result.iterations) > 0
 
 
 # ── run_coarse_fine_autofocus ─────────────────────────────────────────────────
+
 
 def _af_settings(coarse_range=20e-6, coarse_step=5e-6, fine_range=4e-6, fine_step=1e-6):
     return AutoFocusSettings.from_coarse_fine(
@@ -189,7 +229,10 @@ def _af_settings(coarse_range=20e-6, coarse_step=5e-6, fine_range=4e-6, fine_ste
 
 def test_run_coarse_fine_returns_result():
     m = _mock_fm(best_z=0.0, initial_z=8e-6)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_coarse_fine_autofocus(m, _af_settings())
     assert isinstance(result, AutoFocusResult)
 
@@ -201,20 +244,31 @@ def test_run_coarse_fine_improves_over_single_pass():
     m_single = _mock_fm(best_z=best_z, initial_z=initial_z)
     m_two = _mock_fm(best_z=best_z, initial_z=initial_z)
 
-    settings = _af_settings(coarse_range=20e-6, coarse_step=5e-6, fine_range=4e-6, fine_step=1e-6)
+    settings = _af_settings(
+        coarse_range=20e-6, coarse_step=5e-6, fine_range=4e-6, fine_step=1e-6
+    )
     single_params = ZParameters(zmin=-10e-6, zmax=10e-6, zstep=5e-6)
 
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         r_single = run_autofocus(m_single, z_parameters=single_params)
         r_two = run_coarse_fine_autofocus(m_two, settings)
 
     fine_step = settings.passes[-1].step_size
-    assert abs(r_two.working_distance - best_z) <= abs(r_single.working_distance - best_z) + fine_step
+    assert (
+        abs(r_two.working_distance - best_z)
+        <= abs(r_single.working_distance - best_z) + fine_step
+    )
 
 
 def test_run_coarse_fine_iterations_contains_both_stages():
     m = _mock_fm(best_z=0.0, initial_z=8e-6)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_coarse_fine_autofocus(m, _af_settings())
     # iterations are flat AutoFocusIteration objects tagged with pass_index
     assert any(it.pass_index == 0 for it in result.iterations)
@@ -225,7 +279,10 @@ def test_run_coarse_fine_iterations_contains_both_stages():
 def test_run_coarse_fine_moves_to_coarse_best_before_fine():
     """run_coarse_fine_autofocus must call move_absolute(coarse_best_z) between stages."""
     m = _mock_fm(best_z=0.0, initial_z=8e-6)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_coarse_fine_autofocus(m, _af_settings())
 
     coarse_iters = [it for it in result.iterations if it.pass_index == 0]
@@ -240,7 +297,10 @@ def test_run_coarse_fine_returns_none_if_coarse_cancelled():
     stop = threading.Event()
     stop.set()
     m = _mock_fm()
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_coarse_fine_autofocus(m, _af_settings(), stop_event=stop)
     assert result is None
 
@@ -262,7 +322,10 @@ def test_run_coarse_fine_returns_coarse_if_fine_cancelled():
 
     m.acquire_image.side_effect = cancel_after_coarse
 
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_coarse_fine_autofocus(m, _af_settings(), stop_event=stop)
 
     assert result is not None  # coarse result returned, not None
@@ -271,7 +334,10 @@ def test_run_coarse_fine_returns_coarse_if_fine_cancelled():
 def test_run_coarse_fine_passes_channel_to_both_stages():
     m = _mock_fm()
     channel = MagicMock()
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         run_coarse_fine_autofocus(m, _af_settings(), channel_settings=channel)
     # set_channel should have been called for both coarse and fine sweeps
     assert m.set_channel.call_count == 2
@@ -280,9 +346,15 @@ def test_run_coarse_fine_passes_channel_to_both_stages():
 def test_run_coarse_fine_with_roi():
     m = _mock_fm(best_z=0.0)
     from fibsem.structures import FibsemRectangle
+
     roi = FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5)
-    with patch("fibsem.fm.calibration.calculate_focus_quality", side_effect=lambda arr, method: float(np.mean(arr))):
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
         result = run_coarse_fine_autofocus(m, _af_settings(), roi=roi)
     assert result is not None
     # crop() should have been called on acquired images
-    assert m.acquire_image.return_value.crop.called or True  # side_effect overrides return_value
+    assert (
+        m.acquire_image.return_value.crop.called or True
+    )  # side_effect overrides return_value

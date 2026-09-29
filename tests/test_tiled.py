@@ -1,18 +1,35 @@
 import pytest
 from matplotlib.figure import Figure
 
-from fibsem.imaging.tiled import TilePosition, _spiral_order, compute_tile_grid, order_tiles, plot_tile_positions, validate_tile_stage_positions
-from fibsem.structures import FibsemStagePosition, ImageSettings, OverviewAcquisitionSettings, RangeLimit, TileOrderStrategy
-
+from fibsem.imaging.tiled import (
+    TilePosition,
+    _spiral_order,
+    compute_tile_grid,
+    order_tiles,
+    plot_tile_positions,
+    validate_tile_stage_positions,
+)
+from fibsem.imaging.tiling import grid_centre_offset, unreachable_tiles
+from fibsem.imaging.tiling.progress import TiledStatus
+from fibsem.structures import (
+    FibsemStagePosition,
+    ImageSettings,
+    OverviewAcquisitionSettings,
+    RangeLimit,
+    TileOrderStrategy,
+)
 
 # ---------------------------------------------------------------------------
 # compute_tile_grid
 # ---------------------------------------------------------------------------
 
+
 def _make_settings(nrows, ncols, hfw=100e-6, resolution=(1024, 1024), overlap=0.0):
     return OverviewAcquisitionSettings(
         image_settings=ImageSettings(resolution=resolution, hfw=hfw),
-        nrows=nrows, ncols=ncols, overlap=overlap,
+        nrows=nrows,
+        ncols=ncols,
+        overlap=overlap,
     )
 
 
@@ -53,7 +70,7 @@ def test_compute_tile_grid_dy_no_overlap():
     hfw = 100e-6
     s = _make_settings(3, 1, hfw=hfw, resolution=(1024, 1024), overlap=0.0)
     tiles = compute_tile_grid(s)
-    assert tiles[1].dy == pytest.approx(-hfw)   # row 1, one step down
+    assert tiles[1].dy == pytest.approx(-hfw)  # row 1, one step down
     assert tiles[2].dy == pytest.approx(-2 * hfw)
 
 
@@ -64,8 +81,8 @@ def test_compute_tile_grid_with_overlap():
     s = _make_settings(2, 2, hfw=hfw, overlap=overlap)
     tiles = compute_tile_grid(s)
     step = hfw * (1 - overlap)
-    assert tiles[1].dx == pytest.approx(step)    # col 1
-    assert tiles[2].dy == pytest.approx(-step)   # row 1 (index 2 in row-major for 2x2)
+    assert tiles[1].dx == pytest.approx(step)  # col 1
+    assert tiles[2].dy == pytest.approx(-step)  # row 1 (index 2 in row-major for 2x2)
 
 
 def test_compute_tile_grid_non_square_dy():
@@ -115,6 +132,7 @@ def test_compute_tile_grid_single_tile():
 # ---------------------------------------------------------------------------
 # order_tiles
 # ---------------------------------------------------------------------------
+
 
 def _grid_3x4():
     return compute_tile_grid(_make_settings(3, 4))
@@ -202,7 +220,15 @@ def test_order_tiles_spiral_same_set():
 
 def test_spiral_order_helper_3x3():
     assert _spiral_order(3, 3) == [
-        (1, 1), (1, 2), (2, 2), (2, 1), (2, 0), (1, 0), (0, 0), (0, 1), (0, 2)
+        (1, 1),
+        (1, 2),
+        (2, 2),
+        (2, 1),
+        (2, 0),
+        (1, 0),
+        (0, 0),
+        (0, 1),
+        (0, 2),
     ]
 
 
@@ -214,12 +240,17 @@ def test_spiral_order_helper_1x1():
 # plot_tile_positions
 # ---------------------------------------------------------------------------
 
+
 def test_plot_tile_positions_returns_figure():
     import matplotlib
+
     matplotlib.use("Agg")
     s = OverviewAcquisitionSettings(
         image_settings=ImageSettings(resolution=(1536, 1024), hfw=150e-6),
-        nrows=3, ncols=4, overlap=0.1, tile_order=TileOrderStrategy.SERPENTINE,
+        nrows=3,
+        ncols=4,
+        overlap=0.1,
+        tile_order=TileOrderStrategy.SERPENTINE,
     )
     tiles = order_tiles(compute_tile_grid(s), s.tile_order)
     fig = plot_tile_positions(tiles, s)
@@ -230,6 +261,7 @@ def test_plot_tile_positions_returns_figure():
 # validate_tile_stage_positions
 # ---------------------------------------------------------------------------
 
+
 def _make_limits(x_max=100e-3, y_max=100e-3):
     return {
         "x": RangeLimit(min=-x_max, max=x_max),
@@ -239,8 +271,10 @@ def _make_limits(x_max=100e-3, y_max=100e-3):
 
 def _make_pairs(positions_xy):
     """Build (TilePosition list, FibsemStagePosition list) from (x, y) tuples."""
-    tiles = [TilePosition(row=i, col=0, dx=0, dy=0, canvas_x=0, canvas_y=0)
-             for i in range(len(positions_xy))]
+    tiles = [
+        TilePosition(row=i, col=0, dx=0, dy=0, canvas_x=0, canvas_y=0)
+        for i in range(len(positions_xy))
+    ]
     stage_positions = [FibsemStagePosition(x=x, y=y) for x, y in positions_xy]
     return tiles, stage_positions
 
@@ -269,10 +303,9 @@ def test_validate_positions_empty():
 # ---------------------------------------------------------------------------
 # Terminal progress state
 #
-# The only terminal emission used to come from _stitch, so run() on its own -- and
-# any cancelled or failed run -- left consumers with a progress bar that just stopped
-# moving. AutoLamellaMainUI already branched on ddict.get("finished"), which nothing
-# on those paths ever set.
+# The only terminal emission used to come from _stitch, so run() on its own -- and any
+# cancelled or failed run -- left consumers with a progress bar that just stopped moving.
+# Every path emits one now, and `TiledStatus.is_terminal` is what a consumer branches on.
 # ---------------------------------------------------------------------------
 
 import threading
@@ -313,10 +346,10 @@ def test_run_emits_a_terminal_state_on_success(monkeypatch):
 
     runner.run()
 
-    assert emitted[-1]["finished"] is True
-    assert emitted[-1]["outcome"] == "finished"
-    assert emitted[-1]["counter"] == 6
-    assert emitted[-1]["total"] == 6
+    assert emitted[-1].status is TiledStatus.FINISHED
+    assert emitted[-1].status.is_terminal
+    assert emitted[-1].completed == 6
+    assert emitted[-1].total == 6
 
 
 def test_run_emits_a_terminal_state_when_cancelled(monkeypatch):
@@ -331,8 +364,8 @@ def test_run_emits_a_terminal_state_when_cancelled(monkeypatch):
     with pytest.raises(OperationCancelledError):
         runner.run()
 
-    assert emitted[-1]["outcome"] == "cancelled"
-    assert emitted[-1]["counter"] == 2, "partial progress is reported, not reset"
+    assert emitted[-1].status is TiledStatus.CANCELLED
+    assert emitted[-1].completed == 2, "partial progress is reported, not reset"
 
 
 def test_run_emits_a_terminal_state_when_it_fails(monkeypatch):
@@ -347,18 +380,23 @@ def test_run_emits_a_terminal_state_when_it_fails(monkeypatch):
     with pytest.raises(RuntimeError):
         runner.run()
 
-    assert emitted[-1]["outcome"] == "failed"
+    assert emitted[-1].status is TiledStatus.FAILED
+    assert emitted[-1].error and "stage fell over" in emitted[-1].error, (
+        "the reason was logged and thrown away, leaving the UI to say only that it failed"
+    )
 
 
-def test_the_terminal_payload_satisfies_existing_consumers(monkeypatch):
-    """The minimap handler indexes counter/total/msg directly and would raise."""
+def test_the_terminal_report_carries_what_consumers_draw(monkeypatch):
+    """A terminal that could not say how far the run got would leave the bar showing
+    whatever it last had, which for a cancel is a lie about how much was acquired."""
     runner, emitted = _runner_with_recorded_signal(monkeypatch)
     runner._run_tile_loop = lambda: setattr(runner, "_n_tiles_acquired", 6)
 
     runner.run()
 
-    for key in ("msg", "counter", "total"):
-        assert key in emitted[-1], f"consumers index {key!r} without a default"
+    terminal = emitted[-1]
+    assert terminal.status.is_terminal
+    assert terminal.completed is not None and terminal.total
 
 
 # ---------------------------------------------------------------------------
@@ -448,17 +486,17 @@ def test_a_masked_run_does_not_report_a_short_count(tmp_path):
     runner, emitted = _demo_runner(settings, tmp_path)
 
     assert emitted, "the runner said nothing while planning"
-    assert emitted[0]["total"] == 7
+    assert emitted[0].total == 7
 
     runner._n_tiles_acquired = 7
     runner._emit_terminal("finished", "Acquisition Complete")
-    assert emitted[-1]["counter"] == emitted[-1]["total"] == 7
+    assert emitted[-1].completed == emitted[-1].total == 7
 
 
 def test_an_unmasked_run_still_reports_the_whole_grid(tmp_path):
     """The other half: no mask must not quietly change what a dense run reports."""
     runner, emitted = _demo_runner(_make_settings(2, 3), tmp_path)
-    assert emitted[0]["total"] == 6
+    assert emitted[0].total == 6
     assert len(runner._ordered) == 6
 
 
@@ -481,9 +519,7 @@ def test_the_grid_is_measured_from_the_centre_it_is_given(tmp_path):
     settings = _make_settings(1, 1)
     settings.image_settings.path = str(tmp_path)
     settings.image_settings.filename = "overview-image"
-    runner = TiledAcquisitionRunner(
-        microscope, settings, centre_position=elsewhere
-    )
+    runner = TiledAcquisitionRunner(microscope, settings, centre_position=elsewhere)
     runner._setup()
     runner._compute_grid()
 
@@ -510,6 +546,94 @@ def test_no_centre_means_wherever_the_stage_is(tmp_path):
     assert runner._tile_stage_positions[0].x == pytest.approx(here.x, abs=1e-9)
 
 
+def _contrast_calls(tmp_path, mode, centre=None):
+    """Run a 2 x 2 on the simulator and record every autocontrast: beam, area,
+    where the stage was, and how many tiles had been acquired by then."""
+    from fibsem import utils
+    from fibsem.structures import BeamType
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    calls, acquired = [], []
+    original_acquire = microscope.acquire_image
+
+    def record(beam_type, reduced_area=None):
+        calls.append(
+            (beam_type, reduced_area, microscope.get_stage_position(), len(acquired))
+        )
+
+    def acquire(*args, **kwargs):
+        image = original_acquire(*args, **kwargs)
+        acquired.append(image)
+        return image
+
+    microscope.autocontrast = record
+    microscope.acquire_image = acquire
+    settings = _make_settings(2, 2, resolution=(128, 128))
+    settings.autocontrast_mode = mode
+    settings.image_settings.autocontrast = True  # the flag is not the switch
+    settings.image_settings.beam_type = BeamType.ION
+    settings.image_settings.path = str(tmp_path)
+    settings.image_settings.filename = "overview-image"
+    TiledAcquisitionRunner(microscope, settings, centre_position=centre).run()
+    return calls, settings
+
+
+def test_auto_contrast_once_is_set_at_the_grid_centre_before_the_tiles(tmp_path):
+    """ONCE: one detector setting for the whole mosaic, at the centre (a
+    typewriter order starts in a corner), on the centred half-frame, before any
+    tile. The per-image flag is driven by the mode, not the other way round."""
+    from fibsem.structures import AutoContrastMode, BeamType
+
+    centre = FibsemStagePosition(x=1e-3, y=-2e-3, z=4e-3, r=0.0, t=0.0)
+    calls, settings = _contrast_calls(tmp_path, AutoContrastMode.ONCE, centre)
+    assert len(calls) == 1
+    beam, area, where, acquired_before = calls[0]
+    assert beam is BeamType.ION and acquired_before == 0
+    assert (area.left, area.top, area.width, area.height) == (0.25, 0.25, 0.5, 0.5)
+    assert where.x == pytest.approx(centre.x, abs=1e-6)
+    assert where.y == pytest.approx(centre.y, abs=1e-6)
+    assert settings.image_settings.autocontrast is False
+
+
+def test_auto_contrast_each_tile_is_what_the_flag_means_for_any_image(tmp_path):
+    from fibsem.structures import AutoContrastMode, BeamType
+
+    calls, settings = _contrast_calls(tmp_path, AutoContrastMode.EACH_TILE)
+    assert [c[0] for c in calls] == [BeamType.ION] * 4
+    assert [c[3] for c in calls] == [0, 1, 2, 3]  # one before each tile
+    assert settings.image_settings.autocontrast is True
+
+
+def test_auto_contrast_none_sets_nothing_whatever_the_flag_says(tmp_path):
+    from fibsem.structures import AutoContrastMode
+
+    calls, settings = _contrast_calls(tmp_path, AutoContrastMode.NONE)
+    assert calls == [] and settings.image_settings.autocontrast is False
+
+
+def test_an_old_file_that_ticked_auto_contrast_reads_as_once():
+    """Before the mode, the overview settings carried only the per-image flag,
+    and the runner ignored it. A ticked box meant the mosaic: ONCE."""
+    from fibsem.structures import AutoContrastMode
+
+    old = _make_settings(2, 2).to_dict()
+    old.pop("autocontrast_mode")
+    old["image_settings"]["autocontrast"] = True
+    assert (
+        OverviewAcquisitionSettings.from_dict(old).autocontrast_mode
+        is AutoContrastMode.ONCE
+    )
+    old["image_settings"]["autocontrast"] = False
+    assert (
+        OverviewAcquisitionSettings.from_dict(old).autocontrast_mode
+        is AutoContrastMode.NONE
+    )
+    s = _make_settings(2, 2)
+    s.autocontrast_mode = AutoContrastMode.EACH_TILE
+    restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
+    assert restored.autocontrast_mode is AutoContrastMode.EACH_TILE
+
+
 def test_a_run_with_no_tiles_is_refused_before_it_starts(tmp_path):
     """Left to run it walked zero tiles, emitted a *successful* terminal payload,
     restored the stage, and only then died in `_stitch` with "No tiles were acquired"
@@ -534,3 +658,376 @@ def test_a_run_with_no_tiles_is_refused_before_it_starts(tmp_path):
 
     assert not emitted, "a refused run told consumers it had started"
     assert not list(tmp_path.iterdir()), "a refused run left a directory behind"
+
+
+# ---------------------------------------------------------------------------
+# unreachable_tiles -- the same question the runner asks, early enough to act on
+# ---------------------------------------------------------------------------
+
+
+def _identity_projection(x: float, y: float) -> FibsemStagePosition:
+    """A stage whose coordinates *are* the displayed-plane offsets.
+
+    Not a real projection -- the point of these tests is which tiles get asked about
+    and where, not the geometry that answers, which `test_beam_stage_projection.py`
+    covers. An identity keeps the limits box readable in the offsets themselves.
+    """
+    return FibsemStagePosition(x=x, y=y)
+
+
+def test_the_helper_asks_about_the_offsets_the_runner_projects(tmp_path, monkeypatch):
+    """The whole design rests on this: the dialog refuses the grids the runner would.
+
+    Compared as *offsets* rather than as positions, because that is where the two could
+    disagree -- the projection is shared already. The negation is the convention
+    crossing over: the layout measures y upward, as `project_stable_move` takes it, and
+    a displayed plane measures it down, which is what `from_plane` takes.
+
+    A tile is masked off so the comparison covers the dropping as well as the arithmetic.
+    """
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+
+    settings = _make_settings(3, 4, overlap=0.1)
+    settings.tile_mask = [[True] * 4 for _ in range(3)]
+    settings.tile_mask[0][0] = False
+    settings.image_settings.path = str(tmp_path)
+    settings.image_settings.filename = "overview-image"
+
+    runner_offsets = []
+    real = microscope.project_stable_move
+
+    def recording(dx, dy, beam_type, base_position):
+        runner_offsets.append((dx, dy))
+        return real(dx=dx, dy=dy, beam_type=beam_type, base_position=base_position)
+
+    monkeypatch.setattr(microscope, "project_stable_move", recording)
+    runner = TiledAcquisitionRunner(microscope, settings)
+    runner._setup()
+    runner._compute_grid()
+    assert runner_offsets, "the runner projected nothing, so this compares nothing"
+
+    helper_offsets = []
+
+    def project(x, y):
+        helper_offsets.append((x, y))
+        return _identity_projection(x, y)
+
+    unreachable_tiles(
+        compute_tile_grid(settings, mask=settings.tile_mask),
+        settings.tile_order,
+        project,
+        _make_limits(),
+    )
+
+    assert helper_offsets == [(dx, -dy) for dx, dy in runner_offsets]
+
+
+def test_a_grid_within_the_travel_is_not_flagged():
+    settings = _make_settings(3, 3, hfw=100e-6, resolution=(1024, 1024))
+    tiles = compute_tile_grid(settings)
+    assert (
+        unreachable_tiles(
+            tiles,
+            settings.tile_order,
+            _identity_projection,
+            _make_limits(150e-6, 150e-6),
+        )
+        == []
+    )
+
+
+def test_masking_off_what_cannot_be_reached_makes_a_grid_acquirable():
+    """The docstring's promise, and the reason the check goes through `order_tiles`.
+
+    A 3x3 of 100 um tiles centres on offsets of -100, 0, +100 um, so travel that stops
+    at +50 um in x puts the whole right-hand column out of range. Turning that column
+    off is a legitimate fix, and the runner treats it as one -- this is the dialog
+    agreeing.
+    """
+    settings = _make_settings(3, 3, hfw=100e-6, resolution=(1024, 1024))
+    limits = {
+        "x": RangeLimit(min=-150e-6, max=50e-6),
+        "y": RangeLimit(min=-150e-6, max=150e-6),
+    }
+
+    flagged = unreachable_tiles(
+        compute_tile_grid(settings), settings.tile_order, _identity_projection, limits
+    )
+    assert sorted(flagged) == [(0, 2), (1, 2), (2, 2)]
+
+    mask = [[True, True, False] for _ in range(3)]
+    assert (
+        unreachable_tiles(
+            compute_tile_grid(settings, mask=mask),
+            settings.tile_order,
+            _identity_projection,
+            limits,
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        TileOrderStrategy.TYPEWRITER,
+        TileOrderStrategy.SERPENTINE,
+        TileOrderStrategy.SPIRAL,
+    ],
+)
+def test_the_traversal_does_not_change_which_tiles_are_out_of_range(strategy):
+    """Order decides the sequence, not the reach. Pinned because the check goes through
+    `order_tiles` for the dropping, and it would be easy to read that as the strategy
+    mattering to the answer."""
+    settings = _make_settings(3, 3, hfw=100e-6, resolution=(1024, 1024))
+    limits = {
+        "x": RangeLimit(min=-150e-6, max=50e-6),
+        "y": RangeLimit(min=-150e-6, max=150e-6),
+    }
+    flagged = unreachable_tiles(
+        compute_tile_grid(settings), strategy, _identity_projection, limits
+    )
+    assert sorted(flagged) == [(0, 2), (1, 2), (2, 2)]
+
+
+def test_unknown_limits_are_not_projected_against():
+    """A microscope that does not report its travel is not one that can reach anywhere,
+    so nothing is flagged -- the runner still refuses the grid if it is unreachable.
+
+    Asserted on the projection never being asked, not on the empty result: an empty
+    `limits` dict makes `is_within_limits` answer True for every axis it is not given,
+    so the result is empty whether the guard is there or not. The observable difference
+    is that a caller with no limits does no work.
+    """
+    settings = _make_settings(3, 3)
+    tiles = compute_tile_grid(settings)
+
+    for limits in ({}, None):
+        projected = []
+
+        def project(x, y):
+            projected.append((x, y))
+            return _identity_projection(x, y)
+
+        assert unreachable_tiles(tiles, settings.tile_order, project, limits) == []
+        assert not projected, f"projected against {limits!r} limits"
+
+
+def test_a_grid_with_nothing_enabled_is_not_asked_about():
+    """`n_enabled_tiles == 0` is already refused, with its own message. Answering
+    "nothing is out of range" for it would be true and useless."""
+    settings = _make_settings(2, 2)
+    mask = [[False, False], [False, False]]
+    assert (
+        unreachable_tiles(
+            compute_tile_grid(settings, mask=mask),
+            settings.tile_order,
+            _identity_projection,
+            _make_limits(1e-9, 1e-9),
+        )
+        == []
+    )
+
+
+def test_the_centring_comes_from_the_grid_it_is_given():
+    """`(n - 1) * step / 2`, taken from the tiles rather than recomputed -- so a caller
+    cannot centre a grid on a step size the layout did not use."""
+    settings = _make_settings(3, 4, hfw=100e-6, resolution=(1024, 1024), overlap=0.1)
+    step = 100e-6 * 0.9
+    dx, dy = grid_centre_offset(compute_tile_grid(settings))
+    assert dx == pytest.approx(3 * step / 2)
+    assert dy == pytest.approx(-2 * step / 2)
+
+
+def test_the_centring_counts_disabled_tiles_too():
+    """They hold the grid's shape. Centring on only the enabled ones would move the
+    whole grid when a corner was switched off, and the run would not follow."""
+    settings = _make_settings(3, 3, hfw=100e-6, resolution=(1024, 1024))
+    dense = grid_centre_offset(compute_tile_grid(settings))
+    mask = [[True, True, False], [True, True, False], [True, True, False]]
+    assert grid_centre_offset(compute_tile_grid(settings, mask=mask)) == dense
+
+
+# ---------------------------------------------------------------------------
+# the focus sweep the runner now drives (FIB-646)
+# ---------------------------------------------------------------------------
+
+
+def _autofocus_runner(mode, settings=None, af_result="sentinel"):
+    """A runner stubbed down to the autofocus path, recording what the sweep was asked.
+
+    Real `OverviewAcquisitionSettings` again, for the reason above: the sweep is read off
+    it, and a mock would answer `settings.autofocus_settings.enabled` with another mock,
+    which is truthy -- so the guard under test would pass for the wrong reason.
+    """
+    from unittest.mock import MagicMock
+
+    from fibsem.imaging.tiled import TiledAcquisitionRunner
+    from fibsem.structures import AutoFocusMode, BeamType
+
+    s = settings if settings is not None else _make_settings(2, 2, hfw=500e-6)
+    s.autofocus_mode = mode
+
+    runner = TiledAcquisitionRunner.__new__(TiledAcquisitionRunner)
+    runner.microscope = MagicMock()
+    runner.settings = s
+    runner.stop_event = None
+    runner._af_mode = mode
+    runner._af_settings = s.autofocus_settings
+    runner._af_unavailable_logged = False
+    runner._image_settings = ImageSettings(
+        resolution=(1024, 1024), hfw=500e-6, beam_type=BeamType.ION
+    )
+
+    calls = []
+
+    def _fake_run_auto_focus(microscope, **kwargs):
+        calls.append(kwargs)
+        return af_result
+
+    return runner, calls, _fake_run_auto_focus
+
+
+def test_the_sweep_scores_the_centred_half_frame_unless_told_otherwise(tmp_path):
+    """The Image tab's Auto Focus scores the middle half of the frame; the overview's
+    sweep scored the whole tile, seams and all, and read as soft tiles. The default
+    is filled on the runner's copy: the caller's settings stay as they were, and an
+    area the settings do name is kept."""
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+    from fibsem.structures import AutoFocusMode, FibsemRectangle
+
+    settings = _make_settings(1, 1)
+    settings.autofocus_mode = AutoFocusMode.ONCE
+    runner, _ = _demo_runner(settings, tmp_path)
+    area = runner._af_settings.reduced_area
+    assert (area.left, area.top, area.width, area.height) == (0.25, 0.25, 0.5, 0.5)
+    assert settings.autofocus_settings.reduced_area is None
+    assert runner._af_settings.passes == settings.autofocus_settings.passes
+
+    named = FibsemRectangle(left=0.1, top=0.1, width=0.3, height=0.3)
+    settings = _make_settings(1, 1)
+    settings.autofocus_settings = AutoFocusSettings(reduced_area=named)
+    runner, _ = _demo_runner(settings, tmp_path)
+    assert runner._af_settings.reduced_area is named
+
+
+def test_the_sweep_is_given_the_tiles_own_field_of_view(monkeypatch):
+    """`run_auto_focus`'s `hfw` defaults to 150 um. An overview tile is routinely 500 um
+    or wider, so taking the default would score probe images framing a different picture
+    from the one being focused -- and it would look like nothing more than soft tiles."""
+    from fibsem.structures import AutoFocusMode, BeamType
+
+    runner, calls, fake = _autofocus_runner(AutoFocusMode.EACH_TILE)
+    monkeypatch.setattr("fibsem.imaging.tiled.run_auto_focus", fake)
+
+    runner._autofocus_if_mode(AutoFocusMode.EACH_TILE)
+
+    assert len(calls) == 1
+    assert calls[0]["hfw"] == 500e-6
+    assert calls[0]["beam_type"] is BeamType.ION
+    assert calls[0]["settings"] is runner._af_settings
+
+
+def test_a_mode_that_does_not_match_does_not_focus(monkeypatch):
+    from fibsem.structures import AutoFocusMode
+
+    runner, calls, fake = _autofocus_runner(AutoFocusMode.ONCE)
+    monkeypatch.setattr("fibsem.imaging.tiled.run_auto_focus", fake)
+
+    runner._autofocus_if_mode(AutoFocusMode.EACH_TILE)
+
+    assert calls == []
+
+
+def test_the_stop_event_is_handed_to_the_sweep(monkeypatch):
+    """The vendor call could not take one, so a cancel could only land *between* tiles
+    and the column was left wherever the last focus put it. `run_auto_focus` polls
+    within the sweep and restores the starting working distance on the way out."""
+    import threading
+
+    from fibsem.structures import AutoFocusMode
+
+    runner, calls, fake = _autofocus_runner(AutoFocusMode.EACH_TILE)
+    runner.stop_event = threading.Event()
+    monkeypatch.setattr("fibsem.imaging.tiled.run_auto_focus", fake)
+
+    runner._autofocus_if_mode(AutoFocusMode.EACH_TILE)
+
+    assert calls[0]["stop_event"] is runner.stop_event
+
+
+def test_an_unavailable_focus_warns_once_and_lets_the_run_continue(monkeypatch, caplog):
+    """None means the backend cannot set the working distance, so the sweep declined
+    rather than faking a completed focus (FIB-508, TESCAN ION).
+
+    Unfocused is not the same as wrong -- the tiles are still worth having -- so this
+    warns instead of stopping. Once, not per tile: on a 5 x 5 at EACH_TILE the per-tile
+    version is 25 identical lines through the middle of the acquisition log.
+    """
+    import logging as _logging
+
+    from fibsem.structures import AutoFocusMode
+
+    runner, calls, fake = _autofocus_runner(AutoFocusMode.EACH_TILE, af_result=None)
+    monkeypatch.setattr("fibsem.imaging.tiled.run_auto_focus", fake)
+
+    with caplog.at_level(_logging.WARNING):
+        for _ in range(5):
+            runner._autofocus_if_mode(AutoFocusMode.EACH_TILE)
+
+    assert len(calls) == 5, "it should keep trying, not disable itself"
+    warnings = [r for r in caplog.records if "Autofocus is unavailable" in r.message]
+    assert len(warnings) == 1, f"warned {len(warnings)} times, expected once"
+
+
+def test_a_sweep_with_no_enabled_passes_is_refused_before_the_first_tile():
+    """`run_auto_focus` raises on an all-disabled sweep. Letting that happen at tile 1
+    of 25 means the stage has already moved, a folder exists and progress has been
+    emitted -- so it is caught in `_setup`, where nothing has happened yet."""
+    from unittest.mock import MagicMock
+
+    from fibsem.imaging.tiled import TiledAcquisitionRunner
+    from fibsem.structures import AutoFocusMode
+
+    s = _make_settings(2, 2)
+    s.autofocus_mode = AutoFocusMode.EACH_TILE
+    for p in s.autofocus_settings.passes:
+        p.enabled = False
+
+    runner = TiledAcquisitionRunner.__new__(TiledAcquisitionRunner)
+    runner.microscope = MagicMock()
+    runner.settings = s
+    with pytest.raises(ValueError, match="every sweep pass is disabled"):
+        runner._setup()
+
+
+def test_an_all_disabled_sweep_is_fine_when_autofocus_is_off(tmp_path):
+    """The guard is about a contradiction, not about the sweep in isolation. NONE plus a
+    disabled sweep is coherent -- nothing was going to focus anyway -- and refusing it
+    would make an untouched default sweep able to block a run that never wanted one.
+
+    Runs the *whole* of `_setup` rather than stopping at the guard, which is also what
+    proves the guard sits before the side effects: the refusing test above never reaches
+    the line that makes the tile folder, and this one does.
+    """
+    from unittest.mock import MagicMock
+
+    from fibsem.imaging.tiled import TiledAcquisitionRunner
+    from fibsem.structures import AutoFocusMode
+
+    s = _make_settings(2, 2)
+    s.image_settings.path = str(tmp_path)
+    s.image_settings.filename = "overview"
+    s.autofocus_mode = AutoFocusMode.NONE
+    for p in s.autofocus_settings.passes:
+        p.enabled = False
+
+    runner = TiledAcquisitionRunner.__new__(TiledAcquisitionRunner)
+    runner.microscope = MagicMock()
+    runner.settings = s
+    runner._setup()  # must not raise
+
+    assert runner._af_mode is AutoFocusMode.NONE
+    assert (tmp_path / "overview").is_dir()

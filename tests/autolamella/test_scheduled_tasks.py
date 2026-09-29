@@ -12,6 +12,7 @@ driven without a microscope.
 Waits here are tenths of a second. A test that really waited for a scheduled time
 would be measuring `time.sleep`.
 """
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread
@@ -22,13 +23,11 @@ import pytest
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-)
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
-from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
 TASKS = ["Trench", "Undercut"]
@@ -43,8 +42,7 @@ def manager(tmp_path: Path) -> TaskManager:
     experiment = Experiment(path=tmp_path, name="test-exp")
     experiment.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name=n, supervise=False, required=False)
-                   for n in TASKS]
+            tasks=[AutoLamellaTaskDescription(name=n, required=False) for n in TASKS]
         )
     )
     experiment.positions.append(
@@ -91,6 +89,7 @@ def elapsed_running(manager: TaskManager, **kwargs) -> float:
 
 
 # ── the wait always ends ──────────────────────────────────────────────────────
+
 
 def test_a_time_that_has_passed_does_not_wait(manager):
     """The common case after this feature went on by default: a protocol carrying a
@@ -145,6 +144,7 @@ def test_a_timezone_aware_time_does_not_raise(manager):
 
 # ── through the queue ─────────────────────────────────────────────────────────
 
+
 def test_an_unscheduled_task_runs_straight_away(manager):
     """No schedule is the default, and must stay the cheap path."""
     from time import monotonic
@@ -196,13 +196,12 @@ def test_stopping_during_a_wait_ends_the_run(manager):
 
 # ── the schedule survives the protocol file ───────────────────────────────────
 
+
 def test_a_schedule_round_trips_through_the_protocol():
     """It is stored in the task protocol yaml, so it has to serialise. `asdict` would
     otherwise hand yaml a datetime, which is why `to_dict` writes an isoformat."""
     when = datetime(2026, 8, 13, 9, 30)
-    task = AutoLamellaTaskDescription(
-        name="Trench", supervise=False, required=True, scheduled_at=when
-    )
+    task = AutoLamellaTaskDescription(name="Trench", required=True, scheduled_at=when)
 
     restored = AutoLamellaTaskDescription.from_dict(task.to_dict())
 
@@ -213,7 +212,7 @@ def test_a_schedule_round_trips_through_the_protocol():
 def test_no_schedule_round_trips_as_none():
     """The default has to survive too — `from_dict` only parses strings, so a None
     must not become the string "None" on the way out."""
-    task = AutoLamellaTaskDescription(name="Trench", supervise=False, required=True)
+    task = AutoLamellaTaskDescription(name="Trench", required=True)
 
     assert task.to_dict()["scheduled_at"] is None
     assert AutoLamellaTaskDescription.from_dict(task.to_dict()).scheduled_at is None
@@ -224,9 +223,8 @@ def test_the_workflow_config_finds_a_task_schedule():
     when = datetime(2026, 8, 13, 9, 30)
     config = AutoLamellaWorkflowConfig(
         tasks=[
-            AutoLamellaTaskDescription(name="Trench", supervise=False, required=True,
-                                       scheduled_at=when),
-            AutoLamellaTaskDescription(name="Undercut", supervise=False, required=True),
+            AutoLamellaTaskDescription(name="Trench", required=True, scheduled_at=when),
+            AutoLamellaTaskDescription(name="Undercut", required=True),
         ]
     )
 
@@ -237,8 +235,9 @@ def test_the_workflow_config_finds_a_task_schedule():
 
 # ── the border can tell a parked run from a running one (FIB-676) ─────────────
 
+
 class _Signal:
-    """The one method `update_status_ui` calls on `workflow_update_signal`."""
+    """The one method `update_status_ui` calls on `workflow_status_signal`."""
 
     def __init__(self, on_emit):
         self._on_emit = on_emit
@@ -251,7 +250,7 @@ class RecordingUI:
     """Stands in for AutoLamellaUI at the only boundary the wait touches.
 
     Samples WORKFLOW_PENDING at each status emit — i.e. exactly where the real UI
-    reads it, since the border block runs at the end of `_on_workflow_update`. That
+    reads it, since the border block runs at the end of `_on_workflow_status`. That
     makes these tests about what the border can *see*, not merely about an attribute
     being written and rewritten around the call.
     """
@@ -260,8 +259,11 @@ class RecordingUI:
         self._task_manager = manager
         self.WORKFLOW_PENDING = False
         self.pending_at_each_emit: List[bool] = []
-        self.workflow_update_signal = _Signal(
-            lambda info: self.pending_at_each_emit.append(self.WORKFLOW_PENDING)
+        # Everything the workflow says arrives on workflow_status_signal now
+        # (the dict signal is gone); the border block runs at the end of its
+        # handler. Sample at each emit, as the real window would.
+        self.workflow_status_signal = _Signal(
+            lambda event: self.pending_at_each_emit.append(self.WORKFLOW_PENDING)
         )
 
 

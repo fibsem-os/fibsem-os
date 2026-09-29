@@ -14,6 +14,7 @@ implementation of all three. The visible trades, agreed 2026-08-10: per-channel
 intensity moves from a clip percentage to the layers panel's contrast/gamma, and
 the channel rows move from an always-visible pane into the popover.
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
@@ -22,6 +23,7 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.correlation.widgets.correlation_picking import CorrelationPicking
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 
@@ -42,6 +44,8 @@ class CorrelationFMCanvasWidget(FMCanvasWidget):
         self,
         parent: Optional[QWidget] = None,
         allowed_point_types: Optional[List[PointType]] = None,
+        store: Optional[CorrelationPointStore] = None,
+        side: Optional[str] = None,
     ) -> None:
         super().__init__(parent)
         # Same reasoning as the FIB canvas: correlation draws SURFACE as an orange
@@ -59,6 +63,8 @@ class CorrelationFMCanvasWidget(FMCanvasWidget):
             self.canvas,
             allowed_point_types=allowed_point_types,
             menu_parent=self,
+            store=store,
+            side=side,
         )
         self.picking.point_selected.connect(self.point_selected)
         self.picking.point_moved.connect(self.point_moved)
@@ -75,7 +81,9 @@ class CorrelationFMCanvasWidget(FMCanvasWidget):
         # only place it can be discovered. Set here rather than on FMCanvasWidget
         # because only this widget wires it -- the quad view would be advertising
         # something that does nothing.
-        self._z_slider.setToolTip("Drag to change Z-slice, or Shift+scroll on the image")
+        self._z_slider.setToolTip(
+            "Drag to change Z-slice, or Shift+scroll on the image"
+        )
 
     def set_fm_image(self, image) -> None:
         """Load a stack and start in the middle of it.

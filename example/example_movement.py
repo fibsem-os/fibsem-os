@@ -1,8 +1,9 @@
-from fibsem import utils
-from fibsem.structures import  FibsemStagePosition
-import numpy as np
 import logging
 
+import numpy as np
+
+from fibsem import utils
+from fibsem.structures import FibsemStagePosition
 
 """
 This script demonstrates how to get the current stage position, and how to move the stage to a new position.
@@ -29,7 +30,7 @@ def main():
 
     # get current position
     intial_position = microscope.get_stage_position()
-    logging.info(f"\nStage Movement Example:")
+    logging.info("\nStage Movement Example:")
     logging.info(f"Current stage position: {intial_position}")
     
 

@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from fibsem.ui.tokens import (
     NEUTRAL_400,
     SURFACE_COLOR,

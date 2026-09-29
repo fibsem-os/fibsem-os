@@ -10,12 +10,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple
 
 import yaml
 
-from fibsem.milling import (
-    FibsemMillingStage,
-    get_milling_stages,
-    get_protocol_from_stages,
-)
-
 from fibsem.applications.autolamella.protocol.constants import (
     LANDING_KEY,
     LIFTOUT_KEY,
@@ -25,10 +19,15 @@ from fibsem.applications.autolamella.protocol.constants import (
     TRENCH_KEY,
     UNDERCUT_KEY,
 )
+from fibsem.milling import (
+    FibsemMillingStage,
+    get_milling_stages,
+    get_protocol_from_stages,
+)
 
 if TYPE_CHECKING:
-    from fibsem.structures import MicroscopeSettings
     from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.structures import MicroscopeSettings
 
 class AutoLamellaStage(Enum):
     Created = auto()

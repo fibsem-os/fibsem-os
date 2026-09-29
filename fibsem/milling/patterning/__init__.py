@@ -9,30 +9,30 @@ import logging
 import typing
 from typing import Any, Dict, Optional, Tuple, Type
 
-from fibsem.milling.patterning.patterns2 import BasePattern
-from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
-
 # Built-in patterns (imported from patterns2.py)
 from fibsem.milling.patterning.patterns2 import (
-    RectanglePattern,
-    LinePattern, 
+    ArrayPattern,
+    BasePattern,
+    BitmapPattern,
     CirclePattern,
-    TrenchPattern,
+    CircularSuspensionPattern,
+    CloverPattern,
+    FiducialPattern,
     HorseshoePattern,
     HorseshoePatternVertical,
-    SerialSectionPattern,
-    UndercutPattern,
-    FiducialPattern,
-    ArrayPattern,
-    RulerPattern,
+    LinePattern,
     MicroExpansionPattern,
-    WaffleNotchPattern,
-    CloverPattern,
-    TriForcePattern,
-    BitmapPattern,
+    RectanglePattern,
+    RulerPattern,
+    SerialSectionPattern,
     TrenchBitmapPattern,
+    TrenchPattern,
     TrenchTrapezoidPattern,
+    TriForcePattern,
+    UndercutPattern,
+    WaffleNotchPattern,
 )
+from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
 
 # Built-in patterns registry
 BUILTIN_PATTERNS: Dict[str, Type[BasePattern]] = {
@@ -54,6 +54,7 @@ BUILTIN_PATTERNS: Dict[str, Type[BasePattern]] = {
     BitmapPattern.name: BitmapPattern,
     TrenchBitmapPattern.name: TrenchBitmapPattern,
     TrenchTrapezoidPattern.name: TrenchTrapezoidPattern,
+    CircularSuspensionPattern.name: CircularSuspensionPattern,
 }
 
 # Runtime registered patterns
@@ -66,10 +67,10 @@ DEFAULT_PATTERN_NAME = DEFAULT_PATTERN.name
 
 def register_pattern(pattern_cls: Type[BasePattern]) -> None:
     """Register a pattern class at runtime.
-    
+
     Args:
         pattern_cls: The pattern class to register
-        
+
     Example:
         >>> from fibsem.milling.patterning import register_pattern
         >>> register_pattern(CustomPattern)
@@ -109,12 +110,12 @@ def _get_plugin_patterns() -> Dict[str, Type[BasePattern]]:
 
 def get_patterns() -> Dict[str, Type[BasePattern]]:
     """Get all available patterns.
-    
+
     Returns patterns in priority order (highest to lowest):
     1. Built-in patterns
-    2. Runtime registered patterns  
+    2. Runtime registered patterns
     3. Plugin patterns
-    
+
     Returns:
         Dictionary mapping pattern names to pattern classes
     """
@@ -129,14 +130,14 @@ def get_pattern_names() -> typing.List[str]:
 
 def get_pattern(name: str, config: Optional[Dict[str, Any]] = None) -> BasePattern:
     """Get a pattern instance by name and configuration.
-    
+
     Args:
         name: Pattern name (case-insensitive)
         config: Pattern configuration dictionary
-        
+
     Returns:
         Configured pattern instance
-        
+
     Raises:
         NameError: If pattern name is not found
     """
@@ -144,23 +145,25 @@ def get_pattern(name: str, config: Optional[Dict[str, Any]] = None) -> BasePatte
         config = {}
 
     patterns = get_patterns()
-    
+
     # Try exact match first
     if name in patterns:
         pattern_cls = patterns[name]
         pattern = pattern_cls.from_dict(config)
         return pattern
-    
+
     # Try case-insensitive match for backwards compatibility
     name_lower = name.lower()
     for pattern_name, pattern_cls in patterns.items():
         if pattern_name.lower() == name_lower:
             pattern = pattern_cls.from_dict(config)
             return pattern
-    
+
     # Pattern not found
     available = ", ".join(patterns.keys())
-    raise NameError(f"No milling pattern named '{name}'. Available patterns: {available}")
+    raise NameError(
+        f"No milling pattern named '{name}'. Available patterns: {available}"
+    )
 
 
 # Legacy support - maintain backward compatibility

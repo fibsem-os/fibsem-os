@@ -22,7 +22,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem.hooks import (
     DEFAULT_MESSAGE_TEMPLATE,
@@ -38,14 +37,14 @@ from fibsem.hooks import (
     resolve_events,
 )
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     CANVAS_BG,
     TEXT_COLOR,
 )
-
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 
 # ---------------------------------------------------------------------------
 # Constants

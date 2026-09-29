@@ -86,7 +86,9 @@ class TestItDoesNotSubscribeAcrossThreads:
         # would only fail for someone running them locally on 3.8.
         connects = []
         for node in ast.walk(ast.parse(source)):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            if not (
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            ):
                 continue
             if node.func.attr != "connect":
                 continue
@@ -200,14 +202,17 @@ class TestWhatItStillFollows:
             AutoLamellaSingleWindowUI,
         )
 
-        source = inspect.getsource(AutoLamellaSingleWindowUI._on_workflow_update)
+        # Lifecycle reports arrive on workflow_status_signal now; the refresh
+        # lives in _apply_status_report, which _on_workflow_status runs for
+        # every report — the same every-update cadence the dict handler had.
+        source = inspect.getsource(AutoLamellaSingleWindowUI._apply_status_report)
 
         # `autolamella_ui.lamella_list`, not `lamella_list_widget`. Those are different
         # widgets -- `lamella_list_widget` is the *workflow* list, which was already
         # refreshed here and is not the one this file is about. An earlier version
         # asserted the wrong one and passed while proving nothing.
         assert "autolamella_ui.lamella_list.refresh_lamella(" in source, (
-            "`_on_workflow_update` no longer refreshes the name list, so nothing "
+            "`_apply_status_report` no longer refreshes the name list, so nothing "
             "follows a running workflow now that the subscription is gone"
         )
         assert "autolamella_ui.lamella_list.refresh_all()" in source, (

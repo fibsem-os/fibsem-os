@@ -12,13 +12,11 @@ Lifecycle: add once via ``canvas.add_overlay(overlay)``; draws nothing until
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
 
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect

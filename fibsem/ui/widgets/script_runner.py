@@ -33,7 +33,12 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.cancellation import OperationCancelledError
-from fibsem.scripting import DiscoveredScript, ScriptResult, discover_scripts, run_script
+from fibsem.scripting import (
+    DiscoveredScript,
+    ScriptResult,
+    discover_scripts,
+    run_script,
+)
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     MESSAGE_BOX_STYLESHEET,

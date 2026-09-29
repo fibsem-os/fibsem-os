@@ -28,10 +28,10 @@ from fibsem.correlation.correlation_v2 import (
     convert_poi_to_microscope_coordinates,
 )
 from fibsem.correlation.structures import (
+    Coordinate,
     CorrelationInputData,
     CorrelationPointOfInterest,
     CorrelationResult,
-    Coordinate,
     PointType,
     PointXYZ,
 )

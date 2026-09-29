@@ -1,4 +1,5 @@
 import argparse
+
 from fibsem.segmentation._nnunet import convert_to_nnunet_dataset
 
 # Convert a fibsem dataset to nnunet format

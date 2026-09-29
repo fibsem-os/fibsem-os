@@ -32,7 +32,6 @@ from PyQt5.QtWidgets import (
 from superqt import QDoubleSlider
 
 from fibsem.autofunctions.gamma import apply_gamma
-
 from fibsem.ui.stylesheets import CANVAS_POPOVER_STYLE as _PANEL_STYLE
 
 
@@ -43,6 +42,8 @@ class ContrastGammaControl(QFrame):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("canvasPanel")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(_PANEL_STYLE)
         self.setFixedWidth(220)
         self.setVisible(False)

@@ -4,32 +4,64 @@
 name: Python package
 
 on:
+  # `release/**` alongside main: a release branch is cut from a release tag and the
+  # final is tagged from it, so what lands there by cherry-pick is what ships -- and
+  # without this it would be the one code path in the repository that reaches users
+  # having run no tests at all. Nothing else is branch-scoped here, so this is the
+  # whole of what has to change.
   push:
-    branches: [ "main" ]
+    branches: [ "main", "release/**" ]
+  # No `branches:` filter: it matches the *base* branch, so scoping it to main gave a
+  # stacked PR -- one based on another feature branch -- no checks at all.
   pull_request:
-    branches: [ "main" ]
+
+# A PR's runs share one group, and a new push to the PR cancels the run in progress:
+# only its latest commit matters. A `push` run is the record of one commit on main or a
+# release branch, so its group is keyed on the commit, not the branch, and nothing
+# cancels it. Keying on the branch was not enough even with cancel-in-progress off: a
+# group holds one running and one *pending* run, and each newly queued run cancels the
+# pending one -- so a merge that queued behind a running one was dropped whenever
+# another merge followed before it could start (7 of main's 12 push runs, 2026-09-22).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # Linux on every supported version, Windows on the ends of the range.
+        # The microscopes all run Windows, so every platform-specific claim in the
+        # codebase was previously untested on the platform that matters (FIB-704) --
+        # but twelve jobs is more wall-clock than the coverage is worth, and the
+        # oldest and newest catch what the middle would.
+        os: [ubuntu-latest]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python-version: "3.8"
+          - os: windows-latest
+            python-version: "3.13"
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # UI deps (the [ui] extra) are intentionally not installed: the
-        # napari/PyQt5 tests importorskip and are skipped on CI.
+        # UI deps (the [ui] extra) are intentionally not installed *here*. Not
+        # because the tests that need them do not matter -- the `ui-tests` job
+        # below runs every one of them -- but because Qt is dead weight on a job
+        # that runs eight times. (napari used to be the bigger reason: 100
+        # packages, 116 MB and three pytest plugins. It is in [labelling] now and
+        # no CI job installs it.)
         python -m pip install ".[test]"
     - name: Install the plugin entry point fixture
       # A packaged plugin is the only way into two of the three extension
@@ -45,3 +77,161 @@ jobs:
         # leave the build green -- the exact silent breakage they exist to catch.
         FIBSEM_REQUIRE_PLUGIN_FIXTURE: "1"
       run: pytest tests/ -n auto --dist worksteal --timeout=300
+
+  ui-tests:
+    # The one job that installs the [ui] extra, and the only place the Qt tests
+    # are ever run: everything under tests/ui/, plus the files in tests/correlation/
+    # and tests/fm/ that guard on PyQt5.
+    #
+    # Every file under tests/ui/ opens with `pytest.importorskip("PyQt5")`. The
+    # matrix job above installs `.[test]` without it, so all 103 files skip silently
+    # and its green says nothing whatsoever about that directory. That is not
+    # theoretical: main reported success while tests/ui/test_fm_overview_widget.py
+    # failed 17 tests locally, because two pull requests that were each green alone
+    # bound the same name to two different constants (#581). Only a run with PyQt5
+    # installed could have caught it, and this is that run.
+    #
+    # tests/correlation/ and tests/fm/ are here for the same reason. 21 of their
+    # files guard on PyQt5 too, and until this job listed them nothing ran them:
+    # a test there stayed broken for two weeks after #812 while CI stayed green.
+    # The whole directories are listed, not the 21 files, so a Qt test added there
+    # later is not missed the same way. The price is that their non-Qt tests,
+    # which the matrix already runs, run here too: about nine more minutes, which
+    # leaves this job level with the slowest matrix leg (16 minutes each).
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        # One version, not the matrix. What this job answers -- does the UI code
+        # import, and does it behave -- does not vary across Python versions, so
+        # running it six times would repeat the same answer. 3.11 because it is
+        # what everyone develops against. (It used to also be that the `ui` extra
+        # resolved differently at the ends of the range -- 3.8 got napari 0.4.x --
+        # but napari is in [labelling] now and this job does not install it.)
+        python-version: "3.11"
+        cache: 'pip'
+    - name: Install the libraries Qt's offscreen platform plugin links against
+      # libqoffscreen.so needs libGL, libX11, libXext, libfontconfig, libfreetype
+      # and libglib (read off the wheel's ELF DT_NEEDED entries). All but libGL are
+      # already on the runner image. Note it does NOT need the xcb/xkbcommon stack
+      # that the normal `xcb` platform pulls in -- that is the point of running
+      # offscreen rather than under a virtual display.
+      #
+      # If one of the others ever goes missing the failure is loud and immediate:
+      # Qt refuses to load the platform plugin, names the library, and every test
+      # errors at QApplication construction. There is no version of this that
+      # passes while broken.
+      run: sudo apt-get update && sudo apt-get install -y libgl1 libegl1
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install ".[test,ui]"
+    - name: Fail if the UI extra did not actually install
+      # A green job that skipped everything is the exact failure mode this job
+      # exists to end. Because every file guards on importorskip, a broken install
+      # does not turn the run red -- it empties it, and empty reads as passing.
+      # So check the imports directly, where absence is an error.
+      run: python -c "import PyQt5, qtawesome, superqt"
+    - name: Test with pytest
+      env:
+        QT_QPA_PLATFORM: offscreen
+      # Deliberately serial, unlike the matrix job above. These tests share one
+      # QApplication and leak top-level widgets across files, so some of them
+      # depend on what the files before them left behind. `-n auto --dist
+      # worksteal` would shuffle that order differently on every run and turn a
+      # deterministic failure into a flake; `--dist loadfile` does not help either,
+      # since it only holds order *within* a file. The extra minutes are a fair
+      # price for a result that means the same thing twice in a row.
+      run: pytest tests/ui/ tests/correlation/ tests/fm/ -q --timeout=300
+
+  server-tests:
+    # The one job that installs the [server] and [mcp] extras, and the only
+    # place tests/server/ runs with them present. Every file there opens with
+    # `pytest.importorskip("fastapi")`, so the matrix job's green says nothing
+    # about that directory — the same silent-skip failure mode the ui-tests job
+    # above exists to end. The original fibsem/server shipped with zero CI
+    # coverage for exactly this reason: no job ever installed its extra.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        # One version, not the matrix: the mcp SDK requires >=3.10, so the
+        # 3.8/3.9 legs could never run the sidecar tests anyway, and what this
+        # job answers — does the server behave with its real dependencies —
+        # does not vary across the versions that can.
+        python-version: "3.11"
+        cache: 'pip'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install ".[test,server,mcp]"
+    - name: Fail if the extras did not actually install
+      # Same rationale as the ui-tests guard: every test file skips on missing
+      # imports, so a broken install empties the run instead of reddening it.
+      # Pillow is asserted too — the preview endpoints need it, and today it
+      # only arrives transitively.
+      run: python -c "import fastapi, uvicorn, httpx, mcp, PIL, websockets.sync.client"
+    - name: Test with pytest
+      run: pytest tests/server/ -q --timeout=300
+
+  lint:
+    # Its own job, not a step inside the matrix above: ruff's result does not
+    # vary by OS or Python version, so running it in the matrix would repeat the
+    # same answer eight times. This takes about ten seconds.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        # The formatting step below diffs against the merge base, which does not
+        # exist in the default shallow clone.
+        fetch-depth: 0
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+    # Pinned so a new ruff release cannot turn this red on a commit that changed
+    # nothing. Keep in sync with the `dev` extra in pyproject.toml.
+    - run: python -m pip install ruff==0.16.3
+    # --output-format=github annotates the diff instead of only failing the job.
+    - run: ruff check --output-format=github .
+    - name: Check formatting of the files this PR changes
+      # Format-on-touch rather than a whole-tree flag day: a file has to be
+      # formatted once something in it is edited, so the tree converts fastest
+      # where the work actually happens. `main` stays mixed for a while, which
+      # is the accepted cost.
+      #
+      # The count is echoed on purpose. The failure mode of a diff-scoped check
+      # is that the diff comes back empty -- wrong base, shallow clone -- and
+      # the job passes green having checked nothing, so the number has to be
+      # visible in the log to be disbelieved.
+      run: |
+        set -euo pipefail
+        base=$(git merge-base origin/main HEAD)
+        # mktemp, not a file in the repo root: this script is meant to be
+        # runnable locally too, and it should not leave anything behind.
+        changed=$(mktemp)
+        trap 'rm -f "$changed"' EXIT
+        git diff --name-only --diff-filter=d "$base" HEAD -- '*.py' > "$changed"
+        count=$(wc -l < "$changed" | tr -d ' ')
+        echo "python files changed against $base: $count"
+        if [ "$count" -eq 0 ]; then
+          echo "no python files changed; nothing to check"
+          exit 0
+        fi
+        sed 's/^/  /' "$changed"
+        # NUL-separated: a path with a space would otherwise split into two.
+        # --force-exclude is required, not optional: ruff ignores `exclude` for
+        # paths named explicitly on the command line, and this step names every
+        # path explicitly. Without it the config's `exclude` silently stops
+        # applying here -- today that means a pull request touching a notebook-
+        # adjacent or otherwise excluded path gets told to reformat it anyway.
+        if ! tr '\n' '\0' < "$changed" \
+             | xargs -0 ruff format --check --force-exclude --; then
+          echo
+          echo "To fix, from the repo root:"
+          echo "  ruff format \$(git diff --name-only --diff-filter=d \$(git merge-base origin/main HEAD) HEAD -- '*.py')"
+          exit 1
+        fi

@@ -26,6 +26,7 @@ import pytest
 
 from fibsem.imaging.reduce import (
     _CV2_DTYPES,
+    PreviewMosaic,
     _box_mean_numpy,
     downsample,
     downsample_mask,
@@ -298,3 +299,81 @@ class TestReducingACoverageMask:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ── the live preview mosaic ──────────────────────────────────────────────
+
+
+class TestPreviewMosaic:
+    """The decimated mosaic both tiled runners fill in as a run goes.
+
+    Written twice until FIB-699, with the same stride rule, the same `downsample` call
+    and the same paste — the only real difference being the channel axis. Tested here
+    rather than through either runner: this is where the arithmetic lives, and neither
+    runner's tests can be run by CI.
+    """
+
+    def test_a_mosaic_that_fits_is_not_reduced(self):
+        mosaic = PreviewMosaic(2048, 1024, dtype=np.uint8)
+        assert mosaic.stride == 1
+        assert mosaic.canvas.shape == (1024, 2048)
+
+    def test_the_stride_comes_from_the_long_edge(self):
+        """Not from the area, and not per axis: the cap is on the longest side, so a
+        wide mosaic and a tall one of the same span reduce by the same factor."""
+        wide = PreviewMosaic(8192, 1024, dtype=np.uint8)
+        tall = PreviewMosaic(1024, 8192, dtype=np.uint8)
+        assert wide.stride == tall.stride == 4
+        assert wide.canvas.shape == (256, 2048)
+        assert tall.canvas.shape == (2048, 256)
+
+    def test_channels_none_is_not_channels_one(self):
+        """A beam mosaic is a plane; a one-channel fluorescence mosaic is a stack of
+        one. The consumers index them differently, so the distinction is load-bearing."""
+        assert PreviewMosaic(64, 64, dtype=np.uint8).canvas.ndim == 2
+        assert PreviewMosaic(64, 64, dtype=np.uint16, channels=1).canvas.ndim == 3
+
+    def test_a_tile_lands_where_the_stride_puts_it(self):
+        mosaic = PreviewMosaic(8192, 8192, dtype=np.uint8)  # stride 4
+        tile = np.full((1024, 1024), 200, dtype=np.uint8)
+        mosaic.paint(tile, canvas_x=4096, canvas_y=2048)
+
+        assert mosaic.canvas[512, 1024] == 200          # 2048//4, 4096//4
+        assert mosaic.canvas[511, 1024] == 0            # just above it
+        assert mosaic.canvas[512, 1023] == 0            # just left of it
+
+    def test_each_channel_is_reduced_on_its_own_axes(self):
+        """`downsample` reads shape as (y, x[, c]), so reducing a (c, y, x) stack whole
+        would average across *channels* and y -- the right answer on the wrong axes."""
+        mosaic = PreviewMosaic(4096, 4096, dtype=np.uint16, channels=3)  # stride 2
+        tile = np.stack([np.full((512, 512), v, dtype=np.uint16)
+                         for v in (100, 200, 300)])
+        mosaic.paint(tile, canvas_x=0, canvas_y=0)
+
+        assert [int(mosaic.canvas[c, 0, 0]) for c in range(3)] == [100, 200, 300]
+
+    def test_a_tile_over_the_edge_is_clipped_rather_than_raising(self):
+        """Every axis is rounded up independently, so the last tile can extend past the
+        canvas by a pixel or two. A run must not fail for that."""
+        mosaic = PreviewMosaic(600, 600, dtype=np.uint8)
+        tile = np.full((512, 512), 7, dtype=np.uint8)
+        mosaic.paint(tile, canvas_x=500, canvas_y=500)
+
+        assert mosaic.canvas[599, 599] == 7
+
+    def test_a_tile_entirely_off_the_canvas_paints_nothing(self):
+        mosaic = PreviewMosaic(600, 600, dtype=np.uint8)
+        mosaic.paint(np.full((64, 64), 9, dtype=np.uint8), canvas_x=900, canvas_y=900)
+        assert not mosaic.canvas.any()
+
+    def test_a_small_bright_feature_survives_the_reduction(self):
+        """The whole reason this uses `downsample` rather than `data[::n, ::n]`
+        (FIB-589, FIB-629): sampling deletes what it leaves out, so a punctum a couple
+        of pixels across is present or absent depending on where it lands."""
+        mosaic = PreviewMosaic(4096, 4096, dtype=np.uint16, channels=1)  # stride 2
+        tile = np.zeros((1, 512, 512), dtype=np.uint16)
+        tile[0, 101, 101] = 4000  # an odd row and column, which striding drops
+
+        mosaic.paint(tile, canvas_x=0, canvas_y=0)
+
+        assert mosaic.canvas[0, 50, 50] > 0, "the feature was sampled away"

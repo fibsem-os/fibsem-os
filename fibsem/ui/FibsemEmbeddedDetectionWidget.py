@@ -10,7 +10,6 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
-from fibsem.versioning import get_version_string
 from fibsem.detection import detection
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures
@@ -20,6 +19,7 @@ from fibsem.structures import (
     FibsemImage,
     Point,
 )
+from fibsem.versioning import get_version_string
 
 
 class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):

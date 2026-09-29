@@ -7,7 +7,8 @@ from typing import Optional
 
 import numpy as np
 
-from fibsem import acquire, alignment, config as fcfg
+from fibsem import acquire, alignment
+from fibsem import config as fcfg
 from fibsem.cancellation import raise_if_cancelled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import setup_milling
@@ -16,11 +17,11 @@ from fibsem.milling.base import (
     MillingStrategy,
     MillingStrategyConfig,
 )
-from fibsem.milling.properties import (
-    DEFAULT_IMAGE_RESOLUTION_METADATA,
-    DEFAULT_ANGLE_METADATA,
-)
 from fibsem.milling.patterning.patterns2 import TrenchPattern
+from fibsem.milling.properties import (
+    DEFAULT_ANGLE_METADATA,
+    DEFAULT_IMAGE_RESOLUTION_METADATA,
+)
 from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
