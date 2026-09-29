@@ -2143,23 +2143,6 @@ class TescanMicroscope(FibsemMicroscope):
         if key == "preset":
             return self._beam_parameters[beam_type].preset
 
-        # system properties
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.eucentric_height
-            elif beam_type is BeamType.ION:
-                return self.system.ion.eucentric_height
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.column_tilt
-            elif beam_type is BeamType.ION:
-                return self.system.ion.column_tilt
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
         # ion beam properties
         if key == "plasma":
             if beam_type is BeamType.ION:
@@ -2210,18 +2193,6 @@ class TescanMicroscope(FibsemMicroscope):
 
         if key == "presets":
             return self._get_presets(beam_type=beam_type)
-
-        # manufacturer properties
-        if key == "manufacturer":
-            return self.system.info.manufacturer
-        if key == "model":
-            return self.system.info.model
-        if key == "software_version":
-            return self.system.info.software_version
-        if key == "serial_number":
-            return self.system.info.serial_number
-        if key == "hardware_version":
-            return self.system.info.hardware_version
 
         NOT_SUPPORTED_KEYS = [
             "resolution",

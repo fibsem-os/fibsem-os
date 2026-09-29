@@ -2993,23 +2993,6 @@ class ThermoMicroscope(FibsemMicroscope):
             )
             return [width, height]
 
-        # system properties
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.eucentric_height
-            elif beam_type is BeamType.ION:
-                return self.system.ion.eucentric_height
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.column_tilt
-            elif beam_type is BeamType.ION:
-                return self.system.ion.column_tilt
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
         # electron beam properties
         if beam_type is BeamType.ELECTRON:
             if key == "angular_correction_angle":
@@ -3079,18 +3062,6 @@ class ThermoMicroscope(FibsemMicroscope):
         if key == "manipulator_state":
             state = self.connection.specimen.manipulator.state
             return True if state == ManipulatorState.INSERTED else False
-
-        # manufacturer properties
-        if key == "manufacturer":
-            return self.system.info.manufacturer
-        if key == "model":
-            return self.system.info.model
-        if key == "serial_number":
-            return self.system.info.serial_number
-        if key == "software_version":
-            return self.system.info.software_version
-        if key == "hardware_version":
-            return self.system.info.hardware_version
 
         # logging.warning(f"Unknown key: {key} ({beam_type})")
         return None
@@ -3230,38 +3201,6 @@ class ThermoMicroscope(FibsemMicroscope):
                         f"Detector contrast {value} not available, mut be between 0 and 1."
                     )
                 return
-
-        # system properties
-        if key == "beam_enabled":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.enabled = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.enabled = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-            return
-
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.eucentric_height = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.eucentric_height = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.column_tilt = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.column_tilt = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
 
         # electron beam properties
         if beam_type is BeamType.ELECTRON:

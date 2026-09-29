@@ -502,23 +502,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             width, height = self.connection.get_resolution(channel)
             return [width, height]
 
-        # system properties
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.eucentric_height
-            elif beam_type is BeamType.ION:
-                return self.system.ion.eucentric_height
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.column_tilt
-            elif beam_type is BeamType.ION:
-                return self.system.ion.column_tilt
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
         # ion beam properties
         if key == "plasma":
             if beam_type is BeamType.ION:
@@ -564,18 +547,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             raise NotImplementedError()
         if key == "manipulator_state":
             raise NotImplementedError()
-
-        # manufacturer properties
-        if key == "manufacturer":
-            return self.system.info.manufacturer
-        if key == "model":
-            return self.system.info.model
-        if key == "serial_number":
-            return self.system.info.serial_number
-        if key == "software_version":
-            return self.system.info.software_version
-        if key == "hardware_version":
-            return self.system.info.hardware_version
 
         if key in ["preset"]:
             return None
@@ -697,37 +668,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         if key == "full_frame":
             self.connection.set_full_frame_scan_mode(channel)
             return
-        # system properties
-        if key == "beam_enabled":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.enabled = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.enabled = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-            return
-
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.eucentric_height = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.eucentric_height = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.column_tilt = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.column_tilt = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
 
         # ion beam properties
         if beam_type is BeamType.ION:
