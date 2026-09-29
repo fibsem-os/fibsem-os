@@ -63,12 +63,12 @@ def test_light_and_filters_read_and_write_the_far_side(served):
     assert fm.filter_set.available_excitation_wavelengths == tuple(
         far.filter_set.available_excitation_wavelengths
     )
-    fm.filter_set.emission_wavelength = None
-    assert far.filter_set.emission_wavelength is None
-    assert fm.filter_set.emission_wavelength is None
     fm.filter_set.emission_wavelength = "Fluorescence"
     assert far.filter_set.emission_wavelength == "Fluorescence"
     assert fm.filter_set.emission_wavelength == "Fluorescence"
+    fm.filter_set.emission_wavelength = None
+    assert far.filter_set.emission_wavelength is None
+    assert fm.filter_set.emission_wavelength is None
     assert fm.filter_set.available_emission_wavelengths == tuple(
         far.filter_set.available_emission_wavelengths
     )

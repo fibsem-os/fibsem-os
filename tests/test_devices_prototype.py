@@ -148,7 +148,6 @@ def test_parameters_describe_themselves(beams):
     assert sem.describe()["voltage"] == {
         "type": "float",
         "unit": "V",
-        "optional": False,
         "limits": None,
         "choices": [2000, 5000, 10000, 20000, 30000],
         "settable": True,
@@ -389,43 +388,6 @@ def test_a_backend_cannot_change_a_parameters_type_or_unit():
     assert NarrowerRotation.declared_parameters()["scan_rotation"].limits == RangeLimit(
         min=0.0, max=1.0
     )
-
-
-def test_an_optional_parameter_takes_none_and_a_backend_cannot_change_that():
-    class Filter(Device):
-        band = Parameter(float, unit="nm", optional=True)
-        label = Parameter(str)
-
-    class FakeFilter(Filter):
-        def __init__(self):
-            super().__init__(name="filter")
-            self.values = {"band": 500.0, "label": "a"}
-
-        def read_band(self):
-            return self.values["band"]
-
-        def write_band(self, value):
-            self.values["band"] = value
-
-        def read_label(self):
-            return self.values["label"]
-
-        def write_label(self, value):
-            self.values["label"] = value
-
-    device = FakeFilter().connect()
-    assert device.band.set_value(None) is None
-    assert device.values["band"] is None
-    assert device.band.set_value(510) == 510.0
-    with pytest.raises(TypeError):
-        device.label.set_value(None)
-    assert device.describe()["band"]["optional"] is True
-    assert device.describe()["label"]["optional"] is False
-
-    with pytest.raises(TypeError, match="band"):
-
-        class RequiredBand(Filter):
-            band = Parameter(float, unit="nm")
 
 
 def test_needs_channel_is_declared_on_the_backend_class():

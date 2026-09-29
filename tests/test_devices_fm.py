@@ -6,6 +6,7 @@ import pytest
 
 from fibsem.devices.core import ParameterReadOnly
 from fibsem.devices.drivers.fm import bind_fm_devices
+from fibsem.devices.fm import REFLECTION, EmissionFilter
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 
@@ -89,46 +90,56 @@ def test_a_channel_sets_up_the_parts_and_signals_their_changes(fm):
     assert devices["camera"].exposure_time.cached == 0.01
 
 
-def test_the_filter_mode_and_band_map_to_the_one_old_value(fm):
+def test_the_emission_filter_is_one_typed_choice(fm):
     microscope, devices = fm
     filters = devices["filter_set"]
-    assert filters.filter_mode.choices == ["reflection", "fluorescence"]
-    assert filters.emission_wavelength.choices == []  # multi-band only
-    filters.filter_mode.set_value("reflection")
-    assert microscope.filter_set.emission_wavelength is None
-    assert filters.emission_wavelength.get_value() is None
-    filters.filter_mode.set_value("fluorescence")
+    assert filters.emission_filter.choices == [
+        EmissionFilter("Reflection"),
+        EmissionFilter("Fluorescence"),
+    ]
+    filters.emission_filter.set_value(EmissionFilter("Fluorescence"))
     assert microscope.filter_set.emission_wavelength == "Fluorescence"
-    assert filters.emission_wavelength.get_value() is None
+    filters.emission_filter.set_value(REFLECTION)
+    assert microscope.filter_set.emission_wavelength is None
+    assert filters.emission_filter.get_value() == REFLECTION
     with pytest.raises(ValueError):
-        filters.emission_wavelength.set_value(520.0)  # no single band to pick
+        filters.emission_filter.set_value(EmissionFilter("GFP", 510.0, 560.0))
 
 
 class _BandFilters:
-    """Filters with single emission bands, as Odemis has them (bottom edge, nm)."""
+    """Single emission bands keyed by their bottom edge in nm, as Odemis has them."""
 
     available_excitation_wavelengths = (470.0,)
     available_emission_wavelengths = (None, 425.0, 510.0)
+    emission_bands = {425.0: (425.0, 475.0), 510.0: (510.0, 560.0)}
     excitation_wavelength = 470.0
     emission_wavelength = None
 
 
-def test_single_bands_are_emission_wavelength_choices():
+def test_a_band_carries_both_edges_when_the_fm_class_knows_them():
     from fibsem.devices.drivers.fm import FMFilterSet
 
     old = _BandFilters()
     filters = FMFilterSet(old).connect()
-    assert filters.emission_wavelength.get_value() is None
-    changes = []
-    filters.changed.connect(lambda name, value: changes.append((name, value)))
-    assert filters.filter_mode.choices == ["reflection", "fluorescence"]
-    assert filters.emission_wavelength.choices == [425.0, 510.0]
-    filters.filter_mode.set_value("fluorescence")
-    assert old.emission_wavelength == 425.0  # the first band
-    assert ("emission_wavelength", 425.0) in changes  # the other half signals too
-    filters.emission_wavelength.set_value(510)
+    green = EmissionFilter("510–560 nm", low=510.0, high=560.0)
+    assert filters.emission_filter.choices == [
+        REFLECTION,
+        EmissionFilter("425–475 nm", low=425.0, high=475.0),
+        green,
+    ]
+    filters.emission_filter.set_value(green)
     assert old.emission_wavelength == 510.0
-    assert filters.filter_mode.get_value() == "fluorescence"
-    filters.emission_wavelength.set_value(None)  # no single band: pass-through
-    assert old.emission_wavelength is None
-    assert filters.filter_mode.get_value() == "reflection"
+    assert filters.emission_filter.get_value() == green
+
+
+def test_a_thermo_multi_band_reads_as_its_filter():
+    from fibsem.devices.drivers.fm import FMFilterSet
+
+    class ThermoLike:
+        available_excitation_wavelengths = (488.0,)
+        available_emission_wavelengths = (None, "Fluorescence")
+        excitation_wavelength = 488.0
+        emission_wavelength = 488.0  # what Thermo reports in fluorescence mode
+
+    filters = FMFilterSet(ThermoLike()).connect()
+    assert filters.emission_filter.get_value() == EmissionFilter("Fluorescence")

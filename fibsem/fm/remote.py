@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 
-from fibsem.devices.fm import FLUORESCENCE, MULTI_BAND, REFLECTION
+from fibsem.devices.fm import REFLECTION, EmissionFilter
 from fibsem.fm.microscope import (
     Camera,
     FilterSet,
@@ -188,6 +188,12 @@ class RemoteLightSource(LightSource):
         return (limits.min, limits.max)
 
 
+def _old_emission_value(found: EmissionFilter) -> Optional[Union[float, str]]:
+    if found == REFLECTION:
+        return None
+    return found.name if found.low is None else found.low
+
+
 class RemoteFilterSet(FilterSet):
     def __init__(self, device: Device, parent: Optional[FluorescenceMicroscope] = None):
         super().__init__(parent=parent)
@@ -197,12 +203,15 @@ class RemoteFilterSet(FilterSet):
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
         return tuple(_param(self._device, "excitation_wavelength").choices or ())
 
+    # Today's API names a filter by one value: None for reflection, a label for a
+    # multi-band filter, or the band's bottom edge in nm.
+
     @property
     def available_emission_wavelengths(self) -> Tuple[Union[None, str, float], ...]:
-        modes = _param(self._device, "filter_mode").choices or ()
-        bands = tuple(_param(self._device, "emission_wavelength").choices or ())
-        multi_band = (MULTI_BAND,) if FLUORESCENCE in modes and not bands else ()
-        return ((None,) if REFLECTION in modes else ()) + multi_band + bands
+        return tuple(_old_emission_value(f) for f in self._emission_filters())
+
+    def _emission_filters(self) -> Tuple[EmissionFilter, ...]:
+        return tuple(_param(self._device, "emission_filter").choices or ())
 
     @property
     def excitation_wavelength(self) -> float:
@@ -212,23 +221,27 @@ class RemoteFilterSet(FilterSet):
     def excitation_wavelength(self, value: float) -> None:
         _param(self._device, "excitation_wavelength").write_through(value)
 
-    # Today's API keeps the mode and the band in one value; the device has one of each.
-
     @property
     def emission_wavelength(self) -> Optional[Union[float, str]]:
-        if _param(self._device, "filter_mode").get_value() == REFLECTION:
-            return None
-        band = _param(self._device, "emission_wavelength").get_value()
-        return MULTI_BAND if band is None else band
+        return _old_emission_value(_param(self._device, "emission_filter").get_value())
 
     @emission_wavelength.setter
     def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
+        filters = self._emission_filters()
         if value is None:
-            _param(self._device, "filter_mode").write_through(REFLECTION)
+            matches = [f for f in filters if f == REFLECTION]
         elif isinstance(value, str):
-            _param(self._device, "filter_mode").write_through(FLUORESCENCE)
+            # like the FM classes: any label means fluorescence, the multi-band filter
+            matches = [f for f in filters if f.name == value] or [
+                f for f in filters if f != REFLECTION and f.low is None
+            ]
         else:
-            _param(self._device, "emission_wavelength").write_through(value)
+            # like Odemis: the band whose bottom edge is closest
+            banded = [f for f in filters if f.low is not None]
+            matches = sorted(banded, key=lambda f: abs(f.low - value))[:1]
+        if not matches:
+            raise ValueError(f"No emission filter for {value!r}")
+        _param(self._device, "emission_filter").write_through(matches[0])
 
 
 class RemoteFluorescenceMicroscope(FluorescenceMicroscope):

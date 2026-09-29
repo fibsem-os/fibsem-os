@@ -68,11 +68,18 @@ ERROR_STATUS = {
 }
 
 
+def _choices_to_wire(choices: Any) -> Any:
+    return None if choices is None else [to_wire(choice) for choice in choices]
+
+
 def describe_device(device: Device) -> Dict[str, Any]:
     return {
         "name": device.name,
         "class": type(device).__name__,
-        "parameters": device.describe(),
+        "parameters": {
+            name: {**info, "choices": _choices_to_wire(info["choices"])}
+            for name, info in device.describe().items()
+        },
         "commands": {
             name: {"signature": info.signature, "available": info.available}
             for name, info in device.commands.items()
@@ -83,7 +90,7 @@ def describe_device(device: Device) -> Dict[str, Any]:
 def metadata_payload(metadata: ParameterMetadata) -> Dict[str, Any]:
     return {
         "limits": _limits_to_dict(metadata.limits),
-        "choices": list(metadata.choices) if metadata.choices is not None else None,
+        "choices": _choices_to_wire(metadata.choices),
         "settable": metadata.settable,
     }
 

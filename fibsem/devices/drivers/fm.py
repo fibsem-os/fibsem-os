@@ -3,23 +3,24 @@
 The FM classes (``fibsem.fm.microscope``, with their AutoScript, Odemis and simulated
 implementations) are already split into parts, so this driver only adapts them: each
 parameter reads and writes the property it always did, and each command calls the
-method it always did. It works for every FM backend at once, and nothing in
-``fibsem.fm`` changes.
+method it always did. It works for every FM backend at once. An FM class may offer
+more than today's API needs (an ``emission_bands`` map of each band's edges); the
+driver uses it where it's there.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+import math
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from fibsem.devices.core import Device, ParameterMetadata, Resources
 from fibsem.devices.fm import (
-    FLUORESCENCE,
     FM,
-    MULTI_BAND,
     REFLECTION,
     Camera,
+    EmissionFilter,
     FilterSet,
     LightSource,
     Objective,
@@ -92,6 +93,30 @@ class FMLightSource(LightSource):
         return ParameterMetadata(limits=RangeLimit(min=low, max=high))
 
 
+def emission_filter_for(
+    value: Any, edges: Dict[float, Tuple[float, float]]
+) -> EmissionFilter:
+    """The filter an FM class's emission value names. ``edges`` maps a band's bottom
+    edge to both edges, for FM classes that know them."""
+    if value is None:
+        return REFLECTION
+    if isinstance(value, str):
+        return EmissionFilter(value)
+    low = float(value)
+    high = next(
+        (h for bottom, (_, h) in edges.items() if math.isclose(bottom, low)), None
+    )
+    if high is None:
+        return EmissionFilter(f"{low:.0f} nm", low=low)
+    return EmissionFilter(f"{low:.0f}–{high:.0f} nm", low=low, high=float(high))
+
+
+def same_emission_value(a: Any, b: Any) -> bool:
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return math.isclose(a, b, rel_tol=1e-6)
+    return a == b
+
+
 class FMFilterSet(FilterSet):
     def __init__(self, filter_set: Any, **kwargs: Any):
         super().__init__(name="filter_set", **kwargs)
@@ -108,46 +133,37 @@ class FMFilterSet(FilterSet):
             choices=list(self._filters.available_excitation_wavelengths)
         )
 
-    # The FM classes keep the mode and the band in one value: None for reflection,
-    # MULTI_BAND for a multi-band filter, else the band's bottom in nm.
+    # The FM classes name a filter by one value: None for reflection, a label such
+    # as "Fluorescence" for a multi-band filter, or the band's bottom edge in nm.
 
-    def read_filter_mode(self) -> str:
-        return REFLECTION if self._filters.emission_wavelength is None else FLUORESCENCE
+    def _emission_filters(self) -> List[Tuple[Any, EmissionFilter]]:
+        edges = getattr(self._filters, "emission_bands", {})
+        return [
+            (value, emission_filter_for(value, edges))
+            for value in self._filters.available_emission_wavelengths
+        ]
 
-    def write_filter_mode(self, value: str) -> None:
-        if value == REFLECTION:
-            self._filters.emission_wavelength = None
-        elif self._filters.emission_wavelength is None:
-            bands = [
-                c for c in self._filters.available_emission_wavelengths if c is not None
-            ]
-            self._filters.emission_wavelength = bands[0]
-        self.emission_wavelength.report(self.read_emission_wavelength())
-
-    def metadata_filter_mode(self) -> ParameterMetadata:
-        available = self._filters.available_emission_wavelengths
-        modes = [REFLECTION] if None in available else []
-        if any(c is not None for c in available):
-            modes.append(FLUORESCENCE)
-        return ParameterMetadata(choices=modes)
-
-    def read_emission_wavelength(self) -> Optional[float]:
+    def read_emission_filter(self) -> EmissionFilter:
         value = self._filters.emission_wavelength
-        return None if value is None or isinstance(value, str) else float(value)
+        filters = self._emission_filters()
+        for old, found in filters:
+            if same_emission_value(old, value):
+                return found
+        # Thermo reports its multi-band filter as the excitation wavelength.
+        multi_band = [found for old, found in filters if isinstance(old, str)]
+        if multi_band and value is not None:
+            return multi_band[0]
+        return emission_filter_for(value, {})
 
-    def write_emission_wavelength(self, value: Optional[float]) -> None:
-        # No single band: the multi-band filter where there is one, else reflection
-        # (Odemis's pass-through).
-        if value is None:
-            available = self._filters.available_emission_wavelengths
-            value = MULTI_BAND if MULTI_BAND in available else None
-        self._filters.emission_wavelength = value
-        self.filter_mode.report(self.read_filter_mode())
+    def write_emission_filter(self, value: EmissionFilter) -> None:
+        for old, found in self._emission_filters():
+            if found == value:
+                self._filters.emission_wavelength = old
+                return
+        raise ValueError(f"filter_set has no emission filter {value}")
 
-    def metadata_emission_wavelength(self) -> ParameterMetadata:
-        available = self._filters.available_emission_wavelengths
-        bands = [c for c in available if c is not None and not isinstance(c, str)]
-        return ParameterMetadata(choices=[float(c) for c in bands])
+    def metadata_emission_filter(self) -> ParameterMetadata:
+        return ParameterMetadata(choices=[f for _, f in self._emission_filters()])
 
 
 class FMObjective(Objective):

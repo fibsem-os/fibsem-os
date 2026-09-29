@@ -14,6 +14,7 @@ every driver.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -22,13 +23,27 @@ from fibsem.devices.core import Device, Parameter, command
 
 OBJECTIVE_STATES = ("Inserted", "Retracted", "Busy", "Error", "Other")
 
-REFLECTION = "reflection"
-FLUORESCENCE = "fluorescence"
-FILTER_MODES = (REFLECTION, FLUORESCENCE)
 
-# What today's FM classes put in emission_wavelength for a multi-band filter, which
-# has no single emission band (Thermo and the simulator).
-MULTI_BAND = "Fluorescence"
+@dataclass(frozen=True)
+class EmissionFilter:
+    """One emission filter the filter set can put in the light path. ``low`` and
+    ``high`` are its band's edges in nm; a filter without a single band (reflection,
+    a multi-band filter) has neither, and a driver that knows only one edge gives
+    ``low``."""
+
+    name: str
+    low: Optional[float] = None
+    high: Optional[float] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"name": self.name, "low": self.low, "high": self.high}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EmissionFilter":
+        return cls(name=data["name"], low=data.get("low"), high=data.get("high"))
+
+
+REFLECTION = EmissionFilter("Reflection")
 
 
 class Camera(Device):
@@ -54,13 +69,9 @@ class LightSource(Device):
 
 class FilterSet(Device):
     excitation_wavelength = Parameter(float, unit="nm")
-    filter_mode = Parameter(str, choices=FILTER_MODES)
-    emission_wavelength = Parameter(
-        float,
-        unit="nm",
-        optional=True,
-        doc="The bottom of the emission band, or None when there isn't a single band: "
-        "in reflection, or behind a multi-band filter.",
+    emission_filter = Parameter(
+        EmissionFilter,
+        doc="The emission filter in the light path; the choices are this filter set's.",
     )
 
 

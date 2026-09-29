@@ -97,10 +97,11 @@ def _limits(payload: Any) -> Any:
     return {name: RangeLimit.from_dict(limit) for name, limit in payload.items()}
 
 
-def _metadata(payload: Dict[str, Any]) -> ParameterMetadata:
+def _metadata(payload: Dict[str, Any], type_: type) -> ParameterMetadata:
+    choices = payload.get("choices")
     return ParameterMetadata(
         limits=_limits(payload.get("limits")),
-        choices=payload.get("choices"),
+        choices=None if choices is None else [from_wire(type_, c) for c in choices],
         settable=payload.get("settable", True),
     )
 
@@ -336,11 +337,10 @@ class RemoteDevice(Device):
                     f"{self.name}: the server has '{name}', not declared here"
                 )
                 continue
-            served = (info["type"], info["unit"], info.get("optional", False))
-            if served != (spec.type.__name__, spec.unit, spec.optional):
+            if (info["type"], info["unit"]) != (spec.type.__name__, spec.unit):
                 raise TypeError(
-                    f"{self.name}.{name} is {_shape_text(*served)} on the server, but "
-                    f"is declared {_shape_text(spec.type.__name__, spec.unit, spec.optional)}"
+                    f"{self.name}.{name} is {info['type']} in {info['unit']!r} on the "
+                    f"server, but is declared {spec.type.__name__} in {spec.unit!r}"
                 )
             self.bind(
                 name,
@@ -391,11 +391,12 @@ class RemoteDevice(Device):
         a later refresh (a dependency changed, a reconnect) asks the server again."""
         path = f"devices/{self.name}/{name}/metadata"
         pending = [first]
+        type_ = self.declared_parameters()[name].type
 
         def read() -> ParameterMetadata:
             if pending:
-                return _metadata(pending.pop())
-            return _metadata(self.client.request("GET", path, READ_TIMEOUT))
+                return _metadata(pending.pop(), type_)
+            return _metadata(self.client.request("GET", path, READ_TIMEOUT), type_)
 
         return read
 
@@ -431,10 +432,6 @@ class RemoteCamera(RemoteDevice, Camera):
 
 class RemoteLightSource(RemoteDevice, LightSource):
     pass
-
-
-def _shape_text(type_name: str, unit: Optional[str], optional: bool) -> str:
-    return f"{type_name} in {unit!r}" + (" (optional)" if optional else "")
 
 
 class RemoteFilterSet(RemoteDevice, FilterSet):

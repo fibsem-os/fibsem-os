@@ -16,6 +16,7 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
     RemoteObjective,
     connect_remote_fm,
 )
+from fibsem.devices.fm import EmissionFilter  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
 
@@ -54,10 +55,10 @@ def test_remote_parameters_write_the_far_side(served):
     local, remote = served
     remote["camera"].exposure_time.set_value(0.25)
     assert local["camera"].exposure_time.get_value() == 0.25
-    remote["filter_set"].filter_mode.set_value("reflection")
-    assert local["filter_set"].filter_mode.get_value() == "reflection"
-    remote["filter_set"].emission_wavelength.set_value(None)  # optional crosses too
-    assert local["filter_set"].emission_wavelength.get_value() is None
+    fluorescence = remote["filter_set"].emission_filter.choices[1]
+    assert isinstance(fluorescence, EmissionFilter)  # a structure, not a dict
+    remote["filter_set"].emission_filter.set_value(fluorescence)
+    assert local["filter_set"].emission_filter.get_value() == fluorescence
     with pytest.raises(ValueError):
         remote["camera"].binning.set_value(3)
 
