@@ -5,7 +5,7 @@ import re
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import tifffile as tff
@@ -218,6 +218,28 @@ class FMStagePosition:
             stage_position=stage_position,
             objective_position=objective_position,
         )
+
+
+@dataclass(frozen=True)
+class EmissionFilter:
+    """One emission filter the filter set can put in the light path. ``low`` and
+    ``high`` are its band's edges in nm; a filter without a single band (reflection,
+    a multi-band filter) has neither, and a driver that knows only one edge gives
+    ``low``."""
+
+    name: str
+    low: Optional[float] = None
+    high: Optional[float] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"name": self.name, "low": self.low, "high": self.high}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EmissionFilter":
+        return cls(name=data["name"], low=data.get("low"), high=data.get("high"))
+
+
+REFLECTION = EmissionFilter("Reflection")
 
 
 @dataclass

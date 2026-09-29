@@ -6,9 +6,8 @@ import pytest
 
 from fibsem.devices.core import ParameterReadOnly
 from fibsem.devices.drivers.fm import bind_fm_devices
-from fibsem.devices.fm import REFLECTION, EmissionFilter
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
 
 
 @pytest.fixture

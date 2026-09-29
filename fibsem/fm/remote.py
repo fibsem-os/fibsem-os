@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 
-from fibsem.devices.fm import REFLECTION, EmissionFilter
 from fibsem.fm.microscope import (
     Camera,
     FilterSet,
@@ -34,7 +33,12 @@ from fibsem.fm.microscope import (
     LightSource,
     ObjectiveLens,
 )
-from fibsem.fm.structures import ChannelSettings, FluorescenceImage
+from fibsem.fm.structures import (
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    FluorescenceImage,
+)
 
 if TYPE_CHECKING:
     from fibsem.devices.core import BoundParameter, Device

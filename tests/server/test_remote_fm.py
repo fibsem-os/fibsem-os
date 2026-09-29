@@ -16,8 +16,10 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
     RemoteObjective,
     connect_remote_fm,
 )
-from fibsem.devices.fm import EmissionFilter  # noqa: E402
-from fibsem.fm.structures import ChannelSettings  # noqa: E402
+from fibsem.fm.structures import (
+    ChannelSettings,  # noqa: E402
+    EmissionFilter,  # noqa: E402
+)
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
 
 

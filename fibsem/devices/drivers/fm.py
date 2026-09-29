@@ -16,15 +16,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from fibsem.devices.core import Device, ParameterMetadata, Resources
-from fibsem.devices.fm import (
-    FM,
-    REFLECTION,
-    Camera,
-    EmissionFilter,
-    FilterSet,
-    LightSource,
-    Objective,
-)
+from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
+from fibsem.fm.structures import REFLECTION, EmissionFilter
 from fibsem.structures import RangeLimit
 
 if TYPE_CHECKING:

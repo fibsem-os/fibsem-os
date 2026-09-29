@@ -14,36 +14,14 @@ every driver.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import numpy as np
 
 from fibsem.devices.core import Device, Parameter, command
+from fibsem.fm.structures import EmissionFilter
 
 OBJECTIVE_STATES = ("Inserted", "Retracted", "Busy", "Error", "Other")
-
-
-@dataclass(frozen=True)
-class EmissionFilter:
-    """One emission filter the filter set can put in the light path. ``low`` and
-    ``high`` are its band's edges in nm; a filter without a single band (reflection,
-    a multi-band filter) has neither, and a driver that knows only one edge gives
-    ``low``."""
-
-    name: str
-    low: Optional[float] = None
-    high: Optional[float] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {"name": self.name, "low": self.low, "high": self.high}
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EmissionFilter":
-        return cls(name=data["name"], low=data.get("low"), high=data.get("high"))
-
-
-REFLECTION = EmissionFilter("Reflection")
 
 
 class Camera(Device):
