@@ -262,6 +262,10 @@ DEFAULT_GRIDBAR_WIDTH_UM = 20.0
 # rather than stage microns so how close you have to click does not change with zoom.
 PICK_RADIUS_PX = 12
 
+# How much ground the working area gives the planned grid, as a multiple of its size:
+# a quarter of the grid spare on each side. See `_declare_working_area`.
+_PLAN_FRAMING = 1.5
+
 # The field of view drawn around each marked position, in metres. A fixed size rather
 # than the current imaging settings: the box says how much sample a lamella occupies,
 # which does not change when somebody adjusts the HFW for the next overview -- and a box
@@ -797,6 +801,9 @@ class FibsemOverviewWidget(QWidget):
         self.tile_grid_overlay.tile_toggled.connect(self._on_tile_toggled)
         self.tile_grid_overlay.grid_resize_requested.connect(self._on_grid_resized)
         self.tile_grid_overlay.grid_move_requested.connect(self._on_grid_moved)
+        self.tile_grid_overlay.drag_finished.connect(
+            self._keep_the_working_area_on_the_plan
+        )
         # Stand aside for a marked position. A press on one belongs to the marker, not
         # to the tile under it -- see `TileGridOverlay.set_reserved`. Wired to the same
         # hit test a click uses, so the grid stands aside for exactly what a click would
@@ -2942,7 +2949,12 @@ class FibsemOverviewWidget(QWidget):
             return self._run_centre
         return self.target or self._stage_position
 
-    def _declare_working_area(self, frame: StageFrame) -> None:
+    def _plan_on_the_map(self) -> Optional[FibsemStagePosition]:
+        """Where the planned tileset is drawn: the place a dragged grid was dropped on,
+        otherwise the grid centre. See `_refresh_tile_grid` for why the two differ."""
+        return self._target if self._target is not None else self._grid_centre()
+
+    def _declare_working_area(self, frame: StageFrame, refit: bool = True) -> None:
         """Tell the canvas how much ground this tab is describing.
 
         Without it the canvas frames the images alone, and with none it frames whatever
@@ -2951,35 +2963,82 @@ class FibsemOverviewWidget(QWidget):
         as a band across the middle of the widget with black either side. That is what
         an empty tab looked like, which since FIB-616 is a tab with plenty to show.
 
-        The area is what the overlays actually cover: the grid boundary where there is
-        one, and the planned run otherwise -- so opening the tab frames the sample and
-        the plan rather than one tile's worth of nothing. A *minimum*: acquired images
-        outside it still draw and still pull the view out to include them.
+        The area is what the overlays actually cover: the planned run *where it is*, and
+        the grid boundary it sits on -- so opening the tab frames the sample and the plan
+        rather than one tile's worth of nothing. A *minimum*: acquired images outside it
+        still draw and still pull the view out to include them.
 
-        Declared in metres about the grid centre. `set_world_extent` is idempotent, so
-        restating the same area on every refresh is not a change and does not disturb
-        the view; a real change refits, which is wanted -- the area only changes when
-        the plan does.
+        The union of the two, not a square about the grid centre. It used to be the
+        latter, which framed the plan only while the stage sat near 0, 0: with the
+        stage 5 mm out, opening the tab and "reset view" both framed empty space at the
+        grid centre and left the planned grid and the stage marker off-screen.
+
+        Declared in metres. `set_world_extent` is idempotent, so restating the same area
+        on every refresh is not a change and does not disturb the view; a real change
+        refits unless `refit` is False, which is wanted -- the area only changes when the
+        plan does, and a view nobody has framed by hand should follow it.
         """
-        span = 2 * GRID_BOUNDARY_RADIUS_M if self._draws_grid_boundary() else None
-        settings = self._settings()
-        if settings is not None:
-            planned = max(settings.total_fov_x, settings.total_fov_y)
-            span = planned if span is None else max(span, planned)
-        if not span:
-            return
+        boxes = []  # (xmin, xmax, ymin, ymax) in metres
         try:
-            centre = frame.offset(self._landmark(frame, 0.0, 0.0))
+            plan = self._plan_on_the_map()
+            if plan is None:
+                return
+            px, py = frame.offset(plan)
+            settings = self._settings()
+            if settings is not None and self.acquisition_view == self._current_view:
+                # With room around it: the view is fitted tight to this area, and a grid
+                # at its edge sits flush against the widget where it is hard to grab.
+                hx = settings.total_fov_x * _PLAN_FRAMING / 2.0
+                hy = settings.total_fov_y * _PLAN_FRAMING / 2.0
+                boxes.append((px - hx, px + hx, py - hy, py + hy))
+            boundary = self._grid_boundary_nearest(frame, px, py)
+            if boundary is not None:
+                boxes.append(boundary)
         except Exception as e:
             logger.debug(f"Could not place the working area: {e}")
             return
-        self.canvas.set_world_extent(span, span, centre)
+        if not boxes:
+            return
+        xmin, xmax = min(b[0] for b in boxes), max(b[1] for b in boxes)
+        ymin, ymax = min(b[2] for b in boxes), max(b[3] for b in boxes)
+        if xmax <= xmin or ymax <= ymin:
+            return
+        self.canvas.set_world_extent(
+            xmax - xmin,
+            ymax - ymin,
+            ((xmin + xmax) / 2.0, (ymin + ymax) / 2.0),
+            refit=refit,
+        )
 
-    def _draws_grid_boundary(self) -> bool:
-        """Whether the holder's grid boundary is being drawn, which bounds the view."""
-        return bool(
-            getattr(self.microscope._stage, "limits", None)
-            and self.microscope.stage_is_compustage
+    def _grid_boundary_nearest(
+        self, frame: StageFrame, x: float, y: float
+    ) -> Optional[Tuple[float, float, float, float]]:
+        """The drawn grid boundary nearest (x, y) metres, as (xmin, xmax, ymin, ymax)
+        in metres, or None when no boundary is drawn.
+
+        The same shapes the canvas draws, behind the same switch, so the framing and the
+        picture cannot disagree: it used to frame a 2 mm box at 0, 0 on any compustage,
+        drawn or not, and nothing on any other stage -- so a calibrated shuttle's circles
+        were drawn but never framed.
+
+        The nearest one only. A holder with grids at +/-5 mm framed whole is 12 mm across,
+        and the planned grid shrinks to something too small to grab; the other grids are
+        still drawn, a pan away.
+        """
+        if not self.overlay_controls.is_visible(_OVERLAY_BOUNDARIES):
+            return None
+        boxes = []
+        for shape in stage_context.boundary_shapes(self.microscope, frame):
+            cx, cy = self.canvas.canvas_to_metres(shape.cx, shape.cy)
+            hx, hy = self.canvas.canvas_to_metres(shape.width / 2.0, shape.height / 2.0)
+            boxes.append((cx - hx, cx + hx, cy - hy, cy + hy))
+        if not boxes:
+            return None
+        return min(
+            boxes,
+            key=lambda b: (
+                ((b[0] + b[1]) / 2.0 - x) ** 2 + ((b[2] + b[3]) / 2.0 - y) ** 2
+            ),
         )
 
     def _refresh_tile_grid(self) -> None:
@@ -3022,7 +3081,7 @@ class FibsemOverviewWidget(QWidget):
             # displacement would send the stage after where the old map's pixels are,
             # not after the sample: measured at 6 mm of travel for a 490 um lift in a
             # grazing ion view (FIB-1007). Identical whenever the stage is on the plane.
-            on_the_map = self._target if self._target is not None else centre
+            on_the_map = self._plan_on_the_map()
             anchor = self.canvas.metres_to_canvas(*frame.offset(on_the_map))
         except Exception as e:
             logger.debug(f"Could not place the planned tileset: {e}")
@@ -3126,6 +3185,21 @@ class FibsemOverviewWidget(QWidget):
         self._target_view = None
         self.tile_grid_panel.set_centre_enabled(False)
         self._refresh_tile_grid()
+        self._keep_the_working_area_on_the_plan()
+
+    def _keep_the_working_area_on_the_plan(self) -> None:
+        """Move the declared working area to where the grid now is, without moving the
+        camera.
+
+        For the gestures that move the plan without going through a context refresh: a
+        drag (which refreshes only the grid, per motion event) and re-centring it. Left
+        behind, "reset view" framed where the grid *was*. `refit=False` because the user
+        just put the grid there, looking at it -- re-framing now would move the view out
+        from under the gesture that ended.
+        """
+        frame = self._frame()
+        if frame is not None:
+            self._declare_working_area(frame, refit=False)
 
     # Delegated to `stage_context`, which owns the drawing both tabs share. Kept as
     # methods because the tab resolves places of its own with them -- the grid centre it
