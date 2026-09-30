@@ -4132,8 +4132,38 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     ) -> None:
         self.show_toast(message, notification_type, temporary=temporary)
 
+    def _confirm_close_during_workflow(self) -> bool:
+        """Ask before closing ends a workflow in progress; True to go ahead.
+
+        Only asked while one is running: any other close loses nothing, since
+        pending edits are flushed on the way out. Confirming stops the run, the
+        same as Stop Workflow, without waiting for it to wind down -- the worker
+        may be waiting on this thread, and it is a daemon thread, so it cannot
+        hold the process open.
+        """
+        ui = self.autolamella_ui
+        if ui is None or not ui.is_workflow_running:
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Workflow Running")
+        box.setText("A workflow is running. Close anyway?")
+        box.setInformativeText(
+            "Closing stops the workflow and disconnects from the microscope."
+        )
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        box.setDefaultButton(QMessageBox.No)
+        if box.exec_() != QMessageBox.Yes:
+            return False
+        ui.stop_task_workflow()
+        return True
+
     def closeEvent(self, event):
         """Flush what is still pending, then let the application go."""
+        # Before anything else, so a cancelled close leaves the session untouched.
+        if not self._confirm_close_during_workflow():
+            event.ignore()
+            return
         # The editor holds edits for a moment before writing them (FIB-683); this is
         # the last chance to get the final one onto disk.
         if getattr(self, "lamella_widget", None) is not None:
