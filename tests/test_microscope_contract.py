@@ -36,8 +36,10 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
+    InsertableDeviceState,
     MicroscopeState,
     Point,
+    ScanMode,
 )
 
 # The backends this suite runs against. Each is built the way a session builds it,
@@ -199,7 +201,7 @@ def test_device_demo_moves_its_manipulator_device():
         "_retract",
         "_move_absolute",
     ]
-    assert manipulator.inserted.cached is False
+    assert manipulator.state.cached is InsertableDeviceState.RETRACTED
 
 
 def test_device_demo_deposits_through_its_gis_device():
@@ -221,7 +223,7 @@ def test_device_demo_deposits_through_its_gis_device():
     microscope.cryo_deposition_v2(settings)
     # Demo's order: it never opens the valve, but closes it.
     assert calls == ["_insert", "_heater_on", "_close", "_heater_off", "_retract"]
-    assert gis.inserted.cached is False
+    assert gis.state.cached is InsertableDeviceState.RETRACTED
     assert gis.heated.cached is False
 
 
@@ -272,11 +274,11 @@ def test_device_demo_scans_through_its_beam_commands(beam_type):
         setattr(beam, name, counted(name))
     point, area = Point(0.5, 0.5), FibsemRectangle(0.25, 0.25, 0.5, 0.5)
     microscope.set_spot_scanning_mode(point, beam_type)
-    assert beam.scanning_mode.cached == "spot"
+    assert beam.scanning_mode.cached is ScanMode.SPOT
     microscope.set_reduced_area_scanning_mode(area, beam_type)
-    assert beam.scanning_mode.cached == "reduced_area"
+    assert beam.scanning_mode.cached is ScanMode.REDUCED_AREA
     microscope.set_full_frame_scanning_mode(beam_type)
-    assert beam.scanning_mode.cached == "full_frame"
+    assert beam.scanning_mode.cached is ScanMode.FULL_FRAME
     assert calls == [("_spot", point), ("_reduced_area", area), ("_full_frame",)]
 
 
@@ -801,7 +803,7 @@ def test_device_demo_fm_devices_share_state_with_the_fm():
     assert devices["light_source"].power.get_value() == 0.4
     devices["objective"].insert()
     assert fm.objective.state == "Inserted"
-    assert devices["objective"].state.cached == "Inserted"
+    assert devices["objective"].state.cached is InsertableDeviceState.INSERTED
 
 
 def test_device_demo_fm_group_acquires_a_channel():

@@ -5,7 +5,7 @@ import re
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, get_args
 
 import numpy as np
 import tifffile as tff
@@ -64,6 +64,7 @@ from fibsem.structures import (  # noqa: F401
     FibsemHardwareGeometry,
     FibsemRectangle,
     FibsemStagePosition,
+    InsertableDeviceState,
     TileOrderStrategy,
     _parse_image_transform,
 )
@@ -218,6 +219,55 @@ class FMStagePosition:
             stage_position=stage_position,
             objective_position=objective_position,
         )
+
+
+# The objective's states as today's FM API names them (AutoScript's
+# RetractableDeviceState), and the device state each one is.
+ObjectiveStateName = Literal["Inserted", "Retracted", "Busy", "Error", "Other"]
+OBJECTIVE_STATES: Tuple[str, ...] = get_args(ObjectiveStateName)
+OBJECTIVE_INSERTED = "Inserted"
+_OBJECTIVE_DEVICE_STATES = {
+    "Inserted": InsertableDeviceState.INSERTED,
+    "Retracted": InsertableDeviceState.RETRACTED,
+    "Busy": InsertableDeviceState.MOVING,
+    "Error": InsertableDeviceState.ERROR,
+    "Other": InsertableDeviceState.UNKNOWN,
+}
+
+
+def objective_device_state(name: str) -> InsertableDeviceState:
+    """The device state for an objective state name; an unknown name is UNKNOWN."""
+    return _OBJECTIVE_DEVICE_STATES.get(name, InsertableDeviceState.UNKNOWN)
+
+
+def objective_state_name(state: InsertableDeviceState) -> str:
+    """The objective state name today's FM API uses for a device state."""
+    for name, device_state in _OBJECTIVE_DEVICE_STATES.items():
+        if device_state is state:
+            return name
+    return "Other"
+
+
+@dataclass(frozen=True)
+class EmissionFilter:
+    """One emission filter the filter set can put in the light path. ``low`` and
+    ``high`` are its band's edges in nm; a filter without a single band (reflection,
+    a multi-band filter) has neither, and a driver that knows only one edge gives
+    ``low``."""
+
+    name: str
+    low: Optional[float] = None
+    high: Optional[float] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"name": self.name, "low": self.low, "high": self.high}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EmissionFilter":
+        return cls(name=data["name"], low=data.get("low"), high=data.get("high"))
+
+
+REFLECTION = EmissionFilter("Reflection")
 
 
 @dataclass

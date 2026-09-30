@@ -7,7 +7,15 @@ import pytest
 from fibsem.devices.core import ParameterReadOnly
 from fibsem.devices.drivers.fm import bind_fm_devices
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import (
+    OBJECTIVE_STATES,
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    objective_device_state,
+    objective_state_name,
+)
+from fibsem.structures import InsertableDeviceState
 
 
 @pytest.fixture
@@ -62,10 +70,17 @@ def test_the_objective_moves_only_through_commands(fm):
     objective.state.changed.connect(seen.append)
     objective.state.get_value()
     objective.insert()
-    assert objective.state.cached == "Inserted" == microscope.objective.state
-    assert seen == ["Inserted"]
+    assert objective.state.cached is InsertableDeviceState.INSERTED
+    assert microscope.objective.state == "Inserted"  # the FM class keeps its name
+    assert seen == [InsertableDeviceState.INSERTED]
     objective.retract()
-    assert objective.state.cached == "Retracted"
+    assert objective.state.cached is InsertableDeviceState.RETRACTED
+
+
+def test_every_objective_state_name_survives_the_device_state():
+    for name in OBJECTIVE_STATES:
+        assert objective_state_name(objective_device_state(name)) == name
+    assert objective_device_state("Parked") is InsertableDeviceState.UNKNOWN
 
 
 def test_a_camera_frame_is_the_fm_class_frame(fm):
@@ -87,3 +102,58 @@ def test_a_channel_sets_up_the_parts_and_signals_their_changes(fm):
     assert seen == [0.2]
     assert devices["filter_set"].excitation_wavelength.cached == 450
     assert devices["camera"].exposure_time.cached == 0.01
+
+
+def test_the_emission_filter_is_one_typed_choice(fm):
+    microscope, devices = fm
+    filters = devices["filter_set"]
+    assert filters.emission_filter.choices == [
+        EmissionFilter("Reflection"),
+        EmissionFilter("Fluorescence"),
+    ]
+    filters.emission_filter.set_value(EmissionFilter("Fluorescence"))
+    assert microscope.filter_set.emission_wavelength == "Fluorescence"
+    filters.emission_filter.set_value(REFLECTION)
+    assert microscope.filter_set.emission_wavelength is None
+    assert filters.emission_filter.get_value() == REFLECTION
+    with pytest.raises(ValueError):
+        filters.emission_filter.set_value(EmissionFilter("GFP", 510.0, 560.0))
+
+
+class _BandFilters:
+    """Single emission bands keyed by their bottom edge in nm, as Odemis has them."""
+
+    available_excitation_wavelengths = (470.0,)
+    available_emission_wavelengths = (None, 425.0, 510.0)
+    emission_bands = {425.0: (425.0, 475.0), 510.0: (510.0, 560.0)}
+    excitation_wavelength = 470.0
+    emission_wavelength = None
+
+
+def test_a_band_carries_both_edges_when_the_fm_class_knows_them():
+    from fibsem.devices.drivers.fm import FMFilterSet
+
+    old = _BandFilters()
+    filters = FMFilterSet(old).connect()
+    green = EmissionFilter("510–560 nm", low=510.0, high=560.0)
+    assert filters.emission_filter.choices == [
+        REFLECTION,
+        EmissionFilter("425–475 nm", low=425.0, high=475.0),
+        green,
+    ]
+    filters.emission_filter.set_value(green)
+    assert old.emission_wavelength == 510.0
+    assert filters.emission_filter.get_value() == green
+
+
+def test_a_thermo_multi_band_reads_as_its_filter():
+    from fibsem.devices.drivers.fm import FMFilterSet
+
+    class ThermoLike:
+        available_excitation_wavelengths = (488.0,)
+        available_emission_wavelengths = (None, "Fluorescence")
+        excitation_wavelength = 488.0
+        emission_wavelength = 488.0  # what Thermo reports in fluorescence mode
+
+    filters = FMFilterSet(ThermoLike()).connect()
+    assert filters.emission_filter.get_value() == EmissionFilter("Fluorescence")

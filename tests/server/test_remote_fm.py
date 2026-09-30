@@ -16,8 +16,12 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
     RemoteObjective,
     connect_remote_fm,
 )
-from fibsem.fm.structures import ChannelSettings  # noqa: E402
+from fibsem.fm.structures import (
+    ChannelSettings,  # noqa: E402
+    EmissionFilter,  # noqa: E402
+)
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
+from fibsem.structures import InsertableDeviceState  # noqa: E402
 
 
 def wait_for(condition, timeout=2.0):
@@ -54,8 +58,10 @@ def test_remote_parameters_write_the_far_side(served):
     local, remote = served
     remote["camera"].exposure_time.set_value(0.25)
     assert local["camera"].exposure_time.get_value() == 0.25
-    remote["filter_set"].emission_wavelength.set_value("Fluorescence")
-    assert local["filter_set"].emission_wavelength.get_value() == "Fluorescence"
+    fluorescence = remote["filter_set"].emission_filter.choices[1]
+    assert isinstance(fluorescence, EmissionFilter)  # a structure, not a dict
+    remote["filter_set"].emission_filter.set_value(fluorescence)
+    assert local["filter_set"].emission_filter.get_value() == fluorescence
     with pytest.raises(ValueError):
         remote["camera"].binning.set_value(3)
 
@@ -85,11 +91,12 @@ def test_a_channel_is_one_call_and_its_changes_reach_the_coordinator(served):
 def test_an_objective_move_runs_on_the_server_and_its_state_follows(served):
     local, remote = served
     objective = remote["objective"]
-    assert objective.state.cached == "Retracted"
+    assert objective.state.cached is InsertableDeviceState.RETRACTED
     objective.insert()
-    assert local["objective"].state.get_value() == "Inserted"
-    assert wait_for(lambda: objective.state.cached == "Inserted")
-    assert objective.state.get_value() == "Inserted"  # the guard's live read
+    assert local["objective"].state.get_value() is InsertableDeviceState.INSERTED
+    assert wait_for(lambda: objective.state.cached is InsertableDeviceState.INSERTED)
+    # the guard's live read, an enum again after the wire
+    assert objective.state.get_value() is InsertableDeviceState.INSERTED
 
 
 def test_a_guard_read_fails_closed_when_the_fm_computer_is_gone(served):

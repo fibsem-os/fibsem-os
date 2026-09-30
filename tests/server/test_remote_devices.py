@@ -23,7 +23,7 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
     connect_remote_beams,
 )
 from fibsem.server.devices import DeviceServer, demo_devices  # noqa: E402
-from fibsem.structures import BeamType, Point  # noqa: E402
+from fibsem.structures import BeamType, Point, ScanMode  # noqa: E402
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 
@@ -265,3 +265,13 @@ def test_a_structured_value_crosses_the_wire_as_itself(served):
     assert (far.x, far.y) == (1e-6, -2e-6)
     time.sleep(0.2)  # time for the server's event to arrive and be matched
     assert len(seen) == 1 and (seen[0].x, seen[0].y) == (1e-6, -2e-6)
+
+
+def test_an_enum_value_crosses_the_wire_as_itself(served):
+    """The scan mode is a ``ScanMode`` on both sides of the wire."""
+    local, remote, _ = served
+    mode = remote[BeamType.ELECTRON].scanning_mode
+    assert mode.get_value() is ScanMode.FULL_FRAME
+    local[BeamType.ELECTRON].spot(Point(0.5, 0.5))
+    assert local[BeamType.ELECTRON].scanning_mode.get_value() is ScanMode.SPOT
+    assert mode.get_value() is ScanMode.SPOT

@@ -15,34 +15,33 @@ from __future__ import annotations
 from typing import Any
 
 from fibsem.devices.core import Device, Parameter, command
+from fibsem.structures import ChamberState
 
 CHAMBER_RESOURCE = "chamber"
 
 
 class Chamber(Device):
-    state = Parameter(
-        str, doc='The vacuum state, as the instrument names it ("Pumped", "Vented"...).'
-    )
+    state = Parameter(ChamberState, doc="The vacuum state.")
     pressure = Parameter(float, unit="Pa", doc="Chamber pressure.")
 
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="chamber", parent=parent, **kwargs)
 
     @command
-    def pump(self) -> str:
+    def pump(self) -> ChamberState:
         """Pump the chamber. Returns the state afterwards."""
         with self.resources.claim(CHAMBER_RESOURCE):
             self._pump()
             return self._read_back()
 
     @command
-    def vent(self) -> str:
+    def vent(self) -> ChamberState:
         """Vent the chamber. Returns the state afterwards."""
         with self.resources.claim(CHAMBER_RESOURCE):
             self._vent()
             return self._read_back()
 
-    def _read_back(self) -> str:
+    def _read_back(self) -> ChamberState:
         self.pressure.get_value()
         return self.state.get_value()
 

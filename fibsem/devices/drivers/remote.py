@@ -63,10 +63,9 @@ from fibsem.devices.core import (
     command,
 )
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
-from fibsem.devices.wire import from_wire, to_wire
+from fibsem.devices.wire import NPY_MEDIA_TYPE, from_wire, to_wire
 from fibsem.structures import BeamType, RangeLimit
 
-NPY_MEDIA_TYPE = "application/x-npy"  # as fibsem.server.devices sends arrays
 READ_TIMEOUT = 5.0
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
@@ -97,10 +96,11 @@ def _limits(payload: Any) -> Any:
     return {name: RangeLimit.from_dict(limit) for name, limit in payload.items()}
 
 
-def _metadata(payload: Dict[str, Any]) -> ParameterMetadata:
+def _metadata(payload: Dict[str, Any], type_: type) -> ParameterMetadata:
+    choices = payload.get("choices")
     return ParameterMetadata(
         limits=_limits(payload.get("limits")),
-        choices=payload.get("choices"),
+        choices=None if choices is None else [from_wire(type_, c) for c in choices],
         settable=payload.get("settable", True),
     )
 
@@ -390,11 +390,12 @@ class RemoteDevice(Device):
         a later refresh (a dependency changed, a reconnect) asks the server again."""
         path = f"devices/{self.name}/{name}/metadata"
         pending = [first]
+        type_ = self.declared_parameters()[name].type
 
         def read() -> ParameterMetadata:
             if pending:
-                return _metadata(pending.pop())
-            return _metadata(self.client.request("GET", path, READ_TIMEOUT))
+                return _metadata(pending.pop(), type_)
+            return _metadata(self.client.request("GET", path, READ_TIMEOUT), type_)
 
         return read
 

@@ -742,6 +742,16 @@ class OdemisFilterSet(FilterSet):
         return mapping
 
     @property
+    def emission_bands(self) -> Dict[float, Tuple[float, float]]:
+        """Each emission band's edges in nm, keyed by its bottom edge (the value
+        ``emission_wavelength`` uses)."""
+        return {
+            nm: (c[0] * 1e9, c[-1] * 1e9)
+            for nm, c in self._emission_choices_by_nm.items()
+            if nm is not None
+        }
+
+    @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
         """Get the available excitation wavelengths for the filter set.
 

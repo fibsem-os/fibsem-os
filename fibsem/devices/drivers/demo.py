@@ -20,14 +20,17 @@ from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
-from fibsem.devices.stage import Stage
+from fibsem.devices.stage import Stage, axis_limits_from_degrees
 from fibsem.structures import (
     BeamType,
+    ChamberState,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
+    InsertableDeviceState,
     Point,
     RangeLimit,
+    ScanMode,
 )
 
 if TYPE_CHECKING:
@@ -161,8 +164,8 @@ class DemoBeam(Beam):
     def write_on(self, value: bool) -> None:
         self._system.on = value
 
-    def read_scanning_mode(self) -> str:
-        return self._system.scanning_mode
+    def read_scanning_mode(self) -> ScanMode:
+        return ScanMode(self._system.scanning_mode)
 
     # The scan commands: the spot_mode, reduced_area and full_frame branches of _set.
 
@@ -216,10 +219,6 @@ def bind_demo_beams(
     }
 
 
-# ``_get_axis_limits`` gives these in degrees.
-_DEGREE_AXES = ("r", "t")
-
-
 class DemoStage(Stage):
     """The Demo stage.
 
@@ -254,12 +253,7 @@ class DemoStage(Stage):
 
     def metadata_position(self) -> ParameterMetadata:
         # The axes are the ones the simulator gives limits for: a compustage has no r.
-        limits = {}
-        for axis, limit in self._axis_limits.items():
-            low, high = limit.min, limit.max
-            if axis in _DEGREE_AXES:
-                low, high = float(np.radians(low)), float(np.radians(high))
-            limits[axis] = RangeLimit(min=low, max=high)
+        limits = axis_limits_from_degrees(self._axis_limits)
         return ParameterMetadata(limits=limits)
 
     # -- homing and linking -----------------------------------------------------------
@@ -312,6 +306,12 @@ def bind_demo_stage(
     return DemoStage(microscope, resources).connect()
 
 
+def _insertable_state(inserted: bool) -> InsertableDeviceState:
+    return (
+        InsertableDeviceState.INSERTED if inserted else InsertableDeviceState.RETRACTED
+    )
+
+
 class DemoChamber(Chamber):
     """The Demo chamber.
 
@@ -328,8 +328,8 @@ class DemoChamber(Chamber):
         super().__init__(parent=parent, resources=resources)
         self._system = parent.chamber
 
-    def read_state(self) -> str:
-        return self._system.state
+    def read_state(self) -> ChamberState:
+        return ChamberState.from_name(self._system.state)
 
     def read_pressure(self) -> float:
         return self._system.pressure
@@ -366,7 +366,7 @@ class DemoManipulator(Manipulator):
     Each method is what the matching part of ``DemoMicroscope`` does today, reading
     and writing the same ``manipulator_system``:
 
-    - ``read_position`` / ``read_inserted``: the ``manipulator_position`` /
+    - ``read_position`` / ``read_state``: the ``manipulator_position`` /
       ``manipulator_state`` branches of ``_get``;
     - ``saved_position``: ``_get_saved_manipulator_position``;
     - ``_insert`` / ``_retract``: ``insert_manipulator`` / ``retract_manipulator``,
@@ -385,8 +385,8 @@ class DemoManipulator(Manipulator):
     def read_position(self) -> FibsemManipulatorPosition:
         return deepcopy(self._system.position)
 
-    def read_inserted(self) -> bool:
-        return self._system.inserted
+    def read_state(self) -> InsertableDeviceState:
+        return _insertable_state(self._system.inserted)
 
     def saved_position(self, name: str = "PARK") -> FibsemManipulatorPosition:
         if name == "PARK":
@@ -442,8 +442,8 @@ class DemoGasInjector(GasInjector):
     def read_gas(self) -> str:
         return self._system.gas
 
-    def read_inserted(self) -> bool:
-        return self._system.inserted
+    def read_state(self) -> InsertableDeviceState:
+        return _insertable_state(self._system.inserted)
 
     def read_heated(self) -> bool:
         return self._system.heated

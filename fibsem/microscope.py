@@ -48,6 +48,7 @@ from fibsem.structures import (
     BeamSystemSettings,
     BeamType,
     CameraImageTransform,
+    ChamberState,
     DeviceImagingState,
     FibsemBitmapSettings,
     FibsemCircleSettings,
@@ -65,6 +66,7 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     FibsemStagePosition,
     ImageSettings,
+    InsertableDeviceState,
     MicroscopeState,
     MillingState,
     Point,
@@ -186,6 +188,12 @@ def _records_beam_shift(method):
             self._record_beam_shift((signature, args, kwargs), result, error)
 
     return wrapper
+
+
+def _chamber_state_name(state: ChamberState) -> str:
+    """The name today's pump() and vent() return for a chamber device's state, as the
+    Demo and AutoScript chambers name it ("Pumped", "Vented")."""
+    return state.value.capitalize()
 
 
 class RequiredDeviceUnavailable(RuntimeError):
@@ -1132,7 +1140,8 @@ class FibsemMicroscope(ABC):
         """Get the manipulator state (Inserted = True, Retracted = False)"""
         # TODO: convert to enum
         if self.manipulator_device is not None:
-            return self.manipulator_device.inserted.get_value()
+            state = self.manipulator_device.state.get_value()
+            return state is InsertableDeviceState.INSERTED
         return self.get("manipulator_state")
 
     def get_manipulator_position(self) -> FibsemManipulatorPosition:
@@ -1396,6 +1405,8 @@ class FibsemMicroscope(ABC):
         param = self._route(key, beam_type)
         if param is not None:
             value = param.get_value()
+            if isinstance(value, Enum):
+                value = value.value  # old keys return the plain value ("spot")
         elif key in _BEAM_CONFIG_KEYS:
             value = getattr(self._beam_config(key, beam_type), _BEAM_CONFIG_KEYS[key])
         elif key in _INFO_KEYS:
@@ -1923,14 +1934,14 @@ class FibsemMicroscope(ABC):
     def pump(self) -> str:
         """ "Pump the chamber."""
         if self.chamber_device is not None:
-            return self.chamber_device.pump()
+            return _chamber_state_name(self.chamber_device.pump())
         self.set("pump_chamber", True)
         return self.get("chamber_state")
 
     def vent(self) -> str:
         """Vent the chamber."""
         if self.chamber_device is not None:
-            return self.chamber_device.vent()
+            return _chamber_state_name(self.chamber_device.vent())
         self.set("vent_chamber", True)
         return self.get("chamber_state")
 

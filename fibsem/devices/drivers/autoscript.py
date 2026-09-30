@@ -19,14 +19,11 @@ from typing import TYPE_CHECKING, Dict, Optional, Type
 import numpy as np
 
 from fibsem.devices.core import ParameterMetadata, Resources
-from fibsem.devices.stage import Stage
+from fibsem.devices.stage import Stage, axis_limits_from_degrees
 from fibsem.structures import BeamType, FibsemStagePosition, RangeLimit
 
 if TYPE_CHECKING:
     from fibsem.microscopes.autoscript import ThermoMicroscope
-
-# ``_get_axis_limits`` gives these in degrees.
-_DEGREE_AXES = ("r", "t")
 
 
 class AutoscriptStage(Stage):
@@ -75,13 +72,9 @@ class AutoscriptStage(Stage):
         return stage_position_from_autoscript(self._stage.current_position)
 
     def metadata_position(self) -> ParameterMetadata:
-        limits: Dict[str, RangeLimit] = {}
-        for axis, limit in self.parent._get_axis_limits().items():
-            low, high = limit.min, limit.max
-            if axis in _DEGREE_AXES:
-                low, high = float(np.radians(low)), float(np.radians(high))
-            limits[axis] = RangeLimit(min=low, max=high)
-        return ParameterMetadata(limits=limits)
+        return ParameterMetadata(
+            limits=axis_limits_from_degrees(self.parent._get_axis_limits())
+        )
 
     # -- homing and linking -----------------------------------------------------------
 

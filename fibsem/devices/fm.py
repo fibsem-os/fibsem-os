@@ -19,8 +19,8 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 from fibsem.devices.core import Device, Parameter, command
-
-OBJECTIVE_STATES = ("Inserted", "Retracted", "Busy", "Error", "Other")
+from fibsem.fm.structures import EmissionFilter
+from fibsem.structures import InsertableDeviceState
 
 
 class Camera(Device):
@@ -46,10 +46,9 @@ class LightSource(Device):
 
 class FilterSet(Device):
     excitation_wavelength = Parameter(float, unit="nm")
-    emission_wavelength = Parameter(
-        object,
-        doc="A wavelength in nm, a filter's name, or None for reflection. Mixed, as "
-        "the FM classes have it; one type would need a decision.",
+    emission_filter = Parameter(
+        EmissionFilter,
+        doc="The emission filter in the light path; the choices are this filter set's.",
     )
 
 
@@ -57,7 +56,7 @@ class Objective(Device):
     """Where the objective is and what it's doing. It moves only through commands."""
 
     position = Parameter(float, unit="m")
-    state = Parameter(str, choices=OBJECTIVE_STATES)
+    state = Parameter(InsertableDeviceState)
     magnification = Parameter(float)
     numerical_aperture = Parameter(float)
     limit_position = Parameter(float, unit="m", doc="The furthest a move may go in.")

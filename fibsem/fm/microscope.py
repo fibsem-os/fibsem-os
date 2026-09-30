@@ -19,6 +19,7 @@ from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
+    ObjectiveStateName,
 )
 from fibsem.util.draw_numbers import draw_text
 
@@ -303,7 +304,7 @@ class ObjectiveLens(ABC):
         return SIM_OBJECTIVE_POSITION_LIMITS
 
     @property
-    def state(self) -> Literal["Inserted", "Retracted", "Busy", "Error", "Other"]:
+    def state(self) -> ObjectiveStateName:
         """Get the current state of the objective lens.
 
         Returns:
