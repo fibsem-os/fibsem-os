@@ -127,6 +127,12 @@ def test_a_backend_without_an_optional_part_says_so():
         minimal.insert_manipulator("PARK")
     with pytest.raises(NotImplementedError, match="run_sputter"):
         minimal.run_sputter()
+    # the raw moves go through the devices, so a backend with none says so too
+    minimal.stage_device = minimal.manipulator_device = None
+    with pytest.raises(NotImplementedError, match="move_stage_absolute"):
+        minimal.move_stage_absolute(FibsemStagePosition(x=0))
+    with pytest.raises(NotImplementedError, match="retract_manipulator"):
+        minimal.retract_manipulator()
 
 
 @pytest.fixture(params=BACKENDS)
