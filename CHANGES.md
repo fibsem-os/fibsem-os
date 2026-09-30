@@ -1,6 +1,6 @@
 # Changes
 
-## v0.5.3 (unreleased)
+## v0.5.3 (30/09/2026)
 
 A patch release, cut from the v0.5.2 release branch: fixes, and one addition to
 installation. Nothing here changes how a workflow is set up or run.
