@@ -109,9 +109,9 @@ def test_the_emission_filter_is_one_typed_choice(fm):
     filters = devices["filter_set"]
     assert filters.emission_filter.choices == [
         EmissionFilter("Reflection"),
-        EmissionFilter("Fluorescence"),
+        EmissionFilter("Fluorescence", multi_band=True),
     ]
-    filters.emission_filter.set_value(EmissionFilter("Fluorescence"))
+    filters.emission_filter.set_value(EmissionFilter("Fluorescence", multi_band=True))
     assert microscope.filter_set.emission_wavelength == "Fluorescence"
     filters.emission_filter.set_value(REFLECTION)
     assert microscope.filter_set.emission_wavelength is None
@@ -156,4 +156,22 @@ def test_a_thermo_multi_band_reads_as_its_filter():
         emission_wavelength = 488.0  # what Thermo reports in fluorescence mode
 
     filters = FMFilterSet(ThermoLike()).connect()
-    assert filters.emission_filter.get_value() == EmissionFilter("Fluorescence")
+    assert filters.emission_filter.get_value() == EmissionFilter(
+        "Fluorescence", multi_band=True
+    )
+
+
+def test_a_dual_band_filter_carries_both_bands():
+    from fibsem.devices.drivers.fm import FMFilterSet
+
+    class DualBand(_BandFilters):
+        available_emission_wavelengths = (None, 505.0)
+        emission_bands = {505.0: ((505.0, 535.0), (600.0, 650.0))}
+
+    old = DualBand()
+    filters = FMFilterSet(old).connect()
+    dual = EmissionFilter("505–535 / 600–650 nm", bands=[(505, 535), (600, 650)])
+    assert filters.emission_filter.choices == [REFLECTION, dual]
+    assert dual.multi_band and dual.low == 505.0 and dual.centre is None
+    filters.emission_filter.set_value(dual)
+    assert old.emission_wavelength == 505.0

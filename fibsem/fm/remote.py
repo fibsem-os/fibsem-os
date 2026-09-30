@@ -38,7 +38,9 @@ from fibsem.fm.structures import (
     ChannelSettings,
     EmissionFilter,
     FluorescenceImage,
+    emission_filter_for,
     objective_state_name,
+    same_emission_value,
 )
 
 if TYPE_CHECKING:
@@ -217,6 +219,12 @@ class RemoteFilterSet(FilterSet):
 
     def _emission_filters(self) -> Tuple[EmissionFilter, ...]:
         return tuple(_param(self._device, "emission_filter").choices or ())
+
+    def emission_filter(self, value: Optional[Union[float, str]]) -> EmissionFilter:
+        for found in self._emission_filters():
+            if same_emission_value(_old_emission_value(found), value):
+                return found
+        return emission_filter_for(value, {})
 
     @property
     def excitation_wavelength(self) -> float:

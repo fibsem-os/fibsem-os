@@ -16,10 +16,12 @@ from fibsem.fm.progress import FluorescenceAcquisitionProgress
 from fibsem.fm.structures import (
     CameraImageTransform,
     ChannelSettings,
+    EmissionFilter,
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
     ObjectiveStateName,
+    emission_filter_for,
 )
 from fibsem.util.draw_numbers import draw_text
 
@@ -649,6 +651,11 @@ class FilterSet(ABC):
                    for reflection/pass-through mode
         """
         self._emission_wavelength = value
+
+    def emission_filter(self, value: Optional[Union[float, str]]) -> EmissionFilter:
+        """The filter an emission value names, with its band's edges when this filter
+        set knows them (``emission_bands``), for showing it by name and band."""
+        return emission_filter_for(value, getattr(self, "emission_bands", {}))
 
 
 class FluorescenceMicroscope(ABC):

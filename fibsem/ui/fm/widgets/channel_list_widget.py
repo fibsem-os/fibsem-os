@@ -39,6 +39,11 @@ from fibsem.fm.config import (
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui import stylesheets
+from fibsem.ui.fm.widgets.emission_filter_combo import (
+    EmissionFilterComboBox,
+    FilterLookup,
+    emission_lookup_for,
+)
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -160,6 +165,7 @@ class ChannelRowWidget(QWidget):
         excitation_items: List[float],
         enabled: bool = True,
         parent: Optional[QWidget] = None,
+        emission_lookup: Optional[FilterLookup] = None,
     ) -> None:
         super().__init__(parent)
         self.channel = channel
@@ -195,16 +201,9 @@ class ChannelRowWidget(QWidget):
         self.excitation_combo.setToolTip("Excitation wavelength (nm)")
         layout.addWidget(self.excitation_combo)
 
-        def _fmt_emission(w) -> str:
-            if w is None:
-                return "Reflection"
-            if isinstance(w, str):
-                return w
-            return f"{int(w)} nm"
-
-        self.emission_combo = ValueComboBox(
+        self.emission_combo = EmissionFilterComboBox(
             items=emission_items,
-            format_fn=_fmt_emission,
+            lookup=emission_lookup,
         )
         self.emission_combo.setFixedWidth(_EMISSION_FIXED_WIDTH)
         self.emission_combo.setToolTip("Emission wavelength")
@@ -914,6 +913,10 @@ class ChannelListWidget(QWidget):
         """
         return QSize(max(0, self._list.viewport().width()), _ROW_HEIGHT)
 
+    def _emission_lookup(self) -> Optional[FilterLookup]:
+        """Name emission values through the FM's filter set, which knows their bands."""
+        return emission_lookup_for(self.fm)
+
     def _add_row(
         self, channel: ChannelSettings, enabled: bool = True
     ) -> ChannelRowWidget:
@@ -922,6 +925,7 @@ class ChannelListWidget(QWidget):
             emission_items=self._emission_items,
             excitation_items=self._excitation_items,
             enabled=enabled,
+            emission_lookup=self._emission_lookup(),
         )
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, channel)
@@ -1155,6 +1159,7 @@ class ChannelListWidget(QWidget):
                 emission_items=self._emission_items,
                 excitation_items=self._excitation_items,
                 enabled=enabled,
+                emission_lookup=self._emission_lookup(),
             )
             item.setSizeHint(self._row_item_size())
             self._list.setItemWidget(item, row)
