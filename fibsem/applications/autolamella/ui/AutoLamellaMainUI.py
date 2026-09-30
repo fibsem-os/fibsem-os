@@ -4197,11 +4197,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             and self.autolamella_ui.microscope is not None
         ):
             self.autolamella_ui.microscope.try_disconnect()
+        # TypeError: a second close finds it already disconnected -- close() sends
+        # the close event again even when the window is hidden.
         try:
             notification_service._get_service().toast.disconnect(
                 self._on_notification_service
             )
-        except RuntimeError:
+        except (RuntimeError, TypeError):
             pass
         super().closeEvent(event)
         # Force the event loop to exit even if another top-level window (e.g. a stray
