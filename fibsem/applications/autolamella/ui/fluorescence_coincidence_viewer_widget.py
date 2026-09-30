@@ -88,6 +88,7 @@ from fibsem.ui.tokens import (
     DISABLED_TEXT_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
+    WARN_COLOR,
 )
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import (
@@ -349,6 +350,9 @@ class _InfoWidget(QWidget):
         self._drop_count: int = 0
         self._first_drop_elapsed: Optional[float] = None
         self._recent_ts: deque = deque(maxlen=10)
+        self._run_mode: Optional[bool] = None
+        self._last_run_stats: Optional[dict] = None
+        self._last_fps: float = 0.0
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -395,6 +399,25 @@ class _InfoWidget(QWidget):
 
         self._fib_label = _section(left, "FIB Rectangle")
         self._fm_label = _section(left, "FM Rectangle")
+
+        # Setup — shown while a task holds the viewer for a site
+        self._setup_container = QWidget()
+        su_layout = QVBoxLayout(self._setup_container)
+        su_layout.setContentsMargins(0, 0, 0, 0)
+        su_layout.setSpacing(4)
+        su_header = QLabel("Setup")
+        su_header.setStyleSheet(self._HEADER_STYLE)
+        su_sep = QFrame()
+        su_sep.setFrameShape(QFrame.HLine)
+        su_sep.setStyleSheet("color: #3a3d42;")
+        self._setup_label = QLabel("—")
+        self._setup_label.setStyleSheet(self._LABEL_STYLE)
+        self._setup_label.setWordWrap(True)
+        su_layout.addWidget(su_header)
+        su_layout.addWidget(su_sep)
+        su_layout.addWidget(self._setup_label)
+        self._setup_container.setVisible(False)
+        left.addWidget(self._setup_container)
         left.addStretch()
 
         self._intensity_label = _section(right, "Intensity Stats")
@@ -485,6 +508,17 @@ class _InfoWidget(QWidget):
     def show_run_metrics(self, visible: bool) -> None:
         self._run_metrics_container.setVisible(visible)
 
+    def show_setup(self, visible: bool) -> None:
+        self._setup_container.setVisible(visible)
+
+    def update_setup(self, text: str) -> None:
+        self._setup_label.setText(text)
+
+    def set_run_mode(self, supervised: Optional[bool]) -> None:
+        """What the drop does in this run; None hides the line."""
+        self._run_mode = supervised
+        self._render_run_metrics()
+
     def update_run_metrics(self, stats: dict) -> None:
         self._frame_count += 1
         ts = stats.get("timestamp", time.time())
@@ -501,6 +535,15 @@ class _InfoWidget(QWidget):
             if dt > 0:
                 fps = (len(self._recent_ts) - 1) / dt
 
+        self._last_run_stats = stats
+        self._last_fps = fps
+        self._render_run_metrics()
+
+    def _render_run_metrics(self) -> None:
+        stats = getattr(self, "_last_run_stats", None)
+        if stats is None:
+            return
+        fps = getattr(self, "_last_fps", 0.0)
         elapsed = stats.get("elapsed_time", 0.0)
         elapsed_str = str(timedelta(seconds=int(elapsed)))
         first_drop_str = (
@@ -508,13 +551,28 @@ class _InfoWidget(QWidget):
             if self._first_drop_elapsed is not None
             else "—"
         )
-
-        self._run_metrics_label.setText(
-            f"Elapsed  : {elapsed_str}\n"
-            f"Frames   : {self._frame_count}  ({fps:.1f} fps)\n"
-            f"Drops    : {self._drop_count}\n"
-            f"1st drop : {first_drop_str}"
-        )
+        lines = []
+        mode = getattr(self, "_run_mode", None)
+        if mode is not None:
+            lines.append(
+                "Mode     : Supervised · drop alerts, you stop"
+                if mode
+                else "Mode     : Automated · drop stops the mill"
+            )
+        lines.append(f"Elapsed  : {elapsed_str}")
+        warmup = stats.get("warmup_complete", False)
+        lines.append(f"Warmup   : {'done' if warmup else 'in progress'}")
+        below = stats.get("below_threshold_count")
+        needed = stats.get("consecutive_count")
+        if below is not None and needed:
+            lines.append(f"Below thr: {below} / {needed} frames")
+        timeout = stats.get("timeout_remaining")
+        if timeout is not None:
+            lines.append(f"Timeout  : in {str(timedelta(seconds=int(timeout)))}")
+        lines.append(f"Frames   : {self._frame_count}  ({fps:.1f} fps)")
+        lines.append(f"Drops    : {self._drop_count}")
+        lines.append(f"1st drop : {first_drop_str}")
+        self._run_metrics_label.setText("\n".join(lines))
 
     # ------------------------------------------------------------------
 
@@ -623,6 +681,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # Setup mode: a Setup Coincidence Milling task has handed the viewer one
         # site to place the boxes for (see enter_setup_mode). None otherwise.
         self._setup: Optional["_SetupSession"] = None
+        self._setup_dirty: bool = False
         # Monitor mode: a supervised queued coincidence mill is running through
         # the main window's milling widget and the viewer is attached to it (see
         # enter_monitor_mode). None otherwise.
@@ -932,6 +991,15 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         objective_panel.collapse()
         layout.addWidget(objective_panel)
 
+        # where the objective started from, while a setup task holds the viewer
+        self.label_objective_hint = QLabel("")
+        self.label_objective_hint.setStyleSheet(
+            "color: #868e93; font-size: 11px; padding: 0 4px;"
+        )
+        self.label_objective_hint.setWordWrap(True)
+        self.label_objective_hint.setVisible(False)
+        layout.addWidget(self.label_objective_hint)
+
         # Camera settings (collapsed by default)
         self.fm_camera_widget = CameraWidget(fm=fm)
         camera_panel = TitledPanel(
@@ -1184,6 +1252,15 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.label_selected_lamella = QLabel("Lamella: None")
         self.label_selected_lamella.setStyleSheet("color: #d1d2d4; font-weight: bold;")
         layout.addWidget(self.label_selected_lamella)
+
+        # who owns the viewer while a task holds it (setup / monitor modes)
+        self.label_task_lock = QLabel("")
+        self.label_task_lock.setStyleSheet(
+            f"color: {WARN_COLOR}; border: 1px dashed {WARN_COLOR}; "
+            "border-radius: 3px; padding: 2px 6px; font-size: 11px;"
+        )
+        self.label_task_lock.setVisible(False)
+        layout.addWidget(self.label_task_lock)
 
         layout.addStretch()
 
@@ -1903,6 +1980,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def _on_fm_rect_changed(self, info: dict):
         """Push the current FM rectangle to any active coincidence strategies as a bbox."""
+        self._mark_setup_dirty()
         if not self._active_strategies:
             return
         shape = self.fm_canvas._img_shape
@@ -2009,6 +2087,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._supervised = supervised
         self._update_supervised_button()
         self._on_supervised_toggled(supervised)
+        if self.in_monitor_mode:
+            self._info_widget.set_run_mode(supervised)
         if self._is_milling_active:
             self._set_border_state("supervised" if supervised else "automated")
 
@@ -2019,6 +2099,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def _on_drop_threshold_changed(self, pct: int) -> None:
         """Apply the drop-fraction threshold to any active strategies (live)."""
+        self._mark_setup_dirty()
+        self._refresh_setup_info()
         drop_fraction = pct / 100.0
         for strategy in self._active_strategies:
             strategy.config.intensity_drop_fraction = drop_fraction
@@ -2442,6 +2524,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return
         cx_m = (info["cx"] - img_w / 2) * pixel_size
         cy_m = (info["cy"] - img_h / 2) * -pixel_size  # Y axis is flipped
+        self._mark_setup_dirty()
         # In setup mode every stage shares one position: a two-stage mill (top to
         # bottom, then bottom to top) must not have its boxes drift apart.
         self.milling_viewer_widget._move_patterns(
@@ -2588,6 +2671,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         monitoring_channel: Optional["ChannelSettings"] = None,
         on_continue: Optional[Callable[[], None]] = None,
         on_skip: Optional[Callable[[], None]] = None,
+        task_name: str = "",
     ) -> None:
         """Lock the viewer to one site and show its stored boxes for adjustment.
 
@@ -2664,7 +2748,18 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.chk_copy_setup.setVisible(True)
         self.btn_setup_skip.setVisible(True)
         self.btn_setup_continue.setVisible(True)
-        self.label_selected_lamella.setText(f"Setup · {lamella.name}")
+        title = (
+            f"Setup · {task_name} · {lamella.name}"
+            if task_name
+            else f"Setup · {lamella.name}"
+        )
+        self.label_selected_lamella.setText(title)
+        self.label_task_lock.setText(f"Locked to {lamella.name} by the task")
+        self.label_task_lock.setVisible(True)
+        self._show_objective_hint(lamella, config)
+        self._setup_dirty = False
+        self._refresh_setup_info()
+        self._info_widget.show_setup(True)
         self._set_border_state("waiting")
         self.tab_widget.setCurrentIndex(3)  # Fluorescence: objective + channel
         self.show()
@@ -2717,6 +2812,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self._update_fib_rect_from_pattern()
         if session.manual_channels:
             self.fm_channel_widget.channel_settings = session.manual_channels
+        self.label_task_lock.setVisible(False)
+        if getattr(self, "label_objective_hint", None) is not None:
+            self.label_objective_hint.setVisible(False)
+        self._info_widget.show_setup(False)
         self.spin_drop_threshold.setVisible(False)
         self.chk_copy_setup.setVisible(False)
         self.btn_setup_skip.setVisible(False)
@@ -2744,6 +2843,39 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             session.on_skip()
         else:
             self.exit_setup_mode()
+
+    def _show_objective_hint(self, lamella: "Lamella", config) -> None:
+        hint = getattr(self, "label_objective_hint", None)
+        if hint is None:
+            return
+        stored = getattr(config, "objective_position", None)
+        fm_pose = getattr(lamella, "fluorescence_pose", None)
+        from_fm = getattr(fm_pose, "objective_position", None)
+        if stored is not None:
+            text = f"Objective start {stored * 1e3:.3f} mm · stored for this site"
+        elif from_fm is not None:
+            text = (
+                f"Objective start {from_fm * 1e3:.3f} mm · from the FM pose, "
+                "not yet stored for this site"
+            )
+        else:
+            text = "No objective height known for this site: focus, then Save"
+        hint.setText(text)
+        hint.setVisible(True)
+
+    def _refresh_setup_info(self) -> None:
+        if not self.in_setup_mode:
+            return
+        state = "unsaved changes" if self._setup_dirty else "as stored"
+        self._info_widget.update_setup(
+            f"Stop at  : {self.spin_drop_threshold.value()} % drop\nStored   : {state}"
+        )
+
+    def _mark_setup_dirty(self) -> None:
+        if not self.in_setup_mode or self._setup_dirty:
+            return
+        self._setup_dirty = True
+        self._refresh_setup_info()
 
     def _show_stored_fm_roi(self, roi: Optional["FibsemRectangle"]) -> None:
         shape = self.fm_canvas._img_shape
@@ -2874,6 +3006,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.btn_setup_continue.setVisible(False)
         self.chk_copy_setup.setVisible(False)
         self.label_selected_lamella.setText(f"Monitor · {title or milling_config.name}")
+        self.label_task_lock.setText("Task owns this run")
+        self.label_task_lock.setVisible(True)
+        self._info_widget.set_run_mode(self._supervised)
+        self._info_widget.show_run_metrics(True)
+        # the box is the run's; dashed says "shown, not yours to move"
+        self.fib_canvas.rect_overlay.set_linestyle("--")
         self._set_border_state("supervised" if self._supervised else "automated")
         self.show()
         self.raise_()
@@ -2892,6 +3030,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 pass
         self._active_strategies = []
         self._reset_run_chrome()
+        self.label_task_lock.setVisible(False)
+        self._info_widget.set_run_mode(None)
+        self.fib_canvas.rect_overlay.set_linestyle("solid")
         self.lamella_list_widget.setEnabled(True)
         self.selected_lamella_widget.setEnabled(True)
         if (
