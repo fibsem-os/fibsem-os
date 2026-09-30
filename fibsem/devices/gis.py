@@ -1,7 +1,7 @@
 """The GasInjector device: the gas injection system (GIS), or a multichem.
 
-Four read-only parameters describe it: ``gas``, and whether it is ``inserted``,
-``heated`` and ``opened``. Each change is a command, because each moves hardware
+Four read-only parameters describe it: ``gas``, where the needle is (``state``), and
+whether it is ``heated`` and ``opened``. Each change is a command, because each moves hardware
 or waits on it: ``insert``, ``retract``, ``heater_on``, ``heater_off``, ``open``
 and ``close``. A deposition is a sequence of those with a wait in the middle, so
 it is not a command here; ``cryo_deposition_v2`` runs it.
@@ -17,13 +17,14 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fibsem.devices.core import Device, Parameter, command
+from fibsem.structures import InsertableDeviceState
 
 GIS_RESOURCE = "gis"
 
 
 class GasInjector(Device):
     gas = Parameter(str, doc="The gas in use.")
-    inserted = Parameter(bool, doc="The needle is inserted, not retracted.")
+    state = Parameter(InsertableDeviceState, doc="Where the needle is.")
     heated = Parameter(bool, doc="The heater is on.")
     opened = Parameter(bool, doc="The valve is open.")
 
@@ -31,18 +32,18 @@ class GasInjector(Device):
         super().__init__(name="gis", parent=parent, **kwargs)
 
     @command
-    def insert(self, position: Optional[str] = None) -> bool:
-        """Insert, at a named position on a multichem. Returns whether inserted."""
+    def insert(self, position: Optional[str] = None) -> InsertableDeviceState:
+        """Insert, at a named position on a multichem. Returns the state afterwards."""
         with self.resources.claim(GIS_RESOURCE):
             self._insert(position)
-            return self.inserted.get_value()
+            return self.state.get_value()
 
     @command
-    def retract(self) -> bool:
-        """Retract. Returns whether still inserted."""
+    def retract(self) -> InsertableDeviceState:
+        """Retract. Returns the state afterwards."""
         with self.resources.claim(GIS_RESOURCE):
             self._retract()
-            return self.inserted.get_value()
+            return self.state.get_value()
 
     @command
     def heater_on(self, gas: Optional[str] = None) -> bool:

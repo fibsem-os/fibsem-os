@@ -336,6 +336,44 @@ class ManipulatorState(Enum):
     MOVING = 2
 
 
+class InsertableDeviceState(Enum):
+    """Where a device that goes in and out is: the FM objective, the manipulator, a
+    gas injector's needle. A driver that only knows in or out reports those two."""
+
+    RETRACTED = "retracted"
+    INSERTED = "inserted"
+    MOVING = "moving"
+    ERROR = "error"
+    UNKNOWN = "unknown"
+
+
+class ChamberState(Enum):
+    """The chamber's vacuum. A vendor state with no match here reads as UNKNOWN."""
+
+    PUMPED = "pumped"
+    VENTED = "vented"
+    PUMPING = "pumping"
+    VENTING = "venting"
+    ERROR = "error"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_name(cls, name: str) -> "ChamberState":
+        """The state an instrument names ("Pumped", "VENTED"), else UNKNOWN."""
+        try:
+            return cls(str(name).lower())
+        except ValueError:
+            return cls.UNKNOWN
+
+
+class ScanMode(Enum):
+    """What a beam scans. The values are the ``scanning_mode`` key's."""
+
+    FULL_FRAME = "full_frame"
+    REDUCED_AREA = "reduced_area"
+    SPOT = "spot"
+
+
 class AutoFocusMode(Enum):
     """When to run autofocus during a tiled acquisition.
 

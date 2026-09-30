@@ -21,6 +21,7 @@ from fibsem.fm.structures import (
     EmissionFilter,  # noqa: E402
 )
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
+from fibsem.structures import InsertableDeviceState  # noqa: E402
 
 
 def wait_for(condition, timeout=2.0):
@@ -90,11 +91,12 @@ def test_a_channel_is_one_call_and_its_changes_reach_the_coordinator(served):
 def test_an_objective_move_runs_on_the_server_and_its_state_follows(served):
     local, remote = served
     objective = remote["objective"]
-    assert objective.state.cached == "Retracted"
+    assert objective.state.cached is InsertableDeviceState.RETRACTED
     objective.insert()
-    assert local["objective"].state.get_value() == "Inserted"
-    assert wait_for(lambda: objective.state.cached == "Inserted")
-    assert objective.state.get_value() == "Inserted"  # the guard's live read
+    assert local["objective"].state.get_value() is InsertableDeviceState.INSERTED
+    assert wait_for(lambda: objective.state.cached is InsertableDeviceState.INSERTED)
+    # the guard's live read, an enum again after the wire
+    assert objective.state.get_value() is InsertableDeviceState.INSERTED
 
 
 def test_a_guard_read_fails_closed_when_the_fm_computer_is_gone(served):

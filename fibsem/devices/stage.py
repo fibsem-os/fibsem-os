@@ -30,7 +30,7 @@ limit check, the ``stage`` resource, the read-back, and the change signals.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Iterator
+from typing import Any, Dict, Iterator, Mapping
 
 from psygnal import Signal
 
@@ -43,6 +43,18 @@ AXIS_UNITS: Dict[str, str] = {"x": "m", "y": "m", "z": "m", "r": "rad", "t": "ra
 
 UNLIMITED = RangeLimit(min=-math.inf, max=math.inf)
 """The limits a driver gives an axis it has but cannot bound."""
+
+
+def axis_limits_from_degrees(limits: Mapping[str, RangeLimit]) -> Dict[str, RangeLimit]:
+    """Per-axis limits in the axes' units, from limits that give rotations in degrees
+    (as today's ``_get_axis_limits`` does)."""
+    converted: Dict[str, RangeLimit] = {}
+    for axis, limit in limits.items():
+        low, high = limit.min, limit.max
+        if AXIS_UNITS.get(axis) == "rad":
+            low, high = math.radians(low), math.radians(high)
+        converted[axis] = RangeLimit(min=low, max=high)
+    return converted
 
 
 class StageLimitError(ValueError):

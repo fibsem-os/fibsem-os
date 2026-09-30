@@ -7,7 +7,15 @@ import pytest
 from fibsem.devices.core import ParameterReadOnly
 from fibsem.devices.drivers.fm import bind_fm_devices
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
+from fibsem.fm.structures import (
+    OBJECTIVE_STATES,
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    objective_device_state,
+    objective_state_name,
+)
+from fibsem.structures import InsertableDeviceState
 
 
 @pytest.fixture
@@ -62,10 +70,17 @@ def test_the_objective_moves_only_through_commands(fm):
     objective.state.changed.connect(seen.append)
     objective.state.get_value()
     objective.insert()
-    assert objective.state.cached == "Inserted" == microscope.objective.state
-    assert seen == ["Inserted"]
+    assert objective.state.cached is InsertableDeviceState.INSERTED
+    assert microscope.objective.state == "Inserted"  # the FM class keeps its name
+    assert seen == [InsertableDeviceState.INSERTED]
     objective.retract()
-    assert objective.state.cached == "Retracted"
+    assert objective.state.cached is InsertableDeviceState.RETRACTED
+
+
+def test_every_objective_state_name_survives_the_device_state():
+    for name in OBJECTIVE_STATES:
+        assert objective_state_name(objective_device_state(name)) == name
+    assert objective_device_state("Parked") is InsertableDeviceState.UNKNOWN
 
 
 def test_a_camera_frame_is_the_fm_class_frame(fm):

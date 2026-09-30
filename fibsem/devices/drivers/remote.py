@@ -63,10 +63,9 @@ from fibsem.devices.core import (
     command,
 )
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
-from fibsem.devices.wire import from_wire, to_wire
+from fibsem.devices.wire import NPY_MEDIA_TYPE, from_wire, to_wire
 from fibsem.structures import BeamType, RangeLimit
 
-NPY_MEDIA_TYPE = "application/x-npy"  # as fibsem.server.devices sends arrays
 READ_TIMEOUT = 5.0
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while

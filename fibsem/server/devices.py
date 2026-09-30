@@ -54,9 +54,8 @@ from fibsem.devices.core import (
     ParameterUnavailable,
     _limits_to_dict,
 )
-from fibsem.devices.wire import from_wire, to_wire
+from fibsem.devices.wire import NPY_MEDIA_TYPE, from_wire, to_wire
 
-NPY_MEDIA_TYPE = "application/x-npy"
 """A command that returns an array (an image) answers with ``np.save`` bytes."""
 
 # An error keeps its type across the wire; anything else is a plain failure.

@@ -9,6 +9,7 @@ key falls through to the backend's untouched if/elif chain.
 from __future__ import annotations
 
 import logging
+from enum import Enum
 from math import pi
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -21,6 +22,7 @@ from fibsem.structures import (
     ImageSettings,
     Point,
     RangeLimit,
+    ScanMode,
 )
 
 
@@ -43,7 +45,7 @@ class Beam(Device):
     shift = Parameter(Point, unit="m", doc="Beam shift.")
     on = Parameter(bool, doc="The beam is switched on.")
     scanning_mode = Parameter(
-        str, doc='"full_frame", "reduced_area" or "spot"; the scan commands set it.'
+        ScanMode, doc="What the beam scans; the scan commands set it."
     )
 
     def __init__(self, beam_type: BeamType, parent: Any = None, **kwargs: Any):
@@ -170,6 +172,8 @@ class KeyRouter:
         param = self.route(key, beam_type)
         if param is not None:
             value = param.get_value()
+            if isinstance(value, Enum):
+                value = value.value  # old keys return the plain value ("spot")
         else:
             value = self.microscope._get(key, beam_type)
         beam_name = "None" if beam_type is None else beam_type.name

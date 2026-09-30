@@ -17,8 +17,8 @@ import numpy as np
 
 from fibsem.devices.core import Device, ParameterMetadata, Resources
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
-from fibsem.fm.structures import REFLECTION, EmissionFilter
-from fibsem.structures import RangeLimit
+from fibsem.fm.structures import REFLECTION, EmissionFilter, objective_device_state
+from fibsem.structures import InsertableDeviceState, RangeLimit
 
 if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
@@ -171,8 +171,8 @@ class FMObjective(Objective):
         low, high = self._objective.limits
         return ParameterMetadata(limits=RangeLimit(min=low, max=high))
 
-    def read_state(self) -> str:
-        return self._objective.state
+    def read_state(self) -> InsertableDeviceState:
+        return objective_device_state(self._objective.state)
 
     def read_magnification(self) -> float:
         return self._objective.magnification

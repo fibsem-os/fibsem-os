@@ -20,8 +20,7 @@ import numpy as np
 
 from fibsem.devices.core import Device, Parameter, command
 from fibsem.fm.structures import EmissionFilter
-
-OBJECTIVE_STATES = ("Inserted", "Retracted", "Busy", "Error", "Other")
+from fibsem.structures import InsertableDeviceState
 
 
 class Camera(Device):
@@ -57,7 +56,7 @@ class Objective(Device):
     """Where the objective is and what it's doing. It moves only through commands."""
 
     position = Parameter(float, unit="m")
-    state = Parameter(str, choices=OBJECTIVE_STATES)
+    state = Parameter(InsertableDeviceState)
     magnification = Parameter(float)
     numerical_aperture = Parameter(float)
     limit_position = Parameter(float, unit="m", doc="The furthest a move may go in.")

@@ -22,6 +22,7 @@ from fibsem.fm.microscope import (
     LightSource,
     ObjectiveLens,
 )
+from fibsem.fm.structures import ObjectiveStateName
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import CameraSettings
@@ -210,7 +211,7 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         self._notify_moved()
 
     @property
-    def state(self) -> Literal["Inserted", "Retracted", "Busy", "Error", "Other"]:
+    def state(self) -> ObjectiveStateName:
         """Get the current state of the objective lens.
 
         Returns:

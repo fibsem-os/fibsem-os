@@ -38,6 +38,7 @@ from fibsem.fm.structures import (
     ChannelSettings,
     EmissionFilter,
     FluorescenceImage,
+    objective_state_name,
 )
 
 if TYPE_CHECKING:
@@ -96,7 +97,7 @@ class RemoteObjectiveLens(ObjectiveLens):
 
     @property
     def state(self) -> str:
-        return _param(self._device, "state").get_value()
+        return objective_state_name(_param(self._device, "state").get_value())
 
     def move_relative(self, delta: float) -> None:
         self._device.move_relative(delta)
