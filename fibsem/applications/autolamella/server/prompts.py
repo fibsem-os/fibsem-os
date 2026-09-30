@@ -74,7 +74,9 @@ def serialize_request(request) -> Dict[str, Any]:
         ConfirmDetection,
         EditAlignmentArea,
         PickPOI,
+        RunCoincidenceMilling,
         RunMillingTask,
+        SetupCoincidenceMilling,
     )
 
     payload: Dict[str, Any] = {"type": type(request).__name__}
@@ -146,6 +148,38 @@ def serialize_request(request) -> Dict[str, Any]:
                 "message": "Confirm and run this milling task (answering yes "
                 "runs the mill with the configuration as currently shown).",
                 "enabled": request.enabled,
+                "task_name": to_plain(getattr(config, "name", None)),
+                "num_stages": len(getattr(config, "stages", []) or []),
+            }
+        )
+        return payload
+
+    # The coincidence questions are sessions in the Coincidence Milling Viewer:
+    # the work is done there, and yes/no only closes them. Said explicitly, so
+    # an answer is not mistaken for running the work, and so the lamella is
+    # named rather than dumped.
+    if isinstance(request, SetupCoincidenceMilling):
+        payload.update(
+            {
+                "message": "Coincidence setup for this lamella, done in the "
+                "Coincidence Milling Viewer (objective focus, FM region, milling "
+                "box). Answering yes saves the setup as currently shown; no "
+                "skips the site and records nothing.",
+                "lamella": to_plain(getattr(request.lamella, "name", None)),
+                "task_name": to_plain(getattr(request.config, "task_name", None)),
+            }
+        )
+        return payload
+
+    if isinstance(request, RunCoincidenceMilling):
+        config = request.milling_config
+        payload.update(
+            {
+                "message": "Coincidence mill for this lamella, run from the "
+                "Coincidence Milling Viewer's Start Milling. Answering yes is "
+                "Continue: it ends the session with whatever has run, and "
+                "continues without milling if nothing has.",
+                "lamella": to_plain(getattr(request.lamella, "name", None)),
                 "task_name": to_plain(getattr(config, "name", None)),
                 "num_stages": len(getattr(config, "stages", []) or []),
             }

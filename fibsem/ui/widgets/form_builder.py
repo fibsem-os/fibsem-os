@@ -406,6 +406,13 @@ def build_control(
             signals=(control.editingFinished,),
         )
 
+    # An unset number (Optional[float] = None) has no control: a spinbox has to
+    # hold some value, and whatever it held would be written back as if the
+    # operator had chosen it. No row, rather than a TypeError that, raised
+    # inside a Qt slot, aborts the whole application.
+    if kind in (int, float) and value is None:
+        return None
+
     # Before int: bool is a subclass of int, so an isinstance check for int
     # would swallow every checkbox field.
     if kind is bool or isinstance(value, bool):

@@ -209,3 +209,40 @@ def test_milling_task_prefers_explicit_stop_event_over_widget(fm_microscope):
     assert task._stop_event is _Widget._milling_stop_event
     task = FibsemMillingTask(fm_microscope, config, parent_ui=None)
     assert task._stop_event is None
+
+
+def test_the_end_of_the_milling_time_is_completed_not_timeout(monkeypatch):
+    """The monitor loop ends at the sooner of the stage's milling time and the
+    timeout. Reaching the milling time is the mill finishing; only a timeout
+    that lands first is a timeout. A sim run with no drop reported "timeout"."""
+    from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
+
+    class _Microscope:
+        class _Signal:
+            def emit(self, *_):
+                pass
+
+        milling_progress_signal = _Signal()
+
+        def stop_milling(self):
+            pass
+
+    monkeypatch.setattr(
+        "fibsem.milling.strategy.coincidence.time.sleep", lambda *_: None
+    )
+
+    completed = CoincidenceMillingStrategy()
+    completed.config.timeout = 100.0
+    completed.microscope = _Microscope()
+    completed.stage = FibsemMillingStage(name="s", pattern=RectanglePattern())
+    completed._drop_detected = False
+    completed._monitor_milling_progress(estimated_time=0.0)
+    assert completed.end_reason == "completed"
+
+    timed_out = CoincidenceMillingStrategy()
+    timed_out.config.timeout = 0.0
+    timed_out.microscope = _Microscope()
+    timed_out.stage = FibsemMillingStage(name="s", pattern=RectanglePattern())
+    timed_out._drop_detected = False
+    timed_out._monitor_milling_progress(estimated_time=100.0)
+    assert timed_out.end_reason == "timeout"

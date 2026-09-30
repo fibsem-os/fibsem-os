@@ -78,3 +78,51 @@ def test_confirm_detection_bare_array_reports_source_dimensions():
     )
     assert "source-image pixels" in payload["coordinates"]
     json.dumps(payload)
+
+
+def test_the_coincidence_questions_say_the_work_is_in_the_viewer(tmp_path):
+    """Yes/no only closes these sessions; the work is done in the viewer. An
+    agent must be told so, and gets the lamella's name, not the lamella."""
+    from copy import deepcopy
+
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.applications.autolamella.workflows._default_milling_config import (
+        DEFAULT_MILLING_CONFIG,
+    )
+    from fibsem.applications.autolamella.workflows.interaction import (
+        RunCoincidenceMilling,
+        SetupCoincidenceMilling,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
+        MILL_COINCIDENT_KEY,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
+        SetupCoincidenceMillingTaskConfig,
+    )
+
+    lamella = Lamella(path=tmp_path / "lam", number=1, petname="site")
+    milling = deepcopy(DEFAULT_MILLING_CONFIG[MILL_COINCIDENT_KEY])
+
+    setup = serialize_request(
+        SetupCoincidenceMilling(
+            lamella=lamella,
+            config=SetupCoincidenceMillingTaskConfig(
+                task_name="Setup Coincidence Milling"
+            ),
+            milling_config=milling,
+        )
+    )
+    assert setup["type"] == "SetupCoincidenceMilling"
+    assert "Coincidence Milling Viewer" in setup["message"]
+    assert "skips the site" in setup["message"]
+    assert setup["lamella"] == lamella.name
+
+    run = serialize_request(
+        RunCoincidenceMilling(lamella=lamella, milling_config=milling)
+    )
+    assert run["type"] == "RunCoincidenceMilling"
+    assert "without milling" in run["message"]
+    assert run["lamella"] == lamella.name
+    assert run["num_stages"] == len(milling.stages)
+    json.dumps(setup)
+    json.dumps(run)

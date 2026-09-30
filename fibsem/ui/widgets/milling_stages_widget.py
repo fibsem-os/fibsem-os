@@ -239,6 +239,15 @@ class FibsemMillingStagesWidget(QWidget):
     def set_manufacturer(self, manufacturer: Optional[str]) -> None:
         self._milling_widget.set_manufacturer(manufacturer)
 
+    def set_strategy_visible(self, show: bool) -> None:
+        """Show or hide the Strategy detail panel.
+
+        For hosts whose stages all run one fixed strategy configured elsewhere
+        (the coincident milling task widget): the panel would only offer to
+        change what must not change.
+        """
+        self._strategy_panel.setVisible(show)
+
     def set_advanced_visible(self, show: bool) -> None:
         """Advanced fields in all three detail panels: one switch for one idea."""
         self._milling_widget.set_advanced_visible(show)

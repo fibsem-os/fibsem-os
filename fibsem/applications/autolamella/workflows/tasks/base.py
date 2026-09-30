@@ -382,6 +382,16 @@ class AutoLamellaTask(ABC):
             workflow_display_message=f"{self.lamella.name} [{self.display_name}]",
         )
 
+    @property
+    def finished_message(self) -> str:
+        """The history's status message for a task that completed.
+
+        "Finished" for most; a task whose outcome is worth a line in the record
+        (why a monitored mill ended) overrides it. Read at post_task, before
+        the outcome is frozen into task_history.
+        """
+        return "Finished"
+
     def post_task(self) -> None:
         # post-task
         if self.lamella.task_state is None:
@@ -406,7 +416,9 @@ class AutoLamellaTask(ABC):
                 )
         self.lamella.task_state.status = AutoLamellaTaskStatus.Completed
         self.lamella.task_state.status_message = ""
-        self.log_status_message(message="FINISHED", display_message="Finished")
+        self.log_status_message(
+            message="FINISHED", display_message=self.finished_message
+        )
         self.log_task_config()
         self.lamella.task_config[self.task_name] = deepcopy(self.config)
         self._record_outcome()

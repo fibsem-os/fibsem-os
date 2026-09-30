@@ -22,6 +22,9 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+from fibsem.applications.autolamella.ui.autolamella_coincident_milling_task_config_widget import (
+    AutoLamellaCoincidentMillingTaskConfigWidget,
+)
 from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_task_config_widget import (
     AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
 )
@@ -45,6 +48,7 @@ from fibsem.applications.autolamella.ui.protocol_details_dialog import (
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
+    MillCoincidentTaskConfig,
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.structures import BeamType, FibsemImage
@@ -366,6 +370,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             )
             if fluorescence_widget is not None:
                 fluorescence_widget.set_microscope(self.microscope)
+            coincident_widget = getattr(
+                self, "coincident_milling_task_config_widget", None
+            )
+            if coincident_widget is not None:
+                coincident_widget.set_microscope(self.microscope)
             grid_protocol = getattr(self, "grid_protocol", None)
             if grid_protocol is not None:
                 grid_protocol.set_microscope(self.microscope)
@@ -413,6 +422,18 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.fluorescence_acquisition_task_config_widget = (
             AutoLamellaFluorescenceAcquisitionTaskConfigWidget(
                 microscope=self.microscope, config=None, parent=self
+            )
+        )
+        # Coincident Milling as one mill, not per stage (FIB-985): monitoring
+        # settings written through to every stage, strategy fixed, no pattern
+        # position (the setup step places it).
+        self.coincident_milling_task_config_widget = (
+            AutoLamellaCoincidentMillingTaskConfigWidget(
+                microscope=self.microscope,
+                config=None,
+                parent=self,
+                channel_sources=self._fluorescence_task_channels,
+                detach_milling=True,  # its Milling section takes column 3
             )
         )
 
@@ -507,6 +528,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         col2_layout.addWidget(self.task_parameters_config_widget)
         col2_layout.addWidget(self.ref_image_params_widget)
         col2_layout.addWidget(self.fluorescence_acquisition_task_config_widget)
+        col2_layout.addWidget(self.coincident_milling_task_config_widget)
         col2_layout.addWidget(self.grid_protocol.editor_panel)
         self.grid_protocol.editor_panel.setVisible(False)
         col2_layout.addStretch()
@@ -519,7 +541,15 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         col3_scroll = QScrollArea()
         col3_scroll.setWidgetResizable(True)
         col3_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
-        col3_scroll.setWidget(self.milling_task_editor)
+        # The coincident milling widget's Milling section takes this column
+        # when its task is selected and the generic editor hides.
+        col3_content = QWidget()
+        col3_layout = QVBoxLayout(col3_content)
+        col3_layout.setContentsMargins(0, 0, 0, 0)
+        col3_layout.addWidget(self.milling_task_editor)
+        col3_layout.addWidget(self.coincident_milling_task_config_widget.milling_panel)
+        col3_layout.addStretch()
+        col3_scroll.setWidget(col3_content)
 
         # --- 3-column splitter ---
         splitter = QSplitter(Qt.Horizontal)  # type: ignore
@@ -590,6 +620,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.fluorescence_acquisition_task_config_widget.settings_changed.connect(
             self._on_fluorescence_acquisition_settings_changed
         )
+        self.coincident_milling_task_config_widget.settings_changed.connect(
+            self._on_coincident_milling_settings_changed
+        )
         self.pushButton_edit_spot_burn.clicked.connect(
             self._on_spot_burn_coordinates_clicked
         )
@@ -648,6 +681,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             self.milling_task_editor.clear()
             self.milling_task_editor.setVisible(False)
             self.fluorescence_acquisition_task_config_widget.setVisible(False)
+            self.coincident_milling_task_config_widget.set_shown(False)
             return
         self.task_parameters_config_widget.setVisible(True)
         self.ref_image_params_widget.setVisible(True)
@@ -679,6 +713,19 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             self.fluorescence_acquisition_task_config_widget.set_task_config(
                 task_config
             )
+
+        # special handling for the coincident milling task: its own widget owns
+        # the parameters, the milling config and the reference imaging defaults
+        is_coincident_task = isinstance(task_config, MillCoincidentTaskConfig)
+        self.coincident_milling_task_config_widget.set_shown(is_coincident_task)
+        if is_coincident_task:
+            self.task_parameters_config_widget.setVisible(False)
+            self.ref_image_params_widget.setVisible(False)
+            self._current_milling_key = None
+            self.milling_task_editor.clear()
+            self.milling_task_editor.setVisible(False)
+            self.coincident_milling_task_config_widget.set_task_config(task_config)
+            self.coincident_milling_task_config_widget.set_setup_record(None)
 
         self._set_protocol_dirty(False)
 
@@ -754,6 +801,27 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         # # Save the experiment
         self._save_experiment()
+
+    def _on_coincident_milling_settings_changed(
+        self, config: "MillCoincidentTaskConfig"
+    ):
+        """Callback when the coincident milling task widget writes its config."""
+        self._set_protocol_dirty(True)
+        selected_task_name = self.task_list_widget.selected_task
+        self.experiment.task_protocol.task_config[selected_task_name] = config
+        logging.info(f"Updated {selected_task_name} Coincident Milling Settings")
+        self._save_experiment()
+
+    def _fluorescence_task_channels(self) -> list:
+        """The channels of every fluorescence task in the protocol, for Copy from…"""
+        channels = []
+        protocol = getattr(self.experiment, "task_protocol", None)
+        if protocol is None:
+            return channels
+        for task_config in protocol.task_config.values():
+            if isinstance(task_config, AcquireFluorescenceImageConfig):
+                channels.extend(task_config.channel_settings)
+        return channels
 
     def _on_spot_burn_coordinates_clicked(self):
         """Edit this task's default spot-burn coordinates on a reference frame.
@@ -1060,6 +1128,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 self.milling_task_editor,
             ):
                 widget.setVisible(False)
+            self.coincident_milling_task_config_widget.set_shown(False)
             self.pushButton_edit_spot_burn.setVisible(False)
             self.grid_protocol.refresh()
         else:

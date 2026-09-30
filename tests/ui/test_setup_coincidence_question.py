@@ -92,7 +92,7 @@ def _run_task_on_worker_thread(ui, lamella):
     task = SetupCoincidenceMillingTask(
         microscope=ui.microscope, config=config, lamella=lamella, parent_ui=ui
     )
-    outcome = {}
+    outcome = {"task": task}
 
     def target():
         try:
@@ -133,6 +133,8 @@ def test_save_and_continue_records_what_the_operator_left(ui, qapp):
     assert ui.microscope.fm.objective.position == pytest.approx(2.45e-3)
     assert viewer._selected_lamella is lamella
     assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    # the hold says where the question is answered
+    assert "Coincidence Milling Viewer" in ui.hold.releases
 
     # the FM tab shows the mill's monitoring channel, and only it
     channels = viewer.fm_channel_widget.channel_settings
@@ -159,14 +161,28 @@ def test_save_and_continue_records_what_the_operator_left(ui, qapp):
     assert config.pattern_offset.x == pytest.approx(2.0e-6)
     assert config.pattern_offset.y == pytest.approx(1.0e-6)
     assert config.intensity_drop_fraction == pytest.approx(0.35)
+    # Save and Continue is the operator's decision on the site's setup
+    decision = outcome["task"].inline_decision
+    assert decision is not None and decision.via == "workflow"
     # the tuned channel landed on the mill task, not on the setup record
     mill = lamella.task_config["Coincidence Milling"]
     assert mill.monitoring_channel.name == "Monitoring"
     assert mill.monitoring_channel.exposure_time == pytest.approx(0.05)
-    # the viewer is released and the prompt is down
+    # and so did the pattern offset: the lamella editor draws the stages where
+    # the mill will put them
+    for milling in mill.milling.values():
+        for stage in milling.enabled_stages:
+            assert stage.pattern.point.x == pytest.approx(2.0e-6)
+            assert stage.pattern.point.y == pytest.approx(1.0e-6)
+    # the prompt is down; the viewer is held for the next site, and the end
+    # of the workflow (not reached here: the task ran alone) releases it
     assert not viewer.in_setup_mode
-    assert viewer.btn_milling.isVisible()
+    assert viewer.is_holding_setup
+    assert not viewer.btn_milling.isVisible()
     assert ui.hold is None
+    ui._workflow_finished()
+    assert not viewer.is_holding_setup
+    assert viewer.btn_milling.isVisible()
 
 
 def test_skip_site_records_nothing(ui, qapp):
