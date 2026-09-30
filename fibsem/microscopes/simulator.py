@@ -1674,31 +1674,6 @@ class DemoMicroscope(FibsemMicroscope):
         if key == "scan_rotation":
             return float(beam.scan_rotation)
 
-        # system properties
-        if key == "beam_enabled":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.enabled
-            elif beam_type is BeamType.ION:
-                return self.system.ion.enabled
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.eucentric_height
-            elif beam_type is BeamType.ION:
-                return self.system.ion.eucentric_height
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.column_tilt
-            elif beam_type is BeamType.ION:
-                return self.system.ion.column_tilt
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
         # ion beam properties
         if key == "plasma":
             if beam_type is BeamType.ION:
@@ -1738,18 +1713,6 @@ class DemoMicroscope(FibsemMicroscope):
             return self.manipulator_system.position
         if key == "manipulator_state":
             return self.manipulator_system.inserted
-
-        # manufacturer properties
-        if key == "manufacturer":
-            return self.system.info.manufacturer
-        if key == "model":
-            return self.system.info.model
-        if key == "software_version":
-            return self.system.info.software_version
-        if key == "serial_number":
-            return "Unknown"
-        if key == "hardware_version":
-            return self.system.info.hardware_version
 
         # chamber properties
         if key == "chamber_state":
@@ -1839,38 +1802,6 @@ class DemoMicroscope(FibsemMicroscope):
         if key == "detector_brightness":
             detector.brightness = value
             return
-
-        # system properties
-        if key == "beam_enabled":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.enabled = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.enabled = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-            return
-
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.eucentric_height = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.eucentric_height = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.column_tilt = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.column_tilt = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
 
         if beam_type is BeamType.ION:
             if key == "plasma_gas":
