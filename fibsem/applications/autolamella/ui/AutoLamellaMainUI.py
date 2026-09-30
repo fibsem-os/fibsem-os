@@ -4160,11 +4160,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.autolamella_ui._stop_event_recorder()
             except Exception as e:
                 logging.warning(f"Could not close the event recorder on close: {e}")
+        # TypeError: a second close finds it already disconnected -- close() sends
+        # the close event again even when the window is hidden.
         try:
             notification_service._get_service().toast.disconnect(
                 self._on_notification_service
             )
-        except RuntimeError:
+        except (RuntimeError, TypeError):
             pass
         super().closeEvent(event)
         # Force the event loop to exit even if another top-level window (e.g. a stray
