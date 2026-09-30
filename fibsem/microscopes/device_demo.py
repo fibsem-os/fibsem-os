@@ -20,16 +20,20 @@ The beams' keys are routed. The others are ``stage_device``, ``chamber_device``,
 redesign settles them); their keys are not routed, because only the base class's
 own methods read them, and those methods use the devices directly. The GIS has no
 keys; ``cryo_deposition_v2`` runs its sequence through the device's commands.
+
+The FM's parts are ``fm_devices``, built over the same objects ``fm`` holds, so the
+FM API and the devices share one state; ``fm`` itself is unchanged.
 """
 
 from __future__ import annotations
 
 import logging
 from types import MappingProxyType
-from typing import Optional
+from typing import Dict, Optional
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import BEAM_ROUTES
+from fibsem.devices.core import Device
 from fibsem.devices.drivers.demo import (
     bind_demo_beams,
     bind_demo_chamber,
@@ -37,6 +41,7 @@ from fibsem.devices.drivers.demo import (
     bind_demo_manipulator,
     bind_demo_stage,
 )
+from fibsem.devices.drivers.fm import bind_fm_devices
 from fibsem.microscope import _records_stage_move
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import (
@@ -62,6 +67,17 @@ class DeviceDemoMicroscope(DemoMicroscope):
         self.chamber_device = bind_demo_chamber(self)
         self.manipulator_device = bind_demo_manipulator(self)
         self.gis_device = bind_demo_gis(self)
+        self.fm_devices = MappingProxyType(self._fm_devices())
+
+    def _fm_devices(self) -> Dict[str, Device]:
+        """Devices over the FM ``fm`` already holds, so both drive the same parts."""
+        if self.fm is None:
+            return {}
+        # A remote FM (``fm.driver: remote``) is already built from devices.
+        devices = getattr(self.fm, "devices", None)
+        if devices is not None:
+            return dict(devices)
+        return bind_fm_devices(self.fm)
 
     # The old moves go through the device without its limit check, as today.
 
