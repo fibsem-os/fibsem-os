@@ -369,3 +369,99 @@ def test_reading_a_beam_takes_its_scan_rotation(widget, microscope):
     widget.button_read_ion.click()
 
     assert widget.ion.scan_rotation.value() == pytest.approx(180.0)
+
+
+# ---------------------------------------------------------------------------
+# A column set by preset (FIB-1084)
+# ---------------------------------------------------------------------------
+
+PRESETS = ["30 keV; 20 pA", "30 keV; 150 pA", "30 keV; 1 nA"]
+
+
+@pytest.fixture()
+def preset_widget(qapp, microscope, monkeypatch):
+    """The ion column declared preset-driven, with the instrument's preset list."""
+    from fibsem.structures import BeamType
+
+    monkeypatch.setattr(
+        microscope,
+        "beam_uses_presets",
+        lambda beam_type: beam_type is BeamType.ION,
+    )
+    original = microscope.get_available_values_cached
+
+    def available(key, beam_type=None):
+        if key == "preset":
+            return PRESETS
+        return original(key, beam_type)
+
+    monkeypatch.setattr(microscope, "get_available_values_cached", available)
+    microscope.system.ion.beam.preset = "30 keV; 150 pA"
+    w = MicroscopeDefaultsWidget()
+    w.set_microscope(microscope)
+    yield w
+    w.close()
+    w.deleteLater()
+
+
+def test_a_preset_column_shows_its_preset_not_a_voltage_and_current(preset_widget):
+    ion, electron = preset_widget.ion, preset_widget.electron
+
+    assert not ion.preset.isHidden()
+    assert ion.voltage.isHidden() and ion.current.isHidden()
+    assert ion.preset.value() == "30 keV; 150 pA"
+    assert [ion.preset.itemData(i) for i in range(ion.preset.count())] == PRESETS
+    # the other column is unchanged
+    assert electron.preset.isHidden()
+    assert not electron.voltage.isHidden() and not electron.current.isHidden()
+
+
+def test_saving_a_preset_writes_it_and_keeps_the_file_s_voltage(
+    preset_widget, microscope
+):
+    before = utils.load_yaml(microscope.configuration_path)["defaults"]["ion"]
+    preset_widget.ion.preset.set_value("30 keV; 1 nA")
+    assert preset_widget.is_modified()
+
+    preset_widget.save_to_configuration()
+
+    written = utils.load_yaml(microscope.configuration_path)["defaults"]["ion"]
+    assert written["preset"] == "30 keV; 1 nA"
+    assert written["voltage"] == before["voltage"]
+    assert written["current"] == before["current"]
+    assert microscope.system.ion.beam.preset == "30 keV; 1 nA"
+    assert (
+        "preset"
+        not in utils.load_yaml(microscope.configuration_path)["defaults"]["electron"]
+    )
+
+
+def test_a_configured_preset_the_instrument_does_not_list_is_kept(
+    qapp, microscope, monkeypatch
+):
+    """A file's value is never snapped to a neighbour."""
+    from fibsem.structures import BeamType
+
+    monkeypatch.setattr(
+        microscope, "beam_uses_presets", lambda beam_type: beam_type is BeamType.ION
+    )
+    monkeypatch.setattr(
+        microscope,
+        "get_available_values_cached",
+        lambda key, beam_type=None: PRESETS if key == "preset" else [],
+    )
+    microscope.system.ion.beam.preset = "10 keV; 5 pA"
+    w = MicroscopeDefaultsWidget()
+    w.set_microscope(microscope)
+
+    assert w.ion.preset.value() == "10 keV; 5 pA"
+    w.deleteLater()
+
+
+def test_a_preset_read_later_that_is_not_listed_is_shown(preset_widget, microscope):
+    """Read from Microscope can bring back a preset the list did not have."""
+    microscope.system.ion.beam.preset = "10 keV; 5 pA"
+
+    preset_widget.ion.show_settings(microscope.system.ion)
+
+    assert preset_widget.ion.preset.value() == "10 keV; 5 pA"

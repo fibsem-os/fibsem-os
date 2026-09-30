@@ -23,7 +23,9 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
+    QLabel,
     QVBoxLayout,
     QWidget,
 )
@@ -91,7 +93,11 @@ class BeamDefaultsForm(QWidget):
     def __init__(self, beam_type: BeamType, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.beam_type = beam_type
+        # A column set by preset (the Tescan ion column) shows its preset in place
+        # of a voltage and a current, which that API will not set directly.
+        self.uses_presets = False
 
+        self.preset = ValueComboBox()
         self.voltage = ValueComboBox(format_fn=_format_voltage)
         self.current = ValueComboBox(format_fn=_format_current)
         self.hfw = ValueSpinBox(
@@ -109,17 +115,39 @@ class BeamDefaultsForm(QWidget):
             suffix="°", minimum=0.0, maximum=360.0, decimals=1, step=90.0
         )
 
-        form = QFormLayout()
-        form.addRow("Voltage", self.voltage)
-        form.addRow("Current", self.current)
-        form.addRow("Field of view", self.hfw)
-        form.addRow("Resolution", self.resolution)
-        form.addRow("Dwell time", self.dwell_time)
-        form.addRow("Detector", self.detector_type)
-        form.addRow("Mode", self.detector_mode)
-        form.addRow("Scan rotation", self.scan_rotation)
-        form.setContentsMargins(6, 6, 6, 6)
-        self.setLayout(form)
+        self._rows = [
+            ("Preset", self.preset),
+            ("Voltage", self.voltage),
+            ("Current", self.current),
+            ("Field of view", self.hfw),
+            ("Resolution", self.resolution),
+            ("Dwell time", self.dwell_time),
+            ("Detector", self.detector_type),
+            ("Mode", self.detector_mode),
+            ("Scan rotation", self.scan_rotation),
+        ]
+        # A grid, not a form: a form keeps the spacing of a hidden row, which left
+        # a gap under the preset and the columns' rows out of line.
+        grid = QGridLayout()
+        grid.setContentsMargins(6, 6, 6, 6)
+        grid.setColumnStretch(1, 1)
+        self._labels = {}
+        for row, (label, field) in enumerate(self._rows):
+            self._labels[field] = QLabel(label)
+            grid.addWidget(self._labels[field], row, 0)
+            grid.addWidget(field, row, 1)
+        self.setLayout(grid)
+        self._show_rows_for_presets(False)
+
+    def _show_rows_for_presets(self, uses_presets: bool) -> None:
+        self.uses_presets = uses_presets
+        for field, shown in (
+            (self.preset, uses_presets),
+            (self.voltage, not uses_presets),
+            (self.current, not uses_presets),
+        ):
+            field.setVisible(shown)
+            self._labels[field].setVisible(shown)
 
     def populate_choices(self, microscope: FibsemMicroscope) -> None:
         """The values this instrument can be set to, with the current one kept."""
@@ -133,6 +161,9 @@ class BeamDefaultsForm(QWidget):
                 return []
 
         record = getattr(microscope.system, beam.name.lower())
+        self._show_rows_for_presets(bool(microscope.beam_uses_presets(beam)))
+        if self.uses_presets:
+            self._set_choices(self.preset, available("preset"), record.beam.preset)
         self._set_choices(self.voltage, available("voltage"), record.beam.voltage)
         self._set_choices(self.current, available("current"), record.beam.beam_current)
         self._set_choices(
@@ -156,6 +187,10 @@ class BeamDefaultsForm(QWidget):
 
     def show_settings(self, record: BeamSystemSettings) -> None:
         beam, detector = record.beam, record.detector
+        if self.uses_presets and beam.preset is not None:
+            if self.preset.findData(beam.preset) == -1:
+                self.preset.add_value(beam.preset)  # a file's value is never snapped
+            self.preset.set_value(beam.preset)
         if beam.voltage is not None:
             self.voltage.set_value(beam.voltage)
         if beam.beam_current is not None:
@@ -174,11 +209,16 @@ class BeamDefaultsForm(QWidget):
             self.scan_rotation.setValue(math.degrees(beam.scan_rotation) % 360)
 
     def defaults_to_dict(self) -> dict:
-        """The form's eight values, in the file's spelling."""
+        """The form's values, in the file's spelling: eight, or for a column set by
+        preset its preset in place of the voltage and current (the file keeps
+        whatever those were)."""
         key = self.resolution.value()
+        if self.uses_presets:
+            head = {"preset": self.preset.value()}
+        else:
+            head = {"voltage": self.voltage.value(), "current": self.current.value()}
         return {
-            "voltage": self.voltage.value(),
-            "current": self.current.value(),
+            **head,
             "hfw": _micro(self.hfw.value()),
             "resolution": list(_resolution_from_key(key)) if key else None,
             "dwell_time": _micro(self.dwell_time.value()),
@@ -189,8 +229,11 @@ class BeamDefaultsForm(QWidget):
 
     def write_into(self, record: BeamSystemSettings) -> None:
         """Copy the form into the record. Only the defaults; nothing about the column."""
-        record.beam.voltage = self.voltage.value()
-        record.beam.beam_current = self.current.value()
+        if self.uses_presets:
+            record.beam.preset = self.preset.value()
+        else:
+            record.beam.voltage = self.voltage.value()
+            record.beam.beam_current = self.current.value()
         record.beam.hfw = _micro(self.hfw.value())
         key = self.resolution.value()
         record.beam.resolution = _resolution_from_key(key) if key else None
