@@ -2021,6 +2021,11 @@ class TescanMicroscope(FibsemMicroscope):
 
         return beam
 
+    def beam_uses_presets(self, beam_type: BeamType) -> bool:
+        """The ion column is set by preset: setting its voltage or current directly
+        is refused by the Tescan API."""
+        return beam_type is BeamType.ION
+
     def _get_presets(self, beam_type: BeamType) -> List[str]:
         with self._connection_lock:
             presets = self._get_beam(beam_type=beam_type).Preset.Enum()

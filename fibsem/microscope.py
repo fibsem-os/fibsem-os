@@ -512,6 +512,11 @@ class FibsemMicroscope(ABC):
             except Exception as e:
                 logging.warning(f"Could not apply configured objective {name}: {e}")
 
+    def beam_uses_presets(self, beam_type: BeamType) -> bool:
+        """Whether this column is set by choosing a preset rather than a voltage and
+        a current. Backends where that is so override it."""
+        return False
+
     def capture_defaults(self, beam_type: Optional[BeamType] = None) -> None:
         """Record what the instrument is doing now as the defaults a session starts from.
 
@@ -554,6 +559,10 @@ class FibsemMicroscope(ABC):
                     "scan_rotation",
                 ):
                     setattr(record.beam, name, deepcopy(getattr(beam, name)))
+                # A preset-driven column is set by its preset, so that is its
+                # default. Kept when the backend cannot say which one is active.
+                if self.beam_uses_presets(record.beam_type) and beam.preset:
+                    record.beam.preset = beam.preset
             if detector is not None:
                 record.detector.type = detector.type
                 record.detector.mode = detector.mode
