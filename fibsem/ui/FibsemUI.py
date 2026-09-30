@@ -174,6 +174,13 @@ class FibsemUI(QMainWindow):
         self.sample_widget = None
         self.overview_widget = None
 
+    def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        """Let the instrument go rather than leave the client open until the
+        process ends."""
+        if self.microscope is not None:
+            self.microscope.try_disconnect()
+        super().closeEvent(event)
+
     # ── the widgets a connection brings with it ──────────────────────────
 
     def _add_control_tab(self, widget: QWidget, label: str) -> None:
