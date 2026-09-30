@@ -131,8 +131,7 @@ class DeviceBackedDemo(DemoMicroscope):
         return self.get_stage_position()
 
     def home(self):
-        # Demo's own override returns None, and the old API keeps that.
-        self.stage_device.home()
+        return self.stage_device.home()
 
 
 def _device_backed(compustage: bool = False) -> DeviceBackedDemo:
