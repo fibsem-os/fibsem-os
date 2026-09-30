@@ -254,6 +254,20 @@ class FibsemMicroscope(ABC):
     def disconnect(self):
         pass
 
+    def try_disconnect(self) -> bool:
+        """Disconnect, logging rather than raising if the client will not close.
+
+        For teardown paths -- a window closing -- where there is nothing left to
+        tell the user and an exception would only stop the rest of the cleanup.
+        Returns whether the disconnect went through.
+        """
+        try:
+            self.disconnect()
+        except Exception as e:
+            logging.warning(f"Could not cleanly disconnect the microscope: {e}")
+            return False
+        return True
+
     @abstractmethod
     def acquire_image(
         self,

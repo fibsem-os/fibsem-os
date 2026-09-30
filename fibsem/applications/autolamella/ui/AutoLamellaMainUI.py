@@ -4160,6 +4160,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.autolamella_ui._stop_event_recorder()
             except Exception as e:
                 logging.warning(f"Could not close the event recorder on close: {e}")
+        # Last, so everything above has the microscope it needs. Let the
+        # instrument go rather than leave the client open until the process ends.
+        if (
+            self.autolamella_ui is not None
+            and self.autolamella_ui.microscope is not None
+        ):
+            self.autolamella_ui.microscope.try_disconnect()
         try:
             notification_service._get_service().toast.disconnect(
                 self._on_notification_service
