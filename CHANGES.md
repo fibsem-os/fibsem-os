@@ -6,13 +6,115 @@ A minor bump, not a patch: since v0.5.2 main has taken the agent server, the app
 config schema v1, propose-and-review and a Grids preview. Calling that 0.5.3 would be the
 same mislabelling that made the last release awkward.
 
-0.5.3 is reserved for fixes cut from `release/v0.5.2`, which is the branch v0.5.2 was
-tagged from. Those do not appear here; a fix that belongs in both lands on main first and
-is cherry-picked there.
+Fixes for v0.5 are cut from `release/v0.5.x`, the branch v0.5.2 and v0.5.3 were tagged
+from, and are listed under their own version below; a fix that belongs in both lands on
+main first and is cherry-picked there.
 
-The entries below are the four that were written into the v0.5.2 section after v0.5.2rc2
-was cut, and so describe work that is not in v0.5.2. Everything else from the 441 commits
-since the tag still needs writing up.
+The entries below were first written into the v0.5.2 section, after v0.5.2rc2 was cut,
+and so describe work that is not in v0.5.2. Everything else since v0.5.2 still needs
+writing up.
+
+### Workflow (early access)
+
+- **Every task records what it did.** A task that proposes something (Setup
+  proposes the milling position; milling tasks record their result with the final
+  images) leaves that proposal in the experiment record in every mode, with who
+  decided it and where: your answer in the workflow when supervised; nobody when
+  automated, in which case the value is used as proposed, stays open to correct in
+  the Review tab until a later task uses it, and is then recorded as unreviewed
+  rather than as agreed. Nothing about how a run behaves has changed; the record
+  is new. The Review tab, where a task's answer can wait for your decision before
+  the next task runs, is behind the "Review workflow (early access)" preference.
+  A task waiting there is not finished: it shows as awaiting a decision, confirming
+  completes it, and rejecting fails it (the lamella is not marked defective).
+- **One `attention` per task in the protocol.** A workflow task says `attention:
+  automated` or `supervised` in place of the `supervise` and `review` flags;
+  protocols saved with the flags still load and are written back in the new form.
+  Supervised means you decide: a question the task needs answered is asked in the
+  workflow, at the microscope; a result it leaves for afterwards (the point of
+  interest, a task's result) waits for your decision in the Review tab while the
+  run carries on, and the tasks that require it wait with it. A task that requires
+  a supervised task says so in its row: "after review of Setup Lamella Position".
+  A milling task's Continue, after you have watched the mill, is your decision on
+  its result; it is recorded as yours and the task does not wait again in the
+  Review tab. There is no third mode: development builds had one, `review`, and
+  it is read as `supervised`.
+- **Setup's confirmations are on the record, and each has a switch.** With the
+  review preference on, the tilt to the milling angle and the move to the milling
+  position are asked on the prompt bar as before, and each Continue is recorded as
+  your decision with the stage position as it stood. Two new task settings,
+  `confirm_tilt` and `confirm_position` (both on), turn either prompt off: the task
+  then tilts, or uses the position as arrived at, and the record says nobody was
+  asked. Off, `confirm_position` is only as safe as the automatic positioning that
+  put the stage there. The Tilt/Skip choice is gone with the preference on:
+  Continue tilts, and Stop is the way not to.
+- **A Review tab row says what it is about.** A task that asks more than one
+  thing in a run (Setup confirms its tilt, then its position, then leaves its
+  point of interest for afterwards) lists one row per question under the same
+  task name; the row now names the kind, "Setup Lamella Position · Position",
+  where it is not the task's own result.
+- **The fluorescence tasks' confirmations are on the record.** With the review
+  preference on, Select Fluorescence Position's "move to the fluorescence
+  position" and Acquire Fluorescence Image's "run autofocus" prompts are asked on
+  the prompt bar as before, and each Continue is recorded as your decision with
+  the stage position as it stood. Automated, the position is used as arrived at
+  and the record says nobody was asked.
+- **The undercut's detections are answered in the Review tab, on the record.**
+  With the review preference on, each of Mill Undercut's four detections (two in
+  the coincident alignment, one per undercut, one to finish) is a question on the
+  lamella: the run holds, the Review tab is fronted with the model's features on
+  the image it ran on, and Confirm, with a marker dragged or not, is the decision
+  the stage moves by. Reject fails the task. The training data the Detection tab
+  wrote on its Continue is still written. Automated, nobody is asked and each
+  detection is recorded as used unreviewed. With the preference off the Detection
+  tab prompt asks exactly as before.
+- **A result an agent looked at is still yours to check.** The Review tab's "to
+  check" group clears when a person acknowledges, not when a connected agent does.
+- **A question the app closed on is withdrawn when the experiment loads.** A
+  detection or a position confirmation a task was waiting on when the app closed or
+  crashed used to reappear as a decision to make; nothing is waiting on it, so it now
+  loads as withdrawn and lists under Decided.
+- **A detection review draws the correction as you make it.** The model's points
+  stay on the image in orange while you drag a marker, a line under the image says
+  how far each feature has moved ("LamellaCentre moved 1.3 µm"), and clicking a
+  marker turns Put them back into putting back that one.
+- **The alignment area is checked on the record.** With the review preference on,
+  Setup and Mill Fiducial ask you to check the alignment area in the Review tab, as a
+  rectangle on the last FIB image (for the fiducial, the image the mill left behind),
+  before the alignment reference is taken in it; the answer, and how far you moved
+  it, are on the lamella's record. Each task has a Confirm Alignment Area setting;
+  off, the area is used as it stands and still recorded. With the preference off the
+  prompt is as it has always been.
+- **A run's end closes nothing in the Review tab.** An automated task's result used
+  to be recorded as unreviewed when the run ended; now it stays open in "to check"
+  until you look, the same as its value does until a later task uses it.
+- **For task authors: a task proposes through a `Proposer`.** A task type carries one
+  `proposer` (kind, name, version, `propose(task)`); the base records the result part
+  (task, status, times, final images) for every kind and the proposer adds the
+  values. Swapping the proposer, say a segmentation model for the current point,
+  changes nothing downstream. Every decision, the operator's inline answer included,
+  now lands through `Experiment.decide`.
+- **The point-of-interest kind is named for what it is.** The proposal kind Setup
+  records is `point_of_interest` (was `milling_setup`): a point on an image that later
+  tasks follow, which is not a milling matter. Its schema carries `poi` only; the
+  `fiducial` value nothing wrote is gone until something proposes it.
+- **For task authors: the task-result renderer is the base.** Every proposal is a task
+  result, and `TaskResultReviewRenderer` now draws that (the final images, the state
+  line, the record in its tooltip, the two verbs) for every kind. A kind with values
+  extends it and puts them on the image, as `PointOfInterestReviewRenderer` does with
+  the point of interest. Register one per kind with `register_review_renderer`.
+- **The window says who holds the run.** A run waiting on a question, on a
+  connected agent, or parked on decisions carries one value (`AutoLamellaUI.hold`)
+  in place of the three flags that meant the same thing; the border, the attention
+  button, the status bar and the timeline pause all read it. The status bar names
+  what a parked run waits on ("Parked on 2 decision(s): decide 01-a and 02-b in the
+  Review tab"), and a run that gave up waiting says so rather than reading as a
+  finish.
+
+### Fluorescence
+
+- Acquire Fluorescence Image with no channels configured now fails up front saying so,
+  instead of with an IndexError from the autofocus.
 
 ### Grids (preview)
 
@@ -118,100 +220,6 @@ correctness work landed in correlation and in what the experiment record remembe
 
 ### Workflow
 
-- **Every task records what it did.** A task that proposes something (Setup
-  proposes the milling position; milling tasks record their result with the final
-  images) leaves that proposal in the experiment record in every mode, with who
-  decided it and where: your answer in the workflow when supervised; nobody when
-  automated, in which case the value is used as proposed, stays open to correct in
-  the Review tab until a later task uses it, and is then recorded as unreviewed
-  rather than as agreed. Nothing about how a run behaves has changed; the record
-  is new. The Review tab, where a task's answer can wait for your decision before
-  the next task runs, is behind the "Review workflow (early access)" preference.
-  A task waiting there is not finished: it shows as awaiting a decision, confirming
-  completes it, and rejecting fails it (the lamella is not marked defective).
-- **One `attention` per task in the protocol.** A workflow task says `attention:
-  automated` or `supervised` in place of the `supervise` and `review` flags;
-  protocols saved with the flags still load and are written back in the new form.
-  Supervised means you decide: a question the task needs answered is asked in the
-  workflow, at the microscope; a result it leaves for afterwards (the point of
-  interest, a task's result) waits for your decision in the Review tab while the
-  run carries on, and the tasks that require it wait with it. A task that requires
-  a supervised task says so in its row: "after review of Setup Lamella Position".
-  A milling task's Continue, after you have watched the mill, is your decision on
-  its result; it is recorded as yours and the task does not wait again in the
-  Review tab. There is no third mode: development builds had one, `review`, and
-  it is read as `supervised`.
-- **Setup's confirmations are on the record, and each has a switch.** With the
-  review preference on, the tilt to the milling angle and the move to the milling
-  position are asked on the prompt bar as before, and each Continue is recorded as
-  your decision with the stage position as it stood. Two new task settings,
-  `confirm_tilt` and `confirm_position` (both on), turn either prompt off: the task
-  then tilts, or uses the position as arrived at, and the record says nobody was
-  asked. Off, `confirm_position` is only as safe as the automatic positioning that
-  put the stage there. The Tilt/Skip choice is gone with the preference on:
-  Continue tilts, and Stop is the way not to.
-- **A Review tab row says what it is about.** A task that asks more than one
-  thing in a run (Setup confirms its tilt, then its position, then leaves its
-  point of interest for afterwards) lists one row per question under the same
-  task name; the row now names the kind, "Setup Lamella Position · Position",
-  where it is not the task's own result.
-- **The fluorescence tasks' confirmations are on the record.** With the review
-  preference on, Select Fluorescence Position's "move to the fluorescence
-  position" and Acquire Fluorescence Image's "run autofocus" prompts are asked on
-  the prompt bar as before, and each Continue is recorded as your decision with
-  the stage position as it stood. Automated, the position is used as arrived at
-  and the record says nobody was asked.
-- **The undercut's detections are answered in the Review tab, on the record.**
-  With the review preference on, each of Mill Undercut's four detections (two in
-  the coincident alignment, one per undercut, one to finish) is a question on the
-  lamella: the run holds, the Review tab is fronted with the model's features on
-  the image it ran on, and Confirm, with a marker dragged or not, is the decision
-  the stage moves by. Reject fails the task. The training data the Detection tab
-  wrote on its Continue is still written. Automated, nobody is asked and each
-  detection is recorded as used unreviewed. With the preference off the Detection
-  tab prompt asks exactly as before.
-- **A result an agent looked at is still yours to check.** The Review tab's "to
-  check" group clears when a person acknowledges, not when a connected agent does.
-- **A question the app closed on is withdrawn when the experiment loads.** A
-  detection or a position confirmation a task was waiting on when the app closed or
-  crashed used to reappear as a decision to make; nothing is waiting on it, so it now
-  loads as withdrawn and lists under Decided.
-- **A detection review draws the correction as you make it.** The model's points
-  stay on the image in orange while you drag a marker, a line under the image says
-  how far each feature has moved ("LamellaCentre moved 1.3 µm"), and clicking a
-  marker turns Put them back into putting back that one.
-- **The alignment area is checked on the record.** With the review preference on,
-  Setup and Mill Fiducial ask you to check the alignment area in the Review tab, as a
-  rectangle on the last FIB image (for the fiducial, the image the mill left behind),
-  before the alignment reference is taken in it; the answer, and how far you moved
-  it, are on the lamella's record. Each task has a Confirm Alignment Area setting;
-  off, the area is used as it stands and still recorded. With the preference off the
-  prompt is as it has always been.
-- **A run's end closes nothing in the Review tab.** An automated task's result used
-  to be recorded as unreviewed when the run ended; now it stays open in "to check"
-  until you look, the same as its value does until a later task uses it.
-- **For task authors: a task proposes through a `Proposer`.** A task type carries one
-  `proposer` (kind, name, version, `propose(task)`); the base records the result part
-  (task, status, times, final images) for every kind and the proposer adds the
-  values. Swapping the proposer, say a segmentation model for the current point,
-  changes nothing downstream. Every decision, the operator's inline answer included,
-  now lands through `Experiment.decide`.
-- **The point-of-interest kind is named for what it is.** The proposal kind Setup
-  records is `point_of_interest` (was `milling_setup`): a point on an image that later
-  tasks follow, which is not a milling matter. Its schema carries `poi` only; the
-  `fiducial` value nothing wrote is gone until something proposes it.
-- **For task authors: the task-result renderer is the base.** Every proposal is a task
-  result, and `TaskResultReviewRenderer` now draws that (the final images, the state
-  line, the record in its tooltip, the two verbs) for every kind. A kind with values
-  extends it and puts them on the image, as `PointOfInterestReviewRenderer` does with
-  the point of interest. Register one per kind with `register_review_renderer`.
-- **The window says who holds the run.** A run waiting on a question, on a
-  connected agent, or parked on decisions carries one value (`AutoLamellaUI.hold`)
-  in place of the three flags that meant the same thing; the border, the attention
-  button, the status bar and the timeline pause all read it. The status bar names
-  what a parked run waits on ("Parked on 2 decision(s): decide 01-a and 02-b in the
-  Review tab"), and a run that gave up waiting says so rather than reading as a
-  finish.
 - **The running queue can be edited while it runs.** Reorder, remove, re-run and
   "run next" from the Workflow Timeline's row menu, and add work from its header.
   Edits are anchored to the piece of work rather than to its position, so they do
@@ -285,8 +293,6 @@ through that migration; napari is still a dependency.
 
 - The FM Overview tab, its overviews landing on disk, and lamella positions markable and
   savable from it.
-- Acquire Fluorescence Image with no channels configured now fails up front saying so,
-  instead of with an IndexError from the autofocus.
 - The shared imaging channel is held across view-dependent operations, beam grabs,
   autofocus sweeps and z-stacks — the FM and the beams share one active view.
 - The objective moved off the GUI thread and is guarded from two hands; objective
