@@ -1214,7 +1214,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         return self.get_manipulator_position()
 
-    def retract_manipulator(self):
+    def retract_manipulator(self) -> FibsemManipulatorPosition:
         """Retract the manipulator."""
         logging.info("Retracting manipulator...")
         self.move_manipulator_absolute(
@@ -1222,6 +1222,7 @@ class DemoMicroscope(FibsemMicroscope):
         )
         self.manipulator_system.inserted = False
         logging.debug({"msg": "retract_manipulator"})
+        return self.get_manipulator_position()
 
     def move_manipulator_relative(
         self, position: FibsemManipulatorPosition
@@ -1912,9 +1913,9 @@ class DemoMicroscope(FibsemMicroscope):
 
         return False
 
-    def home(self):
+    def home(self) -> bool:
         self.stage_system.is_homed = True
-        return
+        return self.get("stage_homed")
 
     def run_sputter_coater(self, time_seconds: int) -> None:
         """Run the sputter coater for a given time in seconds.

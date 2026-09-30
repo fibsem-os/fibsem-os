@@ -83,6 +83,52 @@ def test_backends_are_what_they_say():
     assert type(_connect("DeviceDemo")) is DeviceDemoMicroscope
 
 
+# The parts not every system has, and the patterns not every vendor can draw: a
+# backend without them does not implement them, and the base class raises
+# NotImplementedError.
+OPTIONAL_METHODS = {
+    "last_image",
+    "acquire_chamber_image",
+    "insert_manipulator",
+    "retract_manipulator",
+    "move_manipulator_relative",
+    "move_manipulator_absolute",
+    "move_manipulator_corrected",
+    "move_manipulator_to_position_offset",
+    "_get_saved_manipulator_position",
+    "draw_bitmap_pattern",
+    "draw_polygon",
+    "cryo_deposition_v2",
+    "setup_sputter",
+    "draw_sputter_pattern",
+    "run_sputter",
+    "finish_sputter",
+    "check_available_values",
+}
+
+
+def test_optional_methods_are_not_abstract():
+    from fibsem.microscope import FibsemMicroscope
+
+    assert not OPTIONAL_METHODS & FibsemMicroscope.__abstractmethods__
+
+
+def test_a_backend_without_an_optional_part_says_so():
+    from fibsem.microscope import FibsemMicroscope
+
+    class Minimal(FibsemMicroscope):
+        pass
+
+    for name in FibsemMicroscope.__abstractmethods__:
+        setattr(Minimal, name, lambda self, *a, **k: None)
+    Minimal.__abstractmethods__ = frozenset()
+    minimal = Minimal.__new__(Minimal)
+    with pytest.raises(NotImplementedError, match="Minimal does not support"):
+        minimal.insert_manipulator("PARK")
+    with pytest.raises(NotImplementedError, match="run_sputter"):
+        minimal.run_sputter()
+
+
 @pytest.fixture(params=BACKENDS)
 def microscope(request):
     return _connect(request.param)
@@ -612,11 +658,9 @@ def test_vent_and_pump(microscope):
     assert microscope.get("chamber_state") == "Pumped"
 
 
-def test_home_homes_and_returns_none(microscope):
-    """Pinned quirk: Demo overrides `home` and returns None, where the base class
-    returns `get("stage_homed")`.
-    """
-    assert microscope.home() is None
+def test_home_homes_and_says_so(microscope):
+    """`home` returns whether the stage is homed afterwards, on every backend."""
+    assert microscope.home() is True
     assert microscope.get("stage_homed") is True
 
 
@@ -698,7 +742,9 @@ def test_manipulator_inserts_and_retracts(microscope):
     assert isinstance(inserted, FibsemManipulatorPosition)
     assert _xyzrt(inserted) == _xyzrt(microscope.get_manipulator_position())
     assert microscope.get_manipulator_state() is True
-    assert microscope.retract_manipulator() is None
+    retracted = microscope.retract_manipulator()
+    assert isinstance(retracted, FibsemManipulatorPosition)
+    assert _xyzrt(retracted) == _xyzrt(microscope.get_manipulator_position())
     assert microscope.get_manipulator_state() is False
 
 

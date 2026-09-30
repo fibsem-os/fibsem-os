@@ -1715,7 +1715,7 @@ class ThermoMicroscope(FibsemMicroscope):
             )
         return limits
 
-    def insert_manipulator(self, name: str = "PARK"):
+    def insert_manipulator(self, name: str = "PARK") -> FibsemManipulatorPosition:
         """Insert the manipulator to the specified position"""
 
         if not self.is_available("manipulator"):
@@ -1755,7 +1755,7 @@ class ThermoMicroscope(FibsemMicroscope):
         )
         return manipulator_position
 
-    def retract_manipulator(self):
+    def retract_manipulator(self) -> FibsemManipulatorPosition:
         """Retract the manipulator"""
 
         if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
@@ -1778,8 +1778,11 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.info("retracting needle...")
         needle.retract()
         logging.info("retract needle complete")
+        return self.get_manipulator_position()
 
-    def move_manipulator_relative(self, position: FibsemManipulatorPosition):
+    def move_manipulator_relative(
+        self, position: FibsemManipulatorPosition
+    ) -> FibsemManipulatorPosition:
         logging.info(f"moving manipulator by {position}")
 
         # convert to autoscript position
@@ -1789,8 +1792,11 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug(
             {"msg": "move_manipulator_relative", "position": position.to_dict()}
         )
+        return self.get_manipulator_position()
 
-    def move_manipulator_absolute(self, position: FibsemManipulatorPosition):
+    def move_manipulator_absolute(
+        self, position: FibsemManipulatorPosition
+    ) -> FibsemManipulatorPosition:
         """Move the manipulator to the specified coordinates."""
         logging.info(f"moving manipulator to {position}")
 
@@ -1802,6 +1808,7 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug(
             {"msg": "move_manipulator_absolute", "position": position.to_dict()}
         )
+        return self.get_manipulator_position()
 
     def _x_corrected_needle_movement(
         self, expected_x: float
@@ -1852,7 +1859,7 @@ class ThermoMicroscope(FibsemMicroscope):
         dx: float = 0,
         dy: float = 0,
         beam_type: BeamType = BeamType.ELECTRON,
-    ) -> None:
+    ) -> FibsemManipulatorPosition:
         """Calculate the required corrected needle movements based on the BeamType to move in the desired image coordinates.
         Then move the needle relatively. Manipulator movement axis is based on stage tilt, so we need to adjust for that
         with corrected movements, depending on the stage tilt and imaging perspective.
@@ -1889,13 +1896,11 @@ class ThermoMicroscope(FibsemMicroscope):
         )
 
         # move manipulator
-        self.move_manipulator_relative(manipulator_position)
-
-        return self.get_manipulator_position()
+        return self.move_manipulator_relative(manipulator_position)
 
     def move_manipulator_to_position_offset(
         self, offset: FibsemManipulatorPosition, name: str = None
-    ) -> None:
+    ) -> FibsemManipulatorPosition:
         """Move the manipulator to the specified coordinates, offset by the provided offset."""
         saved_position = self._get_saved_manipulator_position(name)
 
@@ -1919,7 +1924,7 @@ class ThermoMicroscope(FibsemMicroscope):
         )
 
         # move manipulator absolute
-        self.move_manipulator_absolute(saved_position)
+        return self.move_manipulator_absolute(saved_position)
 
     def _get_saved_manipulator_position(
         self, name: str = "PARK"

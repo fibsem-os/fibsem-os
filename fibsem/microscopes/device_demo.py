@@ -86,23 +86,21 @@ class DeviceDemoMicroscope(DemoMicroscope):
         self.stage_device.move_through(position)
         return self.get_stage_position()
 
-    def home(self) -> None:
-        # Demo's own override returns None, and the old API keeps that.
-        self.stage_device.home()
+    def home(self) -> bool:
+        return self.stage_device.home()
 
     @_records_stage_move
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         self.stage_device.move_through(position, relative=True)
         return self.get_stage_position()
 
-    # The manipulator methods, through the device. The old API returns what Demo's
-    # returned: the position, or None from retract_manipulator.
+    # The manipulator methods, through the device. Each returns the position after.
 
     def insert_manipulator(self, name: str = "PARK") -> FibsemManipulatorPosition:
         return self.manipulator_device.insert(name)
 
-    def retract_manipulator(self) -> None:
-        self.manipulator_device.retract()
+    def retract_manipulator(self) -> FibsemManipulatorPosition:
+        return self.manipulator_device.retract()
 
     def move_manipulator_absolute(
         self, position: FibsemManipulatorPosition
