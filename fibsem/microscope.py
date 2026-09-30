@@ -262,9 +262,8 @@ class FibsemMicroscope(ABC):
     ) -> FibsemImage:
         pass
 
-    @abstractmethod
     def last_image(self, beam_type: BeamType) -> FibsemImage:
-        pass
+        raise self._unsupported("last_image")
 
     @property
     def is_acquiring(self) -> bool:
@@ -304,9 +303,8 @@ class FibsemMicroscope(ABC):
         Acquires images from the microscope, and emits them as signals."""
         pass
 
-    @abstractmethod
     def acquire_chamber_image(self) -> FibsemImage:
-        pass
+        raise self._unsupported("acquire_chamber_image")
 
     @abstractmethod
     def autocontrast(
@@ -1141,37 +1139,37 @@ class FibsemMicroscope(ABC):
             return self.manipulator_device.position.get_value()
         return self.get("manipulator_position")
 
-    @abstractmethod
-    def insert_manipulator(self, name: str) -> None:
-        pass
+    # Every manipulator move returns where the needle is afterwards, as the
+    # Manipulator device's commands do.
 
-    @abstractmethod
-    def retract_manipulator(self):
-        pass
+    def insert_manipulator(self, name: str) -> Optional[FibsemManipulatorPosition]:
+        raise self._unsupported("insert_manipulator")
 
-    @abstractmethod
-    def move_manipulator_relative(self, position: FibsemManipulatorPosition) -> None:
-        pass
+    def retract_manipulator(self) -> Optional[FibsemManipulatorPosition]:
+        raise self._unsupported("retract_manipulator")
 
-    @abstractmethod
-    def move_manipulator_absolute(self, position: FibsemManipulatorPosition) -> None:
-        pass
+    def move_manipulator_relative(
+        self, position: FibsemManipulatorPosition
+    ) -> Optional[FibsemManipulatorPosition]:
+        raise self._unsupported("move_manipulator_relative")
 
-    @abstractmethod
+    def move_manipulator_absolute(
+        self, position: FibsemManipulatorPosition
+    ) -> Optional[FibsemManipulatorPosition]:
+        raise self._unsupported("move_manipulator_absolute")
+
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType
-    ) -> None:
-        pass
+    ) -> Optional[FibsemManipulatorPosition]:
+        raise self._unsupported("move_manipulator_corrected")
 
-    @abstractmethod
     def move_manipulator_to_position_offset(
         self, offset: FibsemManipulatorPosition, name: str
-    ) -> None:
-        pass
+    ) -> Optional[FibsemManipulatorPosition]:
+        raise self._unsupported("move_manipulator_to_position_offset")
 
-    @abstractmethod
     def _get_saved_manipulator_position(self, name: str) -> FibsemManipulatorPosition:
-        pass
+        raise self._unsupported("_get_saved_manipulator_position")
 
     @abstractmethod
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
@@ -1262,33 +1260,26 @@ class FibsemMicroscope(ABC):
     def draw_circle(self, pattern_settings: FibsemCircleSettings):
         pass
 
-    @abstractmethod
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
-        pass
+        raise self._unsupported("draw_bitmap_pattern")
 
-    @abstractmethod
     def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
-        pass
+        raise self._unsupported("draw_polygon")
 
-    @abstractmethod
     def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
-        pass
+        raise self._unsupported("cryo_deposition_v2")
 
-    @abstractmethod
     def setup_sputter(self, *args, **kwargs):
-        pass
+        raise self._unsupported("setup_sputter")
 
-    @abstractmethod
     def draw_sputter_pattern(self, *args, **kwargs) -> None:
-        pass
+        raise self._unsupported("draw_sputter_pattern")
 
-    @abstractmethod
     def run_sputter(self, *args, **kwargs):
-        pass
+        raise self._unsupported("run_sputter")
 
-    @abstractmethod
     def finish_sputter(self):
-        pass
+        raise self._unsupported("finish_sputter")
 
     def run_sputter_coater(self, time_seconds: int) -> None:
         raise NotImplementedError("Sputter coater not implemented for this microscope.")
@@ -1379,6 +1370,16 @@ class FibsemMicroscope(ABC):
         if beam is None:
             return None
         return beam.parameters.get(name)
+
+    def _unsupported(self, method: str) -> NotImplementedError:
+        """The error an optional method raises on a backend that does not have it.
+
+        The instrument parts not every system has (the manipulator, the GIS, the
+        sputter coater, the chamber camera) and the patterns not every vendor can
+        draw are optional: the base class raises this, and a backend that has them
+        overrides the method.
+        """
+        return NotImplementedError(f"{type(self).__name__} does not support {method}.")
 
     def _beam_config(self, key: str, beam_type: Optional[BeamType]) -> Any:
         """The system settings of a beam, for a config key."""
@@ -1894,11 +1895,10 @@ class FibsemMicroscope(ABC):
             {"msg": "apply_configuration", "system_settings": system_settings.to_dict()}
         )
 
-    @abstractmethod
     def check_available_values(
         self, key: str, values, beam_type: Optional[BeamType] = None
     ) -> bool:
-        pass
+        raise self._unsupported("check_available_values")
 
     def home(self) -> bool:
         """Home the stage."""

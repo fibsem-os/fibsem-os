@@ -1077,7 +1077,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         return FibsemManipulatorPosition(x=x, y=y, z=z, r=r)
 
-    def insert_manipulator(self, name: str = "Standby"):
+    def insert_manipulator(self, name: str = "Standby") -> FibsemManipulatorPosition:
         preset_positions = [
             "Parking",
             "Standby",
@@ -1104,6 +1104,7 @@ class TescanMicroscope(FibsemMicroscope):
             self.connection.Nanomanipulator.MoveToPosition(
                 Index=index, Position=insert_position
             )
+        return self.get_manipulator_position()
 
     def _check_manipulator_limits(self, x, y, z, r):
 
@@ -1132,17 +1133,18 @@ class TescanMicroscope(FibsemMicroscope):
             f"R position {r} is outside of manipulator limits {rmin} to {rmax}"
         )
 
-    def retract_manipulator(self):
+    def retract_manipulator(self) -> FibsemManipulatorPosition:
         retract_position = getattr(self.connection.Nanomanipulator.Position, "Parking")
         index = 0
         with self._connection_lock:
             self.connection.Nanomanipulator.MoveToPosition(
                 Index=index, Position=retract_position
             )
+        return self.get_manipulator_position()
 
     def move_manipulator_relative(
         self, position: FibsemManipulatorPosition, name: str = None
-    ):
+    ) -> FibsemManipulatorPosition:
 
         with self._connection_lock:
             if self.connection.Nanomanipulator.IsCalibrated(0) is False:
@@ -1167,11 +1169,12 @@ class TescanMicroscope(FibsemMicroscope):
                 )
         except Exception as e:
             logging.error(e)
-            return e
+            raise
+        return self.get_manipulator_position()
 
     def move_manipulator_absolute(
         self, position: FibsemManipulatorPosition, name: str = None
-    ):
+    ) -> FibsemManipulatorPosition:
 
         with self._connection_lock:
             if self.connection.Nanomanipulator.IsCalibrated(0) is False:
@@ -1190,6 +1193,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         with self._connection_lock:
             self.connection.Nanomanipulator.MoveTo(Index=index, X=x, Y=y, Z=z, Rot=r)
+        return self.get_manipulator_position()
 
     def calibrate_manipulator(self):
         logging.info("Calibrating manipulator")
@@ -1245,7 +1249,7 @@ class TescanMicroscope(FibsemMicroscope):
         dx: float = 0,
         dy: float = 0,
         beam_type: BeamType = BeamType.ELECTRON,
-    ) -> None:
+    ) -> FibsemManipulatorPosition:
         """Calculate the required corrected needle movements based on the BeamType to move in the desired image coordinates.
         Then move the needle relatively.
 
@@ -1278,9 +1282,9 @@ class TescanMicroscope(FibsemMicroscope):
 
         # move needle (relative)
         # self.connection.Nanomanipulator.MoveTo(Index=0, X=x_move.x, Y=yz_move.y, Z=yz_move.z)
-        self.move_manipulator_relative(FibsemManipulatorPosition(x=dx, y=dy, z=0))
-
-        return
+        return self.move_manipulator_relative(
+            FibsemManipulatorPosition(x=dx, y=dy, z=0)
+        )
 
     def move_manipulator_to_position_offset(
         self, offset: FibsemManipulatorPosition, name: str = None
@@ -2406,9 +2410,9 @@ class TescanMicroscope(FibsemMicroscope):
     def check_available_values(self, key: str, beam_type: BeamType = None) -> bool:
         return False
 
-    def home(self) -> None:
+    def home(self) -> bool:
         logging.warning("No homing available, please use native UI.")
-        return
+        return False
 
     # def fromTescanFile(
     #     cls,
