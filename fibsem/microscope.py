@@ -90,6 +90,21 @@ if TYPE_CHECKING:
 # into this device's frame before re-posing it, and back out afterwards.
 ROTATION_FRAME_DEVICE = "FIBSEM"
 
+# Keys that hold the system configuration (`self.system`), not instrument state, by
+# the field they are on each beam's system settings. `get`/`set` answer them here,
+# before `_get`/`_set`, so every backend answers them the same way.
+_BEAM_CONFIG_KEYS: Mapping[str, str] = MappingProxyType(
+    {
+        "beam_enabled": "enabled",
+        "eucentric_height": "eucentric_height",
+        "column_tilt": "column_tilt",
+    }
+)
+# The instrument's identity, from `system.info`; read-only.
+_INFO_KEYS = frozenset(
+    ("manufacturer", "model", "serial_number", "software_version", "hardware_version")
+)
+
 
 # Whether a stage move is being recorded on this thread. A move is often made of
 # moves: a stable move is a relative move, and a safe absolute move is up to three
@@ -1374,6 +1389,14 @@ class FibsemMicroscope(ABC):
             return None
         return beam.parameters.get(name)
 
+    def _beam_config(self, key: str, beam_type: Optional[BeamType]) -> Any:
+        """The system settings of a beam, for a config key."""
+        if beam_type is BeamType.ELECTRON:
+            return self.system.electron
+        if beam_type is BeamType.ION:
+            return self.system.ion
+        raise ValueError(f"Unknown beam type: {beam_type} for {key}")
+
     # TODO: use a decorator instead?
     def get(
         self, key: str, beam_type: Optional[BeamType] = None
@@ -1384,6 +1407,10 @@ class FibsemMicroscope(ABC):
             value = param.get_value()
             if isinstance(value, Enum):
                 value = value.value  # old keys return the plain value ("spot")
+        elif key in _BEAM_CONFIG_KEYS:
+            value = getattr(self._beam_config(key, beam_type), _BEAM_CONFIG_KEYS[key])
+        elif key in _INFO_KEYS:
+            value = getattr(self.system.info, key)
         else:
             value = self._get(key, beam_type)
         beam_name = "None" if beam_type is None else beam_type.name
@@ -1402,6 +1429,8 @@ class FibsemMicroscope(ABC):
         param = self._route(key, beam_type)
         if param is not None:
             param.write_through(value)
+        elif key in _BEAM_CONFIG_KEYS:
+            setattr(self._beam_config(key, beam_type), _BEAM_CONFIG_KEYS[key], value)
         else:
             self._set(key, value, beam_type)
         beam_name = "None" if beam_type is None else beam_type.name

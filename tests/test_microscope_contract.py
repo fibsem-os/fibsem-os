@@ -316,8 +316,18 @@ def test_global_key_ignores_beam_type(microscope, key, beam_type):
     assert microscope.get(key, beam_type) == microscope.get(key)
 
 
-def test_manufacturer_is_the_configured_one(microscope):
-    assert microscope.get("manufacturer") == microscope.system.info.manufacturer
+INFO_KEYS = (
+    "manufacturer",
+    "model",
+    "serial_number",
+    "software_version",
+    "hardware_version",
+)
+
+
+@pytest.mark.parametrize("key", INFO_KEYS)
+def test_info_keys_are_the_configured_ones(microscope, key):
+    assert microscope.get(key) == getattr(microscope.system.info, key)
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +417,47 @@ def test_each_beam_can_be_disabled_on_its_own(microscope, beam_type, system):
     microscope.set("beam_enabled", True, beam_type)
     assert microscope.is_available(system)
     assert microscope.get_available_beams() == BEAMS
+
+
+# key -> the field it is on the beam's system settings.
+BEAM_CONFIG_KEYS = {
+    "beam_enabled": "enabled",
+    "eucentric_height": "eucentric_height",
+    "column_tilt": "column_tilt",
+}
+
+
+@pytest.mark.parametrize("key", sorted(BEAM_CONFIG_KEYS))
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_config_keys_are_answered_before_the_backend(
+    microscope, monkeypatch, key, beam_type
+):
+    """The base class answers the configuration keys from `system`, so no backend
+    can answer them differently: `_get` and `_set` are never asked."""
+
+    def refuse(*args, **kwargs):
+        raise AssertionError(f"{key} reached the backend")
+
+    monkeypatch.setattr(microscope, "_get", refuse)
+    monkeypatch.setattr(microscope, "_set", refuse)
+    settings = (
+        microscope.system.electron
+        if beam_type is BeamType.ELECTRON
+        else microscope.system.ion
+    )
+    value = not microscope.get(key, beam_type) if key == "beam_enabled" else 0.123
+    microscope.set(key, value, beam_type)
+    assert microscope.get(key, beam_type) == value
+    assert getattr(settings, BEAM_CONFIG_KEYS[key]) == value
+
+
+@pytest.mark.parametrize("key", INFO_KEYS)
+def test_info_keys_are_answered_before_the_backend(microscope, monkeypatch, key):
+    def refuse(*args, **kwargs):
+        raise AssertionError(f"{key} reached the backend")
+
+    monkeypatch.setattr(microscope, "_get", refuse)
+    assert microscope.get(key) == getattr(microscope.system.info, key)
 
 
 @pytest.mark.parametrize("key", sorted(set(BEAM_KEYS) - BEAM_READ_ONLY_KEYS))
