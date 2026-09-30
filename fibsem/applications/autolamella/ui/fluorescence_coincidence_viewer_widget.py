@@ -90,7 +90,11 @@ from fibsem.ui.tokens import (
     TEXT_COLOR,
 )
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
+from fibsem.ui.widgets.canvas.overlays import (
+    MillingPatternOverlay,
+    RectOverlay,
+    ScanDirectionArrowOverlay,
+)
 from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
     CoincidenceMillingConfirmationDialog,
 )
@@ -142,11 +146,18 @@ class _FibImageCanvas(QWidget):
         layout.setSpacing(0)
 
         self.canvas = FibsemImageCanvas()
+        # The real pattern shapes for every enabled stage, as the main canvas
+        # draws them (a trench is two rectangles, a second stage its own colour).
+        # Display only; the rect overlay on top is the drag handle.
+        self.pattern_overlay = MillingPatternOverlay()
+        self.canvas.add_overlay(self.pattern_overlay)
+        # The drag handle: the selected stage's bounding box. Outline with a faint
+        # fill so the pattern shapes underneath stay readable.
         self.rect_overlay = RectOverlay(
             color="yellow",
             facecolor="yellow",
-            alpha=0.5,
-            linewidth=2,
+            alpha=0.15,
+            linewidth=1.5,
             linestyle="solid",
             resizable=False,
         )
@@ -169,7 +180,19 @@ class _FibImageCanvas(QWidget):
         """Update the scan direction arrow. Pass scan_direction="" to hide."""
         self.arrow_overlay.set_arrow(cx, cy, h_px, scan_direction)
 
+    def set_patterns(
+        self, stages, image: Optional[FibsemImage], selected_index: Optional[int]
+    ) -> None:
+        """Draw every stage's pattern shapes against *image*; selected drawn thicker."""
+        if image is None or not stages:
+            self.pattern_overlay.clear()
+            return
+        self.pattern_overlay.set_stages(
+            list(stages), image, selected_index=selected_index
+        )
+
     def clear(self):
+        self.pattern_overlay.clear()
         self.canvas.clear()
 
 
@@ -2368,7 +2391,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         return next((s for s in lst.get_stages() if s.enabled), None)
 
     def _update_fib_rect_from_pattern(self, *_) -> None:
-        """Snap the FIB rect overlay to the selected stage's pattern position and size."""
+        """Snap the FIB rect overlay to the selected stage's pattern position and size,
+        and redraw every enabled stage's pattern shapes underneath it."""
+        self._draw_pattern_shapes()
         stage = self._get_selected_stage()
         if stage is None:
             return
@@ -2395,6 +2420,16 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.fib_canvas.set_scan_direction(
             cx_px, cy_px, h_px, getattr(rect_pattern, "scan_direction", "")
         )
+
+    def _draw_pattern_shapes(self) -> None:
+        """The enabled stages' real shapes on the FIB canvas, selected one on top."""
+        if self.milling_viewer_widget is None:
+            return
+        lst = self.milling_viewer_widget.config_widget.milling_stages_widget._list
+        stages = [s for s in lst.get_stages() if s.enabled]
+        selected = lst._selected_stage
+        selected_index = next((i for i, s in enumerate(stages) if s is selected), None)
+        self.fib_canvas.set_patterns(stages, self._latest_fib_image, selected_index)
 
     def _on_fib_rect_changed(self, info: dict) -> None:
         """Translate a FIB rect drag into a pattern position update via _move_patterns."""
