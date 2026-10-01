@@ -16,6 +16,7 @@ from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     List,
     Mapping,
@@ -1423,10 +1424,12 @@ class FibsemMicroscope(ABC):
     # path. They are read-only here; a backend replaces them, never mutates them.
     beams: Mapping[BeamType, Any] = MappingProxyType({})
     # The stage as a device (fibsem.devices.Stage), once a backend builds one. The
-    # stage methods below use it when it is there and today's keys when it is not;
-    # the keys themselves are not routed, since nothing outside these methods uses
-    # them. The name is temporary: `stage` is taken by the vendor object on Thermo
-    # and Odemis, and the final name is decided with the stage redesign.
+    # stage methods below use it when it is there and today's keys when it is not.
+    # A backend whose stage device keeps its own state also routes the stage keys
+    # (`_device_routes`, `_command_routes`), so `get("stage_position")` and the
+    # device can't disagree. The name is temporary: `stage` is taken by the vendor
+    # object on Thermo and Odemis, and the final name is decided with the stage
+    # redesign.
     stage_device: Optional[Any] = None
     # The chamber and the manipulator as devices (fibsem.devices.Chamber and
     # .Manipulator), named like `stage_device` because `chamber` is taken on Demo.
@@ -1442,9 +1445,23 @@ class FibsemMicroscope(ABC):
     # state. Empty when there is no FM or the backend builds no devices.
     fm_devices: Mapping[str, Any] = MappingProxyType({})
     _beam_routes: Mapping[str, str] = MappingProxyType({})
+    # Keys with no beam type that have moved to a device: key -> (device attribute,
+    # parameter), e.g. "stage_position" -> ("stage_device", "position"). The
+    # parameters are the device's state, read-only, so a `set` of one still goes to
+    # `_set`, as the old call did.
+    _device_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
+    # Set keys that are verbs, moved to a device command: key -> (device attribute,
+    # command), e.g. "stage_home" -> ("stage_device", "home"). The command ignores
+    # the value, as the old branches do. A command the device doesn't have (a
+    # compustage can't link) leaves the key to `_set`.
+    _command_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
 
     def _route(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
         """The device parameter a key has moved to, or None to use `_get`/`_set`."""
+        device_route = self._device_routes.get(key)
+        if device_route is not None:
+            device = getattr(self, device_route[0], None)
+            return None if device is None else device.parameters.get(device_route[1])
         name = self._beam_routes.get(key)
         if name is None or beam_type is None:
             return None
@@ -1452,6 +1469,19 @@ class FibsemMicroscope(ABC):
         if beam is None:
             return None
         return beam.parameters.get(name)
+
+    def _route_command(self, key: str) -> Optional[Callable[[], Any]]:
+        """The device command a set key has moved to, if the device has it."""
+        command_route = self._command_routes.get(key)
+        if command_route is None:
+            return None
+        device = getattr(self, command_route[0], None)
+        if device is None:
+            return None
+        info = device.commands.get(command_route[1])
+        if info is None or not info.available:
+            return None
+        return getattr(device, command_route[1])
 
     def _unsupported(self, method: str) -> NotImplementedError:
         """The error an optional method raises on a backend that does not have it.
@@ -1500,8 +1530,11 @@ class FibsemMicroscope(ABC):
         beam_type: Optional[BeamType] = None,
     ) -> None:
         """Set wrapper for logging"""
-        param = self._route(key, beam_type)
-        if param is not None:
+        param = None if key in self._device_routes else self._route(key, beam_type)
+        command = self._route_command(key)
+        if command is not None:
+            command()
+        elif param is not None:
             param.write_through(value)
         elif key in _BEAM_CONFIG_KEYS:
             setattr(self._beam_config(key, beam_type), _BEAM_CONFIG_KEYS[key], value)
