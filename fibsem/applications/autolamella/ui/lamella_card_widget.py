@@ -31,7 +31,7 @@ from fibsem.applications.autolamella.ui.lamella_list_widget import (
     apply_grid_label,
     grid_of,
     grids_named,
-    has_defect,
+    has_verdict,
     not_on_stage_reason,
     short_status,
 )
@@ -477,11 +477,11 @@ class LamellaCardWidget(QWidget):
         self._btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
         self._btn_defect.setToolTip(tooltip)
 
-        # Only drawn once there is a defect; a tick on every healthy card says
-        # nothing. Not `setVisible`: the compact arrangement keeps the button
-        # in its row, so it is hidden by taking its icon and width away.
-        defective = has_defect(self.lamella)
-        self._btn_defect.setVisible(defective)
+        # Only drawn once someone has judged the lamella; a mark on every card
+        # nobody has looked at says nothing. Not `setVisible`: the compact
+        # arrangement keeps the button in its row, so it is hidden by taking its
+        # icon and width away.
+        self._btn_defect.setVisible(has_verdict(self.lamella))
 
         # The grid ahead of the status, on the line that already carries the
         # secondary detail. Moving to or re-recording a lamella whose grid is in

@@ -3957,6 +3957,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Persist defect state change to disk and sync all widgets."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
+        self.autolamella_ui.experiment.sign_verdict(lamella)
         self.autolamella_ui.experiment.save()
         # Sync defect icon across all widgets
         self.autolamella_ui.lamella_list.refresh_all()

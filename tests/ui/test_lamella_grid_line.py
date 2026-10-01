@@ -170,8 +170,10 @@ class TestTheCard:
         lamellae["on-oak"].defect = DefectState(state=DefectType.REWORK)
         assert card._btn_defect.isVisibleTo(card)
         assert card._btn_defect.toolTip().startswith("Rework")
-        # Set back from the actions menu's Defect submenu.
-        none = next(a for a in card._defect_menu.actions() if a.text() == "No defect")
+        # Set back from the actions menu's Verdict submenu.
+        none = next(
+            a for a in card._defect_menu.actions() if a.text() == "Not assessed"
+        )
         none.trigger()
         assert lamellae["on-oak"].defect.state is DefectType.NONE
         assert not card._btn_defect.isVisibleTo(card)
@@ -204,7 +206,7 @@ class TestTheRows:
         assert [a.text() for a in rows["on-oak"].btn_actions.menu().actions()] == [
             "Edit",
             "Remove",
-            "Defect",
+            "Verdict",
         ]
         widget.set_grid_context(None)
         assert not rows["on-oak"].grid_label.isVisibleTo(rows["on-oak"])

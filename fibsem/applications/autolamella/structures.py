@@ -2153,6 +2153,19 @@ class Experiment:
         user = self._declared_user() or FibsemUser.from_environment()
         return human_author(user.name)
 
+    def sign_verdict(self, item: Union["Lamella", GridRecord]) -> None:
+        """Name the operator on *item*'s verdict, when whatever set it could not.
+
+        A verdict set from a lamella's menu is written by a widget that has no
+        experiment to ask who is at the instrument; the code that saves the change
+        does, and calls this first. A verdict that already names someone -- an agent,
+        a review decision -- is left as it is, and so is one nobody has given.
+        """
+        record = getattr(item, "defect", None) or getattr(item, "quality", None)
+        if record is None or record.author or record.verdict is Verdict.UNASSESSED:
+            return
+        record.author = str(self.author())
+
     def decide(
         self, item_id: str, task_name: str, decision: Decision
     ) -> DecisionResult:

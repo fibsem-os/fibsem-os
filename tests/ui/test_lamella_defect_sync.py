@@ -66,7 +66,7 @@ def row(qapp, lamella):
 
 def test_row_redraws_when_the_defect_changes_elsewhere(row, lamella):
     """The regression: the row kept the old icon until something refreshed it by hand."""
-    assert row.btn_defect.toolTip() == "No defect"
+    assert row.btn_defect.toolTip() == "Not assessed"
 
     # Somebody else's widget sets it. Nothing calls into this row.
     lamella.defect = DefectState(state=DefectType.REWORK)
