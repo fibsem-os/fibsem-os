@@ -3692,7 +3692,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.lamella_list.refresh_all()
             for lamella_list in self._overview_lamella_lists():
                 lamella_list.refresh_all()
-        self._on_lamella_card_selected(getattr(self, "_selected_card_lamella", None))
+        selected = getattr(self, "_selected_card_lamella", None)
+        self._on_lamella_card_selected(selected)
+        # Re-selecting does not redraw the History panel: it skips the lamella it
+        # already shows. A task that has finished on that lamella has added to its
+        # history, and this report comes after the task has returned -- its images
+        # written and its history entry appended -- so rebuild it here (FIB-1111).
+        if (
+            selected is not None
+            and lamella is not None
+            and selected.id == lamella.id
+            and status
+            in (
+                AutoLamellaTaskStatus.Completed,
+                AutoLamellaTaskStatus.Failed,
+                AutoLamellaTaskStatus.Cancelled,
+                AutoLamellaTaskStatus.AwaitingDecision,
+            )
+            and hasattr(self, "lamella_task_image_widget")
+        ):
+            self.lamella_task_image_widget.refresh()
 
     def _overview_lamella_lists(self):
         """The lamella list beside each Overview page, whichever pages exist."""
