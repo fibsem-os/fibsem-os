@@ -122,7 +122,7 @@ def has_verdict(lamella) -> bool:
 
 # What each verdict looks like wherever a lamella's is shown: icon, colour, words.
 VERDICT_LOOK = {
-    Verdict.UNASSESSED: ("mdi:help-circle-outline", NEUTRAL_550, "Not assessed"),
+    Verdict.UNASSESSED: ("mdi:circle-outline", NEUTRAL_550, "Not assessed"),
     Verdict.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
     Verdict.REWORK: (
         "mdi:refresh-circle",
@@ -176,8 +176,14 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
         action.triggered.connect(_set)
 
     def _show_current() -> None:
+        # Checked and bold: with an icon on every item, the style draws the icon in
+        # place of a checkmark, so the check alone does not show which is current.
         for verdict, action in actions.items():
-            action.setChecked(verdict is lamella.defect.verdict)
+            current = verdict is lamella.defect.verdict
+            action.setChecked(current)
+            font = action.font()
+            font.setBold(current)
+            action.setFont(font)
 
     sub.aboutToShow.connect(_show_current)
     _show_current()

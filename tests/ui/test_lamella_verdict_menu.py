@@ -92,6 +92,10 @@ def test_the_current_verdict_is_ticked(lamella):
 
     ticked = [text for text, action in actions.items() if action.isChecked()]
     assert ticked == ["Rework required"]
+    # What the reader sees: the style draws each item's icon in place of a
+    # checkmark, so the current verdict is set in bold.
+    bold = [text for text, action in actions.items() if action.font().bold()]
+    assert bold == ["Rework required"]
 
 
 def test_choosing_the_current_verdict_writes_nothing(lamella):

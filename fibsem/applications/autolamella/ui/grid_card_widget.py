@@ -97,7 +97,7 @@ QToolButton::menu-indicator { image: none; }
 """
 
 _QUALITY_ICON = {
-    Verdict.UNASSESSED: ("mdi:help-circle-outline", NEUTRAL_550, "Unassessed"),
+    Verdict.UNASSESSED: ("mdi:circle-outline", NEUTRAL_550, "Unassessed"),
     Verdict.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
     Verdict.REWORK: ("mdi:wrench", stylesheets.ORANGE_COLOR, "Rework"),
     Verdict.FAILED: ("mdi:close-circle", stylesheets.DEFECT_RED_COLOR, "Failed"),
