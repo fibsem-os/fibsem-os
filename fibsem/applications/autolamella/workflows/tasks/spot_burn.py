@@ -90,13 +90,11 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "SpotBurnFiducialTaskConfig":
-        cfg = AutoLamellaTaskConfig.from_dict(ddict)
-        params = ddict.get("parameters", {})
+        params = ddict.get("parameters") or {}
+        cls._warn_unknown_parameters(params)
         coordinates = [Point.from_dict(pt) for pt in ddict.get("coordinates", [])]
         return cls(
-            task_name=cfg.task_name,
-            milling=cfg.milling,
-            reference_imaging=cfg.reference_imaging,
+            **cls._load_core(ddict),
             # coerce numeric params: older protocols may have stored these as strings
             milling_current=float(params.get("milling_current", 100.0e-12)),
             exposure_time=int(float(params.get("exposure_time", 10))),

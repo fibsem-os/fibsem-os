@@ -253,13 +253,24 @@ class AutoLamellaTaskConfig(ABC):
                 kwargs[f.name] = ddict[f.name]
 
         # unroll the parameters dictionary
-        if "parameters" in ddict and ddict["parameters"] is not None:
-            for key, value in ddict["parameters"].items():
-                if key in cls.__annotations__:
-                    kwargs[key] = value
-                else:
-                    logging.warning(f"Unknown parameter '{key}' in task configuration.")
+        params = ddict.get("parameters") or {}
+        cls._warn_unknown_parameters(params)
+        known = {f.name for f in fields(cls)}
+        kwargs.update({k: v for k, v in params.items() if k in known})
 
+        kwargs.update(cls._load_core(ddict))
+        return cls(**kwargs)
+
+    @classmethod
+    def _load_core(cls, ddict: Dict[str, Any]) -> Dict[str, Any]:
+        """The fields every task shares, as constructor kwargs; ``parameters`` is untouched.
+
+        For a subclass that reads its own parameters: calling the base ``from_dict``
+        instead would check them against the base's fields and warn for each one.
+        """
+        kwargs: Dict[str, Any] = {}
+        if "task_name" in ddict:
+            kwargs["task_name"] = ddict["task_name"]
         if "milling" in ddict:
             kwargs["milling"] = {
                 k: FibsemMillingTaskConfig.from_dict(v)
@@ -269,8 +280,18 @@ class AutoLamellaTaskConfig(ABC):
             kwargs["reference_imaging"] = ReferenceImageParameters.from_dict(
                 ddict["reference_imaging"]
             )
+        return kwargs
 
-        return cls(**kwargs)
+    @classmethod
+    def _warn_unknown_parameters(cls, params: Dict[str, Any]) -> None:
+        """Warn for each key in ``params`` that is not a field of this task config."""
+        known = {f.name for f in fields(cls)}
+        for key in params:
+            if key not in known:
+                logging.warning(
+                    f"Unknown parameter '{key}' in "
+                    f"{getattr(cls, 'task_type', cls.__name__)} task configuration."
+                )
 
     @property
     def estimated_time(self) -> float:
