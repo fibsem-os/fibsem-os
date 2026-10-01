@@ -6124,3 +6124,25 @@ def test_a_typed_finished_report_does_not_draw_the_detail_bar(qapp):
         _bar(router.progress_tile_detail).value(),
         _bar(router.progress_tile_detail).maximum(),
     ) == before
+
+
+def test_the_tile_grid_panel_goes_when_the_tab_does(qapp, overview_widget):
+    """FIB-1110. The panel is a top-level tool window, so hiding the widget it
+    belongs to -- switching tab -- left it floating over the next tab. The button
+    is unchecked with it, so the next click opens it rather than doing nothing."""
+    widget = overview_widget
+    widget.show()  # module-scoped: an earlier test may have left it hidden
+    qapp.processEvents()
+    widget.btn_tile_grid.click()
+    qapp.processEvents()
+    assert widget.isVisible() and widget.tile_grid_panel.isVisible()
+
+    widget.hide()
+    qapp.processEvents()
+
+    try:
+        assert not widget.tile_grid_panel.isVisible()
+        assert not widget.btn_tile_grid.isChecked()
+    finally:
+        widget.show()
+        qapp.processEvents()
