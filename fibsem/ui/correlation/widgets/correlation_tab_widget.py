@@ -4184,11 +4184,7 @@ class CorrelationTabWidget(QWidget):
             parts.append(text)
         self._lbl_status.setText(" ".join(parts))
         self._lbl_result.setVisible(False)
-        if v.tier == "bad":
-            self._btn_continue.setEnabled(False)
-            self._btn_continue.setToolTip(
-                "The fit is poor; fix the fiducials and run again."
-            )
+        self._gate_continue_on_verdict(v.tier)
         flagged = (
             {d.pairs[d.worst].index}
             if v.tier != "good" and d.worst is not None and d.pairs
@@ -4205,6 +4201,14 @@ class CorrelationTabWidget(QWidget):
                 )
                 notes[id(fm[p.index])] = (f"{p.loo_error_um:.1f} µm", tone)
         self._coords_tab.fm_list.set_notes(notes)
+
+    def _gate_continue_on_verdict(self, tier: str) -> None:
+        """A poor fit keeps Continue disabled even while the result is live."""
+        if tier == "bad":
+            self._btn_continue.setEnabled(False)
+            self._btn_continue.setToolTip(
+                "The fit is poor; fix the fiducials and run again."
+            )
 
     def _on_status_link(self, href: str) -> None:
         """A fiducial named in the verdict selects that pair on both canvases."""
@@ -4303,6 +4307,17 @@ class CorrelationTabWidget(QWidget):
         self._save_armed = True
         self._result = result
         self._overlay_result_on_fib(result)
+        # A FIB surface placed after the run is a transform input, so placing it
+        # marked the result stale and hid Continue. Apply records that surface on
+        # the result, which can make it current again -- re-judge it, or Continue
+        # stays hidden on a corrected result that is ready to commit.
+        live = result.matches_inputs(self.fit_data)
+        self._set_result_live(live)
+        if live and result.diagnostics:
+            from fibsem.correlation.verdict import FitDiagnostics, verdict
+
+            d = FitDiagnostics.from_dict(result.diagnostics)
+            self._gate_continue_on_verdict(verdict(d).tier)
         factor = result.refractive_index_correction_factor
         shift = self._poi_shift_px(result)
         if factor is not None and shift is not None:
