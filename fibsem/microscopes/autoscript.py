@@ -1977,11 +1977,12 @@ class ThermoMicroscope(FibsemMicroscope):
         self.set_patterning_mode(mill_settings.patterning_mode)
         self.clear_patterns()  # clear any existing patterns
         self.set_field_of_view(hfw=mill_settings.hfw, beam_type=self.milling_channel)
-        self.set_beam_current(
-            current=mill_settings.milling_current, beam_type=self.milling_channel
-        )
+        # voltage before current: the available ion currents are calibrated per voltage
         self.set_beam_voltage(
             voltage=mill_settings.milling_voltage, beam_type=self.milling_channel
+        )
+        self.set_beam_current(
+            current=mill_settings.milling_current, beam_type=self.milling_channel
         )
 
         # TODO: migrate to _set_milling_settings():
@@ -2079,8 +2080,8 @@ class ThermoMicroscope(FibsemMicroscope):
             imaging_current (float): The current to use for imaging in amps.
         """
         self.clear_patterns()
-        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
         self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
+        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
         self.set_patterning_mode("Serial")
         # TODO: store initial imaging settings in setup_milling, restore here, rather than hybrid
 

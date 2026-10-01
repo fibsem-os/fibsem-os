@@ -210,6 +210,23 @@ def test_a_default_that_is_not_stated_is_not_pushed(microscope):
     assert after.dwell_time == before.dwell_time
 
 
+def test_voltage_is_set_before_current(microscope, monkeypatch):
+    """ThermoFisher ion currents are calibrated per voltage, so a current set
+    before the voltage is checked against the wrong voltage's presets."""
+    calls = []
+    for name in ("set_beam_voltage", "set_beam_current"):
+        original = getattr(microscope, name)
+        monkeypatch.setattr(
+            microscope,
+            name,
+            lambda *a, _n=name, _f=original, **k: (calls.append(_n), _f(*a, **k))[1],
+        )
+
+    microscope.set_beam_settings(microscope.get_beam_settings(BeamType.ION))
+
+    assert calls == ["set_beam_voltage", "set_beam_current"]
+
+
 def _site(tmp_path, apply_on_connect: bool = False, beams_on: bool = False) -> str:
     """The shipped default configuration, with its ion field of view made distinct
     so an applied default can be told from the simulator's own."""

@@ -1583,8 +1583,10 @@ class FibsemMicroscope(ABC):
         beam_type = beam_settings.beam_type
         setters = (
             (self.set_working_distance, beam_settings.working_distance),
-            (self.set_beam_current, beam_settings.beam_current),
+            # voltage before current: on some instruments (ThermoFisher FIB) the
+            # available currents are calibrated per voltage.
             (self.set_beam_voltage, beam_settings.voltage),
+            (self.set_beam_current, beam_settings.beam_current),
             (self.set_field_of_view, beam_settings.hfw),
             (self.set_resolution, beam_settings.resolution),
             (self.set_dwell_time, beam_settings.dwell_time),
