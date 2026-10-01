@@ -12,23 +12,31 @@ compares them call by call, so the two can't drift while both exist.
 
 Select it with ``sim: {devices: true}`` in a Demo configuration.
 
-Devices so far, from ``fibsem.devices.drivers.demo``: the beams (``DemoBeam``),
-the stage (``DemoStage``), the chamber (``DemoChamber``), the manipulator
-(``DemoManipulator``) and the gas injection system (``DemoGasInjector``).
-The beams' keys are routed. The others are ``stage_device``, ``chamber_device``,
-``manipulator_device`` and ``gis_device`` (temporary names until the stage
-redesign settles them). The stage keeps its own state, so its keys are routed too:
-``stage_position``, ``stage_homed`` and ``stage_linked`` read the device, and
-``stage_home`` and ``stage_link`` run its commands. Demo's ``stage_system`` is left
-where connect found it; only a compustage's ``stage_linked``, which its device
-doesn't have, still reads it, and nothing changes that value on a compustage.
-The chamber keeps its own state too: ``chamber_state`` and ``chamber_pressure``
-read it, and ``pump_chamber`` and ``vent_chamber`` run its commands (a false value
-still goes to Demo's branch, which does nothing). So does the manipulator:
-``manipulator_position`` and ``manipulator_state`` read it (the state as a bool,
-as Demo returns it); the old API moves the needle with methods, which use the
-device. The GIS has
-no keys; ``cryo_deposition_v2`` runs its sequence through the device's commands.
+Devices, from ``fibsem.devices.drivers.demo``: the beams (``DemoBeam``), the stage
+(``DemoStage``), the chamber (``DemoChamber``), the manipulator
+(``DemoManipulator``) and the gas injection system (``DemoGasInjector``), as
+``beams``, ``stage_device``, ``chamber_device``, ``manipulator_device`` and
+``gis_device`` (temporary names until the stage redesign settles them). Each keeps
+its own simulated part, copied from Demo's at connect, and Demo's own parts are
+never touched again. So every key and method that reads or changes a part goes to
+its device:
+
+- the beam keys (``_beam_routes``), and ``beam_shift``, the scan-mode keys
+  (``spot_mode``, ``reduced_area``, ``full_frame``) and the spot burn's read of
+  where the beam is parked;
+- ``stage_position``, ``stage_homed`` and ``stage_linked``, and the
+  ``stage_home`` and ``stage_link`` commands; a compustage has no ``linked``, so
+  its ``stage_linked`` still reads Demo's, which nothing changes there;
+- ``chamber_state`` and ``chamber_pressure``, and the ``pump_chamber`` and
+  ``vent_chamber`` commands (a false value still goes to Demo's branch, which does
+  nothing);
+- ``manipulator_position`` and ``manipulator_state`` (a bool, as Demo returns it);
+  the old API moves the needle with methods, which use the device;
+- the GIS has no keys; ``cryo_deposition_v2`` runs its sequence through the
+  device's commands.
+
+What still goes to the Demo chain is what is not a device's: configuration
+(``plasma``), imaging, milling, the FM and the sample scene.
 
 The FM's parts are ``fm_devices``, built over the same objects ``fm`` holds, so the
 FM API and the devices share one state; ``fm`` itself is unchanged.
@@ -38,7 +46,7 @@ from __future__ import annotations
 
 import logging
 from types import MappingProxyType
-from typing import Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
@@ -53,14 +61,24 @@ from fibsem.devices.drivers.demo import (
 )
 from fibsem.devices.drivers.fm import bind_fm_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
-from fibsem.microscope import FibsemMicroscope
+from fibsem.microscope import FibsemMicroscope, _records_beam_shift
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import (
+    BeamSettings,
     BeamType,
     FibsemGasInjectionSettings,
     FibsemManipulatorPosition,
+    FibsemRectangle,
     FibsemStagePosition,
+    Point,
 )
+
+# Today's scan-mode set keys, and the methods that run the beam commands for them.
+_SCAN_MODE_KEYS: Dict[str, Callable[[Any, Any, BeamType], None]] = {
+    "spot_mode": lambda m, point, bt: m.set_spot_scanning_mode(point, bt),
+    "reduced_area": lambda m, area, bt: m.set_reduced_area_scanning_mode(area, bt),
+    "full_frame": lambda m, _, bt: m.set_full_frame_scanning_mode(bt),
+}
 
 
 def _routes(device: str, routes: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
@@ -121,6 +139,29 @@ class DeviceDemoMicroscope(DemoMicroscope):
     move_manipulator_relative = FibsemMicroscope.move_manipulator_relative
     _get_saved_manipulator_position = FibsemMicroscope._get_saved_manipulator_position
     cryo_deposition_v2 = FibsemMicroscope.cryo_deposition_v2
+
+    # Demo's beam methods that touch its beam state directly, on the beam devices.
+
+    @_records_beam_shift
+    def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
+        logging.debug(
+            {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
+        )
+        shift = self.beams[beam_type].shift
+        shift.write_through(shift.get_value() + Point(float(dx), float(dy)))
+
+    def _spot_and_beam(
+        self, beam_type: BeamType
+    ) -> Tuple[Union[None, Point, FibsemRectangle], BeamSettings]:
+        beam = self.beams[beam_type]
+        return beam.sim_scanning_mode_value, beam.sim_beam
+
+    def _set(self, key: str, value, beam_type: Optional[BeamType] = None) -> None:
+        # The scan-mode keys are the beam's commands; the methods use them already.
+        if beam_type is not None and key in _SCAN_MODE_KEYS:
+            _SCAN_MODE_KEYS[key](self, value, beam_type)
+            return
+        super()._set(key, value, beam_type)
 
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType

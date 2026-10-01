@@ -1,12 +1,10 @@
-"""The Demo backend's beams and stage as devices, beside the untouched Demo microscope.
+"""The Demo backend's parts as devices, beside the untouched Demo microscope.
 
-``DemoBeam`` implements each parameter with what the matching branch of
-``DemoMicroscope._get`` and ``_set`` reads and writes, so the old call and the new
-parameter touch the same state. This is step 1 of moving a key ("declare and
-implement"); the Demo chain itself is unchanged. ``DemoStage``, ``DemoChamber``,
-``DemoManipulator`` and ``DemoGasInjector`` have gone further: each keeps its own
-copy of its part, and the microscope routes that part's keys to it (the GIS has
-none).
+Each device is the matching part of ``DemoMicroscope``: every parameter and
+command does what the matching branch of ``DemoMicroscope._get`` and ``_set`` (or
+method) does. Each keeps its own simulated part, copied from the microscope's at
+connect, and never touches the microscope's again; ``DeviceDemoMicroscope`` routes
+the old keys to them. The Demo chain itself is unchanged.
 """
 
 from __future__ import annotations
@@ -25,8 +23,10 @@ from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
 from fibsem.structures import (
+    BeamSettings,
     BeamType,
     ChamberState,
+    FibsemDetectorSettings,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
@@ -41,6 +41,16 @@ if TYPE_CHECKING:
 
 
 class DemoBeam(Beam):
+    """A Demo beam.
+
+    It keeps its own simulated column: ``sim_beam`` and ``sim_detector`` (the beam's
+    and detector's settings), ``sim_on``, ``sim_blanked``, ``sim_scanning_mode`` and
+    ``sim_scanning_mode_value``, copied from the microscope's ``electron_system`` or
+    ``ion_system`` at connect, so it starts where Demo's beam is and never touches
+    Demo's again. The plasma gas is configuration (``system.ion``), not beam state,
+    so it is still read and written there.
+    """
+
     def __init__(
         self,
         beam_type: BeamType,
@@ -48,11 +58,17 @@ class DemoBeam(Beam):
         resources: Optional[Resources] = None,
     ):
         super().__init__(beam_type, parent=parent, resources=resources)
-        self._system = (
+        start = (
             parent.electron_system
             if beam_type is BeamType.ELECTRON
             else parent.ion_system
         )
+        self.sim_beam: BeamSettings = deepcopy(start.beam)
+        self.sim_detector: FibsemDetectorSettings = deepcopy(start.detector)
+        self.sim_on: bool = start.on
+        self.sim_blanked: bool = start.blanked
+        self.sim_scanning_mode: str = start.scanning_mode
+        self.sim_scanning_mode_value = deepcopy(start.scanning_mode_value)
 
     def _choices(self, key: str) -> ParameterMetadata:
         return ParameterMetadata(
@@ -62,127 +78,127 @@ class DemoBeam(Beam):
     # Each parameter is the matching Demo branch as it stands.
 
     def read_voltage(self) -> float:
-        return self._system.beam.voltage
+        return self.sim_beam.voltage
 
     def write_voltage(self, value: float) -> None:
-        self._system.beam.voltage = value
+        self.sim_beam.voltage = value
 
     def metadata_voltage(self) -> ParameterMetadata:
         return self._choices("voltage")
 
     def read_current(self) -> float:
-        return self._system.beam.beam_current
+        return self.sim_beam.beam_current
 
     def write_current(self, value: float) -> None:
-        self._system.beam.beam_current = value
+        self.sim_beam.beam_current = value
 
     def metadata_current(self) -> ParameterMetadata:
         return self._choices("current")
 
     def read_working_distance(self) -> float:
-        return self._system.beam.working_distance
+        return self.sim_beam.working_distance
 
     def write_working_distance(self, value: float) -> None:
-        self._system.beam.working_distance = value
+        self.sim_beam.working_distance = value
 
     def read_hfw(self) -> float:
-        return self._system.beam.hfw
+        return self.sim_beam.hfw
 
     def write_hfw(self, value: float) -> None:
-        self._system.beam.hfw = value
+        self.sim_beam.hfw = value
 
     def read_scan_rotation(self) -> float:
-        return float(self._system.beam.scan_rotation)
+        return float(self.sim_beam.scan_rotation)
 
     def write_scan_rotation(self, value: float) -> None:
-        self._system.beam.scan_rotation = float(value)
+        self.sim_beam.scan_rotation = float(value)
 
     def read_blanked(self) -> bool:
-        return self._system.blanked
+        return self.sim_blanked
 
     def write_blanked(self, value: bool) -> None:
-        self._system.blanked = value
-        if not value and self._system.scanning_mode == "spot":
+        self.sim_blanked = value
+        if not value and self.sim_scanning_mode == "spot":
             self.parent._burn_into_sample_scene(self.beam_type)  # the spot burn
 
     def read_detector_type(self) -> str:
-        return self._system.detector.type
+        return self.sim_detector.type
 
     def write_detector_type(self, value: str) -> None:
-        self._system.detector.type = value
+        self.sim_detector.type = value
 
     def metadata_detector_type(self) -> ParameterMetadata:
         return self._choices("detector_type")
 
     def read_detector_mode(self) -> str:
-        return self._system.detector.mode
+        return self.sim_detector.mode
 
     def write_detector_mode(self, value: str) -> None:
-        self._system.detector.mode = value
+        self.sim_detector.mode = value
 
     def metadata_detector_mode(self) -> ParameterMetadata:
         return self._choices("detector_mode")
 
     def read_detector_contrast(self) -> float:
-        return self._system.detector.contrast
+        return self.sim_detector.contrast
 
     def write_detector_contrast(self, value: float) -> None:
-        self._system.detector.contrast = value
+        self.sim_detector.contrast = value
 
     def read_detector_brightness(self) -> float:
-        return self._system.detector.brightness
+        return self.sim_detector.brightness
 
     def write_detector_brightness(self, value: float) -> None:
-        self._system.detector.brightness = value
+        self.sim_detector.brightness = value
 
     def read_resolution(self) -> tuple:
-        return self._system.beam.resolution
+        return self.sim_beam.resolution
 
     def write_resolution(self, value: tuple) -> None:
-        self._system.beam.resolution = value
+        self.sim_beam.resolution = value
 
     def read_dwell_time(self) -> float:
-        return self._system.beam.dwell_time
+        return self.sim_beam.dwell_time
 
     def write_dwell_time(self, value: float) -> None:
-        self._system.beam.dwell_time = value
+        self.sim_beam.dwell_time = value
 
     # Reads hand back a new Point, as the Demo branch does, so a caller can't change
     # the simulator's state through the value it was given.
     def read_stigmation(self) -> Point:
-        return Point(self._system.beam.stigmation.x, self._system.beam.stigmation.y)
+        return Point(self.sim_beam.stigmation.x, self.sim_beam.stigmation.y)
 
     def write_stigmation(self, value: Point) -> None:
-        self._system.beam.stigmation = value
+        self.sim_beam.stigmation = value
 
     def read_shift(self) -> Point:
-        return Point(self._system.beam.shift.x, self._system.beam.shift.y)
+        return Point(self.sim_beam.shift.x, self.sim_beam.shift.y)
 
     def write_shift(self, value: Point) -> None:
-        self._system.beam.shift = value
+        self.sim_beam.shift = value
 
     def read_on(self) -> bool:
-        return self._system.on
+        return self.sim_on
 
     def write_on(self, value: bool) -> None:
-        self._system.on = value
+        self.sim_on = value
 
     def read_scanning_mode(self) -> ScanMode:
-        return ScanMode(self._system.scanning_mode)
+        return ScanMode(self.sim_scanning_mode)
 
     # The scan commands: the spot_mode, reduced_area and full_frame branches of _set.
 
     def _spot(self, point: Point) -> None:
-        self._system.scanning_mode = "spot"
-        self._system.scanning_mode_value = point
+        self.sim_scanning_mode = "spot"
+        self.sim_scanning_mode_value = point
 
     def _reduced_area(self, area: FibsemRectangle) -> None:
-        self._system.scanning_mode = "reduced_area"
-        self._system.scanning_mode_value = area
+        self.sim_scanning_mode = "reduced_area"
+        self.sim_scanning_mode_value = area
 
     def _full_frame(self) -> None:
-        self._system.scanning_mode = "full_frame"
-        self._system.scanning_mode_value = None
+        self.sim_scanning_mode = "full_frame"
+        self.sim_scanning_mode_value = None
 
     # Only a plasma ion column has a gas.
     def available_plasma_gas(self) -> bool:

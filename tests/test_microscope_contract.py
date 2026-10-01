@@ -390,6 +390,23 @@ def test_device_demo_manipulator_keeps_its_own_state_and_serves_its_keys():
     assert microscope.manipulator_system == demo_needle
 
 
+def test_device_demo_beams_keep_their_own_state():
+    """The beam devices own their state: Demo's own beams are never touched again
+    after connect, whatever the old API does to the beams."""
+    microscope = _connect("DeviceDemo")
+    demo_beams = deepcopy((microscope.electron_system, microscope.ion_system))
+    for beam_type in BEAMS:
+        microscope.set("hfw", 80e-6, beam_type)
+        microscope.set("detector_contrast", 0.9, beam_type)
+        microscope.beam_shift(1e-6, 1e-6, beam_type)
+        microscope.set("spot_mode", Point(0.5, 0.5), beam_type)
+        microscope.blank(beam_type)
+        microscope.set("full_frame", None, beam_type)
+        assert microscope.get("hfw", beam_type) == 80e-6
+        assert microscope.beams[beam_type].sim_beam.hfw == 80e-6
+    assert (microscope.electron_system, microscope.ion_system) == demo_beams
+
+
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_device_demo_scans_through_its_beam_commands(beam_type):
     """DeviceDemo's scan-mode methods call the beam's commands, not the Demo chain."""
@@ -739,6 +756,38 @@ def test_scanning_modes(microscope, beam_type):
     assert microscope.get("scanning_mode", beam_type) == "reduced_area"
     microscope.set_full_frame_scanning_mode(beam_type)
     assert microscope.get("scanning_mode", beam_type) == "full_frame"
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_beam_shift_adds_to_the_shift(microscope, beam_type):
+    start = microscope.get("shift", beam_type)
+    microscope.beam_shift(1e-6, -2e-6, beam_type)
+    microscope.beam_shift(1e-6, -2e-6, beam_type)
+    shift = microscope.get("shift", beam_type)
+    assert (shift.x, shift.y) == pytest.approx((start.x + 2e-6, start.y - 4e-6))
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_scanning_mode_keys(microscope, beam_type):
+    point = Point(0.25, 0.75)
+    microscope.set("spot_mode", point, beam_type)
+    assert microscope.get("scanning_mode", beam_type) == "spot"
+    microscope.set("reduced_area", FibsemRectangle(0.25, 0.25, 0.5, 0.5), beam_type)
+    assert microscope.get("scanning_mode", beam_type) == "reduced_area"
+    microscope.set("full_frame", None, beam_type)
+    assert microscope.get("scanning_mode", beam_type) == "full_frame"
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_the_spot_burn_reads_where_the_beam_is_parked(microscope, beam_type):
+    """A spot burn marks the scene at the beam's spot, at its current field."""
+    point = Point(0.25, 0.75)
+    microscope.set("hfw", 100e-6, beam_type)
+    microscope.set_spot_scanning_mode(point, beam_type)
+    spot, beam = microscope._spot_and_beam(beam_type)
+    assert spot == point
+    assert beam.hfw == microscope.get("hfw", beam_type)
+    assert beam.resolution == microscope.get("resolution", beam_type)
 
 
 def test_vent_and_pump(microscope):
