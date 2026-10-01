@@ -1576,7 +1576,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         # run deposition
         logging.info(f"Running deposition for {duration} seconds")
-        # gis.open()
+        gis.open()
         sim_sleep(duration)
         gis.close()
 
@@ -1912,6 +1912,9 @@ class DemoMicroscope(FibsemMicroscope):
             return value in self.get_available_values(key, beam_type)
 
         return False
+
+    def _wait(self, seconds: float) -> None:
+        sim_sleep(seconds)
 
     def home(self) -> bool:
         self.stage_system.is_homed = True

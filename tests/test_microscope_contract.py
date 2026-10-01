@@ -273,8 +273,14 @@ def test_device_demo_deposits_through_its_gis_device():
         )
     settings = FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0)
     microscope.cryo_deposition_v2(settings)
-    # Demo's order: it never opens the valve, but closes it.
-    assert calls == ["_insert", "_heater_on", "_close", "_heater_off", "_retract"]
+    assert calls == [
+        "_insert",
+        "_heater_on",
+        "_open",
+        "_close",
+        "_heater_off",
+        "_retract",
+    ]
     assert gis.state.cached is InsertableDeviceState.RETRACTED
     assert gis.heated.cached is False
 
@@ -799,6 +805,23 @@ def test_cryo_deposition_leaves_the_microscope_as_it_was(microscope, insert_posi
     assert not _first_difference(
         [("start", None, before)], [("start", None, _snapshot(microscope))]
     )
+
+
+def test_cryo_deposition_opens_the_valve_and_closes_it(microscope, monkeypatch):
+    """The gas flows: the valve opens for the deposition and is closed after it."""
+    gis = microscope.gis_system  # Demo's GIS; DeviceDemo's device drives the same one
+    steps = []
+    for name in ("open", "close"):
+        original = getattr(gis, name)
+        monkeypatch.setattr(
+            gis,
+            name,
+            lambda name=name, original=original: (steps.append(name), original()),
+        )
+    settings = FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0)
+    microscope.cryo_deposition_v2(settings)
+    assert steps == ["open", "close"]
+    assert gis.opened is False
 
 
 # ---------------------------------------------------------------------------
