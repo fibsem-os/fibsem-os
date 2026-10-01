@@ -1859,14 +1859,23 @@ class FibsemOverviewWidget(QWidget):
             self._channels_panel.hide()
 
     def hideEvent(self, event) -> None:
-        # The channel controls are a top-level window, so they do not go with this
-        # widget on their own (FIB-962). Reached from C++ during teardown too, where
-        # raising is fatal under PyQt5, so looked up tolerantly and never raises.
+        # The channel controls and the tile grid panel are top-level windows, so they
+        # do not go with this widget on their own (FIB-962, FIB-1110): switching tab
+        # left them floating over the next one. The tile grid button is unchecked
+        # with its panel, so one click opens it again. Reached from C++ during
+        # teardown too, where raising is fatal under PyQt5, so looked up tolerantly
+        # and never raises.
         super().hideEvent(event)
-        panel = self.__dict__.get("_channels_panel")
+        channels = self.__dict__.get("_channels_panel")
+        tile_grid = self.__dict__.get("tile_grid_panel")
+        button = self.__dict__.get("btn_tile_grid")
         try:
-            if panel is not None:
-                panel.hide()
+            if channels is not None:
+                channels.hide()
+            if tile_grid is not None:
+                tile_grid.hide()
+            if button is not None:
+                button.setChecked(False)
         except RuntimeError:  # wrapped C/C++ object already deleted
             pass
 

@@ -5092,3 +5092,20 @@ class TestWhichOverviewAClickIsOn:
         widget._request_add_at(x, y, target)
         widget._request_add_at(*widget.canvas.metres_to_canvas(cx + 5e-3, cy), target)
         assert [rid for _, rid in seen] == [record_id, None]
+
+
+def test_the_tile_grid_panel_goes_when_the_tab_does(qapp, widget):
+    """FIB-1110. The panel is a top-level tool window, so hiding the widget it
+    belongs to -- switching tab -- left it floating over the next tab. The button
+    is unchecked with it, so the next click opens it rather than doing nothing."""
+    widget.show()
+    qapp.processEvents()
+    widget.btn_tile_grid.click()
+    qapp.processEvents()
+    assert widget.tile_grid_panel.isVisible()
+
+    widget.hide()
+    qapp.processEvents()
+
+    assert not widget.tile_grid_panel.isVisible()
+    assert not widget.btn_tile_grid.isChecked()
