@@ -3,7 +3,7 @@
 Replaces the single napari viewer in the main microscope tab. Four cells:
 
     SEM (electron) | FIB (ion)
-    FM (fluorescence) | "No Data" placeholder
+    FM (fluorescence) | "No Data" placeholder (type "snake" into it)
 
 ``MicroscopeViewController`` wraps the widget and is the object handed to the
 control widgets in place of the napari ``Viewer``. Its surface is intentionally
@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem import config as fibsem_cfg
 from fibsem import constants
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.stylesheets import (
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
     from fibsem.structures import FibsemRectangle
     from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
+    from fibsem.ui.widgets.snake_game import SnakeGameWidget
 
 _logger = logging.getLogger(__name__)
 
@@ -70,6 +72,16 @@ _PANEL_QSS = "#viewPanel {{ background: {bg}; border: 2px solid {border}; }}"
 # Live-acquisition border: green, and it takes priority over the blue selected border so a
 # live view is obvious even when you've clicked away to another cell.
 _LIVE_ACCENT = GREEN_COLOR
+_SNAKE_WORD = "snake"  # typed into the empty cell, swaps it for the game
+
+
+def _easter_eggs_enabled() -> bool:
+    """``features.easter_eggs_enabled``, read now so a change needs no restart. Fails
+    closed: a preference that cannot be read means off."""
+    try:
+        return bool(fibsem_cfg.load_user_preferences().features.easter_eggs_enabled)
+    except Exception:
+        return False
 
 
 def _titled(title: str, inner: QWidget) -> QFrame:
@@ -98,7 +110,14 @@ def _splitter(orientation, *widgets) -> QSplitter:
 
 
 class PlaceholderPanel(QFrame):
-    """Inert 'No Data' panel for the 4th quad-view cell (no canvas, no toolbar)."""
+    """Inert 'No Data' panel for the 4th quad-view cell (no canvas, no toolbar).
+
+    Almost inert: with ``features.easter_eggs_enabled`` on, a click gives it the
+    keyboard and typing the word ``snake`` emits :attr:`snake`. With it off, it never
+    takes focus, so it never sees a key -- exactly as before the easter egg."""
+
+    # The easter-egg word was typed while this panel had the keyboard.
+    snake = pyqtSignal()
 
     def __init__(self, text: str = "No Data") -> None:
         super().__init__()
@@ -107,6 +126,19 @@ class PlaceholderPanel(QFrame):
         lbl.setStyleSheet(_PLACEHOLDER_STYLE)
         lay = QVBoxLayout(self)
         lay.addWidget(lbl)
+        self._typed = ""
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        if _easter_eggs_enabled():
+            self.setFocus(Qt.MouseFocusReason)
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        self._typed = (self._typed + event.text().lower())[-len(_SNAKE_WORD) :]
+        if self._typed == _SNAKE_WORD:
+            self._typed = ""
+            self.snake.emit()
+        super().keyPressEvent(event)
 
 
 class QuadViewWidget(QWidget):
@@ -134,11 +166,17 @@ class QuadViewWidget(QWidget):
         self.fm_widget = FMCanvasWidget()
         self.fm_canvas = self.fm_widget.canvas
         self.placeholder = PlaceholderPanel("No Data")
+        self.placeholder.snake.connect(self.show_snake)
+        # The 4th cell is a stack so the placeholder can give way to other pages; the
+        # snake game is added the first time it is asked for.
+        self._spare = QStackedWidget()
+        self._spare.addWidget(self.placeholder)
+        self.snake_game: Optional[SnakeGameWidget] = None
 
         sem_panel = _titled("SEM", self.sem_canvas)
         fm_panel = _titled("FM", self.fm_widget)
         fib_panel = _titled("FIB", self.fib_canvas)
-        placeholder_panel = _titled("Placeholder", self.placeholder)
+        placeholder_panel = _titled("Placeholder", self._spare)
 
         left = _splitter(Qt.Vertical, sem_panel, fm_panel)
         right = _splitter(Qt.Vertical, fib_panel, placeholder_panel)
@@ -185,6 +223,34 @@ class QuadViewWidget(QWidget):
             canvas.installEventFilter(self)
         # default: SEM selected, so exactly one view always has the border + toolbar
         self.set_selected(BeamType.ELECTRON)
+
+    # ── spare cell ──────────────────────────────────────────────────────────
+    def show_snake(self) -> None:
+        """Swap the placeholder for the snake game and give it the keyboard.
+
+        Imported and built here, and any failure logged rather than raised: this runs
+        from a key press, where an escaping exception aborts the app."""
+        if not _easter_eggs_enabled():
+            return
+        try:
+            if self.snake_game is None:
+                from fibsem.ui.widgets.snake_game import SnakeGameWidget
+
+                self.snake_game = SnakeGameWidget()
+                self.snake_game.quit_requested.connect(self.hide_snake)
+                self._spare.addWidget(self.snake_game)
+        except Exception:
+            _logger.exception("Snake could not start")
+            return
+        if self.snake_game.broken:
+            return
+        self._spare.setCurrentWidget(self.snake_game)
+        self.snake_game.setFocus(Qt.OtherFocusReason)
+
+    def hide_snake(self) -> None:
+        """Put the placeholder back (the game pauses itself when hidden)."""
+        self._spare.setCurrentWidget(self.placeholder)
+        self.placeholder.setFocus(Qt.OtherFocusReason)
 
     @property
     def selected(self) -> Optional[object]:

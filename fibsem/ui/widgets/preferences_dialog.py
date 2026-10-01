@@ -71,6 +71,11 @@ _TIP_PROPOSE_REVIEW = (
     "records what it did whether this is on or not; this shows the tab and "
     "allows a task to be set to Review. Early access."
 )
+_LBL_EASTER_EGGS = "Enable Easter Eggs"
+_TIP_EASTER_EGGS = (
+    "Something to do while a run mills. Try clicking the Microscope tab's empty "
+    "view and typing."
+)
 _LBL_AGENT_SERVER = "Enable Agent Server"
 _LBL_WATCHDOG = "Hand questions to me after"
 _TIP_WATCHDOG = (
@@ -183,6 +188,9 @@ class PreferencesDialog(QDialog):
         self._chk_propose_review = QCheckBox()
         self._chk_propose_review.setToolTip(_TIP_PROPOSE_REVIEW)
         features_form.addRow(_LBL_PROPOSE_REVIEW, self._chk_propose_review)
+        self._chk_easter_eggs = QCheckBox()
+        self._chk_easter_eggs.setToolTip(_TIP_EASTER_EGGS)
+        features_form.addRow(_LBL_EASTER_EGGS, self._chk_easter_eggs)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -278,6 +286,7 @@ class PreferencesDialog(QDialog):
         self._chk_connection_chip.setChecked(f.connection_chip)
         self._chk_grid_workflow.setChecked(f.grid_workflow)
         self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
+        self._chk_easter_eggs.setChecked(f.easter_eggs_enabled)
 
         self._spin_watchdog.setValue(prefs.agent.watchdog_minutes)
 
@@ -337,6 +346,7 @@ class PreferencesDialog(QDialog):
                 connection_chip=self._chk_connection_chip.isChecked(),
                 grid_workflow=self._chk_grid_workflow.isChecked(),
                 proposer_reviewer_workflow_enabled=self._chk_propose_review.isChecked(),
+                easter_eggs_enabled=self._chk_easter_eggs.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
