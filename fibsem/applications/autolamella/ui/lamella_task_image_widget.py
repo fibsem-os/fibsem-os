@@ -275,6 +275,21 @@ class LamellaTaskImageWidget(QWidget):
         self._placeholder_labels.clear()
         self._rebuild()
 
+    def refresh(self) -> None:
+        """Rebuild for the lamella already shown, after a task on it finished.
+
+        `set_lamella` skips the lamella it already shows, so without this the
+        panel kept the history it was opened with until another lamella was
+        selected and back (FIB-1111). The image cache goes too: a re-run writes
+        its reference images to the same filenames, so a cached pixmap would be
+        the previous run's picture.
+        """
+        if self._lamella is None:
+            return
+        self._cancel_worker()
+        self._pixmap_cache.clear()
+        self._rebuild()
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
