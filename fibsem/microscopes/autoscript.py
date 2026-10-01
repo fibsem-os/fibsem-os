@@ -83,6 +83,14 @@ THERMO_API_IMPORT_ERROR: Optional[str] = None
 # THERMO_API_AVAILABLE is True.
 AUTOSCRIPT_VERSION: Optional[Version] = None
 
+# The voltages a ThermoFisher microscope offers, per beam, in volts. The API gives
+# only a range, and any value in it can be set, but these are the ones xT lists.
+# Shared with OdemisThermoMicroscope, which reaches the same columns.
+THERMO_VOLTAGE_CHOICES = {
+    BeamType.ELECTRON: (1000, 2000, 3000, 5000, 10000, 20000, 30000),
+    BeamType.ION: (500, 1000, 2000, 8000, 16000, 30000),
+}
+
 # Legacy install locations, kept on sys.path for older machines. Current installs
 # copy the AutoScript packages into the active environment's site-packages (see
 # INSTALLATION.md), so these rarely match any more.
@@ -2901,14 +2909,12 @@ class ThermoMicroscope(FibsemMicroscope):
             limits: Limits = beam.high_voltage.limits
             # QUERY: match what is displayed on microscope, as list[float], or keep as range?
             # technically we can set any value, but primarily people would use what is on microscope
-            # SEM: [1000, 2000, 3000, 5000, 10000, 20000, 30000]
-            # FIB: [500, 1000, 2000, 8000, 1600, 30000]
-            if beam_type is BeamType.ION:
-                VALUES = (500, 1000, 2000, 8000, 16000, 30000)
-            if beam_type is BeamType.ELECTRON:
-                VALUES = (1000, 2000, 3000, 5000, 10000, 20000, 30000)
             # filter values to be within limits
-            values = [v for v in VALUES if limits.min <= v <= limits.max]
+            values = [
+                v
+                for v in THERMO_VOLTAGE_CHOICES[beam_type]
+                if limits.min <= v <= limits.max
+            ]
             return values
 
         if key == "detector_type":
