@@ -34,6 +34,11 @@ from fibsem.applications.autolamella.structures import (
     Verdict,
 )
 from fibsem.applications.autolamella.task_outputs import latest_grid_output
+from fibsem.applications.autolamella.ui.lamella_list_widget import (
+    VERDICT_LOOK,
+    add_verdict_actions,
+    mark_current_verdict,
+)
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
 )
@@ -95,13 +100,6 @@ QToolButton:hover { background: rgba(255, 255, 255, 30); }
 QToolButton:pressed { background: rgba(255, 255, 255, 15); }
 QToolButton::menu-indicator { image: none; }
 """
-
-_QUALITY_ICON = {
-    Verdict.UNASSESSED: ("mdi:help-circle-outline", NEUTRAL_550, "Unassessed"),
-    Verdict.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
-    Verdict.REWORK: ("mdi:wrench", stylesheets.ORANGE_COLOR, "Rework"),
-    Verdict.FAILED: ("mdi:close-circle", stylesheets.DEFECT_RED_COLOR, "Failed"),
-}
 
 
 def grid_headline(grid: GridRecord) -> Tuple[str, str]:
@@ -440,7 +438,7 @@ class GridCardWidget(QWidget):
         slot = f"slot {self._entry.index + 1:02d}" if present else "not in the holder"
         self._status_label.setToolTip(f"{text} · {slot}")
 
-        icon, icon_colour, verdict = _QUALITY_ICON[grid.quality.verdict]
+        icon, icon_colour, verdict = VERDICT_LOOK[grid.quality.verdict]
         self._btn_quality.setIcon(fibsem_icon(icon, color=icon_colour))
         self._btn_quality.setToolTip(
             f"Quality: {verdict}. A person's verdict; no task sets it."
@@ -482,14 +480,14 @@ class GridCardWidget(QWidget):
 
     def _on_quality_clicked(self) -> None:
         menu = QMenu(self)
-        actions = {}
-        for quality, (icon, colour, verdict) in _QUALITY_ICON.items():
-            actions[menu.addAction(fibsem_icon(icon, color=colour), verdict)] = quality
+        actions = add_verdict_actions(menu)
+        mark_current_verdict(actions, self.grid.quality.verdict)
         chosen = menu.exec_(
             self._btn_quality.mapToGlobal(self._btn_quality.rect().bottomLeft())
         )
-        if chosen in actions:
-            self.set_quality(actions[chosen])
+        for verdict, action in actions.items():
+            if chosen is action:
+                self.set_quality(verdict)
 
     def set_quality(self, verdict: Verdict) -> None:
         if verdict is self.grid.quality.verdict:

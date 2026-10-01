@@ -357,6 +357,8 @@ class GridsTabWidget(QWidget):
     # -- edits -----------------------------------------------------------------
 
     def _on_quality_changed(self, grid: GridRecord) -> None:
+        if self._experiment is not None:
+            self._experiment.sign_verdict(grid)
         self._save()
         self.experiment_changed.emit()
 

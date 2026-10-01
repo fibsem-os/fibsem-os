@@ -1516,6 +1516,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         it now redraws off `lamella.events.defect`, so this only has to make it durable.
         """
         if self.experiment is not None:
+            if lamella is not None:
+                self.experiment.sign_verdict(lamella)
             self.experiment.save()
 
     def _on_move_to_lamella(self, lamella: Optional["Lamella"]):
