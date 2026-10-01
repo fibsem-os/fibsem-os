@@ -24,7 +24,91 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
 )
 
-POSITION_COLOURS = ["lime", "blue", "cyan", "magenta", "hotpink", "yellow", "orange", "red"]
+POSITION_COLOURS = [
+    "lime",
+    "blue",
+    "cyan",
+    "magenta",
+    "hotpink",
+    "yellow",
+    "orange",
+    "red",
+]
+
+# Figure width in inches when the size is derived from the image. The height follows
+# the image's aspect, so a 3:1 overview gets a 3:1 figure.
+_AUTO_FIGURE_WIDTH_IN = 10.0
+
+
+def figsize_for_image(
+    image_shape: Tuple[int, ...], width_in: float = _AUTO_FIGURE_WIDTH_IN
+) -> Tuple[float, float]:
+    """A figure the same shape as the image, so the image fills it.
+
+    A wide overview in a square figure spends the difference on blank paper, and
+    ``bbox_inches="tight"`` cannot reclaim it: the gap sits inside the bounding box,
+    between the title and the image, rather than around it.
+
+    Args:
+        image_shape: the image's ``.shape``; only the first two entries are read.
+        width_in: figure width in inches. The height is derived from it.
+    Returns:
+        ``(width, height)`` in inches, for ``figsize``.
+    """
+    height = float(image_shape[0]) if len(image_shape) > 0 else 0.0
+    width = float(image_shape[1]) if len(image_shape) > 1 else 0.0
+    if width <= 0 or height <= 0:
+        return (width_in, width_in)
+    # Clamped, so an extreme mosaic cannot produce a figure a foot wide and a fraction
+    # of an inch tall, with no room left for a title or a label.
+    aspect = min(max(height / width, 0.2), 5.0)
+    return (width_in, width_in * aspect)
+
+
+# Clear space between the end of a marker's arm and its label, in points.
+_LABEL_GAP_POINTS = 6.0
+
+# How near an edge a marker must be before its label goes on the other side of it. A
+# fraction of the image rather than a pixel count, because overviews differ by orders
+# of magnitude in pixel count.
+_EDGE_FRACTION = 0.18
+
+
+def _label_placement(
+    x: float,
+    y: float,
+    image_shape: Tuple[int, ...],
+    marker_half_points: float,
+) -> Tuple[Tuple[float, float], str, str]:
+    """Where a marker's label goes: an offset in points, and how to align the text.
+
+    In points, derived from the marker's size, rather than a fixed count of image
+    pixels: an overview pixel is tens of nanometres, so a ten-pixel offset put the
+    label inside the crosshair at any real scale.
+
+    And away from whichever edge the marker is near, rather than clipped at it -- a
+    clipped name gives no sign it was cut, and reads as a lamella with a shorter name.
+
+    Returns:
+        ``((dx, dy), ha, va)`` for ``annotate(..., textcoords="offset points")``.
+    """
+    height = float(image_shape[0]) if len(image_shape) > 0 else 0.0
+    width = float(image_shape[1]) if len(image_shape) > 1 else 0.0
+    gap = marker_half_points + _LABEL_GAP_POINTS
+
+    if width > 0 and x > width * (1.0 - _EDGE_FRACTION):
+        dx, ha = -gap, "right"
+    else:
+        dx, ha = gap, "left"
+
+    # Display space, not data space: a positive dy is up the page whichever way the
+    # image's y-axis runs. Image y grows downwards, so a small y is the top edge.
+    if height > 0 and y < height * _EDGE_FRACTION:
+        dy, va = -gap, "top"
+    else:
+        dy, va = gap, "bottom"
+
+    return (dx, dy), ha, va
 
 
 def plot_tile_positions(
@@ -63,7 +147,7 @@ def plot_tile_positions(
         stage_positions=stage_positions,
         title=(
             f"{settings.tile_order.value.title()} — {settings.nrows}×{settings.ncols} tiles, "
-            f"{settings.overlap*100:.0f}% overlap"
+            f"{settings.overlap * 100:.0f}% overlap"
         ),
     )
 
@@ -119,31 +203,57 @@ def plot_tile_grid(
         if tile.enabled:
             continue
         cx, cy = centre(tile)
-        ax.add_patch(mpatches.FancyBboxPatch(
-            (cx - tile_fov_x / 2, cy - tile_fov_y / 2), tile_fov_x, tile_fov_y,
-            boxstyle="round,pad=0.01",
-            linewidth=1, edgecolor="#5a5f6e", facecolor="none", linestyle="--",
-        ))
+        ax.add_patch(
+            mpatches.FancyBboxPatch(
+                (cx - tile_fov_x / 2, cy - tile_fov_y / 2),
+                tile_fov_x,
+                tile_fov_y,
+                boxstyle="round,pad=0.01",
+                linewidth=1,
+                edgecolor="#5a5f6e",
+                facecolor="none",
+                linestyle="--",
+            )
+        )
         ax.text(cx, cy, "—", ha="center", va="center", fontsize=8, color="#5a5f6e")
 
     for order_idx, tile in enumerate(order):
         cx, cy = centre(tile)
         colour = POSITION_COLOURS[tile.row % len(POSITION_COLOURS)]
-        ax.add_patch(mpatches.FancyBboxPatch(
-            (cx - tile_fov_x / 2, cy - tile_fov_y / 2), tile_fov_x, tile_fov_y,
-            boxstyle="round,pad=0.01",
-            linewidth=1, edgecolor="white", facecolor=colour, alpha=0.4,
-        ))
-        ax.text(cx, cy, str(order_idx), ha="center", va="center",
-                fontsize=8, color="white", fontweight="bold")
+        ax.add_patch(
+            mpatches.FancyBboxPatch(
+                (cx - tile_fov_x / 2, cy - tile_fov_y / 2),
+                tile_fov_x,
+                tile_fov_y,
+                boxstyle="round,pad=0.01",
+                linewidth=1,
+                edgecolor="white",
+                facecolor=colour,
+                alpha=0.4,
+            )
+        )
+        ax.text(
+            cx,
+            cy,
+            str(order_idx),
+            ha="center",
+            va="center",
+            fontsize=8,
+            color="white",
+            fontweight="bold",
+        )
 
     # traversal path -- through the acquired tiles only, so a jump over a skipped
     # region is visible as a long arrow rather than hidden
     if len(order) > 1:
         pts = [centre(t) for t in order]
         for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-            ax.annotate("", xy=(x1, y1), xytext=(x0, y0),
-                        arrowprops=dict(arrowstyle="->", color="white", lw=1.0))
+            ax.annotate(
+                "",
+                xy=(x1, y1),
+                xytext=(x0, y0),
+                arrowprops=dict(arrowstyle="->", color="white", lw=1.0),
+            )
 
     # overlay actual projected stage positions (if provided)
     if stage_positions is not None and len(stage_positions) > 0 and order:
@@ -155,10 +265,22 @@ def plot_tile_grid(
         # of the projected path matches the grid it came from.
         ref = stage_positions[0]
         anchor_x, anchor_y = centre(order[0])
-        sxs = [anchor_x + (sp.x - ref.x) * constants.SI_TO_MICRO for sp in stage_positions]
-        sys_ = [anchor_y + (sp.y - ref.y) * constants.SI_TO_MICRO for sp in stage_positions]
+        sxs = [
+            anchor_x + (sp.x - ref.x) * constants.SI_TO_MICRO for sp in stage_positions
+        ]
+        sys_ = [
+            anchor_y + (sp.y - ref.y) * constants.SI_TO_MICRO for sp in stage_positions
+        ]
         ax.plot(sxs, sys_, linestyle=":", color="white", lw=0.8, alpha=0.6)
-        ax.plot(sxs, sys_, marker="x", color="white", ms=6, markeredgewidth=1.5, linestyle="none")
+        ax.plot(
+            sxs,
+            sys_,
+            marker="x",
+            color="white",
+            ms=6,
+            markeredgewidth=1.5,
+            linestyle="none",
+        )
 
     sym = constants.MICRON_SYMBOL
     ax.set_xlabel(f"X ({sym})")
@@ -176,15 +298,17 @@ def plot_tile_grid(
     fig.tight_layout()
     return fig
 
+
 def plot_stage_positions_on_image(
-        image: FibsemImage,
-        positions: List[FibsemStagePosition],
-        show: bool = False,
-        bound: bool = True,
-        color: Optional[str] = None,
-        show_scalebar: bool = False,
-        show_names: bool = True,
-        figsize: Optional[Tuple[int, int]] = (15, 15)) -> Figure:
+    image: FibsemImage,
+    positions: List[FibsemStagePosition],
+    show: bool = False,
+    bound: bool = True,
+    color: Optional[str] = None,
+    show_scalebar: bool = False,
+    show_names: bool = True,
+    figsize: Optional[Tuple[float, float]] = None,
+) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
     Args:
         image: The image.
@@ -192,38 +316,60 @@ def plot_stage_positions_on_image(
         show: Whether to show the plot.
         bound: Whether to only plot points inside the image.
         color: The color of the points. (None -> default colour cycle)
+        figsize: Figure size in inches. None sizes it to the image's aspect.
     Returns:
         The matplotlib figure."""
     if image.metadata is None or image.metadata.microscope_state is None:
-        raise ValueError("Image metadata or microscope state is not set. Cannot reproject stage positions.")
+        raise ValueError(
+            "Image metadata or microscope state is not set. Cannot reproject stage positions."
+        )
 
-    # reproject stage positions onto image 
+    # reproject stage positions onto image
     points = reproject_stage_positions_onto_image2(image=image, positions=positions)
 
     # construct matplotlib figure
-    fig = plt.figure(figsize = figsize)
+    if figsize is None:
+        figsize = figsize_for_image(image.data.shape)
+    fig = plt.figure(figsize=figsize)
     plt.imshow(image.data, cmap="gray")
 
     for i, pt in enumerate(points):
-
         # if points outside image, don't plot
-        if bound and not is_inside_image_bounds((pt.y, pt.x), (image.data.shape[0], image.data.shape[1])):
+        if bound and not is_inside_image_bounds(
+            (pt.y, pt.x), (image.data.shape[0], image.data.shape[1])
+        ):
             continue
 
         if color is None:
-            c = POSITION_COLOURS[i%len(POSITION_COLOURS)]
+            c = POSITION_COLOURS[i % len(POSITION_COLOURS)]
         else:
             c = color
-        plt.plot(pt.x, pt.y, ms=20, c=c, marker="+", markeredgewidth=2, label=f"{pt.name}")
+        plt.plot(
+            pt.x, pt.y, ms=20, c=c, marker="+", markeredgewidth=2, label=f"{pt.name}"
+        )
 
         if show_names:
-            # draw position name next to point
-            plt.text(pt.x, pt.y-50, pt.name, fontsize=14, color=c, alpha=0.75)
+            # draw position name next to point; ms=20 is the marker's full width
+            (dx, dy), ha, va = _label_placement(
+                pt.x, pt.y, image.data.shape, marker_half_points=10
+            )
+            plt.annotate(
+                pt.name,
+                xy=(pt.x, pt.y),
+                xytext=(dx, dy),
+                textcoords="offset points",
+                ha=ha,
+                va=va,
+                fontsize=14,
+                color=c,
+                alpha=0.75,
+            )
 
     if show_scalebar:
         try:
             # add scalebar
             from matplotlib_scalebar.scalebar import ScaleBar
+
             scalebar = ScaleBar(
                 dx=image.metadata.pixel_size.x,
                 color="black",
@@ -241,23 +387,25 @@ def plot_stage_positions_on_image(
 
     return fig
 
+
 def plot_minimap(
-        image: FibsemImage,
-        positions: List[FibsemStagePosition],
-        current_position: Optional[FibsemStagePosition] = None,
-        grid_positions: Optional[List[FibsemStagePosition]] = None,
-        show: bool = False,
-        bound: bool = True,
-        color: str = "cyan",
-        show_scalebar: bool = False,
-        show_names: bool = True,
-        show_descriptions: bool = False,
-        descriptions: Optional[Dict[str, str]] = None,
-        show_grid_radius: bool = False,
-        fontsize: int = 12,
-        markersize: int = 20,
-        figsize: Optional[Tuple[int, int]] = (15, 15),
-        ax: Optional[plt.Axes] = None) -> Figure:
+    image: FibsemImage,
+    positions: List[FibsemStagePosition],
+    current_position: Optional[FibsemStagePosition] = None,
+    grid_positions: Optional[List[FibsemStagePosition]] = None,
+    show: bool = False,
+    bound: bool = True,
+    color: str = "cyan",
+    show_scalebar: bool = False,
+    show_names: bool = True,
+    show_descriptions: bool = False,
+    descriptions: Optional[Dict[str, str]] = None,
+    show_grid_radius: bool = False,
+    fontsize: int = 12,
+    markersize: int = 20,
+    figsize: Optional[Tuple[float, float]] = None,
+    ax: Optional[plt.Axes] = None,
+) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
     Args:
         image: The image.
@@ -270,11 +418,13 @@ def plot_minimap(
         show_scalebar: Whether to show a scalebar
         show_names: Whether to show position names as labels
         fontsize: Font size for position name labels (default: 14)
-        figsize: Figure size in inches (default: (15, 15))
+        figsize: Figure size in inches. None sizes it to the image's aspect.
     Returns:
         The matplotlib figure."""
     if image.metadata is None or image.metadata.microscope_state is None:
-        raise ValueError("Image metadata or microscope state is not set. Cannot reproject stage positions.")
+        raise ValueError(
+            "Image metadata or microscope state is not set. Cannot reproject stage positions."
+        )
 
     all_positions = list(positions)
     if current_position is not None:
@@ -284,21 +434,24 @@ def plot_minimap(
 
     # construct matplotlib figure/axes
     if ax is None:
+        if figsize is None:
+            figsize = figsize_for_image(image.data.shape)
         fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.figure
     ax.imshow(image.data, cmap="gray")
 
-    # reproject stage positions onto image 
+    # reproject stage positions onto image
     points = reproject_stage_positions_onto_image2(image=image, positions=all_positions)
 
     marker_entries: List[dict] = []
     for i, pt in enumerate(points):
-
         # if points outside image, don't plot
-        if bound and not is_inside_image_bounds((pt.y, pt.x), (image.data.shape[0], image.data.shape[1])):
+        if bound and not is_inside_image_bounds(
+            (pt.y, pt.x), (image.data.shape[0], image.data.shape[1])
+        ):
             continue
-        
+
         if pt.name is None:
             pt.name = f"Position {i:02d}"
 
@@ -319,8 +472,11 @@ def plot_minimap(
 
         # show grid radius
         if c == "red" and show_grid_radius:
-            r_pixels = 1000e-6 / image.metadata.pixel_size.x 
-            ax.add_artist(plt.Circle((pt.x, pt.y), radius=r_pixels, color=c, fill=False, linewidth=5)
+            r_pixels = 1000e-6 / image.metadata.pixel_size.x
+            ax.add_artist(
+                plt.Circle(
+                    (pt.x, pt.y), radius=r_pixels, color=c, fill=False, linewidth=5
+                )
             )
 
     if marker_entries:
@@ -331,40 +487,59 @@ def plot_minimap(
             scatter_array[:, 1],
             c=scatter_colors,
             marker="+",
-            s=markersize ** 2,
+            s=markersize**2,
             linewidths=2,
         )
 
         if show_names:
             for entry in marker_entries:
                 x, y = entry["point"]
-                ax.text(
-                    x + 10,
-                    y - 10,
+                # `s` is the marker's area in points squared, so its arm is half
+                # of markersize.
+                (dx, dy), ha, va = _label_placement(
+                    x, y, image.data.shape, marker_half_points=markersize / 2
+                )
+                description = entry["description"] if show_descriptions else ""
+                # The name is the line further from the marker, so a column of
+                # markers reads name-first: above the marker, the description sits
+                # between them; below it, under the name.
+                line_gap = fontsize + 2
+                name_dy, sub_dy = dy, dy
+                if description:
+                    if va == "bottom":
+                        name_dy = dy + line_gap
+                    else:
+                        sub_dy = dy - line_gap
+                ax.annotate(
                     entry["label"],
+                    xy=(x, y),
+                    xytext=(dx, name_dy),
+                    textcoords="offset points",
+                    ha=ha,
+                    va=va,
                     fontsize=fontsize,
                     color=entry["color"],
                     alpha=0.75,
-                    clip_on=True,
                 )
-                # description as a smaller subtitle just below the name
-                if show_descriptions and entry["description"]:
+                # description as a smaller subtitle with the name
+                if description:
                     ax.annotate(
-                        entry["description"],
-                        xy=(x + 10, y - 10),
-                        xytext=(0, -(fontsize + 2)),
+                        description,
+                        xy=(x, y),
+                        xytext=(dx, sub_dy),
                         textcoords="offset points",
+                        ha=ha,
+                        va=va,
                         fontsize=max(6, int(round(fontsize * 0.7))),
                         color=entry["color"],
                         alpha=0.6,
-                        va="top",
-                        annotation_clip=True,
                     )
 
     if show_scalebar:
         try:
             # add scalebar
             from matplotlib_scalebar.scalebar import ScaleBar
+
             ax.add_artist(
                 ScaleBar(
                     dx=image.metadata.pixel_size.x,
