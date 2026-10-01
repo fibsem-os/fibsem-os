@@ -22,8 +22,11 @@ redesign settles them). The stage keeps its own state, so its keys are routed to
 ``stage_home`` and ``stage_link`` run its commands. Demo's ``stage_system`` is left
 where connect found it; only a compustage's ``stage_linked``, which its device
 doesn't have, still reads it, and nothing changes that value on a compustage.
-The chamber and manipulator still share Demo's state, so their keys are not routed
-yet; the base class's methods that read them use the devices directly. The GIS has
+The chamber keeps its own state too: ``chamber_state`` and ``chamber_pressure``
+read it, and ``pump_chamber`` and ``vent_chamber`` run its commands (a false value
+still goes to Demo's branch, which does nothing). The manipulator still shares
+Demo's state, so its keys are not routed yet; the base class's methods that read it
+use the device directly. The GIS has
 no keys; ``cryo_deposition_v2`` runs its sequence through the device's commands.
 
 The FM's parts are ``fm_devices``, built over the same objects ``fm`` holds, so the
@@ -34,10 +37,11 @@ from __future__ import annotations
 
 import logging
 from types import MappingProxyType
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
+from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.core import Device
 from fibsem.devices.drivers.demo import (
     bind_demo_beams,
@@ -57,6 +61,11 @@ from fibsem.structures import (
 )
 
 
+def _routes(device: str, routes: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
+    """Old keys -> (the microscope's device attribute, the device's name for them)."""
+    return {key: (device, name) for key, name in routes.items()}
+
+
 class DeviceDemoMicroscope(DemoMicroscope):
     def connect_to_microscope(
         self, ip_address: str, port: int = 8080, reset_beam_shift: bool = True
@@ -69,13 +78,19 @@ class DeviceDemoMicroscope(DemoMicroscope):
         self.beams = MappingProxyType(bind_demo_beams(self))
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
         self.stage_device = bind_demo_stage(self)
+        self.chamber_device = bind_demo_chamber(self)
         self._device_routes = MappingProxyType(
-            {key: ("stage_device", name) for key, name in STAGE_ROUTES.items()}
+            {
+                **_routes("stage_device", STAGE_ROUTES),
+                **_routes("chamber_device", CHAMBER_ROUTES),
+            }
         )
         self._command_routes = MappingProxyType(
-            {key: ("stage_device", name) for key, name in STAGE_COMMAND_ROUTES.items()}
+            {
+                **_routes("stage_device", STAGE_COMMAND_ROUTES),
+                **_routes("chamber_device", CHAMBER_COMMAND_ROUTES),
+            }
         )
-        self.chamber_device = bind_demo_chamber(self)
         self.manipulator_device = bind_demo_manipulator(self)
         self.gis_device = bind_demo_gis(self)
         self.fm_devices = MappingProxyType(self._fm_devices())

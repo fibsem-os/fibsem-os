@@ -231,9 +231,9 @@ def test_a_compustage_has_no_rotation_axis_and_cannot_link():
 
 
 def test_an_axis_is_a_view_of_the_position_with_no_read_of_its_own(stage):
-    stage.state.position.t = 0.25
+    stage.sim_position.t = 0.25
     assert stage.axes.t.value == 0.25  # a live read, of the whole position
-    stage.state.position.t = 0.5
+    stage.sim_position.t = 0.5
     assert stage.axes.t.cached == 0.25  # no read: the last position read
     assert stage.position.cached.t == 0.25
 
@@ -248,7 +248,7 @@ def test_state_parameters_are_read_only(stage):
 
 def test_move_absolute_moves_and_returns_the_read_back_position(stage):
     result = stage.move_absolute(FibsemStagePosition(x=1e-3, z=2e-3))
-    assert result == stage.state.position
+    assert result == stage.sim_position
     assert (result.x, result.z) == (1e-3, 2e-3)
     assert stage.axes.x.cached == 1e-3
 
@@ -277,8 +277,8 @@ def test_a_move_emits_position_and_axis_changes(stage):
 
 
 def test_home_and_link_are_commands_that_report_the_result(stage):
-    stage.state.is_homed = False
-    stage.state.is_linked = False
+    stage.sim_homed = False
+    stage.sim_linked = False
     assert stage.home() is True and stage.homed.cached is True
     assert stage.link() is True and stage.linked.cached is True
     assert set(stage.commands) == {"home", "link", "move_absolute", "move_relative"}

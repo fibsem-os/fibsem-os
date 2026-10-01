@@ -53,7 +53,12 @@ from fibsem.devices.beam import (
     Beam,
     KeyRouter,
 )
-from fibsem.devices.chamber import CHAMBER_RESOURCE, Chamber
+from fibsem.devices.chamber import (
+    CHAMBER_COMMAND_ROUTES,
+    CHAMBER_RESOURCE,
+    CHAMBER_ROUTES,
+    Chamber,
+)
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
     BoundParameter,
@@ -86,7 +91,9 @@ __all__ = [
     "Axes",
     "Axis",
     "BEAM_ROUTES",
+    "CHAMBER_COMMAND_ROUTES",
     "CHAMBER_RESOURCE",
+    "CHAMBER_ROUTES",
     "Chamber",
     "STAGE_COMMAND_ROUTES",
     "STAGE_RESOURCE",

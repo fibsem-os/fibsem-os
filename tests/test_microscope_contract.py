@@ -317,7 +317,7 @@ def test_device_demo_stage_keeps_its_own_state_and_serves_the_stage_keys():
     own stage is never touched again after connect."""
     microscope = _connect("DeviceDemo")
     demo_stage = deepcopy(microscope.stage_system)
-    assert microscope.stage_device.state is not microscope.stage_system
+    assert microscope.stage_device.sim_position is not microscope.stage_system.position
     chain = []
     for name in ("_get", "_set"):
         original = getattr(microscope, name)
@@ -329,7 +329,7 @@ def test_device_demo_stage_keeps_its_own_state_and_serves_the_stage_keys():
                 original(key, *args),
             )[1],
         )
-    microscope.stage_device.state.is_homed = False
+    microscope.stage_device.sim_homed = False
     microscope.set("stage_home", True)
     microscope.set("stage_link", True)
     microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, t=0.1))
@@ -337,11 +337,36 @@ def test_device_demo_stage_keeps_its_own_state_and_serves_the_stage_keys():
     assert microscope.get("stage_linked") is True
     assert np.allclose(
         _xyzrt(microscope.get("stage_position")),
-        _xyzrt(microscope.stage_device.state.position),
+        _xyzrt(microscope.stage_device.sim_position),
     )
     assert microscope.get("stage_position").x == pytest.approx(1e-3)
     assert not [key for key in chain if key.startswith("stage_")]
     assert microscope.stage_system == demo_stage
+
+
+def test_device_demo_chamber_keeps_its_own_state_and_serves_the_chamber_keys():
+    """The chamber device owns its state: the chamber keys read and drive it, and
+    Demo's own chamber is never touched again after connect."""
+    microscope = _connect("DeviceDemo")
+    demo_chamber = deepcopy(microscope.chamber)
+    chain = []
+    for name in ("_get", "_set"):
+        original = getattr(microscope, name)
+        setattr(
+            microscope,
+            name,
+            lambda key, *args, original=original: (
+                chain.append(key),
+                original(key, *args),
+            )[1],
+        )
+    microscope.set("vent_chamber", True)
+    assert microscope.get("chamber_state") == "Vented"
+    assert microscope.get("chamber_pressure") == microscope.chamber_device.sim_pressure
+    microscope.set("pump_chamber", True)
+    assert microscope.get("chamber_state") == "Pumped"
+    assert not chain
+    assert microscope.chamber == demo_chamber
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
@@ -700,6 +725,16 @@ def test_vent_and_pump(microscope):
     assert microscope.get("chamber_state") == "Vented"
     assert microscope.pump() == "Pumped"
     assert microscope.get("chamber_state") == "Pumped"
+
+
+@pytest.mark.parametrize("key", ["pump_chamber", "vent_chamber"])
+def test_a_false_pump_or_vent_does_nothing(microscope, key):
+    """Pinned quirk: the old keys pump or vent only for a true value."""
+    # start in the state the key would leave, so a pump or vent would show
+    microscope.vent() if key == "pump_chamber" else microscope.pump()
+    before = microscope.get("chamber_state")
+    microscope.set(key, False)
+    assert microscope.get("chamber_state") == before
 
 
 def test_home_homes_and_says_so(microscope):
