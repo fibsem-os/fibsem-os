@@ -29,6 +29,7 @@ from skimage.transform import resize
 from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
+    find_overviews,
 )
 from fibsem.applications.autolamella.tools.data import (
     format_pretty_dataframes,
@@ -372,7 +373,7 @@ def generate_report2(
     # Overview image with positions
     if sections["overview"]:
         try:
-            filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
+            filenames = [str(p) for p in find_overviews(experiment.path)]
             if len(filenames) > 0:
                 pdf.add_page_break()
                 pdf.add_heading("Overview (Positions)")

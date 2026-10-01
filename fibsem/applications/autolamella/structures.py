@@ -1947,6 +1947,23 @@ def _emit_on_main_thread(signal, *args) -> None:
     ensure_main_thread(await_return=False)(signal.emit)(*args)
 
 
+def find_overviews(root: Union[str, Path]) -> List[Path]:
+    """The stitched beam overviews an experiment keeps, oldest first.
+
+    Grid overviews live under ``grids/<grid>/<task>/``; older experiments keep
+    ``overview-image-*.tif`` at the root. Fluorescence overviews
+    (``*.ome.tiff``) are not included.
+
+    Oldest first by modification time, then by name so that files copied with
+    the same time still come out in a fixed order. The last is the most recent.
+    """
+    root = Path(root)
+    found = list(root.glob("overview*.tif")) + list(
+        root.glob("grids/*/*/overview*.tif")
+    )
+    return sorted(found, key=lambda p: (p.stat().st_mtime, p.name))
+
+
 @evented
 @dataclass
 class Experiment:

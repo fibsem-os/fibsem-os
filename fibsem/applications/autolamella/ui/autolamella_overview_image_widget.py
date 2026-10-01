@@ -1,6 +1,5 @@
 """Widget for generating final overview images with customizable markers and text."""
 
-import glob
 import logging
 import os
 from typing import TYPE_CHECKING, Optional
@@ -26,7 +25,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.structures import Experiment, find_overviews
 from fibsem.imaging.tiled import plot_minimap
 from fibsem.structures import FibsemImage
 from fibsem.ui.tokens import (
@@ -530,9 +529,12 @@ class OverviewImageWidget(QWidget):
             self.stage_positions.clear()
             self.stage_positions = self.experiment.get_milling_positions()
 
-            filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
-            if filenames:
-                self._load_overview_image(filenames[-1])
+            # The most recent overview. This took the last of an unsorted glob,
+            # which is whichever the filesystem happened to list last, and did not
+            # look under grids/ at all.
+            overviews = find_overviews(experiment.path)
+            if overviews:
+                self._load_overview_image(str(overviews[-1]))
         else:
             self.info_label.setText("No experiment loaded")
 
