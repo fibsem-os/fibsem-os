@@ -312,6 +312,38 @@ def test_device_demo_moves_its_stage_device():
     )
 
 
+def test_device_demo_stage_keeps_its_own_state_and_serves_the_stage_keys():
+    """The stage device owns its state: the stage keys read and drive it, and Demo's
+    own stage is never touched again after connect."""
+    microscope = _connect("DeviceDemo")
+    demo_stage = deepcopy(microscope.stage_system)
+    assert microscope.stage_device.state is not microscope.stage_system
+    chain = []
+    for name in ("_get", "_set"):
+        original = getattr(microscope, name)
+        setattr(
+            microscope,
+            name,
+            lambda key, *args, original=original: (
+                chain.append(key),
+                original(key, *args),
+            )[1],
+        )
+    microscope.stage_device.state.is_homed = False
+    microscope.set("stage_home", True)
+    microscope.set("stage_link", True)
+    microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, t=0.1))
+    assert microscope.get("stage_homed") is True
+    assert microscope.get("stage_linked") is True
+    assert np.allclose(
+        _xyzrt(microscope.get("stage_position")),
+        _xyzrt(microscope.stage_device.state.position),
+    )
+    assert microscope.get("stage_position").x == pytest.approx(1e-3)
+    assert not [key for key in chain if key.startswith("stage_")]
+    assert microscope.stage_system == demo_stage
+
+
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_device_demo_scans_through_its_beam_commands(beam_type):
     """DeviceDemo's scan-mode methods call the beam's commands, not the Demo chain."""

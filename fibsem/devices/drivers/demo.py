@@ -3,7 +3,8 @@
 ``DemoBeam`` implements each parameter with what the matching branch of
 ``DemoMicroscope._get`` and ``_set`` reads and writes, so the old call and the new
 parameter touch the same state. This is step 1 of moving a key ("declare and
-implement"); the Demo chain itself is unchanged.
+implement"); the Demo chain itself is unchanged. ``DemoStage`` has gone further: it
+keeps its own copy of the stage, and the microscope routes the stage keys to it.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.microscopes.simulator import DemoMicroscope
+    from fibsem.microscopes.simulator import DemoMicroscope, StageSystem
 
 
 class DemoBeam(Beam):
@@ -222,9 +223,11 @@ def bind_demo_beams(
 class DemoStage(Stage):
     """The Demo stage.
 
-    Each method is what the matching part of ``DemoMicroscope`` does today, reading
-    and writing the same ``stage_system``, so the old call and the device touch the
-    same state:
+    It keeps its own simulated stage, ``state``: a copy of the microscope's
+    ``stage_system`` taken at connect, so it starts where Demo's stage is and never
+    touches Demo's again. A microscope that builds it routes the stage keys to it
+    (``DeviceDemoMicroscope``). Each method is what the matching part of
+    ``DemoMicroscope`` does, on that copy:
 
     - ``read_position``: the ``stage_position`` branch of ``_get``;
     - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked`` branches;
@@ -241,7 +244,7 @@ class DemoStage(Stage):
 
     def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
         super().__init__(parent=parent, resources=resources)
-        self._system = parent.stage_system
+        self.state: StageSystem = deepcopy(parent.stage_system)
         # Read once at connect, as a vendor's limits would be.
         self._axis_limits = parent._get_axis_limits()
 
@@ -249,7 +252,7 @@ class DemoStage(Stage):
 
     def read_position(self) -> FibsemStagePosition:
         sim_sleep(0.1)  # the read delay the Demo branch has
-        return deepcopy(self._system.position)
+        return deepcopy(self.state.position)
 
     def metadata_position(self) -> ParameterMetadata:
         # The axes are the ones the simulator gives limits for: a compustage has no r.
@@ -259,7 +262,7 @@ class DemoStage(Stage):
     # -- homing and linking -----------------------------------------------------------
 
     def read_homed(self) -> bool:
-        return self._system.is_homed
+        return self.state.is_homed
 
     # A compustage can't link: the old set("stage_link") logs and does nothing there,
     # so on the new API "linked" is absent and link() is unavailable.
@@ -267,7 +270,7 @@ class DemoStage(Stage):
         return not self.parent.stage_is_compustage
 
     def read_linked(self) -> bool:
-        return self._system.is_linked
+        return self.state.is_linked
 
     # -- commands ---------------------------------------------------------------------
 
@@ -278,24 +281,24 @@ class DemoStage(Stage):
         for axis in ("x", "y", "z", "r", "t"):
             value = getattr(position, axis)
             if value is not None:
-                setattr(self._system.position, axis, value)
+                setattr(self.state.position, axis, value)
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
     def _move_relative(self, delta: FibsemStagePosition) -> None:
         from fibsem.microscopes.simulator import STAGE_MOVEMENT_SLEEP_TIME
 
         sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)
-        self._system.position += delta
+        self.state.position += delta
         logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
 
     def _home(self) -> None:
         logging.info("Homing stage...")
-        self._system.is_homed = True
+        self.state.is_homed = True
         logging.info("Stage homed.")
 
     def _link(self) -> None:
         logging.info("Linking stage...")
-        self._system.is_linked = True
+        self.state.is_linked = True
         logging.info("Stage linked.")
 
 
