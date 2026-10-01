@@ -64,7 +64,7 @@ from fibsem.devices.core import (
 )
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.wire import NPY_MEDIA_TYPE, from_wire, to_wire
-from fibsem.structures import BeamType, RangeLimit
+from fibsem.structures import BeamType, FibsemRectangle, Point, RangeLimit
 
 READ_TIMEOUT = 5.0
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
@@ -356,9 +356,10 @@ class RemoteDevice(Device):
             param.get_value()
 
     def call_command(self, command: str, **kwargs: Any) -> Any:
-        """Run one of the device's commands on the server."""
+        """Run one of the device's commands on the server. Structured arguments
+        (a ``Point``) cross the wire like parameter values do."""
         path = f"devices/{self.name}/commands/{command}"
-        body = {"kwargs": kwargs}
+        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
         answer = self.client.request("POST", path, WRITE_TIMEOUT, json=body)
         return answer if isinstance(answer, np.ndarray) else answer["result"]
 
@@ -402,7 +403,17 @@ class RemoteDevice(Device):
 
 class RemoteBeam(RemoteDevice, Beam):
     """A beam on another computer. ``blank`` and ``unblank`` work unchanged: they set
-    ``blanked``, which is remote."""
+    ``blanked``, which is remote. The scan-area commands run on the server; the local
+    command then reads ``scanning_mode`` back, as on any backend."""
+
+    def _spot(self, point: Point) -> None:
+        self.call_command("spot", point=point)
+
+    def _reduced_area(self, area: FibsemRectangle) -> None:
+        self.call_command("reduced_area", area=area)
+
+    def _full_frame(self) -> None:
+        self.call_command("full_frame")
 
     @command(available=lambda beam: False)
     def acquire(self, image_settings: Any = None) -> Any:

@@ -7,8 +7,10 @@ local read returns: a tuple stays a tuple, a ``Point`` stays a ``Point``.
 
 from __future__ import annotations
 
+import logging
+import typing
 from enum import Enum
-from typing import Any
+from typing import Any, Callable, Dict, Union
 
 # How the server sends an array (a camera frame) and the remote driver recognises one.
 NPY_MEDIA_TYPE = "application/x-npy"
@@ -35,3 +37,27 @@ def from_wire(type_: type, value: Any) -> Any:
     if isinstance(value, dict) and hasattr(type_, "from_dict"):
         return type_.from_dict(value)
     return value
+
+
+def _declared_type(hint: Any) -> Any:
+    """``Optional[X]`` is X; any other hint is itself."""
+    if typing.get_origin(hint) is Union:
+        args = [arg for arg in typing.get_args(hint) if arg is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return hint
+
+
+def decode_kwargs(func: Callable[..., Any], kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """A command's arguments as its signature declares them: a ``Point`` argument
+    sent as a dict arrives as a ``Point``. Arguments without a usable hint pass as
+    they came."""
+    try:
+        hints = typing.get_type_hints(func)
+    except Exception as error:  # a hint only importable for type checking
+        logging.debug(f"{func.__qualname__}: no type hints to decode with ({error})")
+        return dict(kwargs)
+    return {
+        name: from_wire(_declared_type(hints[name]), value) if name in hints else value
+        for name, value in kwargs.items()
+    }

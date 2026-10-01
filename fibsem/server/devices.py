@@ -54,7 +54,7 @@ from fibsem.devices.core import (
     ParameterUnavailable,
     _limits_to_dict,
 )
-from fibsem.devices.wire import NPY_MEDIA_TYPE, from_wire, to_wire
+from fibsem.devices.wire import NPY_MEDIA_TYPE, decode_kwargs, from_wire, to_wire
 
 """A command that returns an array (an image) answers with ``np.save`` bytes."""
 
@@ -233,7 +233,9 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
         d = lookup(device)
         if command not in d.commands:
             raise HTTPException(404, f"'{device}' has no command '{command}'")
-        result = run(lambda: getattr(d, command)(**body.get("kwargs", {})))
+        method = getattr(d, command)
+        kwargs = decode_kwargs(method, body.get("kwargs", {}))
+        result = run(lambda: method(**kwargs))
         if isinstance(result, np.ndarray):  # an image: binary, not JSON
             buffer = io.BytesIO()
             np.save(buffer, result, allow_pickle=False)
