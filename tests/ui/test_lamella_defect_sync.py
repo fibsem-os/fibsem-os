@@ -71,7 +71,7 @@ def test_row_redraws_when_the_defect_changes_elsewhere(row, lamella):
     # Somebody else's widget sets it. Nothing calls into this row.
     lamella.defect = DefectState(state=DefectType.REWORK)
 
-    assert row.btn_defect.toolTip() == "Rework required", (
+    assert row.btn_defect.toolTip() == "Rework", (
         "row did not redraw on lamella.events.defect -- it was subscribed to "
         "description only, so a defect set anywhere else left a stale icon"
     )

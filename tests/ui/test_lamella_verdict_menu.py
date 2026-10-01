@@ -60,7 +60,7 @@ def _menu(lamella, changed=None):
 def test_the_menu_offers_good_as_well_as_the_defects(lamella):
     _, sub, actions = _menu(lamella)
     assert sub.title() == "Verdict"
-    assert list(actions) == ["Good", "Rework required", "Failed", "Not assessed"]
+    assert list(actions) == ["Good", "Rework", "Failed", "Not assessed"]
 
 
 def test_good_is_stored_as_good_and_dated(lamella):
@@ -91,11 +91,11 @@ def test_the_current_verdict_is_ticked(lamella):
     sub.aboutToShow.emit()
 
     ticked = [text for text, action in actions.items() if action.isChecked()]
-    assert ticked == ["Rework required"]
+    assert ticked == ["Rework"]
     # What the reader sees: the style draws each item's icon in place of a
     # checkmark, so the current verdict is set in bold.
     bold = [text for text, action in actions.items() if action.font().bold()]
-    assert bold == ["Rework required"]
+    assert bold == ["Rework"]
 
 
 def test_choosing_the_current_verdict_writes_nothing(lamella):
@@ -152,3 +152,26 @@ class TestEveryDisplay:
         assert row.btn_defect.isVisible()
         assert row.btn_defect.toolTip() == "Good: thin, clean"
         widget.close()
+
+
+def test_a_grid_s_verdict_menu_is_a_lamella_s(lamella, monkeypatch):
+    """One layout for both: they had drifted apart in labels, icons and order
+    ("Unassessed" first and a wrench for rework, on the grid card)."""
+    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.applications.autolamella.ui.grid_card_widget import GridCardWidget
+
+    shown = {}
+
+    def _exec(menu, *args, **kwargs):
+        shown["texts"] = [a.text() for a in menu.actions() if a.text()]
+        shown["bold"] = [a.text() for a in menu.actions() if a.font().bold()]
+        return None  # dismissed
+
+    monkeypatch.setattr(QMenu, "exec_", _exec)
+    grid = GridRecord(name="grid-a")
+    grid.quality.set_defect(state=Verdict.REWORK)
+    GridCardWidget(grid)._on_quality_clicked()
+
+    _parent, _sub, actions = _menu(lamella)
+    assert shown["texts"] == list(actions)
+    assert shown["bold"] == ["Rework"]

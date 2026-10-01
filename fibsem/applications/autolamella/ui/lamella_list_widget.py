@@ -120,17 +120,46 @@ def has_verdict(lamella) -> bool:
     return defect is not None and defect.verdict is not Verdict.UNASSESSED
 
 
-# What each verdict looks like wherever a lamella's is shown: icon, colour, words.
+# What each verdict looks like wherever one is shown or set, for lamellae and grids
+# alike: icon, colour, words. Filled circles for a judgement, an empty one for none.
 VERDICT_LOOK = {
     Verdict.UNASSESSED: ("mdi:circle-outline", NEUTRAL_550, "Not assessed"),
     Verdict.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
-    Verdict.REWORK: (
-        "mdi:refresh-circle",
-        stylesheets.DEFECT_ORANGE_COLOR,
-        "Rework required",
-    ),
+    Verdict.REWORK: ("mdi:alert-circle", stylesheets.DEFECT_ORANGE_COLOR, "Rework"),
     Verdict.FAILED: ("mdi:close-circle", stylesheets.DEFECT_RED_COLOR, "Failed"),
 }
+
+
+def add_verdict_actions(menu: QMenu) -> Dict[Verdict, QAction]:
+    """Good, Rework and Failed, then "Not assessed" after a separator, on *menu*.
+
+    The one layout for a verdict menu, used by a lamella's and by a grid's, so
+    the two cannot drift apart again: setting a judgement is the common action,
+    taking one back the rare one, so it comes last.
+    """
+    actions: Dict[Verdict, QAction] = {}
+    for verdict in (Verdict.GOOD, Verdict.REWORK, Verdict.FAILED, Verdict.UNASSESSED):
+        if verdict is Verdict.UNASSESSED:
+            menu.addSeparator()
+        icon, colour, text = VERDICT_LOOK[verdict]
+        action = menu.addAction(fibsem_icon(icon, color=colour), text)
+        action.setCheckable(True)
+        actions[verdict] = action
+    return actions
+
+
+def mark_current_verdict(actions: Dict[Verdict, QAction], current: Verdict) -> None:
+    """Check the current verdict and set it in bold.
+
+    Both, because with an icon on every item the style draws the icon in place of
+    a checkmark, so the check alone does not show which is current.
+    """
+    for verdict, action in actions.items():
+        is_current = verdict is current
+        action.setChecked(is_current)
+        font = action.font()
+        font.setBold(is_current)
+        action.setFont(font)
 
 
 def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
@@ -148,16 +177,9 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
     operator; this menu has no experiment to ask.
     """
     sub = menu.addMenu("Verdict")
-    actions = {}
-    for verdict in (Verdict.GOOD, Verdict.REWORK, Verdict.FAILED):
-        icon, colour, text = VERDICT_LOOK[verdict]
-        actions[verdict] = sub.addAction(fibsem_icon(icon, color=colour), text)
-    sub.addSeparator()
-    icon, colour, text = VERDICT_LOOK[Verdict.UNASSESSED]
-    actions[Verdict.UNASSESSED] = sub.addAction(fibsem_icon(icon, color=colour), text)
+    actions = add_verdict_actions(sub)
 
     for verdict, action in actions.items():
-        action.setCheckable(True)
 
         def _set(_checked=False, verdict=verdict):
             if verdict is lamella.defect.verdict:
@@ -176,14 +198,7 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
         action.triggered.connect(_set)
 
     def _show_current() -> None:
-        # Checked and bold: with an icon on every item, the style draws the icon in
-        # place of a checkmark, so the check alone does not show which is current.
-        for verdict, action in actions.items():
-            current = verdict is lamella.defect.verdict
-            action.setChecked(current)
-            font = action.font()
-            font.setBold(current)
-            action.setFont(font)
+        mark_current_verdict(actions, lamella.defect.verdict)
 
     sub.aboutToShow.connect(_show_current)
     _show_current()
