@@ -146,6 +146,11 @@ SIMULATOR_BEAM_CURRENTS = {
 # feeling slow for grid work.
 STAGE_MOVEMENT_SLEEP_TIME = 1.0
 
+# An asynchronous mill (`start_milling`) has no end on the simulator: it runs until
+# stopped. Its estimate says so, long enough to watch a run that is timed by the
+# estimate -- coincidence milling stops when its estimate runs out (FIB-1119).
+SIM_ASYNC_MILLING_EXTRA_TIME = 300  # seconds
+
 STAGE_LIMITS_DEFAULT = {
     "x": RangeLimit(min=-100.0e-3, max=100.0e-3),
     "y": RangeLimit(min=-100.0e-3, max=100.0e-3),
@@ -423,6 +428,10 @@ class DemoMicroscope(FibsemMicroscope):
     """Simulator microscope client based on TFS microscopes"""
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+
+    # Whether the mill running now was started by `start_milling`, which never ends
+    # on its own here.
+    _async_milling: bool = False
 
     def __init__(self, system_settings: SystemSettings):
 
@@ -1312,7 +1321,8 @@ class DemoMicroscope(FibsemMicroscope):
         MILLING_SLEEP_TIME = 1
         self._mill_into_sample_scene(milling_current)
 
-        # start milling
+        # start milling: this mill is timed by its estimate, not open-ended
+        self._async_milling = False
         start_time = time.time()
         estimated_time = self.estimate_milling_time()
         remaining_time = estimated_time
@@ -1459,10 +1469,12 @@ class DemoMicroscope(FibsemMicroscope):
         # TODO: support this by properly estimating the end time
         if self.get_milling_state() is MillingState.IDLE:
             self.milling_system.state = MillingState.RUNNING
+            self._async_milling = True
             logging.info("Milling started.")
 
     def stop_milling(self) -> None:
         self.milling_system.state = MillingState.IDLE
+        self._async_milling = False
 
     def pause_milling(self) -> None:
         self.milling_system.state = MillingState.PAUSED
@@ -1474,9 +1486,16 @@ class DemoMicroscope(FibsemMicroscope):
         return self.milling_system.state
 
     def estimate_milling_time(self) -> float:
-        """Estimate the milling time for the specified patterns."""
+        """Estimate the milling time for the specified patterns.
+
+        While an asynchronous mill is running, which only a stop ends here, the
+        estimate adds `SIM_ASYNC_MILLING_EXTRA_TIME`.
+        """
         PATTERN_SLEEP_TIME = 5
-        return PATTERN_SLEEP_TIME * len(self.milling_system.patterns)
+        estimate = PATTERN_SLEEP_TIME * len(self.milling_system.patterns)
+        if self._async_milling and self.get_milling_state() in ACTIVE_MILLING_STATES:
+            estimate += SIM_ASYNC_MILLING_EXTRA_TIME
+        return estimate
 
     def set_default_application_file(
         self, application_file: str, strict: bool = True
