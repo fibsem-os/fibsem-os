@@ -95,7 +95,6 @@ class ChannelSettingsWidget(QWidget):
             items=self._emission_items,
             lookup=emission_lookup_for(self._fm),
         )
-        self.emission_combo.setToolTip("Emission / filter")
         form.addRow("Emission", self.emission_combo)
 
         self.exposure_spin = ValueSpinBox(

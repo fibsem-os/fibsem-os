@@ -55,7 +55,7 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, Valu
 
 _NAME_MIN_WIDTH = 130
 _EXCITATION_FIXED_WIDTH = 90
-_EMISSION_FIXED_WIDTH = 120
+_EMISSION_FIXED_WIDTH = 135  # fits "Multi-band" beside the band swatch
 _EXPOSURE_FIXED_WIDTH = 120
 _GAIN_FIXED_WIDTH = 100
 _POWER_FIXED_WIDTH = 90
@@ -206,7 +206,6 @@ class ChannelRowWidget(QWidget):
             lookup=emission_lookup,
         )
         self.emission_combo.setFixedWidth(_EMISSION_FIXED_WIDTH)
-        self.emission_combo.setToolTip("Emission wavelength")
         layout.addWidget(self.emission_combo)
 
         self.exposure_spin = ValueSpinBox(

@@ -90,3 +90,13 @@ def test_the_settings_panel_keeps_the_channel_value(qapp):
     assert widget.emission_combo.currentText() == "505–535 / 600–650 nm"
     widget.emission_combo.set_value(425.0)
     assert channel.emission_wavelength == 425.0
+
+
+def test_hovering_the_box_shows_the_current_filter_in_full(qapp):
+    combo = EmissionFilterComboBox(
+        items=[None, 425.0, 505.0], lookup=emission_lookup_for(_FM())
+    )
+    combo.set_value(505.0)
+    assert combo.toolTip() == "505–535 / 600–650 nm: 2 bands"
+    combo.set_value(None)
+    assert combo.toolTip() == "Reflection: no emission filter"

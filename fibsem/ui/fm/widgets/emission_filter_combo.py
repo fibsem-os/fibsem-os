@@ -183,12 +183,19 @@ class EmissionFilterComboBox(ValueComboBox):
         self.setItemDelegate(QStyledItemDelegate(self))
         self.view().setIconSize(_STRIP_SIZE)
         self.view().setStyleSheet("QListView::item { min-height: 24px; }")
+        # A long name (a dual-band filter) can be cut off in a narrow box: hovering
+        # the box shows the current filter in full.
+        self.currentIndexChanged.connect(self._show_current_in_tooltip)
+        self._show_current_in_tooltip()
 
     def set_lookup(self, lookup: Optional[FilterLookup]) -> None:
         """Name the items through another filter set; keeps the selection."""
         self._lookup = lookup or plain_emission_filter
         items = [self.itemData(i) for i in range(self.count())]
         self.set_values(items)
+
+    def _show_current_in_tooltip(self, *_) -> None:
+        self.setToolTip(band_tooltip(self.emission_filter()) if self.count() else "")
 
     def emission_filter(self) -> EmissionFilter:
         """The filter the current item names."""
