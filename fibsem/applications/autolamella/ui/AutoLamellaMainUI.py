@@ -3166,6 +3166,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.task_widget.workflow_config_changed.connect(
             self.lamella_workflow_widget.set_workflow_config
         )
+        # A task added or removed there is added to or removed from every lamella:
+        # the lamella editor's task list is rebuilt, so it never edits a task its
+        # lamella no longer has (FIB-1109).
+        self.task_widget.workflow_config_changed.connect(
+            lambda _: self.lamella_widget._refresh_experiment_positions()
+        )
         # And the Grid page → Workflow → Grids: a task added on the Protocol tab
         # gets its row in the run view without an inventory or a reload.
         self.task_widget.grid_protocol_changed.connect(

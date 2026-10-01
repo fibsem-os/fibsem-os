@@ -3058,6 +3058,28 @@ class Experiment:
 
         return updated_count
 
+    def remove_task(self, task_name: str) -> None:
+        """Remove a task from the experiment: from the protocol, from the
+        workflow, and from every lamella's config (FIB-1109).
+
+        All three together, so the workflow never lists a task the protocol no
+        longer has, and no lamella runs a stale copy of one. A task that listed
+        it as a requirement no longer does. Task history is left alone: it is
+        the record of what ran.
+        """
+        self.task_protocol.task_config.pop(task_name, None)
+
+        workflow = self.task_protocol.workflow_config
+        workflow.tasks = [t for t in workflow.tasks if t.name != task_name]
+        for task in workflow.tasks:
+            if task_name in task.requires:
+                task.requires = [r for r in task.requires if r != task_name]
+
+        for lamella in self.positions:
+            lamella.task_config.pop(task_name, None)
+
+        logging.info(f"Removed task {task_name} from experiment {self.name}")
+
     def at_failure(self) -> List[Lamella]:
         """Return a list of lamellas that have failed"""
         return [lamella for lamella in self.positions if lamella.is_failure]
