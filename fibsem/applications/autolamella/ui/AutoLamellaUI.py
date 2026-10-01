@@ -890,17 +890,6 @@ class AutoLamellaUI(QMainWindow):
                 self.tabWidget.indexOf(self.spot_burn_widget), False
             )
 
-            try:
-                from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
-
-                if isinstance(self.microscope, OdemisThermoMicroscope):
-                    logging.info(
-                        "OdemisThermoMicroscope detected, enabling Odemis specific features."
-                    )
-
-            except Exception as e:
-                logging.debug(f"OdemisThermoMicroscope not available: {e}")
-
             self.image_widget.acquisition_progress_signal.connect(
                 self.handle_acquisition_update
             )
@@ -2284,27 +2273,6 @@ class AutoLamellaUI(QMainWindow):
 
         logging.info(f"Moving to position of {lamella.name}.")
         self.movement_widget.move_to_position(stage_position)
-
-    def _add_lamella_from_odemis(self):
-        if self.experiment is None:
-            return
-
-        filename = fui.open_existing_directory_dialog(
-            msg="Select Odemis Project Directory",
-            path=str(self.experiment.path),
-            parent=self,
-        )
-        if filename == "":
-            return
-
-        from fibsem.applications.autolamella.compat.odemis import (
-            _add_features_from_odemis,
-        )
-
-        stage_positions = _add_features_from_odemis(filename)
-
-        for pos in stage_positions:
-            self.add_new_lamella(pos)
 
     def _grid_id_for_new_lamella(
         self, position: Optional[FibsemStagePosition]
