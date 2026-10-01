@@ -3461,7 +3461,7 @@ class FibsemMicroscope(ABC):
             return DeviceImagingState.NO_DEVICE
 
         at_device = self.is_at_device(device, stage_position)
-        orientations = self._get_device(device).acquisition_orientations
+        orientations = self.get_acquisition_orientations(device)
         in_orientation = (
             not orientations
             or self.get_stage_orientation(stage_position) in orientations
@@ -3510,7 +3510,7 @@ class FibsemMicroscope(ABC):
             if orientation != "NONE"
             else "held in an unrecognised orientation"
         )
-        allowed = self._get_device(device).acquisition_orientations
+        allowed = self.get_acquisition_orientations(device)
         images_from = (
             f"images from the {' or '.join(allowed)} orientation"
             if allowed
@@ -3600,6 +3600,23 @@ class FibsemMicroscope(ABC):
                 setattr(translation, axis, end - start)
         return translation
 
+    def get_acquisition_orientations(self, device: str) -> List[str]:
+        """The orientations *device* images the sample from; empty constrains nothing.
+
+        As declared, with one correction. On a compustage the devices share one
+        place, so the pose is all that tells the FM from the beams, and an FM that
+        declared nothing would image from every pose -- "move to the FM" would insert
+        the objective at the SEM tilt without flipping. A declaration that leaves the
+        list out does exactly that, since a missing key reads as empty. So a
+        compustage FM that declares nothing images flipped, as one with no `devices:`
+        block does. Elsewhere empty stays unconstrained: the beams image from every
+        pose, and an offset FM is told apart by its place.
+        """
+        declared = list(self._get_device(device).acquisition_orientations)
+        if not declared and device == "FM" and self.stage_is_compustage:
+            return ["FM"]
+        return declared
+
     def _arrival_orientation(
         self,
         device: str,
@@ -3617,7 +3634,7 @@ class FibsemMicroscope(ABC):
         """
         if orientation is not None:
             return orientation
-        allowed = self._get_device(device).acquisition_orientations
+        allowed = self.get_acquisition_orientations(device)
         if allowed and self.get_stage_orientation(stage_position) not in allowed:
             return allowed[0]
         return None
@@ -3694,7 +3711,7 @@ class FibsemMicroscope(ABC):
         if desired is not None and orientation is None:
             logging.info(
                 f"The {device} device images from "
-                f"{target_device.acquisition_orientations}; re-posing to {desired} "
+                f"{self.get_acquisition_orientations(device)}; re-posing to {desired} "
                 f"at the beams before travelling."
             )
 

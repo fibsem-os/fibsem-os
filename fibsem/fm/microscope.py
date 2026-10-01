@@ -767,9 +767,8 @@ class FluorescenceMicroscope(ABC):
         microscope (widget tests do this), where there is no configuration to read.
         """
         try:
-            devices = self.parent.system.stage.devices
-            return list(devices["FM"].acquisition_orientations)
-        except (AttributeError, KeyError, TypeError):
+            return self.parent.get_acquisition_orientations("FM")
+        except (AttributeError, KeyError, TypeError, ValueError):
             return [self.default_orientation]
 
     def __repr__(self):
