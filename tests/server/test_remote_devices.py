@@ -23,7 +23,7 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
     connect_remote_beams,
 )
 from fibsem.server.devices import DeviceServer, demo_devices  # noqa: E402
-from fibsem.structures import BeamType, Point, ScanMode  # noqa: E402
+from fibsem.structures import BeamType, FibsemRectangle, Point, ScanMode  # noqa: E402
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 
@@ -275,3 +275,20 @@ def test_an_enum_value_crosses_the_wire_as_itself(served):
     local[BeamType.ELECTRON].spot(Point(0.5, 0.5))
     assert local[BeamType.ELECTRON].scanning_mode.get_value() is ScanMode.SPOT
     assert mode.get_value() is ScanMode.SPOT
+
+
+def test_the_scan_area_commands_run_on_the_far_side(served):
+    """spot, reduced_area and full_frame run on the server, with their structured
+    arguments arriving as themselves, and the mode reads back on both sides."""
+    local, remote, _ = served
+    beam, far = remote[BeamType.ELECTRON], local[BeamType.ELECTRON]
+    beam.spot(Point(0.25, 0.75))
+    assert far._system.scanning_mode_value == Point(0.25, 0.75)
+    assert beam.scanning_mode.cached is ScanMode.SPOT
+    area = FibsemRectangle(0.1, 0.2, 0.3, 0.4)
+    beam.reduced_area(area)
+    assert far._system.scanning_mode_value == area
+    assert beam.scanning_mode.cached is ScanMode.REDUCED_AREA
+    beam.full_frame()
+    assert far.scanning_mode.get_value() is ScanMode.FULL_FRAME
+    assert beam.scanning_mode.cached is ScanMode.FULL_FRAME
