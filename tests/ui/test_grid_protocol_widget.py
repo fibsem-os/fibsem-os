@@ -293,32 +293,23 @@ def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
     tabs = editor.protocol_tabs
     assert [tabs.tabText(i) for i in range(tabs.count())] == ["Lamella", "Grid"]
     assert editor.protocol_header.label.text() == exp.task_protocol.name
-    # the Grid page follows the flag, like the Grids tab
-    was = main_ui._preferences.features.grid_workflow
-    try:
-        main_ui._preferences.features.grid_workflow = False
-        main_ui._apply_grid_workflow_visibility()
-        assert not tabs.isTabVisible(1) and tabs.tabBar().isHidden()
-        main_ui._preferences.features.grid_workflow = True
-        main_ui._apply_grid_workflow_visibility()
-        assert tabs.isTabVisible(1) and not tabs.tabBar().isHidden()
+    # the Grid page is shown to everyone, with the selector's bar over it
+    assert tabs.isTabVisible(1) and not tabs.tabBar().isHidden()
 
-        tabs.setCurrentIndex(1)
-        assert editor.grid_protocol_active
-        assert editor.grid_protocol.editor_panel.isVisibleTo(editor)
-        assert not editor.task_parameters_config_widget.isVisibleTo(editor)
-        assert not editor.milling_task_editor.isVisibleTo(editor)
-        config = editor.grid_protocol.add_task(BEAM, "overview_sem")
-        assert saved_protocol(exp)["grid_tasks"]["order"] == ["overview_sem"]
-        assert editor.grid_protocol.editor_panel.title.text() == (
-            "overview_sem · Beam overview"
-        )
-        assert isinstance(config, BeamOverviewGridTaskConfig)
+    tabs.setCurrentIndex(1)
+    assert editor.grid_protocol_active
+    assert editor.grid_protocol.editor_panel.isVisibleTo(editor)
+    assert not editor.task_parameters_config_widget.isVisibleTo(editor)
+    assert not editor.milling_task_editor.isVisibleTo(editor)
+    config = editor.grid_protocol.add_task(BEAM, "overview_sem")
+    assert saved_protocol(exp)["grid_tasks"]["order"] == ["overview_sem"]
+    assert editor.grid_protocol.editor_panel.title.text() == (
+        "overview_sem · Beam overview"
+    )
+    assert isinstance(config, BeamOverviewGridTaskConfig)
 
-        tabs.setCurrentIndex(0)
-        assert not editor.grid_protocol.editor_panel.isVisibleTo(editor)
-        assert editor.task_parameters_config_widget.isVisibleTo(editor)
-        # the Grids tab no longer carries a protocol view
-        assert not hasattr(main_ui.grids_tab, "protocol_widget")
-    finally:
-        main_ui._preferences.features.grid_workflow = was
+    tabs.setCurrentIndex(0)
+    assert not editor.grid_protocol.editor_panel.isVisibleTo(editor)
+    assert editor.task_parameters_config_widget.isVisibleTo(editor)
+    # the Grids tab no longer carries a protocol view
+    assert not hasattr(main_ui.grids_tab, "protocol_widget")

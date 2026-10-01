@@ -58,12 +58,6 @@ _TIP_CONNECTION_CHIP = (
     "reconnecting and disconnecting. The Connection tab still works and is still "
     "where connecting happens; this is the header half of replacing it."
 )
-_LBL_GRID_WORKFLOW = "Enable Grid Workflow"
-_TIP_GRID_WORKFLOW = (
-    "Show the Grids tab and the Workflow tab's Grids view: inventory the grids in "
-    "the holder or autoloader, and acquire SEM, FIB and fluorescence overviews of "
-    "each. In development; the Microscope tab's Sample view is available either way."
-)
 _LBL_PROPOSE_REVIEW = "Review workflow (early access)"
 _TIP_PROPOSE_REVIEW = (
     "Show the Review tab and let a task's answer wait there for you to confirm "
@@ -177,9 +171,6 @@ class PreferencesDialog(QDialog):
         self._chk_connection_chip.setToolTip(_TIP_CONNECTION_CHIP)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
-        self._chk_grid_workflow = QCheckBox()
-        self._chk_grid_workflow.setToolTip(_TIP_GRID_WORKFLOW)
-        features_form.addRow(_LBL_GRID_WORKFLOW, self._chk_grid_workflow)
         self._chk_propose_review = QCheckBox()
         self._chk_propose_review.setToolTip(_TIP_PROPOSE_REVIEW)
         features_form.addRow(_LBL_PROPOSE_REVIEW, self._chk_propose_review)
@@ -276,7 +267,6 @@ class PreferencesDialog(QDialog):
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_agent_server.setChecked(f.agent_server_enabled)
         self._chk_connection_chip.setChecked(f.connection_chip)
-        self._chk_grid_workflow.setChecked(f.grid_workflow)
         self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
 
         self._spin_watchdog.setValue(prefs.agent.watchdog_minutes)
@@ -335,7 +325,6 @@ class PreferencesDialog(QDialog):
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
                 agent_server_enabled=self._chk_agent_server.isChecked(),
                 connection_chip=self._chk_connection_chip.isChecked(),
-                grid_workflow=self._chk_grid_workflow.isChecked(),
                 proposer_reviewer_workflow_enabled=self._chk_propose_review.isChecked(),
             ),
             movement=MovementPreferences(

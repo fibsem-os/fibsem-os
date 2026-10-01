@@ -415,21 +415,15 @@ def _wait_for_run(ui, timeout_s: float = 90.0) -> None:
     assert not ui.is_workflow_running, "the grid run did not finish in time"
 
 
-def test_the_grids_view_sits_beside_lamella_behind_the_flag(main_ui):
+def test_the_grids_view_sits_beside_lamella(main_ui):
     left = main_ui.workflow_left_tabs
     index = left.indexOf(main_ui.grid_workflow_widget)
     assert left.tabText(index) == "Grids" and left.tabText(0) == "Lamella"
-    was = main_ui._preferences.features.grid_workflow
-    try:
-        main_ui._preferences.features.grid_workflow = False
-        main_ui._apply_grid_workflow_visibility()
-        assert not left.isTabVisible(index)
-        assert left.tabBar().isHidden()  # one page: no bar, as the tab was before
-        main_ui._preferences.features.grid_workflow = True
-        main_ui._apply_grid_workflow_visibility()
-        assert left.isTabVisible(index) and not left.tabBar().isHidden()
-    finally:
-        main_ui._preferences.features.grid_workflow = was
+    assert left.isTabVisible(index) and not left.tabBar().isHidden()
+    # the selector says which list it is; the list's own title would say it twice
+    assert not main_ui.lamella_workflow_widget._lamella_header.isVisibleTo(
+        main_ui.lamella_workflow_widget
+    )
 
 
 def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):

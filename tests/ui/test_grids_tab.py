@@ -306,23 +306,28 @@ class _NoMinimap:
         pass
 
 
-def test_the_tab_sits_behind_the_flag_between_lamella_and_workflow(main_ui):
+def test_the_tab_sits_between_lamella_and_workflow_for_everyone(main_ui):
     tabs = main_ui.tab_widget
     index = tabs.indexOf(main_ui.grids_tab)
     labels = [tabs.tabText(i) for i in range(tabs.count())]
     assert labels[index - 1] == "Lamella" and labels[index + 1] == "Workflow"
-    # Both states set outright: the window loads (and on close saves) the
-    # preference file, so "off by default" would read whatever the last run left.
-    was = main_ui._preferences.features.grid_workflow
-    try:
-        main_ui._preferences.features.grid_workflow = False
-        main_ui._apply_grid_workflow_visibility()
-        assert not tabs.isTabVisible(index)
-        main_ui._preferences.features.grid_workflow = True
-        main_ui._apply_grid_workflow_visibility()
-        assert tabs.isTabVisible(index)
-    finally:
-        main_ui._preferences.features.grid_workflow = was
+    assert tabs.isTabVisible(index)
+
+
+def test_the_grid_workflow_flag_is_gone():
+    """The Grids tab, the Workflow tab's Grids view, the Protocol tab's Grid page and
+    the grid report were behind `features.grid_workflow`; they ship to everyone now.
+
+    Removed rather than defaulted on: every preferences save writes every key, so a
+    changed default would reach only machines that have never opened an experiment.
+    A saved file still carrying the key, either value, must load: `_sub_from_dict`
+    drops unknown keys, checked here rather than assumed, because the failure would
+    be at every startup.
+    """
+    assert not hasattr(cfg.FeatureFlags(), "grid_workflow")
+    for value in (False, True):
+        stale = {"features": {"grid_workflow": value}}
+        assert cfg.UserPreferences.from_dict(stale) is not None
 
 
 def test_the_tab_follows_the_connection_and_the_experiment(main_ui, tmp_path):
