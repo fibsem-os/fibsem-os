@@ -271,6 +271,7 @@ def test_device_demo_deposits_through_its_gis_device():
                 original(*args),
             ),
         )
+    microscope.gis_system = None  # the device keeps its own GIS, never Demo's
     settings = FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0)
     microscope.cryo_deposition_v2(settings)
     assert calls == [
@@ -896,19 +897,25 @@ def test_cryo_deposition_leaves_the_microscope_as_it_was(microscope, insert_posi
 
 def test_cryo_deposition_opens_the_valve_and_closes_it(microscope, monkeypatch):
     """The gas flows: the valve opens for the deposition and is closed after it."""
-    gis = microscope.gis_system  # Demo's GIS; DeviceDemo's device drives the same one
+    # The valve is Demo's GIS on Demo, and the GIS device's own on DeviceDemo.
+    device = microscope.gis_device
+    gis = microscope.gis_system if device is None else device
+    hooks = ("open", "close") if device is None else ("_open", "_close")
     steps = []
-    for name in ("open", "close"):
+    for name in hooks:
         original = getattr(gis, name)
         monkeypatch.setattr(
             gis,
             name,
-            lambda name=name, original=original: (steps.append(name), original()),
+            lambda name=name, original=original: (
+                steps.append(name.lstrip("_")),
+                original(),
+            ),
         )
     settings = FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0)
     microscope.cryo_deposition_v2(settings)
     assert steps == ["open", "close"]
-    assert gis.opened is False
+    assert (gis.opened if device is None else device.opened.get_value()) is False
 
 
 # ---------------------------------------------------------------------------

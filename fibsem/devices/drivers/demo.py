@@ -3,9 +3,10 @@
 ``DemoBeam`` implements each parameter with what the matching branch of
 ``DemoMicroscope._get`` and ``_set`` reads and writes, so the old call and the new
 parameter touch the same state. This is step 1 of moving a key ("declare and
-implement"); the Demo chain itself is unchanged. ``DemoStage``, ``DemoChamber``
-and ``DemoManipulator`` have gone further: each keeps its own copy of its part, and
-the microscope routes that part's keys to it.
+implement"); the Demo chain itself is unchanged. ``DemoStage``, ``DemoChamber``,
+``DemoManipulator`` and ``DemoGasInjector`` have gone further: each keeps its own
+copy of its part, and the microscope routes that part's keys to it (the GIS has
+none).
 """
 
 from __future__ import annotations
@@ -446,45 +447,57 @@ def bind_demo_manipulator(
 class DemoGasInjector(GasInjector):
     """The Demo gas injection system.
 
-    Each read and hook is the matching field or method of Demo's ``gis_system``,
-    the ``GasInjectionSystem`` that ``cryo_deposition_v2`` drives. Demo's GIS
+    It keeps its own simulated GIS in ``sim_gas``, ``sim_inserted``, ``sim_heated``
+    and ``sim_opened``, copied from the microscope's ``gis_system`` at connect, so it
+    starts where Demo's is and never touches Demo's again. Each hook is what the
+    matching method of Demo's ``GasInjectionSystem`` does, on that copy. Demo's GIS
     takes no insert position or gas, so those arguments are only logged.
     """
 
     def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
         super().__init__(parent=parent, resources=resources)
-        self._system = parent.gis_system
+        start = parent.gis_system
+        self.sim_gas: str = start.gas
+        self.sim_inserted: bool = start.inserted
+        self.sim_heated: bool = start.heated
+        self.sim_opened: bool = start.opened
 
     def read_gas(self) -> str:
-        return self._system.gas
+        return self.sim_gas
 
     def read_state(self) -> InsertableDeviceState:
-        return _insertable_state(self._system.inserted)
+        return _insertable_state(self.sim_inserted)
 
     def read_heated(self) -> bool:
-        return self._system.heated
+        return self.sim_heated
 
     def read_opened(self) -> bool:
-        return self._system.opened
+        return self.sim_opened
 
     def _insert(self, position: Optional[str]) -> None:
-        self._system.insert()
+        self.sim_inserted = True
+        logging.debug("GIS inserted")
 
     def _retract(self) -> None:
-        self._system.retract()
+        self.sim_inserted = False
+        logging.debug("GIS retracted")
 
     def _heater_on(self, gas: Optional[str]) -> None:
-        self._system.turn_heater_on()
+        self.sim_heated = True
+        logging.debug("GIS heater on")
         sim_sleep(3)  # Demo's heater takes a moment, as its deposition waits for
 
     def _heater_off(self) -> None:
-        self._system.turn_heater_off()
+        self.sim_heated = False
+        logging.debug("GIS heater off")
 
     def _open(self) -> None:
-        self._system.open()
+        self.sim_opened = True
+        logging.debug("GIS opened")
 
     def _close(self) -> None:
-        self._system.close()
+        self.sim_opened = False
+        logging.debug("GIS closed")
 
 
 def bind_demo_gis(
