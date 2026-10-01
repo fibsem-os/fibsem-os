@@ -459,6 +459,7 @@ class DemoGasInjector(GasInjector):
 
     def _heater_on(self, gas: Optional[str]) -> None:
         self._system.turn_heater_on()
+        sim_sleep(3)  # Demo's heater takes a moment, as its deposition waits for
 
     def _heater_off(self) -> None:
         self._system.turn_heater_off()

@@ -1323,7 +1323,30 @@ class FibsemMicroscope(ABC):
         raise self._unsupported("draw_polygon")
 
     def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
-        raise self._unsupported("cryo_deposition_v2")
+        """Deposit through the GIS device: insert, heat, open for the duration,
+        close, heater off, retract."""
+        gis = self.gis_device
+        if gis is None:
+            raise self._unsupported("cryo_deposition_v2")
+        logging.info({"msg": "inserting gis", "settings": gis_settings.to_dict()})
+        logging.info(
+            f"Inserting Gas Injection System at {gis_settings.insert_position}"
+        )
+        gis.insert(gis_settings.insert_position)
+        logging.info(f"Turning on heater for {gis_settings.gas}")
+        gis.heater_on(gis_settings.gas)
+        logging.info(f"Running deposition for {gis_settings.duration} seconds")
+        gis.open()
+        self._wait(gis_settings.duration)
+        gis.close()
+        logging.info(f"Turning off heater for {gis_settings.gas}")
+        gis.heater_off()
+        logging.info("Retracting Gas Injection System")
+        gis.retract()
+
+    def _wait(self, seconds: float) -> None:
+        """Wait for the instrument, as a timed step does (a deposition)."""
+        time.sleep(seconds)
 
     def setup_sputter(self, *args, **kwargs):
         raise self._unsupported("setup_sputter")
@@ -1411,6 +1434,9 @@ class FibsemMicroscope(ABC):
     # (pump/vent, get_manipulator_state/position) use the device directly.
     chamber_device: Optional[Any] = None
     manipulator_device: Optional[Any] = None
+    # The gas injection system as a device (fibsem.devices.GasInjector); it has no
+    # keys, and `cryo_deposition_v2` runs its sequence through the device.
+    gis_device: Optional[Any] = None
     # The FM's parts and its group as devices (fibsem.devices.fm), by device name,
     # beside `fm`. They drive the same FM objects `fm` holds, so the two share one
     # state. Empty when there is no FM or the backend builds no devices.

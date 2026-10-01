@@ -79,11 +79,10 @@ class DeviceDemoMicroscope(DemoMicroscope):
             return dict(devices)
         return bind_fm_devices(self.fm)
 
-    # The raw stage and manipulator moves, `home` and the saved manipulator
-    # positions are the base class's, through the devices. Demo overrides them, so
+    # The raw stage and manipulator moves, `home`, the saved manipulator positions
+    # and the deposition are the base class's, through the devices. Demo overrides them, so
     # while this class inherits Demo it names the base class's versions explicitly.
-    # What stays here is Demo's own: its corrected and offset needle moves, and its
-    # deposition.
+    # What stays here is Demo's own: its corrected and offset needle moves.
     move_stage_absolute = FibsemMicroscope.move_stage_absolute
     move_stage_relative = FibsemMicroscope.move_stage_relative
     home = FibsemMicroscope.home
@@ -92,6 +91,7 @@ class DeviceDemoMicroscope(DemoMicroscope):
     move_manipulator_absolute = FibsemMicroscope.move_manipulator_absolute
     move_manipulator_relative = FibsemMicroscope.move_manipulator_relative
     _get_saved_manipulator_position = FibsemMicroscope._get_saved_manipulator_position
+    cryo_deposition_v2 = FibsemMicroscope.cryo_deposition_v2
 
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType
@@ -109,26 +109,3 @@ class DeviceDemoMicroscope(DemoMicroscope):
         self, offset: FibsemManipulatorPosition, name: Optional[str] = None
     ) -> FibsemManipulatorPosition:
         return self.manipulator_device.move_to_offset(offset, name or "EUCENTRIC")
-
-    def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
-        """Demo's deposition, step for step, through the GIS device.
-
-        Demo never opens the valve (its ``gis.open()`` is commented out) but closes
-        it after the wait; this keeps that.
-        """
-        gis = self.gis_device
-        logging.info({"msg": "inserting gis", "settings": gis_settings.to_dict()})
-        logging.info(
-            f"Inserting Gas Injection System at {gis_settings.insert_position}"
-        )
-        gis.insert(gis_settings.insert_position)
-        logging.info(f"Turning on heater for {gis_settings.gas}")
-        gis.heater_on(gis_settings.gas)
-        sim_sleep(3)  # wait for the heat
-        logging.info(f"Running deposition for {gis_settings.duration} seconds")
-        sim_sleep(gis_settings.duration)
-        gis.close()
-        logging.info(f"Turning off heater for {gis_settings.gas}")
-        gis.heater_off()
-        logging.info("Retracting Gas Injection System")
-        gis.retract()
