@@ -68,6 +68,19 @@ def test_light_and_filters_read_and_write_the_far_side(served):
     assert fm.filter_set.emission_wavelength == "Fluorescence"
     fm.filter_set.emission_wavelength = None
     assert far.filter_set.emission_wavelength is None
+
+
+def test_an_excitation_between_bands_selects_the_nearest_remotely(served):
+    """FIB-1094: the server used to refuse what the local FM accepts."""
+    far, fm = served
+    fm.filter_set.excitation_wavelength = 488
+    assert far.filter_set.excitation_wavelength == 450
+    assert fm.filter_set.excitation_wavelength == 450
+
+    fm.set_channel(
+        ChannelSettings(excitation_wavelength=600, power=0.2, exposure_time=0.01)
+    )
+    assert far.filter_set.excitation_wavelength == 635
     assert fm.filter_set.emission_wavelength is None
     assert fm.filter_set.available_emission_wavelengths == tuple(
         far.filter_set.available_emission_wavelengths
