@@ -24,9 +24,10 @@ where connect found it; only a compustage's ``stage_linked``, which its device
 doesn't have, still reads it, and nothing changes that value on a compustage.
 The chamber keeps its own state too: ``chamber_state`` and ``chamber_pressure``
 read it, and ``pump_chamber`` and ``vent_chamber`` run its commands (a false value
-still goes to Demo's branch, which does nothing). The manipulator still shares
-Demo's state, so its keys are not routed yet; the base class's methods that read it
-use the device directly. The GIS has
+still goes to Demo's branch, which does nothing). So does the manipulator:
+``manipulator_position`` and ``manipulator_state`` read it (the state as a bool,
+as Demo returns it); the old API moves the needle with methods, which use the
+device. The GIS has
 no keys; ``cryo_deposition_v2`` runs its sequence through the device's commands.
 
 The FM's parts are ``fm_devices``, built over the same objects ``fm`` holds, so the
@@ -51,6 +52,7 @@ from fibsem.devices.drivers.demo import (
     bind_demo_stage,
 )
 from fibsem.devices.drivers.fm import bind_fm_devices
+from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import (
@@ -79,10 +81,12 @@ class DeviceDemoMicroscope(DemoMicroscope):
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
         self.stage_device = bind_demo_stage(self)
         self.chamber_device = bind_demo_chamber(self)
+        self.manipulator_device = bind_demo_manipulator(self)
         self._device_routes = MappingProxyType(
             {
                 **_routes("stage_device", STAGE_ROUTES),
                 **_routes("chamber_device", CHAMBER_ROUTES),
+                **_routes("manipulator_device", MANIPULATOR_ROUTES),
             }
         )
         self._command_routes = MappingProxyType(
@@ -91,7 +95,6 @@ class DeviceDemoMicroscope(DemoMicroscope):
                 **_routes("chamber_device", CHAMBER_COMMAND_ROUTES),
             }
         )
-        self.manipulator_device = bind_demo_manipulator(self)
         self.gis_device = bind_demo_gis(self)
         self.fm_devices = MappingProxyType(self._fm_devices())
 

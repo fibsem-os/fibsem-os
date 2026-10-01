@@ -201,11 +201,20 @@ def _chamber_state_name(state: ChamberState) -> str:
     return state.value.capitalize()
 
 
-def _old_key_value(value: Any) -> Any:
+# The old keys whose value differs from their device parameter's.
+_OLD_KEY_VALUES: Mapping[str, Callable[[Any], Any]] = MappingProxyType(
+    {
+        "chamber_state": _chamber_state_name,  # "Pumped", not ChamberState.PUMPED
+        "manipulator_state": lambda state: state is InsertableDeviceState.INSERTED,
+    }
+)
+
+
+def _old_key_value(key: str, value: Any) -> Any:
     """A device parameter's value as the old key returns it: an enum as its plain
-    value ("spot"), and a chamber state by its name ("Pumped")."""
-    if isinstance(value, ChamberState):
-        return _chamber_state_name(value)
+    value ("spot"), except where `_OLD_KEY_VALUES` says otherwise."""
+    if key in _OLD_KEY_VALUES:
+        return _OLD_KEY_VALUES[key](value)
     if isinstance(value, Enum):
         return value.value
     return value
@@ -1523,7 +1532,7 @@ class FibsemMicroscope(ABC):
         """Get wrapper for logging."""
         param = self._route(key, beam_type)
         if param is not None:
-            value = _old_key_value(param.get_value())
+            value = _old_key_value(key, param.get_value())
         elif key in _BEAM_CONFIG_KEYS:
             value = getattr(self._beam_config(key, beam_type), _BEAM_CONFIG_KEYS[key])
         elif key in _INFO_KEYS:

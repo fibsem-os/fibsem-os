@@ -3,9 +3,9 @@
 ``DemoBeam`` implements each parameter with what the matching branch of
 ``DemoMicroscope._get`` and ``_set`` reads and writes, so the old call and the new
 parameter touch the same state. This is step 1 of moving a key ("declare and
-implement"); the Demo chain itself is unchanged. ``DemoStage`` and ``DemoChamber``
-have gone further: each keeps its own copy of its part, and the microscope routes
-that part's keys to it.
+implement"); the Demo chain itself is unchanged. ``DemoStage``, ``DemoChamber``
+and ``DemoManipulator`` have gone further: each keeps its own copy of its part, and
+the microscope routes that part's keys to it.
 """
 
 from __future__ import annotations
@@ -374,8 +374,11 @@ _DEMO_ORIGIN = FibsemManipulatorPosition(x=0, y=0, z=0, r=0, t=0)
 class DemoManipulator(Manipulator):
     """The Demo manipulator.
 
-    Each method is what the matching part of ``DemoMicroscope`` does today, reading
-    and writing the same ``manipulator_system``:
+    It keeps its own simulated needle in ``sim_position`` and ``sim_inserted``,
+    copied from the microscope's ``manipulator_system`` at connect, so it starts
+    where Demo's is and never touches Demo's again. A microscope that builds it
+    routes the manipulator keys to it (``DeviceDemoMicroscope``). Each method is what
+    the matching part of ``DemoMicroscope`` does, on that copy:
 
     - ``read_position`` / ``read_state``: the ``manipulator_position`` /
       ``manipulator_state`` branches of ``_get``;
@@ -391,13 +394,15 @@ class DemoManipulator(Manipulator):
 
     def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
         super().__init__(parent=parent, resources=resources)
-        self._system = parent.manipulator_system
+        start = parent.manipulator_system
+        self.sim_position: FibsemManipulatorPosition = deepcopy(start.position)
+        self.sim_inserted: bool = start.inserted
 
     def read_position(self) -> FibsemManipulatorPosition:
-        return deepcopy(self._system.position)
+        return deepcopy(self.sim_position)
 
     def read_state(self) -> InsertableDeviceState:
-        return _insertable_state(self._system.inserted)
+        return _insertable_state(self.sim_inserted)
 
     def saved_position(self, name: str = "PARK") -> FibsemManipulatorPosition:
         if name == "PARK":
@@ -409,25 +414,25 @@ class DemoManipulator(Manipulator):
     def _insert(self, name: str) -> None:
         logging.info(f"Inserting manipulator to {name}...")
         self._move_absolute(_DEMO_PARK)
-        self._system.inserted = True
+        self.sim_inserted = True
         logging.debug({"msg": "insert_manipulator", "name": name})
 
     def _retract(self) -> None:
         logging.info("Retracting manipulator...")
         self._move_absolute(_DEMO_ORIGIN)
-        self._system.inserted = False
+        self.sim_inserted = False
         logging.debug({"msg": "retract_manipulator"})
 
     def _move_absolute(self, position: FibsemManipulatorPosition) -> None:
         logging.info(f"Moving manipulator: {position} (Absolute)")
-        self._system.position = deepcopy(position)
+        self.sim_position = deepcopy(position)
         logging.debug(
             {"msg": "move_manipulator_absolute", "position": position.to_dict()}
         )
 
     def _move_relative(self, delta: FibsemManipulatorPosition) -> None:
         logging.info(f"Moving manipulator: {delta} (Relative)")
-        self._system.position += delta
+        self.sim_position += delta
         logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
 
 

@@ -369,6 +369,26 @@ def test_device_demo_chamber_keeps_its_own_state_and_serves_the_chamber_keys():
     assert microscope.chamber == demo_chamber
 
 
+def test_device_demo_manipulator_keeps_its_own_state_and_serves_its_keys():
+    """The manipulator device owns its state: the manipulator keys read it, and
+    Demo's own needle is never touched again after connect."""
+    microscope = _connect("DeviceDemo")
+    demo_needle = deepcopy(microscope.manipulator_system)
+    chain = []
+    original = microscope._get
+    microscope._get = lambda key, *args: (chain.append(key), original(key, *args))[1]
+    assert microscope.get("manipulator_state") is False
+    microscope.insert_manipulator("PARK")
+    microscope.move_manipulator_relative(FibsemManipulatorPosition(x=1e-6))
+    assert microscope.get("manipulator_state") is True
+    assert _xyzrt(microscope.get("manipulator_position")) == _xyzrt(
+        microscope.manipulator_device.sim_position
+    )
+    assert microscope.get("manipulator_position").x == pytest.approx(1e-6)
+    assert not chain
+    assert microscope.manipulator_system == demo_needle
+
+
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_device_demo_scans_through_its_beam_commands(beam_type):
     """DeviceDemo's scan-mode methods call the beam's commands, not the Demo chain."""
