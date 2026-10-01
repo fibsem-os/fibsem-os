@@ -42,7 +42,7 @@ from fibsem.devices.drivers.demo import (
     bind_demo_stage,
 )
 from fibsem.devices.drivers.fm import bind_fm_devices
-from fibsem.microscope import _records_stage_move
+from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import (
     BeamType,
@@ -79,38 +79,19 @@ class DeviceDemoMicroscope(DemoMicroscope):
             return dict(devices)
         return bind_fm_devices(self.fm)
 
-    # The old moves go through the device without its limit check, as today.
-
-    @_records_stage_move
-    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        self.stage_device.move_through(position)
-        return self.get_stage_position()
-
-    def home(self) -> bool:
-        return self.stage_device.home()
-
-    @_records_stage_move
-    def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        self.stage_device.move_through(position, relative=True)
-        return self.get_stage_position()
-
-    # The manipulator methods, through the device. Each returns the position after.
-
-    def insert_manipulator(self, name: str = "PARK") -> FibsemManipulatorPosition:
-        return self.manipulator_device.insert(name)
-
-    def retract_manipulator(self) -> FibsemManipulatorPosition:
-        return self.manipulator_device.retract()
-
-    def move_manipulator_absolute(
-        self, position: FibsemManipulatorPosition
-    ) -> FibsemManipulatorPosition:
-        return self.manipulator_device.move_absolute(position)
-
-    def move_manipulator_relative(
-        self, position: FibsemManipulatorPosition
-    ) -> FibsemManipulatorPosition:
-        return self.manipulator_device.move_relative(position)
+    # The raw stage and manipulator moves, `home` and the saved manipulator
+    # positions are the base class's, through the devices. Demo overrides them, so
+    # while this class inherits Demo it names the base class's versions explicitly.
+    # What stays here is Demo's own: its corrected and offset needle moves, and its
+    # deposition.
+    move_stage_absolute = FibsemMicroscope.move_stage_absolute
+    move_stage_relative = FibsemMicroscope.move_stage_relative
+    home = FibsemMicroscope.home
+    insert_manipulator = FibsemMicroscope.insert_manipulator
+    retract_manipulator = FibsemMicroscope.retract_manipulator
+    move_manipulator_absolute = FibsemMicroscope.move_manipulator_absolute
+    move_manipulator_relative = FibsemMicroscope.move_manipulator_relative
+    _get_saved_manipulator_position = FibsemMicroscope._get_saved_manipulator_position
 
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType
@@ -128,11 +109,6 @@ class DeviceDemoMicroscope(DemoMicroscope):
         self, offset: FibsemManipulatorPosition, name: Optional[str] = None
     ) -> FibsemManipulatorPosition:
         return self.manipulator_device.move_to_offset(offset, name or "EUCENTRIC")
-
-    def _get_saved_manipulator_position(
-        self, name: str = "PARK"
-    ) -> FibsemManipulatorPosition:
-        return self.manipulator_device.saved_position(name)
 
     def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
         """Demo's deposition, step for step, through the GIS device.

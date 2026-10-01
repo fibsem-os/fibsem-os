@@ -532,6 +532,11 @@ class FibsemMicroscope(ABC):
             except Exception as e:
                 logging.warning(f"Could not apply configured objective {name}: {e}")
 
+    def beam_uses_presets(self, beam_type: BeamType) -> bool:
+        """Whether this column is set by choosing a preset rather than a voltage and
+        a current. Backends where that is so override it."""
+        return False
+
     def capture_defaults(self, beam_type: Optional[BeamType] = None) -> None:
         """Record what the instrument is doing now as the defaults a session starts from.
 
@@ -574,6 +579,10 @@ class FibsemMicroscope(ABC):
                     "scan_rotation",
                 ):
                     setattr(record.beam, name, deepcopy(getattr(beam, name)))
+                # A preset-driven column is set by its preset, so that is its
+                # default. Kept when the backend cannot say which one is active.
+                if self.beam_uses_presets(record.beam_type) and beam.preset:
+                    record.beam.preset = beam.preset
             if detector is not None:
                 record.detector.type = detector.type
                 record.detector.mode = detector.mode
@@ -599,13 +608,23 @@ class FibsemMicroscope(ABC):
 
         return axes_limits
 
-    @abstractmethod
-    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        pass
+    # The raw moves go through the stage device when the backend builds one, without
+    # its limit check (the old API never had one); a backend without one overrides
+    # them.
 
-    @abstractmethod
+    @_records_stage_move
+    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
+        if self.stage_device is None:
+            raise self._unsupported("move_stage_absolute")
+        self.stage_device.move_through(position)
+        return self.get_stage_position()
+
+    @_records_stage_move
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        pass
+        if self.stage_device is None:
+            raise self._unsupported("move_stage_relative")
+        self.stage_device.move_through(position, relative=True)
+        return self.get_stage_position()
 
     # The view-corrected moves below are shared by every backend but Tescan, which has
     # its own stage model. The geometry is in `fibsem.geometry.movement`; these read the
@@ -1163,23 +1182,35 @@ class FibsemMicroscope(ABC):
         return self.get("manipulator_position")
 
     # Every manipulator move returns where the needle is afterwards, as the
-    # Manipulator device's commands do.
+    # Manipulator device's commands do. The raw moves go through the device when the
+    # backend builds one. The corrected and offset moves depend on the stage and
+    # beam geometry, which differs by backend, so they stay the backend's.
 
-    def insert_manipulator(self, name: str) -> Optional[FibsemManipulatorPosition]:
-        raise self._unsupported("insert_manipulator")
+    def insert_manipulator(
+        self, name: str = "PARK"
+    ) -> Optional[FibsemManipulatorPosition]:
+        if self.manipulator_device is None:
+            raise self._unsupported("insert_manipulator")
+        return self.manipulator_device.insert(name)
 
     def retract_manipulator(self) -> Optional[FibsemManipulatorPosition]:
-        raise self._unsupported("retract_manipulator")
+        if self.manipulator_device is None:
+            raise self._unsupported("retract_manipulator")
+        return self.manipulator_device.retract()
 
     def move_manipulator_relative(
         self, position: FibsemManipulatorPosition
     ) -> Optional[FibsemManipulatorPosition]:
-        raise self._unsupported("move_manipulator_relative")
+        if self.manipulator_device is None:
+            raise self._unsupported("move_manipulator_relative")
+        return self.manipulator_device.move_relative(position)
 
     def move_manipulator_absolute(
         self, position: FibsemManipulatorPosition
     ) -> Optional[FibsemManipulatorPosition]:
-        raise self._unsupported("move_manipulator_absolute")
+        if self.manipulator_device is None:
+            raise self._unsupported("move_manipulator_absolute")
+        return self.manipulator_device.move_absolute(position)
 
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType
@@ -1192,7 +1223,9 @@ class FibsemMicroscope(ABC):
         raise self._unsupported("move_manipulator_to_position_offset")
 
     def _get_saved_manipulator_position(self, name: str) -> FibsemManipulatorPosition:
-        raise self._unsupported("_get_saved_manipulator_position")
+        if self.manipulator_device is None:
+            raise self._unsupported("_get_saved_manipulator_position")
+        return self.manipulator_device.saved_position(name)
 
     @abstractmethod
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
@@ -1550,8 +1583,10 @@ class FibsemMicroscope(ABC):
         beam_type = beam_settings.beam_type
         setters = (
             (self.set_working_distance, beam_settings.working_distance),
-            (self.set_beam_current, beam_settings.beam_current),
+            # voltage before current: on some instruments (ThermoFisher FIB) the
+            # available currents are calibrated per voltage.
             (self.set_beam_voltage, beam_settings.voltage),
+            (self.set_beam_current, beam_settings.beam_current),
             (self.set_field_of_view, beam_settings.hfw),
             (self.set_resolution, beam_settings.resolution),
             (self.set_dwell_time, beam_settings.dwell_time),

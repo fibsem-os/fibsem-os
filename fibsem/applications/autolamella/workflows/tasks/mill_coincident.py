@@ -122,13 +122,11 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "MillCoincidentTaskConfig":
-        cfg = AutoLamellaTaskConfig.from_dict(ddict)
-        params = ddict.get("parameters", {}) or {}
+        params = ddict.get("parameters") or {}
+        cls._warn_unknown_parameters(params)
         channel = ddict.get("monitoring_channel")
         kwargs = dict(
-            task_name=cfg.task_name,
-            milling=cfg.milling,
-            reference_imaging=cfg.reference_imaging,
+            **cls._load_core(ddict),
             setup_task=str(params.get("setup_task", DEFAULT_SETUP_TASK_NAME)),
             acquire_fluorescence_images=bool(
                 params.get("acquire_fluorescence_images", True)

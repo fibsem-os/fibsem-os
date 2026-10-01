@@ -3034,6 +3034,23 @@ class FMOverviewWidget(QWidget):
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
+    def hideEvent(self, event) -> None:
+        # The tile grid panel is a top-level window, so it does not go with this
+        # widget on its own: switching tab left it floating over the next one
+        # (FIB-1110). The button is unchecked with it, so one click opens it again.
+        # Reached from C++ during teardown too, where raising is fatal under PyQt5,
+        # so looked up tolerantly and never raises.
+        super().hideEvent(event)
+        panel = self.__dict__.get("tile_grid_panel")
+        button = self.__dict__.get("btn_tile_grid")
+        try:
+            if panel is not None:
+                panel.hide()
+            if button is not None:
+                button.setChecked(False)
+        except RuntimeError:  # wrapped C/C++ object already deleted
+            pass
+
     def closeEvent(self, event) -> None:
         if self.is_acquiring:
             self._stop_event.set()

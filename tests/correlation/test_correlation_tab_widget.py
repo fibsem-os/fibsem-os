@@ -354,6 +354,53 @@ def test_apply_post_creates_ghost_and_status(qapp):
     )
 
 
+def _run_without_surface(w):
+    """A finished run on a blank FIB image, before any surface point exists."""
+    import copy
+
+    from fibsem.structures import FibsemImage
+
+    w.set_fib_image(FibsemImage.generate_blank_image(resolution=(512, 512), hfw=100e-6))
+    result = CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=100.0, y=300.0))],
+        input_data=copy.deepcopy(w.fit_data),
+    )
+    w._on_run_finished(result)
+    assert not w._btn_continue.isHidden()
+    return result
+
+
+def test_apply_post_after_run_restores_continue(qapp):
+    """Placing the FIB surface after the run hides Continue (the surface is a
+    transform input); applying the correction records that surface on the
+    result, so Continue must come back."""
+    w = _widget(qapp)
+    _run_without_surface(w)
+
+    w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
+    assert w._btn_continue.isHidden()
+
+    w._ri_tab._ri_widget.set_factor(1.5)
+    w._ri_tab._apply()
+
+    assert not w._btn_continue.isHidden()
+    assert w._btn_continue.isEnabled()
+
+
+def test_apply_post_on_stale_result_keeps_continue_hidden(qapp):
+    """Apply records only the surface: a result stale for another reason stays stale."""
+    w = _widget(qapp)
+    _run_without_surface(w)
+
+    w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
+    w._on_canvas_add_requested(50.0, 60.0, PointType.FIB)
+
+    w._ri_tab._ri_widget.set_factor(1.5)
+    w._ri_tab._apply()
+
+    assert w._btn_continue.isHidden()
+
+
 def test_apply_post_blocked_when_already_corrected(qapp):
     w = _widget(qapp)
     w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
