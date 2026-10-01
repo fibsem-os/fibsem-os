@@ -98,6 +98,9 @@ from fibsem.applications.autolamella.ui.autolamella_load_experiment_widget impor
 from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget import (
     load_task_protocol_dialog,
 )
+from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
+    create_overview_image_widget,
+)
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
 from fibsem.ui.fm.widgets import MinimapPlotWidget
@@ -127,13 +130,13 @@ warnings.filterwarnings(
     module=r"napari\.layers\.shapes\._shapes_utils",
 )
 
+# The PDF report needs the `reporting` extra (reportlab). The overview plot does not --
+# it is matplotlib and Qt -- so it is imported with the other dialogs above rather than
+# here, where a missing reportlab used to take it down too.
 REPORTING_AVAILABLE: bool = False
 try:
     from fibsem.applications.autolamella.ui.autolamella_generate_report_widget import (
         generate_report_dialog,
-    )
-    from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
-        create_overview_image_widget,
     )
 
     REPORTING_AVAILABLE = True
@@ -985,18 +988,20 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is None:
             return
 
+        if not REPORTING_AVAILABLE:
+            notification_service.show_toast(
+                "Reporting tools are not available. "
+                'Install the reporting extra: pip install "fibsem[reporting]"',
+                "warning",
+            )
+            return
+
         generate_report_dialog(self.experiment, parent=self)
         return
 
     def action_generate_overview_plot(self) -> None:
         """Generate an plot with the lamella position on an overview image."""
         if self.experiment is None:
-            return
-
-        if not REPORTING_AVAILABLE:
-            notification_service.show_toast(
-                "Reporting tools are not available.", "warning"
-            )
             return
 
         dialog = create_overview_image_widget(experiment=self.experiment, parent=self)
