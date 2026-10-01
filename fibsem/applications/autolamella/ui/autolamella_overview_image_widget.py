@@ -163,7 +163,6 @@ class OverviewImageWidget(QWidget):
         self._pan_start = None
         self._pan_axes_limits = None
         self._initial_axes_limits = []
-        self._title_artist = None
 
         self.initUI()
 
@@ -576,6 +575,40 @@ class OverviewImageWidget(QWidget):
             self.color_label.setStyleSheet(f"color: {color.name()}; font-size: 20px;")
             self._on_preview_clicked()
 
+    def _build_figure(self, title_color: str) -> Figure:
+        """Render the overview and its markers into a new figure.
+
+        The one place the figure is drawn, so the preview and the export cannot drift
+        apart in anything but the title's colour, which is the only thing that
+        legitimately differs between the dark preview and a white page.
+        """
+        # lamella name -> free-text description, for the optional subtitle
+        descriptions = {lam.name: lam.description for lam in self.experiment.positions}
+
+        fig = plot_minimap(
+            self.overview_image,
+            self.stage_positions,
+            current_position=None,
+            grid_positions=None,
+            color=self.marker_color.name(),
+            fontsize=self.text_size_spinbox.value(),
+            markersize=self.markersize_spinbox.value(),
+            show_scalebar=self.show_scalebar_checkbox.isChecked(),
+            show_names=self.show_names_checkbox.isChecked(),
+            show_descriptions=self.show_descriptions_checkbox.isChecked(),
+            descriptions=descriptions,
+            # None sizes the figure to the overview's aspect. The preview's figure is
+            # resized to the canvas widget as soon as it is shown, so for the preview
+            # this is only a starting point; for the export it decides the page.
+            figsize=None,
+        )
+
+        title_text = self.title_textbox.text().strip()
+        if title_text:
+            fig.suptitle(title_text, fontsize=14, color=title_color)
+        fig.tight_layout(rect=(0, 0, 1, 0.98))
+        return fig
+
     def _on_preview_clicked(self):
         """Generate and display preview of the overview image."""
         if self.experiment is None:
@@ -587,44 +620,12 @@ class OverviewImageWidget(QWidget):
             return
 
         try:
-            # Get settings
-            show_names = self.show_names_checkbox.isChecked()
-            show_descriptions = self.show_descriptions_checkbox.isChecked()
-            show_scalebar = self.show_scalebar_checkbox.isChecked()
-            color = self.marker_color.name()
-            fontsize = self.text_size_spinbox.value()
-            markersize = self.markersize_spinbox.value()
-
-            # lamella name -> free-text description, for the optional subtitle
-            descriptions = {
-                lam.name: lam.description for lam in self.experiment.positions
-            }
-
             if not self.stage_positions:
                 self.info_label.setText("Warning: No positions found for MILLING state")
                 self._create_empty_canvas()
                 return
 
-            # Generate figure
-            fig = plot_minimap(
-                self.overview_image,
-                self.stage_positions,
-                current_position=None,
-                grid_positions=None,
-                color=color,
-                fontsize=fontsize,
-                markersize=markersize,
-                show_scalebar=show_scalebar,
-                show_names=show_names,
-                show_descriptions=show_descriptions,
-                descriptions=descriptions,
-                figsize=(15, 15),
-            )
-
-            # Add title
-            title_text = self.title_textbox.text().strip()
-            self._title_artist = fig.suptitle(title_text, fontsize=14, color="white")
-            fig.tight_layout(rect=(0, 0, 1, 0.98))
+            fig = self._build_figure(title_color="white")
 
             # Store and display figure
             self.current_figure = fig
@@ -666,14 +667,19 @@ class OverviewImageWidget(QWidget):
             # User cancelled
             return
 
-        original_title_color = None
+        export_figure = None
         try:
-            if self._title_artist is not None:
-                original_title_color = self._title_artist.get_color()
-                self._title_artist.set_color("black")
-
-            # Save the current figure directly
-            self.current_figure.savefig(
+            # Rendered fresh rather than saved from the preview. The preview's figure
+            # has been resized to the canvas widget, so its shape is the dialog's, not
+            # the overview's: a 3:1 overview saved from a 3:2 dialog filled about half
+            # the page height, with the rest a blank band between title and image that
+            # `bbox_inches="tight"` cannot remove, because the gap is inside the box.
+            #
+            # This also retires recolouring the preview's title black for the save and
+            # putting it back afterwards.
+            export_figure = self._build_figure(title_color="black")
+            self._match_view_limits(source=self.current_figure, target=export_figure)
+            export_figure.savefig(
                 output_path, dpi=300, bbox_inches="tight", facecolor="white"
             )
 
@@ -687,8 +693,21 @@ class OverviewImageWidget(QWidget):
             traceback.print_exc()
             self.info_label.setText(f"Error saving: {str(e)}")
         finally:
-            if self._title_artist is not None and original_title_color is not None:
-                self._title_artist.set_color(original_title_color)
+            if export_figure is not None:
+                plt.close(export_figure)
+
+    @staticmethod
+    def _match_view_limits(source: Optional[Figure], target: Figure) -> None:
+        """Copy the panned and zoomed view from one figure's axes onto another's.
+
+        So exporting after zooming into part of the grid exports that part, which is
+        the reason the preview can be zoomed at all.
+        """
+        if source is None:
+            return
+        for src_ax, dst_ax in zip(source.axes, target.axes):
+            dst_ax.set_xlim(src_ax.get_xlim())
+            dst_ax.set_ylim(src_ax.get_ylim())
 
 
 def create_overview_image_widget(

@@ -35,6 +35,35 @@ POSITION_COLOURS = [
     "red",
 ]
 
+# Figure width in inches when the size is derived from the image. The height follows
+# the image's aspect, so a 3:1 overview gets a 3:1 figure.
+_AUTO_FIGURE_WIDTH_IN = 10.0
+
+
+def figsize_for_image(
+    image_shape: Tuple[int, ...], width_in: float = _AUTO_FIGURE_WIDTH_IN
+) -> Tuple[float, float]:
+    """A figure the same shape as the image, so the image fills it.
+
+    A wide overview in a square figure spends the difference on blank paper, and
+    ``bbox_inches="tight"`` cannot reclaim it: the gap sits inside the bounding box,
+    between the title and the image, rather than around it.
+
+    Args:
+        image_shape: the image's ``.shape``; only the first two entries are read.
+        width_in: figure width in inches. The height is derived from it.
+    Returns:
+        ``(width, height)`` in inches, for ``figsize``.
+    """
+    height = float(image_shape[0]) if len(image_shape) > 0 else 0.0
+    width = float(image_shape[1]) if len(image_shape) > 1 else 0.0
+    if width <= 0 or height <= 0:
+        return (width_in, width_in)
+    # Clamped, so an extreme mosaic cannot produce a figure a foot wide and a fraction
+    # of an inch tall, with no room left for a title or a label.
+    aspect = min(max(height / width, 0.2), 5.0)
+    return (width_in, width_in * aspect)
+
 
 def plot_tile_positions(
     tiles: list[TilePosition],
@@ -232,7 +261,7 @@ def plot_stage_positions_on_image(
     color: Optional[str] = None,
     show_scalebar: bool = False,
     show_names: bool = True,
-    figsize: Optional[Tuple[int, int]] = (15, 15),
+    figsize: Optional[Tuple[float, float]] = None,
 ) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
     Args:
@@ -241,6 +270,7 @@ def plot_stage_positions_on_image(
         show: Whether to show the plot.
         bound: Whether to only plot points inside the image.
         color: The color of the points. (None -> default colour cycle)
+        figsize: Figure size in inches. None sizes it to the image's aspect.
     Returns:
         The matplotlib figure."""
     if image.metadata is None or image.metadata.microscope_state is None:
@@ -252,6 +282,8 @@ def plot_stage_positions_on_image(
     points = reproject_stage_positions_onto_image2(image=image, positions=positions)
 
     # construct matplotlib figure
+    if figsize is None:
+        figsize = figsize_for_image(image.data.shape)
     fig = plt.figure(figsize=figsize)
     plt.imshow(image.data, cmap="gray")
 
@@ -312,7 +344,7 @@ def plot_minimap(
     show_grid_radius: bool = False,
     fontsize: int = 12,
     markersize: int = 20,
-    figsize: Optional[Tuple[int, int]] = (15, 15),
+    figsize: Optional[Tuple[float, float]] = None,
     ax: Optional[plt.Axes] = None,
 ) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
@@ -327,7 +359,7 @@ def plot_minimap(
         show_scalebar: Whether to show a scalebar
         show_names: Whether to show position names as labels
         fontsize: Font size for position name labels (default: 14)
-        figsize: Figure size in inches (default: (15, 15))
+        figsize: Figure size in inches. None sizes it to the image's aspect.
     Returns:
         The matplotlib figure."""
     if image.metadata is None or image.metadata.microscope_state is None:
@@ -343,6 +375,8 @@ def plot_minimap(
 
     # construct matplotlib figure/axes
     if ax is None:
+        if figsize is None:
+            figsize = figsize_for_image(image.data.shape)
         fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.figure
