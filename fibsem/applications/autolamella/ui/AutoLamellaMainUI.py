@@ -554,6 +554,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._on_open_experiment_directory
         )
 
+        self.action_export_image = QAction("Export Image...", self)
+        set_menu_icon(self.action_export_image, "mdi:export")
+        self.action_export_image.triggered.connect(self._on_export_image)
+
         self.action_load_protocol = QAction("Load Protocol", self)
         self.action_load_protocol.triggered.connect(self._on_load_protocol)
         self.action_save_protocol = QAction("Save Protocol", self)
@@ -570,6 +574,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         file_menu.addAction(self.action_new_experiment)
         file_menu.addAction(self.action_load_experiment)
         file_menu.addAction(self.action_open_experiment_directory)
+        file_menu.addSeparator()
+        file_menu.addAction(self.action_export_image)
         file_menu.addSeparator()
         file_menu.addAction(self.action_load_protocol)
         file_menu.addAction(self.action_save_protocol)
@@ -1109,6 +1115,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Open Experiment Directory action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui._open_experiment_directory()
+
+    def _on_export_image(self):
+        """Handle Export Image action: pick an image, starting in the experiment."""
+        from fibsem.ui.widgets.image_export_dialog import open_image_export
+
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        start_dir = ""
+        if experiment is not None and experiment.path is not None:
+            start_dir = os.fspath(experiment.path)
+        open_image_export(self, start_dir)
 
     def _on_load_protocol(self):
         """Handle Load Protocol action."""
@@ -1872,6 +1888,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_widget.flush_pending_save()
         ui._start_run_grid_workflow_thread(task_names, grid_names, inventory_first)
         self.set_workflow_running()
+        # Clear the grid ticks, as a lamella run clears its selection: left ticked,
+        # the grids this run is on would be queued again by the next Add to Queue.
+        # The task ticks stay; Screen all grids and the next add read them.
+        self.grid_workflow_widget.set_all_grids_selected(False)
 
     def _run_refuses_selection(self) -> str:
         """Why the left panel's selection cannot join the running queue, or "".
@@ -3957,6 +3977,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Persist defect state change to disk and sync all widgets."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
+        self.autolamella_ui.experiment.sign_verdict(lamella)
         self.autolamella_ui.experiment.save()
         # Sync defect icon across all widgets
         self.autolamella_ui.lamella_list.refresh_all()

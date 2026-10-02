@@ -9,10 +9,12 @@ beam. Nothing here is cached: every answer is re-derived from the slots.
 import pytest
 
 from fibsem import utils
+from fibsem.microscopes import _stage as stage_module
 from fibsem.microscopes._stage import (
     DemoSampleLoader,
     GridExchangeError,
     GridSlot,
+    GridSlotState,
     SampleGrid,
     SampleGridLoader,
     _create_sample_stage,
@@ -233,6 +235,68 @@ class TestInventoryWithLoader:
         assert _entry(microscope, "Slot-05").loaded is True
 
 
+class TestUnscannedMagazine:
+    """A magazine as the Arctis reads one after it has been undocked: every slot
+    unknown and no grid in any, until a scan finds them."""
+
+    @staticmethod
+    def _unscanned(microscope, scan_delay=0.0) -> DemoSampleLoader:
+        loader = DemoSampleLoader(
+            microscope,
+            capacity=12,
+            occupied=(1, 2, 5),
+            names={2: "grid-elm"},
+            start_unscanned=True,
+            scan_delay=scan_delay,
+        )
+        microscope._stage.loader = loader
+        return loader
+
+    def test_every_slot_reads_unknown_with_no_grid(self):
+        microscope = _compustage_demo()
+        self._unscanned(microscope)
+        rows = microscope._stage.grid_inventory()
+        assert {r.state for r in rows} == {GridSlotState.UNKNOWN}
+        assert not any(r.present or r.name for r in rows)
+
+    def test_a_read_does_not_scan(self):
+        microscope = _compustage_demo()
+        loader = self._unscanned(microscope)
+        rows = microscope._stage.get_inventory()
+        assert {r.state for r in rows} == {GridSlotState.UNKNOWN}
+        assert loader.loaded_magazine_slots == []
+
+    def test_a_scan_finds_the_grids_under_their_names(self):
+        microscope = _compustage_demo()
+        self._unscanned(microscope)
+        rows = microscope._stage.run_inventory()
+        assert [(r.slot_name, r.name) for r in rows if r.present] == [
+            ("Slot-01", "Grid-01"),
+            ("Slot-02", "grid-elm"),
+            ("Slot-05", "Grid-05"),
+        ]
+        assert _entry(microscope, "Slot-03").state is GridSlotState.EMPTY
+
+    def test_a_grid_cannot_be_loaded_before_the_scan(self):
+        microscope = _compustage_demo()
+        self._unscanned(microscope)
+        with pytest.raises(GridExchangeError, match="not in the magazine"):
+            microscope._stage.ensure_loaded("Grid-01")
+        microscope._stage.run_inventory()
+        microscope._stage.ensure_loaded("Grid-01")
+        assert _entry(microscope, "Slot-01").loaded
+
+    def test_the_scan_waits_through_sim_sleep(self, monkeypatch):
+        slept = []
+        monkeypatch.setattr(stage_module, "sim_sleep", slept.append)
+        microscope = _compustage_demo()
+        self._unscanned(microscope, scan_delay=10.0)
+        microscope._stage.get_inventory()
+        assert slept == []  # a read is instant
+        microscope._stage.run_inventory()
+        assert slept == [10.0]
+
+
 class TestInventoryOnFixedHolder:
     def test_rows_are_holder_slots_and_present_means_in_beam(self):
         microscope = _fixed_demo()
@@ -267,6 +331,22 @@ class TestCreateSampleStage:
         assert [s.loaded_grid.name for s in stage.loader.loaded_magazine_slots] == [
             "Grid-01",
             "grid-elm",
+        ]
+
+    def test_compustage_demo_can_start_unscanned(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = True
+        microscope.system.sim = dict(
+            microscope.system.sim,
+            loader={"occupied": [1, 4], "start_unscanned": True, "scan_delay": 10.0},
+        )
+        stage = _create_sample_stage(microscope)
+        assert stage.loader.scan_delay == 10.0
+        assert stage.loader.loaded_magazine_slots == []
+        stage.run_inventory()
+        assert [s.loaded_grid.name for s in stage.loader.loaded_magazine_slots] == [
+            "Grid-01",
+            "Grid-04",
         ]
 
     def test_compustage_demo_without_loader_block_has_an_empty_magazine(self):

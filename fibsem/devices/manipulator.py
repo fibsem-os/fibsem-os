@@ -18,12 +18,19 @@ their caches and emits their change signals.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict
 
 from fibsem.devices.core import Device, Parameter, command
 from fibsem.structures import FibsemManipulatorPosition, InsertableDeviceState
 
 MANIPULATOR_RESOURCE = "manipulator"
+
+# Today's manipulator keys, for a backend that routes them to its manipulator
+# device. Both are reads; the old API moves the needle with methods, not keys.
+MANIPULATOR_ROUTES: Dict[str, str] = {
+    "manipulator_position": "position",
+    "manipulator_state": "state",
+}
 
 
 class Manipulator(Device):

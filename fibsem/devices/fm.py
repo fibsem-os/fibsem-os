@@ -45,7 +45,13 @@ class LightSource(Device):
 
 
 class FilterSet(Device):
-    excitation_wavelength = Parameter(float, unit="nm")
+    excitation_wavelength = Parameter(
+        float,
+        unit="nm",
+        nearest=True,
+        doc="The excitation band, by its centre in nm: a wavelength between bands "
+        "selects the nearest band.",
+    )
     emission_filter = Parameter(
         EmissionFilter,
         doc="The emission filter in the light path; the choices are this filter set's.",

@@ -53,7 +53,12 @@ from fibsem.devices.beam import (
     Beam,
     KeyRouter,
 )
-from fibsem.devices.chamber import CHAMBER_RESOURCE, Chamber
+from fibsem.devices.chamber import (
+    CHAMBER_COMMAND_ROUTES,
+    CHAMBER_RESOURCE,
+    CHAMBER_ROUTES,
+    Chamber,
+)
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
     BoundParameter,
@@ -69,6 +74,7 @@ from fibsem.devices.core import (
 from fibsem.devices.gis import GIS_RESOURCE, GasInjector
 from fibsem.devices.manipulator import (
     MANIPULATOR_RESOURCE,
+    MANIPULATOR_ROUTES,
     Manipulator,
 )
 from fibsem.devices.stage import (
@@ -86,7 +92,9 @@ __all__ = [
     "Axes",
     "Axis",
     "BEAM_ROUTES",
+    "CHAMBER_COMMAND_ROUTES",
     "CHAMBER_RESOURCE",
+    "CHAMBER_ROUTES",
     "Chamber",
     "STAGE_COMMAND_ROUTES",
     "STAGE_RESOURCE",
@@ -95,6 +103,7 @@ __all__ = [
     "GasInjector",
     "IMAGING_CHANNEL",
     "MANIPULATOR_RESOURCE",
+    "MANIPULATOR_ROUTES",
     "Manipulator",
     "CommandInfo",
     "Beam",

@@ -76,8 +76,8 @@ def test_router_set_of_a_stage_verb_does_what_the_old_set_does(compustage, key, 
         router.set(key, True)
         new_log = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]
 
-    assert new.stage_system.is_homed == old.stage_system.is_homed
-    assert new.stage_system.is_linked == old.stage_system.is_linked
+    for state in ("stage_homed", "stage_linked"):
+        assert router.get(state) == old.get(state), state
     assert new_log == old_log
 
 
@@ -134,23 +134,29 @@ class DeviceBackedDemo(DemoMicroscope):
         return self.stage_device.home()
 
 
+def _unhomed(microscope):
+    """Unhome and unlink the stage, so home and link have something to do. The stage
+    device copies this state when it is built."""
+    microscope.stage_system.is_homed = False
+    microscope.stage_system.is_linked = False
+    return microscope
+
+
 def _device_backed(compustage: bool = False) -> DeviceBackedDemo:
-    microscope = _demo(compustage)
+    microscope = _unhomed(_demo(compustage))
     microscope.__class__ = DeviceBackedDemo  # same connected state, the new methods
     microscope._use_devices()
     return microscope
 
 
 def _script(microscope):
-    """The old stage API, as scripts and the UI call it today."""
+    """The old stage API, as scripts and the UI call it today, on an unhomed stage."""
     emitted, recorded = [], []
     microscope.stage_position_changed.connect(emitted.append)
     microscope.record_signal.connect(
         lambda kind, payload: recorded.append((kind, payload))
     )
     stage = microscope._stage
-    microscope.stage_system.is_homed = False
-    microscope.stage_system.is_linked = False
     out = [
         microscope.get_stage_position(),
         stage.position,
@@ -178,7 +184,7 @@ def _script(microscope):
 
 @pytest.mark.parametrize("compustage", [False, True])
 def test_old_stage_api_is_unchanged_when_it_asks_the_device(compustage):
-    old_out, old_emitted, old_events = _script(_demo(compustage))
+    old_out, old_emitted, old_events = _script(_unhomed(_demo(compustage)))
     new_out, new_emitted, new_events = _script(_device_backed(compustage))
     assert new_out == old_out
     assert new_emitted == old_emitted
@@ -224,10 +230,10 @@ def test_a_compustage_has_no_rotation_axis_and_cannot_link():
     assert stage.commands["home"].available is True
 
 
-def test_an_axis_is_a_view_of_the_position_with_no_read_of_its_own(stage, microscope):
-    microscope.stage_system.position.t = 0.25
+def test_an_axis_is_a_view_of_the_position_with_no_read_of_its_own(stage):
+    stage.sim_position.t = 0.25
     assert stage.axes.t.value == 0.25  # a live read, of the whole position
-    microscope.stage_system.position.t = 0.5
+    stage.sim_position.t = 0.5
     assert stage.axes.t.cached == 0.25  # no read: the last position read
     assert stage.position.cached.t == 0.25
 
@@ -240,20 +246,20 @@ def test_state_parameters_are_read_only(stage):
         stage.position.value = FibsemStagePosition(x=0.0)
 
 
-def test_move_absolute_moves_and_returns_the_read_back_position(stage, microscope):
+def test_move_absolute_moves_and_returns_the_read_back_position(stage):
     result = stage.move_absolute(FibsemStagePosition(x=1e-3, z=2e-3))
-    assert result == microscope.get_stage_position()
+    assert result == stage.sim_position
     assert (result.x, result.z) == (1e-3, 2e-3)
     assert stage.axes.x.cached == 1e-3
 
 
-def test_a_move_outside_the_limits_is_refused_and_nothing_moves(stage, microscope):
-    before = microscope.get_stage_position()
+def test_a_move_outside_the_limits_is_refused_and_nothing_moves(stage):
+    before = stage.position.get_value()
     with pytest.raises(StageLimitError, match=r"x=0.5 not in"):
         stage.move_absolute(FibsemStagePosition(x=0.5))
     with pytest.raises(StageLimitError, match=r"z=0.05 not in"):
         stage.move_relative(FibsemStagePosition(z=50e-3))
-    assert microscope.get_stage_position() == before
+    assert stage.position.get_value() == before
 
 
 def test_a_move_emits_position_and_axis_changes(stage):
@@ -270,9 +276,9 @@ def test_a_move_emits_position_and_axis_changes(stage):
     assert ys == []  # an axis that didn't move stays quiet
 
 
-def test_home_and_link_are_commands_that_report_the_result(stage, microscope):
-    microscope.stage_system.is_homed = False
-    microscope.stage_system.is_linked = False
+def test_home_and_link_are_commands_that_report_the_result(stage):
+    stage.sim_homed = False
+    stage.sim_linked = False
     assert stage.home() is True and stage.homed.cached is True
     assert stage.link() is True and stage.linked.cached is True
     assert set(stage.commands) == {"home", "link", "move_absolute", "move_relative"}

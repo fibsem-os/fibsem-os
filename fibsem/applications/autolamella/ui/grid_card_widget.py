@@ -34,6 +34,11 @@ from fibsem.applications.autolamella.structures import (
     Verdict,
 )
 from fibsem.applications.autolamella.task_outputs import latest_grid_output
+from fibsem.applications.autolamella.ui.lamella_list_widget import (
+    VERDICT_LOOK,
+    add_verdict_actions,
+    mark_current_verdict,
+)
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
 )
@@ -96,13 +101,6 @@ QToolButton:pressed { background: rgba(255, 255, 255, 15); }
 QToolButton::menu-indicator { image: none; }
 """
 
-_QUALITY_ICON = {
-    Verdict.UNASSESSED: ("mdi:help-circle-outline", NEUTRAL_550, "Unassessed"),
-    Verdict.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
-    Verdict.REWORK: ("mdi:wrench", stylesheets.ORANGE_COLOR, "Rework"),
-    Verdict.FAILED: ("mdi:close-circle", stylesheets.DEFECT_RED_COLOR, "Failed"),
-}
-
 
 def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     """One line on how the grid's last run went, and its colour.
@@ -110,13 +108,16 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     Read off the history, never off the quality: whether the tasks ran is a
     different question from whether the grid is any good. The most recent load
     entry starts the run being described; task entries after it are the run.
+
+    Empty when no task has run since the last load: a card with nothing to say
+    says nothing, rather than "Not run" on every grid of a fresh magazine.
     """
     state = grid.task_state
     if state.status is AutoLamellaTaskStatus.InProgress:
         return f"Running {state.name}", ACCENT_COLOR
     history = grid.task_history
     if not history:
-        return "Not run", NEUTRAL_550
+        return "", NEUTRAL_550
     # A task waiting on a decision is the grid's news whichever run it came
     # from: a run that moved on and came back loads the grid again, and the
     # waiting task sits before that load. Named, since there is one thing to do.
@@ -142,7 +143,7 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     if load is not None and load.status is AutoLamellaTaskStatus.Failed:
         return "Load failed", ERROR_COLOR
     if not tasks:
-        return "Not run", NEUTRAL_550
+        return "", NEUTRAL_550
     failed = sum(1 for t in tasks if t.status is AutoLamellaTaskStatus.Failed)
     cancelled = sum(1 for t in tasks if t.status is AutoLamellaTaskStatus.Cancelled)
     if failed:
@@ -211,6 +212,8 @@ class GridCardWidget(QWidget):
     load_requested = pyqtSignal(object)  # GridRecord
     unload_requested = pyqtSignal(object)  # GridRecord
     rename_requested = pyqtSignal(object, str)  # GridRecord, new name
+    # The operator's note on the grid: what the report prints beside the verdict.
+    note_requested = pyqtSignal(object, str)  # GridRecord, the note
     remove_requested = pyqtSignal(object)  # GridRecord
 
     def __init__(
@@ -278,6 +281,10 @@ class GridCardWidget(QWidget):
             fibsem_icon("mdi:pencil-outline", color=stylesheets.GRAY_ICON_COLOR),
             "Rename…",
         )
+        self._action_note = menu.addAction(
+            fibsem_icon("mdi:note-edit-outline", color=stylesheets.GRAY_ICON_COLOR),
+            "Edit note…",
+        )
         self._action_remove = menu.addAction(
             fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
             "Remove",
@@ -287,6 +294,7 @@ class GridCardWidget(QWidget):
             lambda: self.unload_requested.emit(self.grid)
         )
         self._action_rename.triggered.connect(self._on_rename)
+        self._action_note.triggered.connect(self._on_edit_note)
         self._action_remove.triggered.connect(self._on_remove)
         self._btn_actions.setMenu(menu)
 
@@ -438,9 +446,9 @@ class GridCardWidget(QWidget):
             self._chips.addWidget(widget)
             self._chip_widgets.append(widget)
         slot = f"slot {self._entry.index + 1:02d}" if present else "not in the holder"
-        self._status_label.setToolTip(f"{text} · {slot}")
+        self._status_label.setToolTip(" · ".join(part for part in (text, slot) if part))
 
-        icon, icon_colour, verdict = _QUALITY_ICON[grid.quality.verdict]
+        icon, icon_colour, verdict = VERDICT_LOOK[grid.quality.verdict]
         self._btn_quality.setIcon(fibsem_icon(icon, color=icon_colour))
         self._btn_quality.setToolTip(
             f"Quality: {verdict}. A person's verdict; no task sets it."
@@ -482,14 +490,14 @@ class GridCardWidget(QWidget):
 
     def _on_quality_clicked(self) -> None:
         menu = QMenu(self)
-        actions = {}
-        for quality, (icon, colour, verdict) in _QUALITY_ICON.items():
-            actions[menu.addAction(fibsem_icon(icon, color=colour), verdict)] = quality
+        actions = add_verdict_actions(menu)
+        mark_current_verdict(actions, self.grid.quality.verdict)
         chosen = menu.exec_(
             self._btn_quality.mapToGlobal(self._btn_quality.rect().bottomLeft())
         )
-        if chosen in actions:
-            self.set_quality(actions[chosen])
+        for verdict, action in actions.items():
+            if chosen is action:
+                self.set_quality(verdict)
 
     def set_quality(self, verdict: Verdict) -> None:
         if verdict is self.grid.quality.verdict:
@@ -505,6 +513,19 @@ class GridCardWidget(QWidget):
         name = name.strip()
         if ok and name and name != self.grid.name:
             self.rename_requested.emit(self.grid, name)
+
+    def _on_edit_note(self) -> None:
+        """What the operator makes of the grid, in their words: the note the
+        screening report prints beside the verdict, and the card's tooltip."""
+        note, ok = QInputDialog.getMultiLineText(
+            self,
+            "Grid note",
+            f"Note on {self.grid.name}, printed in the grid screening report:",
+            self.grid.description,
+        )
+        note = note.strip()
+        if ok and note != self.grid.description:
+            self.note_requested.emit(self.grid, note)
 
     def _on_remove(self) -> None:
         reply = QMessageBox.question(
@@ -527,6 +548,8 @@ class GridCardContainer(QWidget):
     load_requested = pyqtSignal(object)  # GridRecord
     unload_requested = pyqtSignal(object)  # GridRecord
     rename_requested = pyqtSignal(object, str)  # GridRecord, new name
+    # The operator's note on the grid: what the report prints beside the verdict.
+    note_requested = pyqtSignal(object, str)  # GridRecord, the note
     remove_requested = pyqtSignal(object)  # GridRecord
 
     def __init__(self, parent: Optional[QWidget] = None, mode: str = MODE_COZY) -> None:
@@ -548,6 +571,7 @@ class GridCardContainer(QWidget):
         card.load_requested.connect(self.load_requested)
         card.unload_requested.connect(self.unload_requested)
         card.rename_requested.connect(self.rename_requested)
+        card.note_requested.connect(self.note_requested)
         card.remove_requested.connect(self.remove_requested)
         self._cards[grid.id] = card
         self._layout.addWidget(card)

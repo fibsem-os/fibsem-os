@@ -16,6 +16,7 @@ from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     List,
     Mapping,
@@ -104,6 +105,10 @@ _BEAM_CONFIG_KEYS: Mapping[str, str] = MappingProxyType(
 _INFO_KEYS = frozenset(
     ("manufacturer", "model", "serial_number", "software_version", "hardware_version")
 )
+# Set verbs whose old branch does nothing for a false value (it logs "Invalid
+# value"). Routed to a device command only for a true value; a false one still goes
+# to `_set`.
+_VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber"))
 
 
 # Whether a stage move is being recorded on this thread. A move is often made of
@@ -194,6 +199,25 @@ def _chamber_state_name(state: ChamberState) -> str:
     """The name today's pump() and vent() return for a chamber device's state, as the
     Demo and AutoScript chambers name it ("Pumped", "Vented")."""
     return state.value.capitalize()
+
+
+# The old keys whose value differs from their device parameter's.
+_OLD_KEY_VALUES: Mapping[str, Callable[[Any], Any]] = MappingProxyType(
+    {
+        "chamber_state": _chamber_state_name,  # "Pumped", not ChamberState.PUMPED
+        "manipulator_state": lambda state: state is InsertableDeviceState.INSERTED,
+    }
+)
+
+
+def _old_key_value(key: str, value: Any) -> Any:
+    """A device parameter's value as the old key returns it: an enum as its plain
+    value ("spot"), except where `_OLD_KEY_VALUES` says otherwise."""
+    if key in _OLD_KEY_VALUES:
+        return _OLD_KEY_VALUES[key](value)
+    if isinstance(value, Enum):
+        return value.value
+    return value
 
 
 class RequiredDeviceUnavailable(RuntimeError):
@@ -1323,7 +1347,30 @@ class FibsemMicroscope(ABC):
         raise self._unsupported("draw_polygon")
 
     def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
-        raise self._unsupported("cryo_deposition_v2")
+        """Deposit through the GIS device: insert, heat, open for the duration,
+        close, heater off, retract."""
+        gis = self.gis_device
+        if gis is None:
+            raise self._unsupported("cryo_deposition_v2")
+        logging.info({"msg": "inserting gis", "settings": gis_settings.to_dict()})
+        logging.info(
+            f"Inserting Gas Injection System at {gis_settings.insert_position}"
+        )
+        gis.insert(gis_settings.insert_position)
+        logging.info(f"Turning on heater for {gis_settings.gas}")
+        gis.heater_on(gis_settings.gas)
+        logging.info(f"Running deposition for {gis_settings.duration} seconds")
+        gis.open()
+        self._wait(gis_settings.duration)
+        gis.close()
+        logging.info(f"Turning off heater for {gis_settings.gas}")
+        gis.heater_off()
+        logging.info("Retracting Gas Injection System")
+        gis.retract()
+
+    def _wait(self, seconds: float) -> None:
+        """Wait for the instrument, as a timed step does (a deposition)."""
+        time.sleep(seconds)
 
     def setup_sputter(self, *args, **kwargs):
         raise self._unsupported("setup_sputter")
@@ -1400,10 +1447,12 @@ class FibsemMicroscope(ABC):
     # path. They are read-only here; a backend replaces them, never mutates them.
     beams: Mapping[BeamType, Any] = MappingProxyType({})
     # The stage as a device (fibsem.devices.Stage), once a backend builds one. The
-    # stage methods below use it when it is there and today's keys when it is not;
-    # the keys themselves are not routed, since nothing outside these methods uses
-    # them. The name is temporary: `stage` is taken by the vendor object on Thermo
-    # and Odemis, and the final name is decided with the stage redesign.
+    # stage methods below use it when it is there and today's keys when it is not.
+    # A backend whose stage device keeps its own state also routes the stage keys
+    # (`_device_routes`, `_command_routes`), so `get("stage_position")` and the
+    # device can't disagree. The name is temporary: `stage` is taken by the vendor
+    # object on Thermo and Odemis, and the final name is decided with the stage
+    # redesign.
     stage_device: Optional[Any] = None
     # The chamber and the manipulator as devices (fibsem.devices.Chamber and
     # .Manipulator), named like `stage_device` because `chamber` is taken on Demo.
@@ -1411,14 +1460,32 @@ class FibsemMicroscope(ABC):
     # (pump/vent, get_manipulator_state/position) use the device directly.
     chamber_device: Optional[Any] = None
     manipulator_device: Optional[Any] = None
+    # The gas injection system as a device (fibsem.devices.GasInjector); it has no
+    # keys, and `cryo_deposition_v2` runs its sequence through the device.
+    gis_device: Optional[Any] = None
     # The FM's parts and its group as devices (fibsem.devices.fm), by device name,
     # beside `fm`. They drive the same FM objects `fm` holds, so the two share one
     # state. Empty when there is no FM or the backend builds no devices.
     fm_devices: Mapping[str, Any] = MappingProxyType({})
     _beam_routes: Mapping[str, str] = MappingProxyType({})
+    # Keys with no beam type that have moved to a device: key -> (device attribute,
+    # parameter), e.g. "stage_position" -> ("stage_device", "position"). The
+    # parameters are the device's state, read-only, so a `set` of one still goes to
+    # `_set`, as the old call did.
+    _device_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
+    # Set keys that are verbs, moved to a device command: key -> (device attribute,
+    # command), e.g. "stage_home" -> ("stage_device", "home"). The command ignores
+    # the value, as the old branches do, except where the old branch did nothing for
+    # a false value (`_VERBS_THAT_NEED_TRUE`). A command the device doesn't have (a
+    # compustage can't link) leaves the key to `_set`.
+    _command_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
 
     def _route(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
         """The device parameter a key has moved to, or None to use `_get`/`_set`."""
+        device_route = self._device_routes.get(key)
+        if device_route is not None:
+            device = getattr(self, device_route[0], None)
+            return None if device is None else device.parameters.get(device_route[1])
         name = self._beam_routes.get(key)
         if name is None or beam_type is None:
             return None
@@ -1426,6 +1493,19 @@ class FibsemMicroscope(ABC):
         if beam is None:
             return None
         return beam.parameters.get(name)
+
+    def _route_command(self, key: str) -> Optional[Callable[[], Any]]:
+        """The device command a set key has moved to, if the device has it."""
+        command_route = self._command_routes.get(key)
+        if command_route is None:
+            return None
+        device = getattr(self, command_route[0], None)
+        if device is None:
+            return None
+        info = device.commands.get(command_route[1])
+        if info is None or not info.available:
+            return None
+        return getattr(device, command_route[1])
 
     def _unsupported(self, method: str) -> NotImplementedError:
         """The error an optional method raises on a backend that does not have it.
@@ -1452,9 +1532,7 @@ class FibsemMicroscope(ABC):
         """Get wrapper for logging."""
         param = self._route(key, beam_type)
         if param is not None:
-            value = param.get_value()
-            if isinstance(value, Enum):
-                value = value.value  # old keys return the plain value ("spot")
+            value = _old_key_value(key, param.get_value())
         elif key in _BEAM_CONFIG_KEYS:
             value = getattr(self._beam_config(key, beam_type), _BEAM_CONFIG_KEYS[key])
         elif key in _INFO_KEYS:
@@ -1474,8 +1552,13 @@ class FibsemMicroscope(ABC):
         beam_type: Optional[BeamType] = None,
     ) -> None:
         """Set wrapper for logging"""
-        param = self._route(key, beam_type)
-        if param is not None:
+        param = None if key in self._device_routes else self._route(key, beam_type)
+        command = self._route_command(key)
+        if key in _VERBS_THAT_NEED_TRUE and not value:
+            command = None
+        if command is not None:
+            command()
+        elif param is not None:
             param.write_through(value)
         elif key in _BEAM_CONFIG_KEYS:
             setattr(self._beam_config(key, beam_type), _BEAM_CONFIG_KEYS[key], value)

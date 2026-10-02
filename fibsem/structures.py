@@ -3564,9 +3564,10 @@ class FibsemImageMetadata:
 
     **Provenance** -- what produced this image. ``system_info`` (which instrument),
     ``user`` (who), ``experiment`` (which run). Constant for a run. The same
-    question at a finer grain -- which lamella, which task -- is not recorded yet;
-    see FIB-466. It varies *within* a run, which changes the mechanism that writes
-    it, but not the kind of fact it is.
+    question at a finer grain -- which item (a lamella, or a grid), which task --
+    is answered by ``experiment.item_name`` and ``experiment.task_name`` (FIB-466).
+    That varies *within* a run, which changes the mechanism that writes it, but not
+    the kind of fact it is.
 
     **Configuration** -- what the instrument *is*. ``hardware_geometry``: the fixed
     physical arrangement a projection needs. Up to v5 this was the entire

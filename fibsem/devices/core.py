@@ -97,6 +97,12 @@ class Parameter:
     when the class is defined, so a typo can't silently hide a parameter. So is a
     subclass redeclaring a parameter with another type or unit: what differs between
     backends goes in metadata, and the parameter keeps one meaning everywhere.
+
+    ``nearest`` declares that a number between the choices means the choice nearest
+    it, as a filter wheel's bands do: 488 nm asks for the band at 485. Such a value is
+    snapped, with a warning when it moved, rather than refused; and after every write
+    the parameter is read back, so its cache and its ``changed`` signal carry what the
+    hardware applied rather than what was asked for.
     """
 
     def __init__(
@@ -107,6 +113,7 @@ class Parameter:
         choices: Optional[Sequence[Any]] = None,
         depends_on: Sequence[str] = (),
         doc: str = "",
+        nearest: bool = False,
     ):
         self.type = type_
         self.unit = unit
@@ -114,6 +121,7 @@ class Parameter:
         self.choices = choices
         self.depends_on = tuple(depends_on)
         self.doc = doc
+        self.nearest = nearest
         self.name = ""
 
     def __set_name__(self, owner: type, name: str) -> None:
@@ -249,8 +257,7 @@ class BoundParameter:
         if not self.settable:
             raise ParameterReadOnly(f"{self.device.name}.{self.name} is read-only")
         value = self.validate(value)
-        self._write_path(value)
-        return value
+        return self._write_path(value)
 
     @property
     def value(self) -> Any:
@@ -267,9 +274,17 @@ class BoundParameter:
         self.set_value(value)
 
     def write_through(self, value: Any) -> None:
-        """The old API: the same write path with no new checks, so no behaviour changes."""
+        """The old API: the same write path with no new checks, so no behaviour changes.
+
+        A ``nearest`` parameter is still snapped to its nearest choice first. That is
+        what the value means rather than a check, and it never refuses: a driver that
+        snaps by itself gets the same choice, and a remote write sends the server a
+        value its own checks accept.
+        """
         if self._write is None:
             raise ParameterReadOnly(f"{self.device.name}.{self.name} is read-only")
+        if self._snaps(value):
+            value = self._snap(value)
         self._write_path(value)
 
     def report(self, value: Any) -> None:
@@ -278,7 +293,9 @@ class BoundParameter:
 
     def validate(self, value: Any) -> Any:
         value = _coerce(self.type, value, f"{self.device.name}.{self.name}")
-        if self.choices is not None:
+        if self._snaps(value):
+            value = self._snap(value)
+        elif self.choices is not None:
             value = _match_choice(
                 value, self.choices, f"{self.device.name}.{self.name}"
             )
@@ -292,9 +309,33 @@ class BoundParameter:
                 value = self.type(clipped)
         return value
 
-    def _write_path(self, value: Any) -> None:
+    def _snaps(self, value: Any) -> bool:
+        """Whether `value` is snapped to a choice: a number, for a ``nearest`` parameter."""
+        return (
+            self.spec.nearest
+            and bool(_numeric_choices(self.choices))
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+        )
+
+    def _snap(self, value: Any) -> Any:
+        """The choice nearest `value`, warning when that is not `value` itself."""
+        choices = _numeric_choices(self.choices)
+        choice = min(choices, key=lambda c: abs(c - value))
+        if not math.isclose(choice, value, rel_tol=1e-6):
+            logging.warning(
+                f"{self.device.name}.{self.name}: {value} is not one of {choices}, "
+                f"set to the nearest, {choice}"
+            )
+        return self.type(choice)
+
+    def _write_path(self, value: Any) -> Any:
+        """Write, cache and signal; returns the value now held."""
         with self.device._claim(self):
             self._write(value)
+            if self.spec.nearest:
+                # what the hardware applied, which a driver may have adjusted again
+                value = self._read()
         logging.debug(
             {
                 "msg": "set",
@@ -307,6 +348,7 @@ class BoundParameter:
         self.previous = None if previous is _UNSET else previous
         self._emit(value)
         self.device._dependency_changed(self.name)
+        return value
 
     def _remember(self, value: Any) -> None:
         previous, self._cached = self._cached, value
@@ -581,6 +623,14 @@ def _match_choice(value: Any, choices: Sequence[Any], label: str) -> Any:
         elif value == choice:
             return choice
     raise ValueError(f"{label}: {value!r} is not one of {list(choices)}")
+
+
+def _numeric_choices(choices: Optional[Sequence[Any]]) -> list:
+    return [
+        c
+        for c in (choices or ())
+        if isinstance(c, (int, float)) and not isinstance(c, bool)
+    ]
 
 
 def _same(a: Any, b: Any) -> bool:

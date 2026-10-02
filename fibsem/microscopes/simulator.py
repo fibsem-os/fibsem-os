@@ -146,6 +146,11 @@ SIMULATOR_BEAM_CURRENTS = {
 # feeling slow for grid work.
 STAGE_MOVEMENT_SLEEP_TIME = 1.0
 
+# An asynchronous mill (`start_milling`) has no end on the simulator: it runs until
+# stopped. Its estimate says so, long enough to watch a run that is timed by the
+# estimate -- coincidence milling stops when its estimate runs out (FIB-1119).
+SIM_ASYNC_MILLING_EXTRA_TIME = 300  # seconds
+
 STAGE_LIMITS_DEFAULT = {
     "x": RangeLimit(min=-100.0e-3, max=100.0e-3),
     "y": RangeLimit(min=-100.0e-3, max=100.0e-3),
@@ -423,6 +428,10 @@ class DemoMicroscope(FibsemMicroscope):
     """Simulator microscope client based on TFS microscopes"""
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+
+    # Whether the mill running now was started by `start_milling`, which never ends
+    # on its own here.
+    _async_milling: bool = False
 
     def __init__(self, system_settings: SystemSettings):
 
@@ -1153,7 +1162,8 @@ class DemoMicroscope(FibsemMicroscope):
 
         Only reached on a compustage configuration (the Arctis simulator). Keys:
         ``capacity`` (default 12), ``occupied`` (1-based slot numbers), ``names``
-        (slot number -> grid name), ``exchange_delay`` (seconds, default 0).
+        (slot number -> grid name), ``exchange_delay`` (seconds, default 0),
+        ``start_unscanned`` (default false), ``scan_delay`` (seconds, default 0).
         """
         from fibsem.microscopes._stage import DemoSampleLoader
 
@@ -1164,6 +1174,8 @@ class DemoMicroscope(FibsemMicroscope):
             occupied=cfg.get("occupied") or (),
             names=cfg.get("names") or {},
             exchange_delay=float(cfg.get("exchange_delay", 0.0)),
+            start_unscanned=bool(cfg.get("start_unscanned", False)),
+            scan_delay=float(cfg.get("scan_delay", 0.0)),
         )
 
     @_records_stage_move
@@ -1312,7 +1324,8 @@ class DemoMicroscope(FibsemMicroscope):
         MILLING_SLEEP_TIME = 1
         self._mill_into_sample_scene(milling_current)
 
-        # start milling
+        # start milling: this mill is timed by its estimate, not open-ended
+        self._async_milling = False
         start_time = time.time()
         estimated_time = self.estimate_milling_time()
         remaining_time = estimated_time
@@ -1400,6 +1413,15 @@ class DemoMicroscope(FibsemMicroscope):
             beam_current=float(milling_current) if milling_current else None,
         )
 
+    def _spot_and_beam(
+        self, beam_type: BeamType
+    ) -> Tuple[Union[None, Point, FibsemRectangle], BeamSettings]:
+        """The point a beam is parked on (its scan target) and its settings."""
+        beam_system = (
+            self.electron_system if beam_type is BeamType.ELECTRON else self.ion_system
+        )
+        return beam_system.scanning_mode_value, beam_system.beam
+
     def _burn_into_sample_scene(self, beam_type: BeamType) -> None:
         """Commit the parked beam's spot to the sample scene, when there is
         one: from now on every view shows a small mark there (FIB-954). The
@@ -1409,10 +1431,7 @@ class DemoMicroscope(FibsemMicroscope):
         scene = getattr(self, "_sample_scene", None)
         if scene is None:
             return
-        beam_system = (
-            self.electron_system if beam_type is BeamType.ELECTRON else self.ion_system
-        )
-        point = beam_system.scanning_mode_value
+        point, beam = self._spot_and_beam(beam_type)
         if point is None:
             return
         from fibsem.projection import BeamStageProjection
@@ -1420,7 +1439,6 @@ class DemoMicroscope(FibsemMicroscope):
         projection = BeamStageProjection.from_microscope(self, beam_type=beam_type)
         if projection is None:
             return
-        beam = beam_system.beam
         width, height = beam.resolution
         hfw = float(beam.hfw)
         dx = (float(point.x) - 0.5) * hfw
@@ -1459,10 +1477,12 @@ class DemoMicroscope(FibsemMicroscope):
         # TODO: support this by properly estimating the end time
         if self.get_milling_state() is MillingState.IDLE:
             self.milling_system.state = MillingState.RUNNING
+            self._async_milling = True
             logging.info("Milling started.")
 
     def stop_milling(self) -> None:
         self.milling_system.state = MillingState.IDLE
+        self._async_milling = False
 
     def pause_milling(self) -> None:
         self.milling_system.state = MillingState.PAUSED
@@ -1474,9 +1494,16 @@ class DemoMicroscope(FibsemMicroscope):
         return self.milling_system.state
 
     def estimate_milling_time(self) -> float:
-        """Estimate the milling time for the specified patterns."""
+        """Estimate the milling time for the specified patterns.
+
+        While an asynchronous mill is running, which only a stop ends here, the
+        estimate adds `SIM_ASYNC_MILLING_EXTRA_TIME`.
+        """
         PATTERN_SLEEP_TIME = 5
-        return PATTERN_SLEEP_TIME * len(self.milling_system.patterns)
+        estimate = PATTERN_SLEEP_TIME * len(self.milling_system.patterns)
+        if self._async_milling and self.get_milling_state() in ACTIVE_MILLING_STATES:
+            estimate += SIM_ASYNC_MILLING_EXTRA_TIME
+        return estimate
 
     def set_default_application_file(
         self, application_file: str, strict: bool = True
@@ -1576,7 +1603,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         # run deposition
         logging.info(f"Running deposition for {duration} seconds")
-        # gis.open()
+        gis.open()
         sim_sleep(duration)
         gis.close()
 
@@ -1912,6 +1939,9 @@ class DemoMicroscope(FibsemMicroscope):
             return value in self.get_available_values(key, beam_type)
 
         return False
+
+    def _wait(self, seconds: float) -> None:
+        sim_sleep(seconds)
 
     def home(self) -> bool:
         self.stage_system.is_homed = True

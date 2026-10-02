@@ -25,6 +25,10 @@ TESCAN_API_AVAILABLE = False
 TESCAN_API_VERSION: Optional[str] = None
 TESCAN_BEAM_READY_TIMEOUT = 60  # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
 TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE = True  # Restore rotation/FOV/shift across preset changes, if false, use the values stored in the preset
+# Seconds to wait before an ion image that directly follows an electron image. The
+# reference pair has always paused here (3 s, then 1 s since #341); why was never
+# recorded, so the pause is kept as it was rather than replaced by a status wait.
+TESCAN_ELECTRON_TO_ION_SETTLE_TIME = 1
 SPOT_BURN_POLL_INTERVAL = (
     1  # Seconds between DrawBeam status polls while a spot is exposing
 )
@@ -299,6 +303,10 @@ class TescanMicroscope(FibsemMicroscope):
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
+    # The beam of the last requested (non-live) acquisition, for the settle before an
+    # ion image that follows an electron one.
+    _last_requested_beam_type: Optional[BeamType] = None
+
     def __init__(self, system_settings: SystemSettings):
         if not TESCAN_API_AVAILABLE:
             raise ImportError(
@@ -479,6 +487,9 @@ class TescanMicroscope(FibsemMicroscope):
             )
 
         logging.info(f"acquiring new {effective_beam_type.name} image.")
+
+        if image_settings is not None:
+            self._settle_after_electron_image(effective_beam_type)
 
         # prepare the beam (turn on, stop scanning)
         beam: Union[Automation.SEM, Automation.FIB]
@@ -1982,6 +1993,19 @@ class TescanMicroscope(FibsemMicroscope):
             return self.connection.SEM
         if beam_type is BeamType.ION:
             return self.connection.FIB
+
+    def _settle_after_electron_image(self, beam_type: BeamType) -> None:
+        """Pause before an ion image that directly follows an electron image.
+
+        Requested acquisitions only: the live re-acquire loop passes a beam type, not
+        image settings, and does not reach this. The pause used to sit in the shared
+        `acquire.take_reference_images` behind a Tescan check; it is the driver's
+        business, and here it also covers any other electron-then-ion pair.
+        """
+        previous = self._last_requested_beam_type
+        self._last_requested_beam_type = beam_type
+        if previous is BeamType.ELECTRON and beam_type is BeamType.ION:
+            time.sleep(TESCAN_ELECTRON_TO_ION_SETTLE_TIME)
 
     def _wait_for_beam_ready(
         self,

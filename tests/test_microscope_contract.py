@@ -271,10 +271,17 @@ def test_device_demo_deposits_through_its_gis_device():
                 original(*args),
             ),
         )
+    microscope.gis_system = None  # the device keeps its own GIS, never Demo's
     settings = FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0)
     microscope.cryo_deposition_v2(settings)
-    # Demo's order: it never opens the valve, but closes it.
-    assert calls == ["_insert", "_heater_on", "_close", "_heater_off", "_retract"]
+    assert calls == [
+        "_insert",
+        "_heater_on",
+        "_open",
+        "_close",
+        "_heater_off",
+        "_retract",
+    ]
     assert gis.state.cached is InsertableDeviceState.RETRACTED
     assert gis.heated.cached is False
 
@@ -304,6 +311,100 @@ def test_device_demo_moves_its_stage_device():
     assert np.allclose(
         _xyzrt(microscope.get_stage_position()), _xyzrt(stage.position.cached)
     )
+
+
+def test_device_demo_stage_keeps_its_own_state_and_serves_the_stage_keys():
+    """The stage device owns its state: the stage keys read and drive it, and Demo's
+    own stage is never touched again after connect."""
+    microscope = _connect("DeviceDemo")
+    demo_stage = deepcopy(microscope.stage_system)
+    assert microscope.stage_device.sim_position is not microscope.stage_system.position
+    chain = []
+    for name in ("_get", "_set"):
+        original = getattr(microscope, name)
+        setattr(
+            microscope,
+            name,
+            lambda key, *args, original=original: (
+                chain.append(key),
+                original(key, *args),
+            )[1],
+        )
+    microscope.stage_device.sim_homed = False
+    microscope.set("stage_home", True)
+    microscope.set("stage_link", True)
+    microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, t=0.1))
+    assert microscope.get("stage_homed") is True
+    assert microscope.get("stage_linked") is True
+    assert np.allclose(
+        _xyzrt(microscope.get("stage_position")),
+        _xyzrt(microscope.stage_device.sim_position),
+    )
+    assert microscope.get("stage_position").x == pytest.approx(1e-3)
+    assert not [key for key in chain if key.startswith("stage_")]
+    assert microscope.stage_system == demo_stage
+
+
+def test_device_demo_chamber_keeps_its_own_state_and_serves_the_chamber_keys():
+    """The chamber device owns its state: the chamber keys read and drive it, and
+    Demo's own chamber is never touched again after connect."""
+    microscope = _connect("DeviceDemo")
+    demo_chamber = deepcopy(microscope.chamber)
+    chain = []
+    for name in ("_get", "_set"):
+        original = getattr(microscope, name)
+        setattr(
+            microscope,
+            name,
+            lambda key, *args, original=original: (
+                chain.append(key),
+                original(key, *args),
+            )[1],
+        )
+    microscope.set("vent_chamber", True)
+    assert microscope.get("chamber_state") == "Vented"
+    assert microscope.get("chamber_pressure") == microscope.chamber_device.sim_pressure
+    microscope.set("pump_chamber", True)
+    assert microscope.get("chamber_state") == "Pumped"
+    assert not chain
+    assert microscope.chamber == demo_chamber
+
+
+def test_device_demo_manipulator_keeps_its_own_state_and_serves_its_keys():
+    """The manipulator device owns its state: the manipulator keys read it, and
+    Demo's own needle is never touched again after connect."""
+    microscope = _connect("DeviceDemo")
+    demo_needle = deepcopy(microscope.manipulator_system)
+    chain = []
+    original = microscope._get
+    microscope._get = lambda key, *args: (chain.append(key), original(key, *args))[1]
+    assert microscope.get("manipulator_state") is False
+    microscope.insert_manipulator("PARK")
+    microscope.move_manipulator_relative(FibsemManipulatorPosition(x=1e-6))
+    assert microscope.get("manipulator_state") is True
+    assert _xyzrt(microscope.get("manipulator_position")) == _xyzrt(
+        microscope.manipulator_device.sim_position
+    )
+    assert microscope.get("manipulator_position").x == pytest.approx(1e-6)
+    assert not chain
+    assert microscope.manipulator_system == demo_needle
+
+
+def test_device_demo_beams_keep_their_own_state():
+    """The beam devices own their state: Demo's own beams are never touched again
+    after connect, whatever the old API does to the beams."""
+    microscope = _connect("DeviceDemo")
+    demo_beams = deepcopy((microscope.electron_system, microscope.ion_system))
+    for beam_type in BEAMS:
+        microscope.set("hfw", 80e-6, beam_type)
+        microscope.set("detector_contrast", 0.9, beam_type)
+        microscope.beam_shift(1e-6, 1e-6, beam_type)
+        microscope.set("spot_mode", Point(0.5, 0.5), beam_type)
+        microscope.blank(beam_type)
+        microscope.set("full_frame", None, beam_type)
+        assert microscope.get("hfw", beam_type) == 80e-6
+        assert microscope.beams[beam_type].sim_beam.hfw == 80e-6
+    assert (microscope.electron_system, microscope.ion_system) == demo_beams
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
@@ -657,11 +758,53 @@ def test_scanning_modes(microscope, beam_type):
     assert microscope.get("scanning_mode", beam_type) == "full_frame"
 
 
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_beam_shift_adds_to_the_shift(microscope, beam_type):
+    start = microscope.get("shift", beam_type)
+    microscope.beam_shift(1e-6, -2e-6, beam_type)
+    microscope.beam_shift(1e-6, -2e-6, beam_type)
+    shift = microscope.get("shift", beam_type)
+    assert (shift.x, shift.y) == pytest.approx((start.x + 2e-6, start.y - 4e-6))
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_scanning_mode_keys(microscope, beam_type):
+    point = Point(0.25, 0.75)
+    microscope.set("spot_mode", point, beam_type)
+    assert microscope.get("scanning_mode", beam_type) == "spot"
+    microscope.set("reduced_area", FibsemRectangle(0.25, 0.25, 0.5, 0.5), beam_type)
+    assert microscope.get("scanning_mode", beam_type) == "reduced_area"
+    microscope.set("full_frame", None, beam_type)
+    assert microscope.get("scanning_mode", beam_type) == "full_frame"
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_the_spot_burn_reads_where_the_beam_is_parked(microscope, beam_type):
+    """A spot burn marks the scene at the beam's spot, at its current field."""
+    point = Point(0.25, 0.75)
+    microscope.set("hfw", 100e-6, beam_type)
+    microscope.set_spot_scanning_mode(point, beam_type)
+    spot, beam = microscope._spot_and_beam(beam_type)
+    assert spot == point
+    assert beam.hfw == microscope.get("hfw", beam_type)
+    assert beam.resolution == microscope.get("resolution", beam_type)
+
+
 def test_vent_and_pump(microscope):
     assert microscope.vent() == "Vented"
     assert microscope.get("chamber_state") == "Vented"
     assert microscope.pump() == "Pumped"
     assert microscope.get("chamber_state") == "Pumped"
+
+
+@pytest.mark.parametrize("key", ["pump_chamber", "vent_chamber"])
+def test_a_false_pump_or_vent_does_nothing(microscope, key):
+    """Pinned quirk: the old keys pump or vent only for a true value."""
+    # start in the state the key would leave, so a pump or vent would show
+    microscope.vent() if key == "pump_chamber" else microscope.pump()
+    before = microscope.get("chamber_state")
+    microscope.set(key, False)
+    assert microscope.get("chamber_state") == before
 
 
 def test_home_homes_and_says_so(microscope):
@@ -799,6 +942,29 @@ def test_cryo_deposition_leaves_the_microscope_as_it_was(microscope, insert_posi
     assert not _first_difference(
         [("start", None, before)], [("start", None, _snapshot(microscope))]
     )
+
+
+def test_cryo_deposition_opens_the_valve_and_closes_it(microscope, monkeypatch):
+    """The gas flows: the valve opens for the deposition and is closed after it."""
+    # The valve is Demo's GIS on Demo, and the GIS device's own on DeviceDemo.
+    device = microscope.gis_device
+    gis = microscope.gis_system if device is None else device
+    hooks = ("open", "close") if device is None else ("_open", "_close")
+    steps = []
+    for name in hooks:
+        original = getattr(gis, name)
+        monkeypatch.setattr(
+            gis,
+            name,
+            lambda name=name, original=original: (
+                steps.append(name.lstrip("_")),
+                original(),
+            ),
+        )
+    settings = FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0)
+    microscope.cryo_deposition_v2(settings)
+    assert steps == ["open", "close"]
+    assert (gis.opened if device is None else device.opened.get_value()) is False
 
 
 # ---------------------------------------------------------------------------

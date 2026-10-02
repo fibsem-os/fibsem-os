@@ -27,6 +27,11 @@ Try it on one computer:
     python -m fibsem.server.devices --port 8765        # terminal 1: Demo beams
     python -m fibsem.server.devices --serve fm         # or a simulated FM's parts
 
+On a METEOR's Linux PC, serving its real FM to the PC that drives the beams (see
+INSTALLATION.md, "Delmic METEOR"):
+
+    python -m fibsem.server.devices --serve odemis-fm --host 0.0.0.0
+
     from fibsem.devices.drivers.remote import connect_remote_beams   # terminal 2
     beams = connect_remote_beams("127.0.0.1", 8765)
 """
@@ -303,16 +308,47 @@ def demo_fm_devices() -> List[Device]:
     return list(bind_fm_devices(FluorescenceMicroscope()).values())
 
 
+def odemis_fm_devices() -> List[Device]:
+    """The METEOR's FM, through the odemis backend on this computer (FIB-1095).
+
+    odemis is reachable only from the computer running it, over unix sockets, which
+    is why the FM is served from there rather than driven from the beams' PC.
+
+    Raises:
+        RuntimeError: odemis is not installed here, or its backend did not answer;
+            the message says which, and what to check.
+    """
+    from fibsem.devices.drivers.fm import bind_fm_devices
+
+    try:
+        from fibsem.fm.odemis import OdemisFluorescenceMicroscope
+    except ImportError as e:
+        raise RuntimeError(
+            f"odemis cannot be imported here ({e}). Serve the odemis FM from the "
+            "METEOR PC that runs odemis."
+        ) from e
+    try:
+        fm = OdemisFluorescenceMicroscope(parent=None)
+    except Exception as e:
+        raise RuntimeError(
+            f"The odemis backend did not answer ({type(e).__name__}: {e}). Check "
+            "that odemis is running (odemis-start) and that this user is in the "
+            "'odemis' group."
+        ) from e
+    return list(bind_fm_devices(fm).values())
+
+
 def main(argv: Optional[List[str]] = None) -> None:
-    parser = argparse.ArgumentParser(description="Serve simulated devices over HTTP.")
+    parser = argparse.ArgumentParser(description="Serve devices over HTTP.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
         "--serve",
         nargs="+",
-        choices=("beams", "fm"),
+        choices=("beams", "fm", "odemis-fm"),
         default=["beams"],
-        help="beams: the Demo microscope's beams; fm: a simulated FM's parts",
+        help="beams: the Demo microscope's beams; fm: a simulated FM's parts; "
+        "odemis-fm: the FM of the METEOR this computer runs odemis for",
     )
     args = parser.parse_args(argv)
     served: List[Device] = []
@@ -320,6 +356,12 @@ def main(argv: Optional[List[str]] = None) -> None:
         served += demo_devices()
     if "fm" in args.serve:
         served += demo_fm_devices()
+    if "odemis-fm" in args.serve:
+        try:
+            served += odemis_fm_devices()
+        except RuntimeError as e:
+            logging.error(e)
+            raise SystemExit(1) from e
     devices: Mapping[str, Device] = {d.name: d for d in served}
     logging.info(f"serving {sorted(devices)} on http://{args.host}:{args.port}")
     uvicorn.run(build_device_app(devices.values()), host=args.host, port=args.port)

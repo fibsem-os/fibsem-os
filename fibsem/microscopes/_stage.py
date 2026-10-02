@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, List, Mapping, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 
 import numpy as np
 import yaml
@@ -256,6 +256,12 @@ class DemoSampleLoader(SampleGridLoader):
     and each unload pretends to take, so a full exchange takes it twice. It goes
     through ``sim_sleep``, a no-op under ``FIBSEM_SIM_NO_DELAY=1``, which the test
     suite sets: the app waits, the tests do not.
+
+    ``start_unscanned`` starts the magazine as a real one reads after it has been
+    undocked: every slot ``UNKNOWN``, no grid in any of them, until a scan
+    (``run_inventory``). A read (``get_inventory``) does not change that, as on the
+    hardware. ``scan_delay`` is how long a scan pretends to take, through
+    ``sim_sleep`` like the exchanges.
     """
 
     def __init__(
@@ -265,9 +271,12 @@ class DemoSampleLoader(SampleGridLoader):
         occupied: Iterable[int] = (),
         names: Optional[Mapping[Union[int, str], str]] = None,
         exchange_delay: float = 0.0,
+        start_unscanned: bool = False,
+        scan_delay: float = 0.0,
     ) -> None:
         super().__init__(parent, capacity)
         self.exchange_delay = exchange_delay
+        self.scan_delay = scan_delay
         self.fail_next_exchange = False
         names = names or {}
         for number in occupied:
@@ -279,7 +288,24 @@ class DemoSampleLoader(SampleGridLoader):
                 )
             name = names.get(number, names.get(str(number))) or f"Grid-{number:02d}"
             slot.loaded_grid = SampleGrid(name=str(name))
-        self.scanned = True  # an in-memory magazine is known from the start
+        self.scanned = True  # an in-memory magazine answers from the start
+        # Unscanned: the grids are in the magazine but nothing is known about them,
+        # so the slots show none, as the hardware's Unknown slots do, until a scan
+        # finds them.
+        self._unscanned: Dict[str, SampleGrid] = {}
+        if start_unscanned:
+            for slot in self.slots.values():
+                if slot.loaded_grid is not None:
+                    self._unscanned[slot.name] = slot.loaded_grid
+                    slot.loaded_grid = None
+            self.unknown_slots = set(self.slots)
+
+    def _scan_magazine(self) -> None:
+        sim_sleep(self.scan_delay)
+        for slot_name, grid in self._unscanned.items():
+            self.slots[slot_name].loaded_grid = grid
+        self._unscanned.clear()
+        self.unknown_slots = set()
 
     def _do_load(self, slot: GridSlot) -> None:
         self._exchange()

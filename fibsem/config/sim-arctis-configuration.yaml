@@ -81,3 +81,5 @@ sim:
         occupied: [1, 2, 3]                               # 1-based slot numbers holding a grid
         names: {}                                         # slot number -> grid name; unnamed slots read as Grid-NN
         exchange_delay: 5.0                               # seconds each load and each unload takes (a real Arctis is nearer two minutes); skipped under FIBSEM_SIM_NO_DELAY=1, as the tests run
+        start_unscanned: false                            # true: every slot reads unknown, with no grid, until Scan magazine (Microscope -> Sample), as a real magazine does after it is undocked
+        scan_delay: 10.0                                  # seconds a magazine scan takes (a real Arctis takes about ten minutes); skipped under FIBSEM_SIM_NO_DELAY=1

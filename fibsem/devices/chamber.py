@@ -12,12 +12,23 @@ caches and emits their change signals.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict
 
 from fibsem.devices.core import Device, Parameter, command
 from fibsem.structures import ChamberState
 
 CHAMBER_RESOURCE = "chamber"
+
+# Today's chamber keys, for a backend that routes them to its chamber device. A get
+# key routes to a parameter; a set key that is a verb routes to a command.
+CHAMBER_ROUTES: Dict[str, str] = {
+    "chamber_state": "state",
+    "chamber_pressure": "pressure",
+}
+CHAMBER_COMMAND_ROUTES: Dict[str, str] = {
+    "pump_chamber": "pump",
+    "vent_chamber": "vent",
+}
 
 
 class Chamber(Device):

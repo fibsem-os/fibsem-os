@@ -197,6 +197,16 @@ class FMGroup(FM):
         self.channel_parts: List[Device] = []
         """The parts a channel sets up; read back after a sequence changes them."""
 
+    def check_health(self) -> Optional[str]:
+        """Whether the FM answers: one live read, the camera's exposure time.
+
+        Read through the FM class rather than a cached value, so a backend that has
+        stopped answering (odemis no longer running, a dropped camera) raises here
+        and the device server reports the FM down. None means it answered.
+        """
+        _ = self._fm.camera.exposure_time
+        return None
+
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         from fibsem.fm.structures import ChannelSettings
 

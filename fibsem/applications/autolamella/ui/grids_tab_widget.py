@@ -116,6 +116,7 @@ class GridsTabWidget(QWidget):
         self.cards.load_requested.connect(self._on_load)
         self.cards.unload_requested.connect(self._on_unload)
         self.cards.rename_requested.connect(self._on_rename)
+        self.cards.note_requested.connect(self._on_note)
         self.cards.remove_requested.connect(self._on_remove)
         scroll = QScrollArea()
         scroll.setWidget(self.cards)
@@ -357,6 +358,8 @@ class GridsTabWidget(QWidget):
     # -- edits -----------------------------------------------------------------
 
     def _on_quality_changed(self, grid: GridRecord) -> None:
+        if self._experiment is not None:
+            self._experiment.sign_verdict(grid)
         self._save()
         self.experiment_changed.emit()
 
@@ -383,6 +386,15 @@ class GridsTabWidget(QWidget):
                 self._say(
                     f"Renamed, but the slot could not be updated: {e}", error=True
                 )
+        self._save()
+        self.refresh()
+        self.experiment_changed.emit()
+
+    def _on_note(self, grid: GridRecord, note: str) -> None:
+        """Keep the operator's note on the record. An empty note clears it. The
+        record's own field, apart from the verdict, so judging a grid again does
+        not wipe what was written about it."""
+        grid.description = note
         self._save()
         self.refresh()
         self.experiment_changed.emit()

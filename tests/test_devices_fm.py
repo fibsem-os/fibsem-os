@@ -175,3 +175,53 @@ def test_a_dual_band_filter_carries_both_bands():
     assert dual.multi_band and dual.low == 505.0 and dual.centre is None
     filters.emission_filter.set_value(dual)
     assert old.emission_wavelength == 505.0
+
+
+def test_an_excitation_between_bands_selects_the_nearest(fm, caplog):
+    """FIB-1094: 488 nm means the band at 450 on a filter set of 365/450/550/635,
+    as the Odemis driver has always read it, rather than a refusal."""
+    microscope, devices = fm
+    excitation = devices["filter_set"].excitation_wavelength
+
+    with caplog.at_level("WARNING"):
+        written = excitation.set_value(488)
+
+    assert written == 450
+    assert microscope.filter_set.excitation_wavelength == 450
+    assert excitation.cached == 450
+    assert "nearest" in caplog.text
+
+
+def test_the_old_api_snaps_too_and_caches_what_was_applied(fm):
+    microscope, devices = fm
+    excitation = devices["filter_set"].excitation_wavelength
+    seen = []
+    excitation.changed.connect(seen.append)
+
+    excitation.write_through(600)
+
+    assert microscope.filter_set.excitation_wavelength == 635
+    assert excitation.cached == 635
+    assert seen == [635]
+
+
+def test_a_write_caches_the_value_read_back(fm):
+    """A driver may adjust a nearest parameter again; the cache holds what it applied."""
+    microscope, devices = fm
+    excitation = devices["filter_set"].excitation_wavelength
+    original = type(microscope.filter_set).excitation_wavelength
+
+    class Adjusting(type(microscope.filter_set)):
+        @original.setter
+        def excitation_wavelength(self, value):
+            original.fset(self, value + 1e-9)  # float noise from a unit conversion
+
+    microscope.filter_set.__class__ = Adjusting
+    assert excitation.set_value(550) == pytest.approx(550 + 1e-9, abs=0)
+    assert excitation.cached == microscope.filter_set.excitation_wavelength
+
+
+def test_a_parameter_not_declared_nearest_still_refuses(fm):
+    _, devices = fm
+    with pytest.raises(ValueError):
+        devices["camera"].binning.set_value(3)
