@@ -737,20 +737,33 @@ def test_device_demo_reads_its_configuration_without_demo(monkeypatch):
     assert microscope._get_axis_limits()
 
 
+def test_device_demo_sets_its_imaging_and_milling_keys_without_demo(monkeypatch):
+    from fibsem.microscopes.simulator import DemoMicroscope
+
+    def refuse(self, key, value=None, beam_type=None):
+        raise AssertionError(f"{key} went to Demo")
+
+    microscope = _connect("DeviceDemo")
+    monkeypatch.setattr(DemoMicroscope, "_set", refuse)
+    monkeypatch.setattr(DemoMicroscope, "get_available_values", refuse)
+    files = microscope.get_available_values("application_file")
+    microscope.set("application_file", files[-1])
+    microscope.set("patterning_mode", "Parallel")
+    microscope.set("milling_channel", BeamType.ELECTRON)
+    microscope.set("default_patterning_beam_type", BeamType.ELECTRON)
+    microscope.set("active_view", BeamType.ION)
+    milling = microscope.milling_system
+    assert milling.default_application_file == files[-1]
+    assert milling.patterning_mode == "Parallel"
+    assert microscope.milling_channel is BeamType.ELECTRON
+    assert milling.default_beam_type is BeamType.ELECTRON
+    assert microscope.imaging_system.active_view == BeamType.ION.value
+
+
 # What DeviceDemo still takes from Demo: methods it inherits as they are, and its
 # own methods that hand on to Demo's through `super()`. Each step of the migration
 # takes names off; when both are empty the inheritance goes.
-DEVICE_DEMO_INHERITS_FROM_DEMO = {
-    "__init__", "_burn_into_sample_scene", "_mill_into_sample_scene",
-    "_scene_holder_slots", "_setup_sample_scene", "_wait", "clear_patterns",
-    "disconnect", "draw_bitmap_pattern", "draw_circle", "draw_line",
-    "draw_polygon", "draw_rectangle", "draw_sputter_pattern",
-    "estimate_milling_time", "finish_milling", "finish_sputter",
-    "get_milling_state", "pause_milling", "resume_milling", "run_milling",
-    "run_sputter", "run_sputter_coater", "set_default_application_file",
-    "set_patterning_mode", "setup_milling", "setup_sputter", "start_milling",
-    "stop_milling",
-}  # fmt: skip
+DEVICE_DEMO_INHERITS_FROM_DEMO = {"__init__", "_wait", "disconnect"}  # fmt: skip
 DEVICE_DEMO_HANDS_ON_TO_DEMO = {
     "connect_to_microscope", "_get", "_set", "get_available_values",
 }  # fmt: skip

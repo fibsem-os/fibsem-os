@@ -37,9 +37,10 @@ its device:
 
 What the configuration alone answers (the fitted parts, the stage's limits, the
 grid loader, ``plasma`` and the constant value lists) is ``DemoConfiguration``'s,
-which both demos share, as is imaging (``DemoImaging``), which changes the beams
-only through ``get``/``set`` and so through the beam devices. What still goes to
-the Demo chain is milling, the FM and the sample scene; ``tests/test_microscope_contract.py`` lists exactly which
+which both demos share, as are imaging (``DemoImaging``), the sample scene
+(``DemoScene``) and milling (``DemoMilling``). These change the beams only through
+``get``/``set`` and so, here, through the beam devices. What still goes to the Demo
+chain is construction and connection, and the FM; ``tests/test_microscope_contract.py`` lists exactly which
 methods.
 
 The FM's parts are ``fm_devices``, built over the same objects ``fm`` holds, so the
@@ -165,17 +166,21 @@ class DeviceDemoMicroscope(DemoMicroscope):
         if beam_type is not None and key in _SCAN_MODE_KEYS:
             _SCAN_MODE_KEYS[key](self, value, beam_type)
             return
+        if self._set_imaging_key(key, value) or self._set_milling_key(key, value):
+            return
         super()._set(key, value, beam_type)
 
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Any]:
-        # A beam key's values are its parameter's choices, then the configured ones;
-        # the rest (the milling keys) are still Demo's.
+        # A beam key's values are its parameter's choices, then the configured and
+        # milling ones; only a beam key asked without a beam type is still Demo's.
         param = self._route(key, beam_type)
         if param is not None and param.choices is not None:
             return list(param.choices)
         configured = self._configured_values(key)
+        if configured is None:
+            configured = self._milling_values(key)
         if configured is not None:
             return configured
         return super().get_available_values(key, beam_type)

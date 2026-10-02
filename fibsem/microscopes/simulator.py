@@ -957,15 +957,395 @@ class DemoImaging:
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
 
+    def _set_imaging_key(self, key: str, value) -> bool:
+        """Set the imaging channel's view or device; False for any other key."""
+        if key == "active_view":
+            self.imaging_system.active_view = value.value
+        elif key == "active_device":
+            self.imaging_system.active_device = value.value
+        else:
+            return False
+        return True
 
-class DemoMicroscope(DemoConfiguration, DemoImaging, FibsemMicroscope):
-    """Simulator microscope client based on TFS microscopes"""
 
-    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+class DemoScene:
+    """The demo's synthetic sample (FIB-874), shared by both demos.
+
+    The scene is set up from the ``sim: sample`` block; milling and spot burns
+    mark it. It reads the beams and stage only through the microscope's API,
+    and the parked spot through ``_spot_and_beam``, which each demo answers from
+    its own parts.
+    """
+
+    def _setup_sample_scene(self) -> None:
+        """Opt-in synthetic-sample imaging (FIB-874), default off.
+
+        `sim: sample: {enabled: true, ...}` makes both beams (and the FM,
+        where present) image one synthetic cryo-grid through their
+        projections, so geometry between the views - coincidence above all -
+        is measurable and correctable on the simulator. The block's other
+        keys are the scene's options (see SampleScene.CONFIG_KEYS). The
+        older flat keys `coincidence_projection`, `coincidence_offset` and
+        `tilt_axis_offset` are still honoured when there is no `sample` block.
+        """
+        from fibsem.microscopes.sim_scene import SampleScene
+
+        self._sample_scene: Optional[SampleScene] = None
+        sim = self.system.sim
+        config = sim.get("sample")
+        if config is None:
+            if not sim.get("coincidence_projection", False):
+                return
+            config = {
+                "coincidence_offset": sim.get("coincidence_offset", 10e-6),
+                "tilt_axis_offset": sim.get("tilt_axis_offset", 0.0),
+            }
+        elif not config.get("enabled", False):
+            return
+        self._sample_scene = SampleScene.from_config(
+            {k: v for k, v in config.items() if k != "enabled"}
+        )
+        try:
+            # anchor the world NOW, at the connect pose - so moving straight
+            # to a saved position and acquiring shows that position's
+            # surroundings rather than anchoring the world there
+            self._sample_scene.anchor(self.get_stage_position())
+        except Exception as e:
+            logging.warning(
+                "Could not anchor the sample scene at connect (%s); "
+                "it will anchor at the first acquisition instead.",
+                e,
+            )
+        logging.info(
+            "Simulator sample scene enabled (coincidence offset %.2f um, "
+            "tilt axis offset %.1f um)",
+            self._sample_scene.coincidence_offset * 1e6,
+            self._sample_scene.tilt_axis_offset * 1e6,
+        )
+
+    def _scene_holder_slots(self) -> list:
+        """The holder's occupied slots with a position, for the scene to put
+        a grid at each: (grid name, grid radius, stage position)."""
+        scene = getattr(self, "_sample_scene", None)
+        if scene is None or not scene.grids_from_holder:
+            return []
+        holder = getattr(getattr(self, "_stage", None), "holder", None)
+        if holder is None:
+            return []
+        try:
+            return [
+                (slot.loaded_grid.name, slot.loaded_grid.radius, slot.position)
+                for slot in holder.occupied_slots
+                if slot.position is not None
+            ]
+        except Exception:
+            return []
+
+    def _mill_into_sample_scene(self, milling_current: float) -> None:
+        """Commit the drawn patterns to the sample scene, when there is one:
+        from now on every view shows them as trenches (FIB-877). Done when
+        milling starts, so an asynchronous run stamps too."""
+        scene = getattr(self, "_sample_scene", None)
+        if scene is None or not self.milling_system.patterns:
+            return
+        from fibsem.projection import BeamStageProjection
+
+        beam = self.milling_channel
+        projection = BeamStageProjection.from_microscope(self, beam_type=beam)
+        if projection is None:
+            return
+        shift = self.get_beam_shift(beam)
+        scene.mill(
+            list(self.milling_system.patterns),
+            beam,
+            self.get_stage_position(),
+            projection,
+            beam_shift=(float(shift.x), float(shift.y)),
+            beam_current=float(milling_current) if milling_current else None,
+        )
+
+    def _burn_into_sample_scene(self, beam_type: BeamType) -> None:
+        """Commit the parked beam's spot to the sample scene, when there is
+        one: from now on every view shows a small mark there (FIB-954). The
+        spot is the 0-1 image coordinate run_spot_burn parked the beam on;
+        it becomes metres from the view centre (y up) at the beam's current
+        field of view, the same convention the milling patterns use."""
+        scene = getattr(self, "_sample_scene", None)
+        if scene is None:
+            return
+        point, beam = self._spot_and_beam(beam_type)
+        if point is None:
+            return
+        from fibsem.projection import BeamStageProjection
+
+        projection = BeamStageProjection.from_microscope(self, beam_type=beam_type)
+        if projection is None:
+            return
+        width, height = beam.resolution
+        hfw = float(beam.hfw)
+        dx = (float(point.x) - 0.5) * hfw
+        dy = (0.5 - float(point.y)) * hfw * (height / width)
+        shift = self.get_beam_shift(beam_type)
+        logging.info(
+            {
+                "msg": "sim_spot_burn",
+                "point": (float(point.x), float(point.y)),
+                "hfw": hfw,
+                "resolution": (width, height),
+                "view_offset_m": (dx, dy),
+                "beam_shift": (float(shift.x), float(shift.y)),
+            }
+        )
+        scene.burn(
+            [(dx, dy)],
+            beam_type,
+            self.get_stage_position(),
+            projection,
+            beam_shift=(float(shift.x), float(shift.y)),
+            beam_current=float(beam.beam_current) if beam.beam_current else None,
+        )
+
+
+class DemoMilling:
+    """Simulated milling and sputtering, shared by both demos.
+
+    The patterns, the milling state and the application files are
+    ``milling_system``'s, which the demo sets up at construction; the beams
+    change only through the microscope's API.
+    """
+
+    milling_system: MillingSystem
 
     # Whether the mill running now was started by `start_milling`, which never ends
     # on its own here.
     _async_milling: bool = False
+
+    def setup_milling(self, mill_settings: FibsemMillingSettings):
+        """Setup the milling parameters."""
+
+        self.milling_system.default_application_file = mill_settings.application_file
+        self.milling_channel = mill_settings.milling_channel
+        self.set_milling_settings(mill_settings=mill_settings)
+        self.clear_patterns()
+
+        logging.debug(
+            {"msg": "setup_milling", "mill_settings": mill_settings.to_dict()}
+        )
+
+    def run_milling(
+        self, milling_current: float, milling_voltage: float, asynch: bool = False
+    ) -> None:
+        """Run milling with the specified current and voltage."""
+
+        MILLING_SLEEP_TIME = 1
+        self._mill_into_sample_scene(milling_current)
+
+        # start milling: this mill is timed by its estimate, not open-ended
+        self._async_milling = False
+        start_time = time.time()
+        estimated_time = self.estimate_milling_time()
+        remaining_time = estimated_time
+        self.milling_system.state = MillingState.RUNNING
+
+        if asynch:
+            return  # up to the caller to handle
+
+        while remaining_time > 0 or self.get_milling_state() in ACTIVE_MILLING_STATES:
+            logging.debug(f"Running milling: {remaining_time} s remaining.")
+            if self.get_milling_state() == MillingState.PAUSED:
+                logging.info("Milling paused.")
+                sim_sleep(MILLING_SLEEP_TIME)
+                continue
+            if self.get_milling_state() == MillingState.IDLE:
+                logging.info("Milling stopped.")
+                break
+            sim_sleep(MILLING_SLEEP_TIME)
+            remaining_time -= MILLING_SLEEP_TIME
+
+            # update milling progress via signal
+            self.milling_progress_signal.emit(
+                MillingProgress(
+                    status=MillingProgressStatus.STAGE_UPDATE,
+                    start_time=start_time,
+                    milling_state=self.get_milling_state(),
+                    estimated_time=estimated_time,
+                    remaining_time=remaining_time,
+                )
+            )
+
+            if remaining_time <= 0:  # milling complete
+                self.milling_system.state = MillingState.IDLE
+
+        # stop milling and clear patterns
+        self.milling_system.state = MillingState.IDLE
+        self.clear_patterns()
+        logging.debug(
+            {
+                "msg": "run_milling",
+                "milling_current": milling_current,
+                "milling_voltage": milling_voltage,
+                "asynch": asynch,
+            }
+        )
+
+    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
+        """Finish milling by restoring the imaging current and voltage."""
+        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
+        self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
+        self.clear_patterns()
+
+    def clear_patterns(self) -> None:
+        self.milling_system.patterns = []
+
+    def start_milling(self) -> None:
+        """Start milling by setting the state to RUNNING."""
+        # TODO: support this by properly estimating the end time
+        if self.get_milling_state() is MillingState.IDLE:
+            self.milling_system.state = MillingState.RUNNING
+            self._async_milling = True
+            logging.info("Milling started.")
+
+    def stop_milling(self) -> None:
+        self.milling_system.state = MillingState.IDLE
+        self._async_milling = False
+
+    def pause_milling(self) -> None:
+        self.milling_system.state = MillingState.PAUSED
+
+    def resume_milling(self) -> None:
+        self.milling_system.state = MillingState.RUNNING
+
+    def get_milling_state(self) -> MillingState:
+        return self.milling_system.state
+
+    def estimate_milling_time(self) -> float:
+        """Estimate the milling time for the specified patterns.
+
+        While an asynchronous mill is running, which only a stop ends here, the
+        estimate adds `SIM_ASYNC_MILLING_EXTRA_TIME`.
+        """
+        PATTERN_SLEEP_TIME = 5
+        estimate = PATTERN_SLEEP_TIME * len(self.milling_system.patterns)
+        if self._async_milling and self.get_milling_state() in ACTIVE_MILLING_STATES:
+            estimate += SIM_ASYNC_MILLING_EXTRA_TIME
+        return estimate
+
+    def set_default_application_file(
+        self, application_file: str, strict: bool = True
+    ) -> str:
+        application_file = ThermoMicroscope.get_application_file(
+            self, application_file, strict
+        )
+        self.milling_system.default_application_file = application_file
+        return application_file
+
+    def set_patterning_mode(self, patterning_mode: str) -> None:
+        """Set the patterning mode for milling."""
+        if patterning_mode not in ["Serial", "Parallel"]:
+            raise ValueError(
+                f"Invalid patterning mode: {patterning_mode}. Must be 'Serial' or 'Parallel'."
+            )
+        self.milling_system.patterning_mode = patterning_mode
+        logging.debug(
+            {"msg": "set_patterning_mode", "patterning_mode": patterning_mode}
+        )
+
+    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings) -> None:
+        logging.debug(
+            {"msg": "draw_rectangle", "pattern_settings": pattern_settings.to_dict()}
+        )
+        if pattern_settings.time != 0:
+            logging.info(f"Setting pattern time to {pattern_settings.time}.")
+        self.milling_system.patterns.append(pattern_settings)
+
+    def draw_line(self, pattern_settings: FibsemLineSettings) -> None:
+        logging.debug(
+            {"msg": "draw_line", "pattern_settings": pattern_settings.to_dict()}
+        )
+        self.milling_system.patterns.append(pattern_settings)
+
+    def draw_circle(self, pattern_settings: FibsemCircleSettings) -> None:
+        logging.debug(
+            {"msg": "draw_circle", "pattern_settings": pattern_settings.to_dict()}
+        )
+        self.milling_system.patterns.append(pattern_settings)
+
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
+        logging.debug(
+            {"msg": "draw_polygon", "pattern_settings": pattern_settings.to_dict()}
+        )
+        self.milling_system.patterns.append(pattern_settings)
+
+    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
+        logging.debug(
+            {
+                "msg": "draw_bitmap_pattern",
+                "pattern_settings": pattern_settings.to_dict(),
+            }
+        )
+        self.milling_system.patterns.append(pattern_settings)
+
+    def setup_sputter(self, protocol: dict) -> None:
+        logging.info(f"Setting up sputter: {protocol}")
+
+    def draw_sputter_pattern(
+        self, hfw: float, line_pattern_length: float, sputter_time: float
+    ):
+        logging.debug(
+            {
+                "msg": "draw_sputter_pattern",
+                "hfw": hfw,
+                "line_pattern_length": line_pattern_length,
+                "sputter_time": sputter_time,
+            }
+        )
+
+    def run_sputter(self, **kwargs):
+        logging.info(f"Running sputter: {kwargs}")
+
+    def finish_sputter(self, **kwargs):
+        logging.info(f"Finishing sputter: {kwargs}")
+
+    def run_sputter_coater(self, time_seconds: int) -> None:
+        """Run the sputter coater for a given time in seconds.
+        Args:
+            time_seconds (int): The time to run the sputter coater in seconds.
+        Returns:
+            None
+        Raises:
+            NotImplementedError: If the system is not an Arctis system.
+        """
+        logging.info(f"Running sputter coater for {time_seconds} seconds...")
+        sim_sleep(time_seconds)
+        logging.info("Sputter coating complete.")
+
+    def _milling_values(self, key: str) -> Optional[List[str]]:
+        """The values of a milling key, or None for any other key."""
+        if key == "application_file":
+            return self.milling_system.application_files
+        return None
+
+    def _set_milling_key(self, key: str, value) -> bool:
+        """Set a milling key; False for any other key."""
+        if key == "patterning_mode":
+            self.milling_system.patterning_mode = value
+        elif key == "application_file":
+            self.milling_system.default_application_file = value
+        elif key == "milling_channel":
+            self.milling_channel = value
+        elif key == "default_patterning_beam_type":
+            self.milling_system.default_beam_type = value
+        else:
+            return False
+        return True
+
+
+class DemoMicroscope(
+    DemoConfiguration, DemoImaging, DemoScene, DemoMilling, FibsemMicroscope
+):
+    """Simulator microscope client based on TFS microscopes"""
+
+    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
     def __init__(self, system_settings: SystemSettings):
 
@@ -1169,52 +1549,6 @@ class DemoMicroscope(DemoConfiguration, DemoImaging, FibsemMicroscope):
         self.connection.disconnect()
         logging.info("Disconnected from Demo Microscope")
 
-    def _setup_sample_scene(self) -> None:
-        """Opt-in synthetic-sample imaging (FIB-874), default off.
-
-        `sim: sample: {enabled: true, ...}` makes both beams (and the FM,
-        where present) image one synthetic cryo-grid through their
-        projections, so geometry between the views - coincidence above all -
-        is measurable and correctable on the simulator. The block's other
-        keys are the scene's options (see SampleScene.CONFIG_KEYS). The
-        older flat keys `coincidence_projection`, `coincidence_offset` and
-        `tilt_axis_offset` are still honoured when there is no `sample` block.
-        """
-        from fibsem.microscopes.sim_scene import SampleScene
-
-        self._sample_scene: Optional[SampleScene] = None
-        sim = self.system.sim
-        config = sim.get("sample")
-        if config is None:
-            if not sim.get("coincidence_projection", False):
-                return
-            config = {
-                "coincidence_offset": sim.get("coincidence_offset", 10e-6),
-                "tilt_axis_offset": sim.get("tilt_axis_offset", 0.0),
-            }
-        elif not config.get("enabled", False):
-            return
-        self._sample_scene = SampleScene.from_config(
-            {k: v for k, v in config.items() if k != "enabled"}
-        )
-        try:
-            # anchor the world NOW, at the connect pose - so moving straight
-            # to a saved position and acquiring shows that position's
-            # surroundings rather than anchoring the world there
-            self._sample_scene.anchor(self.get_stage_position())
-        except Exception as e:
-            logging.warning(
-                "Could not anchor the sample scene at connect (%s); "
-                "it will anchor at the first acquisition instead.",
-                e,
-            )
-        logging.info(
-            "Simulator sample scene enabled (coincidence offset %.2f um, "
-            "tilt axis offset %.1f um)",
-            self._sample_scene.coincidence_offset * 1e6,
-            self._sample_scene.tilt_axis_offset * 1e6,
-        )
-
     @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
 
@@ -1353,115 +1687,6 @@ class DemoMicroscope(DemoConfiguration, DemoImaging, FibsemMicroscope):
         if name == "EUCENTRIC":
             return FibsemManipulatorPosition(x=0, y=0, z=0, r=0, t=0)
 
-    def setup_milling(self, mill_settings: FibsemMillingSettings):
-        """Setup the milling parameters."""
-
-        self.milling_system.default_application_file = mill_settings.application_file
-        self.milling_channel = mill_settings.milling_channel
-        self.set_milling_settings(mill_settings=mill_settings)
-        self.clear_patterns()
-
-        logging.debug(
-            {"msg": "setup_milling", "mill_settings": mill_settings.to_dict()}
-        )
-
-    def run_milling(
-        self, milling_current: float, milling_voltage: float, asynch: bool = False
-    ) -> None:
-        """Run milling with the specified current and voltage."""
-
-        MILLING_SLEEP_TIME = 1
-        self._mill_into_sample_scene(milling_current)
-
-        # start milling: this mill is timed by its estimate, not open-ended
-        self._async_milling = False
-        start_time = time.time()
-        estimated_time = self.estimate_milling_time()
-        remaining_time = estimated_time
-        self.milling_system.state = MillingState.RUNNING
-
-        if asynch:
-            return  # up to the caller to handle
-
-        while remaining_time > 0 or self.get_milling_state() in ACTIVE_MILLING_STATES:
-            logging.debug(f"Running milling: {remaining_time} s remaining.")
-            if self.get_milling_state() == MillingState.PAUSED:
-                logging.info("Milling paused.")
-                sim_sleep(MILLING_SLEEP_TIME)
-                continue
-            if self.get_milling_state() == MillingState.IDLE:
-                logging.info("Milling stopped.")
-                break
-            sim_sleep(MILLING_SLEEP_TIME)
-            remaining_time -= MILLING_SLEEP_TIME
-
-            # update milling progress via signal
-            self.milling_progress_signal.emit(
-                MillingProgress(
-                    status=MillingProgressStatus.STAGE_UPDATE,
-                    start_time=start_time,
-                    milling_state=self.get_milling_state(),
-                    estimated_time=estimated_time,
-                    remaining_time=remaining_time,
-                )
-            )
-
-            if remaining_time <= 0:  # milling complete
-                self.milling_system.state = MillingState.IDLE
-
-        # stop milling and clear patterns
-        self.milling_system.state = MillingState.IDLE
-        self.clear_patterns()
-        logging.debug(
-            {
-                "msg": "run_milling",
-                "milling_current": milling_current,
-                "milling_voltage": milling_voltage,
-                "asynch": asynch,
-            }
-        )
-
-    def _scene_holder_slots(self) -> list:
-        """The holder's occupied slots with a position, for the scene to put
-        a grid at each: (grid name, grid radius, stage position)."""
-        scene = getattr(self, "_sample_scene", None)
-        if scene is None or not scene.grids_from_holder:
-            return []
-        holder = getattr(getattr(self, "_stage", None), "holder", None)
-        if holder is None:
-            return []
-        try:
-            return [
-                (slot.loaded_grid.name, slot.loaded_grid.radius, slot.position)
-                for slot in holder.occupied_slots
-                if slot.position is not None
-            ]
-        except Exception:
-            return []
-
-    def _mill_into_sample_scene(self, milling_current: float) -> None:
-        """Commit the drawn patterns to the sample scene, when there is one:
-        from now on every view shows them as trenches (FIB-877). Done when
-        milling starts, so an asynchronous run stamps too."""
-        scene = getattr(self, "_sample_scene", None)
-        if scene is None or not self.milling_system.patterns:
-            return
-        from fibsem.projection import BeamStageProjection
-
-        beam = self.milling_channel
-        projection = BeamStageProjection.from_microscope(self, beam_type=beam)
-        if projection is None:
-            return
-        shift = self.get_beam_shift(beam)
-        scene.mill(
-            list(self.milling_system.patterns),
-            beam,
-            self.get_stage_position(),
-            projection,
-            beam_shift=(float(shift.x), float(shift.y)),
-            beam_current=float(milling_current) if milling_current else None,
-        )
-
     def _spot_and_beam(
         self, beam_type: BeamType
     ) -> Tuple[Union[None, Point, FibsemRectangle], BeamSettings]:
@@ -1470,159 +1695,6 @@ class DemoMicroscope(DemoConfiguration, DemoImaging, FibsemMicroscope):
             self.electron_system if beam_type is BeamType.ELECTRON else self.ion_system
         )
         return beam_system.scanning_mode_value, beam_system.beam
-
-    def _burn_into_sample_scene(self, beam_type: BeamType) -> None:
-        """Commit the parked beam's spot to the sample scene, when there is
-        one: from now on every view shows a small mark there (FIB-954). The
-        spot is the 0-1 image coordinate run_spot_burn parked the beam on;
-        it becomes metres from the view centre (y up) at the beam's current
-        field of view, the same convention the milling patterns use."""
-        scene = getattr(self, "_sample_scene", None)
-        if scene is None:
-            return
-        point, beam = self._spot_and_beam(beam_type)
-        if point is None:
-            return
-        from fibsem.projection import BeamStageProjection
-
-        projection = BeamStageProjection.from_microscope(self, beam_type=beam_type)
-        if projection is None:
-            return
-        width, height = beam.resolution
-        hfw = float(beam.hfw)
-        dx = (float(point.x) - 0.5) * hfw
-        dy = (0.5 - float(point.y)) * hfw * (height / width)
-        shift = self.get_beam_shift(beam_type)
-        logging.info(
-            {
-                "msg": "sim_spot_burn",
-                "point": (float(point.x), float(point.y)),
-                "hfw": hfw,
-                "resolution": (width, height),
-                "view_offset_m": (dx, dy),
-                "beam_shift": (float(shift.x), float(shift.y)),
-            }
-        )
-        scene.burn(
-            [(dx, dy)],
-            beam_type,
-            self.get_stage_position(),
-            projection,
-            beam_shift=(float(shift.x), float(shift.y)),
-            beam_current=float(beam.beam_current) if beam.beam_current else None,
-        )
-
-    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        """Finish milling by restoring the imaging current and voltage."""
-        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
-        self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
-        self.clear_patterns()
-
-    def clear_patterns(self) -> None:
-        self.milling_system.patterns = []
-
-    def start_milling(self) -> None:
-        """Start milling by setting the state to RUNNING."""
-        # TODO: support this by properly estimating the end time
-        if self.get_milling_state() is MillingState.IDLE:
-            self.milling_system.state = MillingState.RUNNING
-            self._async_milling = True
-            logging.info("Milling started.")
-
-    def stop_milling(self) -> None:
-        self.milling_system.state = MillingState.IDLE
-        self._async_milling = False
-
-    def pause_milling(self) -> None:
-        self.milling_system.state = MillingState.PAUSED
-
-    def resume_milling(self) -> None:
-        self.milling_system.state = MillingState.RUNNING
-
-    def get_milling_state(self) -> MillingState:
-        return self.milling_system.state
-
-    def estimate_milling_time(self) -> float:
-        """Estimate the milling time for the specified patterns.
-
-        While an asynchronous mill is running, which only a stop ends here, the
-        estimate adds `SIM_ASYNC_MILLING_EXTRA_TIME`.
-        """
-        PATTERN_SLEEP_TIME = 5
-        estimate = PATTERN_SLEEP_TIME * len(self.milling_system.patterns)
-        if self._async_milling and self.get_milling_state() in ACTIVE_MILLING_STATES:
-            estimate += SIM_ASYNC_MILLING_EXTRA_TIME
-        return estimate
-
-    def set_default_application_file(
-        self, application_file: str, strict: bool = True
-    ) -> str:
-        application_file = ThermoMicroscope.get_application_file(
-            self, application_file, strict
-        )
-        self.milling_system.default_application_file = application_file
-        return application_file
-
-    def set_patterning_mode(self, patterning_mode: str) -> None:
-        """Set the patterning mode for milling."""
-        if patterning_mode not in ["Serial", "Parallel"]:
-            raise ValueError(
-                f"Invalid patterning mode: {patterning_mode}. Must be 'Serial' or 'Parallel'."
-            )
-        self.milling_system.patterning_mode = patterning_mode
-        logging.debug(
-            {"msg": "set_patterning_mode", "patterning_mode": patterning_mode}
-        )
-
-    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings) -> None:
-        logging.debug(
-            {"msg": "draw_rectangle", "pattern_settings": pattern_settings.to_dict()}
-        )
-        if pattern_settings.time != 0:
-            logging.info(f"Setting pattern time to {pattern_settings.time}.")
-        self.milling_system.patterns.append(pattern_settings)
-
-    def draw_line(self, pattern_settings: FibsemLineSettings) -> None:
-        logging.debug(
-            {"msg": "draw_line", "pattern_settings": pattern_settings.to_dict()}
-        )
-        self.milling_system.patterns.append(pattern_settings)
-
-    def draw_circle(self, pattern_settings: FibsemCircleSettings) -> None:
-        logging.debug(
-            {"msg": "draw_circle", "pattern_settings": pattern_settings.to_dict()}
-        )
-        self.milling_system.patterns.append(pattern_settings)
-
-    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
-        logging.debug(
-            {"msg": "draw_polygon", "pattern_settings": pattern_settings.to_dict()}
-        )
-        self.milling_system.patterns.append(pattern_settings)
-
-    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
-        logging.debug(
-            {
-                "msg": "draw_bitmap_pattern",
-                "pattern_settings": pattern_settings.to_dict(),
-            }
-        )
-        self.milling_system.patterns.append(pattern_settings)
-
-    def setup_sputter(self, protocol: dict) -> None:
-        logging.info(f"Setting up sputter: {protocol}")
-
-    def draw_sputter_pattern(
-        self, hfw: float, line_pattern_length: float, sputter_time: float
-    ):
-        logging.debug(
-            {
-                "msg": "draw_sputter_pattern",
-                "hfw": hfw,
-                "line_pattern_length": line_pattern_length,
-                "sputter_time": sputter_time,
-            }
-        )
 
     def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
         """Run non-specific cryo deposition protocol.
@@ -1666,12 +1738,6 @@ class DemoMicroscope(DemoConfiguration, DemoImaging, FibsemMicroscope):
 
         return
 
-    def run_sputter(self, **kwargs):
-        logging.info(f"Running sputter: {kwargs}")
-
-    def finish_sputter(self, **kwargs):
-        logging.info(f"Finishing sputter: {kwargs}")
-
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Union[str, int, float]]:
@@ -1693,8 +1759,9 @@ class DemoMicroscope(DemoConfiguration, DemoImaging, FibsemMicroscope):
                 values = [500, 1000, 2000, 8000, 16000, 30000]
                 # FIB: [500, 1000, 2000, 8000, 1600, 30000]
 
-        if key == "application_file":
-            values = self.milling_system.application_files
+        milling = self._milling_values(key)
+        if milling is not None:
+            values = milling
 
         if key == "detector_type":
             values = ["ETD", "TLD", "EDS"]
@@ -1906,26 +1973,7 @@ class DemoMicroscope(DemoConfiguration, DemoImaging, FibsemMicroscope):
             beam_system.scanning_mode_value = value
             return
 
-        # imaging system
-        if key == "active_view":
-            self.imaging_system.active_view = value.value
-            return
-        if key == "active_device":
-            self.imaging_system.active_device = value.value
-            return
-
-        # milling
-        if key == "patterning_mode":
-            self.milling_system.patterning_mode = value
-            return
-        if key == "application_file":
-            self.milling_system.default_application_file = value
-            return
-        if key == "milling_channel":
-            self.milling_channel = value
-            return
-        if key == "default_patterning_beam_type":
-            self.milling_system.default_beam_type = value
+        if self._set_imaging_key(key, value) or self._set_milling_key(key, value):
             return
 
         # stage properties
@@ -1977,16 +2025,3 @@ class DemoMicroscope(DemoConfiguration, DemoImaging, FibsemMicroscope):
     def home(self) -> bool:
         self.stage_system.is_homed = True
         return self.get("stage_homed")
-
-    def run_sputter_coater(self, time_seconds: int) -> None:
-        """Run the sputter coater for a given time in seconds.
-        Args:
-            time_seconds (int): The time to run the sputter coater in seconds.
-        Returns:
-            None
-        Raises:
-            NotImplementedError: If the system is not an Arctis system.
-        """
-        logging.info(f"Running sputter coater for {time_seconds} seconds...")
-        sim_sleep(time_seconds)
-        logging.info("Sputter coating complete.")
