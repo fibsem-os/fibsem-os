@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import QMessageBox
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.autoscript import ThermoMicroscope
+from fibsem.microscopes.device_demo import DeviceDemoMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, FibsemManipulatorPosition, MicroscopeSettings
@@ -47,7 +48,9 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
 
         self.update_ui()
 
-        is_thermo = isinstance(self.microscope, (ThermoMicroscope, DemoMicroscope))
+        is_thermo = isinstance(
+            self.microscope, (ThermoMicroscope, DemoMicroscope, DeviceDemoMicroscope)
+        )
         is_tescan = isinstance(self.microscope, (TescanMicroscope))
 
         if is_thermo:
@@ -270,7 +273,7 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
             self.update_ui()
             return
         elif name in ["PARK", "EUCENTRIC"] and isinstance(
-            self.microscope, (ThermoMicroscope, DemoMicroscope)
+            self.microscope, (ThermoMicroscope, DemoMicroscope, DeviceDemoMicroscope)
         ):
             position = self.microscope._get_saved_manipulator_position(name)
         else:
