@@ -1162,7 +1162,8 @@ class DemoMicroscope(FibsemMicroscope):
 
         Only reached on a compustage configuration (the Arctis simulator). Keys:
         ``capacity`` (default 12), ``occupied`` (1-based slot numbers), ``names``
-        (slot number -> grid name), ``exchange_delay`` (seconds, default 0).
+        (slot number -> grid name), ``exchange_delay`` (seconds, default 0),
+        ``start_unscanned`` (default false), ``scan_delay`` (seconds, default 0).
         """
         from fibsem.microscopes._stage import DemoSampleLoader
 
@@ -1173,6 +1174,8 @@ class DemoMicroscope(FibsemMicroscope):
             occupied=cfg.get("occupied") or (),
             names=cfg.get("names") or {},
             exchange_delay=float(cfg.get("exchange_delay", 0.0)),
+            start_unscanned=bool(cfg.get("start_unscanned", False)),
+            scan_delay=float(cfg.get("scan_delay", 0.0)),
         )
 
     @_records_stage_move
