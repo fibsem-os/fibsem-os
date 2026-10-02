@@ -1261,7 +1261,9 @@ class FibsemMicroscope(ABC):
 
     def manipulator_named_positions(self) -> List[str]:
         """The instrument's own named manipulator positions, if it has any."""
-        return []
+        if self.manipulator_device is None:
+            return []
+        return self.manipulator_device.named_positions()
 
     def move_manipulator_to_named_position(
         self, name: str

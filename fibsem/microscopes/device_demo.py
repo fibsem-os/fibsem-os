@@ -166,6 +166,7 @@ class DeviceDemoMicroscope(DemoMicroscope):
     move_manipulator_absolute = FibsemMicroscope.move_manipulator_absolute
     move_manipulator_relative = FibsemMicroscope.move_manipulator_relative
     _get_saved_manipulator_position = FibsemMicroscope._get_saved_manipulator_position
+    manipulator_named_positions = FibsemMicroscope.manipulator_named_positions
     cryo_deposition_v2 = FibsemMicroscope.cryo_deposition_v2
 
     # Demo's beam methods that touch its beam state directly, on the beam devices.
