@@ -11,10 +11,13 @@ and the vertical-move physics in test_vertical_move.py.
 """
 
 import itertools
+import os
+from copy import deepcopy
 
 import numpy as np
 import pytest
 
+import fibsem.config as cfg
 from fibsem import utils
 from fibsem.geometry.movement import (
     apply_delta,
@@ -228,3 +231,81 @@ def test_the_backends_share_one_implementation(backend, name):
     Odemis is held to the same in test_odemis_vertical_move.py, which needs stubs.
     """
     assert getattr(backend, name) is getattr(FibsemMicroscope, name)
+
+
+# FIB-1124: the shared moves ask the stage what it can do, not whether it is a
+# compustage. These build real sessions from configuration -- the `microscope` fixture
+# flips `stage_is_compustage` after connect, which no longer selects either behaviour.
+ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+
+
+def _session(compustage: bool):
+    if compustage:
+        microscope, _ = utils.setup_session(config_path=ARCTIS_CONFIG)
+    else:
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+    assert microscope.stage_is_compustage is compustage
+    return microscope
+
+
+def _record(microscope, name):
+    calls = []
+    original = getattr(microscope, name)
+
+    def recording(*args, **kwargs):
+        calls.append(args)
+        return original(*args, **kwargs)
+
+    setattr(microscope, name, recording)
+    return calls
+
+
+class TestStableMoveRestoresTheWorkingDistanceOfALinkedStage:
+    @pytest.mark.parametrize("compustage", [False, True])
+    def test_as_before_on_each_mount(self, compustage):
+        """An offset stage boots linked and a compustage can't link, so each mount
+        keeps the answer the compustage branch gave it."""
+        microscope = _session(compustage)
+        restored = _record(microscope, "set_working_distance")
+
+        microscope.stable_move(10e-6, 5e-6, BeamType.ELECTRON)
+
+        assert microscope.get("stage_linked") is not compustage
+        assert len(restored) == (0 if compustage else 1)
+
+    def test_an_unlinked_offset_stage_is_left_alone(self):
+        """The one behaviour change: z doesn't carry the working distance, so there is
+        nothing to put back."""
+        microscope = _session(compustage=False)
+        microscope.stage_system.is_linked = False
+        restored = _record(microscope, "set_working_distance")
+
+        microscope.stable_move(10e-6, 5e-6, BeamType.ELECTRON, static_wd=True)
+
+        assert restored == []
+
+
+class TestSafeMovementRotatesOnlyAStageThatRotates:
+    def _rotations(self, microscope, target):
+        """The moves that only rotate: the safe sequence's compucentric step."""
+        sent = _record(microscope, "move_stage_absolute")
+        microscope.safe_absolute_stage_movement(target)
+        return [p for (p,) in sent if p.r is not None and p.x is None and p.t is None]
+
+    @pytest.mark.parametrize("compustage", [False, True])
+    def test_as_before_on_each_mount(self, compustage):
+        microscope = _session(compustage)
+        target = deepcopy(microscope.get_stage_position())
+        target.x = (target.x or 0.0) + 1e-5
+
+        rotations = self._rotations(microscope, target)
+
+        assert microscope.system.stage.rotation is not compustage
+        assert len(rotations) == (0 if compustage else 1)
+
+    def test_the_capability_decides_not_the_flag(self):
+        microscope = _session(compustage=False)
+        microscope.system.stage.rotation = False
+        target = deepcopy(microscope.get_stage_position())
+
+        assert self._rotations(microscope, target) == []

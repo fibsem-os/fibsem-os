@@ -1438,6 +1438,8 @@ class DemoMicroscope(
             scanning_mode_value=None,
         )
         self.stage_is_compustage: bool = self.system.sim.get("is_compustage", False)
+        # A compustage can't link (`set("stage_link")` refuses), so it is never linked.
+        self.stage_system.is_linked = not self.stage_is_compustage
         if not self.stage_is_compustage:
             # boot at the SEM orientation, as a loaded shuttle sits: at t=0 a
             # pre-tilted shuttle presents the FIB a grazing 3 deg view, a pose
