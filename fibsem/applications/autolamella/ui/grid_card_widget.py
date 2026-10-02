@@ -209,6 +209,8 @@ class GridCardWidget(QWidget):
     load_requested = pyqtSignal(object)  # GridRecord
     unload_requested = pyqtSignal(object)  # GridRecord
     rename_requested = pyqtSignal(object, str)  # GridRecord, new name
+    # The operator's note on the grid: what the report prints beside the verdict.
+    note_requested = pyqtSignal(object, str)  # GridRecord, the note
     remove_requested = pyqtSignal(object)  # GridRecord
 
     def __init__(
@@ -276,6 +278,10 @@ class GridCardWidget(QWidget):
             fibsem_icon("mdi:pencil-outline", color=stylesheets.GRAY_ICON_COLOR),
             "Rename…",
         )
+        self._action_note = menu.addAction(
+            fibsem_icon("mdi:note-edit-outline", color=stylesheets.GRAY_ICON_COLOR),
+            "Edit note…",
+        )
         self._action_remove = menu.addAction(
             fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
             "Remove",
@@ -285,6 +291,7 @@ class GridCardWidget(QWidget):
             lambda: self.unload_requested.emit(self.grid)
         )
         self._action_rename.triggered.connect(self._on_rename)
+        self._action_note.triggered.connect(self._on_edit_note)
         self._action_remove.triggered.connect(self._on_remove)
         self._btn_actions.setMenu(menu)
 
@@ -504,6 +511,19 @@ class GridCardWidget(QWidget):
         if ok and name and name != self.grid.name:
             self.rename_requested.emit(self.grid, name)
 
+    def _on_edit_note(self) -> None:
+        """What the operator makes of the grid, in their words: the note the
+        screening report prints beside the verdict, and the card's tooltip."""
+        note, ok = QInputDialog.getMultiLineText(
+            self,
+            "Grid note",
+            f"Note on {self.grid.name}, printed in the grid screening report:",
+            self.grid.description,
+        )
+        note = note.strip()
+        if ok and note != self.grid.description:
+            self.note_requested.emit(self.grid, note)
+
     def _on_remove(self) -> None:
         reply = QMessageBox.question(
             self,
@@ -525,6 +545,8 @@ class GridCardContainer(QWidget):
     load_requested = pyqtSignal(object)  # GridRecord
     unload_requested = pyqtSignal(object)  # GridRecord
     rename_requested = pyqtSignal(object, str)  # GridRecord, new name
+    # The operator's note on the grid: what the report prints beside the verdict.
+    note_requested = pyqtSignal(object, str)  # GridRecord, the note
     remove_requested = pyqtSignal(object)  # GridRecord
 
     def __init__(self, parent: Optional[QWidget] = None, mode: str = MODE_COZY) -> None:
@@ -546,6 +568,7 @@ class GridCardContainer(QWidget):
         card.load_requested.connect(self.load_requested)
         card.unload_requested.connect(self.unload_requested)
         card.rename_requested.connect(self.rename_requested)
+        card.note_requested.connect(self.note_requested)
         card.remove_requested.connect(self.remove_requested)
         self._cards[grid.id] = card
         self._layout.addWidget(card)

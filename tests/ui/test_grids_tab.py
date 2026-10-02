@@ -458,3 +458,89 @@ class TestReport:
         monkeypatch.setattr(module, "generate_grid_report", refuse)
         tab.generate_report()
         assert "pip install fibsem-os[reporting]" in tab.status_label.text()
+
+
+class TestNote:
+    """The operator's note on a grid (FIB-1132): written from the card's actions
+    menu, kept on the record, and printed by the grid screening report."""
+
+    NOTE = "Even ice across the centre, cells on the east half."
+
+    @pytest.fixture
+    def card(self, tab):
+        tab.btn_inventory.click()
+        card = tab.cards.cards[0]
+        tab.select_grid(card.grid)
+        return card
+
+    @staticmethod
+    def type_note(monkeypatch, text, ok=True):
+        import fibsem.applications.autolamella.ui.grid_card_widget as module
+
+        monkeypatch.setattr(
+            module.QInputDialog,
+            "getMultiLineText",
+            lambda *args, **kwargs: (text, ok),
+        )
+
+    def test_it_is_saved_and_shown(self, tab, card, experiment, monkeypatch):
+        changed = []
+        tab.experiment_changed.connect(lambda: changed.append(True))
+        self.type_note(monkeypatch, f"  {self.NOTE}\n")
+        card._action_note.trigger()
+
+        assert card.grid.description == self.NOTE  # trimmed
+        assert changed == [True]
+        assert card._card.toolTip() == self.NOTE
+        assert self.NOTE in tab.results_widget.subtitle_label.text()
+        loaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
+        assert loaded.get_grid_by_name(card.grid.name).description == self.NOTE
+
+    def test_a_verdict_keeps_the_note(self, card, monkeypatch):
+        self.type_note(monkeypatch, self.NOTE)
+        card._action_note.trigger()
+        card.set_quality(GridQuality.GOOD)
+        assert card.grid.description == self.NOTE
+
+    def test_an_empty_note_clears_it(self, card, monkeypatch):
+        self.type_note(monkeypatch, self.NOTE)
+        card._action_note.trigger()
+        self.type_note(monkeypatch, "   ")
+        card._action_note.trigger()
+        assert card.grid.description == ""
+        assert card._card.toolTip() == ""
+
+    def test_cancel_changes_nothing(self, tab, card, monkeypatch):
+        changed = []
+        tab.experiment_changed.connect(lambda: changed.append(True))
+        self.type_note(monkeypatch, self.NOTE, ok=False)
+        card._action_note.trigger()
+        assert card.grid.description == ""
+        assert changed == []
+
+    def test_it_reaches_the_report(self, tab, card, experiment, monkeypatch):
+        from fibsem.applications.autolamella.tools.grid_report import (
+            collect_grid_report,
+        )
+
+        self.type_note(monkeypatch, self.NOTE)
+        card._action_note.trigger()
+        experiment.task_protocol = AutoLamellaTaskProtocol()
+        report = collect_grid_report(experiment)
+        assert report.sections[0].description == self.NOTE
+
+        pytest.importorskip("reportlab")
+        from fibsem.applications.autolamella.tools.grid_report_pdf import (
+            generate_grid_report,
+        )
+
+        path = generate_grid_report(
+            experiment,
+            output_path=str(Path(experiment.path) / "report.pdf"),
+            compress=False,
+        )
+        # Once on the cover, once under the grid's name. The cover's column wraps
+        # the note, so look for its two ends rather than the whole string.
+        pdf = Path(path).read_bytes()
+        assert pdf.count(b"Even ice across") == 2
+        assert pdf.count(b"east half.") == 2
