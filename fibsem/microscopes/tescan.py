@@ -1088,6 +1088,20 @@ class TescanMicroscope(FibsemMicroscope):
 
         return FibsemManipulatorPosition(x=x, y=y, z=z, r=r)
 
+    def _read_hardware_capabilities(self) -> None:
+        super()._read_hardware_capabilities()
+        # The Nanomanipulator moves take a rotation (`MoveTo(..., Rot=)`).
+        self.set_available("manipulator_rotation", True)
+
+    def manipulator_named_positions(self) -> List[str]:
+        return ["Parking", "Standby", "Working"]
+
+    def move_manipulator_to_named_position(
+        self, name: str
+    ) -> FibsemManipulatorPosition:
+        # Tescan's named positions are presets the instrument moves to itself.
+        return self.insert_manipulator(name=name)
+
     def insert_manipulator(self, name: str = "Standby") -> FibsemManipulatorPosition:
         preset_positions = [
             "Parking",
