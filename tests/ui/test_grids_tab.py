@@ -57,7 +57,15 @@ def entry(status, name="overview_sem"):
 
 class TestHeadline:
     def test_nothing_yet(self):
-        assert grid_headline(GridRecord(name="g"))[0] == "Not run"
+        assert grid_headline(GridRecord(name="g"))[0] == ""
+
+    def test_a_load_with_no_task_after_it_says_nothing_either(self):
+        grid = GridRecord(name="g")
+        grid.task_history += [
+            entry(AutoLamellaTaskStatus.Completed),
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+        ]
+        assert grid_headline(grid)[0] == ""
 
     def test_complete_after_a_load(self):
         grid = GridRecord(name="g")
@@ -140,8 +148,8 @@ class TestCards:
         assert tab.summary_label.text() == "3 in this experiment · 3 present"
         card = tab.cards.cards[0]
         assert [c.text() for c in card._chip_widgets] == []  # present, not loaded
-        assert "slot 01" in card._status_label.toolTip()
-        assert card.is_present and card.status_text == "Not run"
+        assert card._status_label.toolTip() == "slot 01"  # no "Not run" to join
+        assert card.is_present and card.status_text == ""
         assert card._action_load.isVisible() and card._action_load.isEnabled()
         assert not card._action_unload.isVisible()
         assert tab.status_label.text() == "Inventory read."
@@ -189,7 +197,7 @@ class TestCards:
         loaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
         assert loaded.get_grid_by_name("Grid-01").quality.verdict is GridQuality.GOOD
         # a task outcome does not touch it
-        assert grid_headline(card.grid)[0] == "Not run"
+        assert grid_headline(card.grid)[0] == ""
 
     def test_rename_writes_through_to_the_slot(self, tab, arctis, experiment):
         tab.btn_inventory.click()
