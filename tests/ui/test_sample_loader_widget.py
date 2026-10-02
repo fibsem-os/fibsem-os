@@ -152,3 +152,51 @@ class TestSampleView:
         assert (
             len(received) == 1
         )  # the compustage working slot is calibrated by construction
+
+
+def test_a_rename_is_announced_before_the_loader_changes(widget, arctis):
+    """A host keeping records under the name renames its record first, so the
+    inventory sync that follows loader_changed finds it under the new name."""
+    heard = []
+    widget.grid_renamed.connect(lambda old, new: heard.append(("renamed", old, new)))
+    widget.loader_changed.connect(lambda: heard.append(("changed",)))
+    row = widget._row_widget(1)
+    row.name_edit.setText("grid-birch")
+    row.name_edit.editingFinished.emit()
+    assert heard == [("renamed", "Grid-02", "grid-birch"), ("changed",)]
+
+
+def test_the_host_can_refuse_a_rename(widget, arctis):
+    asked = []
+
+    def check(old, new):
+        asked.append((old, new))
+        return f"{old} cannot be renamed."
+
+    widget.set_rename_check(check)
+    renamed = []
+    widget.grid_renamed.connect(lambda *a: renamed.append(a))
+    row = widget._row_widget(0)
+    row.name_edit.setText("grid-aspen")
+    row.name_edit.editingFinished.emit()
+    assert asked == [("Grid-01", "grid-aspen")]
+    assert renamed == []
+    assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+    assert widget._row_widget(0).name_edit.text() == "Grid-01"
+    assert widget.status_label.text() == "Grid-01 cannot be renamed."
+
+
+def test_a_name_the_hardware_does_not_take_is_put_back(widget, arctis, monkeypatch):
+    def refuse(slot):
+        raise RuntimeError("the name did not stick")
+
+    monkeypatch.setattr(arctis._stage.loader, "_write_slot_description", refuse)
+    renamed = []
+    widget.grid_renamed.connect(lambda *a: renamed.append(a))
+    row = widget._row_widget(0)
+    row.name_edit.setText("grid-aspen")
+    row.name_edit.editingFinished.emit()
+    assert renamed == []
+    assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+    assert widget._row_widget(0).name_edit.text() == "Grid-01"
+    assert "did not stick" in widget.status_label.text()

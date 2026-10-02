@@ -349,6 +349,40 @@ class TestNaming:
         microscope._stage.assign_grid("Slot-02", None)
         assert hw._slots[1].sample_description == ""
 
+    def test_a_name_that_does_not_stick_is_an_error(self):
+        """Each read hands back fresh slot records, and this one ignores the
+        write: the next inventory read would undo the rename, so it is said now."""
+        hw = FakeAutoloader(occupied={2: "Grid-02"})
+        microscope, loader = _microscope_with(hw)
+        loader.run_inventory()
+        real = hw.get_slots
+
+        def fresh_copies(run_inventory):
+            return [
+                FakeAutoloaderSlot(s.id, s.state, s.sample_description)
+                for s in real(run_inventory)
+            ]
+
+        hw.get_slots = fresh_copies
+        with pytest.raises(GridExchangeError, match="did not stick"):
+            microscope._stage.assign_grid("Slot-02", SampleGrid(name="grid-birch"))
+        assert hw._slots[1].sample_description == "Grid-02"
+
+    def test_a_refused_write_is_an_error(self):
+        hw = FakeAutoloader(occupied={2: "Grid-02"})
+        microscope, loader = _microscope_with(hw)
+        loader.run_inventory()
+
+        class ReadOnlySlot(FakeAutoloaderSlot):
+            def __setattr__(self, key, value):
+                if key == "sample_description" and hasattr(self, key):
+                    raise PermissionError("sample_description is read-only")
+                super().__setattr__(key, value)
+
+        hw._slots[1] = ReadOnlySlot(2, "Occupied", "Grid-02")
+        with pytest.raises(GridExchangeError, match="read-only"):
+            microscope._stage.assign_grid("Slot-02", SampleGrid(name="grid-birch"))
+
 
 # ---------------------------------------------------------------------------
 # Wiring

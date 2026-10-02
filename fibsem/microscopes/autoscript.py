@@ -695,15 +695,39 @@ class AutoscriptSampleLoader(SampleGridLoader):
                 working.loaded_grid = None
 
     def _write_slot_description(self, slot: GridSlot) -> None:
+        """Write the grid's name to its slot, and read it back.
+
+        Every inventory read takes the name from the slot description, so a write
+        that did not land would quietly undo a rename at the next read. Seen to
+        stick on an Arctis (2026-10-02); read back anyway, and raise
+        ``GridExchangeError`` when it did not, so the rename can say so.
+        """
         description = slot.loaded_grid.name if slot.loaded_grid is not None else ""
+        number = slot.index + 1
         try:
-            for hw in self._autoloader.get_slots(False):
-                if int(hw.id) == slot.index + 1:
-                    hw.sample_description = description
-                    return
-            logging.warning(f"Autoloader reported no slot {slot.index + 1} to name.")
-        except Exception as e:  # noqa: BLE001 - not verified writable on hardware
-            logging.warning(f"Could not write the autoloader slot description: {e}")
+            hw = self._hardware_slot(number)
+            if hw is not None:
+                hw.sample_description = description
+                hw = self._hardware_slot(number)
+        except Exception as e:  # noqa: BLE001 - whatever AutoScript raised, as one error
+            raise GridExchangeError(
+                f"Could not write the autoloader slot description: {e}"
+            ) from e
+        if hw is None:
+            raise GridExchangeError(f"Autoloader reported no slot {number} to name.")
+        written = (getattr(hw, "sample_description", "") or "").strip()
+        if written != description:
+            raise GridExchangeError(
+                f"Autoloader slot {number} reads back '{written}', not "
+                f"'{description}': the name did not stick."
+            )
+
+    def _hardware_slot(self, number: int):
+        """AutoScript's record of one magazine slot (1-based), freshly read."""
+        for hw in self._autoloader.get_slots(False):
+            if int(hw.id) == number:
+                return hw
+        return None
 
     # -- exchange ------------------------------------------------------------
 
