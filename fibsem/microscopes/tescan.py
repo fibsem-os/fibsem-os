@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -66,7 +67,7 @@ from fibsem.imaging.spot import (
     SpotBurnSettings,
     SpotBurnStatus,
 )
-from fibsem.milling.base import set_preset_driven_estimation
+from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
@@ -292,6 +293,54 @@ LIMITS = {
 }
 
 
+# A current token inside a free-form TESCAN preset name, e.g. "30 keV; 100 pA" or
+# "30 keV; 2nA; my cool preset". Only prefixed units (pA/nA/uA/µA): a bare "A" in an
+# arbitrary name (e.g. "slot 2A") is far more likely noise than a beam current.
+_PRESET_CURRENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([pnuµ])A(?![a-zA-Z])")
+_SI_CURRENT_PREFIX = {"p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6}
+
+
+def parse_current_from_preset(preset: Optional[str]) -> Optional[float]:
+    """Parse the beam current (in A) out of a TESCAN preset name, or None.
+
+    Preset names are free-form on the instrument, but conventionally embed the
+    beam conditions ("30 keV; 100 pA"). The first current-looking token wins.
+    """
+    if not preset:
+        return None
+    match = _PRESET_CURRENT_RE.search(preset)
+    if match is None:
+        return None
+    return float(match.group(1)) * _SI_CURRENT_PREFIX[match.group(2)]
+
+
+def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
+    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage.
+
+    The same inputs DrawBeam computes the real exposure from: the stage's own
+    (per-material) etch rate and the current embedded in the preset name. The
+    shared sputter-rate table is a silicon calibration keyed on a current field
+    TESCAN milling ignores. Returns None (the caller falls back to the table)
+    when the preset carries no parseable current or the rate is unusable.
+    """
+    pattern_time = getattr(stage.pattern, "time", 0)
+    if pattern_time:
+        return pattern_time
+
+    current = parse_current_from_preset(stage.milling.preset)
+    rate = stage.milling.rate  # m³/A/s
+    if current is None or current <= 0 or not rate or rate <= 0:
+        return None
+
+    volume = stage.pattern.volume  # m³
+    if (
+        hasattr(stage.pattern, "cross_section")
+        and stage.pattern.cross_section is CrossSectionPattern.CleaningCrossSection
+    ):
+        volume *= 0.66  # ccs is approx 2/3 of the volume of a rectangle
+    return volume / (rate * current)
+
+
 class TescanMicroscope(FibsemMicroscope):
     """
     A class representing a TESCAN FIB-SEM microscope.
@@ -306,6 +355,12 @@ class TescanMicroscope(FibsemMicroscope):
     # The beam of the last requested (non-live) acquisition, for the settle before an
     # ion image that follows an electron one.
     _last_requested_beam_type: Optional[BeamType] = None
+
+    @staticmethod
+    def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
+        # TESCAN milling is preset-driven: the dose model (stage rate x preset
+        # current), not the shared table keyed on the unused milling_current.
+        return estimate_preset_milling_time(stage)
 
     def __init__(self, system_settings: SystemSettings):
         if not TESCAN_API_AVAILABLE:
@@ -353,12 +408,6 @@ class TescanMicroscope(FibsemMicroscope):
             BeamType.ION: BeamSettings(BeamType.ION),
         }
 
-        # TESCAN milling is preset-driven, so milling time estimates must come from
-        # the dose model (stage rate x preset current), not the legacy current-keyed
-        # table. Registered here because the planning stack estimates without a
-        # microscope in scope; disconnect() hands the legacy model back.
-        set_preset_driven_estimation(True)
-
         # logging
         logging.debug(
             {
@@ -372,8 +421,6 @@ class TescanMicroscope(FibsemMicroscope):
             self.connection.Disconnect()
         del self.connection
         self.connection = None
-        # hand milling time estimation back to the legacy model (see __init__)
-        set_preset_driven_estimation(False)
 
     def connect_to_microscope(
         self,
@@ -1087,6 +1134,20 @@ class TescanMicroscope(FibsemMicroscope):
         r = output_position[3] * constants.DEGREES_TO_RADIANS
 
         return FibsemManipulatorPosition(x=x, y=y, z=z, r=r)
+
+    def _read_hardware_capabilities(self) -> None:
+        super()._read_hardware_capabilities()
+        # The Nanomanipulator moves take a rotation (`MoveTo(..., Rot=)`).
+        self.set_available("manipulator_rotation", True)
+
+    def manipulator_named_positions(self) -> List[str]:
+        return ["Parking", "Standby", "Working"]
+
+    def move_manipulator_to_named_position(
+        self, name: str
+    ) -> FibsemManipulatorPosition:
+        # Tescan's named positions are presets the instrument moves to itself.
+        return self.insert_manipulator(name=name)
 
     def insert_manipulator(self, name: str = "Standby") -> FibsemManipulatorPosition:
         preset_positions = [

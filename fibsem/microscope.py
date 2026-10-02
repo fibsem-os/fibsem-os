@@ -83,6 +83,7 @@ from fibsem.transformations import (
 if TYPE_CHECKING:
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.microscopes._stage import SampleGridLoader
+    from fibsem.milling.base import FibsemMillingStage
 
 
 # The device the orientation transform is defined at. `_get_compucentric_rotation_position`
@@ -687,7 +688,9 @@ class FibsemMicroscope(ABC):
         if static_wd:
             wd = self.system.electron.eucentric_height
 
-        if not self.stage_is_compustage:  # TODO: can replace with self.stage.is_linked
+        # A linked stage's z moves the working distance with it, so put it back. An
+        # unlinked stage (a compustage never links) leaves it where it was.
+        if self.get("stage_linked"):
             self.set_working_distance(wd, BeamType.ELECTRON)
 
         # logging
@@ -1174,8 +1177,9 @@ class FibsemMicroscope(ABC):
         # coming back from the FM -- see FIB-841.
         self._refuse_rotation_at_the_fluorescence_microscope(stage_position)
 
-        # safe movements are not required on the compustage, because it doesn't rotate
-        if not self.stage_is_compustage:
+        # The safe sequence is about rotating, so a stage with no rotation axis (a
+        # compustage) skips it. `rotation` is `"r" in` the stage's axes, read at connect.
+        if self.system.stage.rotation:
             # tilt flat for large rotations to prevent collisions
             self._safe_rotation_movement(stage_position)
 
@@ -1251,6 +1255,30 @@ class FibsemMicroscope(ABC):
             raise self._unsupported("_get_saved_manipulator_position")
         return self.manipulator_device.saved_position(name)
 
+    # What a manipulator offers beyond the raw moves is the backend's to say, so the
+    # manipulator widget asks these rather than checking the class. Whether the arm
+    # rotates is `is_available("manipulator_rotation")`.
+
+    #: The moves this backend offers: "relative" always, and "corrected" when it
+    #: can move the needle in a beam's image coordinates (`move_manipulator_corrected`).
+    manipulator_move_types: Tuple[str, ...] = ("relative",)
+
+    def manipulator_named_positions(self) -> List[str]:
+        """The instrument's own named manipulator positions, if it has any."""
+        if self.manipulator_device is None:
+            return []
+        return self.manipulator_device.named_positions()
+
+    def move_manipulator_to_named_position(
+        self, name: str
+    ) -> Optional[FibsemManipulatorPosition]:
+        """Move the needle to one of `manipulator_named_positions`.
+
+        Returns where it is afterwards.
+        """
+        position = self._get_saved_manipulator_position(name)
+        return self.move_manipulator_absolute(position)
+
     @abstractmethod
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
         pass
@@ -1295,6 +1323,17 @@ class FibsemMicroscope(ABC):
     @abstractmethod
     def estimate_milling_time(self) -> float:
         pass
+
+    @staticmethod
+    def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
+        """This backend's estimate of one stage's milling time, in seconds.
+
+        None means use the shared sputter-rate table, which is right for any
+        backend that mills like ThermoFisher. A backend with its own model
+        overrides this; `utils.setup_session` installs it on connect, for the
+        planning stack, which estimates without a microscope in scope.
+        """
+        return None
 
     def draw_patterns(self, patterns: List[FibsemPatternSettings]) -> None:
         """Draw milling patterns on the microscope from the list of settings

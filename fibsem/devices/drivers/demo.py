@@ -488,6 +488,9 @@ class DemoManipulator(Manipulator):
     def read_state(self) -> InsertableDeviceState:
         return _insertable_state(self.sim_inserted)
 
+    def named_positions(self) -> List[str]:
+        return ["PARK", "EUCENTRIC"]
+
     def saved_position(self, name: str = "PARK") -> FibsemManipulatorPosition:
         if name == "PARK":
             return deepcopy(_DEMO_PARK)

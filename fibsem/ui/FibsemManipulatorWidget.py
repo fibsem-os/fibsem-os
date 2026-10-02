@@ -6,10 +6,6 @@ from PyQt5.QtWidgets import QMessageBox
 
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.autoscript import ThermoMicroscope
-from fibsem.microscopes.device_demo import DeviceDemoMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, FibsemManipulatorPosition, MicroscopeSettings
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.qtdesigner_files import (
@@ -44,45 +40,20 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         self.image_widget = image_widget
         self.saved_positions = {}
 
+        # What the controls offer is the driver's answer, not the class's.
+        self.named_positions = list(self.microscope.manipulator_named_positions())
+        self.move_types = tuple(self.microscope.manipulator_move_types)
+        self.has_rotation = bool(self.microscope.is_available("manipulator_rotation"))
+        self._controls_shown = True
+
         self.setup_connections()
 
         self.update_ui()
 
-        is_thermo = isinstance(
-            self.microscope, (ThermoMicroscope, DemoMicroscope, DeviceDemoMicroscope)
-        )
-        is_tescan = isinstance(self.microscope, (TescanMicroscope))
-
-        if is_thermo:
-            try:
-                self.microscope._get_saved_manipulator_position("PARK")
-                self.microscope._get_saved_manipulator_position("EUCENTRIC")
-                self.savedPosition_combobox.addItems(["PARK", "EUCENTRIC"])
-
-            except Exception as e:
-                notification_service.show_toast(
-                    f"Error loading PARK and EUCENTRIC positions, calibration of manipulator is possibly needed. {e}",
-                    "warning",
-                )
-
-            self.move_type_comboBox.currentIndexChanged.connect(self.change_move_type)
-            self.move_type_comboBox.setCurrentIndex(0)
-            self.change_move_type()
-            self.dR_spinbox.setEnabled(False)
-            self.dR_spinbox.setVisible(False)
-            self.dr_label.setVisible(False)
-            self.calibrated_status_label.setVisible(False)
-
-        if is_tescan:
-            # Tescan inserts to the instrument's own named presets.
-            self.calibrated_status_label.setVisible(False)
-            self.move_type_comboBox.hide()
-            self.beam_type_label.hide()
-            self.beam_type_combobox.hide()
-            # self.insertManipulator_button.hide()
-            # self.manipulatorStatus_label.hide()
-            self.savedPosition_combobox.addItem("Standby")
-            self.savedPosition_combobox.addItem("Working")
+        self.calibrated_status_label.setVisible(False)
+        self.savedPosition_combobox.addItems(self.named_positions)
+        self.move_type_comboBox.setCurrentIndex(0)
+        self.move_type_comboBox.currentIndexChanged.connect(self.change_move_type)
 
         manipulator_inserted = self.microscope.get_manipulator_state()
         self._hide_show_buttons(manipulator_inserted)
@@ -95,20 +66,15 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
             else "Manipulator Status: Retracted"
         )
 
-    def change_move_type(self):
+    def _is_corrected_move(self) -> bool:
+        return (
+            "corrected" in self.move_types
+            and self.move_type_comboBox.currentText() == "Corrected Move"
+        )
 
-        if self.move_type_comboBox.currentText() == "Relative Move":
-            self.dZ_spinbox.setEnabled(True)
-            self.dZ_spinbox.show()
-            self.dz_label.show()
-            self.beam_type_label.hide()
-            self.beam_type_combobox.hide()
-        else:
-            self.dZ_spinbox.setEnabled(False)
-            self.dZ_spinbox.hide()
-            self.dz_label.hide()
-            self.beam_type_label.show()
-            self.beam_type_combobox.show()
+    def change_move_type(self):
+        self.dZ_spinbox.setEnabled(not self._is_corrected_move())
+        self._hide_show_buttons(self._controls_shown)
 
     def update_ui_state(self):
 
@@ -177,9 +143,7 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         dr = self.dR_spinbox.value() * constants.DEGREES_TO_RADIANS
         beam_type = getattr(BeamType, self.beam_type_combobox.currentText())
 
-        if self.move_type_comboBox.currentText() == "Relative Move" or isinstance(
-            self.microscope, (TescanMicroscope)
-        ):
+        if not self._is_corrected_move():
             try:
                 position = FibsemManipulatorPosition(
                     x=dx, y=dy, z=dz, r=dr, coordinate_system="STAGE"
@@ -203,20 +167,22 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         self.update_ui()
 
     def _hide_show_buttons(self, show: bool = True):
+        self._controls_shown = show
+        corrected = self._is_corrected_move()
 
-        # show = False
-
-        self.move_type_comboBox.setVisible(show)
+        # the move-type box only when there is a choice, the beam only for a
+        # corrected move, dZ and dR only for a relative one
+        self.move_type_comboBox.setVisible(show and len(self.move_types) > 1)
         self.dX_spinbox.setVisible(show)
         self.dY_spinbox.setVisible(show)
-        self.dZ_spinbox.setVisible(show)
-        self.dR_spinbox.setVisible(show)
-        self.dz_label.setVisible(show)
+        self.dZ_spinbox.setVisible(show and not corrected)
+        self.dR_spinbox.setVisible(show and self.has_rotation and not corrected)
+        self.dz_label.setVisible(show and not corrected)
         self.dx_label.setVisible(show)
         self.dy_label.setVisible(show)
-        self.dr_label.setVisible(show)
-        self.beam_type_combobox.setVisible(show)
-        self.beam_type_label.setVisible(show)
+        self.dr_label.setVisible(show and self.has_rotation and not corrected)
+        self.beam_type_combobox.setVisible(show and corrected)
+        self.beam_type_label.setVisible(show and corrected)
         self.moveRelative_button.setVisible(show)
         self.addSavedPosition_button.setVisible(show)
         self.goToPosition_button.setVisible(show)
@@ -264,21 +230,20 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
     def move_to_saved_position(self):
         name = self.savedPosition_combobox.currentText()
 
-        if name in ["Parking", "Standby", "Working"] and isinstance(
-            self.microscope, (TescanMicroscope)
-        ):
-            self.microscope.insert_manipulator(name=name)
-            position = self.microscope.get_manipulator_position()
-            logging.info(f"Moved to saved position {name} at {position}")
+        if name in self.named_positions:
+            # the instrument's own position: the driver knows how to get there
+            try:
+                position = self.microscope.move_manipulator_to_named_position(name)
+            except Exception as e:
+                error_message = f"Error moving manipulator to {name}: {e}"
+                logging.error(error_message)
+                notification_service.show_toast(error_message, "error")
+                return
+            logging.info(f"Moved to named position {name} at {position}")
             self.update_ui()
             return
-        elif name in ["PARK", "EUCENTRIC"] and isinstance(
-            self.microscope, (ThermoMicroscope, DemoMicroscope, DeviceDemoMicroscope)
-        ):
-            position = self.microscope._get_saved_manipulator_position(name)
-        else:
-            position = self.saved_positions[name]
 
+        position = self.saved_positions[name]
         logging.info(f"Moving to saved position {name} at {position}")
         self.microscope.move_manipulator_absolute(position=position)
         self.update_ui()

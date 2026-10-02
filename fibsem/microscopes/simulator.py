@@ -1473,7 +1473,10 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         scanning_mode="full_frame",
         scanning_mode_value=None,
     )
-    if not system.sim.get("is_compustage", False):
+    compustage = system.sim.get("is_compustage", False)
+    # A compustage can't link (`set("stage_link")` refuses), so it is never linked.
+    stage_system.is_linked = not compustage
+    if not compustage:
         # boot at the SEM orientation, as a loaded shuttle sits: at t=0 a
         # pre-tilted shuttle presents the FIB a grazing 3 deg view, a pose
         # no real session starts in. A compustage is flat at t=0 already
@@ -1776,6 +1779,11 @@ class DemoMicroscope(
             }
         )
         return self.get_manipulator_position()
+
+    manipulator_move_types = ("relative", "corrected")
+
+    def manipulator_named_positions(self) -> List[str]:
+        return ["PARK", "EUCENTRIC"]
 
     def _get_saved_manipulator_position(
         self, name: str = "PARK"

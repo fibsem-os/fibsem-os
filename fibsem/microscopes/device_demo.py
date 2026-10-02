@@ -139,6 +139,9 @@ class DeviceDemoMicroscope(
     """The demo microscope built from devices, with the shared demo code."""
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+    # The needle moves as the legacy Demo's does, with no correction on a corrected
+    # move (``move_manipulator_corrected``); its named positions are the device's.
+    manipulator_move_types = ("relative", "corrected")
 
     def __init__(self, system_settings: SystemSettings):
         self._start_session(system_settings)
