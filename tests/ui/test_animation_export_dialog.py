@@ -73,16 +73,18 @@ def test_unticking_a_task_leaves_it_out(dialog):
     assert "2 frames" in dialog.label_summary.text()
 
 
-def test_a_task_without_the_beam_is_greyed_with_the_reason(dialog):
+def test_a_task_without_the_beam_is_left_out_of_the_strip(dialog):
     dialog.segment_beam.group.button(0).click()  # SEM
-    polish = dialog.tiles[2]
-    assert not polish.checkbox.isEnabled()
-    assert polish.toolTip() == "No SEM image"
+    assert dialog.tiles[2].isHidden()  # Polish has no SEM image
+    assert not dialog.tiles[0].isHidden()
     assert len(dialog._rendered) == 2
+
+    dialog.segment_beam.group.button(1).click()  # FIB: every task has one
+    assert not dialog.tiles[2].isHidden()
 
 
 def test_both_beams_doubles_the_width(dialog):
-    dialog.segment_beam.group.button(2).click()
+    dialog.segment_beam.group.button(3).click()  # Both
     assert dialog._rendered[0].shape[1] == 2 * 768 + 6
     assert len(dialog._rendered) == 2  # Polish has no SEM image
 
@@ -129,3 +131,73 @@ def test_the_lamella_and_counter_need_the_title(dialog):
     dialog.checkbox_title.setChecked(False)
     assert not dialog.checkbox_lamella.isEnabled()
     assert not dialog.checkbox_counter.isEnabled()
+
+
+def test_fm_is_unavailable_without_a_stack(dialog):
+    fm = dialog.segment_beam.group.button(2)
+    assert fm.text() == "FM"
+    assert not fm.isEnabled()
+    assert dialog.label_colour_hint.isHidden()
+
+
+def test_fm_plays_only_the_stack_and_hints_at_webp(qapp, frames, tmp_path):
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+    from fibsem.imaging.animation import AnimationFrame
+    from fibsem.ui.widgets.animation_export_dialog import AnimationExportDialog
+
+    data = np.zeros((1, 2, 64, 64), dtype=np.uint16)
+    data[0, :, 10:30, 10:30] = 30000
+    channel = FluorescenceChannelMetadata(
+        name="DAPI",
+        excitation_wavelength=365.0,
+        power=0.5,
+        exposure_time=0.1,
+        gain=1.0,
+        offset=0.0,
+        color="cyan",
+    )
+    metadata = FluorescenceImageMetadata(
+        acquisition_date="2026-10-02T14:48:00",
+        pixel_size_x=1e-6,
+        pixel_size_y=1e-6,
+        channels=[channel],
+        z_positions=[0.0, 0.5e-6],
+    )
+    stack = FluorescenceImage(data=data, metadata=metadata).save(
+        str(tmp_path / "stack.ome.tiff")
+    )
+    fm = AnimationFrame(title="Acquire FM", images=[], fluorescence_paths=[stack])
+    d = AnimationExportDialog([*frames[:1], fm, *frames[1:]], "lam-01", str(tmp_path))
+    try:
+        fm_button = d.segment_beam.group.button(2)
+        assert fm_button.isEnabled()
+        assert d.tiles[1].isHidden()  # FIB: the FM task has no FIB image
+        assert len(d._rendered) == 3
+        assert fm._fluorescence is None, "the stack is read only for FM"
+        assert not d.channel_checkboxes, "listing channels would read the stack"
+
+        fm_button.click()
+        assert len(d._rendered) == 1
+        assert not d.tiles[1].isHidden()
+        assert all(t.isHidden() for i, t in enumerate(d.tiles) if i != 1)
+        assert not d.label_colour_hint.isHidden()
+        assert d.segment_magnification.isHidden()
+        assert d.checkbox_auto_contrast.isHidden()
+
+        assert list(d.channel_checkboxes) == ["DAPI"]
+        assert not d.channels_box.isHidden()
+        d.channel_checkboxes["DAPI"].setChecked(False)
+        assert d.options.hidden_channels == ["DAPI"]
+
+        d.segment_format.group.button(1).click()  # WebP keeps the colours
+        assert d.label_colour_hint.isHidden()
+
+        d.segment_beam.group.button(1).click()  # FIB: channels do not apply
+        assert d.channels_box.isHidden()
+    finally:
+        d.done(0)
+        d.deleteLater()

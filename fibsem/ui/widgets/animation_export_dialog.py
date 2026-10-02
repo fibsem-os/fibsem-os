@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 from PyQt5.QtCore import QEvent, Qt, QTimer
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -60,7 +60,7 @@ from fibsem.ui.widgets.image_export_dialog import (
     _tab,
 )
 
-_BEAMS = (("SEM", "SEM"), ("FIB", "FIB"), ("Both", "both"))
+_BEAMS = (("SEM", "SEM"), ("FIB", "FIB"), ("FM", "FM"), ("Both", "both"))
 _MAGNIFICATIONS = (("High mag", "high"), ("Low mag", "low"))
 _FRAME_TIMES = (("0.6 s", 600), ("1.2 s", 1200), ("2 s", 2000))
 _WIDTHS = (("768", 768), ("1024", 1024), ("1536", 1536))
@@ -245,13 +245,33 @@ class AnimationExportDialog(QDialog):
             "Saved images vary in brightness; without this the GIF flickers"
         )
         self.checkbox_auto_contrast.setChecked(o.auto_contrast)
+        self.caption_magnification = _caption("Image from each task")
+        # FM channels, filled the first time FM is chosen: listing them means
+        # reading the stacks, which nothing else does until then.
+        self.channels_box = QWidget()
+        self._channels_layout = QVBoxLayout(self.channels_box)
+        self._channels_layout.setContentsMargins(0, 6, 0, 0)
+        self._channels_layout.setSpacing(6)
+        self.channel_checkboxes: Dict[str, QCheckBox] = {}
+        fm = self.segment_beam.group.button(_index(_BEAMS, "FM"))
+        fm.setToolTip("The tasks that saved a fluorescence stack, a frame each")
+        if not any(f.fluorescence_paths for f in self.frames):
+            fm.setEnabled(False)
+            fm.setToolTip("No task saved a fluorescence stack")
+        # Shown only while it applies: FM frames, saved as a GIF.
+        self.label_colour_hint = _caption(
+            "A GIF bands fluorescence colours; WebP keeps them"
+        )
+        self.label_colour_hint.setWordWrap(True)
         self.tabs.addTab(
             _tab(
                 _caption("Beam"),
                 self.segment_beam,
-                _caption("Image from each task"),
+                self.caption_magnification,
                 self.segment_magnification,
                 self.checkbox_auto_contrast,
+                self.label_colour_hint,
+                self.channels_box,
             ),
             "Frames",
         )
@@ -361,6 +381,9 @@ class AnimationExportDialog(QDialog):
         o.beam = _BEAMS[self.segment_beam.index()][1]
         o.magnification = _MAGNIFICATIONS[self.segment_magnification.index()][1]
         o.auto_contrast = self.checkbox_auto_contrast.isChecked()
+        o.hidden_channels = [
+            name for name, cb in self.channel_checkboxes.items() if not cb.isChecked()
+        ]
         o.title = self.checkbox_title.isChecked()
         o.lamella = self.checkbox_lamella.isChecked()
         o.step_counter = self.checkbox_counter.isChecked()
@@ -377,6 +400,17 @@ class AnimationExportDialog(QDialog):
         # Both sit on the title plate, so neither shows without it.
         self.checkbox_lamella.setEnabled(self.options.title)
         self.checkbox_counter.setEnabled(self.options.title)
+        fm = self.options.beam == "FM"
+        self.label_colour_hint.setVisible(fm and self._format[1] == ".gif")
+        self.channels_box.setVisible(fm)
+        # Hidden, not greyed, for FM: a stack is drawn as its blend whatever the
+        # magnification, and each channel is already contrasted on its own.
+        for widget in (
+            self.caption_magnification,
+            self.segment_magnification,
+            self.checkbox_auto_contrast,
+        ):
+            widget.setVisible(not fm)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             self._rendered = render_animation(self.frames, self.options, self.title)
@@ -384,6 +418,8 @@ class AnimationExportDialog(QDialog):
             QApplication.restoreOverrideCursor()
         self._indices = included(self.frames, self.options)
         self._pixmaps = [QPixmap.fromImage(_rgb_to_qimage(r)) for r in self._rendered]
+        if self.options.beam == "FM":
+            self._ensure_channel_checkboxes()
         self._refresh_tiles()
 
         n = len(self._rendered)
@@ -402,17 +438,44 @@ class AnimationExportDialog(QDialog):
         self._current = min(self._current, max(0, n - 1))
         self._show_current()
 
+    def _ensure_channel_checkboxes(self) -> None:
+        """A checkbox per channel name across the stacks, swatched in its colour:
+        unticked, the channel leaves every frame's blend and legend. By name, as
+        the renderer hides them, so one choice covers stacks that list their
+        channels in a different order."""
+        if self.channel_checkboxes:
+            return
+        colours: Dict[str, tuple] = {}
+        for frame in self.frames:
+            image = frame.pick("FM")
+            for channel in image.channels if image is not None else []:
+                colours.setdefault(channel.name, channel.color)
+        if not colours:
+            return
+        self._channels_layout.addWidget(_caption("Channels"))
+        for name, colour in colours.items():
+            swatch = QPixmap(10, 10)
+            swatch.fill(QColor(*colour))
+            checkbox = QCheckBox(name)
+            checkbox.setIcon(QIcon(swatch))
+            checkbox.setToolTip(name)
+            checkbox.setChecked(name not in self.options.hidden_channels)
+            checkbox.toggled.connect(self._on_changed)
+            self.channel_checkboxes[name] = checkbox
+            self._channels_layout.addWidget(checkbox)
+
     def _refresh_tiles(self) -> None:
-        """Each tile shows the image the chosen beam would use; a task without one
-        is greyed, with the reason, rather than silently missing from the GIF."""
+        """The strip shows the tasks the chosen beam can draw, each with the image it
+        would use: under FM, only the tasks that saved a fluorescence stack. A task
+        without one is hidden rather than shown greyed -- a row of blank tiles for
+        every beam task is noise when the animation is the one FM frame."""
         kinds = ["SEM", "FIB"] if self.options.beam == "both" else [self.options.beam]
         for frame, tile in zip(self.frames, self.tiles):
             images = [frame.pick(k, self.options.magnification) for k in kinds]
             available = all(images)
-            tile.set_image(images[-1].rgb if available else None)
-            tile.checkbox.setEnabled(available)
-            missing = [k for k, image in zip(kinds, images) if image is None]
-            tile.setToolTip("" if available else f"No {' or '.join(missing)} image")
+            tile.setVisible(available)
+            if available:
+                tile.set_image(images[-1].rgb)
 
     def _show_current(self) -> None:
         self._timer.stop()
