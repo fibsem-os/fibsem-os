@@ -160,3 +160,72 @@ def test_a_fluorescence_overview_skips_its_tiles_out_of_reach(microscope, experi
     assert entry.status_message == (
         "Finished; 2 of 10 tiles were past the stage's reach and skipped: (0,0), (9,0)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Asked before anything runs, for the Grid page (FIB-1152)
+# ---------------------------------------------------------------------------
+
+
+def test_the_reach_is_known_before_the_overview_runs(microscope):
+    from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
+        describe_reach,
+        overview_reach,
+    )
+
+    too_big = BeamOverviewGridTaskConfig(task_name="sem", settings=_beam(4, 4, 300e-6))
+    fits = BeamOverviewGridTaskConfig(task_name="sem", settings=_beam(3, 3, 300e-6))
+    fm = FluorescenceOverviewGridTaskConfig(
+        task_name="fm", overview=OverviewParameters(rows=15, cols=15)
+    )
+    assert describe_reach(overview_reach(microscope, too_big), one_slot=True) == (
+        "8 of 16 tiles are past the stage's reach and will be skipped (rows 0 and 3)."
+    )
+    assert overview_reach(microscope, fits) == []
+    (reach,) = overview_reach(microscope, fm)
+    assert (len(reach.skipped), reach.enabled) == (90, 225)
+
+
+def test_a_projection_is_built_once_per_beam(microscope, monkeypatch):
+    """Building one reads the instrument; the Grid page asks on every edit."""
+    from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
+        overview_reach,
+    )
+    from fibsem.projection import BeamStageProjection
+
+    built = []
+    real = BeamStageProjection.from_microscope.__func__
+    monkeypatch.setattr(
+        BeamStageProjection,
+        "from_microscope",
+        classmethod(lambda cls, m, beam: built.append(beam) or real(cls, m, beam)),
+    )
+    kept = {}
+    for rows in (2, 3, 4, 5):
+        config = BeamOverviewGridTaskConfig(
+            task_name="sem", settings=_beam(rows, rows, 300e-6)
+        )
+        overview_reach(microscope, config, kept)
+    assert built == [BeamType.ELECTRON]
+
+
+def test_the_warning_names_whole_rows_and_columns_or_a_few_tiles():
+    from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
+        SlotReach,
+        describe_reach,
+    )
+
+    def say(skipped, slot="Slot-02", one_slot=False):
+        return describe_reach([SlotReach(slot, skipped, 16, 4, 4)], one_slot)
+
+    assert say([(r, 3) for r in range(4)]) == (
+        "Slot-02: 4 of 16 tiles are past the stage's reach and will be skipped "
+        "(column 3)."
+    )
+    assert say([(0, 0), (3, 3)], one_slot=True) == (
+        "2 of 16 tiles are past the stage's reach and will be skipped ((0,0), (3,3))."
+    )
+    scattered = [(0, 0), (0, 2), (1, 1), (2, 0), (2, 2), (3, 1), (3, 3)]
+    assert say(scattered, one_slot=True) == (
+        "7 of 16 tiles are past the stage's reach and will be skipped."
+    )

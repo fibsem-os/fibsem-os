@@ -59,6 +59,7 @@ def reachable_fluorescence_overview(
     microscope: "FibsemMicroscope",
     parameters: OverviewParameters,
     centre: FibsemStagePosition,
+    projection: Optional[FMStageProjection] = None,
 ) -> Tuple[OverviewParameters, List[Tuple[int, int]]]:
     """*parameters* with the tiles the stage cannot reach from *centre* turned off,
     and which tiles they were: `reachable_overview` for the fluorescence tiler.
@@ -67,18 +68,22 @@ def reachable_fluorescence_overview(
     camera's field of view, and judged through the projection the FM Overview tab
     draws unreachable tiles with. Read after the move to the FM, with the objective
     in, when the camera's pixel size is the one the run will use.
+
+    *projection* is one already built, by a caller asking repeatedly (the Grid
+    page, on every edit). It carries the camera's pixel size and shape, so the
+    camera is not read again; building one reads it, which is slow on hardware.
     """
     limits = getattr(microscope._stage, "limits", None)
-    projection = FMStageProjection.from_microscope(microscope)
+    if projection is None:
+        projection = FMStageProjection.from_microscope(microscope)
     if not limits or projection is None:
         return parameters, []
-    pixel_size_x, pixel_size_y = microscope.fm.camera.pixel_size
-    width, height = microscope.fm.camera.resolution
+    height, width = projection.shape
     tiles = compute_tile_grid_from_fov(
         nrows=parameters.rows,
         ncols=parameters.cols,
-        fov_x=width * pixel_size_x,
-        fov_y=height * pixel_size_y,
+        fov_x=width * projection.pixel_size,
+        fov_y=height * projection.pixel_size,
         image_width=width,
         image_height=height,
         overlap=parameters.overlap,

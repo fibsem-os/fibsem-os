@@ -112,6 +112,7 @@ def reachable_overview(
     microscope: "FibsemMicroscope",
     settings: OverviewAcquisitionSettings,
     centre: FibsemStagePosition,
+    projection: Optional[BeamStageProjection] = None,
 ) -> Tuple[OverviewAcquisitionSettings, List[Tuple[int, int]]]:
     """*settings* with the tiles the stage cannot reach from *centre* turned off, and
     which tiles they were.
@@ -124,11 +125,15 @@ def reachable_overview(
     the runner's own check passes on what is left. Reach is judged by tile centre, as
     there. Returns *settings* unchanged when every tile is reachable or the limits
     cannot be read.
+
+    *projection* is one already built for this beam, by a caller asking repeatedly
+    (the Grid page, on every edit): building it reads the scan rotation.
     """
     limits = getattr(microscope._stage, "limits", None)
-    projection = BeamStageProjection.from_microscope(
-        microscope, settings.image_settings.beam_type
-    )
+    if projection is None:
+        projection = BeamStageProjection.from_microscope(
+            microscope, settings.image_settings.beam_type
+        )
     if not limits or projection is None:
         return settings, []
     skipped = unreachable_tiles(
