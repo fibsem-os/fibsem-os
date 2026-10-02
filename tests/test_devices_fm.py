@@ -225,3 +225,43 @@ def test_a_parameter_not_declared_nearest_still_refuses(fm):
     _, devices = fm
     with pytest.raises(ValueError):
         devices["camera"].binning.set_value(3)
+
+
+def test_a_frame_carries_what_the_fm_class_stamped(fm, monkeypatch):
+    """The FM class's own metadata, so a driver's per-frame values (odemis: date,
+    pixel size, exposure) reach the coordinator rather than a later read."""
+    microscope, devices = fm
+    stamped = []
+    acquire_image = microscope.acquire_image
+
+    def acquire_and_keep(settings=None):
+        image = acquire_image(settings)
+        image.metadata.acquisition_date = "2026-10-02T08:00:00"  # as odemis would
+        stamped.append(image.metadata)
+        return image
+
+    monkeypatch.setattr(microscope, "acquire_image", acquire_and_keep)
+    channel = ChannelSettings(excitation_wavelength=550, power=0.3, exposure_time=0.05)
+    frame = devices["fm"].acquire_frame(channel.to_dict())
+    (md,) = stamped
+    assert frame.metadata["acquisition_date"] == "2026-10-02T08:00:00"
+    assert frame.metadata["pixel_size"] == [md.pixel_size_x, md.pixel_size_y]
+    assert frame.metadata["exposure_time"] == 0.05
+    assert frame.metadata["power"] == 0.3
+    assert frame.metadata["excitation_wavelength"] == 550
+    assert EmissionFilter.from_dict(frame.metadata["emission_filter"]) == (
+        devices["filter_set"].emission_filter.cached
+    )
+
+
+def test_a_frame_with_the_current_settings_is_the_camera_frame(fm):
+    microscope, devices = fm
+    microscope.camera._use_counter = False
+    np.random.seed(0)
+    expected = microscope.camera.acquire_image()
+    np.random.seed(0)
+    frame = devices["fm"].acquire_frame()
+    assert np.array_equal(frame.data, expected)
+    assert frame.metadata["exposure_time"] == microscope.camera.exposure_time
+    assert frame.metadata["objective_position"] == microscope.objective.position
+    assert "acquisition_date" in frame.metadata
