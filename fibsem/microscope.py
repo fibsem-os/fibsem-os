@@ -105,6 +105,10 @@ _BEAM_CONFIG_KEYS: Mapping[str, str] = MappingProxyType(
 _INFO_KEYS = frozenset(
     ("manufacturer", "model", "serial_number", "software_version", "hardware_version")
 )
+# Set verbs whose old branch does nothing for a false value (it logs "Invalid
+# value"). Routed to a device command only for a true value; a false one still goes
+# to `_set`.
+_VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber"))
 
 
 # Whether a stage move is being recorded on this thread. A move is often made of
@@ -195,6 +199,25 @@ def _chamber_state_name(state: ChamberState) -> str:
     """The name today's pump() and vent() return for a chamber device's state, as the
     Demo and AutoScript chambers name it ("Pumped", "Vented")."""
     return state.value.capitalize()
+
+
+# The old keys whose value differs from their device parameter's.
+_OLD_KEY_VALUES: Mapping[str, Callable[[Any], Any]] = MappingProxyType(
+    {
+        "chamber_state": _chamber_state_name,  # "Pumped", not ChamberState.PUMPED
+        "manipulator_state": lambda state: state is InsertableDeviceState.INSERTED,
+    }
+)
+
+
+def _old_key_value(key: str, value: Any) -> Any:
+    """A device parameter's value as the old key returns it: an enum as its plain
+    value ("spot"), except where `_OLD_KEY_VALUES` says otherwise."""
+    if key in _OLD_KEY_VALUES:
+        return _OLD_KEY_VALUES[key](value)
+    if isinstance(value, Enum):
+        return value.value
+    return value
 
 
 class RequiredDeviceUnavailable(RuntimeError):
@@ -1452,7 +1475,8 @@ class FibsemMicroscope(ABC):
     _device_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
     # Set keys that are verbs, moved to a device command: key -> (device attribute,
     # command), e.g. "stage_home" -> ("stage_device", "home"). The command ignores
-    # the value, as the old branches do. A command the device doesn't have (a
+    # the value, as the old branches do, except where the old branch did nothing for
+    # a false value (`_VERBS_THAT_NEED_TRUE`). A command the device doesn't have (a
     # compustage can't link) leaves the key to `_set`.
     _command_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
 
@@ -1508,9 +1532,7 @@ class FibsemMicroscope(ABC):
         """Get wrapper for logging."""
         param = self._route(key, beam_type)
         if param is not None:
-            value = param.get_value()
-            if isinstance(value, Enum):
-                value = value.value  # old keys return the plain value ("spot")
+            value = _old_key_value(key, param.get_value())
         elif key in _BEAM_CONFIG_KEYS:
             value = getattr(self._beam_config(key, beam_type), _BEAM_CONFIG_KEYS[key])
         elif key in _INFO_KEYS:
@@ -1532,6 +1554,8 @@ class FibsemMicroscope(ABC):
         """Set wrapper for logging"""
         param = None if key in self._device_routes else self._route(key, beam_type)
         command = self._route_command(key)
+        if key in _VERBS_THAT_NEED_TRUE and not value:
+            command = None
         if command is not None:
             command()
         elif param is not None:

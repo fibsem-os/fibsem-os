@@ -99,16 +99,18 @@ def test_router_set_leaves_the_same_state_as_old_set(beam_type, key, value):
     old.set(key, value, beam_type)
     router.set(key, value, beam_type)
 
+    # the beams keep their own state, so the router's reads are the ones to compare
     for read_key in list(BEAM_ROUTES) + ["shift", "stigmation", "resolution"]:
-        assert new.get(read_key, beam_type) == old.get(read_key, beam_type), read_key
+        assert router.get(read_key, beam_type) == old.get(read_key, beam_type), read_key
 
 
 def test_router_keeps_the_spot_burn_side_effect_of_unblanking(monkeypatch):
     burns = []
     microscope = _demo()
     monkeypatch.setattr(microscope, "_burn_into_sample_scene", burns.append)
-    router = KeyRouter(microscope, bind_demo_beams(microscope))
-    microscope.ion_system.scanning_mode = "spot"
+    beams = bind_demo_beams(microscope)
+    router = KeyRouter(microscope, beams)
+    beams[BeamType.ION].sim_scanning_mode = "spot"
 
     router.set("blanked", False, BeamType.ION)
 
@@ -219,7 +221,7 @@ def test_a_live_read_that_finds_a_new_value_emits_changed(microscope, beams):
     seen = []
     sem.hfw.changed.connect(seen.append)
 
-    microscope.electron_system.beam.hfw = 42e-6  # changed behind our back
+    sem.sim_beam.hfw = 42e-6  # changed behind our back
     assert sem.hfw.cached == 150e-6  # the cache does not read the instrument
     assert sem.hfw.get_value() == 42e-6
     assert seen == [42e-6]
@@ -332,7 +334,7 @@ def test_actions_are_plain_methods_that_describe_themselves(beams):
     assert commands["blank"].available
 
     sem.blank()
-    assert sem.parent.get("blanked", BeamType.ELECTRON) is True
+    assert sem.blanked.get_value() is True
     assert isinstance(sem.acquire(), FibsemImage)
 
 
@@ -452,7 +454,7 @@ def test_routed_set_leaves_the_same_state_as_the_old_chain(beam_type, key, value
     new.set(key, value, beam_type)
 
     for read_key in list(BEAM_ROUTES) + ["shift", "stigmation", "resolution"]:
-        assert new._get(read_key, beam_type) == old._get(read_key, beam_type), read_key
+        assert new.get(read_key, beam_type) == old.get(read_key, beam_type), read_key
 
 
 def test_routed_set_emits_the_parameter_change():

@@ -1413,6 +1413,15 @@ class DemoMicroscope(FibsemMicroscope):
             beam_current=float(milling_current) if milling_current else None,
         )
 
+    def _spot_and_beam(
+        self, beam_type: BeamType
+    ) -> Tuple[Union[None, Point, FibsemRectangle], BeamSettings]:
+        """The point a beam is parked on (its scan target) and its settings."""
+        beam_system = (
+            self.electron_system if beam_type is BeamType.ELECTRON else self.ion_system
+        )
+        return beam_system.scanning_mode_value, beam_system.beam
+
     def _burn_into_sample_scene(self, beam_type: BeamType) -> None:
         """Commit the parked beam's spot to the sample scene, when there is
         one: from now on every view shows a small mark there (FIB-954). The
@@ -1422,10 +1431,7 @@ class DemoMicroscope(FibsemMicroscope):
         scene = getattr(self, "_sample_scene", None)
         if scene is None:
             return
-        beam_system = (
-            self.electron_system if beam_type is BeamType.ELECTRON else self.ion_system
-        )
-        point = beam_system.scanning_mode_value
+        point, beam = self._spot_and_beam(beam_type)
         if point is None:
             return
         from fibsem.projection import BeamStageProjection
@@ -1433,7 +1439,6 @@ class DemoMicroscope(FibsemMicroscope):
         projection = BeamStageProjection.from_microscope(self, beam_type=beam_type)
         if projection is None:
             return
-        beam = beam_system.beam
         width, height = beam.resolution
         hfw = float(beam.hfw)
         dx = (float(point.x) - 0.5) * hfw
