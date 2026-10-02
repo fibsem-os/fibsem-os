@@ -686,6 +686,74 @@ def test_ion_currents_follow_the_plasma_gas(backend):
     assert microscope.get("plasma_gas", BeamType.ION) == "Argon"
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_plasma_is_the_configured_ion_column(backend):
+    microscope = _connect(backend, _plasma_configuration())
+    assert microscope.get("plasma", BeamType.ION) is True
+    assert microscope.get("plasma", BeamType.ELECTRON) is False
+
+
+def test_device_demo_reads_its_configuration_without_demo(monkeypatch):
+    """The configured keys and capabilities read the configuration, not Demo."""
+    from fibsem.microscopes.simulator import DemoMicroscope
+
+    def refuse(self, key, beam_type=None):
+        raise AssertionError(f"{key} went to Demo")
+
+    microscope = _connect("DeviceDemo", _plasma_configuration())
+    monkeypatch.setattr(DemoMicroscope, "_get", refuse)
+    monkeypatch.setattr(DemoMicroscope, "get_available_values", refuse)
+    assert microscope.get("plasma", BeamType.ION) is True
+    for key in ("plasma_gas", "gis_ports", "scan_direction"):
+        assert microscope.get_available_values(key)
+    assert microscope.check_available_values("plasma_gas", "Argon", BeamType.ION)
+    assert microscope._get_axis_limits()
+
+
+# What DeviceDemo still takes from Demo: methods it inherits as they are, and its
+# own methods that hand on to Demo's through `super()`. Each step of the migration
+# takes names off; when both are empty the inheritance goes.
+DEVICE_DEMO_INHERITS_FROM_DEMO = {
+    "__init__", "_acquisition_worker", "_burn_into_sample_scene",
+    "_generate_next_image", "_mill_into_sample_scene", "_scene_holder_slots",
+    "_setup_image_iterators", "_setup_sample_scene", "_wait",
+    "_warn_if_channel_moved", "acquire_chamber_image", "acquire_image",
+    "auto_focus", "autocontrast", "clear_patterns", "disconnect",
+    "draw_bitmap_pattern", "draw_circle", "draw_line", "draw_polygon",
+    "draw_rectangle", "draw_sputter_pattern", "estimate_milling_time",
+    "finish_milling", "finish_sputter", "get_milling_state", "last_image",
+    "pause_milling", "resume_milling", "run_milling", "run_sputter",
+    "run_sputter_coater", "set_channel", "set_default_application_file",
+    "set_patterning_mode", "setup_milling", "setup_sputter", "start_milling",
+    "stop_milling",
+}  # fmt: skip
+DEVICE_DEMO_HANDS_ON_TO_DEMO = {
+    "connect_to_microscope", "_get", "_set", "get_available_values",
+}  # fmt: skip
+
+
+def test_what_device_demo_still_takes_from_demo():
+    import inspect
+
+    from fibsem.microscopes.device_demo import DeviceDemoMicroscope
+    from fibsem.microscopes.simulator import DemoMicroscope
+
+    demo = vars(DemoMicroscope)
+    inherited = {
+        name
+        for name, value in demo.items()
+        if callable(value)
+        and inspect.getattr_static(DeviceDemoMicroscope, name) is value
+    }
+    handed_on = {
+        name
+        for name, value in vars(DeviceDemoMicroscope).items()
+        if callable(value) and name in demo and "super()" in inspect.getsource(value)
+    }
+    assert inherited == DEVICE_DEMO_INHERITS_FROM_DEMO
+    assert handed_on == DEVICE_DEMO_HANDS_ON_TO_DEMO
+
+
 @pytest.mark.parametrize(
     "key", ["plasma_gas", "application_file", "gis_ports", "scan_direction"]
 )
