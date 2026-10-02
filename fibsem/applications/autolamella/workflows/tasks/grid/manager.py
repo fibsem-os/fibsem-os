@@ -89,6 +89,21 @@ SKIP_NOTHING_TO_RUN = "nothing_to_run"  # a load with no runnable task behind it
 SKIP_TASK_REMOVED = "task_removed"  # taken out of the grid protocol mid-run
 
 
+def grid_has_run(grid: GridRecord) -> bool:
+    """Whether a task has run on this grid, as against it only being loaded.
+
+    Its name is fixed from then on: the grid's folder is named after it, and every
+    image a task wrote carries it. Renaming after that could only lose the files,
+    move them, or leave them saying something else, so nothing renames it."""
+    return any(t.name != LOAD_ENTRY_NAME for t in grid.task_history)
+
+
+NAME_FIXED_REASON = (
+    "Named once it has run: its folder and images carry this name. "
+    "Use Edit note… for a correction."
+)
+
+
 def plan_grid_run(
     task_names: List[str], grid_names: List[str]
 ) -> List[Tuple[str, str]]:

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import glob
 import os
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
@@ -88,6 +88,28 @@ def final_reference_images(lamella: Lamella, *tasks: AutoLamellaTaskState) -> Li
             )
         }
     )
+
+
+def final_images_by_task(lamella: Lamella) -> List[Tuple[str, List[str]]]:
+    """Each task's final reference images, in the order the tasks last ran.
+
+    What a workflow animation is made of: a frame per task. One entry per task name,
+    because reference images are rewritten to the same filename on every run -- an
+    earlier run's files *are* the later run's -- so the entry sits where the task last
+    ran. A run that recorded nothing (cancelled, or failed before saving) adds
+    nothing, and a task none of whose runs left a final image has no entry.
+    """
+    runs: Dict[str, List[AutoLamellaTaskState]] = {}
+    last: Dict[str, int] = {}
+    for index, run in enumerate(lamella.task_history):
+        runs.setdefault(run.name, []).append(run)
+        last[run.name] = index
+    steps = []
+    for name in sorted(last, key=last.__getitem__):
+        paths = final_reference_images(lamella, *runs[name])
+        if paths:
+            steps.append((name, paths))
+    return steps
 
 
 def grid_outputs(
