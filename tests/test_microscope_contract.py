@@ -1091,12 +1091,12 @@ def fm_microscope(request):
 def test_fm_acquires_a_channel(fm_microscope):
     from fibsem.fm.structures import ChannelSettings
 
-    channel = ChannelSettings(excitation_wavelength=488, power=0.3, exposure_time=0.02)
+    channel = ChannelSettings(excitation_wavelength=450, power=0.3, exposure_time=0.02)
     image = fm_microscope.fm.acquire_image(channel)
     assert image.data.ndim == 2 and image.data.size > 0
     assert fm_microscope.fm.camera.exposure_time == 0.02
     assert fm_microscope.fm.light_source.power == 0.3
-    assert fm_microscope.fm.filter_set.excitation_wavelength == 488
+    assert fm_microscope.fm.filter_set.excitation_wavelength == 450
 
 
 def test_fm_objective_inserts_and_retracts(fm_microscope):
@@ -1138,13 +1138,75 @@ def test_device_demo_fm_group_acquires_a_channel():
 
     microscope = _connect("DeviceDemo", FM_CONFIGURATION)
     devices = microscope.fm_devices
-    channel = ChannelSettings(excitation_wavelength=488, power=0.3, exposure_time=0.02)
+    channel = ChannelSettings(excitation_wavelength=450, power=0.3, exposure_time=0.02)
     data = devices["fm"].acquire_channel(channel.to_dict())
     assert data.ndim == 2 and data.size > 0
-    # The group reads the parts back after the channel set them.
+    # The group sets the parts through their parameters, so each is cached.
     assert devices["camera"].exposure_time.cached == 0.02
     assert devices["light_source"].power.cached == 0.3
-    assert devices["filter_set"].excitation_wavelength.cached == 488
+    assert devices["filter_set"].excitation_wavelength.cached == 450
+
+
+def test_device_demo_fm_is_the_fm_api_over_devices():
+    """`fm` is the same FM API over devices a remote FM is, over the Demo FM devices."""
+    from fibsem.devices.drivers.demo import DemoCamera
+    from fibsem.fm.api import DeviceFluorescenceMicroscope
+
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    fm = microscope.fm
+    assert isinstance(fm, DeviceFluorescenceMicroscope)
+    assert fm.devices == dict(microscope.fm_devices)
+    assert isinstance(microscope.fm_devices["camera"], DemoCamera)
+    # the frame is the camera's, at its binned resolution
+    width, height = fm.camera.resolution
+    assert fm.acquire_image().data.shape == (height, width)
+
+
+def test_device_demo_fm_starts_where_the_simulated_fm_was():
+    """The devices copy the simulated FM's parts at connect, calibration included."""
+    demo = _connect("Demo", FM_CONFIGURATION)
+    device_demo = _connect("DeviceDemo", FM_CONFIGURATION)
+    for name in ("focus_position", "limit_position", "position", "state"):
+        assert getattr(device_demo.fm.objective, name) == getattr(
+            demo.fm.objective, name
+        ), name
+    for part, names in {
+        "camera": ("exposure_time", "binning", "gain", "pixel_size", "resolution"),
+        "light_source": ("power",),
+        "filter_set": ("excitation_wavelength", "emission_wavelength"),
+    }.items():
+        for name in names:
+            assert getattr(getattr(device_demo.fm, part), name) == getattr(
+                getattr(demo.fm, part), name
+            ), f"{part}.{name}"
+
+
+def test_device_demo_fm_snaps_excitation_to_its_bands(caplog):
+    """As the hardware does, and unlike the simulated FM, which stores any value: an
+    excitation between bands selects the nearest, with a warning."""
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    microscope.fm.filter_set.excitation_wavelength = 488
+    assert microscope.fm.filter_set.excitation_wavelength == 450
+    assert "set to the nearest, 450" in caplog.text
+
+
+def test_device_demo_fm_names_a_numeric_emission_as_its_multi_band_filter():
+    """The simulator's filter set has no bands, so a wavelength means its multi-band
+    filter, as Thermo reports one; the simulated FM stores the number."""
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    microscope.fm.filter_set.emission_wavelength = 520.0
+    assert microscope.fm.filter_set.emission_wavelength == "Fluorescence"
+    microscope.fm.filter_set.emission_wavelength = None
+    assert microscope.fm.filter_set.emission_wavelength is None
+
+
+def test_device_demo_fm_objective_clips_to_its_limit():
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    objective = microscope.fm.objective
+    objective.limit_position = 5e-3
+    objective.move_absolute(7e-3)
+    assert objective.position == 5e-3
+    assert microscope.fm_devices["objective"].limit_position.cached == 5e-3
 
 
 # ---------------------------------------------------------------------------

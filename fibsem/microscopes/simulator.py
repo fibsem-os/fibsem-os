@@ -277,51 +277,69 @@ CHAMBER_ACTIVE_VIEW = 4
 CHAMBER_ACTIVE_DEVICE = 3
 
 
+def render_fm_scene(
+    fm: FluorescenceMicroscope,
+    exposure_time: float,
+    pixel_size: float,
+    resolution: Tuple[int, int],
+) -> Optional[np.ndarray]:
+    """A simulated FM camera frame of the sample scene, or None without a scene.
+
+    Renders the same synthetic sample the beams image, through the FM's projection,
+    for the channel ``fm`` is set to and with the objective's defocus, at the binned
+    ``resolution`` (width, height) and ``pixel_size`` the camera has. Shared by
+    ``SceneCamera`` and the Demo FM camera device.
+    """
+    microscope = getattr(fm, "parent", None)
+    scene = getattr(microscope, "_sample_scene", None)
+    if scene is None:
+        return None
+    projection = FMStageProjection.from_microscope(microscope)
+    if projection is None:
+        return None
+    sim_sleep(exposure_time)
+    weights = fm_channel_weights(
+        fm.filter_set.emission_wavelength, fm.filter_set.excitation_wavelength
+    )
+    focus = fm.objective.focus_position
+    defocus = 0.0 if focus is None else fm.objective.position - focus
+    # the projection carries the unbinned camera shape; render at the
+    # binned resolution with the matching pixel size
+    projection = FMStageProjection(
+        geometry=projection.geometry,
+        pixel_size=pixel_size,
+        shape=(resolution[1], resolution[0]),
+    )
+    scene.holder_slots = microscope._scene_holder_slots()
+    frame = scene.render_fm(
+        microscope.get_stage_position(),
+        resolution,
+        projection,
+        weights=weights,
+        defocus=defocus,
+    )
+    # the projection speaks in displayed-image coordinates, but a camera
+    # frame goes through the mount and user transforms before display:
+    # pre-apply their inverse (flips are self-inverse; reversed order)
+    frame = fm._transform_array(frame, fm._transform)
+    return fm._transform_array(frame, fm.mount_transform)
+
+
 class SceneCamera(Camera):
     """The simulated FM camera, imaging the sample scene when there is one.
 
-    Renders the same synthetic sample the beams image, through the FM's
-    projection, for the channel the microscope is configured to and with
-    the objective's defocus; falls back to the stock noise/counter frames
-    when no scene is enabled.
+    Renders the same synthetic sample the beams image (``render_fm_scene``);
+    falls back to the stock noise/counter frames when no scene is enabled.
     """
 
     def acquire_image(self) -> np.ndarray:
-        fm = self.parent
-        microscope = getattr(fm, "parent", None)
-        scene = getattr(microscope, "_sample_scene", None)
-        if scene is None:
-            return super().acquire_image()
-        projection = FMStageProjection.from_microscope(microscope)
-        if projection is None:
-            return super().acquire_image()
-        sim_sleep(self.exposure_time)
-        weights = fm_channel_weights(
-            fm.filter_set.emission_wavelength, fm.filter_set.excitation_wavelength
+        frame = render_fm_scene(
+            self.parent, self.exposure_time, self.pixel_size[0], self.resolution
         )
-        focus = fm.objective.focus_position
-        defocus = 0.0 if focus is None else fm.objective.position - focus
-        # the projection carries the unbinned camera shape; render at the
-        # binned resolution with the matching pixel size
-        projection = FMStageProjection(
-            geometry=projection.geometry,
-            pixel_size=self.pixel_size[0],
-            shape=(self.resolution[1], self.resolution[0]),
-        )
+        if frame is None:
+            return super().acquire_image()
         self._index += 1
-        scene.holder_slots = microscope._scene_holder_slots()
-        frame = scene.render_fm(
-            microscope.get_stage_position(),
-            self.resolution,
-            projection,
-            weights=weights,
-            defocus=defocus,
-        )
-        # the projection speaks in displayed-image coordinates, but a camera
-        # frame goes through the mount and user transforms before display:
-        # pre-apply their inverse (flips are self-inverse; reversed order)
-        frame = fm._transform_array(frame, fm._transform)
-        return fm._transform_array(frame, fm.mount_transform)
+        return frame
 
 
 class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):

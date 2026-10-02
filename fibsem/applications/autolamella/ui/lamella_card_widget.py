@@ -554,14 +554,14 @@ class LamellaCardWidget(QWidget):
         """
         from PyQt5.QtWidgets import QApplication
 
-        from fibsem.applications.autolamella.task_outputs import final_images_by_task
+        from fibsem.applications.autolamella.task_outputs import images_by_task
         from fibsem.imaging.animation import AnimationStep, load_frames
         from fibsem.ui import notification_service
         from fibsem.ui.widgets.animation_export_dialog import AnimationExportDialog
 
         steps = [
-            AnimationStep(title=name, paths=paths)
-            for name, paths in final_images_by_task(self.lamella)
+            AnimationStep(title=name, paths=finals, fluorescence=stacks)
+            for name, finals, stacks in images_by_task(self.lamella)
         ]
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:

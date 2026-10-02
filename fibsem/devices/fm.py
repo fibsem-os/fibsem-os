@@ -41,10 +41,26 @@ class Camera(Device):
 
 
 class LightSource(Device):
+    """The excitation light.
+
+    ``power`` is a setting for the next exposure, not the light's live output: a
+    driver applies it when it acquires (the light is off in between), so reading it
+    says what the next frame will use.
+    """
+
     power = Parameter(float, doc="A fraction of the source's maximum, 0 to 1.")
 
 
 class FilterSet(Device):
+    """Which light reaches the sample and the camera.
+
+    Both parameters are settings for the next exposure, on every driver: what a
+    channel asks for, applied when the driver acquires. They are not a reading of the
+    hardware's position while idle: Odemis pushes them to the filter wheel and light
+    only while its stream runs, and Thermo applies the excitation when it grabs a
+    frame. Camera and objective parameters, by contrast, are live hardware state.
+    """
+
     excitation_wavelength = Parameter(
         float,
         unit="nm",
