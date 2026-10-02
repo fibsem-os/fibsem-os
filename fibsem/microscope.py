@@ -1251,6 +1251,30 @@ class FibsemMicroscope(ABC):
             raise self._unsupported("_get_saved_manipulator_position")
         return self.manipulator_device.saved_position(name)
 
+    # What a manipulator offers beyond the raw moves is the backend's to say, so the
+    # manipulator widget asks these rather than checking the class. Whether the arm
+    # rotates is `is_available("manipulator_rotation")`.
+
+    #: The moves this backend offers: "relative" always, and "corrected" when it
+    #: can move the needle in a beam's image coordinates (`move_manipulator_corrected`).
+    manipulator_move_types: Tuple[str, ...] = ("relative",)
+
+    def manipulator_named_positions(self) -> List[str]:
+        """The instrument's own named manipulator positions, if it has any."""
+        if self.manipulator_device is None:
+            return []
+        return self.manipulator_device.named_positions()
+
+    def move_manipulator_to_named_position(
+        self, name: str
+    ) -> Optional[FibsemManipulatorPosition]:
+        """Move the needle to one of `manipulator_named_positions`.
+
+        Returns where it is afterwards.
+        """
+        position = self._get_saved_manipulator_position(name)
+        return self.move_manipulator_absolute(position)
+
     @abstractmethod
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
         pass

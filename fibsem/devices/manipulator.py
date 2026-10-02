@@ -7,7 +7,8 @@ move (``move_manipulator_corrected``) depends on the beam as much as the needle,
 so it is not here; it belongs to the views, as the stage's corrected moves do.
 
 Named positions (``PARK``, ``EUCENTRIC``) are the instrument's, so the driver
-answers ``saved_position(name)``, and ``move_to_offset`` moves relative to one.
+answers ``named_positions()`` and ``saved_position(name)``, and
+``move_to_offset`` moves relative to one.
 
 A backend implements the parameters with ``read_position``/``read_state`` and
 the commands with four hooks: ``_insert``, ``_retract``, ``_move_absolute`` and
@@ -18,7 +19,7 @@ their caches and emits their change signals.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fibsem.devices.core import Device, Parameter, command
 from fibsem.structures import FibsemManipulatorPosition, InsertableDeviceState
@@ -84,6 +85,10 @@ class Manipulator(Device):
         return self.position.get_value()
 
     # -- what a backend implements -------------------------------------------------
+
+    def named_positions(self) -> List[str]:
+        """The names `saved_position` answers, if the instrument has any."""
+        return []
 
     def saved_position(self, name: str) -> FibsemManipulatorPosition:
         """The instrument's named position. Raises ValueError for an unknown name."""
