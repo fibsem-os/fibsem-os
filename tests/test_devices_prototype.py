@@ -26,12 +26,13 @@ from fibsem.devices import (
 )
 from fibsem.devices.drivers.demo import bind_demo_beams
 from fibsem.structures import BeamType, FibsemImage, RangeLimit
+from tests._legacy_demo import setup_legacy_session
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 
 
 def _demo(plasma: bool = False):
-    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope, _ = setup_legacy_session()
     if plasma:
         microscope.system.ion.plasma_gas = "Xenon"
     return microscope

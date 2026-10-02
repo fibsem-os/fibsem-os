@@ -24,12 +24,13 @@ from fibsem.devices import (
 )
 from fibsem.devices.drivers.demo import bind_demo_beams, bind_demo_stage
 from fibsem.microscope import _records_stage_move
-from fibsem.microscopes.simulator import DemoMicroscope
+from fibsem.microscopes.simulator import LegacyDemoMicroscope
 from fibsem.structures import FibsemStagePosition, RangeLimit
+from tests._legacy_demo import setup_legacy_session
 
 
 def _demo(compustage: bool = False):
-    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope, _ = setup_legacy_session()
     microscope.stage_is_compustage = compustage
     return microscope
 
@@ -95,7 +96,7 @@ def test_router_set_of_a_read_only_stage_key_falls_through_to_the_old_warning(
 # -- the reverse direction: old methods ask the device ------------------------------
 
 
-class DeviceBackedDemo(DemoMicroscope):
+class DeviceBackedDemo(LegacyDemoMicroscope):
     """What ``DemoMicroscope`` becomes once its stage keys move: the old stage
     methods keep their names, signatures, returns and recording, and ask the device.
 

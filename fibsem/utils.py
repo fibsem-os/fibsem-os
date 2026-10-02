@@ -493,13 +493,7 @@ def setup_session(
         microscope = OdemisThermoMicroscope(settings.system)
 
     elif manufacturer == manufacturers.DEMO:
-        if settings.system.sim.get("devices"):
-            # The Demo backend rebuilt from devices, while the migration grows it.
-            from fibsem.microscopes.device_demo import (
-                DeviceDemoMicroscope as DemoMicroscope,
-            )
-        else:
-            from fibsem.microscopes.simulator import DemoMicroscope
+        from fibsem.microscopes.device_demo import DemoMicroscope
 
         microscope = DemoMicroscope(settings.system)
         microscope.connect_to_microscope(ip_address, port=7520)

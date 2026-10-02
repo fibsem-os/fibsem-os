@@ -75,7 +75,7 @@ def _pose(microscope, tilt_deg, rotation_deg, scan_rotation):
         t=np.deg2rad(tilt_deg),
         coordinate_system="RAW",
     )
-    microscope.stage_system.position = position
+    microscope.stage_device.sim_position = position
     for beam_type in (BeamType.ELECTRON, BeamType.ION):
         microscope.set("scan_rotation", scan_rotation, beam_type)
     return microscope.get_stage_position()
@@ -277,7 +277,7 @@ class TestStableMoveRestoresTheWorkingDistanceOfALinkedStage:
         """The one behaviour change: z doesn't carry the working distance, so there is
         nothing to put back."""
         microscope = _session(compustage=False)
-        microscope.stage_system.is_linked = False
+        microscope.stage_device.sim_linked = False
         restored = _record(microscope, "set_working_distance")
 
         microscope.stable_move(10e-6, 5e-6, BeamType.ELECTRON, static_wd=True)
