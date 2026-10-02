@@ -108,13 +108,16 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     Read off the history, never off the quality: whether the tasks ran is a
     different question from whether the grid is any good. The most recent load
     entry starts the run being described; task entries after it are the run.
+
+    Empty when no task has run since the last load: a card with nothing to say
+    says nothing, rather than "Not run" on every grid of a fresh magazine.
     """
     state = grid.task_state
     if state.status is AutoLamellaTaskStatus.InProgress:
         return f"Running {state.name}", ACCENT_COLOR
     history = grid.task_history
     if not history:
-        return "Not run", NEUTRAL_550
+        return "", NEUTRAL_550
     # A task waiting on a decision is the grid's news whichever run it came
     # from: a run that moved on and came back loads the grid again, and the
     # waiting task sits before that load. Named, since there is one thing to do.
@@ -140,7 +143,7 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     if load is not None and load.status is AutoLamellaTaskStatus.Failed:
         return "Load failed", ERROR_COLOR
     if not tasks:
-        return "Not run", NEUTRAL_550
+        return "", NEUTRAL_550
     failed = sum(1 for t in tasks if t.status is AutoLamellaTaskStatus.Failed)
     cancelled = sum(1 for t in tasks if t.status is AutoLamellaTaskStatus.Cancelled)
     if failed:
@@ -436,7 +439,7 @@ class GridCardWidget(QWidget):
             self._chips.addWidget(widget)
             self._chip_widgets.append(widget)
         slot = f"slot {self._entry.index + 1:02d}" if present else "not in the holder"
-        self._status_label.setToolTip(f"{text} · {slot}")
+        self._status_label.setToolTip(" · ".join(part for part in (text, slot) if part))
 
         icon, icon_colour, verdict = VERDICT_LOOK[grid.quality.verdict]
         self._btn_quality.setIcon(fibsem_icon(icon, color=icon_colour))
