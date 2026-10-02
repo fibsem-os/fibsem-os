@@ -1396,3 +1396,34 @@ def test_call_sequence_matches_the_reference(backend):
     candidate = _record(_connect(backend))
     difference = _first_difference(reference, candidate)
     assert not difference, difference
+
+
+def test_each_microscope_has_its_own_imaging_lock_and_stop_event():
+    first, second = _connect("Demo"), _connect("Demo")
+    assert first._threading_lock is not second._threading_lock
+    assert first._stop_acquisition_event is not second._stop_acquisition_event
+    assert first.resources is not second.resources
+
+
+def test_the_imaging_channel_resource_is_the_old_paths_lock():
+    from fibsem.devices import IMAGING_CHANNEL
+    from fibsem.devices.stage import STAGE_RESOURCE
+
+    microscope = _connect("Demo")
+    assert microscope.resources.lock(IMAGING_CHANNEL) is microscope._threading_lock
+    # a stage move does not wait for a frame
+    assert microscope.resources.lock(STAGE_RESOURCE) is not microscope._threading_lock
+
+
+def test_device_demo_devices_claim_the_microscopes_resources():
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    devices = [
+        *microscope.beams.values(),
+        microscope.stage_device,
+        microscope.chamber_device,
+        microscope.manipulator_device,
+        microscope.gis_device,
+        *microscope.fm_devices.values(),
+    ]
+    assert microscope.fm_devices
+    assert all(device.resources is microscope.resources for device in devices)

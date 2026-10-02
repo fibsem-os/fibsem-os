@@ -206,7 +206,7 @@ def test_the_chamber_camera_puts_the_view_back(thermo):
 
 
 def test_the_locked_region_stays_narrow(thermo):
-    """`_threading_lock` is a class attribute, shared by every caller in the process.
+    """`_threading_lock` is shared by every caller on the microscope, devices included.
 
     Held across the metadata reads or the `get_microscope_state` fetch, an acquisition
     would block the milling monitor, a Stop click and every FM channel scope for the

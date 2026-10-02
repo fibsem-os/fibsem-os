@@ -30,6 +30,7 @@ from psygnal import Signal
 
 import fibsem.constants as constants
 from fibsem import manufacturers
+from fibsem.devices.core import IMAGING_CHANNEL, Resources
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import (
     apply_delta,
@@ -224,6 +225,35 @@ class RequiredDeviceUnavailable(RuntimeError):
     """A device the configuration marks `required` could not be reached at connect."""
 
 
+class _PerInstance:
+    """A class-level default made once per instance, on first use.
+
+    For state every backend needs whether or not its ``__init__`` calls the base
+    class's: each microscope gets its own, made by ``factory(instance)``. Assigning the
+    attribute on an instance replaces it there, as with a plain attribute.
+    """
+
+    def __init__(self, factory: Callable[[Any], Any]):
+        self._factory = factory
+        self._name = ""
+        self._guard = threading.Lock()
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self._name = name
+
+    def __get__(self, instance: Any, owner: Optional[type] = None) -> Any:
+        if instance is None:
+            return self
+        try:
+            return instance.__dict__[self._name]
+        except KeyError:
+            pass
+        with self._guard:  # two threads asking first must get the same one
+            if self._name not in instance.__dict__:
+                instance.__dict__[self._name] = self._factory(instance)
+            return instance.__dict__[self._name]
+
+
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
 
@@ -260,9 +290,20 @@ class FibsemMicroscope(ABC):
     # live acquisition
     sem_acquisition_signal = Signal(FibsemImage)
     fib_acquisition_signal = Signal(FibsemImage)
-    _stop_acquisition_event = threading.Event()
+    _stop_acquisition_event = _PerInstance(lambda _: threading.Event())
     _acquisition_thread: threading.Thread = None
-    _threading_lock: threading.RLock = threading.RLock()
+    # One acquisition at a time on this microscope's imaging view. Devices claim the
+    # same lock as the `imaging_channel` resource (`resources` below).
+    _threading_lock = _PerInstance(lambda _: threading.RLock())
+    # The shared resources this microscope's devices claim. `imaging_channel` is
+    # `_threading_lock`, so the old path and the devices exclude each other; every other
+    # name shares one lock of its own, the default in `Resources`.
+    resources = _PerInstance(
+        lambda m: Resources(
+            groups={IMAGING_CHANNEL: IMAGING_CHANNEL},
+            locks={IMAGING_CHANNEL: m._threading_lock},
+        )
+    )
 
     # fluorescence
     fm: Optional[FluorescenceMicroscope]

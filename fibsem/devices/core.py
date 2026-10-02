@@ -396,11 +396,19 @@ class Resources:
     Names not listed in ``groups`` share one lock, which is today's behaviour and
     always safe. A backend separates only what its hardware really allows in parallel.
     A device on another computer gets its own ``Resources`` and shares nothing.
+
+    ``locks`` gives a group a lock that already exists, so devices and older code that
+    takes that lock directly exclude each other. The microscope's own registry
+    (`FibsemMicroscope.resources`) gives ``imaging_channel`` its ``_threading_lock``.
     """
 
-    def __init__(self, groups: Optional[Mapping[str, str]] = None):
+    def __init__(
+        self,
+        groups: Optional[Mapping[str, str]] = None,
+        locks: Optional[Mapping[str, threading.RLock]] = None,
+    ):
         self._groups = dict(groups or {})
-        self._locks: Dict[str, threading.RLock] = {}
+        self._locks: Dict[str, threading.RLock] = dict(locks or {})
         self._guard = threading.Lock()
 
     def lock(self, name: str) -> threading.RLock:
@@ -414,6 +422,12 @@ class Resources:
     def claim(self, name: str) -> Iterator[None]:
         with self.lock(name):
             yield
+
+
+def resources_of(owner: Any) -> Resources:
+    """The registry ``owner`` (usually the microscope) keeps, or a new one if it has none."""
+    resources = getattr(owner, "resources", None)
+    return resources if isinstance(resources, Resources) else Resources()
 
 
 class Device:
@@ -433,7 +447,8 @@ class Device:
     ):
         self.name = name
         self.parent = parent
-        self.resources = resources if resources is not None else Resources()
+        # Without one given, a device claims its parent microscope's resources.
+        self.resources = resources if resources is not None else resources_of(parent)
         self._bound: Dict[str, BoundParameter] = {}
         self._select_channel: Optional[Callable[[], None]] = None
 
@@ -529,8 +544,12 @@ class Device:
             )
         return self
 
-    def bind_channel(self, select: Callable[[], None]) -> None:
-        """How to make this device the active imaging channel, for needs_channel params."""
+    def bind_channel(self, select: Callable[[], Optional[Callable[[], None]]]) -> None:
+        """How to make this device the active imaging channel, for needs_channel params.
+
+        ``select`` may return a callable that puts the previous channel back. It runs
+        when the read, write or command is done, still under ``imaging_channel``.
+        """
         self._select_channel = select
 
     # -- description ----------------------------------------------------------------
@@ -577,14 +596,24 @@ class Device:
         if not param.needs_channel:
             yield
             return
+        # claim, select, act, restore, release
         with self.resources.claim(IMAGING_CHANNEL):
-            self.select_channel()
-            yield
+            restore = self.select_channel()
+            try:
+                yield
+            finally:
+                if restore is not None:
+                    restore()
 
-    def select_channel(self) -> None:
-        """Make this device the active imaging channel. Backends that share one override it."""
+    def select_channel(self) -> Optional[Callable[[], None]]:
+        """Make this device the active imaging channel. Backends that share one override it.
+
+        Returns how to put the previous channel back, or None when there is nothing to
+        restore.
+        """
         if self._select_channel is not None:
-            self._select_channel()
+            return self._select_channel()
+        return None
 
     def _dependency_changed(self, name: str) -> None:
         for param in self._bound.values():
