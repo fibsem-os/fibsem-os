@@ -56,6 +56,7 @@ def ui(qapp, monkeypatch, tmp_path):
     monkeypatch.setattr(mw, "run_milling_task", lambda *a, **k: time.sleep(0.05))
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
+    widget.system_widget.wait_for_connection()
     experiment = Experiment(path=tmp_path, name="continue-exp")
     os.makedirs(experiment.path, exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol(

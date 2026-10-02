@@ -11,6 +11,7 @@ from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import ImageSettings, MicroscopeSettings, SystemSettings
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.connecting import SessionConnector
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -39,6 +40,8 @@ FAILED = {
 class FibsemSystemSetupWidget(QtWidgets.QWidget):
     connected_signal = pyqtSignal()
     disconnected_signal = pyqtSignal()
+    # Each connect attempt ends with this: whether it connected.
+    connection_attempt_finished = pyqtSignal(bool)
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent=parent)
@@ -50,6 +53,11 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         # and the reason a connection failed is exactly what the status card should
         # keep showing until the next attempt.
         self._last_connection_error: Optional[str] = None
+        # Connects off the GUI thread (FIB-1153).
+        self._connector = SessionConnector(self)
+        self._connector.progress.connect(self._show_connecting)
+        self._connector.connected.connect(self._on_connected)
+        self._connector.failed.connect(self._on_connect_failed)
 
         self.pushButton_connect_to_microscope = QtWidgets.QPushButton(
             "Connect to Microscope"
@@ -432,7 +440,14 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.load_configuration(configuration_name)
         self._show_configuration_info()
 
-    def connect_to_microscope(self):
+    def connect_to_microscope(self) -> bool:
+        """Disconnect if connected; otherwise start connecting, off the GUI thread.
+
+        Returns whether a connect attempt was started -- its outcome arrives later,
+        on `connection_attempt_finished`.
+        """
+        if self.is_connecting():
+            return False  # one attempt at a time
 
         is_microscope_connected = bool(self.microscope)
 
@@ -471,48 +486,72 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
             if configuration_path is None:
                 notification_service.show_toast("Configuration not selected.", "error")
-                return
+                return False
 
-            # connect
-            try:
-                self.microscope, self.settings = utils.setup_session(
-                    config_path=configuration_path,
-                )
-            except Exception as e:
-                # Reported, not raised. This runs as a Qt slot, and PyQt5 turns an
-                # unhandled exception in a slot into qFatal -- the entire application
-                # aborts, leaving the traceback and nothing else (FIB-329). Failing to
-                # connect is an ordinary outcome here rather than a defect: the vendor
-                # API may not be installed, the instrument may be off, the address may
-                # belong to a different bay.
-                #
-                # Broad on purpose. The backends raise whatever their own SDK raises,
-                # and the point is that *nothing* from this call reaches Qt -- a
-                # narrower except would leave the abort in place for the exception
-                # nobody predicted, which is the one that will happen.
-                self.microscope, self.settings = None, None
-                self._last_connection_error = str(e)
-                logging.error(f"Could not connect to the microscope: {e}")
-                notification_service.show_toast(f"Could not connect: {e}", "error")
-            else:
-                # user notification
-                msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
-                logging.info(msg)
-                actions = getattr(self.microscope, "connect_actions", None) or {}
-                done = [DID[k] for k, ok in actions.items() if ok and k in DID]
-                failed = [
-                    FAILED[k] for k, ok in actions.items() if not ok and k in FAILED
-                ]
-                if done:
-                    msg = f"{msg}, and {' and '.join(done)}"
-                if failed:
-                    notification_service.show_toast(
-                        f"{msg}, but {' and '.join(failed)}. See the log.", "warning"
-                    )
-                else:
-                    notification_service.show_toast(msg, "info")
+            # Off the GUI thread: connecting can take a while -- a ThermoFisher
+            # column turning on at connect, say -- and run here nothing repaints
+            # until it is done (FIB-1153). The result comes back to
+            # `_on_connected` / `_on_connect_failed`.
+            self._show_connecting(
+                f"Connecting with {os.path.basename(configuration_path)}…"
+            )
+            self._connector.start(configuration_path)
+            return True
 
         self.update_ui()
+        return False
+
+    def is_connecting(self) -> bool:
+        return self._connector.is_connecting()
+
+    def wait_for_connection(self, timeout: Optional[float] = 60) -> None:
+        """Block until a connect attempt has finished and been reported. For tests
+        and unattended callers; the GUI follows `connection_attempt_finished`."""
+        self._connector.wait(timeout)
+
+    def _show_connecting(self, step: str) -> None:
+        """While connecting: say which step it is on, and offer nothing to press."""
+        self.pushButton_connect_to_microscope.setEnabled(False)
+        self.pushButton_connect_to_microscope.setText("Connecting…")
+        self.comboBox_configuration.setEnabled(False)
+        self.action_add_configuration.setEnabled(False)
+        self._label_status_icon.setPixmap(
+            fibsem_icon("mdi:progress-clock", color=NEUTRAL_500).pixmap(20, 20)
+        )
+        self._label_status_title.setText("Connecting")
+        self._label_status_subtitle.setText(step)
+
+    def _on_connected(self, microscope: FibsemMicroscope, settings) -> None:
+        self.microscope, self.settings = microscope, settings
+        msg = f"Connected to microscope at {microscope.system.info.ip_address}"
+        logging.info(msg)
+        actions = getattr(microscope, "connect_actions", None) or {}
+        done = [DID[k] for k, ok in actions.items() if ok and k in DID]
+        failed = [FAILED[k] for k, ok in actions.items() if not ok and k in FAILED]
+        if done:
+            msg = f"{msg}, and {' and '.join(done)}"
+        if failed:
+            notification_service.show_toast(
+                f"{msg}, but {' and '.join(failed)}. See the log.", "warning"
+            )
+        else:
+            notification_service.show_toast(msg, "info")
+        self.pushButton_connect_to_microscope.setEnabled(True)
+        self.update_ui()
+        self.connection_attempt_finished.emit(True)
+
+    def _on_connect_failed(self, reason: str) -> None:
+        # Reported, not raised. Failing to connect is an ordinary outcome here
+        # rather than a defect: the vendor API may not be installed, the instrument
+        # may be off, the address may belong to a different bay. The worker catches
+        # whatever the backend's own SDK raises, so nothing reaches Qt (FIB-329).
+        self.microscope, self.settings = None, None
+        self._last_connection_error = reason
+        logging.error(f"Could not connect to the microscope: {reason}")
+        notification_service.show_toast(f"Could not connect: {reason}", "error")
+        self.pushButton_connect_to_microscope.setEnabled(True)
+        self.update_ui()
+        self.connection_attempt_finished.emit(False)
 
     def set_current_imaging(
         self, provider: Optional[Callable[[], ImageSettings]]

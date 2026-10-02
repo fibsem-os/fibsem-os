@@ -52,6 +52,7 @@ def window(qapp):
 
     win = module.AutoLamellaSingleWindowUI()
     win.autolamella_ui.system_widget.connect_to_microscope()
+    win.autolamella_ui.system_widget.wait_for_connection()
     win._set_border_state("idle")
     yield win
     if win.autolamella_ui.microscope is not None:

@@ -57,6 +57,7 @@ def ui(qapp, monkeypatch):
     monkeypatch.setattr(mw, "run_milling_task", fake_run_milling_task)
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
+    widget.system_widget.wait_for_connection()
     widget._mill_runs = runs  # for the tests to inspect
     widget._mill_actors = actors
     yield widget

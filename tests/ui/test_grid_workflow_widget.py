@@ -476,6 +476,7 @@ def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):
     without a reload."""
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     microscope = ui.microscope
     microscope.stage_is_compustage = False
     microscope._stage = _create_sample_stage(microscope)
@@ -520,6 +521,7 @@ def test_an_inventory_on_the_sample_view_reaches_the_grids_tab_and_run_view(
         ui.system_widget, "load_configuration", lambda configuration_name=None: config
     )
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     main_ui._refresh_grids_tab_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -559,6 +561,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
 
     monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _NoDialog)
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     microscope = ui.microscope
     microscope.stage_is_compustage = False
     microscope._stage = _create_sample_stage(microscope)
@@ -634,6 +637,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
 
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     microscope = ui.microscope
     microscope.stage_is_compustage = False
     microscope._stage = _create_sample_stage(microscope)
@@ -710,6 +714,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
 
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     microscope = ui.microscope
     microscope.stage_is_compustage = False
     microscope._stage = _create_sample_stage(microscope)

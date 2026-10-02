@@ -31,6 +31,7 @@ def test_closing_the_window_twice(no_quit, qapp):
 
     window = module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
+    window.autolamella_ui.system_widget.wait_for_connection()
     microscope = window.autolamella_ui.microscope
     window.show()
     try:

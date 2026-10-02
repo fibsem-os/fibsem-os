@@ -27,6 +27,7 @@ def ui(qapp, tmp_path, monkeypatch):
     """A real AutoLamellaUI, connected (Demo), ready to run the worker inline."""
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
+    widget.system_widget.wait_for_connection()
     widget.experiment = Experiment(path=tmp_path, name="test-exp")
     # The hook set is irrelevant here and pulls in user preferences.
     monkeypatch.setattr(widget, "setup_hooks", lambda: None)

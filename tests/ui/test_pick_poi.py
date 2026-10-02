@@ -36,6 +36,7 @@ def window(qapp):
 
     win = module.AutoLamellaSingleWindowUI()
     win.autolamella_ui.system_widget.connect_to_microscope()
+    win.autolamella_ui.system_widget.wait_for_connection()
     # The main window's _on_workflow_update reads _border_state unconditionally,
     # and it is first assigned on the Run click (the latent init gap
     # test_mainui_workflow_status documents; its fix rides the typed-status PR).

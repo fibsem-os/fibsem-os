@@ -38,6 +38,7 @@ def ui(qapp):
 
     window = module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
+    window.autolamella_ui.system_widget.wait_for_connection()
     # What _on_run_workflow_clicked does before any prompt can arrive: the main
     # window's _on_workflow_update reads _border_state unconditionally, and it is
     # first assigned on the Run click (the latent init gap test_mainui_workflow_status

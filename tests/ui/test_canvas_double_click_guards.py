@@ -271,6 +271,7 @@ def test_the_guard_finds_the_real_milling_widget_on_a_real_host(qapp):
 
     ui = AutoLamellaUI(parent_ui=None)
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     qapp.processEvents()
     try:
         control = ui.movement_widget.control_widget

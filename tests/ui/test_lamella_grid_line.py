@@ -254,6 +254,7 @@ class TestFromTheWindow:
             lambda configuration_name=None: config,
         )
         ui.system_widget.connect_to_microscope()
+        ui.system_widget.wait_for_connection()
         yield window
         ui.microscope.disconnect()
         original_quit = qapp.quit

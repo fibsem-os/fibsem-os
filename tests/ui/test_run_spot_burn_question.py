@@ -66,6 +66,7 @@ def ui(qapp):
     sbw.run_spot_burn = fake_run_spot_burn
     window = module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
+    window.autolamella_ui.system_widget.wait_for_connection()
     # The main window's _on_workflow_update reads _border_state unconditionally,
     # first assigned on the Run click (the latent init gap documented in
     # test_mainui_workflow_status; its fix rides the typed-status PR).

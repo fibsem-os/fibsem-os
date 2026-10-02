@@ -39,6 +39,7 @@ def window(qapp):
 
     win = module.AutoLamellaSingleWindowUI()
     win.autolamella_ui.system_widget.connect_to_microscope()
+    win.autolamella_ui.system_widget.wait_for_connection()
     microscope = win.autolamella_ui.microscope
     original_quit = qapp.quit
     qapp.quit = lambda: None
@@ -83,6 +84,7 @@ def test_closing_the_window_on_its_own_stops_the_writer(qapp):
 
     ui = AutoLamellaUI(parent_ui=None)
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     microscope = ui.microscope
     recorder = ui._event_recorder
     try:

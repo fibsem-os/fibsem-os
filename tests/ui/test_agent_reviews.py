@@ -82,6 +82,7 @@ def ui(qapp, monkeypatch, tmp_path):
         lambda configuration_name=None: arctis_config,
     )
     widget.system_widget.connect_to_microscope()
+    widget.system_widget.wait_for_connection()
     exp = Experiment(path=tmp_path / "exp", name="review-exp")
     exp.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(

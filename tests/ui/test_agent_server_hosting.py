@@ -59,6 +59,7 @@ def agent_server_enabled(monkeypatch, tmp_path):
 
 def test_connect_starts_a_live_read_only_server(ui, agent_server_enabled):
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     ui.connect_to_microscope()
 
     host = ui._agent_server_host
@@ -107,6 +108,7 @@ def test_saving_the_preference_mid_session_starts_and_stops_the_server(
 ):
     preferences = _confine_and_control_preferences(monkeypatch, tmp_path)
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     ui.connect_to_microscope()
     assert ui._agent_server_host is None  # flag off at connect, as before
 
@@ -141,6 +143,7 @@ def test_default_preference_hosts_nothing(ui, monkeypatch):
         fibsem_cfg, "load_user_preferences", lambda: fibsem_cfg.UserPreferences()
     )
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     ui.connect_to_microscope()
     assert ui._agent_server_host is None
     manager = ui.setup_hooks()
@@ -153,6 +156,7 @@ def test_the_event_stream_runs_without_the_agent_server(ui, monkeypatch):
         fibsem_cfg, "load_user_preferences", lambda: fibsem_cfg.UserPreferences()
     )
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     ui.connect_to_microscope()
     recorder = ui._event_recorder
     assert recorder is not None and ui._agent_server_host is None
@@ -174,6 +178,7 @@ def test_the_agent_server_reads_the_session_stream(ui, agent_server_enabled):
     # called directly -- as it would on any later refresh of the widget while
     # connected. The second must not leave the server on a stream it replaced.
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     ui.connect_to_microscope()
     host, recorder = ui._agent_server_host, ui._event_recorder
     assert host.running

@@ -47,6 +47,7 @@ def main_ui(qapp):
     # First connect builds the protocol editor's full UI (its lock path runs on
     # every lifecycle report); Demo, so no hardware.
     window.autolamella_ui.system_widget.connect_to_microscope()
+    window.autolamella_ui.system_widget.wait_for_connection()
     yield window
     if window.autolamella_ui.microscope is not None:
         window.autolamella_ui.microscope.disconnect()

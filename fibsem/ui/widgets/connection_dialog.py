@@ -37,6 +37,7 @@ from fibsem import config as cfg
 from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
+from fibsem.ui.connecting import SessionConnector
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -97,6 +98,13 @@ class ConnectionDialog(QDialog):
         # "closed without touching anything" from "disconnected", which look
         # identical if the answer is only ever a microscope-or-None.
         self.changed = False
+        # Connects off the GUI thread, so the dialog keeps painting -- and says
+        # which step it is on -- while a column turns on (FIB-1153).
+        self._connector = SessionConnector(self)
+        self._connector.progress.connect(lambda step: self._show_message(step, False))
+        self._connector.connected.connect(self._on_connected)
+        self._connector.failed.connect(self._on_connect_failed)
+        self._connecting_to = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -532,28 +540,40 @@ class ConnectionDialog(QDialog):
                 logging.warning(f"Error while disconnecting before reconnect: {e}")
             self.microscope, self.settings = None, None
 
-        try:
-            self.microscope, self.settings = utils.setup_session(config_path=path)
-        except Exception as e:
-            logging.warning(f"Could not connect to microscope at {address}: {e}")
-            self.microscope, self.settings = None, None
-            self._set_busy(False)
-            self._show_message(f"Could not reach {address}.\n{e}", is_error=True)
-            self.connect_button.setText("Retry")
-            return
+        self._connecting_to = address
+        self._connector.start(path)
 
-        logging.info(f"Connected to microscope at {address}")
+    def is_connecting(self) -> bool:
+        return self._connector.is_connecting()
+
+    def wait_for_connection(self, timeout: Optional[float] = 60) -> None:
+        """Block until a connect attempt has finished and been reported. For tests."""
+        self._connector.wait(timeout)
+
+    def _on_connected(self, microscope: FibsemMicroscope, settings) -> None:
+        self.microscope, self.settings = microscope, settings
+        logging.info(f"Connected to microscope at {self._connecting_to}")
         self.changed = True
+        self._set_busy(False)
         self.accept()
 
-    def _set_busy(self, busy: bool, message: str = "") -> None:
-        """Say what is happening, then let Qt paint it before the call that blocks.
+    def _on_connect_failed(self, reason: str) -> None:
+        address = self._connecting_to
+        logging.warning(f"Could not connect to microscope at {address}: {reason}")
+        self.microscope, self.settings = None, None
+        self._set_busy(False)
+        self._show_message(f"Could not reach {address}.\n{reason}", is_error=True)
+        self.connect_button.setText("Retry")
 
-        `setup_session` runs on this thread, so the window is frozen for its
-        duration -- the same as the Connection tab today. Painting first at least
-        means the frozen window says what it is waiting for. Doing it off-thread is
-        its own change.
-        """
+    def reject(self) -> None:
+        """Escape, the close box and Cancel all come here. Not while connecting: the
+        attempt would carry on with nobody left to hand its session to."""
+        if self.is_connecting():
+            return
+        super().reject()
+
+    def _set_busy(self, busy: bool, message: str = "") -> None:
+        """Say what is happening, and offer nothing to press until it is done."""
         for widget in (
             self.connect_button,
             self.offline_button,
@@ -564,7 +584,6 @@ class ConnectionDialog(QDialog):
             widget.setEnabled(not busy)
         if busy:
             self._show_message(message, is_error=False)
-            QApplication.processEvents()
 
     def _show_message(self, message: str, is_error: bool) -> None:
         colour = ERROR_COLOR if is_error else TEXT_MUTED_COLOR

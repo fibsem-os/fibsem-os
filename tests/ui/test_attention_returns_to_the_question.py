@@ -61,6 +61,7 @@ class _DetWidget(QWidget):
 def ui(qapp):
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
+    widget.system_widget.wait_for_connection()
     det_widget = _DetWidget()
     widget.det_widget = det_widget
     index = widget.tabWidget.addTab(det_widget, "Detection")
@@ -191,6 +192,7 @@ def main_ui(qapp):
 
     window = module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
+    window.autolamella_ui.system_widget.wait_for_connection()
     yield window
     if window.autolamella_ui.microscope is not None:
         window.autolamella_ui.microscope.disconnect()
