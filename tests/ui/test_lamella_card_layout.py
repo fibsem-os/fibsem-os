@@ -160,6 +160,7 @@ def test_the_menus_and_thumbnail_survive_a_toggle():
     assert [a.text() for a in card._btn_actions.menu().actions()] == [
         "Move to Position",
         "Update Position",
+        "Export GIF...",
         "Remove",
         "Verdict",
     ]
