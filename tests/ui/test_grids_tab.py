@@ -215,6 +215,34 @@ class TestCards:
         assert tab.cards.cards[0].grid.name == "Grid-01"
         assert "already a grid named" in tab.status_label.text()
 
+    def test_a_grid_that_has_run_keeps_its_name(self, tab, arctis):
+        """Its folder and images carry the name, so Rename is greyed out with the
+        reason, and the rename itself is refused for any other way in."""
+        tab.btn_inventory.click()
+        card = tab.cards.cards[0]
+        assert card._action_rename.isEnabled()
+        card.grid.task_history.append(entry(AutoLamellaTaskStatus.Completed))
+        card.refresh()
+        assert not card._action_rename.isEnabled()
+        assert "Named once it has run" in card._action_rename.toolTip()
+
+        tab._on_rename(card.grid, "grid-aspen")
+        assert card.grid.name == "Grid-01"
+        assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+        assert "cannot be renamed" in tab.status_label.text()
+
+    def test_a_grid_only_loaded_can_still_be_renamed(self, tab):
+        """A load writes nothing under the grid's name, so it does not fix it."""
+        tab.btn_inventory.click()
+        card = tab.cards.cards[0]
+        card.grid.task_history.append(
+            entry(AutoLamellaTaskStatus.Completed, name=LOAD_ENTRY_NAME)
+        )
+        card.refresh()
+        assert card._action_rename.isEnabled()
+        tab._on_rename(card.grid, "grid-aspen")
+        assert card.grid.name == "grid-aspen"
+
     def test_selection_toggles_and_is_announced(self, tab):
         tab.btn_inventory.click()
         picked = []
