@@ -54,12 +54,15 @@ _WEBP_QUALITY = 90
 def webp_supported() -> bool:
     """Whether this Pillow can write animated WebP. Every current wheel can; a build
     without libwebp, or a Pillow before 11 without its animation support, cannot."""
+    import PIL
     from PIL import features
 
     if not features.check("webp"):
         return False
-    # Pillow 11 folded animation into "webp"; before that it was its own feature.
-    if "webp_anim" in features.get_supported_features():
+    # Pillow 11 folded animation into "webp". Before that it was its own feature --
+    # but only ask a Pillow that old: 11 still lists "webp_anim" and warns on the
+    # question (deprecated, removed in 12), and the test suite runs warnings as errors.
+    if int(PIL.__version__.split(".")[0]) < 11:
         return bool(features.check_feature("webp_anim"))
     return True
 
