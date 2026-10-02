@@ -209,6 +209,22 @@ class TestCards:
         assert "slot 03" in card._status_label.toolTip()
         assert experiment.get_grid_by_name("grid-cedar") is card.grid
 
+    def test_a_slot_that_keeps_its_name_keeps_the_record_too(
+        self, tab, arctis, monkeypatch
+    ):
+        """The next inventory read would bring the slot's name back, so a write
+        that did not take leaves the record as it was, and says why."""
+        tab.btn_inventory.click()
+
+        def refuse(slot_name, grid, persist=False):
+            raise RuntimeError("the name did not stick")
+
+        monkeypatch.setattr(arctis._stage, "assign_grid", refuse)
+        card = tab.cards.cards[0]
+        tab._on_rename(card.grid, "grid-aspen")
+        assert card.grid.name == "Grid-01"
+        assert "did not stick" in tab.status_label.text()
+
     def test_rename_refuses_a_duplicate(self, tab):
         tab.btn_inventory.click()
         tab._on_rename(tab.cards.cards[0].grid, "Grid-02")
@@ -457,6 +473,93 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     assert sample_states() == ["occupied", "loaded"]
     card._action_unload.trigger()
     assert sample_states() == ["occupied", "occupied"]
+
+
+def _window_with_magazine(main_ui, tmp_path):
+    """The window on a simulated autoloader with grids in slots 1-3, an
+    experiment open, and the Grids tab's inventory read."""
+    from fibsem.microscopes._stage import DemoSampleLoader
+    from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
+
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    microscope = ui.microscope
+    microscope.stage_is_compustage = True
+    microscope._stage = _create_sample_stage(microscope)
+    microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1, 2, 3))
+    ui.sample_widget = FibsemSampleWidget(microscope=microscope)
+    main_ui._refresh_grids_tab_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    ui.experiment = exp
+    main_ui.grids_tab.set_experiment(exp)
+    main_ui.grid_workflow_widget.set_experiment(exp)
+    main_ui.tab_widget.setTabEnabled(
+        main_ui.tab_widget.indexOf(main_ui.grids_tab), True
+    )
+    main_ui.grids_tab._synchronous = True
+    main_ui.grids_tab.btn_inventory.click()
+    assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
+    return ui, microscope, exp
+
+
+def _name_on_the_sample_view(ui, index, name):
+    row = ui.sample_widget.loader_widget._row_widget(index)
+    row.name_edit.setText(name)
+    row.name_edit.editingFinished.emit()
+
+
+class TestNamingOnTheSampleView:
+    """The Sample view names grids on the hardware; the experiment's record has
+    to follow, or the next inventory sync adds a second record."""
+
+    def test_naming_a_slot_renames_its_record(self, main_ui, tmp_path):
+        ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
+        record = exp.get_grid_by_name("Grid-02")
+        _name_on_the_sample_view(ui, 1, "grid-birch")
+        assert [g.name for g in exp.grids] == ["Grid-01", "grid-birch", "Grid-03"]
+        assert exp.get_grid_by_name("grid-birch") is record
+        assert (
+            microscope._stage.loader.slots["Slot-02"].loaded_grid.name == "grid-birch"
+        )
+        assert [c.grid.name for c in main_ui.grids_tab.cards.cards][1] == "grid-birch"
+        saved = Experiment.load(Path(exp.path) / "experiment.yaml")
+        assert [g.name for g in saved.grids] == ["Grid-01", "grid-birch", "Grid-03"]
+
+    def test_a_grid_that_has_run_is_refused(self, main_ui, tmp_path):
+        ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
+        exp.get_grid_by_name("Grid-01").task_history.append(
+            entry(AutoLamellaTaskStatus.Completed)
+        )
+        _name_on_the_sample_view(ui, 0, "grid-aspen")
+        assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
+        assert microscope._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+        assert "cannot be renamed" in ui.sample_widget.loader_widget.status_label.text()
+
+    def test_a_name_another_grid_has_is_refused(self, main_ui, tmp_path):
+        ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
+        _name_on_the_sample_view(ui, 0, "Grid-02")
+        assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
+        assert microscope._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+
+    def test_nothing_is_renamed_while_a_workflow_runs(self, main_ui, tmp_path):
+        """The run's queue holds grids by name."""
+        ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
+
+        class _Running:
+            def is_alive(self):
+                return True
+
+        ui._task_worker_thread = _Running()
+        try:
+            _name_on_the_sample_view(ui, 1, "grid-birch")
+        finally:
+            ui._task_worker_thread = None  # or closing the window waits on it
+        assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
+        assert "while a workflow is running" in (
+            ui.sample_widget.loader_widget.status_label.text()
+        )
 
 
 class TestReport:
