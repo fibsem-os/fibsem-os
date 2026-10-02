@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from fibsem.devices.core import Device, ParameterMetadata, Resources
+from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.fm.structures import (
     REFLECTION,
@@ -225,7 +225,7 @@ def bind_fm_devices(
     fm: FluorescenceMicroscope, resources: Optional[Resources] = None
 ) -> Dict[str, Device]:
     """The FM's parts and its group, by device name, for any ``fibsem.fm`` backend."""
-    resources = resources if resources is not None else Resources()
+    resources = resources if resources is not None else resources_of(fm.parent)
     group = FMGroup(fm, resources=resources)
     parts = [
         FMCamera(fm.camera, resources=resources),

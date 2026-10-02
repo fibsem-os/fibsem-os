@@ -129,12 +129,12 @@ class TestTheContract:
         assert fm.connection.imaging.view == 1
 
     def test_the_lock_is_not_held_across_the_body(self):
-        """The scope can span a whole tileset, and the lock it takes is
-        `FibsemMicroscope._threading_lock` -- a class attribute, shared by every caller
-        in the process. Holding it for minutes would block them all; the known ones are
-        a Pause/Resume click and the milling monitor loop, neither of which should
-        overlap an FM run, but the point is that a shared lock held that long makes any
-        future caller a hostage.
+        """The scope can span a whole tileset, and the lock it takes is the
+        microscope's `_threading_lock`, shared by every caller on the microscope and by
+        its devices as `imaging_channel`. Holding it for minutes would block them all;
+        the known ones are a Pause/Resume click and the milling monitor loop, neither of
+        which should overlap an FM run, but the point is that a shared lock held that
+        long makes any future caller a hostage.
         """
         import threading
 
