@@ -2,7 +2,7 @@
 
 Each device is the matching part of ``DemoMicroscope``: every parameter and
 command does what the matching branch of ``DemoMicroscope._get`` and ``_set`` (or
-method) does. Each keeps its own simulated part, copied from the microscope's at
+method) does, and each FM device what the matching part of the simulated FM does. Each keeps its own simulated part, copied from the microscope's at
 connect, and never touches the microscope's again; ``DeviceDemoMicroscope`` routes
 the old keys to them. The Demo chain itself is unchanged.
 """
@@ -11,17 +11,30 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
-from fibsem.devices.core import ParameterMetadata, Resources
+from fibsem.devices.core import Device, ParameterMetadata, Resources
+from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
+from fibsem.fm.devices import emission_filter_named
+from fibsem.fm.microscope import (
+    BINNING_VALUES,
+    EMISSION_WAVELENGTHS,
+    EXCITATION_WAVELENGTHS,
+    SIM_CAMERA_EXPOSURE_LIMITS,
+    SIM_OBJECTIVE_POSITION_LIMITS,
+    SIM_OBJECTIVE_TRAVEL_SECONDS,
+    UINT16_MAX,
+    UINT16_MIN,
+)
+from fibsem.fm.structures import ChannelSettings, EmissionFilter, emission_filter_for
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -35,8 +48,14 @@ from fibsem.structures import (
     RangeLimit,
     ScanMode,
 )
+from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
+    from fibsem.fm.microscope import Camera as FMClassCamera
+    from fibsem.fm.microscope import FilterSet as FMClassFilterSet
+    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.fm.microscope import LightSource as FMClassLightSource
+    from fibsem.fm.microscope import ObjectiveLens as FMClassObjectiveLens
     from fibsem.microscopes.simulator import DemoMicroscope
 
 
@@ -521,3 +540,311 @@ def bind_demo_gis(
 ) -> DemoGasInjector:
     """Build ``gis`` for a connected Demo microscope."""
     return DemoGasInjector(microscope, resources).connect()
+
+
+# -- The FM -------------------------------------------------------------------------
+#
+# The simulated FM's parts as devices. Each keeps its own simulated part in sim_*
+# fields, copied at connect from the part the simulated FM (``fibsem.fm.microscope``)
+# built, and does what that part does, on the copy. DeviceDemo's ``fm`` is the device
+# facade (``fibsem.fm.devices``) over them.
+
+
+class DemoCamera(Camera):
+    """The Demo FM camera: what ``SceneCamera`` does, on its own simulated camera.
+
+    It images the sample scene when the microscope has one (``render_fm_scene``,
+    reading the channel and focus through the microscope's ``fm``), and the stock
+    noise frame with a numbered "FM<n>" otherwise.
+    """
+
+    def __init__(
+        self,
+        camera: FMClassCamera,
+        parent: DemoMicroscope,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(name="camera", parent=parent, resources=resources)
+        self.sim_exposure_time: float = camera._exposure_time
+        self.sim_binning: int = camera._binning
+        self.sim_gain: float = camera._gain
+        self.sim_offset: float = camera._offset
+        self.sim_sensor_pixel_size: Tuple[float, float] = camera._pixel_size
+        self.sim_sensor_resolution: Tuple[int, int] = camera._resolution
+        self.sim_index: int = camera._index
+        self._frames: Dict[Tuple[int, Tuple[int, int]], np.ndarray] = {}
+
+    def read_exposure_time(self) -> float:
+        return self.sim_exposure_time
+
+    def write_exposure_time(self, value: float) -> None:
+        self.sim_exposure_time = value
+
+    def metadata_exposure_time(self) -> ParameterMetadata:
+        low, high = SIM_CAMERA_EXPOSURE_LIMITS
+        return ParameterMetadata(limits=RangeLimit(min=low, max=high))
+
+    def read_binning(self) -> int:
+        return self.sim_binning
+
+    def write_binning(self, value: int) -> None:
+        if value not in BINNING_VALUES:
+            raise ValueError(
+                f"Binning must be one of {tuple(BINNING_VALUES)}, got {value}"
+            )
+        self.sim_binning = value
+
+    def metadata_binning(self) -> ParameterMetadata:
+        return ParameterMetadata(choices=list(BINNING_VALUES))
+
+    def read_gain(self) -> float:
+        return self.sim_gain
+
+    def write_gain(self, value: float) -> None:
+        if value < 0:
+            raise ValueError("Gain must be non-negative.")
+        self.sim_gain = value
+
+    def read_offset(self) -> float:
+        return self.sim_offset
+
+    def write_offset(self, value: float) -> None:
+        if value < 0:
+            raise ValueError("Offset must be non-negative.")
+        self.sim_offset = value
+
+    def read_pixel_size(self) -> tuple:
+        x, y = self.sim_sensor_pixel_size
+        return (x * self.sim_binning, y * self.sim_binning)
+
+    def read_resolution(self) -> tuple:
+        width, height = self.sim_sensor_resolution
+        return (width // self.sim_binning, height // self.sim_binning)
+
+    def _acquire(self) -> np.ndarray:
+        from fibsem.microscopes.simulator import render_fm_scene
+
+        resolution = self.read_resolution()
+        fm = getattr(self.parent, "fm", None)
+        if fm is not None:
+            frame = render_fm_scene(
+                fm, self.sim_exposure_time, self.read_pixel_size()[0], resolution
+            )
+            if frame is not None:
+                self.sim_index += 1
+                return frame
+        sim_sleep(self.sim_exposure_time)
+        noise = np.random.randint(
+            UINT16_MIN, UINT16_MAX, size=resolution[::-1], dtype=np.uint16
+        )
+        key = (self.sim_index % 10, resolution)
+        if key not in self._frames:
+            self._frames[key] = draw_text(
+                f"FM{key[0]}",
+                size=(resolution[0] // 4, resolution[1] // 4),
+                thickness=min(64, resolution[0] // 16),
+                image_shape=resolution[::-1],
+            )
+        self.sim_index += 1
+        number = self._frames[key]
+        return np.where(number > 0, number, noise)
+
+
+class DemoLightSource(LightSource):
+    """The Demo FM light source: one power, a fraction of the maximum, unchecked."""
+
+    def __init__(
+        self,
+        light_source: FMClassLightSource,
+        parent: DemoMicroscope,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(name="light_source", parent=parent, resources=resources)
+        self.sim_power: float = light_source._power
+
+    def read_power(self) -> float:
+        return self.sim_power
+
+    def write_power(self, value: float) -> None:
+        self.sim_power = value
+
+    def metadata_power(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=RangeLimit(min=0.0, max=1.0))
+
+
+class DemoFilterSet(FilterSet):
+    """The Demo FM filter set: Thermo's, simulated. Its excitation bands are
+    ``EXCITATION_WAVELENGTHS``, and a wavelength between them selects the nearest, as
+    on the hardware. Its emission filters are reflection and one multi-band filter
+    whose bands aren't reported.
+
+    Both are settings for the next exposure, as on every driver: the simulated FM has
+    no wheel to read, and the camera renders whatever they say.
+    """
+
+    def __init__(
+        self,
+        filter_set: FMClassFilterSet,
+        parent: DemoMicroscope,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(name="filter_set", parent=parent, resources=resources)
+        self.sim_excitation_wavelength: float = filter_set._excitation_wavelength
+        filters = self._emission_filters()
+        self.sim_emission_filter: EmissionFilter = emission_filter_named(
+            filter_set._emission_wavelength, filters
+        )
+
+    @staticmethod
+    def _emission_filters() -> List[EmissionFilter]:
+        return [emission_filter_for(value, {}) for value in EMISSION_WAVELENGTHS]
+
+    def read_excitation_wavelength(self) -> float:
+        return self.sim_excitation_wavelength
+
+    def write_excitation_wavelength(self, value: float) -> None:
+        self.sim_excitation_wavelength = value
+
+    def metadata_excitation_wavelength(self) -> ParameterMetadata:
+        return ParameterMetadata(choices=list(EXCITATION_WAVELENGTHS))
+
+    def read_emission_filter(self) -> EmissionFilter:
+        return self.sim_emission_filter
+
+    def write_emission_filter(self, value: EmissionFilter) -> None:
+        if value not in self._emission_filters():
+            raise ValueError(f"filter_set has no emission filter {value}")
+        self.sim_emission_filter = value
+
+    def metadata_emission_filter(self) -> ParameterMetadata:
+        return ParameterMetadata(choices=self._emission_filters())
+
+
+class DemoObjective(Objective):
+    """The Demo FM objective: the simulated objective's moves, on its own copy.
+
+    A move past ``limit_position`` is clipped to it, and insert and retract take the
+    simulated travel time, as the simulated objective's do.
+    """
+
+    def __init__(
+        self,
+        objective: FMClassObjectiveLens,
+        parent: DemoMicroscope,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(name="objective", parent=parent, resources=resources)
+        self.sim_position: float = objective._position
+        self.sim_magnification: float = objective._magnification
+        self.sim_numerical_aperture: float = objective._numerical_aperture
+        self.sim_insert_position: float = objective._insert_position
+        self.sim_retract_position: float = objective._retract_position
+        self.sim_limit_position: float = objective._limit_position
+
+    def read_position(self) -> float:
+        sim_sleep(0.1)
+        return self.sim_position
+
+    def metadata_position(self) -> ParameterMetadata:
+        low, high = SIM_OBJECTIVE_POSITION_LIMITS
+        return ParameterMetadata(limits=RangeLimit(min=low, max=high))
+
+    def read_state(self) -> InsertableDeviceState:
+        return _insertable_state(self.read_position() >= self.sim_insert_position)
+
+    def read_magnification(self) -> float:
+        return self.sim_magnification
+
+    def read_numerical_aperture(self) -> float:
+        return self.sim_numerical_aperture
+
+    def read_limit_position(self) -> float:
+        return self.sim_limit_position
+
+    def write_limit_position(self, value: float) -> None:
+        self.sim_limit_position = value
+        logging.info(
+            f"Objective user-defined position limit set to: {value * 1e3:.3f} mm"
+        )
+
+    # A move changes position and state; read them back so both are signalled.
+    def _moved(self) -> None:
+        for name in ("position", "state"):
+            self.parameters[name].get_value()
+
+    def _move_relative(self, delta: float) -> None:
+        self.sim_position += delta
+        logging.info(
+            f"Objective moved to new position: {self.sim_position * 1e3:.3f} mm "
+            f"(delta: {delta * 1e3:.3f} mm)"
+        )
+        self._moved()
+
+    def _move_absolute(self, position: float) -> None:
+        if not position <= self.sim_limit_position:
+            logging.warning(
+                f"Clipping position {position} to user-defined limits "
+                f"{self.sim_limit_position}"
+            )
+            position = float(np.clip(position, 0, self.sim_limit_position))
+        sim_sleep(0.5)
+        self.sim_position = position
+        logging.info(
+            f"Objective moved to absolute position: {self.sim_position * 1e3:.3f} mm"
+        )
+        self._moved()
+
+    def _insert(self) -> None:
+        sim_sleep(SIM_OBJECTIVE_TRAVEL_SECONDS)
+        self._move_absolute(self.sim_insert_position)
+
+    def _retract(self) -> None:
+        sim_sleep(SIM_OBJECTIVE_TRAVEL_SECONDS)
+        self._move_absolute(self.sim_retract_position)
+
+
+class DemoFM(FM):
+    """The Demo FM group: sets up a channel on its parts, then takes a frame."""
+
+    def __init__(
+        self,
+        parts: Dict[str, Device],
+        parent: DemoMicroscope,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(name="fm", parent=parent, resources=resources)
+        self.parts = parts
+
+    def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
+        if channel is not None:
+            settings = ChannelSettings.from_dict(channel)
+            filters = self.parts["filter_set"]
+            filters.excitation_wavelength.write_through(settings.excitation_wavelength)
+            filters.emission_filter.write_through(
+                emission_filter_named(
+                    settings.emission_wavelength, filters.emission_filter.choices
+                )
+            )
+            self.parts["light_source"].power.write_through(settings.power)
+            camera = self.parts["camera"]
+            camera.exposure_time.write_through(settings.exposure_time)
+            if settings.gain is not None:
+                camera.gain.write_through(settings.gain)
+        return self.parts["camera"].acquire()
+
+
+def bind_demo_fm(
+    microscope: DemoMicroscope,
+    fm: FluorescenceMicroscope,
+    resources: Optional[Resources] = None,
+) -> Dict[str, Device]:
+    """Build the FM's parts and group for a connected Demo microscope, each starting
+    where the simulated FM ``fm``'s part is, by device name."""
+    parts: Dict[str, Device] = {
+        "camera": DemoCamera(fm.camera, microscope, resources),
+        "light_source": DemoLightSource(fm.light_source, microscope, resources),
+        "filter_set": DemoFilterSet(fm.filter_set, microscope, resources),
+        "objective": DemoObjective(fm.objective, microscope, resources),
+    }
+    group = DemoFM(parts, microscope, resources)
+    return {device.name: device.connect() for device in [group, *parts.values()]}
