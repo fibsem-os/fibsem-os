@@ -408,6 +408,33 @@ def test_device_demo_beams_keep_their_own_state():
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
+def test_device_demo_images_through_its_beam_devices(beam_type):
+    """Acquiring, autocontrast and autofocus read and change the beam devices,
+    never Demo's own beams."""
+    microscope = _connect("DeviceDemo")
+    demo_beams = deepcopy((microscope.electron_system, microscope.ion_system))
+    settings = ImageSettings(
+        beam_type=beam_type, hfw=50e-6, resolution=(64, 48), dwell_time=1e-9
+    )
+    image = microscope.acquire_image(settings)
+    beam = microscope.beams[beam_type]
+    assert beam.sim_beam.hfw == 50e-6
+    state = image.metadata.microscope_state
+    beam_state = (
+        state.electron_beam if beam_type is BeamType.ELECTRON else state.ion_beam
+    )
+    assert beam_state.hfw == 50e-6
+    assert microscope.last_image(beam_type) is image
+    microscope.autocontrast(beam_type)
+    assert beam.sim_detector.contrast == microscope.get("detector_contrast", beam_type)
+    microscope.auto_focus(beam_type)
+    assert beam.sim_beam.working_distance == microscope.get(
+        "working_distance", beam_type
+    )
+    assert (microscope.electron_system, microscope.ion_system) == demo_beams
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
 def test_device_demo_scans_through_its_beam_commands(beam_type):
     """DeviceDemo's scan-mode methods call the beam's commands, not the Demo chain."""
     microscope = _connect("DeviceDemo")
@@ -710,23 +737,33 @@ def test_device_demo_reads_its_configuration_without_demo(monkeypatch):
     assert microscope._get_axis_limits()
 
 
+def test_device_demo_sets_its_imaging_and_milling_keys_without_demo(monkeypatch):
+    from fibsem.microscopes.simulator import DemoMicroscope
+
+    def refuse(self, key, value=None, beam_type=None):
+        raise AssertionError(f"{key} went to Demo")
+
+    microscope = _connect("DeviceDemo")
+    monkeypatch.setattr(DemoMicroscope, "_set", refuse)
+    monkeypatch.setattr(DemoMicroscope, "get_available_values", refuse)
+    files = microscope.get_available_values("application_file")
+    microscope.set("application_file", files[-1])
+    microscope.set("patterning_mode", "Parallel")
+    microscope.set("milling_channel", BeamType.ELECTRON)
+    microscope.set("default_patterning_beam_type", BeamType.ELECTRON)
+    microscope.set("active_view", BeamType.ION)
+    milling = microscope.milling_system
+    assert milling.default_application_file == files[-1]
+    assert milling.patterning_mode == "Parallel"
+    assert microscope.milling_channel is BeamType.ELECTRON
+    assert milling.default_beam_type is BeamType.ELECTRON
+    assert microscope.imaging_system.active_view == BeamType.ION.value
+
+
 # What DeviceDemo still takes from Demo: methods it inherits as they are, and its
 # own methods that hand on to Demo's through `super()`. Each step of the migration
 # takes names off; when both are empty the inheritance goes.
-DEVICE_DEMO_INHERITS_FROM_DEMO = {
-    "__init__", "_acquisition_worker", "_burn_into_sample_scene",
-    "_generate_next_image", "_mill_into_sample_scene", "_scene_holder_slots",
-    "_setup_image_iterators", "_setup_sample_scene", "_wait",
-    "_warn_if_channel_moved", "acquire_chamber_image", "acquire_image",
-    "auto_focus", "autocontrast", "clear_patterns", "disconnect",
-    "draw_bitmap_pattern", "draw_circle", "draw_line", "draw_polygon",
-    "draw_rectangle", "draw_sputter_pattern", "estimate_milling_time",
-    "finish_milling", "finish_sputter", "get_milling_state", "last_image",
-    "pause_milling", "resume_milling", "run_milling", "run_sputter",
-    "run_sputter_coater", "set_channel", "set_default_application_file",
-    "set_patterning_mode", "setup_milling", "setup_sputter", "start_milling",
-    "stop_milling",
-}  # fmt: skip
+DEVICE_DEMO_INHERITS_FROM_DEMO = {"__init__", "_wait", "disconnect"}  # fmt: skip
 DEVICE_DEMO_HANDS_ON_TO_DEMO = {
     "connect_to_microscope", "_get", "_set", "get_available_values",
 }  # fmt: skip
