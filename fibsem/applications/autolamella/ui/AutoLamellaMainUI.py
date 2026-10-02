@@ -554,6 +554,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._on_open_experiment_directory
         )
 
+        self.action_export_image = QAction("Export Image...", self)
+        set_menu_icon(self.action_export_image, "mdi:export")
+        self.action_export_image.triggered.connect(self._on_export_image)
+
         self.action_load_protocol = QAction("Load Protocol", self)
         self.action_load_protocol.triggered.connect(self._on_load_protocol)
         self.action_save_protocol = QAction("Save Protocol", self)
@@ -570,6 +574,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         file_menu.addAction(self.action_new_experiment)
         file_menu.addAction(self.action_load_experiment)
         file_menu.addAction(self.action_open_experiment_directory)
+        file_menu.addSeparator()
+        file_menu.addAction(self.action_export_image)
         file_menu.addSeparator()
         file_menu.addAction(self.action_load_protocol)
         file_menu.addAction(self.action_save_protocol)
@@ -1109,6 +1115,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Open Experiment Directory action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui._open_experiment_directory()
+
+    def _on_export_image(self):
+        """Handle Export Image action: pick an image, starting in the experiment."""
+        from fibsem.ui.widgets.image_export_dialog import open_image_export
+
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        start_dir = ""
+        if experiment is not None and experiment.path is not None:
+            start_dir = os.fspath(experiment.path)
+        open_image_export(self, start_dir)
 
     def _on_load_protocol(self):
         """Handle Load Protocol action."""
