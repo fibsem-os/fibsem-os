@@ -738,6 +738,11 @@ class GridWorkflowWidget(QWidget):
         for row in self._grid_rows.values():
             if row.is_present:
                 row.checkbox.setChecked(checked)
+        # The window clears the ticks too (a run starting, an add); the header
+        # follows, so its next click selects all rather than doing nothing.
+        self.grid_header.select_all.blockSignals(True)
+        self.grid_header.select_all.setChecked(checked)
+        self.grid_header.select_all.blockSignals(False)
 
     def set_all_tasks_selected(self, checked: bool) -> None:
         for row in self._task_rows.values():

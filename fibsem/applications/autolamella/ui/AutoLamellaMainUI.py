@@ -1872,6 +1872,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_widget.flush_pending_save()
         ui._start_run_grid_workflow_thread(task_names, grid_names, inventory_first)
         self.set_workflow_running()
+        # Clear the grid ticks, as a lamella run clears its selection: left ticked,
+        # the grids this run is on would be queued again by the next Add to Queue.
+        # The task ticks stay; Screen all grids and the next add read them.
+        self.grid_workflow_widget.set_all_grids_selected(False)
 
     def _run_refuses_selection(self) -> str:
         """Why the left panel's selection cannot join the running queue, or "".

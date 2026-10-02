@@ -117,6 +117,14 @@ class TestSelection:
         ]
         assert view.summary_label.text() == "3 grids, 2 tasks selected · 3 exchanges"
 
+    def test_clearing_from_the_window_unticks_the_header_too(self, view):
+        view.grid_header.select_all.setChecked(True)
+        view.set_all_grids_selected(False)  # as a run starting does
+        assert view.get_selected_grids() == []
+        assert not view.grid_header.select_all.isChecked()
+        view.grid_header.select_all.setChecked(True)  # one click selects all again
+        assert len(view.get_selected_grids()) == 3
+
     def test_a_grid_in_the_beam_costs_no_exchange(self, view, arctis):
         arctis._stage.ensure_loaded("Grid-02")
         view.refresh()
@@ -563,6 +571,13 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     assert not main_ui.grids_tab.btn_inventory.isEnabled()  # locked during the run
     _wait_for_run(ui)
     QTest.qWait(200)  # let the finished signal land
+
+    # The start cleared the grid ticks, header too, so an Add to Queue mid-run
+    # could not queue grid-aspen again; the task ticks stay for the next add.
+    # Checked after the run: a failure mid-run would leave its worker going.
+    assert view.get_selected_grids() == []
+    assert not view.grid_header.select_all.isChecked()
+    assert view.get_selected_task_names() == ["overview_sem"]
 
     grid = exp.get_grid_by_name("grid-aspen")
     # a fixed holder: the grid was loaded already, so no load entry
