@@ -13,7 +13,16 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Optional, Type, Union
+from typing import (
+    TYPE_CHECKING,
+    ClassVar,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 import numpy as np
 
@@ -31,7 +40,9 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
 )
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import TiledAcquisitionRunner, stamped_overview_name
+from fibsem.imaging.tiling.geometry import compute_tile_grid, unreachable_tiles
 from fibsem.microscopes._stage import uncalibrated_message
+from fibsem.projection import BeamStageProjection
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -76,6 +87,63 @@ def acquire_beam_overview(
         microscope, settings, stop_event=stop_event, centre_position=centre
     )
     return runner.run_and_stitch()
+
+
+def disable_tiles(
+    mask: Optional[List[List[bool]]],
+    nrows: int,
+    ncols: int,
+    tiles: Iterable[Tuple[int, int]],
+) -> List[List[bool]]:
+    """A new tile mask: *mask* (None: every tile on) with each (row, col) in *tiles*
+    turned off. How the tiles `unreachable_tiles` names are dropped, so that the
+    runner's `raise_if_outside_stage_limits` then passes on what is left."""
+    out = (
+        [[True] * ncols for _ in range(nrows)]
+        if mask is None
+        else [list(row) for row in mask]
+    )
+    for row, col in tiles:
+        out[row][col] = False
+    return out
+
+
+def reachable_overview(
+    microscope: "FibsemMicroscope",
+    settings: OverviewAcquisitionSettings,
+    centre: FibsemStagePosition,
+) -> Tuple[OverviewAcquisitionSettings, List[Tuple[int, int]]]:
+    """*settings* with the tiles the stage cannot reach from *centre* turned off, and
+    which tiles they were.
+
+    The tile runner refuses a grid with any tile past the stage's travel, but only at
+    acquire time (`raise_if_outside_stage_limits`). For a grid overview that is after
+    the exchange, and again on every grid (FIB-1131), so the tiles out of reach are
+    turned off first and the rest acquired. It is the question the Overview tab asks
+    before it draws a tile as unreachable, through the same helper and projection, so
+    the runner's own check passes on what is left. Reach is judged by tile centre, as
+    there. Returns *settings* unchanged when every tile is reachable or the limits
+    cannot be read.
+    """
+    limits = getattr(microscope._stage, "limits", None)
+    projection = BeamStageProjection.from_microscope(
+        microscope, settings.image_settings.beam_type
+    )
+    if not limits or projection is None:
+        return settings, []
+    skipped = unreachable_tiles(
+        compute_tile_grid(settings, mask=settings.tile_mask),
+        settings.tile_order,
+        lambda dx, dy: projection.from_plane(dx, dy, centre),
+        limits,
+    )
+    if not skipped:
+        return settings, []
+    settings = deepcopy(settings)
+    settings.tile_mask = disable_tiles(
+        settings.tile_mask, settings.nrows, settings.ncols, skipped
+    )
+    return settings, skipped
 
 
 # ---------------------------------------------------------------------------
@@ -163,15 +231,27 @@ class BeamOverviewGridTask(GridTask):
         self.microscope.safe_absolute_stage_movement(centre)
         self._check_for_abort()
 
+        settings, skipped = reachable_overview(
+            self.microscope, self.config.settings, centre
+        )
+        enabled = self.config.settings.n_enabled_tiles
+        if skipped and settings.n_enabled_tiles == 0:
+            raise RuntimeError(
+                f"None of the {enabled} tiles of this overview is within the stage's "
+                f"reach from the centre of {self.grid.name}. Make it smaller."
+            )
+        self.note_skipped_tiles(skipped, enabled)
+
         beam = self.config.beam_type.name
+        out_of_reach = f", {len(skipped)} out of reach" if skipped else ""
         self.log_status_message(
             "ACQUIRE",
-            f"Acquiring {beam} overview: {self.config.settings.nrows} x "
-            f"{self.config.settings.ncols} tiles",
+            f"Acquiring {beam} overview: {settings.nrows} x "
+            f"{settings.ncols} tiles{out_of_reach}",
         )
         image = acquire_beam_overview(
             self.microscope,
-            self.config.settings,
+            settings,
             centre,
             self.output_dir,
             stem=self.config.filename,

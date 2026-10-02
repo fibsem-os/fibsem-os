@@ -481,6 +481,12 @@ def generate_grid_report(
             ]
             if entry.channels:
                 details.append(("Channels", ", ".join(entry.channels)))
+            # A run that finished with something to say: an overview that skipped
+            # tiles past the stage's reach has blanks there, and this says why.
+            if entry.status is AutoLamellaTaskStatus.Completed and (
+                entry.status_message not in ("", "Finished")
+            ):
+                details.append(("Run", entry.status_message))
             # A lamella can project to a point off the image: it is placed, but
             # not in this field. Say which, rather than listing it as marked.
             in_view, out_of_view = [], []
