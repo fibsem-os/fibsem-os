@@ -131,6 +131,20 @@ writing up.
 - The protocol's name, description and version panel on the Protocol tab is now one
   line with a pencil that opens a dialog, and the settings columns are wider.
 
+### Image export
+
+- **File › Export Image saves an image with its scalebar and a bar of its acquisition
+  details**, to a PNG or TIFF or the clipboard, for a slide, a message or a figure. It
+  opens on the experiment's folder and takes an SEM/FIB image or a fluorescence stack.
+  The bar shows the detector or objective and up to five values (HFW, pixel size,
+  voltage, current, working distance, dwell time, z-stack); a second row, off by
+  default, says where the image came from: experiment, lamella or grid, task, date,
+  instrument, user, version. A value the file does not record is left out rather than
+  guessed. SEM/FIB images have contrast and gamma; a fluorescence stack shows a channel
+  legend, and any channel can be left out. The export is drawn from the image file, not
+  from the canvas, so canvas overlays (milling patterns, points, the ruler) are not in
+  it.
+
 ### Changes to what v0.5.2 shipped
 
 - **Grid boundaries and holder slot markers are drawn when the holder has a calibrated
