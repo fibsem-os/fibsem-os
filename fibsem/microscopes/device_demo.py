@@ -35,8 +35,11 @@ its device:
 - the GIS has no keys; ``cryo_deposition_v2`` runs its sequence through the
   device's commands.
 
-What still goes to the Demo chain is what is not a device's: configuration
-(``plasma``), imaging, milling, the FM and the sample scene.
+What the configuration alone answers (the fitted parts, the stage's limits, the
+grid loader, ``plasma`` and the constant value lists) is ``DemoConfiguration``'s,
+which both demos share. What still goes to the Demo chain is imaging, milling, the
+FM and the sample scene; ``tests/test_microscope_contract.py`` lists exactly which
+methods.
 
 The FM's parts are ``fm_devices``, built over the same objects ``fm`` holds, so the
 FM API and the devices share one state; ``fm`` itself is unchanged.
@@ -46,7 +49,7 @@ from __future__ import annotations
 
 import logging
 from types import MappingProxyType
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
@@ -162,6 +165,24 @@ class DeviceDemoMicroscope(DemoMicroscope):
             _SCAN_MODE_KEYS[key](self, value, beam_type)
             return
         super()._set(key, value, beam_type)
+
+    def get_available_values(
+        self, key: str, beam_type: Optional[BeamType] = None
+    ) -> List[Any]:
+        # A beam key's values are its parameter's choices, then the configured ones;
+        # the rest (the milling keys) are still Demo's.
+        param = self._route(key, beam_type)
+        if param is not None and param.choices is not None:
+            return list(param.choices)
+        configured = self._configured_values(key)
+        if configured is not None:
+            return configured
+        return super().get_available_values(key, beam_type)
+
+    def _get(self, key: str, beam_type: Optional[BeamType] = None) -> Any:
+        if key == "plasma":
+            return self._read_plasma(beam_type)
+        return super()._get(key, beam_type)
 
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType

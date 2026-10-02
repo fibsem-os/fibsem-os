@@ -45,6 +45,10 @@ from fibsem.applications.autolamella.ui.grid_positions_widget import (
     GridPositionsWidget,
 )
 from fibsem.applications.autolamella.ui.grid_results_widget import GridResultsWidget
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    NAME_FIXED_REASON,
+    grid_has_run,
+)
 from fibsem.microscopes._stage import GridInventoryEntry, SampleGrid
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -366,6 +370,11 @@ class GridsTabWidget(QWidget):
     def _on_rename(self, grid: GridRecord, name: str) -> None:
         experiment = self._experiment
         if experiment is None:
+            return
+        # The card greys Rename out for a grid that has run; this is the rule
+        # itself, for any other way in.
+        if grid_has_run(grid):
+            self._say(f"{grid.name} cannot be renamed. {NAME_FIXED_REASON}", error=True)
             return
         if experiment.get_grid_by_name(name) is not None:
             self._say(f"There is already a grid named {name}.", error=True)

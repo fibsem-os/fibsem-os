@@ -431,7 +431,95 @@ def _working_position(offset) -> FibsemStagePosition:
     return FibsemStagePosition(name="Slot-01", x=x, y=y, z=z, r=0.0, t=0.0)
 
 
-class DemoMicroscope(FibsemMicroscope):
+class DemoConfiguration:
+    """What a demo configuration says the instrument has, shared by both demos.
+
+    Everything here reads only ``system`` (its ``sim:`` block and ``ion``), never a
+    simulated part, so it is the same whether the parts are Demo's or devices.
+    """
+
+    system: SystemSettings
+    stage_is_compustage: bool
+
+    # ---- fitted subsystems, as the simulated instrument reports them ---------
+    #
+    # The `sim:` block is where a simulated configuration stands in for a hardware
+    # probe (`has_fm`, `is_compustage`), so that is where these come from too. Absent
+    # means the Demo default -- everything fitted but a sputter coater.
+
+    def _probe_manipulator_installed(self) -> Optional[bool]:
+        return self.system.sim.get("has_manipulator")
+
+    def _probe_gis_installed(self) -> Optional[bool]:
+        return self.system.sim.get("has_gis")
+
+    def _probe_multichem_installed(self) -> Optional[bool]:
+        return self.system.sim.get("has_gis_multichem")
+
+    def _probe_sputter_coater_installed(self) -> Optional[bool]:
+        return self.system.sim.get("has_gis_sputter_coater")
+
+    def _probe_plasma_gas(self) -> Optional[str]:
+        return self.system.sim.get("plasma_gas")
+
+    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
+        """Get the axis limits for the stage."""
+        if self.stage_is_compustage:
+            return STAGE_LIMITS_COMPUSTAGE
+        return STAGE_LIMITS_DEFAULT
+
+    def _create_grid_loader(self) -> "DemoSampleLoader":
+        """An in-memory autoloader, populated from the ``sim.loader`` block.
+
+        Only reached on a compustage configuration (the Arctis simulator). Keys:
+        ``capacity`` (default 12), ``occupied`` (1-based slot numbers), ``names``
+        (slot number -> grid name), ``exchange_delay`` (seconds, default 0),
+        ``start_unscanned`` (default false), ``scan_delay`` (seconds, default 0),
+        ``working_offset`` ([x, y, z] metres from the stage origin where a loaded
+        grid really sits; default none, the origin).
+        """
+        from fibsem.microscopes._stage import DemoSampleLoader
+
+        cfg = self.system.sim.get("loader") or {}
+        return DemoSampleLoader(
+            parent=self,
+            capacity=int(cfg.get("capacity", 12)),
+            occupied=cfg.get("occupied") or (),
+            names=cfg.get("names") or {},
+            exchange_delay=float(cfg.get("exchange_delay", 0.0)),
+            start_unscanned=bool(cfg.get("start_unscanned", False)),
+            scan_delay=float(cfg.get("scan_delay", 0.0)),
+            working_offset=cfg.get("working_offset") or None,
+        )
+
+    def _read_plasma(self, beam_type: Optional[BeamType]) -> bool:
+        """Whether the ion column is a plasma one; an electron beam never is."""
+        if beam_type is BeamType.ION:
+            return self.system.ion.plasma
+        return False
+
+    def _configured_values(self, key: str) -> Optional[List[str]]:
+        """The values of a key that come from the simulator's constants alone."""
+        if key == "scan_direction":
+            return SIMULATOR_SCAN_DIRECTIONS
+        if key == "plasma_gas":
+            return SIMULATOR_PLASMA_GASES
+        if key == "gis_ports":
+            return ["Pt Dep", "Pt Dep Cryo2"]
+        return None
+
+    def check_available_values(
+        self, key: str, value, beam_type: BeamType = None
+    ) -> bool:
+        logging.info(f"Checking if {key}={value} is available ({beam_type})")
+
+        if key == "plasma_gas":
+            return value in self.get_available_values(key, beam_type)
+
+        return False
+
+
+class DemoMicroscope(DemoConfiguration, FibsemMicroscope):
     """Simulator microscope client based on TFS microscopes"""
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
@@ -1137,57 +1225,6 @@ class DemoMicroscope(FibsemMicroscope):
         elif beam_type == BeamType.ION:
             self.ion_system.beam.shift += Point(float(dx), float(dy))
 
-    # ---- fitted subsystems, as the simulated instrument reports them ---------
-    #
-    # The `sim:` block is where a simulated configuration stands in for a hardware
-    # probe (`has_fm`, `is_compustage`), so that is where these come from too. Absent
-    # means the Demo default -- everything fitted but a sputter coater.
-
-    def _probe_manipulator_installed(self) -> Optional[bool]:
-        return self.system.sim.get("has_manipulator")
-
-    def _probe_gis_installed(self) -> Optional[bool]:
-        return self.system.sim.get("has_gis")
-
-    def _probe_multichem_installed(self) -> Optional[bool]:
-        return self.system.sim.get("has_gis_multichem")
-
-    def _probe_sputter_coater_installed(self) -> Optional[bool]:
-        return self.system.sim.get("has_gis_sputter_coater")
-
-    def _probe_plasma_gas(self) -> Optional[str]:
-        return self.system.sim.get("plasma_gas")
-
-    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
-        """Get the axis limits for the stage."""
-        if self.stage_is_compustage:
-            return STAGE_LIMITS_COMPUSTAGE
-        return STAGE_LIMITS_DEFAULT
-
-    def _create_grid_loader(self) -> "DemoSampleLoader":
-        """An in-memory autoloader, populated from the ``sim.loader`` block.
-
-        Only reached on a compustage configuration (the Arctis simulator). Keys:
-        ``capacity`` (default 12), ``occupied`` (1-based slot numbers), ``names``
-        (slot number -> grid name), ``exchange_delay`` (seconds, default 0),
-        ``start_unscanned`` (default false), ``scan_delay`` (seconds, default 0),
-        ``working_offset`` ([x, y, z] metres from the stage origin where a loaded
-        grid really sits; default none, the origin).
-        """
-        from fibsem.microscopes._stage import DemoSampleLoader
-
-        cfg = self.system.sim.get("loader") or {}
-        return DemoSampleLoader(
-            parent=self,
-            capacity=int(cfg.get("capacity", 12)),
-            occupied=cfg.get("occupied") or (),
-            names=cfg.get("names") or {},
-            exchange_delay=float(cfg.get("exchange_delay", 0.0)),
-            start_unscanned=bool(cfg.get("start_unscanned", False)),
-            scan_delay=float(cfg.get("scan_delay", 0.0)),
-            working_offset=cfg.get("working_offset") or None,
-        )
-
     @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to the specified position."""
@@ -1671,14 +1708,9 @@ class DemoMicroscope(FibsemMicroscope):
         if key == "detector_mode":
             values = ["SecondaryElectrons", "BackscatteredElectrons", "EDS"]
 
-        if key == "scan_direction":
-            values = SIMULATOR_SCAN_DIRECTIONS
-
-        if key == "plasma_gas":
-            values = SIMULATOR_PLASMA_GASES
-
-        if key == "gis_ports":
-            values = ["Pt Dep", "Pt Dep Cryo2"]
+        configured = self._configured_values(key)
+        if configured is not None:
+            values = configured
 
         return values
 
@@ -1723,10 +1755,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         # ion beam properties
         if key == "plasma":
-            if beam_type is BeamType.ION:
-                return self.system.ion.plasma
-            else:
-                return False
+            return self._read_plasma(beam_type)
 
         if key == "plasma_gas":
             if beam_type is BeamType.ION and self.system.ion.plasma:
@@ -1948,16 +1977,6 @@ class DemoMicroscope(FibsemMicroscope):
 
         logging.warning(f"Unknown key: {key} ({beam_type})")
         return None
-
-    def check_available_values(
-        self, key: str, value, beam_type: BeamType = None
-    ) -> bool:
-        logging.info(f"Checking if {key}={value} is available ({beam_type})")
-
-        if key == "plasma_gas":
-            return value in self.get_available_values(key, beam_type)
-
-        return False
 
     def _wait(self, seconds: float) -> None:
         sim_sleep(seconds)
