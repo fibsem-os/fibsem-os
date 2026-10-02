@@ -11,6 +11,7 @@ import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
+from difflib import get_close_matches
 from enum import Enum
 from types import MappingProxyType
 from typing import (
@@ -40,8 +41,9 @@ from fibsem.geometry.movement import (
 )
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
 from fibsem.imaging.tiling.progress import TiledProgress
-from fibsem.milling.progress import MillingProgress
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (
+    ACTIVE_MILLING_STATES,
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
     FM_DRIVER_REMOTE,
@@ -1251,19 +1253,147 @@ class FibsemMicroscope(ABC):
             raise self._unsupported("_get_saved_manipulator_position")
         return self.manipulator_device.saved_position(name)
 
+    def set_channel(self, channel: BeamType) -> None:
+        """Make `channel` the active view and device, for the calls that act on it."""
+        raise self._unsupported("set_channel")
+
+    def get_application_file(self, application_file: str, strict: bool = True) -> str:
+        """Get a valid application file for the patterning API.
+        The api requires setting a valid application file before creating patterns.
+        Args:
+            application_file (str): The name of the application file to set as default.
+            strict (bool): If True, raises an error if the application file is not available.
+                If False, tries to find the closest match to the application file.
+                Defaults to True.
+        Returns:
+                str: The name of the application file that was set as default.
+        Raises:
+            ValueError: If the application file is not available.
+        """
+
+        # check if the application file is valid
+        application_files = self.get_available_values("application_file")
+        if application_file not in application_files:
+            if strict:
+                raise ValueError(
+                    f"Application file {application_file} not available. Available files: {application_files}"
+                )
+            closest_match = get_close_matches(application_file, application_files, n=1)
+            if not closest_match:
+                raise ValueError(
+                    f"Application file {application_file} not available. Available files: {application_files}"
+                )
+            application_file = str(closest_match[0])
+
+        return application_file
+
     @abstractmethod
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
         pass
 
-    @abstractmethod
     def run_milling(
         self, milling_current: float, milling_voltage: float, asynch: bool = False
     ) -> None:
-        pass
+        """
+        Run ion beam milling using the specified milling current.
 
-    @abstractmethod
+        The default loop for a backend whose patterning runs on the instrument: set
+        the milling beam, start, poll `get_milling_state` until it finishes, emitting
+        progress, then clear the patterns. A backend that runs milling another way
+        overrides it.
+
+        Args:
+            milling_current (float): The current to use for milling in amps.
+            milling_voltage (float): The voltage to use for milling in volts.
+            asynch (bool, optional): If True, the milling will be run asynchronously.
+                                     Defaults to False, in which case it will run synchronously.
+        """
+        if not self.is_available("ion_beam"):
+            raise ValueError("Ion beam not available.")
+
+        try:
+            # change to milling current, voltage # TODO: do this in a more standard way (there are other settings)
+            if self.get_beam_voltage(beam_type=self.milling_channel) != milling_voltage:
+                self.set_beam_voltage(
+                    voltage=milling_voltage, beam_type=self.milling_channel
+                )
+            if self.get_beam_current(beam_type=self.milling_channel) != milling_current:
+                self.set_beam_current(
+                    current=milling_current, beam_type=self.milling_channel
+                )
+        except Exception as e:
+            logging.warning(
+                f"Failed to set voltage or current: {e}, voltage={milling_voltage}, current={milling_current}"
+            )
+
+        # run milling (asynchronously)
+        self.set_channel(self.milling_channel)  # the ion beam view
+        logging.info(f"running ion beam milling now... asynchronous={asynch}")
+        self.start_milling()
+
+        start_time = time.time()
+        estimated_time = self.estimate_milling_time()
+        remaining_time = estimated_time
+
+        if asynch:
+            return  # return immediately, up to the caller to handle the milling process
+
+        MILLING_SLEEP_TIME = 1
+        while self.get_milling_state() is MillingState.IDLE:  # giving time to start
+            time.sleep(0.5)
+        while self.get_milling_state() in ACTIVE_MILLING_STATES:
+            # logging.info(f"Patterning State: {self.connection.patterning.state}")
+            # TODO: add drift correction support here... generically
+            if self.get_milling_state() is MillingState.RUNNING:
+                remaining_time -= (
+                    MILLING_SLEEP_TIME  # TODO: investigate if this is a good estimate
+                )
+            time.sleep(MILLING_SLEEP_TIME)
+            # TODO: refresh the remaining time by getting the milling time from the patterning API as user can change the patterns on xtUI
+
+            # update milling progress via signal
+            self.milling_progress_signal.emit(
+                MillingProgress(
+                    status=MillingProgressStatus.STAGE_UPDATE,
+                    start_time=start_time,
+                    milling_state=self.get_milling_state(),
+                    estimated_time=estimated_time,
+                    remaining_time=remaining_time,
+                )
+            )
+
+        # milling complete
+        self.clear_patterns()
+
+        logging.debug(
+            {
+                "msg": "run_milling",
+                "milling_current": milling_current,
+                "milling_voltage": milling_voltage,
+                "asynch": asynch,
+            }
+        )
+
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        pass
+        """
+        Finalises the milling process by clearing the microscope of any patterns and returning the current to the imaging current.
+
+        Args:
+            imaging_current (float): The current to use for imaging in amps.
+            imaging_voltage (float): The voltage to use for imaging in volts.
+        """
+        self.clear_patterns()
+        self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
+        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
+        # TODO: store initial imaging settings in setup_milling, restore here, rather than hybrid
+
+        logging.debug(
+            {
+                "msg": "finish_milling",
+                "imaging_current": imaging_current,
+                "imaging_voltage": imaging_voltage,
+            }
+        )
 
     def finish_milling2(self):
         pass

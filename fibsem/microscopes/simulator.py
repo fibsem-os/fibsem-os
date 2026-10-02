@@ -23,7 +23,6 @@ from fibsem.microscope import (
     _records_beam_shift,
     _records_stage_move,
 )
-from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.microscopes.sim_scene import fm_channel_weights
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.projection import FMStageProjection
@@ -1563,9 +1562,7 @@ class DemoMicroscope(DemoConfiguration, FibsemMicroscope):
     def set_default_application_file(
         self, application_file: str, strict: bool = True
     ) -> str:
-        application_file = ThermoMicroscope.get_application_file(
-            self, application_file, strict
-        )
+        application_file = self.get_application_file(application_file, strict)
         self.milling_system.default_application_file = application_file
         return application_file
 
