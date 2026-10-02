@@ -833,7 +833,7 @@ class DemoMicroscope(DemoConfiguration, FibsemMicroscope):
         # holds it over `set_channel` + `grab_frame` (FIB-542): the grab reads the
         # active view's buffer, so a channel that is not still ours when the frame lands
         # returns whoever took it in between. Deliberately just that pair --
-        # `_threading_lock` is a class attribute every caller in the process shares.
+        # `_threading_lock` is shared by every caller on this microscope.
         with self._threading_lock:
             self.set_channel(effective_beam_type)
             # The frame. On hardware this is the one `grab_frame` RPC; here the sleep is
