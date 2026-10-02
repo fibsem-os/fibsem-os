@@ -58,6 +58,7 @@ def ui(qapp, monkeypatch, tmp_path):
         lambda configuration_name=None: _ARCTIS,
     )
     widget.system_widget.connect_to_microscope()
+    widget.system_widget.wait_for_connection()
     experiment = Experiment(path=tmp_path, name="positions")
     os.makedirs(str(experiment.path), exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol()

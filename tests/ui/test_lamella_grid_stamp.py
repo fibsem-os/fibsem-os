@@ -40,6 +40,7 @@ def _ui(monkeypatch, tmp_path, arctis: bool):
             lambda configuration_name=None: config,
         )
     widget.system_widget.connect_to_microscope()
+    widget.system_widget.wait_for_connection()
     experiment = Experiment(path=tmp_path, name="stamp")
     os.makedirs(str(experiment.path), exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol()

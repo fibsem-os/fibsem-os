@@ -74,6 +74,7 @@ def ui(qapp):
     """A real AutoLamellaUI, connected (Demo), with a stand-in detection tab."""
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
+    widget.system_widget.wait_for_connection()
     det_widget = _RecordingDetWidget()
     widget.det_widget = det_widget
     det_idx = widget.tabWidget.addTab(det_widget, "Detection")

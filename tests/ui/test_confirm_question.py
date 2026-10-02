@@ -33,6 +33,7 @@ def ui(qapp):
     """A real AutoLamellaUI, connected (Demo), same harness as the responder tests."""
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
+    widget.system_widget.wait_for_connection()
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()

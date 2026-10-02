@@ -35,6 +35,7 @@ def test_closing_autolamella_disconnects_the_microscope(no_quit):
 
     window = module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
+    window.autolamella_ui.system_widget.wait_for_connection()
     microscope = window.autolamella_ui.microscope
     assert microscope.connection.connected
 
@@ -48,6 +49,7 @@ def test_closing_fibsem_disconnects_the_microscope(qapp):
 
     window = FibsemUI()
     window.system_widget.connect_to_microscope()
+    window.system_widget.wait_for_connection()
     microscope = window.microscope
     assert microscope.connection.connected
 
@@ -63,6 +65,7 @@ def test_a_disconnect_that_fails_does_not_stop_the_close(qapp):
 
     window = FibsemUI()
     window.system_widget.connect_to_microscope()
+    window.system_widget.wait_for_connection()
     window.show()
     microscope = window.microscope
     microscope.disconnect = _refuse_to_disconnect
@@ -85,6 +88,7 @@ def running(no_quit, qapp):
     window = module.AutoLamellaSingleWindowUI()
     ui = window.autolamella_ui
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     microscope = ui.microscope
     ui._task_worker_thread = FunctionWorker(ui._workflow_stop_event.wait, 10)
     ui._task_worker_thread.start()

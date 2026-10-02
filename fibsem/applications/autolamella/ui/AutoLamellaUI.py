@@ -591,24 +591,34 @@ class AutoLamellaUI(QMainWindow):
         has moved should still leave the ordinary window -- the one where the user can
         pick a different configuration -- rather than a half-started application.
         """
-        if self.system_widget.microscope is None:
-            try:
-                self.system_widget.connect_to_microscope()
-            except Exception as e:
-                logging.warning(f"Quickstart: unable to connect to the microscope: {e}")
-                notification_service.show_toast(
-                    f"Quickstart: could not connect to the microscope: {e}", "error"
-                )
-                return
-
-        # connect_to_microscope reports its own failures and returns without a
-        # microscope (an unselectable configuration, say). Nothing below works
-        # without one, so stop here rather than reporting a second failure.
-        if self.system_widget.microscope is None:
+        if self.system_widget.microscope is not None:
+            if load_experiment:
+                self.quickload_experiment()
             return
 
-        if load_experiment:
-            self.quickload_experiment()
+        # Connecting runs off the GUI thread (FIB-1153), so the experiment is loaded
+        # once the attempt has finished, not when the call returns.
+        def finished(connected: bool) -> None:
+            self.system_widget.connection_attempt_finished.disconnect(finished)
+            # A failed attempt reports itself. Nothing below works without a
+            # microscope, so stop here rather than reporting a second failure.
+            if connected and load_experiment:
+                self.quickload_experiment()
+
+        self.system_widget.connection_attempt_finished.connect(finished)
+        started = False
+        try:
+            started = self.system_widget.connect_to_microscope()
+        except Exception as e:
+            logging.warning(f"Quickstart: unable to connect to the microscope: {e}")
+            notification_service.show_toast(
+                f"Quickstart: could not connect to the microscope: {e}", "error"
+            )
+        # Not started (an unselectable configuration, say): nothing will finish.
+        # Started: the outcome is queued for the GUI thread, so `finished` runs
+        # after this returns, however quickly the attempt ended.
+        if not started:
+            self.system_widget.connection_attempt_finished.disconnect(finished)
 
     def quickload_experiment(self) -> None:
         """Reopen the most recent experiment, skipping the load dialog (``--quickload``).

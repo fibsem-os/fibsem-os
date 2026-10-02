@@ -34,6 +34,7 @@ def test_the_sample_tab_lives_for_the_connection(main_ui):
     assert ui.sample_widget is None
 
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     labels = _tab_labels(ui)
     assert labels[labels.index("Milling") + 1] == "Sample"
     assert ui.sample_widget.holder_widget.current_holder is ui.microscope._stage.holder

@@ -381,6 +381,7 @@ def test_the_tab_follows_the_connection_and_the_experiment(main_ui, tmp_path):
     ui = main_ui.autolamella_ui
     assert main_ui.grids_tab.stage is None
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     assert main_ui.grids_tab.stage is ui.microscope._stage
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -404,6 +405,7 @@ def test_an_experiment_with_no_lamella_tasks_loads(main_ui, tmp_path):
     used to raise on the empty selection and stop the whole experiment load."""
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol()
@@ -421,6 +423,7 @@ def test_a_grid_task_added_on_the_protocol_tab_reaches_the_run_view(main_ui, tmp
     inventory or an experiment reload."""
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol()
@@ -445,6 +448,7 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
 
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     microscope = ui.microscope
     microscope.stage_is_compustage = True
     microscope._stage = _create_sample_stage(microscope)
@@ -483,6 +487,7 @@ def _window_with_magazine(main_ui, tmp_path):
 
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     microscope = ui.microscope
     microscope.stage_is_compustage = True
     microscope._stage = _create_sample_stage(microscope)

@@ -81,6 +81,7 @@ def window(qapp, tmp_path, checkpoint):
 
     win = module.AutoLamellaSingleWindowUI()
     win.autolamella_ui.system_widget.connect_to_microscope()
+    win.autolamella_ui.system_widget.wait_for_connection()
     ui = win.autolamella_ui
     experiment = Experiment(path=tmp_path, name="undercut-exp")
     os.makedirs(experiment.path, exist_ok=True)

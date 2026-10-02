@@ -72,6 +72,7 @@ def test_a_failed_connection_does_not_escape_the_slot(widget, monkeypatch, toast
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
 
     widget.connect_to_microscope()  # must not raise
+    widget.wait_for_connection()
 
     assert widget.microscope is None
     assert widget.settings is None
@@ -83,6 +84,7 @@ def test_a_failed_connection_says_why(widget, monkeypatch, toasts):
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
 
     widget.connect_to_microscope()
+    widget.wait_for_connection()
 
     errors = [message for level, message in toasts if level == "error"]
     assert errors, "a failed connection reported nothing"
@@ -95,6 +97,7 @@ def test_a_failed_connection_leaves_the_tab_usable(widget, monkeypatch, toasts):
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
 
     widget.connect_to_microscope()
+    widget.wait_for_connection()
 
     # Offered again rather than left disabled: the address or the missing API can be
     # fixed and the button is how you retry.
@@ -112,6 +115,7 @@ def test_an_unexpected_failure_is_caught_too(widget, monkeypatch, toasts):
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
 
     widget.connect_to_microscope()
+    widget.wait_for_connection()
 
     assert widget.microscope is None
 
@@ -125,6 +129,7 @@ def test_a_failed_connection_is_visible_without_toasts(widget, monkeypatch, toas
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
 
     widget.connect_to_microscope()
+    widget.wait_for_connection()
 
     # "Not connected" and "tried and failed" are different states, and the difference
     # is the whole of what someone needs here.
@@ -137,11 +142,13 @@ def test_a_retry_does_not_show_the_previous_reason(widget, monkeypatch, toasts):
     _fail_to_connect(monkeypatch, Exception(AUTOSCRIPT_MISSING))
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
     widget.connect_to_microscope()
+    widget.wait_for_connection()
     assert widget._label_status_title.text() == "Connection Failed"
 
     # A configuration that is never selected returns before connecting at all.
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: None)
     widget.connect_to_microscope()
+    widget.wait_for_connection()
 
     assert widget._last_connection_error is None
 
@@ -163,6 +170,7 @@ def test_a_failed_disconnect_does_not_escape_the_slot(widget, toasts):
     widget.microscope = WillNotClose()
 
     widget.connect_to_microscope()  # must not raise
+    widget.wait_for_connection()
 
     # One outcome, not two: the tab does drop to disconnected, so the message says
     # what happened rather than announcing a failure beside a disconnected tab.
@@ -181,6 +189,7 @@ def test_a_failed_disconnect_still_lets_go_of_the_microscope(widget, toasts):
     widget.microscope = WillNotClose()
 
     widget.connect_to_microscope()
+    widget.wait_for_connection()
 
     assert widget.microscope is None
     assert widget.settings is None
@@ -191,6 +200,7 @@ def test_a_successful_disconnect_lets_go_too(widget, toasts, demo_microscope):
     widget.microscope = demo_microscope
 
     widget.connect_to_microscope()
+    widget.wait_for_connection()
 
     assert widget.microscope is None
     assert not [message for level, message in toasts if level == "error"]
@@ -207,6 +217,7 @@ def test_a_successful_connection_still_reports_and_holds_the_microscope(
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
 
     widget.connect_to_microscope()
+    widget.wait_for_connection()
 
     assert widget.microscope is demo_microscope
     infos = [message for level, message in toasts if level == "info"]
@@ -224,6 +235,7 @@ def test_the_configuration_window_opens_when_connected_and_closes_on_disconnect(
     )
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
     widget.connect_to_microscope()
+    widget.wait_for_connection()
     widget.open_configuration()
     assert widget.configurationWindow.isVisible()
 
@@ -246,6 +258,7 @@ def test_the_acquire_tab_reaches_the_window_s_defaults(
     )
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
     widget.connect_to_microscope()
+    widget.wait_for_connection()
     widget.set_current_imaging(provider)
 
     widget.open_configuration()
@@ -265,6 +278,7 @@ def test_opening_again_keeps_the_window_and_its_unsaved_defaults(
     )
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
     widget.connect_to_microscope()
+    widget.wait_for_connection()
     widget.open_configuration()
     window = widget.configurationWindow
     window.defaults.electron.hfw.setValue(window.defaults.electron.hfw.value() + 10)
@@ -282,6 +296,7 @@ def _connect(widget, monkeypatch, microscope) -> None:
     monkeypatch.setattr(utils, "setup_session", lambda *a, **k: (microscope, object()))
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
     widget.connect_to_microscope()
+    widget.wait_for_connection()
 
 
 def test_the_configuration_is_locked_while_connected(

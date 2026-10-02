@@ -90,6 +90,7 @@ def window(qapp, tmp_path):
 
     win = module.AutoLamellaSingleWindowUI()
     win.autolamella_ui.system_widget.connect_to_microscope()
+    win.autolamella_ui.system_widget.wait_for_connection()
     ui = win.autolamella_ui
     det_widget = _DetWidget()
     ui.det_widget = det_widget

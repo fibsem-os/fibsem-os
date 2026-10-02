@@ -38,6 +38,7 @@ def window(qapp):
 
     win = module.AutoLamellaSingleWindowUI()
     win.autolamella_ui.system_widget.connect_to_microscope()
+    win.autolamella_ui.system_widget.wait_for_connection()
     yield win
     if win.autolamella_ui.microscope is not None:
         win.autolamella_ui.microscope.disconnect()
@@ -114,8 +115,10 @@ def test_an_experiment_open_before_the_microscope_connects_is_watched(window, tm
     ui._adopt_experiment(experiment)
     # The connect button toggles: disconnect, then connect again.
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     assert ui.microscope is None and ui._event_recorder is None
     ui.system_widget.connect_to_microscope()  # a new stream for a new connection
+    ui.system_widget.wait_for_connection()
     assert ui.microscope is not None
 
     proposal = _decide(experiment)

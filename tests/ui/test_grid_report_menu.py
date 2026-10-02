@@ -28,6 +28,7 @@ def window(qapp):
     window._apply_grid_workflow_visibility()
     ui = window.autolamella_ui
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     yield window
     ui.microscope.disconnect()
     original_quit = qapp.quit

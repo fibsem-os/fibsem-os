@@ -135,6 +135,7 @@ def test_nothing_recorded_resolves_to_nothing(prefs_env):
 
 def test_quickstart_connects_without_being_clicked(ui, prefs_env):
     ui.quickstart()
+    ui.system_widget.wait_for_connection()
 
     assert ui.microscope is not None
     assert ui.system_widget.microscope is ui.microscope
@@ -145,6 +146,7 @@ def test_quickload_reopens_the_last_experiment(ui, prefs_env):
     remember(experiment)
 
     ui.quickstart(load_experiment=True)
+    ui.system_widget.wait_for_connection()
 
     assert ui.microscope is not None
     assert ui.experiment is not None
@@ -156,6 +158,7 @@ def test_quickstart_alone_leaves_the_experiment_unloaded(ui, prefs_env):
     remember(make_experiment(prefs_env, "exp-a"))
 
     ui.quickstart()
+    ui.system_widget.wait_for_connection()
 
     assert ui.microscope is not None
     assert ui.experiment is None
@@ -166,6 +169,7 @@ def test_an_experiment_without_a_protocol_is_not_adopted(ui, prefs_env):
     remember(make_experiment(prefs_env, "exp-no-protocol", with_protocol=False))
 
     ui.quickstart(load_experiment=True)
+    ui.system_widget.wait_for_connection()
 
     assert ui.microscope is not None
     assert ui.experiment is None
@@ -173,6 +177,7 @@ def test_an_experiment_without_a_protocol_is_not_adopted(ui, prefs_env):
 
 def test_no_recent_experiment_still_leaves_a_connected_window(ui, prefs_env):
     ui.quickstart(load_experiment=True)
+    ui.system_widget.wait_for_connection()
 
     assert ui.microscope is not None
     assert ui.experiment is None
@@ -180,8 +185,10 @@ def test_no_recent_experiment_still_leaves_a_connected_window(ui, prefs_env):
 
 def test_quickstart_does_not_disconnect_an_existing_connection(ui, prefs_env):
     ui.quickstart()
+    ui.system_widget.wait_for_connection()
     microscope = ui.microscope
 
     ui.quickstart()
+    ui.system_widget.wait_for_connection()
 
     assert ui.microscope is microscope

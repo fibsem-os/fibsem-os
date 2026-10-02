@@ -54,6 +54,7 @@ def ui(qapp, monkeypatch, tmp_path):
         lambda configuration_name=None: arctis_config,
     )
     widget.system_widget.connect_to_microscope()
+    widget.system_widget.wait_for_connection()
 
     experiment = Experiment(path=tmp_path, name="grid-start")
     experiment.task_protocol = AutoLamellaTaskProtocol()

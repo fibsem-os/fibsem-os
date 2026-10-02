@@ -81,6 +81,7 @@ def test_dismissing_leaves_the_session_empty(dialog):
 
 def test_connecting_holds_the_session_and_accepts(dialog):
     dialog.connect_to_microscope()
+    dialog.wait_for_connection()
 
     assert dialog.result() == QDialog.Accepted
     assert dialog.microscope is not None
@@ -96,6 +97,7 @@ def test_a_configuration_that_resolves_nowhere_is_reported(dialog):
     assert not dialog.connect_button.isEnabled()
 
     dialog.connect_to_microscope()
+    dialog.wait_for_connection()
 
     assert dialog.message_label.isVisible()
     assert "could not be found" in dialog.message_label.text()
@@ -111,6 +113,7 @@ def test_a_failure_stays_in_the_dialog(dialog, monkeypatch):
     monkeypatch.setattr(utils, "setup_session", _refuse)
 
     dialog.connect_to_microscope()
+    dialog.wait_for_connection()
 
     assert dialog.isVisible() or dialog.result() != QDialog.Accepted
     assert dialog.microscope is None
@@ -199,6 +202,7 @@ def test_reconnecting_replaces_the_session(connected_dialog, monkeypatch):
     original = connected_dialog.microscope
 
     connected_dialog.connect_to_microscope()
+    connected_dialog.wait_for_connection()
 
     assert connected_dialog.changed is True
     assert connected_dialog.microscope is not None
@@ -247,6 +251,7 @@ def test_declining_a_reconnect_keeps_the_session(connected_dialog, monkeypatch):
     original = connected_dialog.microscope
 
     connected_dialog.connect_to_microscope()
+    connected_dialog.wait_for_connection()
 
     assert connected_dialog.microscope is original
     assert connected_dialog.changed is False

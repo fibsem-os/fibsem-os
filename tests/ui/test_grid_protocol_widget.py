@@ -282,6 +282,7 @@ class _NoMinimap:
 def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
+    ui.system_widget.wait_for_connection()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol.load(cfg.AUTOLAMELLA_TASK_PROTOCOL_PATH)
