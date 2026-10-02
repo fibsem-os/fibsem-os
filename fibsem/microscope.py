@@ -83,6 +83,7 @@ from fibsem.transformations import (
 if TYPE_CHECKING:
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.microscopes._stage import SampleGridLoader
+    from fibsem.milling.base import FibsemMillingStage
 
 
 # The device the orientation transform is defined at. `_get_compucentric_rotation_position`
@@ -1319,6 +1320,17 @@ class FibsemMicroscope(ABC):
     @abstractmethod
     def estimate_milling_time(self) -> float:
         pass
+
+    @staticmethod
+    def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
+        """This backend's estimate of one stage's milling time, in seconds.
+
+        None means use the shared sputter-rate table, which is right for any
+        backend that mills like ThermoFisher. A backend with its own model
+        overrides this; `utils.setup_session` installs it on connect, for the
+        planning stack, which estimates without a microscope in scope.
+        """
+        return None
 
     def draw_patterns(self, patterns: List[FibsemPatternSettings]) -> None:
         """Draw milling patterns on the microscope from the list of settings

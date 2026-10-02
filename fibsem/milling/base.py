@@ -2,17 +2,19 @@
 # import. See the note beside it.
 from __future__ import annotations
 
-import re
 import threading
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
 from functools import cached_property
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     Generic,
+    Iterator,
     List,
     Optional,
     Tuple,
@@ -318,83 +320,45 @@ def get_protocol_from_stages(
     return deepcopy([stage.to_dict() for stage in stages])
 
 
-# Whether estimated_time uses the preset-driven dose model (TESCAN) instead of the
-# legacy sputter-rate table. The planning stack (task ETAs, confirmation dialogs)
-# reaches estimates through the FibsemMillingStage.estimated_time property, which
-# has no microscope in scope — so the connected backend registers its model here.
-# Only the TESCAN driver flips this (construction: True, disconnect: False); every
-# other backend keeps the legacy table by never touching it. Keying off the stage's
-# own fields instead would not work: FibsemMillingSettings.preset defaults to a
-# real-looking string on every backend.
-_PRESET_DRIVEN_ESTIMATION = False
+# The connected backend's milling-time model, if it has its own. The planning stack
+# (task ETAs, confirmation dialogs) reaches estimates through the
+# FibsemMillingStage.estimated_time property, which has no microscope in scope, so
+# the model is session-level: utils.setup_session installs the driver's
+# FibsemMicroscope.estimate_stage_milling_time here on connect. It is kept after a
+# disconnect (ETAs quoted then still describe the instrument this session plans
+# for); connecting another backend replaces it. None means every stage uses the
+# shared sputter-rate table.
+MillingTimeEstimator = Callable[["FibsemMillingStage"], Optional[float]]
+_milling_time_estimator: Optional[MillingTimeEstimator] = None
 
 
-def set_preset_driven_estimation(enabled: bool) -> None:
-    """Register whether the connected backend's milling is preset-driven (TESCAN)."""
-    global _PRESET_DRIVEN_ESTIMATION
-    _PRESET_DRIVEN_ESTIMATION = bool(enabled)
+def set_milling_time_estimator(estimator: Optional[MillingTimeEstimator]) -> None:
+    """Install the connected backend's milling-time estimator (None: the table)."""
+    global _milling_time_estimator
+    _milling_time_estimator = estimator
 
 
-# A current token inside a free-form TESCAN preset name, e.g. "30 keV; 100 pA" or
-# "30 keV; 2nA; my cool preset". Only prefixed units (pA/nA/uA/µA): a bare "A" in an
-# arbitrary name (e.g. "slot 2A") is far more likely noise than a beam current.
-_PRESET_CURRENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([pnuµ])A(?![a-zA-Z])")
-_SI_CURRENT_PREFIX = {"p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6}
-
-
-def parse_current_from_preset(preset: Optional[str]) -> Optional[float]:
-    """Parse the beam current (in A) out of a TESCAN preset name, or None.
-
-    Preset names are free-form on the instrument, but conventionally embed the
-    beam conditions ("30 keV; 100 pA"). The first current-looking token wins.
-    """
-    if not preset:
-        return None
-    match = _PRESET_CURRENT_RE.search(preset)
-    if match is None:
-        return None
-    return float(match.group(1)) * _SI_CURRENT_PREFIX[match.group(2)]
-
-
-def _estimate_preset_driven_milling_time(
-    stage: "FibsemMillingStage",
-) -> Optional[float]:
-    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage.
-
-    The same inputs DrawBeam computes the real exposure from: the stage's own
-    (per-material) etch rate and the current embedded in the preset name — the
-    legacy sputter-rate table is a silicon calibration keyed on a current field
-    the preset-driven backend ignores. Returns None (caller falls back to the
-    legacy model) when the preset carries no parseable current or the rate is
-    unusable.
-    """
-    pattern_time = getattr(stage.pattern, "time", 0)
-    if pattern_time:
-        return pattern_time
-
-    current = parse_current_from_preset(stage.milling.preset)
-    rate = stage.milling.rate  # m³/A/s
-    if current is None or current <= 0 or not rate or rate <= 0:
-        return None
-
-    volume = stage.pattern.volume  # m³
-    if (
-        hasattr(stage.pattern, "cross_section")
-        and stage.pattern.cross_section is CrossSectionPattern.CleaningCrossSection
-    ):
-        volume *= 0.66  # ccs is approx 2/3 of the volume of a rectangle
-    return volume / (rate * current)
+@contextmanager
+def using_milling_time_estimator(
+    estimator: Optional[MillingTimeEstimator],
+) -> Iterator[None]:
+    """Install `estimator` for the duration of the block, then restore the previous one."""
+    previous = _milling_time_estimator
+    set_milling_time_estimator(estimator)
+    try:
+        yield
+    finally:
+        set_milling_time_estimator(previous)
 
 
 def estimate_stage_milling_time(stage: "FibsemMillingStage") -> float:
-    """Estimated milling time for one stage, per the registered estimation model.
+    """Estimated milling time for one stage.
 
-    Preset-driven backends (TESCAN, registered via set_preset_driven_estimation)
-    get the dose model; everywhere else — and any preset the model cannot read —
-    falls through to the legacy sputter-rate table, unchanged.
+    The installed backend estimator answers first; when there is none, or it
+    returns None for this stage, the shared sputter-rate table is used.
     """
-    if _PRESET_DRIVEN_ESTIMATION:
-        estimate = _estimate_preset_driven_milling_time(stage)
+    if _milling_time_estimator is not None:
+        estimate = _milling_time_estimator(stage)
         if estimate is not None:
             return estimate
     return estimate_milling_time(stage.pattern, stage.milling.milling_current)
