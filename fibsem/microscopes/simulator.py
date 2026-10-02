@@ -1348,6 +1348,11 @@ class DemoMicroscope(DemoConfiguration, FibsemMicroscope):
         )
         return self.get_manipulator_position()
 
+    manipulator_move_types = ("relative", "corrected")
+
+    def manipulator_named_positions(self) -> List[str]:
+        return ["PARK", "EUCENTRIC"]
+
     def _get_saved_manipulator_position(
         self, name: str = "PARK"
     ) -> FibsemManipulatorPosition:

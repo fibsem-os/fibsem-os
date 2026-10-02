@@ -722,6 +722,7 @@ DEVICE_DEMO_INHERITS_FROM_DEMO = {
     "draw_bitmap_pattern", "draw_circle", "draw_line", "draw_polygon",
     "draw_rectangle", "draw_sputter_pattern", "estimate_milling_time",
     "finish_milling", "finish_sputter", "get_milling_state", "last_image",
+    "manipulator_named_positions",
     "pause_milling", "resume_milling", "run_milling", "run_sputter",
     "run_sputter_coater", "set_channel", "set_default_application_file",
     "set_patterning_mode", "setup_milling", "setup_sputter", "start_milling",
