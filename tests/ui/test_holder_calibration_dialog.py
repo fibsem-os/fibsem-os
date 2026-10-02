@@ -317,3 +317,50 @@ def test_without_a_configuration_file_there_is_nowhere_to_save(
 
     assert not dialog.can_save()
     assert "nowhere to save" in dialog.review_summary.text()
+
+
+# ---------------------------------------------------------------------------
+# The compustage's working slot (FIB-1144)
+# ---------------------------------------------------------------------------
+
+
+def _arctis_configuration(tmp_path) -> Path:
+    path = tmp_path / "arctis-configuration.yaml"
+    if not path.exists():
+        shutil.copyfile(
+            os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"), path
+        )
+    return path
+
+
+def test_on_a_compustage_the_working_slot_is_calibrated_and_kept(qapp, tmp_path):
+    """The autoloader puts every grid a fixed distance off the origin on a real
+    Arctis: the wizard captures it, and the next connect uses it, not the origin."""
+    path = str(_arctis_configuration(tmp_path))
+    arctis, _ = utils.setup_session(config_path=path, manufacturer="Demo")
+    holder = arctis._stage.holder
+    assert holder.slots["Slot-01"].calibration.is_builtin
+    dialog = HolderCalibrationDialog(arctis, holder, configuration_path=path)
+    # one working slot, named for what it is: not the operator's to change
+    assert dialog.name_edit.isReadOnly()
+    assert not dialog.capacity_spin.isEnabled()
+    assert dialog.slot_names == ["Slot-01"]
+    dialog._show_step(2)
+    assert "coincidence" in dialog._subtitle.text()
+
+    _move_to(arctis, x=150e-6, y=-50e-6, z=20e-6)
+    dialog._on_capture()
+    dialog._show_step(dialog.review_step)
+    dialog._on_next()  # Save
+    arctis.disconnect()
+
+    again, _ = utils.setup_session(config_path=path, manufacturer="Demo")
+    try:
+        slot = again._stage.holder.slots["Slot-01"]
+        assert again._stage.holder.name == "CompuStage Holder"
+        assert not slot.calibration.is_builtin
+        assert abs(slot.position.x - 150e-6) < 1e-9
+        assert abs(slot.position.y + 50e-6) < 1e-9
+        assert abs(slot.position.z - 20e-6) < 1e-9
+    finally:
+        again.disconnect()

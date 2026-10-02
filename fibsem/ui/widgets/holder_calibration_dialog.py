@@ -141,6 +141,10 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
 
         self._microscope = microscope
         self._holder = holder
+        # The compustage's holder is the autoloader's one working slot: its name
+        # and capacity are not the operator's to change, and its position is where
+        # a loaded grid sits, height included (FIB-1144).
+        self._compustage = bool(getattr(microscope, "stage_is_compustage", False))
         # The configuration the microscope was connected with; tests point it
         # elsewhere. None when the session was not started from a file.
         self._configuration_path: Optional[str] = configuration_path or getattr(
@@ -271,6 +275,12 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         )
         self.capacity_spin.setValue(float(self._capacity))
         self.capacity_spin.valueChanged.connect(self._on_capacity_changed)
+        if self._compustage:
+            self.name_edit.setReadOnly(True)
+            self.capacity_spin.setEnabled(False)
+            fixed = "The autoloader's one working slot, where it puts every grid"
+            self.name_edit.setToolTip(fixed)
+            self.capacity_spin.setToolTip(fixed)
         stage = getattr(self._microscope.system, "stage", None)
         pre_tilt = getattr(stage, "shuttle_pre_tilt", 0.0)
         rotation = getattr(stage, "rotation_reference", 0.0)
@@ -398,8 +408,12 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
             self._stack.setCurrentIndex(0)
             self._title.setText("Sample holder")
             self._subtitle.setText(
-                "Name the holder and say how many grid slots it has. Pre-tilt and "
-                "reference rotation come from the system configuration."
+                "The compustage has one working slot, where the autoloader puts "
+                "every grid. It is the stage origin until it is calibrated here. "
+                "Pre-tilt and reference rotation come from the system configuration."
+                if self._compustage
+                else "Name the holder and say how many grid slots it has. Pre-tilt "
+                "and reference rotation come from the system configuration."
             )
         elif index == STEP_ORIENTATION:
             self._stack.setCurrentIndex(1)
@@ -413,12 +427,23 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         elif slot is not None:
             self._stack.setCurrentIndex(2)
             number = index - 1
-            self._title.setText(f"Slot {number}: drive to the centre of the grid")
-            self._subtitle.setText(
-                "Use the stage controls, or click on the image, to move until the "
-                f"centre of the grid in {slot} is under the electron beam. Then press "
-                "Capture. Move to slot drives back to what was captured, to check it."
-            )
+            if self._compustage:
+                self._title.setText("Working slot: drive to the centre of the grid")
+                self._subtitle.setText(
+                    "With a grid loaded, use the stage controls, or click on the "
+                    "image, to move until the centre of the grid is under the "
+                    "electron beam, with the beams in coincidence there: the height "
+                    "is captured too. Then press Capture. Move to slot drives back to "
+                    "what was captured, to check it."
+                )
+            else:
+                self._title.setText(f"Slot {number}: drive to the centre of the grid")
+                self._subtitle.setText(
+                    "Use the stage controls, or click on the image, to move until the "
+                    f"centre of the grid in {slot} is under the electron beam. Then "
+                    "press Capture. Move to slot drives back to what was captured, to "
+                    "check it."
+                )
             self._refresh_slot_page()
         else:
             self._stack.setCurrentIndex(3)

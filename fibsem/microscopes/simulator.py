@@ -442,6 +442,13 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
                     imaging.active_device = self._restore_device
 
 
+def _grid_stage_position(grid_position) -> FibsemStagePosition:
+    """Where the simulated autoloader puts a grid, as a stage position at the
+    working slot's pose (the SEM orientation, r = t = 0)."""
+    x, y, z = (float(v) for v in grid_position)
+    return FibsemStagePosition(name="Slot-01", x=x, y=y, z=z, r=0.0, t=0.0)
+
+
 class DemoConfiguration:
     """What a demo configuration says the instrument has, shared by both demos.
 
@@ -485,7 +492,9 @@ class DemoConfiguration:
         Only reached on a compustage configuration (the Arctis simulator). Keys:
         ``capacity`` (default 12), ``occupied`` (1-based slot numbers), ``names``
         (slot number -> grid name), ``exchange_delay`` (seconds, default 0),
-        ``start_unscanned`` (default false), ``scan_delay`` (seconds, default 0).
+        ``start_unscanned`` (default false), ``scan_delay`` (seconds, default 0),
+        ``grid_position`` ([x, y, z] metres from the stage origin where a loaded
+        grid really sits; default none, the origin).
         """
         from fibsem.microscopes._stage import DemoSampleLoader
 
@@ -498,6 +507,7 @@ class DemoConfiguration:
             exchange_delay=float(cfg.get("exchange_delay", 0.0)),
             start_unscanned=bool(cfg.get("start_unscanned", False)),
             scan_delay=float(cfg.get("scan_delay", 0.0)),
+            grid_position=cfg.get("grid_position") or None,
         )
 
     def _read_plasma(self, beam_type: Optional[BeamType]) -> bool:
@@ -1047,12 +1057,23 @@ class DemoScene:
         scene = getattr(self, "_sample_scene", None)
         if scene is None or not scene.grids_from_holder:
             return []
-        holder = getattr(getattr(self, "_stage", None), "holder", None)
+        stage = getattr(self, "_stage", None)
+        holder = getattr(stage, "holder", None)
         if holder is None:
             return []
+        # Where the simulated autoloader really puts a grid, if it is told: the
+        # scene draws the grid there whatever the working slot is calibrated to,
+        # as on a real Arctis, where a loaded grid sits off the origin (FIB-1144).
+        grid_position = getattr(getattr(stage, "loader", None), "grid_position", None)
         try:
             return [
-                (slot.loaded_grid.name, slot.loaded_grid.radius, slot.position)
+                (
+                    slot.loaded_grid.name,
+                    slot.loaded_grid.radius,
+                    _grid_stage_position(grid_position)
+                    if grid_position
+                    else slot.position,
+                )
                 for slot in holder.occupied_slots
                 if slot.position is not None
             ]

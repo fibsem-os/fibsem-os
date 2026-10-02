@@ -4591,11 +4591,12 @@ class SlotCalibration:
 
     @classmethod
     def builtin(cls, pre_tilt: float, rotation_reference: float) -> "SlotCalibration":
-        """A position the hardware defines, not one an operator captured.
+        """A position nobody captured: the compustage working slot's nominal one.
 
-        The compustage working slot is at the compustage origin by construction:
-        the autoloader puts every grid at the same place and the coordinate system
-        is referenced to it. There is nothing to capture, so the record says so.
+        The autoloader puts every grid at the same place, nominally the stage
+        origin, so the slot starts there with this record. A real instrument puts
+        it a fixed distance off, so a position captured with the calibration wizard
+        replaces it once there is one (FIB-1144).
         """
         return cls(
             orientation="SEM",

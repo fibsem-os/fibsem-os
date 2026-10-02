@@ -116,8 +116,9 @@ def calibration_tooltip(slot: GridSlot) -> str:
     record = slot.calibration
     if record.is_builtin:
         return (
-            f"{slot.name}: {status}.\nThe working slot: at the stage origin by "
-            f"construction, no capture needed.\n{slot.position.pretty}"
+            f"{slot.name}: {status}.\nThe working slot, at the stage origin until "
+            "calibrated. If a loaded grid sits off it, calibrate it with the pencil."
+            f"\n{slot.position.pretty}"
         )
     return (
         f"{slot.name}: {status}.\nCalibrated {_captured_when(slot)}\n"
