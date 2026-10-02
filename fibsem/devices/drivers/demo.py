@@ -23,7 +23,7 @@ from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
-from fibsem.fm.devices import emission_filter_named
+from fibsem.fm.api import emission_filter_named
 from fibsem.fm.microscope import (
     BINNING_VALUES,
     EMISSION_WAVELENGTHS,
@@ -546,8 +546,8 @@ def bind_demo_gis(
 #
 # The simulated FM's parts as devices. Each keeps its own simulated part in sim_*
 # fields, copied at connect from the part the simulated FM (``fibsem.fm.microscope``)
-# built, and does what that part does, on the copy. DeviceDemo's ``fm`` is the device
-# facade (``fibsem.fm.devices``) over them.
+# built, and does what that part does, on the copy. DeviceDemo's ``fm`` is the FM API
+# over them (``fibsem.fm.api``).
 
 
 class DemoCamera(Camera):

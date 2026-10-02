@@ -1,10 +1,10 @@
 """A fluorescence microscope on another computer, behind today's FM API.
 
-``RemoteFluorescenceMicroscope`` is the device facade
-(``fibsem.fm.devices.DeviceFluorescenceMicroscope``) over the remote devices of
+``RemoteFluorescenceMicroscope`` is the FM API over devices
+(``fibsem.fm.api.DeviceFluorescenceMicroscope``), here the remote devices of
 ``fibsem.devices.drivers.remote``, served by ``fibsem.server.devices`` on the FM's
-computer (the METEOR PC, say). The facade is the same one a local FM uses; all this
-adds is connecting to the server:
+computer (the METEOR PC, say). It is the same class a local FM uses; all this adds
+is connecting to the server:
 
     fm = RemoteFluorescenceMicroscope.connect("192.168.0.20", 8765, parent=microscope)
     fm.objective.insert()
@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
-from fibsem.fm.devices import FM_DEVICE_NAMES, DeviceFluorescenceMicroscope
+from fibsem.fm.api import FM_DEVICE_NAMES, DeviceFluorescenceMicroscope
 
 if TYPE_CHECKING:
     from fibsem.devices.drivers.remote import DeviceClient
@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 
 
 class RemoteFluorescenceMicroscope(DeviceFluorescenceMicroscope):
-    """Today's FM API over an FM served from another computer: the device facade,
-    over remote devices."""
+    """Today's FM API over an FM served from another computer: the FM API over
+    devices, here remote ones."""
 
     @classmethod
     def connect(

@@ -40,11 +40,11 @@ What still goes to the Demo chain is what is not a device's: configuration
 
 The FM is devices too: ``fm_devices`` are the Demo FM devices (``DemoCamera`` and
 the rest), each copied at connect from the part the simulated FM built, and ``fm``
-is the device facade over them (``DeviceDemoFluorescenceMicroscope``), so today's FM
-API drives the devices. The facade keeps the simulated FM's share of the imaging
+is the FM API over them (``DeviceDemoFluorescenceMicroscope``), so today's FM API
+drives the devices. It keeps the simulated FM's share of the imaging
 channel with the beams, and the session's own state: the objective's saved focus,
 the channel name and colour, and the image transform. A remote FM
-(``fm.driver: remote``) is already that facade, over remote devices.
+(``fm.driver: remote``) is already the FM API over devices, remote ones.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ from fibsem.devices.drivers.demo import (
     bind_demo_stage,
 )
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
-from fibsem.fm.devices import DeviceFluorescenceMicroscope
+from fibsem.fm.api import DeviceFluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
 from fibsem.microscopes.simulator import (
     DemoMicroscope,
@@ -98,7 +98,7 @@ def _routes(device: str, routes: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
 class DeviceDemoFluorescenceMicroscope(
     DeviceFluorescenceMicroscope, SimulatedFluorescenceMicroscope
 ):
-    """The device facade over the Demo FM devices, sharing the imaging channel with
+    """The FM API over the Demo FM devices, sharing the imaging channel with
     the beams as the simulated FM does (``SimulatedFluorescenceMicroscope``)."""
 
 
@@ -133,17 +133,17 @@ class DeviceDemoMicroscope(DemoMicroscope):
         self.fm_devices = MappingProxyType(self._fm_devices())
 
     def _fm_devices(self) -> Dict[str, Device]:
-        """The FM's devices, and ``fm`` as the device facade over them."""
+        """The FM's devices, and ``fm`` as the FM API over them."""
         if self.fm is None:
             return {}
-        # A remote FM (``fm.driver: remote``) is already the facade over devices.
+        # A remote FM (``fm.driver: remote``) is already the FM API over devices.
         devices = getattr(self.fm, "devices", None)
         if devices is not None:
             return dict(devices)
         simulated = self.fm
         devices = bind_demo_fm(self, simulated)
         self.fm = DeviceDemoFluorescenceMicroscope(devices, parent=self)
-        # The saved focus is the session's, so the facade keeps it; the configured
+        # The saved focus is the session's, so the FM API keeps it; the configured
         # one was applied to the simulated FM's objective before the devices existed.
         self.fm.objective.focus_position = simulated.objective.focus_position
         return devices

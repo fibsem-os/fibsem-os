@@ -1038,10 +1038,10 @@ def test_device_demo_fm_group_acquires_a_channel():
     assert devices["filter_set"].excitation_wavelength.cached == 450
 
 
-def test_device_demo_fm_is_the_device_facade():
-    """`fm` is the same facade a remote FM is, over the Demo FM devices."""
+def test_device_demo_fm_is_the_fm_api_over_devices():
+    """`fm` is the same FM API over devices a remote FM is, over the Demo FM devices."""
     from fibsem.devices.drivers.demo import DemoCamera
-    from fibsem.fm.devices import DeviceFluorescenceMicroscope
+    from fibsem.fm.api import DeviceFluorescenceMicroscope
 
     microscope = _connect("DeviceDemo", FM_CONFIGURATION)
     fm = microscope.fm
