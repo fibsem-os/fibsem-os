@@ -38,10 +38,6 @@ stage's limits, the grid loader, ``plasma`` and the constant value lists), and r
 imaging, the sample scene and milling, changing the beams only through
 ``get``/``set`` and so, here, through the beam devices.
 
-The FM's parts are ``fm_devices``, built over the same objects ``fm`` holds, so the
-FM API and the devices share one state; ``fm`` itself is the simulated FM both
-demos build.
-
 The FM is devices too: ``fm_devices`` are the Demo FM devices (``DemoCamera`` and
 the rest), each copied when it is built from the part the simulated FM built, and
 ``fm`` is the FM API over them (``DeviceDemoFluorescenceMicroscope``), so today's
