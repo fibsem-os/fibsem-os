@@ -11,7 +11,7 @@ import pytest
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.autoscript import ThermoMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope
+from fibsem.microscopes.simulator import DemoMicroscope, DemoMilling
 from tests.fm import _odemis_stubs as stubs
 
 
@@ -50,8 +50,8 @@ def test_odemis_inherits_rather_than_borrows(odemis_cls):
 
 
 def test_demo_keeps_its_own_milling_and_inherits_the_application_file():
-    assert _owner(DemoMicroscope, "run_milling") is DemoMicroscope
-    assert _owner(DemoMicroscope, "finish_milling") is DemoMicroscope
+    assert _owner(DemoMicroscope, "run_milling") is DemoMilling
+    assert _owner(DemoMicroscope, "finish_milling") is DemoMilling
     assert _owner(DemoMicroscope, "get_application_file") is FibsemMicroscope
 
 
