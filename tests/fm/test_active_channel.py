@@ -10,6 +10,7 @@ the microscope, so the context manager is exercised against a stub connection th
 stub of the class rather than the real import. What is under test is the contract --
 capture, set, restore, restore-on-failure -- not the SDK.
 """
+
 from contextlib import contextmanager
 
 import pytest
@@ -81,7 +82,9 @@ class _FM:
 
 
 class TestTheContract:
-    def test_the_block_runs_on_the_fm(self, ):
+    def test_the_block_runs_on_the_fm(
+        self,
+    ):
         fm = _FM(view=1)  # the beam side owns it
 
         with fm.active_channel():
@@ -287,7 +290,9 @@ class TestTheRealDriverMatches:
 
         import fibsem.fm as fm_package
 
-        return (Path(fm_package.__file__).parent / "autoscript.py").read_text(encoding="utf-8")
+        return (Path(fm_package.__file__).parent / "autoscript.py").read_text(
+            encoding="utf-8"
+        )
 
     @staticmethod
     def _functions(source: str):
@@ -336,8 +341,7 @@ class TestTheRealDriverMatches:
             in {
                 child.func.attr
                 for child in ast.walk(node)
-                if isinstance(child, ast.Call)
-                and isinstance(child.func, ast.Attribute)
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
             }
         )
         assert offenders == [], (
@@ -392,8 +396,10 @@ class TestTheRealDriverMatches:
             )
         )
         counted_it = index_of(
-            lambda stmt: isinstance(stmt, ast.AugAssign)
-            and "_channel_depth" in ast.dump(stmt.target)
+            lambda stmt: (
+                isinstance(stmt, ast.AugAssign)
+                and "_channel_depth" in ast.dump(stmt.target)
+            )
         )
         assert took_it < counted_it, (
             "the scope is counted before the channel is taken, so a connection that "
