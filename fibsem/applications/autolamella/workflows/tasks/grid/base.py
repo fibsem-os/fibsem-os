@@ -198,6 +198,9 @@ class GridTask(ABC):
         # The manager's token, not its raw event: what counts as "cancelled" is the
         # manager's to decide. Same line as AutoLamellaTask, on purpose.
         self._stop_event = task_manager.abort_token if task_manager else None
+        # What the history entry says on success, when there is more to say than
+        # "Finished": an overview that skipped tiles out of the stage's reach.
+        self.completion_note = ""
 
     # -- identity --------------------------------------------------------------
 
@@ -331,8 +334,23 @@ class GridTask(ABC):
     def post_task(self) -> None:
         self.grid.task_state.status = AutoLamellaTaskStatus.Completed
         self.grid.task_state.status_message = ""
-        self.log_status_message("FINISHED", "Finished")
+        self.log_status_message("FINISHED", self.completion_note or "Finished")
         self._record_outcome()
+
+    def note_skipped_tiles(self, skipped, enabled: int) -> None:
+        """Record, on this run's history entry, the tiles an overview skipped as past
+        the stage's reach: the image has blanks there, and this says why."""
+        if not skipped:
+            return
+        tiles = ", ".join(f"({row},{col})" for row, col in skipped)
+        self.completion_note = (
+            f"Finished; {len(skipped)} of {enabled} tiles were past the stage's reach "
+            f"and skipped: {tiles}"
+        )
+        logging.warning(
+            f"{self.task_name} on {self.grid.name}: {len(skipped)} of {enabled} tiles "
+            f"are past the stage's reach and are skipped: {tiles}"
+        )
 
     def _record_outcome(self) -> None:
         """Freeze the finished task_state into task_history, on every terminal path."""

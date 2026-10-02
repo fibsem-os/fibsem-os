@@ -88,6 +88,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as GRID_LOAD_STEP,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    NAME_FIXED_REASON,
     grid_has_run,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
@@ -2996,6 +2997,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         sample = getattr(self.autolamella_ui, "sample_widget", None)
         loader = getattr(sample, "loader_widget", None)
         if loader is not None:
+            # A rename there renames the experiment's record, before the
+            # inventory sync below could add a second one under the new name.
+            loader.set_rename_check(self._grid_rename_refusal)
+            loader.grid_renamed.connect(self._on_slot_grid_renamed)
             # Records first: an inventory read there lists grids the experiment
             # has no record of, and the refreshes below draw from the records.
             loader.loader_changed.connect(self._record_inventoried_grids)
@@ -3008,7 +3013,47 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # reconnect.
         holder_panel = getattr(sample, "holder_widget", None)
         if holder_panel is not None:
+            holder_panel.set_rename_check(self._grid_rename_refusal)
+            holder_panel.grid_renamed.connect(self._on_slot_grid_renamed)
             holder_panel.holder_changed.connect(self._on_holder_changed)
+
+    def _grid_rename_refusal(self, old: str, new: str) -> str:
+        """Why the Sample view may not rename grid *old* to *new*, or "".
+
+        The experiment's record follows a slot's name, so the Grids tab's rules
+        apply: a grid that has run keeps its name, and two grids cannot share
+        one. Nothing is renamed while a workflow runs, since its queue holds
+        grids by name. With no experiment open there is no record to protect.
+        """
+        ui = self.autolamella_ui
+        experiment = getattr(ui, "experiment", None)
+        if experiment is None:
+            return ""
+        if ui.is_workflow_running:
+            return "Grids cannot be renamed while a workflow is running."
+        grid = experiment.get_grid_by_name(old)
+        if grid is not None and grid_has_run(grid):
+            return f"{old} cannot be renamed. {NAME_FIXED_REASON}"
+        if experiment.get_grid_by_name(new) is not None:
+            return f"There is already a grid named {new}."
+        return ""
+
+    def _on_slot_grid_renamed(self, old: str, new: str) -> None:
+        """A grid renamed on the Sample view: its record takes the new name, with
+        its history, verdict, note and lamellae, instead of the next inventory
+        sync adding a second record under the new name."""
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        grid = experiment.get_grid_by_name(old) if experiment is not None else None
+        if grid is None:
+            return  # no record yet: the sync adds one under the new name
+        grid.name = new
+        try:
+            experiment.save()
+        except Exception as e:  # noqa: BLE001 - renamed in memory; saved next time
+            logging.warning(f"Could not save the experiment after a rename: {e}")
+        self.grids_tab.refresh()
+        self.grid_workflow_widget.refresh()
+        self._refresh_grid_context()
 
     def _grid_context(self):
         """`GridRecord.id -> (name, on the stage)` for the lamella displays,

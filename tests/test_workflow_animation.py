@@ -4,6 +4,7 @@ Qt-free, like the modules under test, so this runs on every CI job.
 """
 
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
@@ -12,7 +13,15 @@ import pytest
 from PIL import Image
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
-from fibsem.applications.autolamella.task_outputs import final_images_by_task
+from fibsem.applications.autolamella.task_outputs import (
+    final_images_by_task,
+    images_by_task,
+)
+from fibsem.fm.structures import (
+    FluorescenceChannelMetadata,
+    FluorescenceImage,
+    FluorescenceImageMetadata,
+)
 from fibsem.imaging.animation import (
     AnimationFrame,
     AnimationOptions,
@@ -280,3 +289,135 @@ def test_nothing_to_save_says_so(tmp_path):
 def test_default_name(title, expected, tmp_path):
     folder: Optional[str] = str(tmp_path)
     assert default_animation_name(title, folder) == os.path.join(folder, expected)
+
+
+# -- fluorescence frames -----------------------------------------------------
+
+
+# Where each channel's signal sits, whatever its index in the stack.
+# 256 px: big enough that the channel legend, at its smallest readable size, stays in
+# its corner rather than covering the image.
+_SIGNAL = {"DAPI": (40, 120), "GFP": (140, 220)}
+
+
+def _fm_run(lamella: Lamella, task: str = "Acquire FM", order=("DAPI", "GFP")) -> str:
+    """A run of a fluorescence task that saved one z-stack, as the task records it.
+    ``order`` is the channels' order in the stack."""
+    data = np.zeros((len(order), 3, 256, 256), dtype=np.uint16)
+    for index, name in enumerate(order):
+        lo, hi = _SIGNAL[name]
+        data[index, :, lo:hi, lo:hi] = 30000
+    colours = {"DAPI": "cyan", "GFP": "green"}
+    channels = [
+        FluorescenceChannelMetadata(
+            name=name,
+            excitation_wavelength=488.0,
+            power=0.5,
+            exposure_time=0.1,
+            gain=1.0,
+            offset=0.0,
+            color=color,
+        )
+        for name, color in ((n, colours[n]) for n in order)
+    ]
+    image = FluorescenceImage(
+        data=data,
+        metadata=FluorescenceImageMetadata(
+            acquisition_date="2026-10-02T14:48:00",
+            pixel_size_x=1e-6,
+            pixel_size_y=1e-6,
+            channels=channels,
+            z_positions=[0.0, 0.5e-6, 1.0e-6],
+        ),
+    )
+    name = f"{lamella.petname}-{task.replace(' ', '-')}-zstack.ome.tiff"
+    image.save(os.path.join(lamella.path, name))
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=task, outputs={"fluorescence": [name]})
+    )
+    return name
+
+
+def _fm_frames(tmp_path):
+    lamella = _lamella(tmp_path)
+    _run(lamella, "Setup")
+    _fm_run(lamella)
+    _run(lamella, "Mill")
+    steps = [AnimationStep(n, f, s) for n, f, s in images_by_task(lamella)]
+    return load_frames(steps)
+
+
+def test_a_fluorescence_task_is_a_step_where_it_ran(tmp_path):
+    lamella = _lamella(tmp_path)
+    _run(lamella, "Setup")
+    stack = _fm_run(lamella)
+    _run(lamella, "Mill")
+    steps = images_by_task(lamella)
+    assert [name for name, _, _ in steps] == ["Setup", "Acquire FM", "Mill"]
+    assert [os.path.basename(p) for p in steps[1][2]] == [stack]
+    # The beam-only reader is unchanged: no step for a task with no final images.
+    assert [n for n, _ in final_images_by_task(lamella)] == ["Setup", "Mill"]
+
+
+def test_the_stack_is_not_read_until_fm_is_chosen(tmp_path):
+    frames = _fm_frames(tmp_path)
+    fm = frames[1]
+    assert fm._fluorescence is None, "read at load, though the beam is FIB"
+
+    assert included(frames, AnimationOptions(beam="FIB")) == [0, 2]
+    assert fm._fluorescence is None
+
+    assert included(frames, AnimationOptions(beam="FM")) == [1]
+    assert fm.pick("FM").kind == "FM"
+
+
+def test_fm_shows_only_the_tasks_with_a_stack(tmp_path):
+    lamella = _lamella(tmp_path)
+    _run(lamella, "Setup")
+    _fm_run(lamella, "Acquire FM")
+    _run(lamella, "Mill")
+    _fm_run(lamella, "Acquire FM again")
+    frames = load_frames(
+        [AnimationStep(n, f, s) for n, f, s in images_by_task(lamella)]
+    )
+    rendered = render_animation(frames, AnimationOptions(beam="FM", width=300))
+    assert included(frames, AnimationOptions(beam="FM")) == [1, 3]
+    assert len(rendered) == 2
+    assert {r.shape for r in rendered} == {rendered[0].shape}
+    assert rendered[0].shape[1] == 300
+
+
+def test_an_unreadable_stack_is_left_out_not_fatal(tmp_path):
+    bad = tmp_path / "bad.ome.tiff"
+    bad.write_bytes(b"not a tiff")
+    good = str(tmp_path / "good.tif")
+    _image(BeamType.ION, 100e-6).save(good)
+    frames = load_frames(
+        [AnimationStep("A", [good]), AnimationStep("FM", [], [str(bad)])]
+    )
+    assert included(frames, AnimationOptions(beam="FM")) == []
+    assert render_animation(frames, AnimationOptions(beam="FM")) == []
+    assert included(frames, AnimationOptions(beam="FIB")) == [0]
+
+
+def test_a_hidden_channel_leaves_every_stack_by_name(tmp_path):
+    """Stacks need not list their channels in one order; hiding goes by name."""
+    lamella = _lamella(tmp_path)
+    _fm_run(lamella, "First", order=("DAPI", "GFP"))
+    _fm_run(lamella, "Second", order=("GFP", "DAPI"))
+    frames = load_frames(
+        [AnimationStep(n, f, s) for n, f, s in images_by_task(lamella)]
+    )
+    # Drawn at the stacks' own 256 px: DAPI's square is at 40-120, GFP's at 140-220.
+    plain = AnimationOptions(
+        beam="FM", width=256, title=False, bar=False, scalebar=False
+    )
+    no_dapi = replace(plain, hidden_channels=["DAPI"])
+
+    shown = render_animation(frames, plain)
+    hidden = render_animation(frames, no_dapi)
+    assert len(shown) == len(hidden) == 2
+    for with_dapi, without in zip(shown, hidden):
+        assert with_dapi[70:90, 70:90].any()
+        assert not without[70:90, 70:90].any()
+        assert without[170:190, 170:190].any()

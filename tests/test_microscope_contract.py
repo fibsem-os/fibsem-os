@@ -408,6 +408,33 @@ def test_device_demo_beams_keep_their_own_state():
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
+def test_device_demo_images_through_its_beam_devices(beam_type):
+    """Acquiring, autocontrast and autofocus read and change the beam devices,
+    never Demo's own beams."""
+    microscope = _connect("DeviceDemo")
+    demo_beams = deepcopy((microscope.electron_system, microscope.ion_system))
+    settings = ImageSettings(
+        beam_type=beam_type, hfw=50e-6, resolution=(64, 48), dwell_time=1e-9
+    )
+    image = microscope.acquire_image(settings)
+    beam = microscope.beams[beam_type]
+    assert beam.sim_beam.hfw == 50e-6
+    state = image.metadata.microscope_state
+    beam_state = (
+        state.electron_beam if beam_type is BeamType.ELECTRON else state.ion_beam
+    )
+    assert beam_state.hfw == 50e-6
+    assert microscope.last_image(beam_type) is image
+    microscope.autocontrast(beam_type)
+    assert beam.sim_detector.contrast == microscope.get("detector_contrast", beam_type)
+    microscope.auto_focus(beam_type)
+    assert beam.sim_beam.working_distance == microscope.get(
+        "working_distance", beam_type
+    )
+    assert (microscope.electron_system, microscope.ion_system) == demo_beams
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
 def test_device_demo_scans_through_its_beam_commands(beam_type):
     """DeviceDemo's scan-mode methods call the beam's commands, not the Demo chain."""
     microscope = _connect("DeviceDemo")
@@ -710,23 +737,33 @@ def test_device_demo_reads_its_configuration_without_demo(monkeypatch):
     assert microscope._get_axis_limits()
 
 
+def test_device_demo_sets_its_imaging_and_milling_keys_without_demo(monkeypatch):
+    from fibsem.microscopes.simulator import DemoMicroscope
+
+    def refuse(self, key, value=None, beam_type=None):
+        raise AssertionError(f"{key} went to Demo")
+
+    microscope = _connect("DeviceDemo")
+    monkeypatch.setattr(DemoMicroscope, "_set", refuse)
+    monkeypatch.setattr(DemoMicroscope, "get_available_values", refuse)
+    files = microscope.get_available_values("application_file")
+    microscope.set("application_file", files[-1])
+    microscope.set("patterning_mode", "Parallel")
+    microscope.set("milling_channel", BeamType.ELECTRON)
+    microscope.set("default_patterning_beam_type", BeamType.ELECTRON)
+    microscope.set("active_view", BeamType.ION)
+    milling = microscope.milling_system
+    assert milling.default_application_file == files[-1]
+    assert milling.patterning_mode == "Parallel"
+    assert microscope.milling_channel is BeamType.ELECTRON
+    assert milling.default_beam_type is BeamType.ELECTRON
+    assert microscope.imaging_system.active_view == BeamType.ION.value
+
+
 # What DeviceDemo still takes from Demo: methods it inherits as they are, and its
 # own methods that hand on to Demo's through `super()`. Each step of the migration
 # takes names off; when both are empty the inheritance goes.
-DEVICE_DEMO_INHERITS_FROM_DEMO = {
-    "__init__", "_acquisition_worker", "_burn_into_sample_scene",
-    "_generate_next_image", "_mill_into_sample_scene", "_scene_holder_slots",
-    "_setup_image_iterators", "_setup_sample_scene", "_wait",
-    "_warn_if_channel_moved", "acquire_chamber_image", "acquire_image",
-    "auto_focus", "autocontrast", "clear_patterns", "disconnect",
-    "draw_bitmap_pattern", "draw_circle", "draw_line", "draw_polygon",
-    "draw_rectangle", "draw_sputter_pattern", "estimate_milling_time",
-    "finish_milling", "finish_sputter", "get_milling_state", "last_image",
-    "pause_milling", "resume_milling", "run_milling", "run_sputter",
-    "run_sputter_coater", "set_channel", "set_default_application_file",
-    "set_patterning_mode", "setup_milling", "setup_sputter", "start_milling",
-    "stop_milling",
-}  # fmt: skip
+DEVICE_DEMO_INHERITS_FROM_DEMO = {"__init__", "_wait", "disconnect"}  # fmt: skip
 DEVICE_DEMO_HANDS_ON_TO_DEMO = {
     "connect_to_microscope", "_get", "_set", "get_available_values",
 }  # fmt: skip
@@ -1091,12 +1128,12 @@ def fm_microscope(request):
 def test_fm_acquires_a_channel(fm_microscope):
     from fibsem.fm.structures import ChannelSettings
 
-    channel = ChannelSettings(excitation_wavelength=488, power=0.3, exposure_time=0.02)
+    channel = ChannelSettings(excitation_wavelength=450, power=0.3, exposure_time=0.02)
     image = fm_microscope.fm.acquire_image(channel)
     assert image.data.ndim == 2 and image.data.size > 0
     assert fm_microscope.fm.camera.exposure_time == 0.02
     assert fm_microscope.fm.light_source.power == 0.3
-    assert fm_microscope.fm.filter_set.excitation_wavelength == 488
+    assert fm_microscope.fm.filter_set.excitation_wavelength == 450
 
 
 def test_fm_objective_inserts_and_retracts(fm_microscope):
@@ -1138,13 +1175,75 @@ def test_device_demo_fm_group_acquires_a_channel():
 
     microscope = _connect("DeviceDemo", FM_CONFIGURATION)
     devices = microscope.fm_devices
-    channel = ChannelSettings(excitation_wavelength=488, power=0.3, exposure_time=0.02)
+    channel = ChannelSettings(excitation_wavelength=450, power=0.3, exposure_time=0.02)
     data = devices["fm"].acquire_channel(channel.to_dict())
     assert data.ndim == 2 and data.size > 0
-    # The group reads the parts back after the channel set them.
+    # The group sets the parts through their parameters, so each is cached.
     assert devices["camera"].exposure_time.cached == 0.02
     assert devices["light_source"].power.cached == 0.3
-    assert devices["filter_set"].excitation_wavelength.cached == 488
+    assert devices["filter_set"].excitation_wavelength.cached == 450
+
+
+def test_device_demo_fm_is_the_fm_api_over_devices():
+    """`fm` is the same FM API over devices a remote FM is, over the Demo FM devices."""
+    from fibsem.devices.drivers.demo import DemoCamera
+    from fibsem.fm.api import DeviceFluorescenceMicroscope
+
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    fm = microscope.fm
+    assert isinstance(fm, DeviceFluorescenceMicroscope)
+    assert fm.devices == dict(microscope.fm_devices)
+    assert isinstance(microscope.fm_devices["camera"], DemoCamera)
+    # the frame is the camera's, at its binned resolution
+    width, height = fm.camera.resolution
+    assert fm.acquire_image().data.shape == (height, width)
+
+
+def test_device_demo_fm_starts_where_the_simulated_fm_was():
+    """The devices copy the simulated FM's parts at connect, calibration included."""
+    demo = _connect("Demo", FM_CONFIGURATION)
+    device_demo = _connect("DeviceDemo", FM_CONFIGURATION)
+    for name in ("focus_position", "limit_position", "position", "state"):
+        assert getattr(device_demo.fm.objective, name) == getattr(
+            demo.fm.objective, name
+        ), name
+    for part, names in {
+        "camera": ("exposure_time", "binning", "gain", "pixel_size", "resolution"),
+        "light_source": ("power",),
+        "filter_set": ("excitation_wavelength", "emission_wavelength"),
+    }.items():
+        for name in names:
+            assert getattr(getattr(device_demo.fm, part), name) == getattr(
+                getattr(demo.fm, part), name
+            ), f"{part}.{name}"
+
+
+def test_device_demo_fm_snaps_excitation_to_its_bands(caplog):
+    """As the hardware does, and unlike the simulated FM, which stores any value: an
+    excitation between bands selects the nearest, with a warning."""
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    microscope.fm.filter_set.excitation_wavelength = 488
+    assert microscope.fm.filter_set.excitation_wavelength == 450
+    assert "set to the nearest, 450" in caplog.text
+
+
+def test_device_demo_fm_names_a_numeric_emission_as_its_multi_band_filter():
+    """The simulator's filter set has no bands, so a wavelength means its multi-band
+    filter, as Thermo reports one; the simulated FM stores the number."""
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    microscope.fm.filter_set.emission_wavelength = 520.0
+    assert microscope.fm.filter_set.emission_wavelength == "Fluorescence"
+    microscope.fm.filter_set.emission_wavelength = None
+    assert microscope.fm.filter_set.emission_wavelength is None
+
+
+def test_device_demo_fm_objective_clips_to_its_limit():
+    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    objective = microscope.fm.objective
+    objective.limit_position = 5e-3
+    objective.move_absolute(7e-3)
+    assert objective.position == 5e-3
+    assert microscope.fm_devices["objective"].limit_position.cached == 5e-3
 
 
 # ---------------------------------------------------------------------------

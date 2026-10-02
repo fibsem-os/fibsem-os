@@ -38,7 +38,9 @@ from fibsem.imaging.export import (
     render_export,
 )
 
-BEAMS = ("SEM", "FIB", "both")
+# "FM" is a beam like the others: an animation of the tasks that saved a fluorescence
+# stack, a frame each. "both" is SEM and FIB side by side.
+BEAMS = ("SEM", "FIB", "FM", "both")
 MAGNIFICATIONS = ("high", "low")
 
 # The format follows the file's extension. GIF is the default: it plays everywhere a
@@ -69,7 +71,7 @@ def webp_supported() -> bool:
 
 # Values on the bar of an animation frame: fewer than a single export's, because the
 # frame is small and the values barely change from task to task.
-_BAR_FIELDS = ("detector", "objective", "hfw", "voltage", "current")
+_BAR_FIELDS = ("detector", "objective", "hfw", "voltage", "current", "z")
 # The bar's second row: the experiment, which is the same on every frame and too long
 # for the plate, and the date. The lamella is on the plate instead, not both.
 _PROVENANCE = ("experiment", "date")
@@ -77,23 +79,49 @@ _PROVENANCE = ("experiment", "date")
 
 @dataclass
 class AnimationStep:
-    """One step of the story: a title and the image files it may be drawn from."""
+    """One step of the story: a title, the beam image files it may be drawn from,
+    and any fluorescence stacks it saved."""
 
     title: str
     paths: List[str]
+    fluorescence: List[str] = field(default_factory=list)
 
 
 @dataclass
 class AnimationFrame:
-    """A step with its images read, once, so changing an option only re-draws."""
+    """A step with its images read, once, so changing an option only re-draws.
+
+    Its fluorescence stack is read only when first asked for: a stack can be
+    hundreds of megabytes, and most animations are SEM or FIB.
+    """
 
     title: str
     images: List[ExportImage]
+    fluorescence_paths: List[str] = field(default_factory=list)
+    _fluorescence: Optional[ExportImage] = field(default=None, repr=False)
+    _fluorescence_failed: bool = field(default=False, repr=False)
+
+    def fluorescence(self) -> Optional[ExportImage]:
+        """The step's latest fluorescence stack, read on first use; None if it has
+        none, or it could not be read (logged once, not retried)."""
+        if self._fluorescence is None and not self._fluorescence_failed:
+            if not self.fluorescence_paths:
+                return None
+            path = self.fluorescence_paths[-1]
+            try:
+                self._fluorescence = load_export_image(path)
+            except Exception:
+                logging.warning("Animation: could not read %s", path, exc_info=True)
+                self._fluorescence_failed = True
+        return self._fluorescence
 
     def pick(self, kind: str, magnification: str = "high") -> Optional[ExportImage]:
-        """The step's ``kind`` image ("SEM" or "FIB") at the narrowest field of view
-        ("high") or the widest ("low"), judged by the field width each image records
-        -- not by its filename or its place in the list."""
+        """The step's ``kind`` image: for "SEM" or "FIB", at the narrowest field of
+        view ("high") or the widest ("low"), judged by the field width each image
+        records -- not by its filename or its place in the list. For "FM", its
+        fluorescence stack, whatever the magnification."""
+        if kind == "FM":
+            return self.fluorescence()
         candidates = [i for i in self.images if i.kind == kind and i.pixel_size]
         if not candidates:
             return None
@@ -118,6 +146,9 @@ class AnimationOptions:
     scalebar: bool = True
     bar: bool = True  # acquisition values
     experiment: bool = True  # experiment and date, on the bar
+    # FM: channels left out of the blend and the legend, by name -- stacks in one
+    # animation need not list their channels in the same order.
+    hidden_channels: Sequence[str] = field(default_factory=tuple)
     # Saved images vary in brightness from task to task; without this the
     # animation flickers, and flicker reads as change in the sample.
     auto_contrast: bool = True
@@ -130,8 +161,9 @@ class AnimationOptions:
 
 
 def load_frames(steps: Sequence[AnimationStep]) -> List[AnimationFrame]:
-    """Read each step's images. A file that cannot be read is left out, and a step
-    left with none is dropped -- one bad file should not lose the whole animation."""
+    """Read each step's beam images. A file that cannot be read is left out, and a
+    step left with none (and no fluorescence stack to read later) is dropped -- one
+    bad file should not lose the whole animation."""
     frames: List[AnimationFrame] = []
     for step in steps:
         images = []
@@ -140,8 +172,14 @@ def load_frames(steps: Sequence[AnimationStep]) -> List[AnimationFrame]:
                 images.append(load_export_image(path))
             except Exception:
                 logging.warning("Animation: could not read %s", path, exc_info=True)
-        if images:
-            frames.append(AnimationFrame(title=step.title, images=images))
+        if images or step.fluorescence:
+            frames.append(
+                AnimationFrame(
+                    title=step.title,
+                    images=images,
+                    fluorescence_paths=list(step.fluorescence),
+                )
+            )
     return frames
 
 
@@ -176,6 +214,8 @@ def _panel(image: ExportImage, options: AnimationOptions, width: int) -> np.ndar
         else []
     )
     o.scalebar = options.scalebar
+    hidden = set(options.hidden_channels)
+    o.hidden_channels = [i for i, c in enumerate(image.channels) if c.name in hidden]
     if options.auto_contrast and image.adjustable:
         image = _stretched(image)
     rgb = render_export(image, o)
@@ -269,16 +309,27 @@ def render_frame(
     else:
         rgb = panels[0]
     if options.title:
-        if name is None:
-            recorded = {f.key: f.value for f in images[0].provenance}
-            name = recorded.get("item")
-        parts = [
-            name if options.lamella else None,
-            f"{step} / {total}" if options.step_counter else None,
-        ]
-        subtitle = " · ".join(p for p in parts if p) or None
+        subtitle = _subtitle(options, name, images[0], step, total)
         rgb = _draw_title(rgb, frame.title, subtitle, width)
     return rgb
+
+
+def _subtitle(
+    options: AnimationOptions,
+    name: Optional[str],
+    image: ExportImage,
+    step: int,
+    total: int,
+) -> Optional[str]:
+    """ "02-pro-moose · 2 / 4": which lamella -- the name passed in, else the one the
+    image recorded (FIB-466) -- and how far along."""
+    if name is None:
+        name = {f.key: f.value for f in image.provenance}.get("item")
+    parts = [
+        name if options.lamella else None,
+        f"{step} / {total}" if options.step_counter else None,
+    ]
+    return " · ".join(p for p in parts if p) or None
 
 
 def render_animation(
