@@ -9,6 +9,7 @@ own directory, and the record: the mosaic and a channel-composite thumbnail.
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type, Union
@@ -16,6 +17,9 @@ from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type, Union
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+    disable_tiles,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     register_grid_task,
@@ -31,12 +35,17 @@ from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import stamped_overview_name
+from fibsem.imaging.tiling.geometry import (
+    compute_tile_grid_from_fov,
+    unreachable_tiles,
+)
 from fibsem.imaging.tiling.progress import (
     MODALITY_FLUORESCENCE,
     TiledProgress,
     TiledStatus,
 )
 from fibsem.microscopes._stage import uncalibrated_message
+from fibsem.projection import FMStageProjection
 from fibsem.structures import FibsemStagePosition
 
 if TYPE_CHECKING:
@@ -44,6 +53,55 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 # ---------------------------------------------------------------------------
+
+
+def reachable_fluorescence_overview(
+    microscope: "FibsemMicroscope",
+    parameters: OverviewParameters,
+    centre: FibsemStagePosition,
+    projection: Optional[FMStageProjection] = None,
+) -> Tuple[OverviewParameters, List[Tuple[int, int]]]:
+    """*parameters* with the tiles the stage cannot reach from *centre* turned off,
+    and which tiles they were: `reachable_overview` for the fluorescence tiler.
+
+    The tiles are laid out as `FMTiledAcquisitionRunner` lays them out, from the
+    camera's field of view, and judged through the projection the FM Overview tab
+    draws unreachable tiles with. Read after the move to the FM, with the objective
+    in, when the camera's pixel size is the one the run will use.
+
+    *projection* is one already built, by a caller asking repeatedly (the Grid
+    page, on every edit). It carries the camera's pixel size and shape, so the
+    camera is not read again; building one reads it, which is slow on hardware.
+    """
+    limits = getattr(microscope._stage, "limits", None)
+    if projection is None:
+        projection = FMStageProjection.from_microscope(microscope)
+    if not limits or projection is None:
+        return parameters, []
+    height, width = projection.shape
+    tiles = compute_tile_grid_from_fov(
+        nrows=parameters.rows,
+        ncols=parameters.cols,
+        fov_x=width * projection.pixel_size,
+        fov_y=height * projection.pixel_size,
+        image_width=width,
+        image_height=height,
+        overlap=parameters.overlap,
+        mask=parameters.tile_mask,
+    )
+    skipped = unreachable_tiles(
+        tiles,
+        parameters.tile_order,
+        lambda dx, dy: projection.from_plane(dx, dy, centre),
+        limits,
+    )
+    if not skipped:
+        return parameters, []
+    parameters = deepcopy(parameters)
+    parameters.tile_mask = disable_tiles(
+        parameters.tile_mask, parameters.rows, parameters.cols, skipped
+    )
+    return parameters, skipped
 
 
 def acquire_fluorescence_overview(
@@ -168,16 +226,28 @@ class FluorescenceOverviewGridTask(GridTask):
             self.log_status_message("INSERT_OBJECTIVE", "Inserting the objective")
             objective.insert()
         try:
+            overview, skipped = reachable_fluorescence_overview(
+                self.microscope, self.config.overview, centre
+            )
+            enabled = self.config.overview.n_enabled_tiles
+            if skipped and overview.n_enabled_tiles == 0:
+                raise RuntimeError(
+                    f"None of the {enabled} tiles of this overview is within the "
+                    f"stage's reach from the centre of {self.grid.name}. Make it "
+                    "smaller."
+                )
+            self.note_skipped_tiles(skipped, enabled)
+            out_of_reach = f", {len(skipped)} out of reach" if skipped else ""
             self.log_status_message(
                 "ACQUIRE",
-                f"Acquiring fluorescence overview: {self.config.overview.rows} x "
-                f"{self.config.overview.cols} tiles, "
+                f"Acquiring fluorescence overview: {overview.rows} x "
+                f"{overview.cols} tiles{out_of_reach}, "
                 f"{len(self.config.channels)} channel(s)",
             )
             mosaic, saved = acquire_fluorescence_overview(
                 self.microscope,
                 self.config.channels,
-                self.config.overview,
+                overview,
                 centre,
                 self.output_dir,
                 stem=self.config.filename,

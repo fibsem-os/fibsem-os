@@ -41,7 +41,11 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
     FluorescenceOverviewGridTaskConfig,
     GridTaskConfig,
 )
-from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR
+from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
+    describe_reach,
+    overview_reach,
+)
+from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TaskNameListWidget,
@@ -281,6 +285,15 @@ class GridTaskEditorPanel(QWidget):
             f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
         )
         layout.addWidget(self.hint)
+        # Under the title rather than under the form, which can run off the
+        # bottom: an overview the stage cannot fully reach is worth seeing.
+        self.reach_label = QLabel()
+        self.reach_label.setWordWrap(True)
+        self.reach_label.setStyleSheet(
+            f"font-size: 11px; color: {WARN_COLOR}; background: transparent;"
+        )
+        self.reach_label.hide()
+        layout.addWidget(self.reach_label)
         self.stack = QStackedWidget()
         self._blank = QWidget()
         self.stack.addWidget(self._blank)
@@ -292,6 +305,11 @@ class GridTaskEditorPanel(QWidget):
         editor = self._editors.get(FluorescenceOverviewGridTaskConfig.task_type)
         if editor is not None:
             editor.set_fm(fm)
+
+    def set_reach(self, text: str) -> None:
+        """The warning that the overview reaches past the stage, or "" for none."""
+        self.reach_label.setText(text)
+        self.reach_label.setVisible(bool(text))
 
     def editor_for(self, task_type: str) -> Optional[QWidget]:
         editor = self._editors.get(task_type)
@@ -352,6 +370,7 @@ class GridProtocolWidget(QWidget):
         super().__init__(parent)
         self._experiment: Optional[Experiment] = None
         self._microscope = None
+        self._projections: Dict[object, object] = {}
         self._loading = False
         self.task_list = TaskNameListWidget()
         self.task_list.btn_add.setToolTip("Add grid task")
@@ -395,7 +414,28 @@ class GridProtocolWidget(QWidget):
 
     def set_microscope(self, microscope) -> None:
         self._microscope = microscope
+        # A projection per beam, kept across edits: building one reads the
+        # instrument. Another microscope, another geometry.
+        self._projections = {}
         self.editor_panel.set_microscope(microscope)
+        self._refresh_reach()
+
+    def _refresh_reach(self) -> None:
+        """Say, under the task's title, when its overview reaches past the stage
+        here: the tiles the run would skip (FIB-1152), by the question the task
+        itself asks. Best effort: a check that cannot be made says nothing, and
+        the run still skips what it must."""
+        config = self.selected_config()
+        microscope = self._microscope
+        text = ""
+        if config is not None and microscope is not None:
+            try:
+                reaches = overview_reach(microscope, config, self._projections)
+                one_slot = getattr(microscope._stage, "loader", None) is not None
+                text = describe_reach(reaches, one_slot)
+            except Exception as e:  # noqa: BLE001 - a warning, never a failure
+                logging.debug(f"Could not check the overview against the stage: {e}")
+        self.editor_panel.set_reach(text)
 
     @property
     def protocol(self) -> Optional[GridTaskProtocol]:
@@ -429,6 +469,7 @@ class GridProtocolWidget(QWidget):
     def _show_selected(self) -> None:
         protocol = self.protocol
         config = self.selected_config()
+        self._refresh_reach()
         if protocol is None:
             self.editor_panel.show_nothing(
                 "Load or create a task protocol first; the grid tasks live in it."
@@ -508,6 +549,7 @@ class GridProtocolWidget(QWidget):
         if self._loading:
             return
         self.apply_selected()
+        self._refresh_reach()
 
     def apply_selected(self) -> Optional[GridTaskConfig]:
         """Read the form into the selected config and write the protocol."""
