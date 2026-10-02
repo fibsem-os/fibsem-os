@@ -7,26 +7,29 @@ wrong material). The dose model ``t = volume / (rate × current)`` uses the same
 inputs DrawBeam computes the real exposure from: the stage's own etch rate and
 the current parsed from the preset name.
 
-The model is registered process-wide by the TESCAN driver
-(``set_preset_driven_estimation``): the planning stack estimates through the
+The TESCAN driver supplies the model (``TescanMicroscope.estimate_stage_milling_time``)
+and ``utils.setup_session`` installs it for the session on connect
+(``set_milling_time_estimator``): the planning stack estimates through the
 ``FibsemMillingStage.estimated_time`` property with no microscope in scope, so
 it cannot be a call-site parameter. The hard requirement locked in here is that
-nothing changes for any other backend: unregistered — the default — must be
-byte-identical to the legacy behaviour, and so must every preset the model
-cannot read.
+nothing changes for any other backend: no estimator, or the base class default,
+must be byte-identical to the legacy behaviour, and so must every preset the
+model cannot read.
 """
 
 import threading
 
 import pytest
 
+from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.tescan import TescanMicroscope, parse_current_from_preset
 from fibsem.milling.base import (
     FibsemMillingStage,
     estimate_milling_time,
     estimate_stage_milling_time,
     estimate_total_milling_time,
-    parse_current_from_preset,
-    set_preset_driven_estimation,
+    set_milling_time_estimator,
+    using_milling_time_estimator,
 )
 from fibsem.milling.patterning.patterns2 import RectanglePattern
 from fibsem.structures import CrossSectionPattern, FibsemMillingSettings
@@ -40,10 +43,13 @@ DOSE_MODEL_SECONDS = pytest.approx(7.6923, abs=1e-3)
 
 @pytest.fixture(autouse=True)
 def _legacy_estimation_by_default():
-    """Reset the process-wide registration around every test (it is global state)."""
-    set_preset_driven_estimation(False)
-    yield
-    set_preset_driven_estimation(False)
+    """Reset the session-level estimator around every test (it is global state)."""
+    with using_milling_time_estimator(None):
+        yield
+
+
+def use_tescan_model() -> None:
+    set_milling_time_estimator(TescanMicroscope.estimate_stage_milling_time)
 
 
 def make_stage(
@@ -105,11 +111,11 @@ def test_parse_current_takes_the_first_token():
 
 
 # ---------------------------------------------------------------------------
-# the hard requirement: nothing changes unless the TESCAN model is registered
+# the hard requirement: nothing changes unless the TESCAN model is installed
 # ---------------------------------------------------------------------------
 
 
-def test_unregistered_is_identical_to_the_legacy_estimate():
+def test_no_estimator_is_identical_to_the_legacy_estimate():
     stage = make_stage()
     assert estimate_stage_milling_time(stage) == estimate_milling_time(
         stage.pattern, stage.milling.milling_current
@@ -122,16 +128,16 @@ def test_unregistered_is_identical_to_the_legacy_estimate():
     )
 
 
-def test_unreadable_preset_falls_back_to_legacy_even_when_registered():
-    set_preset_driven_estimation(True)
+def test_unreadable_preset_falls_back_to_legacy_with_the_tescan_model():
+    use_tescan_model()
     stage = make_stage(preset="my cool preset")
     assert estimate_stage_milling_time(stage) == estimate_milling_time(
         stage.pattern, stage.milling.milling_current
     )
 
 
-def test_unusable_rate_falls_back_to_legacy_even_when_registered():
-    set_preset_driven_estimation(True)
+def test_unusable_rate_falls_back_to_legacy_with_the_tescan_model():
+    use_tescan_model()
     stage = make_stage(rate=0.0)
     assert estimate_stage_milling_time(stage) == estimate_milling_time(
         stage.pattern, stage.milling.milling_current
@@ -143,8 +149,8 @@ def test_unusable_rate_falls_back_to_legacy_even_when_registered():
 # ---------------------------------------------------------------------------
 
 
-def test_registered_uses_the_dose_model():
-    set_preset_driven_estimation(True)
+def test_tescan_model_uses_the_dose_model():
+    use_tescan_model()
     stage = make_stage()
     assert estimate_stage_milling_time(stage) == DOSE_MODEL_SECONDS
     assert stage.estimated_time == DOSE_MODEL_SECONDS
@@ -152,7 +158,7 @@ def test_registered_uses_the_dose_model():
 
 
 def test_dose_model_keeps_the_cleaning_cross_section_factor():
-    set_preset_driven_estimation(True)
+    use_tescan_model()
     stage = make_stage(cross_section=CrossSectionPattern.CleaningCrossSection)
     assert estimate_stage_milling_time(stage) == pytest.approx(0.66 * 7.6923, abs=1e-3)
 
@@ -160,42 +166,80 @@ def test_dose_model_keeps_the_cleaning_cross_section_factor():
 def test_explicit_pattern_time_wins_in_both_models():
     stage = make_stage(pattern_time=42.0)
     assert estimate_stage_milling_time(stage) == 42.0
-    set_preset_driven_estimation(True)
+    use_tescan_model()
     assert estimate_stage_milling_time(stage) == 42.0
 
 
 def test_dose_model_ignores_the_dead_milling_current_field():
-    set_preset_driven_estimation(True)
+    use_tescan_model()
     a = make_stage(milling_current=20e-12)
     b = make_stage(milling_current=120e-9)
     assert estimate_stage_milling_time(a) == estimate_stage_milling_time(b)
 
 
 # ---------------------------------------------------------------------------
-# driver registration
+# the driver supplies the model; connecting installs it
 # ---------------------------------------------------------------------------
 
 
-def test_tescan_construction_registers_and_disconnect_unregisters(monkeypatch):
-    """TescanMicroscope.__init__ registers the model; disconnect() hands the
-    legacy model back (so a later non-TESCAN session estimates as before)."""
+def test_base_class_default_is_identical_to_the_legacy_estimate():
+    stage = make_stage()
+    set_milling_time_estimator(FibsemMicroscope.estimate_stage_milling_time)
+    assert estimate_stage_milling_time(stage) == estimate_milling_time(
+        stage.pattern, stage.milling.milling_current
+    )
+
+
+def test_using_restores_the_previous_estimator():
+    stage = make_stage()
+    use_tescan_model()
+    with using_milling_time_estimator(lambda _: 1.0):
+        assert estimate_stage_milling_time(stage) == 1.0
+    assert estimate_stage_milling_time(stage) == DOSE_MODEL_SECONDS
+
+
+def test_connecting_installs_the_drivers_model():
+    """setup_session replaces whatever was installed with the connected driver's
+    model: the Demo backend's default, so the table, after a TESCAN session."""
+    from fibsem import utils
+
+    stage = make_stage()
+    use_tescan_model()
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    assert estimate_stage_milling_time(stage) == estimate_milling_time(
+        stage.pattern, stage.milling.milling_current
+    )
+    microscope.disconnect()
+
+
+def _make_tescan(monkeypatch) -> TescanMicroscope:
     import os
 
     import fibsem.config as cfg
     from fibsem import utils
     from fibsem.microscopes import tescan as tescan_module
-    from fibsem.microscopes.tescan import TescanMicroscope
-
-    stage = make_stage()
-    legacy = estimate_milling_time(stage.pattern, stage.milling.milling_current)
 
     config_path = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
     system = utils.load_microscope_configuration(config_path).system
-
     # __init__ only guards on the SDK's availability, it does not use it
     monkeypatch.setattr(tescan_module, "TESCAN_API_AVAILABLE", True)
-    microscope = TescanMicroscope(system_settings=system)
-    assert estimate_stage_milling_time(stage) == DOSE_MODEL_SECONDS
+    return TescanMicroscope(system_settings=system)
+
+
+def test_tescan_construction_does_not_switch_the_model(monkeypatch):
+    stage = make_stage()
+    _make_tescan(monkeypatch)
+    assert estimate_stage_milling_time(stage) == estimate_milling_time(
+        stage.pattern, stage.milling.milling_current
+    )
+
+
+def test_tescan_disconnect_keeps_the_model(monkeypatch):
+    """ETAs quoted after a disconnect still describe the instrument this session
+    plans for; only connecting another backend replaces the model."""
+    stage = make_stage()
+    microscope = _make_tescan(monkeypatch)
+    use_tescan_model()
 
     class FakeConnection:
         def Disconnect(self):
@@ -204,4 +248,4 @@ def test_tescan_construction_registers_and_disconnect_unregisters(monkeypatch):
     microscope.connection = FakeConnection()
     microscope._connection_lock = threading.RLock()
     microscope.disconnect()
-    assert estimate_stage_milling_time(stage) == legacy
+    assert estimate_stage_milling_time(stage) == DOSE_MODEL_SECONDS

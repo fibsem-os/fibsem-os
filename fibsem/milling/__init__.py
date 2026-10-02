@@ -9,7 +9,8 @@ from fibsem.milling.base import (
     get_milling_stages,
     get_protocol_from_stages,
     get_strategy,
-    set_preset_driven_estimation,
+    set_milling_time_estimator,
+    using_milling_time_estimator,
 )
 from fibsem.milling.core import (
     setup_milling,
