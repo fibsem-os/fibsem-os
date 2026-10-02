@@ -687,7 +687,9 @@ class FibsemMicroscope(ABC):
         if static_wd:
             wd = self.system.electron.eucentric_height
 
-        if not self.stage_is_compustage:  # TODO: can replace with self.stage.is_linked
+        # A linked stage's z moves the working distance with it, so put it back. An
+        # unlinked stage (a compustage never links) leaves it where it was.
+        if self.get("stage_linked"):
             self.set_working_distance(wd, BeamType.ELECTRON)
 
         # logging
@@ -1174,8 +1176,9 @@ class FibsemMicroscope(ABC):
         # coming back from the FM -- see FIB-841.
         self._refuse_rotation_at_the_fluorescence_microscope(stage_position)
 
-        # safe movements are not required on the compustage, because it doesn't rotate
-        if not self.stage_is_compustage:
+        # The safe sequence is about rotating, so a stage with no rotation axis (a
+        # compustage) skips it. `rotation` is `"r" in` the stage's axes, read at connect.
+        if self.system.stage.rotation:
             # tilt flat for large rotations to prevent collisions
             self._safe_rotation_movement(stage_position)
 
