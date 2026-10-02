@@ -87,6 +87,9 @@ from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as GRID_LOAD_STEP,
 )
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    grid_has_run,
+)
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.status import (
     Hold,
@@ -1831,6 +1834,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.grid_workflow_widget.exchanges_for(grids),
             str(ui.experiment.path),
             beams_off=self._beams_off(),
+            first_run=[g.name for g in grids if not grid_has_run(g)],
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -1855,11 +1859,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             str(ui.experiment.path),
             screen_all=True,
             beams_off=self._beams_off(),
+            first_run=self._present_grids_not_run(),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
         self._start_grid_run(task_names, None, inventory_first=True)
+
+    def _present_grids_not_run(self) -> list:
+        """The grids Screen all grids will run for the first time, as far as the
+        last inventory knows: present, and nothing run on them yet. Read off
+        the stage's cached inventory; nothing here asks the hardware."""
+        ui = self.autolamella_ui
+        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        if ui is None or ui.experiment is None or stage is None:
+            return []
+        present = {e.name for e in stage.grid_inventory() if e.present}
+        return [
+            g.name
+            for g in ui.experiment.grids
+            if g.name in present and not grid_has_run(g)
+        ]
 
     def _beams_off(self) -> list:
         """The beams that are off now, which the run will turn on: the preflight
@@ -3366,6 +3386,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.grid_workflow_widget.exchanges_for(grids),
             str(experiment.path) if experiment is not None else "",
             adding=True,
+            first_run=[g.name for g in grids if not grid_has_run(g)],
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:

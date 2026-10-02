@@ -42,6 +42,10 @@ from fibsem.applications.autolamella.ui.lamella_list_widget import (
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
 )
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    NAME_FIXED_REASON,
+    grid_has_run,
+)
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.microscopes._stage import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
@@ -271,6 +275,8 @@ class GridCardWidget(QWidget):
         self._btn_actions.setToolTip("Actions")
         self._btn_actions.setPopupMode(QToolButton.InstantPopup)
         menu = QMenu(self)
+        # Rename says why when it is greyed out (a grid that has run).
+        menu.setToolTipsVisible(True)
         self._action_load = menu.addAction(
             fibsem_icon(ICON_LOAD, color=stylesheets.GRAY_ICON_COLOR), "Load"
         )
@@ -473,7 +479,9 @@ class GridCardWidget(QWidget):
         self._action_load.setEnabled(present and can)
         self._action_unload.setVisible(self._has_loader and self.loaded)
         self._action_unload.setEnabled(can)
-        self._action_rename.setEnabled(can)
+        fixed = grid_has_run(grid)
+        self._action_rename.setEnabled(can and not fixed)
+        self._action_rename.setToolTip(NAME_FIXED_REASON if fixed else "")
 
     @property
     def status_text(self) -> str:
