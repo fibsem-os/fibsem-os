@@ -37,8 +37,9 @@ its device:
 
 What the configuration alone answers (the fitted parts, the stage's limits, the
 grid loader, ``plasma`` and the constant value lists) is ``DemoConfiguration``'s,
-which both demos share. What still goes to the Demo chain is imaging, milling, the
-FM and the sample scene; ``tests/test_microscope_contract.py`` lists exactly which
+which both demos share, as is imaging (``DemoImaging``), which changes the beams
+only through ``get``/``set`` and so through the beam devices. What still goes to
+the Demo chain is milling, the FM and the sample scene; ``tests/test_microscope_contract.py`` lists exactly which
 methods.
 
 The FM's parts are ``fm_devices``, built over the same objects ``fm`` holds, so the

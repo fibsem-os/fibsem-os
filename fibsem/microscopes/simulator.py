@@ -509,216 +509,16 @@ class DemoConfiguration:
         return False
 
 
-class DemoMicroscope(DemoConfiguration, FibsemMicroscope):
-    """Simulator microscope client based on TFS microscopes"""
+class DemoImaging:
+    """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
 
-    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+    Shared by both demos. It reads and changes the beams only through
+    ``get``/``set``, so on DeviceDemo it images through the beam devices. Its own
+    state is the imaging channel and last images (``imaging_system``), the image
+    sequence and the sample scene, which the demo sets up at construction.
+    """
 
-    # Whether the mill running now was started by `start_milling`, which never ends
-    # on its own here.
-    _async_milling: bool = False
-
-    def __init__(self, system_settings: SystemSettings):
-
-        # initialise system
-        self.connection = DemoMicroscopeClient()
-        self.system = system_settings
-
-        self.chamber = ChamberSystem(state="Pumped", pressure=1e-6)
-        self.stage_system = StageSystem(
-            is_homed=True,
-            is_linked=True,
-            position=FibsemStagePosition(
-                x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW"
-            ),
-        )
-
-        self.manipulator_system = ManipulatorSystem(
-            inserted=False,
-            position=FibsemManipulatorPosition(
-                x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW"
-            ),
-        )
-
-        self.gis_system = GasInjectionSystem(gas="Pt dep")
-
-        self.electron_system = BeamSystem(
-            on=True,
-            blanked=False,
-            beam=BeamSettings(
-                beam_type=BeamType.ELECTRON,
-                working_distance=4.0e-3,
-                beam_current=100e-12,
-                voltage=2000,
-                hfw=150e-6,
-                resolution=(1536, 1024),
-                dwell_time=1e-6,
-                stigmation=Point(0, 0),
-                shift=Point(0, 0),
-                scan_rotation=0,
-            ),
-            detector=FibsemDetectorSettings(
-                type="ETD",
-                mode="SecondaryElectrons",
-                brightness=0.5,
-                contrast=0.5,
-            ),
-            scanning_mode="full_frame",
-        )
-
-        self.ion_system = BeamSystem(
-            on=True,
-            blanked=False,
-            beam=BeamSettings(
-                beam_type=BeamType.ION,
-                working_distance=16.5e-3,
-                beam_current=20e-12,
-                voltage=30000,
-                hfw=150e-6,
-                resolution=(1536, 1024),
-                dwell_time=1e-6,
-                stigmation=Point(0, 0),
-                shift=Point(0, 0),
-                scan_rotation=0,
-            ),
-            detector=FibsemDetectorSettings(
-                type="ETD",
-                mode="SecondaryElectrons",
-                brightness=0.5,
-                contrast=0.5,
-            ),
-            scanning_mode="full_frame",
-            scanning_mode_value=None,
-        )
-        self.stage_is_compustage: bool = self.system.sim.get("is_compustage", False)
-        if not self.stage_is_compustage:
-            # boot at the SEM orientation, as a loaded shuttle sits: at t=0 a
-            # pre-tilted shuttle presents the FIB a grazing 3 deg view, a pose
-            # no real session starts in. A compustage is flat at t=0 already
-            self.stage_system.position.r = np.radians(
-                self.system.stage.rotation_reference
-            )
-            self.stage_system.position.t = np.radians(
-                self.system.stage.shuttle_pre_tilt
-            )
-        self.milling_system = MillingSystem(patterns=[])
-        self.imaging_system = ImagingSystem()
-
-        # setup image iterators
-        try:
-            self._setup_image_iterators()
-        except ValueError as e:
-            logging.error("Failed to set up sim image iterators: %s", str(e))
-
-        # fluorescence microscope
-        #
-        # `has_fm` stands in for a capability read, not for configuration. A real
-        # Thermo system has no `is_installed` for the FM -- every other subsystem has
-        # one -- so the only way to know is to try selecting it and see whether the
-        # microscope refuses, which `ThermoMicroscope.__init__` already does. The
-        # simulator has nothing to ask, so it is told what the pretend hardware would
-        # have answered, and that belongs in `sim:` rather than in a configuration
-        # block describing the instrument.
-        #
-        # Deliberately separate from the fluorescence *geometry*, so that "an FM is
-        # present but nothing is configured for it" stays representable -- that is the
-        # state an existing site hits on upgrade, and the one worth testing (FIB-830).
-        #
-        # Defaults to `stage_is_compustage`, which is what this branched on before, so
-        # every simulator configuration keeps its current behaviour without the key.
-        has_fm = bool(self.system.sim.get("has_fm", self.stage_is_compustage))
-
-        # Two independent questions, and the simulator is the only place both can be
-        # posed. `_fluorescence_is_configured` is whether the site said its instrument
-        # has an FM; `has_fm` is what the hardware probe would have answered. Both are
-        # required, which is what makes the middle row of the table below the sim
-        # configuration representable: an FM detected on a system nothing is
-        # configured for -- a site upgrading -- gets no FM, and that is the case worth
-        # being able to test.
-        if (
-            has_fm
-            and self._fluorescence_is_configured()
-            and self._fluorescence_uses_own_driver()
-        ):
-            self.fm = SimulatedFluorescenceMicroscope(self)
-            # Bringing the FM up leaves the shared channel on it, as
-            # `ThermoMicroscope.__init__` does; taking it back is the next beam
-            # operation's job.
-            self.fm.set_active_channel()
-        else:
-            self.fm = self._connect_remote_fluorescence()
-            if self.fm is None:
-                logging.info("No fluorescence microscope in this simulated system.")
-
-        self._apply_fluorescence_calibration()
-        self._warn_on_fluorescence_geometry()
-
-        # user, experiment metadata
-        # TODO: remove once db integrated
-        self.user = FibsemUser.from_environment()
-        self.experiment = FibsemExperimentRef()
-
-        self._last_imaging_settings: ImageSettings = ImageSettings()
-        self.milling_channel: BeamType = BeamType.ION
-        self._image_cache: dict = {}
-        self._setup_sample_scene()
-        logging.debug(
-            {
-                "msg": "create_microscope_client",
-                "system_settings": system_settings.to_dict(),
-            }
-        )
-
-    def connect_to_microscope(
-        self, ip_address: str, port: int = 8080, reset_beam_shift: bool = True
-    ) -> None:
-        """Connect to the microscope server.
-        Args:
-            ip_address: The IP address of the microscope server.
-            port: The port number of the microscope server.
-            reset_beam_shift: Whether to reset beam shifts on connect (default: True).
-        """
-        # connect to microscope
-        self.connection.connect(ip_address=ip_address, port=port)
-
-        # system information
-        self.system.info.model = "DemoMicroscope"
-        self.system.info.serial_number = "123456"
-        self.system.info.software_version = "0.1"
-        self.system.info.hardware_version = "v0.23"
-        self.system.info.ip_address = ip_address
-
-        # reset beam shifts
-        if reset_beam_shift:
-            self.reset_beam_shifts()
-
-        # user logging
-        info = self.system.info
-        logging.info(
-            f"Microscope client connected to {info.model} with serial number {info.serial_number} and software version {info.software_version}"
-        )
-
-        # logging
-        logging.debug(
-            {
-                "msg": "connect_to_microscope",
-                "ip_address": ip_address,
-                "port": port,
-                "system_info": info.to_dict(),
-            }
-        )
-
-        try:
-            self._create_sample_stage()
-        except Exception as e:
-            logging.warning(f"Could not create sample stage: {e}")
-
-        return
-
-    def disconnect(self) -> None:
-        """Disconnect from the microscope server."""
-        self.connection.disconnect()
-        logging.info("Disconnected from Demo Microscope")
+    imaging_system: ImagingSystem
 
     def set_channel(self, beam_type: BeamType) -> None:
         self.imaging_system.active_view = beam_type.value
@@ -904,52 +704,6 @@ class DemoMicroscope(DemoConfiguration, FibsemMicroscope):
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
 
         return image
-
-    def _setup_sample_scene(self) -> None:
-        """Opt-in synthetic-sample imaging (FIB-874), default off.
-
-        `sim: sample: {enabled: true, ...}` makes both beams (and the FM,
-        where present) image one synthetic cryo-grid through their
-        projections, so geometry between the views - coincidence above all -
-        is measurable and correctable on the simulator. The block's other
-        keys are the scene's options (see SampleScene.CONFIG_KEYS). The
-        older flat keys `coincidence_projection`, `coincidence_offset` and
-        `tilt_axis_offset` are still honoured when there is no `sample` block.
-        """
-        from fibsem.microscopes.sim_scene import SampleScene
-
-        self._sample_scene: Optional[SampleScene] = None
-        sim = self.system.sim
-        config = sim.get("sample")
-        if config is None:
-            if not sim.get("coincidence_projection", False):
-                return
-            config = {
-                "coincidence_offset": sim.get("coincidence_offset", 10e-6),
-                "tilt_axis_offset": sim.get("tilt_axis_offset", 0.0),
-            }
-        elif not config.get("enabled", False):
-            return
-        self._sample_scene = SampleScene.from_config(
-            {k: v for k, v in config.items() if k != "enabled"}
-        )
-        try:
-            # anchor the world NOW, at the connect pose - so moving straight
-            # to a saved position and acquiring shows that position's
-            # surroundings rather than anchoring the world there
-            self._sample_scene.anchor(self.get_stage_position())
-        except Exception as e:
-            logging.warning(
-                "Could not anchor the sample scene at connect (%s); "
-                "it will anchor at the first acquisition instead.",
-                e,
-            )
-        logging.info(
-            "Simulator sample scene enabled (coincidence offset %.2f um, "
-            "tilt axis offset %.1f um)",
-            self._sample_scene.coincidence_offset * 1e6,
-            self._sample_scene.tilt_axis_offset * 1e6,
-        )
 
     def _generate_next_image(
         self,
@@ -1202,6 +956,264 @@ class DemoMicroscope(DemoConfiguration, FibsemMicroscope):
         if reduced_area:
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
+
+
+class DemoMicroscope(DemoConfiguration, DemoImaging, FibsemMicroscope):
+    """Simulator microscope client based on TFS microscopes"""
+
+    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+
+    # Whether the mill running now was started by `start_milling`, which never ends
+    # on its own here.
+    _async_milling: bool = False
+
+    def __init__(self, system_settings: SystemSettings):
+
+        # initialise system
+        self.connection = DemoMicroscopeClient()
+        self.system = system_settings
+
+        self.chamber = ChamberSystem(state="Pumped", pressure=1e-6)
+        self.stage_system = StageSystem(
+            is_homed=True,
+            is_linked=True,
+            position=FibsemStagePosition(
+                x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW"
+            ),
+        )
+
+        self.manipulator_system = ManipulatorSystem(
+            inserted=False,
+            position=FibsemManipulatorPosition(
+                x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW"
+            ),
+        )
+
+        self.gis_system = GasInjectionSystem(gas="Pt dep")
+
+        self.electron_system = BeamSystem(
+            on=True,
+            blanked=False,
+            beam=BeamSettings(
+                beam_type=BeamType.ELECTRON,
+                working_distance=4.0e-3,
+                beam_current=100e-12,
+                voltage=2000,
+                hfw=150e-6,
+                resolution=(1536, 1024),
+                dwell_time=1e-6,
+                stigmation=Point(0, 0),
+                shift=Point(0, 0),
+                scan_rotation=0,
+            ),
+            detector=FibsemDetectorSettings(
+                type="ETD",
+                mode="SecondaryElectrons",
+                brightness=0.5,
+                contrast=0.5,
+            ),
+            scanning_mode="full_frame",
+        )
+
+        self.ion_system = BeamSystem(
+            on=True,
+            blanked=False,
+            beam=BeamSettings(
+                beam_type=BeamType.ION,
+                working_distance=16.5e-3,
+                beam_current=20e-12,
+                voltage=30000,
+                hfw=150e-6,
+                resolution=(1536, 1024),
+                dwell_time=1e-6,
+                stigmation=Point(0, 0),
+                shift=Point(0, 0),
+                scan_rotation=0,
+            ),
+            detector=FibsemDetectorSettings(
+                type="ETD",
+                mode="SecondaryElectrons",
+                brightness=0.5,
+                contrast=0.5,
+            ),
+            scanning_mode="full_frame",
+            scanning_mode_value=None,
+        )
+        self.stage_is_compustage: bool = self.system.sim.get("is_compustage", False)
+        if not self.stage_is_compustage:
+            # boot at the SEM orientation, as a loaded shuttle sits: at t=0 a
+            # pre-tilted shuttle presents the FIB a grazing 3 deg view, a pose
+            # no real session starts in. A compustage is flat at t=0 already
+            self.stage_system.position.r = np.radians(
+                self.system.stage.rotation_reference
+            )
+            self.stage_system.position.t = np.radians(
+                self.system.stage.shuttle_pre_tilt
+            )
+        self.milling_system = MillingSystem(patterns=[])
+        self.imaging_system = ImagingSystem()
+
+        # setup image iterators
+        try:
+            self._setup_image_iterators()
+        except ValueError as e:
+            logging.error("Failed to set up sim image iterators: %s", str(e))
+
+        # fluorescence microscope
+        #
+        # `has_fm` stands in for a capability read, not for configuration. A real
+        # Thermo system has no `is_installed` for the FM -- every other subsystem has
+        # one -- so the only way to know is to try selecting it and see whether the
+        # microscope refuses, which `ThermoMicroscope.__init__` already does. The
+        # simulator has nothing to ask, so it is told what the pretend hardware would
+        # have answered, and that belongs in `sim:` rather than in a configuration
+        # block describing the instrument.
+        #
+        # Deliberately separate from the fluorescence *geometry*, so that "an FM is
+        # present but nothing is configured for it" stays representable -- that is the
+        # state an existing site hits on upgrade, and the one worth testing (FIB-830).
+        #
+        # Defaults to `stage_is_compustage`, which is what this branched on before, so
+        # every simulator configuration keeps its current behaviour without the key.
+        has_fm = bool(self.system.sim.get("has_fm", self.stage_is_compustage))
+
+        # Two independent questions, and the simulator is the only place both can be
+        # posed. `_fluorescence_is_configured` is whether the site said its instrument
+        # has an FM; `has_fm` is what the hardware probe would have answered. Both are
+        # required, which is what makes the middle row of the table below the sim
+        # configuration representable: an FM detected on a system nothing is
+        # configured for -- a site upgrading -- gets no FM, and that is the case worth
+        # being able to test.
+        if (
+            has_fm
+            and self._fluorescence_is_configured()
+            and self._fluorescence_uses_own_driver()
+        ):
+            self.fm = SimulatedFluorescenceMicroscope(self)
+            # Bringing the FM up leaves the shared channel on it, as
+            # `ThermoMicroscope.__init__` does; taking it back is the next beam
+            # operation's job.
+            self.fm.set_active_channel()
+        else:
+            self.fm = self._connect_remote_fluorescence()
+            if self.fm is None:
+                logging.info("No fluorescence microscope in this simulated system.")
+
+        self._apply_fluorescence_calibration()
+        self._warn_on_fluorescence_geometry()
+
+        # user, experiment metadata
+        # TODO: remove once db integrated
+        self.user = FibsemUser.from_environment()
+        self.experiment = FibsemExperimentRef()
+
+        self._last_imaging_settings: ImageSettings = ImageSettings()
+        self.milling_channel: BeamType = BeamType.ION
+        self._image_cache: dict = {}
+        self._setup_sample_scene()
+        logging.debug(
+            {
+                "msg": "create_microscope_client",
+                "system_settings": system_settings.to_dict(),
+            }
+        )
+
+    def connect_to_microscope(
+        self, ip_address: str, port: int = 8080, reset_beam_shift: bool = True
+    ) -> None:
+        """Connect to the microscope server.
+        Args:
+            ip_address: The IP address of the microscope server.
+            port: The port number of the microscope server.
+            reset_beam_shift: Whether to reset beam shifts on connect (default: True).
+        """
+        # connect to microscope
+        self.connection.connect(ip_address=ip_address, port=port)
+
+        # system information
+        self.system.info.model = "DemoMicroscope"
+        self.system.info.serial_number = "123456"
+        self.system.info.software_version = "0.1"
+        self.system.info.hardware_version = "v0.23"
+        self.system.info.ip_address = ip_address
+
+        # reset beam shifts
+        if reset_beam_shift:
+            self.reset_beam_shifts()
+
+        # user logging
+        info = self.system.info
+        logging.info(
+            f"Microscope client connected to {info.model} with serial number {info.serial_number} and software version {info.software_version}"
+        )
+
+        # logging
+        logging.debug(
+            {
+                "msg": "connect_to_microscope",
+                "ip_address": ip_address,
+                "port": port,
+                "system_info": info.to_dict(),
+            }
+        )
+
+        try:
+            self._create_sample_stage()
+        except Exception as e:
+            logging.warning(f"Could not create sample stage: {e}")
+
+        return
+
+    def disconnect(self) -> None:
+        """Disconnect from the microscope server."""
+        self.connection.disconnect()
+        logging.info("Disconnected from Demo Microscope")
+
+    def _setup_sample_scene(self) -> None:
+        """Opt-in synthetic-sample imaging (FIB-874), default off.
+
+        `sim: sample: {enabled: true, ...}` makes both beams (and the FM,
+        where present) image one synthetic cryo-grid through their
+        projections, so geometry between the views - coincidence above all -
+        is measurable and correctable on the simulator. The block's other
+        keys are the scene's options (see SampleScene.CONFIG_KEYS). The
+        older flat keys `coincidence_projection`, `coincidence_offset` and
+        `tilt_axis_offset` are still honoured when there is no `sample` block.
+        """
+        from fibsem.microscopes.sim_scene import SampleScene
+
+        self._sample_scene: Optional[SampleScene] = None
+        sim = self.system.sim
+        config = sim.get("sample")
+        if config is None:
+            if not sim.get("coincidence_projection", False):
+                return
+            config = {
+                "coincidence_offset": sim.get("coincidence_offset", 10e-6),
+                "tilt_axis_offset": sim.get("tilt_axis_offset", 0.0),
+            }
+        elif not config.get("enabled", False):
+            return
+        self._sample_scene = SampleScene.from_config(
+            {k: v for k, v in config.items() if k != "enabled"}
+        )
+        try:
+            # anchor the world NOW, at the connect pose - so moving straight
+            # to a saved position and acquiring shows that position's
+            # surroundings rather than anchoring the world there
+            self._sample_scene.anchor(self.get_stage_position())
+        except Exception as e:
+            logging.warning(
+                "Could not anchor the sample scene at connect (%s); "
+                "it will anchor at the first acquisition instead.",
+                e,
+            )
+        logging.info(
+            "Simulator sample scene enabled (coincidence offset %.2f um, "
+            "tilt axis offset %.1f um)",
+            self._sample_scene.coincidence_offset * 1e6,
+            self._sample_scene.tilt_axis_offset * 1e6,
+        )
 
     @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
