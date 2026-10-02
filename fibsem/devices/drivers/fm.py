@@ -10,14 +10,19 @@ driver uses it where it's there.
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from fibsem.devices.core import Device, ParameterMetadata, Resources
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
-from fibsem.fm.structures import REFLECTION, EmissionFilter, objective_device_state
+from fibsem.fm.structures import (
+    REFLECTION,
+    EmissionFilter,
+    emission_filter_for,
+    objective_device_state,
+    same_emission_value,
+)
 from fibsem.structures import InsertableDeviceState, RangeLimit
 
 if TYPE_CHECKING:
@@ -84,30 +89,6 @@ class FMLightSource(LightSource):
     def metadata_power(self) -> ParameterMetadata:
         low, high = self._light.power_limits
         return ParameterMetadata(limits=RangeLimit(min=low, max=high))
-
-
-def emission_filter_for(
-    value: Any, edges: Dict[float, Tuple[float, float]]
-) -> EmissionFilter:
-    """The filter an FM class's emission value names. ``edges`` maps a band's bottom
-    edge to both edges, for FM classes that know them."""
-    if value is None:
-        return REFLECTION
-    if isinstance(value, str):
-        return EmissionFilter(value)
-    low = float(value)
-    high = next(
-        (h for bottom, (_, h) in edges.items() if math.isclose(bottom, low)), None
-    )
-    if high is None:
-        return EmissionFilter(f"{low:.0f} nm", low=low)
-    return EmissionFilter(f"{low:.0f}–{high:.0f} nm", low=low, high=float(high))
-
-
-def same_emission_value(a: Any, b: Any) -> bool:
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-        return math.isclose(a, b, rel_tol=1e-6)
-    return a == b
 
 
 class FMFilterSet(FilterSet):
