@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import logging
 from types import MappingProxyType
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
@@ -162,6 +162,15 @@ class DeviceDemoMicroscope(DemoMicroscope):
             _SCAN_MODE_KEYS[key](self, value, beam_type)
             return
         super()._set(key, value, beam_type)
+
+    def get_available_values(
+        self, key: str, beam_type: Optional[BeamType] = None
+    ) -> List[Any]:
+        # A beam key's values are its parameter's choices; the rest are Demo's.
+        param = self._route(key, beam_type)
+        if param is not None and param.choices is not None:
+            return list(param.choices)
+        return super().get_available_values(key, beam_type)
 
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType

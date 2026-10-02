@@ -645,6 +645,47 @@ def test_every_choice_can_be_set(microscope, key, beam_type):
         assert microscope.get(key, beam_type) == choice
 
 
+def _plasma_configuration() -> str:
+    """The default configuration on a plasma FIB (Xenon)."""
+    with open(cfg.DEFAULT_CONFIGURATION_PATH) as f:
+        configuration = yaml.safe_load(f)
+    configuration["sim"] = {**(configuration.get("sim") or {}), "plasma_gas": "Xenon"}
+    path = os.path.join(tempfile.mkdtemp(), "plasma-configuration.yaml")
+    with open(path, "w") as f:
+        yaml.safe_dump(configuration, f)
+    return path
+
+
+def test_device_demo_beams_own_their_choices(monkeypatch):
+    """The beam keys' values come from the beam devices, never Demo's lists."""
+    from fibsem.microscopes.simulator import DemoMicroscope
+
+    def refuse(self, key, beam_type=None):
+        raise AssertionError(f"{key} asked Demo for its values")
+
+    monkeypatch.setattr(DemoMicroscope, "get_available_values", refuse)
+    microscope = _connect("DeviceDemo", _plasma_configuration())
+    for beam_type in BEAMS:
+        for key in ("current", "voltage", "detector_type", "detector_mode"):
+            assert microscope.get_available_values(key, beam_type)
+    microscope.set("plasma_gas", "Argon", BeamType.ION)
+    assert microscope.get("plasma_gas", BeamType.ION) == "Argon"
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_ion_currents_follow_the_plasma_gas(backend):
+    from fibsem.microscopes.simulator import SIMULATOR_BEAM_CURRENTS
+
+    currents = SIMULATOR_BEAM_CURRENTS[BeamType.ION]
+    microscope = _connect(backend, _plasma_configuration())
+    assert microscope.get("plasma_gas", BeamType.ION) == "Xenon"
+    assert microscope.get_available_values("current", BeamType.ION) == currents["Xenon"]
+    microscope.set("plasma_gas", "Argon", BeamType.ION)
+    assert microscope.get_available_values("current", BeamType.ION) == currents["Argon"]
+    microscope.set("plasma_gas", "Helium", BeamType.ION)  # not offered: ignored
+    assert microscope.get("plasma_gas", BeamType.ION) == "Argon"
+
+
 @pytest.mark.parametrize(
     "key", ["plasma_gas", "application_file", "gis_ports", "scan_direction"]
 )

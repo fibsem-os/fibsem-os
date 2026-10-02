@@ -71,9 +71,30 @@ class DemoBeam(Beam):
         self.sim_scanning_mode_value = deepcopy(start.scanning_mode_value)
 
     def _choices(self, key: str) -> ParameterMetadata:
-        return ParameterMetadata(
-            choices=self.parent.get_available_values(key, self.beam_type)
-        )
+        """The simulator's values for a key: Demo's ``get_available_values``."""
+        from fibsem.microscopes import simulator as sim
+
+        if key == "current":
+            if self.beam_type is BeamType.ION:
+                gas = self.read_plasma_gas() if self.available_plasma_gas() else None
+                choices = sim.SIMULATOR_BEAM_CURRENTS[BeamType.ION][gas]
+            else:
+                choices = sim.SIMULATOR_BEAM_CURRENTS[BeamType.ELECTRON]
+        elif key == "voltage":
+            choices = (
+                [2000, 5000, 10000, 20000, 30000]
+                if self.beam_type is BeamType.ELECTRON
+                else [500, 1000, 2000, 8000, 16000, 30000]
+            )
+        elif key == "detector_type":
+            choices = ["ETD", "TLD", "EDS"]
+        elif key == "detector_mode":
+            choices = ["SecondaryElectrons", "BackscatteredElectrons", "EDS"]
+        elif key == "plasma_gas":
+            choices = sim.SIMULATOR_PLASMA_GASES
+        else:
+            raise KeyError(key)
+        return ParameterMetadata(choices=list(choices))
 
     # Each parameter is the matching Demo branch as it stands.
 
@@ -209,15 +230,15 @@ class DemoBeam(Beam):
 
     def write_plasma_gas(self, value: str) -> None:
         # An unavailable gas logs and is ignored, as the Demo branch does.
-        microscope = self.parent
-        if not microscope.check_available_values("plasma_gas", value, BeamType.ION):
+        gases = self._choices("plasma_gas").choices
+        logging.info(f"Checking if plasma_gas={value} is available ({BeamType.ION})")
+        if value not in gases:
             logging.warning(
-                f"Plasma gas {value} not available. Available values: "
-                f"{microscope.get_available_values('plasma_gas', BeamType.ION)}"
+                f"Plasma gas {value} not available. Available values: {gases}"
             )
             return
         logging.info(f"Setting plasma gas to {value}... this may take some time...")
-        microscope.system.ion.plasma_gas = value
+        self.parent.system.ion.plasma_gas = value
         logging.info(f"Plasma gas set to {value}.")
 
     def metadata_plasma_gas(self) -> ParameterMetadata:
