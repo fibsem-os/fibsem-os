@@ -10,10 +10,17 @@ a dropped connection can't leave the light on.
 Commands call a hook the driver implements (``_acquire``, ``_insert``, ...), the way
 the stage's moves do, so the command's name, arguments and checks are the same on
 every driver.
+
+Live view is pulled rather than pushed: `FM.start_live` keeps the hardware acquiring,
+each `FM.acquire_frame` returns the next frame, and live view stops by itself when
+nobody asks for one (FIB-1096).
 """
 
 from __future__ import annotations
 
+import logging
+import threading
+import time
 from datetime import datetime
 from types import MappingProxyType
 from typing import Any, Dict, Mapping, Optional, Tuple
@@ -142,6 +149,82 @@ class FM(Device):
     parts: Mapping[str, Device] = MappingProxyType({})
     """The parts this group drives, by device name. A driver sets it."""
 
+    live_timeout: Optional[float] = 5.0
+    """Seconds live view may go without a frame being asked for before it stops by
+    itself, switching the light off: the viewer has gone (a closed window, a crashed
+    or disconnected client). None never stops it."""
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self._live_lock = threading.Lock()
+        self._live = False
+        self._last_pull = 0.0
+        self._pulling = 0  # frames being acquired right now, so a long exposure counts
+
+    # -- live view --------------------------------------------------------------------
+    #
+    # Live view is pulled: `start_live` keeps the hardware acquiring continuously
+    # (odemis: the stream active, light on), and each `acquire_frame` returns the next
+    # frame from it. The viewer asks only when it is ready, so it never falls behind.
+
+    @command
+    def start_live(self, channel: Optional[Dict[str, Any]] = None) -> None:
+        """Set up ``channel`` (or keep the current settings) and keep acquiring until
+        `stop_live`, or until no frame has been asked for in ``live_timeout``."""
+        with self._live_lock:
+            already = self._live
+            self._live = True
+            self._last_pull = time.monotonic()
+        if already:
+            self._stop_live()
+        self._start_live(channel)
+        if not already and self.live_timeout is not None:
+            threading.Thread(
+                target=self._watch_live, name=f"{self.name}-live-watchdog", daemon=True
+            ).start()
+
+    @command
+    def stop_live(self) -> None:
+        """Stop live view: the light off and the hardware idle. Safe when not live."""
+        with self._live_lock:
+            was_live, self._live = self._live, False
+        if was_live:
+            self._stop_live()
+
+    @property
+    def is_live(self) -> bool:
+        return self._live
+
+    def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
+        """Start acquiring continuously. Without a hook a driver takes each frame on
+        demand, which is still live view, only slower."""
+
+    def _stop_live(self) -> None:
+        """Stop what `_start_live` started; called once per start."""
+
+    def _watch_live(self) -> None:
+        while True:
+            time.sleep(min(0.5, self.live_timeout or 0.5))
+            with self._live_lock:
+                if not self._live:
+                    return
+                idle = time.monotonic() - self._last_pull
+                if self._pulling or self.live_timeout is None:
+                    continue
+                if idle <= self.live_timeout:
+                    continue
+            logging.warning(
+                f"{self.name}: no live frame asked for in {idle:.1f} s, stopping live "
+                "view"
+            )
+            self.stop_live()
+            return
+
+    def _pulled(self, delta: int) -> None:
+        with self._live_lock:
+            self._pulling += delta
+            self._last_pull = time.monotonic()
+
     @command
     def acquire_channel(self, channel: Optional[Dict[str, Any]] = None) -> np.ndarray:
         """Set up one channel (``ChannelSettings.to_dict()``), then acquire a frame.
@@ -160,7 +243,11 @@ class FM(Device):
         JSON-ready values: tuples are lists and the emission filter is its
         ``to_dict()``.
         """
-        return self._acquire_frame(channel)
+        self._pulled(1)
+        try:
+            return self._acquire_frame(channel)
+        finally:
+            self._pulled(-1)
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         raise NotImplementedError(f"{type(self).__name__} can't acquire")

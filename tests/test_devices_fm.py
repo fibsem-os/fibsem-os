@@ -1,6 +1,8 @@
 """The FM's parts as devices, over the simulated FM classes: each parameter and
 command does what the FM class it adapts always did."""
 
+import time
+
 import numpy as np
 import pytest
 
@@ -265,3 +267,66 @@ def test_a_frame_with_the_current_settings_is_the_camera_frame(fm):
     assert frame.metadata["exposure_time"] == microscope.camera.exposure_time
     assert frame.metadata["objective_position"] == microscope.objective.position
     assert "acquisition_date" in frame.metadata
+
+
+def test_live_view_sets_up_the_channel_and_stops_on_request(fm):
+    microscope, devices = fm
+    group = devices["fm"]
+    assert {"start_live", "stop_live"} <= set(group.commands)
+    channel = ChannelSettings(excitation_wavelength=550, power=0.4, exposure_time=0.03)
+    group.start_live(channel.to_dict())
+    try:
+        assert group.is_live
+        assert microscope.light_source.power == 0.4
+        assert devices["light_source"].power.cached == 0.4
+        frame = group.acquire_frame()
+        assert frame.data.ndim == 2
+    finally:
+        group.stop_live()
+    assert not group.is_live
+    group.stop_live()  # safe when not live
+
+
+def test_live_view_uses_the_fm_class_live_view_when_it_has_one(fm, monkeypatch):
+    """odemis: the stream stays active between pulled frames, light on once."""
+    microscope, devices = fm
+    calls = []
+    monkeypatch.setattr(
+        microscope.camera, "_start_fast_acquisition", lambda: None, raising=False
+    )
+    monkeypatch.setattr(
+        microscope, "start_acquisition", lambda s=None: calls.append(("start", s))
+    )
+    monkeypatch.setattr(microscope, "stop_acquisition", lambda: calls.append("stop"))
+    devices["fm"].start_live()
+    devices["fm"].stop_live()
+    assert calls == [("start", None), "stop"]
+
+
+def test_live_view_stops_by_itself_when_nobody_asks_for_a_frame(fm, caplog):
+    _, devices = fm
+    group = devices["fm"]
+    group.live_timeout = 0.2
+    stopped = []
+    group._stop_live = lambda: stopped.append(True)
+    group.start_live()
+    deadline = time.monotonic() + 3
+    while group.is_live and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not group.is_live and stopped == [True]
+    assert "stopping live view" in caplog.text
+
+
+def test_live_view_keeps_going_while_frames_are_asked_for(fm):
+    _, devices = fm
+    group = devices["fm"]
+    group.live_timeout = 0.3
+    group.start_live()
+    try:
+        end = time.monotonic() + 1.0
+        while time.monotonic() < end:
+            group.acquire_frame()
+            time.sleep(0.05)
+        assert group.is_live
+    finally:
+        group.stop_live()
