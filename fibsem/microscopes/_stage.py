@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -262,6 +263,12 @@ class DemoSampleLoader(SampleGridLoader):
     (``run_inventory``). A read (``get_inventory``) does not change that, as on the
     hardware. ``scan_delay`` is how long a scan pretends to take, through
     ``sim_sleep`` like the exchanges.
+
+    ``working_offset`` is where this autoloader really puts a grid: (x, y, z) in
+    metres from the stage origin, as a real Arctis does (FIB-1144). The simulated
+    scene draws a loaded grid there, whatever the working slot is calibrated to,
+    so an uncalibrated slot misses the grid as it does on the instrument. None
+    puts it at the origin.
     """
 
     def __init__(
@@ -273,10 +280,14 @@ class DemoSampleLoader(SampleGridLoader):
         exchange_delay: float = 0.0,
         start_unscanned: bool = False,
         scan_delay: float = 0.0,
+        working_offset: Optional[Tuple[float, float, float]] = None,
     ) -> None:
         super().__init__(parent, capacity)
         self.exchange_delay = exchange_delay
         self.scan_delay = scan_delay
+        self.working_offset = (
+            tuple(float(v) for v in working_offset) if working_offset else None
+        )
         self.fail_next_exchange = False
         names = names or {}
         for number in occupied:
@@ -703,25 +714,52 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
     return holder
 
 
+COMPUSTAGE_HOLDER_NAME = "CompuStage Holder"
+
+
+def _compustage_working_slot(stage_settings) -> GridSlot:
+    """The compustage's one slot: where the autoloader puts every grid.
+
+    Nominally the stage origin, and that is the slot until someone calibrates it.
+    A loaded grid on a real Arctis sits off the origin, in x, y and z, by the same
+    amount on every load (FIB-1144), so a position captured with the calibration
+    wizard and saved in the configuration replaces it -- once it passes the trust
+    check a fixed holder's slots get: captured against this pre-tilt and reference
+    rotation. One that does not is dropped with a warning, and the origin is used.
+    """
+    pre_tilt = float(stage_settings.shuttle_pre_tilt)
+    rotation_reference = float(stage_settings.rotation_reference)
+    saved = stage_settings.holders.get(COMPUSTAGE_HOLDER_NAME)
+    if saved is not None:
+        for note in saved.discard_untrusted_positions(pre_tilt, rotation_reference):
+            logging.warning(
+                f"Compustage working slot: {note}. Using the stage origin; "
+                "recalibrate it from the Sample view."
+            )
+        captured = saved.slots.get("Slot-01")
+        if captured is not None and captured.is_calibrated:
+            return GridSlot(
+                name="Slot-01",
+                index=0,
+                position=deepcopy(captured.position),
+                calibration=deepcopy(captured.calibration),
+            )
+    return GridSlot(
+        name="Slot-01",
+        index=0,
+        position=FibsemStagePosition(
+            name="Slot-01", x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
+        ),
+        calibration=SlotCalibration.builtin(pre_tilt, rotation_reference),
+    )
+
+
 def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
     if microscope.stage_is_compustage:
-        # The working slot is the compustage origin by construction: the loader puts
-        # every grid at the same place and the coordinate system is referenced to
-        # it. That is a hardware fact, so the slot is calibrated without a capture.
         stage_settings = microscope.system.stage
-        slot01 = GridSlot(
-            name="Slot-01",
-            index=0,
-            position=FibsemStagePosition(
-                name="Slot-01", x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
-            ),
-            calibration=SlotCalibration.builtin(
-                float(stage_settings.shuttle_pre_tilt),
-                float(stage_settings.rotation_reference),
-            ),
-        )
+        slot01 = _compustage_working_slot(stage_settings)
         holder = SampleHolder(
-            name="CompuStage Holder",
+            name=COMPUSTAGE_HOLDER_NAME,
             capacity=1,
             slots={"Slot-01": slot01},
             # Built here rather than resolved from the configuration, so it has to be
