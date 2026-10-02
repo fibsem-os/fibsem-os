@@ -145,11 +145,11 @@ def test_the_rim_rings_each_grid(microscope):
 # ---------------------------------------------------------------------------
 
 ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
-WORKING_OFFSET = (200e-6, 100e-6, 0.0)  # m: where the loader puts a grid
+GRID_POSITION = (200e-6, 100e-6, 0.0)  # m: where the loader puts a grid
 
 
-def _arctis(working_offset=WORKING_OFFSET, captured=None):
-    """The Arctis simulator with its loader putting grids at *working_offset*
+def _arctis(grid_position=GRID_POSITION, captured=None):
+    """The Arctis simulator with its loader putting grids at *grid_position*
     and, if given, a captured working-slot position in its configuration."""
     from fibsem.microscopes._stage import (
         COMPUSTAGE_HOLDER_NAME,
@@ -162,7 +162,7 @@ def _arctis(working_offset=WORKING_OFFSET, captured=None):
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=ARCTIS_CONFIG)
     sim = microscope.system.sim
     microscope.system.sim = dict(
-        sim, loader=dict(sim.get("loader") or {}, working_offset=list(working_offset))
+        sim, loader=dict(sim.get("loader") or {}, grid_position=list(grid_position))
     )
     microscope.system.sim["coincidence_projection"] = True
     stage_settings = microscope.system.stage
@@ -253,7 +253,7 @@ def test_a_working_slot_off_the_grid_misses_it_and_a_captured_one_finds_it():
     starts out of coincidence, so the cross is not dead centre even there. A
     grid the loader puts 200 um off is missed by the built-in slot, and found
     exactly as the reference was, in both beams, once the slot is captured."""
-    reference = _fiducials(_arctis(working_offset=(0.0, 0.0, 0.0)))
+    reference = _fiducials(_arctis(grid_position=(0.0, 0.0, 0.0)))
     assert reference["SEM"] is not None and reference["FIB"] is not None
 
     missed = _arctis()
@@ -261,7 +261,7 @@ def test_a_working_slot_off_the_grid_misses_it_and_a_captured_one_finds_it():
     assert not _close(_fiducials(missed)["SEM"], reference["SEM"])
 
     at = _sem_pose()
-    x, y, z = WORKING_OFFSET
+    x, y, z = GRID_POSITION
     captured = _arctis(
         captured=FibsemStagePosition(name="Slot-01", x=x, y=y, z=z, r=at.r, t=at.t)
     )

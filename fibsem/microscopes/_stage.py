@@ -264,7 +264,7 @@ class DemoSampleLoader(SampleGridLoader):
     hardware. ``scan_delay`` is how long a scan pretends to take, through
     ``sim_sleep`` like the exchanges.
 
-    ``working_offset`` is where this autoloader really puts a grid: (x, y, z) in
+    ``grid_position`` is where this autoloader really puts a grid: (x, y, z) in
     metres from the stage origin, as a real Arctis does (FIB-1144). The simulated
     scene draws a loaded grid there, whatever the working slot is calibrated to,
     so an uncalibrated slot misses the grid as it does on the instrument. None
@@ -280,13 +280,13 @@ class DemoSampleLoader(SampleGridLoader):
         exchange_delay: float = 0.0,
         start_unscanned: bool = False,
         scan_delay: float = 0.0,
-        working_offset: Optional[Tuple[float, float, float]] = None,
+        grid_position: Optional[Tuple[float, float, float]] = None,
     ) -> None:
         super().__init__(parent, capacity)
         self.exchange_delay = exchange_delay
         self.scan_delay = scan_delay
-        self.working_offset = (
-            tuple(float(v) for v in working_offset) if working_offset else None
+        self.grid_position = (
+            tuple(float(v) for v in grid_position) if grid_position else None
         )
         self.fail_next_exchange = False
         names = names or {}

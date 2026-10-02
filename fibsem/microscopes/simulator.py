@@ -424,10 +424,10 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
                     imaging.active_device = self._restore_device
 
 
-def _working_position(offset) -> FibsemStagePosition:
+def _grid_stage_position(grid_position) -> FibsemStagePosition:
     """Where the simulated autoloader puts a grid, as a stage position at the
     working slot's pose (the SEM orientation, r = t = 0)."""
-    x, y, z = (float(v) for v in offset)
+    x, y, z = (float(v) for v in grid_position)
     return FibsemStagePosition(name="Slot-01", x=x, y=y, z=z, r=0.0, t=0.0)
 
 
@@ -475,7 +475,7 @@ class DemoConfiguration:
         ``capacity`` (default 12), ``occupied`` (1-based slot numbers), ``names``
         (slot number -> grid name), ``exchange_delay`` (seconds, default 0),
         ``start_unscanned`` (default false), ``scan_delay`` (seconds, default 0),
-        ``working_offset`` ([x, y, z] metres from the stage origin where a loaded
+        ``grid_position`` ([x, y, z] metres from the stage origin where a loaded
         grid really sits; default none, the origin).
         """
         from fibsem.microscopes._stage import DemoSampleLoader
@@ -489,7 +489,7 @@ class DemoConfiguration:
             exchange_delay=float(cfg.get("exchange_delay", 0.0)),
             start_unscanned=bool(cfg.get("start_unscanned", False)),
             scan_delay=float(cfg.get("scan_delay", 0.0)),
-            working_offset=cfg.get("working_offset") or None,
+            grid_position=cfg.get("grid_position") or None,
         )
 
     def _read_plasma(self, beam_type: Optional[BeamType]) -> bool:
@@ -1432,13 +1432,15 @@ class DemoMicroscope(DemoConfiguration, FibsemMicroscope):
         # Where the simulated autoloader really puts a grid, if it is told: the
         # scene draws the grid there whatever the working slot is calibrated to,
         # as on a real Arctis, where a loaded grid sits off the origin (FIB-1144).
-        offset = getattr(getattr(stage, "loader", None), "working_offset", None)
+        grid_position = getattr(getattr(stage, "loader", None), "grid_position", None)
         try:
             return [
                 (
                     slot.loaded_grid.name,
                     slot.loaded_grid.radius,
-                    _working_position(offset) if offset else slot.position,
+                    _grid_stage_position(grid_position)
+                    if grid_position
+                    else slot.position,
                 )
                 for slot in holder.occupied_slots
                 if slot.position is not None
