@@ -3,6 +3,7 @@
 Qt-free, like the module, so this runs on every CI job rather than only ui-tests.
 """
 
+import os
 from datetime import datetime
 
 import numpy as np
@@ -290,10 +291,12 @@ def test_save_round_trip(tmp_path, extension):
 
 
 def test_default_export_name_sits_beside_the_source():
+    folder = os.path.join("data", "lamella-03")  # the platform's separator
     export = from_fluorescence_image(_fm_image())
-    export.path = "/data/lamella-03/fm_stack.ome.tiff"
-    assert default_export_name(export) == "/data/lamella-03/fm_stack_export.png"
-    assert default_export_name(export, ".tif") == "/data/lamella-03/fm_stack_export.tif"
+    export.path = os.path.join(folder, "fm_stack.ome.tiff")
+    assert default_export_name(export) == os.path.join(folder, "fm_stack_export.png")
+    expected_tif = os.path.join(folder, "fm_stack_export.tif")
+    assert default_export_name(export, ".tif") == expected_tif
 
 
 def _gradient_image() -> FibsemImage:
