@@ -1200,6 +1200,23 @@ def test_device_demo_fm_names_a_numeric_emission_as_its_multi_band_filter():
     assert microscope.fm.filter_set.emission_wavelength is None
 
 
+def test_fm_image_metadata_is_the_state_it_was_taken_in(fm_microscope):
+    """Whether the FM reads its state after the frame (Demo) or its devices report it
+    with the frame (DeviceDemo), the image says the same."""
+    from fibsem.fm.structures import ChannelSettings
+
+    fm = fm_microscope.fm
+    channel = ChannelSettings(
+        name="GFP", excitation_wavelength=450, power=0.3, exposure_time=0.02
+    )
+    md = fm.acquire_image(channel).metadata
+    now = fm.get_metadata()
+    assert md.channels == now.channels
+    assert (md.pixel_size_x, md.pixel_size_y) == (now.pixel_size_x, now.pixel_size_y)
+    assert md.resolution == now.resolution
+    assert md.stage_position == now.stage_position
+
+
 def test_device_demo_fm_objective_clips_to_its_limit():
     microscope = _connect("DeviceDemo", FM_CONFIGURATION)
     objective = microscope.fm.objective
