@@ -174,7 +174,8 @@ class TestEveryDriverAnnounces:
     def _objective_classes() -> dict:
         """Every `ObjectiveLens` implementation, by qualified name."""
         found = {}
-        for module in ("fm/microscope.py", "fm/autoscript.py", "fm/odemis.py"):
+        modules = ("fm/microscope.py", "fm/api.py", "fm/autoscript.py", "fm/odemis.py")
+        for module in modules:
             source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
             for node in ast.walk(ast.parse(source)):
                 if isinstance(node, ast.ClassDef) and "Objective" in node.name:
@@ -193,12 +194,17 @@ class TestEveryDriverAnnounces:
                 return True
         return False
 
-    def test_all_three_implementations_are_found(self):
-        """Guard against the probe silently matching nothing."""
+    def test_every_implementation_is_found(self):
+        """Guard against the probe silently matching nothing. The device-backed lens
+        and its Thermo subclass (`home`) count too."""
         classes = self._objective_classes()
-        assert len(classes) == 3, (
-            f"expected three ObjectiveLens classes, found {sorted(classes)}"
-        )
+        assert set(classes) == {
+            "fm/microscope.py:ObjectiveLens",
+            "fm/api.py:DeviceObjectiveLens",
+            "fm/autoscript.py:ThermoFisherObjectiveLens",
+            "fm/autoscript.py:DeviceThermoFisherObjectiveLens",
+            "fm/odemis.py:OdemisObjectiveLens",
+        }, f"unexpected ObjectiveLens classes: {sorted(classes)}"
 
     @pytest.mark.parametrize("write_method", WRITE_METHODS)
     def test_every_write_method_announces(self, write_method):
