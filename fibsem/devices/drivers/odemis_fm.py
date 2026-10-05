@@ -4,9 +4,9 @@
 ``OdemisFMObjective`` and the ``OdemisFM`` group are ``OdemisFluorescenceMicroscope``'s
 parts (``fibsem.fm.odemis``) moved onto the FM devices: each read, write and command
 makes the odemis calls the old property or method makes, in the same order, on the same
-components and the same ``FluoStream``. Nothing builds them yet: ``OdemisMicroscope.fm``
-and the device server's odemis FM still use the old class, and pointing them at these
-is the next step.
+components and the same ``FluoStream``. ``OdemisThermoMicroscope.fm`` is the FM API over
+them (``DeviceOdemisFluorescenceMicroscope``), and the device server serves them from the
+METEOR PC.
 
 The stream stays. Excitation, emission and power are the stream's settings, which odemis
 applies to the light and the filter wheel only while the stream runs, so they are
@@ -404,7 +404,7 @@ class OdemisFMObjective(Objective):
     def _move_relative(self, delta: float) -> None:
         self._focuser.moveRel({"z": delta}).result()
 
-    def _insert(self) -> None:
+    def _insert(self) -> Optional[bool]:
         # The favourite active position is calibrated (Delmic), so the user safety
         # limit is not applied here.
         active_position = self.active_position
@@ -412,17 +412,19 @@ class OdemisFMObjective(Objective):
             logging.warning(
                 "Cannot insert objective: no active-position metadata available."
             )
-            return
+            return False
         self._focuser.moveAbs(active_position).result()
+        return True
 
-    def _retract(self) -> None:
+    def _retract(self) -> Optional[bool]:
         deactive_position = self.deactive_position
         if deactive_position is None:
             logging.warning(
                 "Cannot retract objective: no deactive-position metadata available."
             )
-            return
+            return False
         self._focuser.moveAbs(deactive_position).result()
+        return True
 
 
 class OdemisFM(FM):

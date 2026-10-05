@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from copy import deepcopy
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -82,6 +83,8 @@ from odemis.util.dataio import open_acquisition
 
 if TYPE_CHECKING:
     from odemis.driver.autoscript_client import SEM as OdemisAutoscriptClient
+
+    from fibsem.fm.microscope import FluorescenceMicroscope
 
 
 def stage_position_to_odemis_dict(position: FibsemStagePosition) -> dict:
@@ -306,13 +309,11 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
         self.fm = None
         try:
-            from fibsem.fm.odemis import OdemisFluorescenceMicroscope
-
             if (
                 self._fluorescence_is_configured()
                 and self._fluorescence_uses_own_driver()
             ):
-                self.fm = OdemisFluorescenceMicroscope(self)
+                self.fm = self._connect_fluorescence_devices()
         except (ImportError, AttributeError) as e:
             logging.info(f"Fluorescence support is not available: {e}")
         except Exception as e:
@@ -325,6 +326,21 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             self._create_sample_stage()
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
+
+    def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
+        """The FM as the FM API over the Odemis FM devices, which make the odemis
+        calls ``OdemisFluorescenceMicroscope`` made, on the same components and
+        stream. ``fm_devices`` are those devices."""
+        from fibsem.devices.drivers.odemis_fm import bind_odemis_fm
+        from fibsem.fm.odemis import DeviceOdemisFluorescenceMicroscope
+
+        devices = bind_odemis_fm(self)
+        # The FM API's own live view pulls every frame, so nothing needs to stop it
+        # when no frame is asked for.
+        devices["fm"].live_timeout = None
+        fm = DeviceOdemisFluorescenceMicroscope(devices, parent=self)
+        self.fm_devices = MappingProxyType(dict(devices))
+        return fm
 
     def connect_to_microscope(
         self, ip_address: str, port: int, reset_beam_shift: bool = True
