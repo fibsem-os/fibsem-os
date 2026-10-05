@@ -12,7 +12,6 @@ def fixture_driver() -> DriverEntry:
     return DriverEntry(
         DRIVER_MANUFACTURER,
         "fibsem.microscopes.device_demo:DemoMicroscope",
-        port=None,
         config={"ion-column-tilt": 54, "electron-column-tilt": 0},
     )
 
