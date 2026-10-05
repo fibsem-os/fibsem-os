@@ -592,6 +592,42 @@ def test_a_move_does_not_invent_a_fluorescence_pose(tmp_path):
     assert lamella.fluorescence_pose is None
 
 
+def test_a_fluorescence_pose_built_by_a_move_is_focused(tmp_path):
+    """A lamella with none gets one when someone moves its fluorescence pose, and a
+    caller with no live objective position (the Grids tab's stored FM view) leaves it
+    the configured focus, as every other way of building that pose does -- not none,
+    which reads as never focused."""
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path, with_fluorescence=False)
+
+    move_pose(
+        microscope,
+        lamella,
+        FLUORESCENCE_POSE,
+        position=_at(microscope, FLUORESCENCE_ORIENTATION, 103e-6, 48e-6),
+    )
+
+    assert lamella.fluorescence_pose.objective_position == pytest.approx(
+        microscope.fm.objective.focus_position
+    )
+    assert lamella.fluorescence_selected
+
+
+def test_a_given_objective_position_builds_the_fluorescence_pose(tmp_path):
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path, with_fluorescence=False)
+
+    move_pose(
+        microscope,
+        lamella,
+        FLUORESCENCE_POSE,
+        position=_at(microscope, FLUORESCENCE_ORIENTATION, 103e-6, 48e-6),
+        objective_position=4.2e-3,
+    )
+
+    assert lamella.fluorescence_pose.objective_position == pytest.approx(4.2e-3)
+
+
 def test_a_derived_pose_follows_on_an_offset_mount_too(tmp_path):
     microscope = _iflm()
     lamella = _lamella(microscope, tmp_path)

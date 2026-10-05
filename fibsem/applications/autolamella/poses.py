@@ -271,7 +271,8 @@ def move_pose(
     each caller. Saving and announcing the change stay with the caller.
 
     A fluorescence pose moved on a lamella that has none is built on its milling
-    pose's state, with *objective_position* if given.
+    pose's state, with *objective_position* if given and the FM's configured focus
+    position if not.
 
     Raises:
         ValueError: for a fluorescence pose moved to a *position* the objective does
@@ -301,6 +302,11 @@ def move_pose(
         pose = deepcopy(base)
         pose.stage_position = deepcopy(position)
         if name == FLUORESCENCE_POSE:
+            # The configured focus when the caller has no live one -- as a pose built
+            # by `build_lamella_poses` or `derive_pose` gets. Without any, the new
+            # pose would read as never focused (`fluorescence_selected`).
+            if objective_position is None and microscope.fm is not None:
+                objective_position = microscope.fm.objective.focus_position
             pose.objective_position = objective_position
         lamella.set_pose(name, pose)
     if name == MILLING_POSE:
