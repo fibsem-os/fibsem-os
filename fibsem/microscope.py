@@ -294,6 +294,8 @@ class FibsemMicroscope(ABC):
     fib_acquisition_signal = Signal(FibsemImage)
     _stop_acquisition_event = _PerInstance(lambda _: threading.Event())
     _acquisition_thread: threading.Thread = None
+    # The beams whose live_frame already forwards to the signals above.
+    _live_forwarded = _PerInstance(lambda _: set())
     # One acquisition at a time on this microscope's imaging view. Devices claim the
     # same lock as the `imaging_channel` resource (`resources` below).
     _threading_lock = _PerInstance(lambda _: threading.RLock())
@@ -357,7 +359,19 @@ class FibsemMicroscope(ABC):
     @property
     def is_acquiring(self) -> bool:
         """Check if the microscope is currently acquiring an image."""
-        return self._acquisition_thread and self._acquisition_thread.is_alive()
+        acquiring = self._acquisition_thread and self._acquisition_thread.is_alive()
+        if not acquiring and any(beam.is_live for beam in self._live_beams()):
+            return True
+        return acquiring
+
+    def _live_beams(self) -> List[Any]:
+        """The beam devices whose driver has live view (`start_live`)."""
+        found = []
+        for beam in self.beams.values():
+            info = getattr(beam, "commands", {}).get("start_live")
+            if info is not None and info.available:
+                found.append(beam)
+        return found
 
     def start_acquisition(self, beam_type: BeamType) -> None:
         """Start the image acquisition process.
@@ -366,6 +380,23 @@ class FibsemMicroscope(ABC):
         """
         if self.is_acquiring:
             logging.warning("Acquisition thread is already running.")
+            return
+
+        # The beam's live view, once a backend's beam has it: its frames reach the
+        # old signals, so a viewer listening there sees no difference.
+        beam = self.beams.get(beam_type)
+        if beam is not None and beam in self._live_beams():
+            if beam_type not in self._live_forwarded:
+                signal = (
+                    self.sem_acquisition_signal
+                    if beam_type is BeamType.ELECTRON
+                    else self.fib_acquisition_signal
+                )
+                # A function, not signal.emit: psygnal calls a connected emit once
+                # as it connects it.
+                beam.live_frame.connect(lambda image, signal=signal: signal.emit(image))
+                self._live_forwarded.add(beam_type)
+            beam.start_live()
             return
 
         # reset stop event if needed
@@ -379,6 +410,8 @@ class FibsemMicroscope(ABC):
 
     def stop_acquisition(self) -> None:
         """Stop the image acquisition process."""
+        for beam in self._live_beams():
+            beam.stop_live()
         if self._stop_acquisition_event and not self._stop_acquisition_event.is_set():
             self._stop_acquisition_event.set()
             if self._acquisition_thread:

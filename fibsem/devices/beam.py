@@ -9,9 +9,12 @@ key falls through to the backend's untouched if/elif chain.
 from __future__ import annotations
 
 import logging
+import threading
 from enum import Enum
 from math import pi
 from typing import Any, Dict, List, Mapping, Optional
+
+from psygnal import Signal
 
 from fibsem.devices.core import BoundParameter, Device, Parameter, command
 from fibsem.devices.stage import Stage
@@ -48,9 +51,15 @@ class Beam(Device):
         ScanMode, doc="What the beam scans; the scan commands set it."
     )
 
+    live_frame = Signal(object)
+    """Each image live view acquires (a FibsemImage), from the live view's thread."""
+
     def __init__(self, beam_type: BeamType, parent: Any = None, **kwargs: Any):
         super().__init__(name=beam_type.name.lower(), parent=parent, **kwargs)
         self.beam_type = beam_type
+        self._live_lock = threading.Lock()
+        self._live_stop = threading.Event()
+        self._live_thread: Optional[threading.Thread] = None
 
     @command(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:
@@ -143,6 +152,49 @@ class Beam(Device):
         raise NotImplementedError
 
     def _auto_focus(self, reduced_area: Optional[FibsemRectangle]) -> None:
+        raise NotImplementedError
+
+    # Live view: the driver's _live runs on a thread of its own, acquiring with the
+    # beam's current settings and emitting each image on live_frame, until stop_live
+    # sets the event it is given. Frames are pushed, as the SEM and FIB viewers take
+    # them today.
+
+    @command(available=lambda beam: _implements(beam, "_live"))
+    def start_live(self) -> None:
+        """Acquire continuously with the current settings, each image on
+        ``live_frame``, until `stop_live`. Warns and does nothing when already live."""
+        with self._live_lock:
+            if self.is_live:
+                logging.warning(f"{self.name} live view is already running.")
+                return
+            self._live_stop.clear()
+            self._live_thread = threading.Thread(
+                target=self._run_live, name=f"{self.name}-live", daemon=True
+            )
+            self._live_thread.start()
+
+    @command(available=lambda beam: _implements(beam, "_live"))
+    def stop_live(self) -> None:
+        """Stop live view, waiting briefly for its last frame. Safe when not live."""
+        thread = self._live_thread
+        if thread is None or self._live_stop.is_set():
+            return
+        self._live_stop.set()
+        if thread is not threading.current_thread():
+            thread.join(timeout=2)
+
+    @property
+    def is_live(self) -> bool:
+        thread = self._live_thread
+        return thread is not None and thread.is_alive()
+
+    def _run_live(self) -> None:
+        try:
+            self._live(self._live_stop)
+        except Exception as e:
+            logging.error(f"{self.name} live view stopped: {e}")
+
+    def _live(self, stop: threading.Event) -> None:
         raise NotImplementedError
 
 
