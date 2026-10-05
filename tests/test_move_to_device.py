@@ -153,8 +153,9 @@ def test_to_device_round_trips():
 
 
 def test_to_device_on_a_compustage_is_the_flip():
+    """From FIB, the one beam pose this compustage's objective does not image from."""
     microscope = _microscope(ARCTIS_CONFIG)
-    start = _off_centre(microscope, "SEM")
+    start = _off_centre(microscope, "FIB")
 
     at_fm = microscope.to_device(start, "FM")
 
@@ -293,9 +294,13 @@ def test_a_compustage_lands_at_the_orientation_it_asked_for():
 
 
 def test_a_compustage_keeps_its_default_landing_poses():
-    """Unasked, FIBSEM still lands at SEM and the FM at its own orientation --
-    every existing caller relies on exactly that."""
+    """Unasked, FIBSEM still lands at SEM and the FM at its own orientation.
+
+    From FIB, the one beam pose this compustage's objective does not image from:
+    from SEM or a milling tilt the objective already sees the sample, and "move to
+    the FM" has nowhere to go."""
     microscope = _microscope(ARCTIS_CONFIG)
+    microscope.move_to_orientation("FIB")
 
     microscope.move_to_device("FM")
     assert microscope.get_stage_orientation() == "FM"
@@ -336,3 +341,51 @@ def test_an_offset_mount_has_no_fm_orientation_to_ask_for():
         offset.get_orientation("FM")
 
     assert compustage.get_orientation("FM") is not None
+
+
+# ── the hardware Arctis: the objective images from the flipped pose only ────
+
+
+def _hardware_arctis():
+    """The Arctis simulator with the hardware configuration's declaration.
+
+    The simulator declares that its objective also images from the beam side; the
+    shipped `tfs-arctis` configuration does not, so every real Arctis behaves as this
+    one does. Kept under test through the calls that act on it, not only as settings.
+    """
+    microscope = _microscope(ARCTIS_CONFIG)
+    # Both: the FM object copies the declaration when it is built.
+    microscope.system.stage.devices["FM"].acquisition_orientations = ["FM"]
+    microscope.fm.acquisition_orientations = ["FM"]
+    return microscope
+
+
+@pytest.mark.parametrize("orientation", ["SEM", "MILLING"])
+def test_on_the_hardware_arctis_a_beam_pose_needs_a_re_pose(orientation):
+    from fibsem.structures import DeviceImagingState
+
+    microscope = _hardware_arctis()
+    microscope.move_to_orientation(orientation)
+
+    assert microscope.get_device_imaging_state("FM") is DeviceImagingState.NEEDS_REPOSE
+
+
+@pytest.mark.parametrize("orientation", ["SEM", "MILLING"])
+def test_on_the_hardware_arctis_the_fm_pose_is_the_flip(orientation):
+    microscope = _hardware_arctis()
+    start = _off_centre(microscope, orientation)
+
+    fm = microscope.to_device(start, "FM")
+
+    assert microscope.get_stage_orientation(fm) == "FM"
+
+
+@pytest.mark.parametrize("orientation", ["SEM", "MILLING"])
+def test_on_the_hardware_arctis_moving_to_the_fm_flips(orientation):
+    microscope = _hardware_arctis()
+    microscope.move_to_orientation(orientation)
+
+    microscope.move_to_device("FM")
+
+    assert microscope.get_stage_orientation() == "FM"
+    assert microscope.fm.objective.state == "Inserted"

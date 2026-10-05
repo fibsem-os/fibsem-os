@@ -186,7 +186,7 @@ def test_the_fm_object_reads_the_device_declaration():
     compustage = _microscope(ARCTIS_CONFIG)
 
     assert offset.fm.acquisition_orientations == ["FIB"]
-    assert compustage.fm.acquisition_orientations == ["FM"]
+    assert compustage.fm.acquisition_orientations == ["FM", "SEM", "MILLING"]
 
 
 def test_neither_axis_answers_on_both_mountings():
@@ -205,7 +205,9 @@ def test_neither_axis_answers_on_both_mountings():
     So "replace the orientation check with a device check" breaks the compustage as
     thoroughly as the orientation check breaks the offset mount.
     """
-    compustage = _microscope(ARCTIS_CONFIG)
+    # From FIB on both: it is the one beam pose this compustage's objective does not
+    # image from, so "move to the FM" re-poses it rather than finding it already there.
+    compustage = _at_fib(_microscope(ARCTIS_CONFIG))
     compustage.move_to_microscope("FM")
 
     offset = _at_fib(_microscope())
@@ -242,13 +244,14 @@ def test_the_term_that_fails_names_the_remedy():
     travelled yet.
     """
     compustage = _microscope(ARCTIS_CONFIG)
-    compustage.move_to_orientation("SEM")
+    # FIB: the one beam pose this compustage does not declare for its objective.
+    compustage.move_to_orientation("FIB")
 
     offset = _at_fib(_microscope())
 
-    # Right place, wrong pose: flip it over.
+    # Right place, wrong pose: re-pose it.
     assert compustage.is_at_device("FM") is True
-    assert compustage.get_stage_orientation() == "SEM"
+    assert compustage.get_stage_orientation() == "FIB"
 
     # Right pose, wrong place: drive it out.
     assert offset.is_at_device("FM") is False
@@ -271,14 +274,20 @@ def test_the_acquisition_orientations_survive_a_round_trip():
 def test_a_configuration_that_says_nothing_can_still_see_the_sample():
     """The default has to be a working compustage, not an empty list.
 
-    Neither shipped compustage configuration declares a `devices:` block, so if the
+    The shipped hardware Arctis configuration declares no `devices:` block, so if the
     default said nothing about the pose the conjunction would be false at the one
-    place an Arctis takes fluorescence images.
+    place an Arctis takes fluorescence images. Read from the file rather than by
+    connecting: it names real hardware.
     """
-    microscope = _microscope(ARCTIS_CONFIG)
+    from fibsem.structures import StageSystemSettings
 
-    assert "devices" not in utils.load_yaml(ARCTIS_CONFIG)["hardware"]["stage"]
-    assert microscope.system.stage.devices["FM"].acquisition_orientations == ["FM"]
+    stage = utils.load_yaml(
+        os.path.join(cfg.CONFIG_PATH, "tfs-arctis-configuration.yaml")
+    )["hardware"]["stage"]
+
+    assert "devices" not in stage
+    settings = StageSystemSettings.from_dict(stage)
+    assert settings.devices["FM"].acquisition_orientations == ["FM"]
 
 
 # ── the question nothing could ask ───────────────────────────────────
@@ -661,7 +670,8 @@ def test_with_one_place_the_range_does_not_decide_the_device(x_mm):
 
 @pytest.mark.parametrize("x_mm", [25.0, -30.0])
 def test_with_one_place_a_beam_position_far_along_converts_to_the_fm(x_mm):
-    microscope, position = _arctis_at("SEM", x_mm * 1e-3)
+    # FIB: the one beam pose this compustage does not declare for its objective.
+    microscope, position = _arctis_at("FIB", x_mm * 1e-3)
 
     fm = microscope.to_device(position, "FM")
 
@@ -670,8 +680,8 @@ def test_with_one_place_a_beam_position_far_along_converts_to_the_fm(x_mm):
 
 
 def test_with_one_place_the_pose_still_decides():
-    """The place stops deciding; the pose does not. SEM is still a re-pose away."""
-    microscope, position = _arctis_at("SEM", 25e-3)
+    """The place stops deciding; the pose does not. FIB is still a re-pose away."""
+    microscope, position = _arctis_at("FIB", 25e-3)
 
     assert (
         microscope.get_device_imaging_state("FM", position)

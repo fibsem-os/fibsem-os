@@ -309,3 +309,104 @@ def test_select_fluorescence_position_records_what_it_saw(
 
     expected = PoseProvenance.OBSERVED if supervised else PoseProvenance.DERIVED
     assert lamella.provenance_of(FLUORESCENCE_POSE) is expected
+
+
+# ── back to back: the objective and a change of pose ────────────────────────
+
+
+def _acquire_quietly(task, monkeypatch) -> None:
+    import fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence as af
+
+    monkeypatch.setattr(task, "_run_autofocus", lambda: None)
+    monkeypatch.setattr(af, "acquire_image", lambda **kwargs: None)
+
+
+def _objective_during_moves(microscope: FibsemMicroscope) -> list:
+    """The objective's state at every absolute stage move, and the tilt moved to."""
+    seen = []
+    real = microscope.safe_absolute_stage_movement
+
+    def record(position, *args, **kwargs):
+        seen.append((microscope.fm.objective.state, position.t))
+        return real(position, *args, **kwargs)
+
+    microscope.safe_absolute_stage_movement = record
+    return seen
+
+
+def test_back_to_back_the_objective_is_out_before_the_stage_tilts(
+    fm_microscope: FibsemMicroscope, tmp_path: Path, monkeypatch
+) -> None:
+    """With the objective left in between lamellae, a lamella whose fluorescence
+    pose is in another orientation used to be reached by tilting under it."""
+    flipped = _marked(fm_microscope, tmp_path, "FIB")
+    at_milling = _marked(fm_microscope, tmp_path, "MILLING")
+    assert (
+        flipped.fluorescence_pose.stage_position.t
+        != at_milling.fluorescence_pose.stage_position.t
+    )
+    config = AcquireFluorescenceImageConfig(
+        channel_settings=[ChannelSettings(name="GFP")], retract_objective=False
+    )
+    seen = _objective_during_moves(fm_microscope)
+
+    for lamella in (flipped, at_milling):
+        task = AcquireFluorescenceImageTask(
+            microscope=fm_microscope, config=config, lamella=lamella
+        )
+        _acquire_quietly(task, monkeypatch)
+        task._run()
+
+    state, tilt = seen[-1]
+    assert tilt == pytest.approx(at_milling.fluorescence_pose.stage_position.t)
+    assert state != "Inserted"
+    assert fm_microscope.fm.objective.state == "Inserted"  # and back in to acquire
+
+
+def test_back_to_back_in_one_pose_the_objective_stays_in(
+    fm_microscope: FibsemMicroscope, tmp_path: Path, monkeypatch
+) -> None:
+    """The usual step to the next lamella: same pose, no reason to retract."""
+    first = _marked(fm_microscope, tmp_path, "FIB")
+    second = _marked(fm_microscope, tmp_path / "b", "FIB")
+    second.fluorescence_pose.stage_position.x += 50e-6
+    config = AcquireFluorescenceImageConfig(
+        channel_settings=[ChannelSettings(name="GFP")], retract_objective=False
+    )
+    seen = _objective_during_moves(fm_microscope)
+
+    for lamella in (first, second):
+        task = AcquireFluorescenceImageTask(
+            microscope=fm_microscope, config=config, lamella=lamella
+        )
+        _acquire_quietly(task, monkeypatch)
+        task._run()
+
+    assert seen[-1][0] == "Inserted"
+
+
+def test_a_pose_the_fm_cannot_acquire_from_goes_to_where_it_can(
+    tmp_path: Path,
+) -> None:
+    """On an offset mount a fluorescence pose standing at the beams is not somewhere
+    the objective sees the sample. The task used to re-pose it to SEM, still at the
+    beams; it goes to the FM instead."""
+    from fibsem.structures import DeviceImagingState
+
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(fconfig.CONFIG_PATH, "sim-iflm-configuration.yaml"),
+        setup_logging=False,
+    )
+    fib = microscope.get_orientation("FIB")
+    at_the_beams = FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=fib.r, t=fib.t)
+    lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
+    lamella.milling_pose = MicroscopeState(stage_position=at_the_beams)
+    pose = MicroscopeState(stage_position=at_the_beams)
+    pose.objective_position = CONFIGURED_OBJECTIVE
+    lamella.fluorescence_pose = pose
+    task = _acquire_task(microscope, lamella)
+
+    task._move_to_stage_position()
+
+    assert microscope.is_at_device("FM")
+    assert microscope.get_device_imaging_state("FM") is DeviceImagingState.READY
