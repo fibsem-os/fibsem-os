@@ -361,6 +361,7 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
         experiment = self.experiment
         if experiment is None:
             return
+        experiment.sign_verdict(lamella)
         experiment.save()
         self.refresh_positions()
 

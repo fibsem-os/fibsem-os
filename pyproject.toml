@@ -93,7 +93,7 @@ reporting = [
     "reportlab>=3.6.13; python_version >= '3.9'",
 ]
 
-server = ["fastapi>=0.100.0", "uvicorn[standard]>=0.20.0", "requests>=2.28.0"]
+server = ["fastapi>=0.100.0", "uvicorn[standard]>=0.20.0", "requests>=2.28.0", "websockets>=11.0"]
 
 # The MCP sidecar (fibsem-mcp). The mcp SDK needs py3.10+, so the extra degrades
 # gracefully on 3.8/3.9 installs; the fibsem package itself never imports mcp.
@@ -165,6 +165,11 @@ filterwarnings = [
     # warning class: it isn't importable on every version and breaks the filter
     # at startup.
     "ignore:'[^']*' deprecated - use:DeprecationWarning",
+    # The same family under its other wording, "'<arg>' argument is deprecated, use
+    # '<new_arg>'": matplotlib's mathtext parser passes pyparsing a renamed keyword
+    # (endQuoteChar) on the 3.9 build's resolution. Raised the first time anything
+    # lays out mathtext in a process -- a scalebar's label is enough.
+    "ignore:'[^']*' argument is deprecated, use:DeprecationWarning",
     # anyio 4.15 deprecated the anyio.abc.BlockingPortal alias; starlette's
     # TestClient (through 1.6.0) still imports it, at import time - third-party.
     "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",

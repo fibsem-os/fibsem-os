@@ -253,13 +253,24 @@ class AutoLamellaTaskConfig(ABC):
                 kwargs[f.name] = ddict[f.name]
 
         # unroll the parameters dictionary
-        if "parameters" in ddict and ddict["parameters"] is not None:
-            for key, value in ddict["parameters"].items():
-                if key in cls.__annotations__:
-                    kwargs[key] = value
-                else:
-                    logging.warning(f"Unknown parameter '{key}' in task configuration.")
+        params = ddict.get("parameters") or {}
+        cls._warn_unknown_parameters(params)
+        known = {f.name for f in fields(cls)}
+        kwargs.update({k: v for k, v in params.items() if k in known})
 
+        kwargs.update(cls._load_core(ddict))
+        return cls(**kwargs)
+
+    @classmethod
+    def _load_core(cls, ddict: Dict[str, Any]) -> Dict[str, Any]:
+        """The fields every task shares, as constructor kwargs; ``parameters`` is untouched.
+
+        For a subclass that reads its own parameters: calling the base ``from_dict``
+        instead would check them against the base's fields and warn for each one.
+        """
+        kwargs: Dict[str, Any] = {}
+        if "task_name" in ddict:
+            kwargs["task_name"] = ddict["task_name"]
         if "milling" in ddict:
             kwargs["milling"] = {
                 k: FibsemMillingTaskConfig.from_dict(v)
@@ -269,8 +280,18 @@ class AutoLamellaTaskConfig(ABC):
             kwargs["reference_imaging"] = ReferenceImageParameters.from_dict(
                 ddict["reference_imaging"]
             )
+        return kwargs
 
-        return cls(**kwargs)
+    @classmethod
+    def _warn_unknown_parameters(cls, params: Dict[str, Any]) -> None:
+        """Warn for each key in ``params`` that is not a field of this task config."""
+        known = {f.name for f in fields(cls)}
+        for key in params:
+            if key not in known:
+                logging.warning(
+                    f"Unknown parameter '{key}' in "
+                    f"{getattr(cls, 'task_type', cls.__name__)} task configuration."
+                )
 
     @property
     def estimated_time(self) -> float:
@@ -1947,6 +1968,23 @@ def _emit_on_main_thread(signal, *args) -> None:
     ensure_main_thread(await_return=False)(signal.emit)(*args)
 
 
+def find_overviews(root: Union[str, Path]) -> List[Path]:
+    """The stitched beam overviews an experiment keeps, oldest first.
+
+    Grid overviews live under ``grids/<grid>/<task>/``; older experiments keep
+    ``overview-image-*.tif`` at the root. Fluorescence overviews
+    (``*.ome.tiff``) are not included.
+
+    Oldest first by modification time, then by name so that files copied with
+    the same time still come out in a fixed order. The last is the most recent.
+    """
+    root = Path(root)
+    found = list(root.glob("overview*.tif")) + list(
+        root.glob("grids/*/*/overview*.tif")
+    )
+    return sorted(found, key=lambda p: (p.stat().st_mtime, p.name))
+
+
 @evented
 @dataclass
 class Experiment:
@@ -2114,6 +2152,19 @@ class Experiment:
         named on the experiment (or the OS account when nobody was)."""
         user = self._declared_user() or FibsemUser.from_environment()
         return human_author(user.name)
+
+    def sign_verdict(self, item: Union["Lamella", GridRecord]) -> None:
+        """Name the operator on *item*'s verdict, when whatever set it could not.
+
+        A verdict set from a lamella's menu is written by a widget that has no
+        experiment to ask who is at the instrument; the code that saves the change
+        does, and calls this first. A verdict that already names someone -- an agent,
+        a review decision -- is left as it is, and so is one nobody has given.
+        """
+        record = getattr(item, "defect", None) or getattr(item, "quality", None)
+        if record is None or record.author or record.verdict is Verdict.UNASSESSED:
+            return
+        record.author = str(self.author())
 
     def decide(
         self, item_id: str, task_name: str, decision: Decision
@@ -3057,6 +3108,28 @@ class Experiment:
             logging.info(f"Updated base protocol tasks: {task_names}")
 
         return updated_count
+
+    def remove_task(self, task_name: str) -> None:
+        """Remove a task from the experiment: from the protocol, from the
+        workflow, and from every lamella's config (FIB-1109).
+
+        All three together, so the workflow never lists a task the protocol no
+        longer has, and no lamella runs a stale copy of one. A task that listed
+        it as a requirement no longer does. Task history is left alone: it is
+        the record of what ran.
+        """
+        self.task_protocol.task_config.pop(task_name, None)
+
+        workflow = self.task_protocol.workflow_config
+        workflow.tasks = [t for t in workflow.tasks if t.name != task_name]
+        for task in workflow.tasks:
+            if task_name in task.requires:
+                task.requires = [r for r in task.requires if r != task_name]
+
+        for lamella in self.positions:
+            lamella.task_config.pop(task_name, None)
+
+        logging.info(f"Removed task {task_name} from experiment {self.name}")
 
     def at_failure(self) -> List[Lamella]:
         """Return a list of lamellas that have failed"""

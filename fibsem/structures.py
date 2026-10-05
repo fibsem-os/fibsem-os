@@ -336,6 +336,44 @@ class ManipulatorState(Enum):
     MOVING = 2
 
 
+class InsertableDeviceState(Enum):
+    """Where a device that goes in and out is: the FM objective, the manipulator, a
+    gas injector's needle. A driver that only knows in or out reports those two."""
+
+    RETRACTED = "retracted"
+    INSERTED = "inserted"
+    MOVING = "moving"
+    ERROR = "error"
+    UNKNOWN = "unknown"
+
+
+class ChamberState(Enum):
+    """The chamber's vacuum. A vendor state with no match here reads as UNKNOWN."""
+
+    PUMPED = "pumped"
+    VENTED = "vented"
+    PUMPING = "pumping"
+    VENTING = "venting"
+    ERROR = "error"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_name(cls, name: str) -> "ChamberState":
+        """The state an instrument names ("Pumped", "VENTED"), else UNKNOWN."""
+        try:
+            return cls(str(name).lower())
+        except ValueError:
+            return cls.UNKNOWN
+
+
+class ScanMode(Enum):
+    """What a beam scans. The values are the ``scanning_mode`` key's."""
+
+    FULL_FRAME = "full_frame"
+    REDUCED_AREA = "reduced_area"
+    SPOT = "spot"
+
+
 class AutoFocusMode(Enum):
     """When to run autofocus during a tiled acquisition.
 
@@ -2262,6 +2300,26 @@ DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
 }
 
 
+# Where a half turn of the stage is centred, in raw stage coordinates (x, y), metres:
+# a position p recorded on one side of the stage is at 2c - p on the other. This is
+# the value `reprojection._transform_position` has always used, which it wrote as a
+# specimen offset (X_OFFSET, Y_OFFSET) plus a (+50, +25) um "compucentric rotation
+# error" -- one centre, spelled as two constants, since p -> 2O - p + e reflects
+# through O + e/2. It was calibrated on one ThermoFisher instrument (FIB-655).
+LEGACY_ROTATION_CENTRE: Tuple[float, float] = (
+    -0.0005127403888932854 + 25e-6,
+    0.0007937916666666666 + 12.5e-6,
+)
+
+
+def _parse_rotation_centre(value) -> Optional[Tuple[float, float]]:
+    """A stored rotation centre as an (x, y) tuple of floats, or None."""
+    if value is None:
+        return None
+    x, y = value
+    return (float(x), float(y))
+
+
 @dataclass
 class StageSystemSettings:
     rotation_reference: float
@@ -2469,14 +2527,34 @@ def _detector_block_from(settings: dict) -> dict:
     return block
 
 
+# Written by `BeamSettings` / `FibsemDetectorSettings` and not defaults: the column's
+# alignment (working distance, stigmation, beam shift) and what the last autocontrast
+# left on the detector. A configuration does not record them, and Apply does not set
+# them (`FibsemMicroscope.set_beam_system_settings`).
+NOT_BEAM_DEFAULTS = (
+    "working_distance",
+    "stigmation",
+    "shift",
+    "detector_brightness",
+    "detector_contrast",
+)
+
+# Written by `ImageSettings` and not defaults: where this session saves its images,
+# and the reduced area of the last acquisition.
+NOT_IMAGING_DEFAULTS = ("path", "filename", "reduced_area")
+
+
 def _split_defaults(beam: dict) -> dict:
     """Move the session defaults out of a written beam block, in place.
 
-    Returns the keys that went. What stays is the hardware description.
+    Returns the keys that went. What stays is the hardware description. Alignment
+    state is dropped from both.
     """
     moved = {
         k: beam.pop(k) for k in list(beam) if k not in SystemSettings.HARDWARE_BEAM_KEYS
     }
+    for key in NOT_BEAM_DEFAULTS:
+        moved.pop(key, None)
     return moved
 
 
@@ -2720,6 +2798,10 @@ class SystemInfo:
         )
 
 
+# The one FM driver a configuration names today; see `FluorescenceSystemSettings.driver`.
+FM_DRIVER_REMOTE = "remote"
+
+
 @dataclass
 class FluorescenceSystemSettings:
     """Whether this site's instrument has a fluorescence microscope.
@@ -2735,11 +2817,33 @@ class FluorescenceSystemSettings:
     here, not the goal: the flag decides, and the driver's own probe only confirms the
     hardware is really there once a site has said it should be.
 
+    **Absent is not false.** `enabled` is `None` when the configuration does not say,
+    and then each backend keeps the answer it always gave (`_fluorescence_default`):
+    off on an offset mount, on for a compustage and for the Odemis stack, whose
+    configurations have never carried the key. An explicit `false` means no FM on
+    every backend -- a device switched off in the configuration is never built.
+    So never test the raw flag for truth: ask `_fluorescence_is_configured()`.
+
     The key already existed in the file format and was read by nothing; `config` is
     the only part of the block anything consumed.
     """
 
-    enabled: bool = False
+    enabled: Optional[bool] = None
+
+    # Which driver the FM comes from. `None` follows the microscope's own driver --
+    # the iFLM and the Arctis FM are on the AutoScript connection, the Odemis stack
+    # drives its own -- which is every site today. `FM_DRIVER_REMOTE` is an FM on its
+    # own PC, reached at `address`:`port` (a METEOR beside natively driven beams,
+    # FIB-835). The address belongs to the driver, so it is read only with one.
+    driver: Optional[str] = None
+    address: Optional[str] = None
+    port: Optional[int] = None
+
+    # A remote FM whose server isn't answering at connect is built offline and comes
+    # online by itself (FIB-1086), so the beams are never held up by the FM's PC.
+    # `required: true` makes the connect fail instead, for a site where an FM that is
+    # quietly missing would be worse than no session.
+    required: Optional[bool] = None
 
     # The objective's calibration, in metres: where it is in focus, and how far it
     # may be inserted. Measured at this instrument, so it is written under
@@ -2751,7 +2855,13 @@ class FluorescenceSystemSettings:
     limit_position: Optional[float] = None
 
     def to_dict(self) -> dict:
-        return {"enabled": self.enabled}
+        return {
+            "enabled": self.enabled,
+            "driver": self.driver,
+            "address": self.address,
+            "port": self.port,
+            "required": self.required,
+        }
 
     def objective_to_dict(self) -> dict:
         return {
@@ -2761,8 +2871,22 @@ class FluorescenceSystemSettings:
 
     @staticmethod
     def from_dict(settings: dict) -> "FluorescenceSystemSettings":
+        settings = settings or {}
+        port = settings.get("port")
         return FluorescenceSystemSettings(
-            enabled=bool((settings or {}).get("enabled", False))
+            enabled=(
+                bool(settings["enabled"])
+                if settings.get("enabled") is not None
+                else None
+            ),
+            driver=settings.get("driver"),
+            address=settings.get("address"),
+            port=int(port) if port is not None else None,
+            required=(
+                bool(settings["required"])
+                if settings.get("required") is not None
+                else None
+            ),
         )
 
 
@@ -2776,11 +2900,13 @@ class SystemSettings:
     info: SystemInfo
     sim: Dict[str, Union[str, bool]] = field(default_factory=dict)
     fm: FluorescenceSystemSettings = field(default_factory=FluorescenceSystemSettings)
-    # Whether `defaults:` is pushed to the instrument at connect. Read and written
-    # so the file can state it; nothing acts on it yet. Pushing a kV to a shared
-    # instrument at connect is a behaviour change that gets its own change and a
-    # look on a bench, and this field is here so that change is one `if`.
+    # Whether `defaults:` is pushed to the instrument at connect
+    # (`utils.setup_session`, `FibsemMicroscope.apply_defaults`). Off unless the
+    # file says so: pushing a kV to a shared instrument at connect is opted into.
     apply_defaults_on_connect: bool = False
+    # Whether each column is turned on at connect (`turn_beams_on`), before the
+    # defaults are applied. Only ever on; off unless the file says so.
+    beams_on_at_connect: bool = False
 
     #: What a column *is*: the keys that stay in `electron:` / `ion:`. Everything
     #: else a `BeamSystemSettings` writes -- voltage, current, hfw, detector, the
@@ -2816,6 +2942,7 @@ class SystemSettings:
         ion = self.ion.to_dict()
         defaults = {
             "apply_on_connect": self.apply_defaults_on_connect,
+            "beams_on_at_connect": self.beams_on_at_connect,
             "electron": _split_defaults(electron),
             "ion": _split_defaults(ion),
         }
@@ -2878,6 +3005,7 @@ class SystemSettings:
 
         return SystemSettings(
             apply_defaults_on_connect=bool(defaults.get("apply_on_connect", False)),
+            beams_on_at_connect=bool(defaults.get("beams_on_at_connect", False)),
             stage=StageSystemSettings.from_dict(stage),
             electron=BeamSystemSettings.from_dict(electron),
             ion=BeamSystemSettings.from_dict(ion),
@@ -3002,19 +3130,29 @@ class FibsemHardwareGeometry:
     rotation_reference: float = 0.0
     rotation_180: float = 180.0
     is_compustage: bool = False
+    # Where a half turn of the stage is centred, raw (x, y) in metres; used to draw a
+    # position recorded on the other side of the stage. Defaults to the value every
+    # image was reprojected with before this field existed, so an image saved without
+    # it draws exactly as it did (FIB-1081).
+    rotation_centre: Tuple[float, float] = LEGACY_ROTATION_CENTRE
     # Fluorescence only; left at these defaults for a beam image.
     camera_tilt: float = 0.0  # viewing axis, from the electron column
     transform: CameraImageTransform = CameraImageTransform.NONE
 
     @classmethod
     def from_system_settings(
-        cls, system: SystemSettings, is_compustage: bool = False
+        cls,
+        system: SystemSettings,
+        is_compustage: bool = False,
+        rotation_centre: Optional[Tuple[float, float]] = None,
     ) -> "FibsemHardwareGeometry":
         """Gather the geometry terms out of a full system configuration.
 
         ``is_compustage`` is a parameter because ``SystemSettings`` does not carry it:
         it is a property of the installed hardware, which only the connected
         microscope knows. Callers holding one should pass ``microscope.stage_is_compustage``.
+        ``rotation_centre`` likewise comes from the driver (``microscope.rotation_centre``);
+        None records LEGACY_ROTATION_CENTRE.
         """
         return cls(
             column_tilt=system.electron.column_tilt,
@@ -3023,6 +3161,11 @@ class FibsemHardwareGeometry:
             rotation_reference=system.stage.rotation_reference,
             rotation_180=system.stage.rotation_180,
             is_compustage=is_compustage,
+            rotation_centre=(
+                rotation_centre
+                if rotation_centre is not None
+                else LEGACY_ROTATION_CENTRE
+            ),
         )
 
     def to_dict(self) -> dict:
@@ -3033,6 +3176,7 @@ class FibsemHardwareGeometry:
             "rotation_reference": self.rotation_reference,
             "rotation_180": self.rotation_180,
             "is_compustage": self.is_compustage,
+            "rotation_centre": list(self.rotation_centre),
             "camera_tilt": self.camera_tilt,
             "transform": self.transform.value,
         }
@@ -3049,6 +3193,10 @@ class FibsemHardwareGeometry:
             rotation_reference=ddict.get("rotation_reference", 0.0),
             rotation_180=ddict.get("rotation_180", 180.0),
             is_compustage=ddict.get("is_compustage", False),
+            rotation_centre=(
+                _parse_rotation_centre(ddict.get("rotation_centre"))
+                or LEGACY_ROTATION_CENTRE
+            ),
             camera_tilt=ddict.get("camera_tilt", 0.0),
             # Not a bare CameraImageTransform(...): stored configurations may hold a
             # rotation that is no longer a member, which the parser migrates.
@@ -3089,7 +3237,10 @@ class MicroscopeSettings:
         # Into the `defaults:` block `SystemSettings.to_dict` just created, beside the
         # beams: the acquire tab's opening state is the same kind of thing as the
         # voltage a session begins at.
-        settings_dict["defaults"]["imaging"] = self.image.to_dict()
+        imaging = self.image.to_dict()
+        for key in NOT_IMAGING_DEFAULTS:
+            imaging.pop(key, None)
+        settings_dict["defaults"]["imaging"] = imaging
 
         return settings_dict
 
@@ -3413,9 +3564,10 @@ class FibsemImageMetadata:
 
     **Provenance** -- what produced this image. ``system_info`` (which instrument),
     ``user`` (who), ``experiment`` (which run). Constant for a run. The same
-    question at a finer grain -- which lamella, which task -- is not recorded yet;
-    see FIB-466. It varies *within* a run, which changes the mechanism that writes
-    it, but not the kind of fact it is.
+    question at a finer grain -- which item (a lamella, or a grid), which task --
+    is answered by ``experiment.item_name`` and ``experiment.task_name`` (FIB-466).
+    That varies *within* a run, which changes the mechanism that writes it, but not
+    the kind of fact it is.
 
     **Configuration** -- what the instrument *is*. ``hardware_geometry``: the fixed
     physical arrangement a projection needs. Up to v5 this was the entire
@@ -4439,11 +4591,12 @@ class SlotCalibration:
 
     @classmethod
     def builtin(cls, pre_tilt: float, rotation_reference: float) -> "SlotCalibration":
-        """A position the hardware defines, not one an operator captured.
+        """A position nobody captured: the compustage working slot's nominal one.
 
-        The compustage working slot is at the compustage origin by construction:
-        the autoloader puts every grid at the same place and the coordinate system
-        is referenced to it. There is nothing to capture, so the record says so.
+        The autoloader puts every grid at the same place, nominally the stage
+        origin, so the slot starts there with this record. A real instrument puts
+        it a fixed distance off, so a position captured with the calibration wizard
+        replaces it once there is one (FIB-1144).
         """
         return cls(
             orientation="SEM",
@@ -4720,23 +4873,6 @@ class SampleHolder:
                 SampleGrid.from_dict(grid_data) if grid_data is not None else None
             )
 
-    def save_occupancy(self, path: Union[str, Path]) -> None:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            yaml.dump(
-                self.occupancy_to_dict(), f, default_flow_style=False, sort_keys=False
-            )
-
-    def load_occupancy(self, path: Union[str, Path]) -> bool:
-        """Apply the occupancy file if there is one. Returns whether there was."""
-        path = Path(path)
-        if not path.exists():
-            return False
-        with open(path, "r") as f:
-            self.apply_occupancy(yaml.safe_load(f) or {})
-        return True
-
     @classmethod
     def from_dict(cls, data: dict) -> "SampleHolder":
         slots = {
@@ -4769,7 +4905,7 @@ class SampleHolder:
 
     def save(self, path: Union[str, Path]) -> None:
         """Write the holder's geometry and calibration. Not the grids in it: those
-        are session state and live in the occupancy file (``save_occupancy``)."""
+        are session state (``fibsem.microscopes._stage.save_holder_occupancy``)."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:

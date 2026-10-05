@@ -47,6 +47,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import conversions
 from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+from fibsem.applications.autolamella.structures import find_overviews
 from fibsem.applications.autolamella.tools.replay import (
     EventKind,
     ExperimentReplay,
@@ -306,19 +307,6 @@ def _clear_layout(layout) -> None:
         if w is not None:
             w.hide()
             w.deleteLater()
-
-
-def find_overviews(root: Path) -> List[Path]:
-    """The stitched beam overviews an experiment keeps, oldest first.
-
-    Grid overviews live under ``grids/<grid>/<task>/``; older experiments keep
-    ``overview-image-*.tif`` at the root. Fluorescence overviews
-    (``*.ome.tiff``) are not included.
-    """
-    found = list(root.glob("overview*.tif")) + list(
-        root.glob("grids/*/*/overview*.tif")
-    )
-    return sorted(found, key=lambda p: p.stat().st_mtime)
 
 
 class ExperimentReplayWidget(QWidget):

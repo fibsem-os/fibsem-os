@@ -25,6 +25,7 @@ from skimage import transform
 
 from fibsem.microscope import (
     FibsemMicroscope,
+    RequiredDeviceUnavailable,
     _records_beam_shift,
     _records_stage_move,
 )
@@ -81,6 +82,14 @@ THERMO_API_IMPORT_ERROR: Optional[str] = None
 # Declared so importers can rely on the name; only meaningful once
 # THERMO_API_AVAILABLE is True.
 AUTOSCRIPT_VERSION: Optional[Version] = None
+
+# The voltages a ThermoFisher microscope offers, per beam, in volts. The API gives
+# only a range, and any value in it can be set, but these are the ones xT lists.
+# Shared with OdemisThermoMicroscope, which reaches the same columns.
+THERMO_VOLTAGE_CHOICES = {
+    BeamType.ELECTRON: (1000, 2000, 3000, 5000, 10000, 20000, 30000),
+    BeamType.ION: (500, 1000, 2000, 8000, 16000, 30000),
+}
 
 # Legacy install locations, kept on sys.path for older machines. Current installs
 # copy the AutoScript packages into the active environment's site-packages (see
@@ -686,15 +695,39 @@ class AutoscriptSampleLoader(SampleGridLoader):
                 working.loaded_grid = None
 
     def _write_slot_description(self, slot: GridSlot) -> None:
+        """Write the grid's name to its slot, and read it back.
+
+        Every inventory read takes the name from the slot description, so a write
+        that did not land would quietly undo a rename at the next read. Seen to
+        stick on an Arctis (2026-10-02); read back anyway, and raise
+        ``GridExchangeError`` when it did not, so the rename can say so.
+        """
         description = slot.loaded_grid.name if slot.loaded_grid is not None else ""
+        number = slot.index + 1
         try:
-            for hw in self._autoloader.get_slots(False):
-                if int(hw.id) == slot.index + 1:
-                    hw.sample_description = description
-                    return
-            logging.warning(f"Autoloader reported no slot {slot.index + 1} to name.")
-        except Exception as e:  # noqa: BLE001 - not verified writable on hardware
-            logging.warning(f"Could not write the autoloader slot description: {e}")
+            hw = self._hardware_slot(number)
+            if hw is not None:
+                hw.sample_description = description
+                hw = self._hardware_slot(number)
+        except Exception as e:  # noqa: BLE001 - whatever AutoScript raised, as one error
+            raise GridExchangeError(
+                f"Could not write the autoloader slot description: {e}"
+            ) from e
+        if hw is None:
+            raise GridExchangeError(f"Autoloader reported no slot {number} to name.")
+        written = (getattr(hw, "sample_description", "") or "").strip()
+        if written != description:
+            raise GridExchangeError(
+                f"Autoloader slot {number} reads back '{written}', not "
+                f"'{description}': the name did not stick."
+            )
+
+    def _hardware_slot(self, number: int):
+        """AutoScript's record of one magazine slot (1-based), freshly read."""
+        for hw in self._autoloader.get_slots(False):
+            if int(hw.id) == number:
+                return hw
+        return None
 
     # -- exchange ------------------------------------------------------------
 
@@ -922,9 +955,6 @@ class ThermoMicroscope(FibsemMicroscope):
     New methods:
         __init__(self):
             Initializes a new instance of the class.
-
-        _y_corrected_stage_movement(self, expected_y: float, beam_type: BeamType = BeamType.ELECTRON) -> FibsemStagePosition:
-            Calculate the y corrected stage movement, corrected for the additional tilt of the sample holder (pre-tilt angle).
     """
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
@@ -1057,6 +1087,9 @@ class ThermoMicroscope(FibsemMicroscope):
                 )
                 self.fm = None
                 self.set_channel(BeamType.ELECTRON)
+            elif not self._fluorescence_uses_own_driver():
+                self.fm = self._connect_remote_fluorescence()
+                self.set_channel(BeamType.ELECTRON)
             else:
                 from fibsem.fm.autoscript import ThermoFisherFluorescenceMicroscope
 
@@ -1065,6 +1098,8 @@ class ThermoMicroscope(FibsemMicroscope):
                 logging.info(
                     "Thermo Fisher Fluorescence Microscope initialized successfully."
                 )
+        except RequiredDeviceUnavailable:
+            raise
         except Exception as e:
             logging.error(
                 f"Failed to initialize Thermo Fisher Fluorescence Microscope: {e}"
@@ -1622,170 +1657,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return self.get_stage_position()
 
-    # TODO: migrate from stable_move vocab to sample_stage
-    @_records_stage_move
-    def stable_move(
-        self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
-    ) -> FibsemStagePosition:
-        """
-        Calculate the corrected stage movements based on the beam_type stage tilt, shuttle pre-tilt,
-        and then move the stage relatively.
-
-        Args:
-            dx (float): distance along the x-axis (image coordinates)
-            dy (float): distance along the y-axis (image coordinates)
-            beam_type (BeamType): beam type to move in
-            static_wd (bool, optional): whether to fix the working distance to the eucentric heights. Defaults to False.
-        """
-
-        wd = self.get_working_distance(beam_type=BeamType.ELECTRON)
-
-        scan_rotation = self.get_scan_rotation(beam_type=beam_type)
-        if np.isclose(scan_rotation, np.pi):
-            dx *= -1.0
-            dy *= -1.0
-
-        # calculate stable movement
-        yz_move = self._y_corrected_stage_movement(
-            expected_y=dy,
-            beam_type=beam_type,
-        )
-        stage_position = FibsemStagePosition(
-            x=dx, y=yz_move.y, z=yz_move.z, r=0, t=0, coordinate_system="RAW"
-        )
-
-        # move stage
-        self.move_stage_relative(stage_position)
-
-        # adjust working distance to compensate for stage movement
-        if static_wd:
-            wd = self.system.electron.eucentric_height
-
-        if not self.stage_is_compustage:  # TODO: can replace with self.stage.is_linked
-            self.set_working_distance(wd, BeamType.ELECTRON)
-
-        # logging
-        logging.debug(
-            {
-                "msg": "stable_move",
-                "dx": dx,
-                "dy": dy,
-                "beam_type": beam_type.name,
-                "static_wd": static_wd,
-                "working_distance": wd,
-                "scan_rotation": scan_rotation,
-                "position": stage_position.to_dict(),
-            }
-        )
-
-        return self.get_stage_position()
-
-    @_records_stage_move
-    def vertical_move(
-        self,
-        dy: float,
-        dx: float = 0.0,
-        beam_type: BeamType = BeamType.ION,
-        relaxation: float = 1.0,
-    ) -> FibsemStagePosition:
-        """Restore the coincidence point from an offset measured in one beam view.
-
-        Args:
-            dy (float): distance along the y-axis (image coordinates)
-            dx (float, optional): distance along the x-axis (image coordinates). Defaults to 0.0.
-            beam_type (BeamType, optional): the view the offset was measured in.
-                Defaults to ION.
-            relaxation (float, optional): under-relaxation of the correction.
-                1.0 applies the geometrically exact height change; a value
-                below 1.0 deliberately undershoots, which keeps a manual
-                look-correct-look loop convergent where a slight model error
-                would otherwise make it oscillate. This replaces the old
-                hard-coded 0.9, which was found to be absorbing a
-                decomposition error rather than correcting perspective
-                (FIB-773).
-        """
-        self._check_vertical_move_supported(beam_type)
-        if beam_type is BeamType.ELECTRON:
-            return self._vertical_move_from_sem(dx=dx, dy=dy, relaxation=relaxation)
-        return self._vertical_move_from_fib(dx=dx, dy=dy, relaxation=relaxation)
-
-    def _vertical_move_from_fib(
-        self,
-        dy: float,
-        dx: float = 0.0,
-        relaxation: float = 1.0,
-    ) -> FibsemStagePosition:
-        """Move the stage vertically to correct coincidence point
-
-        The offset is measured in the FIB view: the feature is already centred in
-        the SEM, and a chamber-vertical move is invisible to the electron beam.
-
-        Args:
-            dy (float): distance along the y-axis (image coordinates)
-            dx (float, optional): distance along the x-axis (image coordinates). Defaults to 0.0.
-        """
-
-        # get current working distance, to be restored later
-        wd = self.get_working_distance(beam_type=BeamType.ELECTRON)
-
-        # adjust for scan rotation
-        scan_rotation = self.get_scan_rotation(beam_type=BeamType.ION)
-        if np.isclose(scan_rotation, np.pi):
-            dx *= -1.0
-            dy *= -1.0
-
-        # TODO: ARCTIS Do we need to reverse the direction of the movement because of the inverted stage tilt?
-        if self.stage_is_compustage:
-            dy *= -1.0
-            stage_tilt = self.get_stage_position().t
-            if stage_tilt >= np.deg2rad(-90):
-                dy *= -1.0
-
-        # a chamber-vertical displacement of dz appears in the FIB view as
-        # dz * sin(column_tilt), independent of stage tilt - so the height
-        # change that cancels an observed dy is dy / sin(column_tilt)
-        z_move = dy / np.sin(np.deg2rad(self.system.ion.column_tilt)) * relaxation
-
-        # decompose the chamber-vertical into the tilted stage axes:
-        # y = m*sin(t), z = m*cos(t). The old form used z = m/cos(t), which
-        # is only vertical at t=0 - at every tilted pose it dragged the
-        # feature sideways in the SEM view, partially undoing the SEM
-        # centring this operation exists to preserve (FIB-773).
-        theta = self.get_stage_position().t  # rad
-        dy = z_move * np.sin(theta)
-        dz = z_move * np.cos(theta)
-        stage_position = FibsemStagePosition(x=dx, y=dy, z=dz, coordinate_system="RAW")
-        logging.info(f"Vertical movement: {stage_position}")
-        self.move_stage_relative(
-            stage_position
-        )  # NOTE: this seems to be a bit less than previous... -> perspective correction?
-
-        # Vertical moves re-establish the coincidence plane. Always restore the
-        # pre-move SEM (electron) working distance so fine corrections keep their
-        # focus. For a large correction, snap the FIB (ion) WD to eucentric (the
-        # best estimate at the new coincidence plane); small corrections keep the
-        # current FIB focus.
-        EUCENTRIC_RESET_THRESHOLD = 100e-6  # m (stage-z travel)
-        self.set_working_distance(wd=wd, beam_type=BeamType.ELECTRON)
-        if abs(dz) > EUCENTRIC_RESET_THRESHOLD:
-            self.set_working_distance(
-                wd=self.system.ion.eucentric_height, beam_type=BeamType.ION
-            )
-
-        # logging
-        logging.debug(
-            {
-                "msg": "vertical_move",
-                "dy": dy,
-                "dx": dx,
-                "wd": wd,
-                "scan_rotation": scan_rotation,
-                "position": stage_position.to_dict(),
-            }
-        )
-
-        return self.get_stage_position()
-
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.
 
@@ -1793,96 +1664,6 @@ class ThermoMicroscope(FibsemMicroscope):
         Kept for one release because custom scripts may call it.
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
-    def _vertical_move_from_sem(
-        self, dx: float, dy: float, relaxation: float = 1.0
-    ) -> FibsemStagePosition:
-        """Correct the coincidence point from an offset measured in the SEM view.
-
-        Not the mirror image of the FIB path but a superset: a stable move first
-        brings the feature to the centre of the SEM, and the height correction
-        that follows puts the FIB back.
-        """
-
-        # NOTE:
-        # inaccurate over longer distances, but works for small movements
-        # less accurate for higher tilt angles
-
-        # move to position in SEM
-        base_position = self.get_stage_position()
-        self.stable_move(dx=dx, dy=dy, beam_type=BeamType.ELECTRON)
-
-        # calculate the difference in position after SEM move
-        position_after_sem_move = self.get_stage_position()
-        dy = position_after_sem_move.y - base_position.y
-        dz = position_after_sem_move.z - base_position.z
-
-        # correct for the stage tilt and milling angle
-        if self.get_stage_orientation() in ["SEM", "MILLING"]:
-            theta = np.radians(self.get_current_milling_angle())  # deg
-            dy = dy * np.sin(theta)
-
-        # NOTE: vertical move also corrects for scan rotation, so we need to adjust dy accordingly
-        # if the scan rotation is 0, we need to invert the dy value
-        scan_rotation = self.get_scan_rotation(beam_type=BeamType.ION)
-        if np.isclose(scan_rotation, 0):
-            dy *= -1.0
-
-        # apply the vertical move to correct the position. (The old 1.11
-        # here was 1/0.9: it existed to cancel the magic constant inside
-        # vertical_move from the outside, and is gone with it - FIB-773.)
-        self._vertical_move_from_fib(dx=0, dy=dy, relaxation=relaxation)
-
-        return self.get_stage_position()
-
-    def _y_corrected_stage_movement(
-        self,
-        expected_y: float,
-        beam_type: BeamType = BeamType.ELECTRON,
-    ) -> FibsemStagePosition:
-        """
-        Calculate the y corrected stage movement, corrected for the additional tilt of the sample holder (pre-tilt angle).
-
-        Thin wrapper over :meth:`_view_corrected_stage_movement`: a beam is just a
-        view whose axis is tilted from the electron column by its ``column_tilt``.
-
-        Args:
-            expected_y (float, optional): distance along y-axis.
-            beam_type (BeamType, optional): beam_type to move in. Defaults to BeamType.ELECTRON.
-
-        Returns:
-            StagePosition: y corrected stage movement (relative position)
-        """
-        return self._view_corrected_stage_movement(
-            expected_y=expected_y,
-            view_tilt=self._beam_view_tilt(beam_type),
-        )
-
-    def _inverse_y_corrected_stage_movement(
-        self,
-        dy: float,
-        dz: float,
-        beam_type: BeamType = BeamType.ELECTRON,
-    ) -> float:
-        """
-        Calculate the expected_y input from dy, dz stage movements and beam_type.
-        This is the inverse of _y_corrected_stage_movement.
-
-        Thin wrapper over :meth:`_inverse_view_corrected_stage_movement`.
-
-        Args:
-            dy (float): actual y stage movement
-            dz (float): actual z stage movement
-            beam_type (BeamType, optional): beam_type used. Defaults to BeamType.ELECTRON.
-
-        Returns:
-            float: expected_y input that would produce the given dy, dz movements
-        """
-        return self._inverse_view_corrected_stage_movement(
-            dy=dy,
-            dz=dz,
-            view_tilt=self._beam_view_tilt(beam_type),
-        )
 
     # ---- fitted subsystems, as AutoScript reports them --------------------
 
@@ -1966,76 +1747,7 @@ class ThermoMicroscope(FibsemMicroscope):
             )
         return limits
 
-    def _safe_rotation_movement(self, stage_position: FibsemStagePosition):
-        """Tilt the stage flat when performing a large rotation to prevent collision.
-
-        Args:
-            stage_position (StagePosition): desired stage position.
-        """
-        current_position = self.get_stage_position()
-
-        # tilt flat for large rotations to prevent collisions
-        from fibsem import movement
-
-        if movement.rotation_angle_is_larger(stage_position.r, current_position.r):
-            self.move_stage_absolute(FibsemStagePosition(t=0))
-            logging.info("tilting to flat for large rotation.")
-
-        return
-
-    @_records_stage_move
-    def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
-        """Move the stage to the desired position in a safe manner, using compucentric rotation.
-        Supports movements in the stage_position coordinate system
-        """
-        # Before anything moves. The staged move below rotates the stage where it
-        # stands, which is the correct order leaving the beams and the wrong one
-        # coming back from the FM -- see FIB-841.
-        self._refuse_rotation_at_the_fluorescence_microscope(stage_position)
-
-        # safe movements are not required on the compustage, because it doesn't rotate
-        if not self.stage_is_compustage:
-            # tilt flat for large rotations to prevent collisions
-            self._safe_rotation_movement(stage_position)
-
-            # move to compucentric rotation
-            self.move_stage_absolute(
-                FibsemStagePosition(r=stage_position.r, coordinate_system="RAW")
-            )  # TODO: support compucentric rotation directly
-
-        logging.debug(f"safe moving to {stage_position}")
-        self.move_stage_absolute(stage_position)
-
-        logging.debug("safe movement complete.")
-
-        return
-
-    def project_stable_move(
-        self,
-        dx: float,
-        dy: float,
-        beam_type: BeamType,
-        base_position: FibsemStagePosition,
-    ) -> FibsemStagePosition:
-
-        scan_rotation = self.get_scan_rotation(beam_type=beam_type)
-        if np.isclose(scan_rotation, np.pi):
-            dx *= -1.0
-            dy *= -1.0
-
-        # stable-move-projection
-        point_yz = self._y_corrected_stage_movement(dy, beam_type)
-        dy, dz = point_yz.y, point_yz.z
-
-        # calculate the corrected move to reach that point from base-state?
-        new_position = deepcopy(base_position)
-        new_position.x += dx
-        new_position.y += dy
-        new_position.z += dz
-
-        return new_position
-
-    def insert_manipulator(self, name: str = "PARK"):
+    def insert_manipulator(self, name: str = "PARK") -> FibsemManipulatorPosition:
         """Insert the manipulator to the specified position"""
 
         if not self.is_available("manipulator"):
@@ -2075,7 +1787,7 @@ class ThermoMicroscope(FibsemMicroscope):
         )
         return manipulator_position
 
-    def retract_manipulator(self):
+    def retract_manipulator(self) -> FibsemManipulatorPosition:
         """Retract the manipulator"""
 
         if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
@@ -2098,8 +1810,11 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.info("retracting needle...")
         needle.retract()
         logging.info("retract needle complete")
+        return self.get_manipulator_position()
 
-    def move_manipulator_relative(self, position: FibsemManipulatorPosition):
+    def move_manipulator_relative(
+        self, position: FibsemManipulatorPosition
+    ) -> FibsemManipulatorPosition:
         logging.info(f"moving manipulator by {position}")
 
         # convert to autoscript position
@@ -2109,8 +1824,11 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug(
             {"msg": "move_manipulator_relative", "position": position.to_dict()}
         )
+        return self.get_manipulator_position()
 
-    def move_manipulator_absolute(self, position: FibsemManipulatorPosition):
+    def move_manipulator_absolute(
+        self, position: FibsemManipulatorPosition
+    ) -> FibsemManipulatorPosition:
         """Move the manipulator to the specified coordinates."""
         logging.info(f"moving manipulator to {position}")
 
@@ -2122,6 +1840,7 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug(
             {"msg": "move_manipulator_absolute", "position": position.to_dict()}
         )
+        return self.get_manipulator_position()
 
     def _x_corrected_needle_movement(
         self, expected_x: float
@@ -2172,7 +1891,7 @@ class ThermoMicroscope(FibsemMicroscope):
         dx: float = 0,
         dy: float = 0,
         beam_type: BeamType = BeamType.ELECTRON,
-    ) -> None:
+    ) -> FibsemManipulatorPosition:
         """Calculate the required corrected needle movements based on the BeamType to move in the desired image coordinates.
         Then move the needle relatively. Manipulator movement axis is based on stage tilt, so we need to adjust for that
         with corrected movements, depending on the stage tilt and imaging perspective.
@@ -2209,13 +1928,11 @@ class ThermoMicroscope(FibsemMicroscope):
         )
 
         # move manipulator
-        self.move_manipulator_relative(manipulator_position)
-
-        return self.get_manipulator_position()
+        return self.move_manipulator_relative(manipulator_position)
 
     def move_manipulator_to_position_offset(
         self, offset: FibsemManipulatorPosition, name: str = None
-    ) -> None:
+    ) -> FibsemManipulatorPosition:
         """Move the manipulator to the specified coordinates, offset by the provided offset."""
         saved_position = self._get_saved_manipulator_position(name)
 
@@ -2239,7 +1956,12 @@ class ThermoMicroscope(FibsemMicroscope):
         )
 
         # move manipulator absolute
-        self.move_manipulator_absolute(saved_position)
+        return self.move_manipulator_absolute(saved_position)
+
+    manipulator_move_types = ("relative", "corrected")
+
+    def manipulator_named_positions(self) -> List[str]:
+        return ["PARK", "EUCENTRIC"]
 
     def _get_saved_manipulator_position(
         self, name: str = "PARK"
@@ -2292,11 +2014,12 @@ class ThermoMicroscope(FibsemMicroscope):
         self.set_patterning_mode(mill_settings.patterning_mode)
         self.clear_patterns()  # clear any existing patterns
         self.set_field_of_view(hfw=mill_settings.hfw, beam_type=self.milling_channel)
-        self.set_beam_current(
-            current=mill_settings.milling_current, beam_type=self.milling_channel
-        )
+        # voltage before current: the available ion currents are calibrated per voltage
         self.set_beam_voltage(
             voltage=mill_settings.milling_voltage, beam_type=self.milling_channel
+        )
+        self.set_beam_current(
+            current=mill_settings.milling_current, beam_type=self.milling_channel
         )
 
         # TODO: migrate to _set_milling_settings():
@@ -2394,8 +2117,8 @@ class ThermoMicroscope(FibsemMicroscope):
             imaging_current (float): The current to use for imaging in amps.
         """
         self.clear_patterns()
-        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
         self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
+        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
         self.set_patterning_mode("Serial")
         # TODO: store initial imaging settings in setup_milling, restore here, rather than hybrid
 
@@ -3215,14 +2938,12 @@ class ThermoMicroscope(FibsemMicroscope):
             limits: Limits = beam.high_voltage.limits
             # QUERY: match what is displayed on microscope, as list[float], or keep as range?
             # technically we can set any value, but primarily people would use what is on microscope
-            # SEM: [1000, 2000, 3000, 5000, 10000, 20000, 30000]
-            # FIB: [500, 1000, 2000, 8000, 1600, 30000]
-            if beam_type is BeamType.ION:
-                VALUES = (500, 1000, 2000, 8000, 16000, 30000)
-            if beam_type is BeamType.ELECTRON:
-                VALUES = (1000, 2000, 3000, 5000, 10000, 20000, 30000)
             # filter values to be within limits
-            values = [v for v in VALUES if limits.min <= v <= limits.max]
+            values = [
+                v
+                for v in THERMO_VOLTAGE_CHOICES[beam_type]
+                if limits.min <= v <= limits.max
+            ]
             return values
 
         if key == "detector_type":
@@ -3313,23 +3034,6 @@ class ThermoMicroscope(FibsemMicroscope):
             )
             return [width, height]
 
-        # system properties
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.eucentric_height
-            elif beam_type is BeamType.ION:
-                return self.system.ion.eucentric_height
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.column_tilt
-            elif beam_type is BeamType.ION:
-                return self.system.ion.column_tilt
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
         # electron beam properties
         if beam_type is BeamType.ELECTRON:
             if key == "angular_correction_angle":
@@ -3364,6 +3068,10 @@ class ThermoMicroscope(FibsemMicroscope):
         if key == "stage_homed":
             return self.stage.is_homed
         if key == "stage_linked":
+            # A compustage can't link (`set("stage_link")` refuses, and
+            # `AutoscriptCompustage` has no `linked`), so it is never linked.
+            if self.stage_is_compustage:
+                return False
             return self.stage.is_linked
 
         # chamber properties
@@ -3399,18 +3107,6 @@ class ThermoMicroscope(FibsemMicroscope):
         if key == "manipulator_state":
             state = self.connection.specimen.manipulator.state
             return True if state == ManipulatorState.INSERTED else False
-
-        # manufacturer properties
-        if key == "manufacturer":
-            return self.system.info.manufacturer
-        if key == "model":
-            return self.system.info.model
-        if key == "serial_number":
-            return self.system.info.serial_number
-        if key == "software_version":
-            return self.system.info.software_version
-        if key == "hardware_version":
-            return self.system.info.hardware_version
 
         # logging.warning(f"Unknown key: {key} ({beam_type})")
         return None
@@ -3550,38 +3246,6 @@ class ThermoMicroscope(FibsemMicroscope):
                         f"Detector contrast {value} not available, mut be between 0 and 1."
                     )
                 return
-
-        # system properties
-        if key == "beam_enabled":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.beam.enabled = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.beam.enabled = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-            return
-
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.eucentric_height = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.eucentric_height = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.column_tilt = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.column_tilt = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
 
         # electron beam properties
         if beam_type is BeamType.ELECTRON:

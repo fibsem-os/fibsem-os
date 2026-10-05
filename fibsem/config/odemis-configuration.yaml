@@ -21,7 +21,8 @@ hardware:                                                   # what the instrumen
 calibration:                                                # measured at this instrument
     shuttle_pre_tilt:           35.0                        # the pre-tilt of the shuttle                                   [SPECIFIED]
 defaults:                                                   # what a session starts from
-    apply_on_connect:           false                       # push these to the instrument at connect (not yet acted on)
+    beams_on_at_connect:        false                       # turn each column on at connect, before the defaults
+    apply_on_connect:           false                       # set the columns to these defaults at connect
     electron:
         voltage:                    2000                        # the voltage of the electron beam                              [USER]
         current:                    50.0e-12                    # the current of the electron beam                              [USER]

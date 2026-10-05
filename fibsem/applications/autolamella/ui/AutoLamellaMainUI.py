@@ -87,6 +87,10 @@ from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as GRID_LOAD_STEP,
 )
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    NAME_FIXED_REASON,
+    grid_has_run,
+)
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.status import (
     Hold,
@@ -116,6 +120,7 @@ from fibsem.ui.stylesheets import (
     DANGER_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
     MENU_BUTTON_STYLESHEET,
+    MUTED_GHOST_BUTTON_STYLESHEET,
     NAPARI_STYLE,
     PRIMARY_BUTTON_STYLESHEET,
     PROGRESS_BAR_STYLESHEET,
@@ -553,6 +558,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._on_open_experiment_directory
         )
 
+        self.action_export_image = QAction("Export Image...", self)
+        set_menu_icon(self.action_export_image, "mdi:export")
+        self.action_export_image.triggered.connect(self._on_export_image)
+
         self.action_load_protocol = QAction("Load Protocol", self)
         self.action_load_protocol.triggered.connect(self._on_load_protocol)
         self.action_save_protocol = QAction("Save Protocol", self)
@@ -569,6 +578,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         file_menu.addAction(self.action_new_experiment)
         file_menu.addAction(self.action_load_experiment)
         file_menu.addAction(self.action_open_experiment_directory)
+        file_menu.addSeparator()
+        file_menu.addAction(self.action_export_image)
         file_menu.addSeparator()
         file_menu.addAction(self.action_load_protocol)
         file_menu.addAction(self.action_save_protocol)
@@ -1108,6 +1119,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Open Experiment Directory action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui._open_experiment_directory()
+
+    def _on_export_image(self):
+        """Handle Export Image action: pick an image, starting in the experiment."""
+        from fibsem.ui.widgets.image_export_dialog import open_image_export
+
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        start_dir = ""
+        if experiment is not None and experiment.path is not None:
+            start_dir = os.fspath(experiment.path)
+        open_image_export(self, start_dir)
 
     def _on_load_protocol(self):
         """Handle Load Protocol action."""
@@ -1814,6 +1835,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.grid_workflow_widget.exchanges_for(grids),
             str(ui.experiment.path),
             beams_off=self._beams_off(),
+            first_run=[g.name for g in grids if not grid_has_run(g)],
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -1838,11 +1860,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             str(ui.experiment.path),
             screen_all=True,
             beams_off=self._beams_off(),
+            first_run=self._present_grids_not_run(),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
         self._start_grid_run(task_names, None, inventory_first=True)
+
+    def _present_grids_not_run(self) -> list:
+        """The grids Screen all grids will run for the first time, as far as the
+        last inventory knows: present, and nothing run on them yet. Read off
+        the stage's cached inventory; nothing here asks the hardware."""
+        ui = self.autolamella_ui
+        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        if ui is None or ui.experiment is None or stage is None:
+            return []
+        present = {e.name for e in stage.grid_inventory() if e.present}
+        return [
+            g.name
+            for g in ui.experiment.grids
+            if g.name in present and not grid_has_run(g)
+        ]
 
     def _beams_off(self) -> list:
         """The beams that are off now, which the run will turn on: the preflight
@@ -1871,6 +1909,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_widget.flush_pending_save()
         ui._start_run_grid_workflow_thread(task_names, grid_names, inventory_first)
         self.set_workflow_running()
+        # Clear the grid ticks, as a lamella run clears its selection: left ticked,
+        # the grids this run is on would be queued again by the next Add to Queue.
+        # The task ticks stay; Screen all grids and the next add read them.
+        self.grid_workflow_widget.set_all_grids_selected(False)
 
     def _run_refuses_selection(self) -> str:
         """Why the left panel's selection cannot join the running queue, or "".
@@ -2562,13 +2604,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # The same words as the Connection tab's button and the File menu
             # entry: three doors to one action should not each name it differently.
             self.btn_connection.setText("Connect to Microscope")
+            self.btn_connection.setIcon(QIcon())
             self.btn_connection.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
             self.btn_connection.setToolTip("Choose a configuration and connect")
             return
 
         # `system.info` is a stored record, not a question put to the instrument.
         info = microscope.system.info
-        self.btn_connection.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        # Flat and muted, like the experiment name beside it: once connected this
+        # says where you are, and only the unconnected state asks for a click.
+        set_button_icon(self.btn_connection, "mdi:connection")
+        self.btn_connection.setStyleSheet(MUTED_GHOST_BUTTON_STYLESHEET)
         self.btn_connection.setToolTip(
             f"{info.manufacturer} {info.model} at {info.ip_address}\n"
             f"Serial number: {info.serial_number}\n"
@@ -2951,6 +2997,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         sample = getattr(self.autolamella_ui, "sample_widget", None)
         loader = getattr(sample, "loader_widget", None)
         if loader is not None:
+            # A rename there renames the experiment's record, before the
+            # inventory sync below could add a second one under the new name.
+            loader.set_rename_check(self._grid_rename_refusal)
+            loader.grid_renamed.connect(self._on_slot_grid_renamed)
             # Records first: an inventory read there lists grids the experiment
             # has no record of, and the refreshes below draw from the records.
             loader.loader_changed.connect(self._record_inventoried_grids)
@@ -2963,7 +3013,47 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # reconnect.
         holder_panel = getattr(sample, "holder_widget", None)
         if holder_panel is not None:
+            holder_panel.set_rename_check(self._grid_rename_refusal)
+            holder_panel.grid_renamed.connect(self._on_slot_grid_renamed)
             holder_panel.holder_changed.connect(self._on_holder_changed)
+
+    def _grid_rename_refusal(self, old: str, new: str) -> str:
+        """Why the Sample view may not rename grid *old* to *new*, or "".
+
+        The experiment's record follows a slot's name, so the Grids tab's rules
+        apply: a grid that has run keeps its name, and two grids cannot share
+        one. Nothing is renamed while a workflow runs, since its queue holds
+        grids by name. With no experiment open there is no record to protect.
+        """
+        ui = self.autolamella_ui
+        experiment = getattr(ui, "experiment", None)
+        if experiment is None:
+            return ""
+        if ui.is_workflow_running:
+            return "Grids cannot be renamed while a workflow is running."
+        grid = experiment.get_grid_by_name(old)
+        if grid is not None and grid_has_run(grid):
+            return f"{old} cannot be renamed. {NAME_FIXED_REASON}"
+        if experiment.get_grid_by_name(new) is not None:
+            return f"There is already a grid named {new}."
+        return ""
+
+    def _on_slot_grid_renamed(self, old: str, new: str) -> None:
+        """A grid renamed on the Sample view: its record takes the new name, with
+        its history, verdict, note and lamellae, instead of the next inventory
+        sync adding a second record under the new name."""
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        grid = experiment.get_grid_by_name(old) if experiment is not None else None
+        if grid is None:
+            return  # no record yet: the sync adds one under the new name
+        grid.name = new
+        try:
+            experiment.save()
+        except Exception as e:  # noqa: BLE001 - renamed in memory; saved next time
+            logging.warning(f"Could not save the experiment after a rename: {e}")
+        self.grids_tab.refresh()
+        self.grid_workflow_widget.refresh()
+        self._refresh_grid_context()
 
     def _grid_context(self):
         """`GridRecord.id -> (name, on the stage)` for the lamella displays,
@@ -3161,6 +3251,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.task_widget.workflow_config_changed.connect(
             self.lamella_workflow_widget.set_workflow_config
         )
+        # A task added or removed there is added to or removed from every lamella:
+        # the lamella editor's task list is rebuilt, so it never edits a task its
+        # lamella no longer has (FIB-1109).
+        self.task_widget.workflow_config_changed.connect(
+            lambda _: self.lamella_widget._refresh_experiment_positions()
+        )
         # And the Grid page → Workflow → Grids: a task added on the Protocol tab
         # gets its row in the run view without an inventory or a reload.
         self.task_widget.grid_protocol_changed.connect(
@@ -3335,6 +3431,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.grid_workflow_widget.exchanges_for(grids),
             str(experiment.path) if experiment is not None else "",
             adding=True,
+            first_run=[g.name for g in grids if not grid_has_run(g)],
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -3681,7 +3778,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.lamella_list.refresh_all()
             for lamella_list in self._overview_lamella_lists():
                 lamella_list.refresh_all()
-        self._on_lamella_card_selected(getattr(self, "_selected_card_lamella", None))
+        selected = getattr(self, "_selected_card_lamella", None)
+        self._on_lamella_card_selected(selected)
+        # Re-selecting does not redraw the History panel: it skips the lamella it
+        # already shows. A task that has finished on that lamella has added to its
+        # history, and this report comes after the task has returned -- its images
+        # written and its history entry appended -- so rebuild it here (FIB-1111).
+        if (
+            selected is not None
+            and lamella is not None
+            and selected.id == lamella.id
+            and status
+            in (
+                AutoLamellaTaskStatus.Completed,
+                AutoLamellaTaskStatus.Failed,
+                AutoLamellaTaskStatus.Cancelled,
+                AutoLamellaTaskStatus.AwaitingDecision,
+            )
+            and hasattr(self, "lamella_task_image_widget")
+        ):
+            self.lamella_task_image_widget.refresh()
 
     def _overview_lamella_lists(self):
         """The lamella list beside each Overview page, whichever pages exist."""
@@ -3927,6 +4043,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Persist defect state change to disk and sync all widgets."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
+        self.autolamella_ui.experiment.sign_verdict(lamella)
         self.autolamella_ui.experiment.save()
         # Sync defect icon across all widgets
         self.autolamella_ui.lamella_list.refresh_all()
@@ -4127,8 +4244,38 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     ) -> None:
         self.show_toast(message, notification_type, temporary=temporary)
 
+    def _confirm_close_during_workflow(self) -> bool:
+        """Ask before closing ends a workflow in progress; True to go ahead.
+
+        Only asked while one is running: any other close loses nothing, since
+        pending edits are flushed on the way out. Confirming stops the run, the
+        same as Stop Workflow, without waiting for it to wind down -- the worker
+        may be waiting on this thread, and it is a daemon thread, so it cannot
+        hold the process open.
+        """
+        ui = self.autolamella_ui
+        if ui is None or not ui.is_workflow_running:
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Workflow Running")
+        box.setText("A workflow is running. Close anyway?")
+        box.setInformativeText(
+            "Closing stops the workflow and disconnects from the microscope."
+        )
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        box.setDefaultButton(QMessageBox.No)
+        if box.exec_() != QMessageBox.Yes:
+            return False
+        ui.stop_task_workflow()
+        return True
+
     def closeEvent(self, event):
         """Flush what is still pending, then let the application go."""
+        # Before anything else, so a cancelled close leaves the session untouched.
+        if not self._confirm_close_during_workflow():
+            event.ignore()
+            return
         # The editor holds edits for a moment before writing them (FIB-683); this is
         # the last chance to get the final one onto disk.
         if getattr(self, "lamella_widget", None) is not None:
@@ -4155,11 +4302,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.autolamella_ui._stop_event_recorder()
             except Exception as e:
                 logging.warning(f"Could not close the event recorder on close: {e}")
+        # Last, so everything above has the microscope it needs. Let the
+        # instrument go rather than leave the client open until the process ends.
+        if (
+            self.autolamella_ui is not None
+            and self.autolamella_ui.microscope is not None
+        ):
+            self.autolamella_ui.microscope.try_disconnect()
+        # TypeError: a second close finds it already disconnected -- close() sends
+        # the close event again even when the window is hidden.
         try:
             notification_service._get_service().toast.disconnect(
                 self._on_notification_service
             )
-        except RuntimeError:
+        except (RuntimeError, TypeError):
             pass
         super().closeEvent(event)
         # Force the event loop to exit even if another top-level window (e.g. a stray

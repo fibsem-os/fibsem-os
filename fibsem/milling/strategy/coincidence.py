@@ -14,7 +14,6 @@ from psygnal import Signal
 from fibsem import acquire, constants
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.milling import (
     FibsemMillingStage,
     MillingStrategy,
@@ -252,8 +251,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self.microscope.set_channel(self.microscope.milling_channel)
         self.microscope.start_milling()  # asynchronous start
         estimated_time = self.microscope.estimate_milling_time()
-        if isinstance(self.microscope, DemoMicroscope):
-            estimated_time += 300  # seconds, override for demo purposes
         time.sleep(1)
 
         # start acquisition after starting milling

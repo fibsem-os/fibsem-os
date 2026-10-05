@@ -6,78 +6,15 @@ A minor bump, not a patch: since v0.5.2 main has taken the agent server, the app
 config schema v1, propose-and-review and a Grids preview. Calling that 0.5.3 would be the
 same mislabelling that made the last release awkward.
 
-0.5.3 is reserved for fixes cut from `release/v0.5.2`, which is the branch v0.5.2 was
-tagged from. Those do not appear here; a fix that belongs in both lands on main first and
-is cherry-picked there.
+Fixes for v0.5 are cut from `release/v0.5.x`, the branch v0.5.2 and v0.5.3 were tagged
+from, and are listed under their own version below; a fix that belongs in both lands on
+main first and is cherry-picked there.
 
-The entries below are the four that were written into the v0.5.2 section after v0.5.2rc2
-was cut, and so describe work that is not in v0.5.2. Everything else from the 441 commits
-since the tag still needs writing up.
+The entries below were first written into the v0.5.2 section, after v0.5.2rc2 was cut,
+and so describe work that is not in v0.5.2. Everything else since v0.5.2 still needs
+writing up.
 
-### Grids (preview)
-
-- **A grid workflow, behind a preference.** Preferences → Enable Grid Workflow adds a
-  Grids tab (a card per grid the inventory found, with its overviews and history), a
-  Grid page beside Lamella on the Protocol tab, and a Workflow → Grids view that runs the
-  grid tasks over the selected grids, loading each from the magazine as it comes up, or
-  screens every grid in the magazine in one go. Off by default; it has run end to end on
-  the simulator and is waiting on bench time.
-- **The sample holder and magazine controls are a Sample tab** under Microscope, always
-  shown, in place of the block on the Movement tab and the preference that gated it.
-  Load and unload are icons on the grid's row; inventory is a refresh icon that asks
-  first.
-- The protocol's name, description and version panel on the Protocol tab is now one
-  line with a pencil that opens a dialog, and the settings columns are wider.
-
-### Changes to what v0.5.2 shipped
-
-- **Grid boundaries and holder slot markers are drawn when the holder has a calibrated
-  slot**, rather than never. v0.5.2 turned them off for everyone, which also took them
-  from an Arctis, whose working slot is always calibrated. Either way they toggle under
-  the overlays button on the canvas.
-- **The "Report an Issue" bug reporter and user scripts are on for everyone**, and their
-  flags are gone. In v0.5.2 both were opt-in. A user script still has the application's
-  access to the microscope and none of its checks, so read one before running it.
-
-## v0.5.2 (16/09/2026)
-
-A running workflow became something you can edit, the image display moved onto a
-purpose-built canvas with overview acquisition rebuilt around it, and a large batch of
-correctness work landed in correlation and in what the experiment record remembers.
-360 commits since v0.5.1.
-
-### Highlights
-
-- **Edit the queue while it runs** — reorder, remove, re-run and "run next" from the
-  Workflow Timeline, and add work to a run already in progress. Stop Task abandons the
-  task now running without ending the workflow.
-- **Scheduled tasks are on for everyone.** A task can wait until a scheduled time before
-  running. This shipped behind a flag in v0.5.1; the flag is gone, and a protocol
-  carrying a future `scheduled_at` now actually waits where it was previously ignored.
-- **The image displays were rebuilt.** The Lamella Editor, Microscope, Overview, FM Image
-  Viewer and both correlation canvases render on a purpose-built canvas instead of napari.
-  Contrast is built into the canvas, and zoom and pan persist across acquisitions rather
-  than resetting on every frame. The old napari overview is no longer shown by default
-  and is removed in the next release.
-- **One Overview tab** on a real-space canvas, with the imaging modality chosen on the
-  canvas chrome instead of by switching tabs.
-- **Overviews can be sparse** — a tile grid carries a per-tile enable mask, so a run
-  acquires only the tiles that were asked for. For fluorescence the tiles can be chosen
-  by drawing regions on a beam overview and letting them project onto the FM grid.
-- **First-run guided setup writes your microscope configuration.** On a fresh install a
-  wizard asks which computer this is, which instrument, and the few things no shipped
-  file can imply, then writes one configuration and registers it. It starts from a
-  shipped configuration for that model, so everything it does not ask about keeps the
-  value the project already ships.
-- **Tescan support caught up.** Stage movement geometry corrected against the instrument
-  and hardware-verified, native spot burn, preset changes that keep your scan rotation
-  and field of view, and milling time estimates from the dose model.
-- **Every task failure and cancellation is now recorded** in the experiment. Previously
-  only successes reached `task_history`, so a failed run left no trace outside the log.
-- **Correlation correctness** — a family of bugs where the correlation quietly gave a
-  wrong answer or quietly lost points.
-
-### Workflow
+### Workflow (early access)
 
 - **Every task records what it did.** A task that proposes something (Setup
   proposes the milling position; milling tasks record their result with the final
@@ -173,6 +110,130 @@ correctness work landed in correlation and in what the experiment record remembe
   what a parked run waits on ("Parked on 2 decision(s): decide 01-a and 02-b in the
   Review tab"), and a run that gave up waiting says so rather than reading as a
   finish.
+
+### Fluorescence
+
+- Acquire Fluorescence Image with no channels configured now fails up front saying so,
+  instead of with an IndexError from the autofocus.
+
+### Grids (preview)
+
+- **A grid workflow, behind a preference.** Preferences → Enable Grid Workflow adds a
+  Grids tab (a card per grid the inventory found, with its overviews and history), a
+  Grid page beside Lamella on the Protocol tab, and a Workflow → Grids view that runs the
+  grid tasks over the selected grids, loading each from the magazine as it comes up, or
+  screens every grid in the magazine in one go. Off by default; it has run end to end on
+  the simulator and is waiting on bench time.
+- **The sample holder and magazine controls are a Sample tab** under Microscope, always
+  shown, in place of the block on the Movement tab and the preference that gated it.
+  Load and unload are icons on the grid's row; inventory is a refresh icon that asks
+  first.
+- The protocol's name, description and version panel on the Protocol tab is now one
+  line with a pencil that opens a dialog, and the settings columns are wider.
+
+### Image export
+
+- **File › Export Image saves an image with its scalebar and a bar of its acquisition
+  details**, to a PNG or TIFF or the clipboard, for a slide, a message or a figure. It
+  opens on the experiment's folder and takes an SEM/FIB image or a fluorescence stack.
+  The bar shows the detector or objective and up to five values (HFW, pixel size,
+  voltage, current, working distance, dwell time, z-stack); a second row, off by
+  default, says where the image came from: experiment, lamella or grid, task, date,
+  instrument, user, version. A value the file does not record is left out rather than
+  guessed. SEM/FIB images have contrast and gamma; a fluorescence stack shows a channel
+  legend, and any channel can be left out. The export is drawn from the image file, not
+  from the canvas, so canvas overlays (milling patterns, points, the ruler) are not in
+  it.
+
+### Changes to what v0.5.2 shipped
+
+- **Grid boundaries and holder slot markers are drawn when the holder has a calibrated
+  slot**, rather than never. v0.5.2 turned them off for everyone, which also took them
+  from an Arctis, whose working slot is always calibrated. Either way they toggle under
+  the overlays button on the canvas.
+- **The "Report an Issue" bug reporter and user scripts are on for everyone**, and their
+  flags are gone. In v0.5.2 both were opt-in. A user script still has the application's
+  access to the microscope and none of its checks, so read one before running it.
+
+## v0.5.3 (30/09/2026)
+
+A patch release, cut from the v0.5.2 release branch: fixes, and one addition to
+installation. Nothing here changes how a workflow is set up or run.
+
+### Installation
+
+- **Tools → Create Desktop Shortcut...** makes a shortcut that starts AutoLamella from
+  the environment it is installed in, in a folder you choose (the Desktop is offered): a
+  `.lnk` on Windows, a `.desktop` file on Linux and a `.command` file on macOS. It asks
+  before replacing an existing shortcut. The script-and-shortcut steps in the install
+  guide remain for anyone who prefers them.
+
+### Bug fixes
+
+- **An overview or a lamella could be sent back to the height and tilt the Overview tab
+  was opened at.** Setting coincidence, or tilting to a different milling angle, after the
+  tab had been opened was not carried into a dragged tile grid or into a position marked
+  by right-clicking the overview: the run, or the lamella's first task, drove the stage
+  back to the old height or tilt. Reported as an overview and its lamellae landing at
+  Z 31.88 mm after coincidence had been set at 32.37 mm, and as an ion tileset acquired at
+  the tilt the application was launched at rather than the milling angle the stage had
+  been moved to. The dragged grid and marked positions now take their height and pose
+  from the stage at the moment they are used, and Acquire reads the stage once before
+  planning, so a move made in the microscope vendor's software is seen as well.
+- **A dragged tile grid is dropped when the view it was dragged in is left** — a change of
+  beam or of stage orientation — and the plan returns to the stage position, rather than
+  being re-read in a view it was never placed in.
+- **"Centre on stage" works on the FIB/SEM Overview tab.** The button was never enabled
+  there, so a dragged grid could not be returned to the stage without restarting.
+
+### Known issues
+
+- Ion overviews acquired at different stage heights or milling tilts are drawn on one
+  canvas plane, so an ion overview taken *before* a coincidence correction or a tilt change
+  appears offset from one taken after it. Acquisitions go to the right place regardless.
+  Setting coincidence before the first ion overview avoids it. Electron overviews are not
+  affected.
+
+## v0.5.2 (16/09/2026)
+
+A running workflow became something you can edit, the image display moved onto a
+purpose-built canvas with overview acquisition rebuilt around it, and a large batch of
+correctness work landed in correlation and in what the experiment record remembers.
+360 commits since v0.5.1.
+
+### Highlights
+
+- **Edit the queue while it runs** — reorder, remove, re-run and "run next" from the
+  Workflow Timeline, and add work to a run already in progress. Stop Task abandons the
+  task now running without ending the workflow.
+- **Scheduled tasks are on for everyone.** A task can wait until a scheduled time before
+  running. This shipped behind a flag in v0.5.1; the flag is gone, and a protocol
+  carrying a future `scheduled_at` now actually waits where it was previously ignored.
+- **The image displays were rebuilt.** The Lamella Editor, Microscope, Overview, FM Image
+  Viewer and both correlation canvases render on a purpose-built canvas instead of napari.
+  Contrast is built into the canvas, and zoom and pan persist across acquisitions rather
+  than resetting on every frame. The old napari overview is no longer shown by default
+  and is removed in the next release.
+- **One Overview tab** on a real-space canvas, with the imaging modality chosen on the
+  canvas chrome instead of by switching tabs.
+- **Overviews can be sparse** — a tile grid carries a per-tile enable mask, so a run
+  acquires only the tiles that were asked for. For fluorescence the tiles can be chosen
+  by drawing regions on a beam overview and letting them project onto the FM grid.
+- **First-run guided setup writes your microscope configuration.** On a fresh install a
+  wizard asks which computer this is, which instrument, and the few things no shipped
+  file can imply, then writes one configuration and registers it. It starts from a
+  shipped configuration for that model, so everything it does not ask about keeps the
+  value the project already ships.
+- **Tescan support caught up.** Stage movement geometry corrected against the instrument
+  and hardware-verified, native spot burn, preset changes that keep your scan rotation
+  and field of view, and milling time estimates from the dose model.
+- **Every task failure and cancellation is now recorded** in the experiment. Previously
+  only successes reached `task_history`, so a failed run left no trace outside the log.
+- **Correlation correctness** — a family of bugs where the correlation quietly gave a
+  wrong answer or quietly lost points.
+
+### Workflow
+
 - **The running queue can be edited while it runs.** Reorder, remove, re-run and
   "run next" from the Workflow Timeline's row menu, and add work from its header.
   Edits are anchored to the piece of work rather than to its position, so they do
@@ -246,8 +307,6 @@ through that migration; napari is still a dependency.
 
 - The FM Overview tab, its overviews landing on disk, and lamella positions markable and
   savable from it.
-- Acquire Fluorescence Image with no channels configured now fails up front saying so,
-  instead of with an IndexError from the autofocus.
 - The shared imaging channel is held across view-dependent operations, beam grabs,
   autofocus sweeps and z-stacks — the FM and the beams share one active view.
 - The objective moved off the GUI thread and is guarded from two hands; objective

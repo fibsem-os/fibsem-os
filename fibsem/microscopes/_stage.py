@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, List, Mapping, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 
 import numpy as np
 import yaml
 from psygnal import Signal
 
+from fibsem import config as cfg
 from fibsem._timing import sim_sleep
-from fibsem.config import (
-    SAMPLE_HOLDER_CONFIGURATION_PATH,
-    SAMPLE_HOLDER_OCCUPANCY_PATH,
-)
+from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
+from fibsem.session_state import SessionState, session_state_for
 from fibsem.structures import (
     GRID_RADIUS,
     BeamType,
@@ -257,6 +257,18 @@ class DemoSampleLoader(SampleGridLoader):
     and each unload pretends to take, so a full exchange takes it twice. It goes
     through ``sim_sleep``, a no-op under ``FIBSEM_SIM_NO_DELAY=1``, which the test
     suite sets: the app waits, the tests do not.
+
+    ``start_unscanned`` starts the magazine as a real one reads after it has been
+    undocked: every slot ``UNKNOWN``, no grid in any of them, until a scan
+    (``run_inventory``). A read (``get_inventory``) does not change that, as on the
+    hardware. ``scan_delay`` is how long a scan pretends to take, through
+    ``sim_sleep`` like the exchanges.
+
+    ``grid_position`` is where this autoloader really puts a grid: (x, y, z) in
+    metres from the stage origin, as a real Arctis does (FIB-1144). The simulated
+    scene draws a loaded grid there, whatever the working slot is calibrated to,
+    so an uncalibrated slot misses the grid as it does on the instrument. None
+    puts it at the origin.
     """
 
     def __init__(
@@ -266,9 +278,16 @@ class DemoSampleLoader(SampleGridLoader):
         occupied: Iterable[int] = (),
         names: Optional[Mapping[Union[int, str], str]] = None,
         exchange_delay: float = 0.0,
+        start_unscanned: bool = False,
+        scan_delay: float = 0.0,
+        grid_position: Optional[Tuple[float, float, float]] = None,
     ) -> None:
         super().__init__(parent, capacity)
         self.exchange_delay = exchange_delay
+        self.scan_delay = scan_delay
+        self.grid_position = (
+            tuple(float(v) for v in grid_position) if grid_position else None
+        )
         self.fail_next_exchange = False
         names = names or {}
         for number in occupied:
@@ -280,7 +299,24 @@ class DemoSampleLoader(SampleGridLoader):
                 )
             name = names.get(number, names.get(str(number))) or f"Grid-{number:02d}"
             slot.loaded_grid = SampleGrid(name=str(name))
-        self.scanned = True  # an in-memory magazine is known from the start
+        self.scanned = True  # an in-memory magazine answers from the start
+        # Unscanned: the grids are in the magazine but nothing is known about them,
+        # so the slots show none, as the hardware's Unknown slots do, until a scan
+        # finds them.
+        self._unscanned: Dict[str, SampleGrid] = {}
+        if start_unscanned:
+            for slot in self.slots.values():
+                if slot.loaded_grid is not None:
+                    self._unscanned[slot.name] = slot.loaded_grid
+                    slot.loaded_grid = None
+            self.unknown_slots = set(self.slots)
+
+    def _scan_magazine(self) -> None:
+        sim_sleep(self.scan_delay)
+        for slot_name, grid in self._unscanned.items():
+            self.slots[slot_name].loaded_grid = grid
+        self._unscanned.clear()
+        self.unknown_slots = set()
 
     def _do_load(self, slot: GridSlot) -> None:
         self._exchange()
@@ -548,14 +584,16 @@ class Stage:
         return self.grid_inventory()
 
     def assign_grid(
-        self, slot_name: str, grid: Optional[SampleGrid], persist: bool = True
+        self, slot_name: str, grid: Optional[SampleGrid], persist: bool = False
     ) -> None:
-        """Name (or clear) the grid in an inventory slot, and keep it.
+        """Name (or clear) the grid in an inventory slot.
 
         With a loader the slot is a magazine slot and the name goes to the hardware's
-        slot description. On a fixed holder the slot is a holder slot and the name is
-        saved to the occupancy file, so it is there next session; the calibration file
-        is not touched. Pass ``persist=False`` to change only the in-memory holder.
+        slot description. On a fixed holder the slot is a holder slot; with
+        ``persist=True`` the occupancy is also saved to the session state, so it is
+        there next session. The application persists; a script leaves it off, so it
+        cannot rewrite what the operator declared is in the shuttle. The
+        calibration is never touched.
         """
         if self.loader is not None:
             self.loader.assign_grid(slot_name, grid)
@@ -565,7 +603,52 @@ class Stage:
             raise ValueError(f"Slot '{slot_name}' not found in sample holder.")
         slot.loaded_grid = grid
         if persist:
-            self.holder.save_occupancy(SAMPLE_HOLDER_OCCUPANCY_PATH)
+            save_holder_occupancy(
+                self.holder, session_state_for(self.parent, writable=True)
+            )
+
+    def restore_occupancy(self) -> bool:
+        """Put back the grids the session state records in the holder's slots.
+
+        Only a fixed holder: an autoloader's magazine is read from the hardware.
+        Returns whether anything was recorded.
+        """
+        if self.loader is not None:
+            return False
+        return load_holder_occupancy(self.holder, session_state_for(self.parent))
+
+
+# ---- which grid is in which slot: session state -------------------------------------
+
+HOLDER_OCCUPANCY = "holder_occupancy"
+
+
+def _import_occupancy() -> Optional[dict]:
+    """The occupancy from the file it lived in before the session state, if any."""
+    path = Path(cfg.SAMPLE_HOLDER_OCCUPANCY_PATH)
+    if not path.exists():
+        return None
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+    return data if isinstance(data, dict) else None
+
+
+def load_holder_occupancy(holder: SampleHolder, state: SessionState) -> bool:
+    """Apply the recorded occupancy to *holder*. Returns whether there was one."""
+    data = state.load_section(HOLDER_OCCUPANCY, migrate=_import_occupancy)
+    if data is None:
+        return False
+    try:
+        holder.apply_occupancy(data)
+    except Exception as e:
+        logging.warning(f"Could not restore the sample holder occupancy: {e}")
+        return False
+    return True
+
+
+def save_holder_occupancy(holder: SampleHolder, state: SessionState) -> bool:
+    """Record which grid is in which slot. Returns whether anything was written."""
+    return state.save_section(HOLDER_OCCUPANCY, holder.occupancy_to_dict())
 
 
 def uncalibrated_message(slot_name: str) -> str:
@@ -631,25 +714,52 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
     return holder
 
 
+COMPUSTAGE_HOLDER_NAME = "CompuStage Holder"
+
+
+def _compustage_working_slot(stage_settings) -> GridSlot:
+    """The compustage's one slot: where the autoloader puts every grid.
+
+    Nominally the stage origin, and that is the slot until someone calibrates it.
+    A loaded grid on a real Arctis sits off the origin, in x, y and z, by the same
+    amount on every load (FIB-1144), so a position captured with the calibration
+    wizard and saved in the configuration replaces it -- once it passes the trust
+    check a fixed holder's slots get: captured against this pre-tilt and reference
+    rotation. One that does not is dropped with a warning, and the origin is used.
+    """
+    pre_tilt = float(stage_settings.shuttle_pre_tilt)
+    rotation_reference = float(stage_settings.rotation_reference)
+    saved = stage_settings.holders.get(COMPUSTAGE_HOLDER_NAME)
+    if saved is not None:
+        for note in saved.discard_untrusted_positions(pre_tilt, rotation_reference):
+            logging.warning(
+                f"Compustage working slot: {note}. Using the stage origin; "
+                "recalibrate it from the Sample view."
+            )
+        captured = saved.slots.get("Slot-01")
+        if captured is not None and captured.is_calibrated:
+            return GridSlot(
+                name="Slot-01",
+                index=0,
+                position=deepcopy(captured.position),
+                calibration=deepcopy(captured.calibration),
+            )
+    return GridSlot(
+        name="Slot-01",
+        index=0,
+        position=FibsemStagePosition(
+            name="Slot-01", x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
+        ),
+        calibration=SlotCalibration.builtin(pre_tilt, rotation_reference),
+    )
+
+
 def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
     if microscope.stage_is_compustage:
-        # The working slot is the compustage origin by construction: the loader puts
-        # every grid at the same place and the coordinate system is referenced to
-        # it. That is a hardware fact, so the slot is calibrated without a capture.
         stage_settings = microscope.system.stage
-        slot01 = GridSlot(
-            name="Slot-01",
-            index=0,
-            position=FibsemStagePosition(
-                name="Slot-01", x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
-            ),
-            calibration=SlotCalibration.builtin(
-                float(stage_settings.shuttle_pre_tilt),
-                float(stage_settings.rotation_reference),
-            ),
-        )
+        slot01 = _compustage_working_slot(stage_settings)
         holder = SampleHolder(
-            name="CompuStage Holder",
+            name=COMPUSTAGE_HOLDER_NAME,
             capacity=1,
             slots={"Slot-01": slot01},
             # Built here rather than resolved from the configuration, so it has to be
@@ -672,10 +782,14 @@ def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
             float(stage_settings.rotation_reference),
         ):
             logging.warning(f"Sample holder: {note}. Recalibrate it.")
-        # The grids in the slots are session state, remembered in their own file so
-        # a restart does not forget what is physically still in the shuttle.
-        holder.load_occupancy(SAMPLE_HOLDER_OCCUPANCY_PATH)
         loader = None
 
     holder._parent = microscope
-    return Stage(parent=microscope, holder=holder, loader=loader)
+    stage = Stage(parent=microscope, holder=holder, loader=loader)
+    # The grids in the slots are session state, so a restart does not forget what is
+    # physically still in the shuttle. Restored here when the stage is rebuilt; at
+    # the first connect the configuration is not known yet, and `setup_session`
+    # restores it once it is.
+    if getattr(microscope, "configuration_path", None):
+        stage.restore_occupancy()
+    return stage

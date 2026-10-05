@@ -1,11 +1,22 @@
 import json
 import logging
+import math
 import os
 import re
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    get_args,
+)
 
 import numpy as np
 import tifffile as tff
@@ -64,6 +75,7 @@ from fibsem.structures import (  # noqa: F401
     FibsemHardwareGeometry,
     FibsemRectangle,
     FibsemStagePosition,
+    InsertableDeviceState,
     TileOrderStrategy,
     _parse_image_transform,
 )
@@ -218,6 +230,152 @@ class FMStagePosition:
             stage_position=stage_position,
             objective_position=objective_position,
         )
+
+
+# The objective's states as today's FM API names them (AutoScript's
+# RetractableDeviceState), and the device state each one is.
+ObjectiveStateName = Literal["Inserted", "Retracted", "Busy", "Error", "Other"]
+OBJECTIVE_STATES: Tuple[str, ...] = get_args(ObjectiveStateName)
+OBJECTIVE_INSERTED = "Inserted"
+_OBJECTIVE_DEVICE_STATES = {
+    "Inserted": InsertableDeviceState.INSERTED,
+    "Retracted": InsertableDeviceState.RETRACTED,
+    "Busy": InsertableDeviceState.MOVING,
+    "Error": InsertableDeviceState.ERROR,
+    "Other": InsertableDeviceState.UNKNOWN,
+}
+
+
+def objective_device_state(name: str) -> InsertableDeviceState:
+    """The device state for an objective state name; an unknown name is UNKNOWN."""
+    return _OBJECTIVE_DEVICE_STATES.get(name, InsertableDeviceState.UNKNOWN)
+
+
+def objective_state_name(state: InsertableDeviceState) -> str:
+    """The objective state name today's FM API uses for a device state."""
+    for name, device_state in _OBJECTIVE_DEVICE_STATES.items():
+        if device_state is state:
+            return name
+    return "Other"
+
+
+Band = Tuple[float, Optional[float]]  # edges in nm; the top may be unknown
+
+
+@dataclass(frozen=True, init=False)
+class EmissionFilter:
+    """One emission filter the filter set can put in the light path.
+
+    ``bands`` are the edges in nm of each band it passes, lowest first: one for a
+    single-band filter, two for a dual-band one. Reflection has none. A multi-band
+    filter whose bands the driver doesn't know (Thermo reports only "fluorescence
+    mode") has ``multi_band`` set and no bands. A driver that knows only a band's
+    bottom edge gives ``(low, None)``.
+
+    ``EmissionFilter("GFP", low=510, high=560)`` is shorthand for one band.
+    """
+
+    name: str
+    bands: Tuple[Band, ...]
+    multi_band: bool
+
+    def __init__(
+        self,
+        name: str,
+        low: Optional[float] = None,
+        high: Optional[float] = None,
+        *,
+        bands: Sequence[Sequence[Optional[float]]] = (),
+        multi_band: bool = False,
+    ):
+        if low is not None:
+            if bands:
+                raise ValueError("give either low and high, or bands")
+            bands = ((low, high),)
+        edges = tuple(
+            (float(lo), None if hi is None else float(hi)) for lo, hi in bands
+        )
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "bands", tuple(sorted(edges, key=lambda b: b[0])))
+        object.__setattr__(self, "multi_band", bool(multi_band or len(edges) > 1))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "bands": [list(band) for band in self.bands],
+            "multi_band": self.multi_band,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EmissionFilter":
+        """Reads ``bands``, or the single ``low``/``high`` of the first version."""
+        if "bands" in data:
+            return cls(
+                data["name"],
+                bands=data["bands"],
+                multi_band=data.get("multi_band", False),
+            )
+        return cls(data["name"], low=data.get("low"), high=data.get("high"))
+
+    @property
+    def low(self) -> Optional[float]:
+        """The bottom edge of the lowest band, or None without bands. Today's FM API
+        names a banded filter by this value."""
+        return self.bands[0][0] if self.bands else None
+
+    @property
+    def high(self) -> Optional[float]:
+        """The top edge of the highest band, or None when it isn't known."""
+        return self.bands[-1][1] if self.bands else None
+
+    @property
+    def centre(self) -> Optional[float]:
+        """The middle of a single band in nm, or None otherwise."""
+        if len(self.bands) != 1 or self.high is None:
+            return None
+        return (self.low + self.high) / 2
+
+    @property
+    def label(self) -> str:
+        """The name to show. A multi-band filter of unknown bands that the FM calls
+        "Fluorescence" (Thermo, the simulator) shows as "Multi-band"."""
+        if self.multi_band and not self.bands and self.name.lower() == "fluorescence":
+            return "Multi-band"
+        return self.name
+
+
+REFLECTION = EmissionFilter("Reflection")
+
+
+def band_name(bands: Sequence[Band]) -> str:
+    """ "510–560 nm", or "510–540 / 600–650 nm" for a dual-band filter."""
+    parts = [f"{lo:.0f}" if hi is None else f"{lo:.0f}–{hi:.0f}" for lo, hi in bands]
+    return " / ".join(parts) + " nm"
+
+
+def emission_filter_for(
+    value: Any, edges: Dict[float, Sequence[Sequence[float]]]
+) -> EmissionFilter:
+    """The filter an FM class's emission value names. ``edges`` maps a filter's
+    bottom edge to its bands, for FM classes that know them; a bare ``(low, high)``
+    pair is read as one band."""
+    if value is None:
+        return REFLECTION
+    if isinstance(value, str):
+        return EmissionFilter(value, multi_band=True)
+    low = float(value)
+    bands = next((b for bottom, b in edges.items() if math.isclose(bottom, low)), None)
+    if bands is None:
+        bands = ((low, None),)
+    elif bands and not isinstance(bands[0], (tuple, list)):
+        bands = (tuple(bands),)
+    return EmissionFilter(band_name(bands), bands=bands)
+
+
+def same_emission_value(a: Any, b: Any) -> bool:
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return math.isclose(a, b, rel_tol=1e-6)
+    return a == b
 
 
 @dataclass

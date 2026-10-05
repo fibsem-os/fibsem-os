@@ -98,6 +98,9 @@ from fibsem.applications.autolamella.ui.autolamella_load_experiment_widget impor
 from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget import (
     load_task_protocol_dialog,
 )
+from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
+    create_overview_image_widget,
+)
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
 from fibsem.ui.fm.widgets import MinimapPlotWidget
@@ -127,13 +130,13 @@ warnings.filterwarnings(
     module=r"napari\.layers\.shapes\._shapes_utils",
 )
 
+# The PDF report needs the `reporting` extra (reportlab). The overview plot does not --
+# it is matplotlib and Qt -- so it is imported with the other dialogs above rather than
+# here, where a missing reportlab used to take it down too.
 REPORTING_AVAILABLE: bool = False
 try:
     from fibsem.applications.autolamella.ui.autolamella_generate_report_widget import (
         generate_report_dialog,
-    )
-    from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
-        create_overview_image_widget,
     )
 
     REPORTING_AVAILABLE = True
@@ -832,6 +835,11 @@ class AutoLamellaUI(QMainWindow):
                 parent=self,
             )
 
+            # The defaults' "Read from Acquire Tab" reads this tab.
+            self.system_widget.set_current_imaging(
+                self.image_widget._get_image_settings_from_ui
+            )
+
             # add widgets to tabs
             self.tabWidget.addTab(self.image_widget, "Image")
             self.tabWidget.addTab(self.movement_widget, "Movement")
@@ -882,17 +890,6 @@ class AutoLamellaUI(QMainWindow):
                 self.tabWidget.indexOf(self.spot_burn_widget), False
             )
 
-            try:
-                from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
-
-                if isinstance(self.microscope, OdemisThermoMicroscope):
-                    logging.info(
-                        "OdemisThermoMicroscope detected, enabling Odemis specific features."
-                    )
-
-            except Exception as e:
-                logging.debug(f"OdemisThermoMicroscope not available: {e}")
-
             self.image_widget.acquisition_progress_signal.connect(
                 self.handle_acquisition_update
             )
@@ -940,6 +937,7 @@ class AutoLamellaUI(QMainWindow):
                 )
                 self.image_widget.deleteLater()
                 self.image_widget = None
+                self.system_widget.set_current_imaging(None)
 
     def import_fm_configuration(self) -> None:
         """Load a fluorescence microscope configuration via the control widget."""
@@ -979,18 +977,20 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is None:
             return
 
+        if not REPORTING_AVAILABLE:
+            notification_service.show_toast(
+                "Reporting tools are not available. "
+                'Install the reporting extra: pip install "fibsem[reporting]"',
+                "warning",
+            )
+            return
+
         generate_report_dialog(self.experiment, parent=self)
         return
 
     def action_generate_overview_plot(self) -> None:
         """Generate an plot with the lamella position on an overview image."""
         if self.experiment is None:
-            return
-
-        if not REPORTING_AVAILABLE:
-            notification_service.show_toast(
-                "Reporting tools are not available.", "warning"
-            )
             return
 
         dialog = create_overview_image_widget(experiment=self.experiment, parent=self)
@@ -2273,27 +2273,6 @@ class AutoLamellaUI(QMainWindow):
 
         logging.info(f"Moving to position of {lamella.name}.")
         self.movement_widget.move_to_position(stage_position)
-
-    def _add_lamella_from_odemis(self):
-        if self.experiment is None:
-            return
-
-        filename = fui.open_existing_directory_dialog(
-            msg="Select Odemis Project Directory",
-            path=str(self.experiment.path),
-            parent=self,
-        )
-        if filename == "":
-            return
-
-        from fibsem.applications.autolamella.compat.odemis import (
-            _add_features_from_odemis,
-        )
-
-        stage_positions = _add_features_from_odemis(filename)
-
-        for pos in stage_positions:
-            self.add_new_lamella(pos)
 
     def _grid_id_for_new_lamella(
         self, position: Optional[FibsemStagePosition]

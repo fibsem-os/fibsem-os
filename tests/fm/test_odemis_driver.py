@@ -136,6 +136,22 @@ class TestFilterSetWavelengths:
         with pytest.raises(TypeError):
             fm.filter_set.emission_wavelength = [500]
 
+    def test_a_multi_band_filter_is_named_by_its_lowest_band(self, fm):
+        dual = (stubs.band_em(505, 30), stubs.band_em(600, 50))
+        emission = fm.filter_set._stream.emission
+        emission.choices = frozenset(emission.choices | {dual})
+        bands = fm.filter_set.emission_bands
+        bottom = next(nm for nm in bands if abs(nm - 505) < 1e-6)
+        assert [list(b) for b in bands[bottom]] == [
+            pytest.approx([505, 535]),
+            pytest.approx([600, 650]),
+        ]
+        fm.filter_set.emission_wavelength = 505
+        assert emission.value == dual
+        assert fm.filter_set.emission_wavelength == pytest.approx(505)
+        found = fm.filter_set.emission_filter(fm.filter_set.emission_wavelength)
+        assert found.name == "505–535 / 600–650 nm"
+
     def test_emission_setter_skips_when_unchanged(self, fm):
         fm.filter_set.emission_wavelength = 590
         emission_va = fm.filter_set._stream.emission

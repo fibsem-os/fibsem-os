@@ -172,6 +172,68 @@ def test_to_device_refuses_an_unsupported_pose():
         microscope.to_device(start, "FM")
 
 
+# ── a compustage arrives where the conversion says, too ─────────────────
+
+
+def _beam_side_arctis():
+    """A compustage whose objective also images from the beam side."""
+    microscope = _microscope(ARCTIS_CONFIG)
+    microscope.system.stage.devices["FM"].acquisition_orientations = [
+        "FM",
+        "SEM",
+        "MILLING",
+    ]
+    return microscope
+
+
+@pytest.mark.parametrize("orientation", ["SEM", "MILLING"])
+def test_a_compustage_stays_in_a_pose_its_objective_images_from(orientation):
+    """It used to flip to t = -180 regardless, while `to_device` kept the pose -- so
+    "move to the FM" went somewhere other than the fluorescence pose derived for a
+    lamella marked right there."""
+    microscope = _beam_side_arctis()
+    start = _off_centre(microscope, orientation)
+    microscope.move_stage_absolute(start)
+    expected = microscope.to_device(start, "FM")
+
+    microscope.move_to_device("FM")
+
+    arrived = microscope.get_stage_position()
+    assert arrived.t == pytest.approx(expected.t)
+    assert arrived.t == pytest.approx(start.t)
+    assert arrived.x == pytest.approx(start.x)
+    assert microscope.fm.objective.state == "Inserted"
+
+
+def test_a_compustage_still_flips_from_a_pose_its_objective_cannot_use():
+    microscope = _beam_side_arctis()
+    microscope.move_stage_absolute(_off_centre(microscope, "FIB"))
+
+    microscope.move_to_device("FM")
+
+    assert microscope.get_stage_orientation() == "FM"
+    assert microscope.fm.objective.state == "Inserted"
+
+
+def test_a_compustage_that_declares_only_the_flip_is_unchanged():
+    microscope = _microscope(ARCTIS_CONFIG)
+    microscope.system.stage.devices["FM"].acquisition_orientations = ["FM"]
+    microscope.move_stage_absolute(_off_centre(microscope, "SEM"))
+
+    microscope.move_to_device("FM")
+
+    assert microscope.get_stage_orientation() == "FM"
+
+
+def test_an_orientation_asked_for_on_a_compustage_is_honoured():
+    microscope = _beam_side_arctis()
+    microscope.move_stage_absolute(_off_centre(microscope, "MILLING"))
+
+    microscope.move_to_device("FM", orientation="FM")
+
+    assert microscope.get_stage_orientation() == "FM"
+
+
 # ── what a traverse still does not do ────────────────────────────────
 
 

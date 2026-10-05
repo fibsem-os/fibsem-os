@@ -771,3 +771,11 @@ def test_experiment_date_is_creation_time_not_import_time():
     after = datetime.datetime.timestamp(datetime.datetime.now())
 
     assert before < experiment.date < after
+
+
+def test_a_chamber_state_reads_any_vendor_name():
+    from fibsem.structures import ChamberState
+
+    assert ChamberState.from_name("Pumped") is ChamberState.PUMPED
+    assert ChamberState.from_name("VENTED") is ChamberState.VENTED
+    assert ChamberState.from_name("Somewhere else") is ChamberState.UNKNOWN

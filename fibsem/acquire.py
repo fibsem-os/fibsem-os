@@ -5,7 +5,6 @@ import logging
 import os
 from typing import Any, Dict, Optional, Tuple
 
-from fibsem import manufacturers
 from fibsem.autofunctions.acb import run_auto_contrast_brightness
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -150,10 +149,6 @@ def take_reference_images(
 
     # acquire ion image
     image_settings.beam_type = BeamType.ION
-    if manufacturers.is_tescan(microscope.manufacturer):
-        import time
-
-        time.sleep(1)
     ib_image = acquire_image(microscope, image_settings)
     image_settings.beam_type = tmp_beam_type  # reset to original beam type
 

@@ -31,7 +31,7 @@ from fibsem.applications.autolamella.ui.lamella_list_widget import (
     apply_grid_label,
     grid_of,
     grids_named,
-    has_defect,
+    has_verdict,
     not_on_stage_reason,
     short_status,
 )
@@ -243,6 +243,10 @@ class LamellaCardWidget(QWidget):
             fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR),
             "Update Position",
         )
+        self._action_export_gif = _actions_menu.addAction(
+            fibsem_icon("mdi:file-gif-box", color=stylesheets.GRAY_ICON_COLOR),
+            "Export GIF...",
+        )
         self._action_remove = _actions_menu.addAction(
             fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
             "Remove",
@@ -258,6 +262,7 @@ class LamellaCardWidget(QWidget):
         self._action_update.triggered.connect(
             lambda: self.update_position_requested.emit(self.lamella)
         )
+        self._action_export_gif.triggered.connect(self._on_export_gif)
         self._action_remove.triggered.connect(self._on_remove_clicked)
 
         self._btn_defect = QToolButton()
@@ -477,11 +482,11 @@ class LamellaCardWidget(QWidget):
         self._btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
         self._btn_defect.setToolTip(tooltip)
 
-        # Only drawn once there is a defect; a tick on every healthy card says
-        # nothing. Not `setVisible`: the compact arrangement keeps the button
-        # in its row, so it is hidden by taking its icon and width away.
-        defective = has_defect(self.lamella)
-        self._btn_defect.setVisible(defective)
+        # Only drawn once someone has judged the lamella; a mark on every card
+        # nobody has looked at says nothing. Not `setVisible`: the compact
+        # arrangement keeps the button in its row, so it is hidden by taking its
+        # icon and width away.
+        self._btn_defect.setVisible(has_verdict(self.lamella))
 
         # The grid ahead of the status, on the line that already carries the
         # secondary detail. Moving to or re-recording a lamella whose grid is in
@@ -541,6 +546,36 @@ class LamellaCardWidget(QWidget):
         )
         if reply == QMessageBox.Yes:
             self.remove_requested.emit(self.lamella)
+
+    def _on_export_gif(self) -> None:
+        """Open the workflow GIF export on the images this lamella's tasks saved.
+
+        Needs no microscope: it reads the files the task history recorded.
+        """
+        from PyQt5.QtWidgets import QApplication
+
+        from fibsem.applications.autolamella.task_outputs import images_by_task
+        from fibsem.imaging.animation import AnimationStep, load_frames
+        from fibsem.ui import notification_service
+        from fibsem.ui.widgets.animation_export_dialog import AnimationExportDialog
+
+        steps = [
+            AnimationStep(title=name, paths=finals, fluorescence=stacks)
+            for name, finals, stacks in images_by_task(self.lamella)
+        ]
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            frames = load_frames(steps)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not frames:
+            notification_service.show_toast(
+                f"{self.lamella.name} has no task images to animate yet", "info"
+            )
+            return
+        AnimationExportDialog(
+            frames, self.lamella.name, os.fspath(self.lamella.path), self
+        ).exec_()
 
     def _on_defect_written(self) -> None:
         self.refresh()

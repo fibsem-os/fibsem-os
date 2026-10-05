@@ -43,7 +43,6 @@ rather than overwritten, so whatever it held can still be recovered by hand.
 
 import logging
 import os
-import tempfile
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -148,6 +147,15 @@ class SessionState:
             return None
         return data
 
+    def sections(self) -> Dict[str, Any]:
+        """Every section as the file holds it -- nothing imported, nothing written.
+
+        Empty when there is no file or it cannot be read. For showing what an
+        instrument remembers; code that uses a section loads it by name.
+        """
+        data = self._read() or {}
+        return {name: value for name, value in data.items() if name != "version"}
+
     def load_section(
         self,
         name: str,
@@ -208,11 +216,16 @@ class SessionState:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # `version` first, then the sections in the order they were added.
         ordered = {"version": data.pop("version"), **data}
-        handle, temp = tempfile.mkstemp(
-            dir=str(self.path.parent), prefix=f".{self.path.stem}.", suffix=".tmp"
-        )
+        # Written beside the file and swapped in, so a write cut short -- a crash,
+        # a kill, a power cut during the FM autosave -- leaves the old file, never a
+        # truncated one. A plain `open`, not `mkstemp`: that creates the file 0600,
+        # and `os.replace` keeps the mode, which on a PC shared between operator
+        # accounts would lock the next operator out. The lock above covers this
+        # process's threads, and only the application writes, so the name needs
+        # only the process to be unique.
+        temp = str(self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp"))
         try:
-            with os.fdopen(handle, "w") as f:
+            with open(temp, "w") as f:
                 yaml.safe_dump(ordered, f, sort_keys=False, indent=4)
             os.replace(temp, self.path)
         except BaseException:

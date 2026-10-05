@@ -57,7 +57,15 @@ def entry(status, name="overview_sem"):
 
 class TestHeadline:
     def test_nothing_yet(self):
-        assert grid_headline(GridRecord(name="g"))[0] == "Not run"
+        assert grid_headline(GridRecord(name="g"))[0] == ""
+
+    def test_a_load_with_no_task_after_it_says_nothing_either(self):
+        grid = GridRecord(name="g")
+        grid.task_history += [
+            entry(AutoLamellaTaskStatus.Completed),
+            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+        ]
+        assert grid_headline(grid)[0] == ""
 
     def test_complete_after_a_load(self):
         grid = GridRecord(name="g")
@@ -140,8 +148,8 @@ class TestCards:
         assert tab.summary_label.text() == "3 in this experiment · 3 present"
         card = tab.cards.cards[0]
         assert [c.text() for c in card._chip_widgets] == []  # present, not loaded
-        assert "slot 01" in card._status_label.toolTip()
-        assert card.is_present and card.status_text == "Not run"
+        assert card._status_label.toolTip() == "slot 01"  # no "Not run" to join
+        assert card.is_present and card.status_text == ""
         assert card._action_load.isVisible() and card._action_load.isEnabled()
         assert not card._action_unload.isVisible()
         assert tab.status_label.text() == "Inventory read."
@@ -189,7 +197,7 @@ class TestCards:
         loaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
         assert loaded.get_grid_by_name("Grid-01").quality.verdict is GridQuality.GOOD
         # a task outcome does not touch it
-        assert grid_headline(card.grid)[0] == "Not run"
+        assert grid_headline(card.grid)[0] == ""
 
     def test_rename_writes_through_to_the_slot(self, tab, arctis, experiment):
         tab.btn_inventory.click()
@@ -201,11 +209,55 @@ class TestCards:
         assert "slot 03" in card._status_label.toolTip()
         assert experiment.get_grid_by_name("grid-cedar") is card.grid
 
+    def test_a_slot_that_keeps_its_name_keeps_the_record_too(
+        self, tab, arctis, monkeypatch
+    ):
+        """The next inventory read would bring the slot's name back, so a write
+        that did not take leaves the record as it was, and says why."""
+        tab.btn_inventory.click()
+
+        def refuse(slot_name, grid, persist=False):
+            raise RuntimeError("the name did not stick")
+
+        monkeypatch.setattr(arctis._stage, "assign_grid", refuse)
+        card = tab.cards.cards[0]
+        tab._on_rename(card.grid, "grid-aspen")
+        assert card.grid.name == "Grid-01"
+        assert "did not stick" in tab.status_label.text()
+
     def test_rename_refuses_a_duplicate(self, tab):
         tab.btn_inventory.click()
         tab._on_rename(tab.cards.cards[0].grid, "Grid-02")
         assert tab.cards.cards[0].grid.name == "Grid-01"
         assert "already a grid named" in tab.status_label.text()
+
+    def test_a_grid_that_has_run_keeps_its_name(self, tab, arctis):
+        """Its folder and images carry the name, so Rename is greyed out with the
+        reason, and the rename itself is refused for any other way in."""
+        tab.btn_inventory.click()
+        card = tab.cards.cards[0]
+        assert card._action_rename.isEnabled()
+        card.grid.task_history.append(entry(AutoLamellaTaskStatus.Completed))
+        card.refresh()
+        assert not card._action_rename.isEnabled()
+        assert "Named once it has run" in card._action_rename.toolTip()
+
+        tab._on_rename(card.grid, "grid-aspen")
+        assert card.grid.name == "Grid-01"
+        assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+        assert "cannot be renamed" in tab.status_label.text()
+
+    def test_a_grid_only_loaded_can_still_be_renamed(self, tab):
+        """A load writes nothing under the grid's name, so it does not fix it."""
+        tab.btn_inventory.click()
+        card = tab.cards.cards[0]
+        card.grid.task_history.append(
+            entry(AutoLamellaTaskStatus.Completed, name=LOAD_ENTRY_NAME)
+        )
+        card.refresh()
+        assert card._action_rename.isEnabled()
+        tab._on_rename(card.grid, "grid-aspen")
+        assert card.grid.name == "grid-aspen"
 
     def test_selection_toggles_and_is_announced(self, tab):
         tab.btn_inventory.click()
@@ -423,6 +475,93 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     assert sample_states() == ["occupied", "occupied"]
 
 
+def _window_with_magazine(main_ui, tmp_path):
+    """The window on a simulated autoloader with grids in slots 1-3, an
+    experiment open, and the Grids tab's inventory read."""
+    from fibsem.microscopes._stage import DemoSampleLoader
+    from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
+
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    microscope = ui.microscope
+    microscope.stage_is_compustage = True
+    microscope._stage = _create_sample_stage(microscope)
+    microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1, 2, 3))
+    ui.sample_widget = FibsemSampleWidget(microscope=microscope)
+    main_ui._refresh_grids_tab_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    ui.experiment = exp
+    main_ui.grids_tab.set_experiment(exp)
+    main_ui.grid_workflow_widget.set_experiment(exp)
+    main_ui.tab_widget.setTabEnabled(
+        main_ui.tab_widget.indexOf(main_ui.grids_tab), True
+    )
+    main_ui.grids_tab._synchronous = True
+    main_ui.grids_tab.btn_inventory.click()
+    assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
+    return ui, microscope, exp
+
+
+def _name_on_the_sample_view(ui, index, name):
+    row = ui.sample_widget.loader_widget._row_widget(index)
+    row.name_edit.setText(name)
+    row.name_edit.editingFinished.emit()
+
+
+class TestNamingOnTheSampleView:
+    """The Sample view names grids on the hardware; the experiment's record has
+    to follow, or the next inventory sync adds a second record."""
+
+    def test_naming_a_slot_renames_its_record(self, main_ui, tmp_path):
+        ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
+        record = exp.get_grid_by_name("Grid-02")
+        _name_on_the_sample_view(ui, 1, "grid-birch")
+        assert [g.name for g in exp.grids] == ["Grid-01", "grid-birch", "Grid-03"]
+        assert exp.get_grid_by_name("grid-birch") is record
+        assert (
+            microscope._stage.loader.slots["Slot-02"].loaded_grid.name == "grid-birch"
+        )
+        assert [c.grid.name for c in main_ui.grids_tab.cards.cards][1] == "grid-birch"
+        saved = Experiment.load(Path(exp.path) / "experiment.yaml")
+        assert [g.name for g in saved.grids] == ["Grid-01", "grid-birch", "Grid-03"]
+
+    def test_a_grid_that_has_run_is_refused(self, main_ui, tmp_path):
+        ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
+        exp.get_grid_by_name("Grid-01").task_history.append(
+            entry(AutoLamellaTaskStatus.Completed)
+        )
+        _name_on_the_sample_view(ui, 0, "grid-aspen")
+        assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
+        assert microscope._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+        assert "cannot be renamed" in ui.sample_widget.loader_widget.status_label.text()
+
+    def test_a_name_another_grid_has_is_refused(self, main_ui, tmp_path):
+        ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
+        _name_on_the_sample_view(ui, 0, "Grid-02")
+        assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
+        assert microscope._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+
+    def test_nothing_is_renamed_while_a_workflow_runs(self, main_ui, tmp_path):
+        """The run's queue holds grids by name."""
+        ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
+
+        class _Running:
+            def is_alive(self):
+                return True
+
+        ui._task_worker_thread = _Running()
+        try:
+            _name_on_the_sample_view(ui, 1, "grid-birch")
+        finally:
+            ui._task_worker_thread = None  # or closing the window waits on it
+        assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
+        assert "while a workflow is running" in (
+            ui.sample_widget.loader_widget.status_label.text()
+        )
+
+
 class TestReport:
     """Writes the grid screening PDF under the experiment and opens it. Tools →
     Reporting calls this; see test_grid_report_menu.py for the menu."""
@@ -458,3 +597,89 @@ class TestReport:
         monkeypatch.setattr(module, "generate_grid_report", refuse)
         tab.generate_report()
         assert "pip install fibsem-os[reporting]" in tab.status_label.text()
+
+
+class TestNote:
+    """The operator's note on a grid (FIB-1132): written from the card's actions
+    menu, kept on the record, and printed by the grid screening report."""
+
+    NOTE = "Even ice across the centre, cells on the east half."
+
+    @pytest.fixture
+    def card(self, tab):
+        tab.btn_inventory.click()
+        card = tab.cards.cards[0]
+        tab.select_grid(card.grid)
+        return card
+
+    @staticmethod
+    def type_note(monkeypatch, text, ok=True):
+        import fibsem.applications.autolamella.ui.grid_card_widget as module
+
+        monkeypatch.setattr(
+            module.QInputDialog,
+            "getMultiLineText",
+            lambda *args, **kwargs: (text, ok),
+        )
+
+    def test_it_is_saved_and_shown(self, tab, card, experiment, monkeypatch):
+        changed = []
+        tab.experiment_changed.connect(lambda: changed.append(True))
+        self.type_note(monkeypatch, f"  {self.NOTE}\n")
+        card._action_note.trigger()
+
+        assert card.grid.description == self.NOTE  # trimmed
+        assert changed == [True]
+        assert card._card.toolTip() == self.NOTE
+        assert self.NOTE in tab.results_widget.subtitle_label.text()
+        loaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
+        assert loaded.get_grid_by_name(card.grid.name).description == self.NOTE
+
+    def test_a_verdict_keeps_the_note(self, card, monkeypatch):
+        self.type_note(monkeypatch, self.NOTE)
+        card._action_note.trigger()
+        card.set_quality(GridQuality.GOOD)
+        assert card.grid.description == self.NOTE
+
+    def test_an_empty_note_clears_it(self, card, monkeypatch):
+        self.type_note(monkeypatch, self.NOTE)
+        card._action_note.trigger()
+        self.type_note(monkeypatch, "   ")
+        card._action_note.trigger()
+        assert card.grid.description == ""
+        assert card._card.toolTip() == ""
+
+    def test_cancel_changes_nothing(self, tab, card, monkeypatch):
+        changed = []
+        tab.experiment_changed.connect(lambda: changed.append(True))
+        self.type_note(monkeypatch, self.NOTE, ok=False)
+        card._action_note.trigger()
+        assert card.grid.description == ""
+        assert changed == []
+
+    def test_it_reaches_the_report(self, tab, card, experiment, monkeypatch):
+        from fibsem.applications.autolamella.tools.grid_report import (
+            collect_grid_report,
+        )
+
+        self.type_note(monkeypatch, self.NOTE)
+        card._action_note.trigger()
+        experiment.task_protocol = AutoLamellaTaskProtocol()
+        report = collect_grid_report(experiment)
+        assert report.sections[0].description == self.NOTE
+
+        pytest.importorskip("reportlab")
+        from fibsem.applications.autolamella.tools.grid_report_pdf import (
+            generate_grid_report,
+        )
+
+        path = generate_grid_report(
+            experiment,
+            output_path=str(Path(experiment.path) / "report.pdf"),
+            compress=False,
+        )
+        # Once on the cover, once under the grid's name. The cover's column wraps
+        # the note, so look for its two ends rather than the whole string.
+        pdf = Path(path).read_bytes()
+        assert pdf.count(b"Even ice across") == 2
+        assert pdf.count(b"east half.") == 2

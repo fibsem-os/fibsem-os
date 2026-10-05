@@ -24,6 +24,10 @@ requires awaits a decision in the Review tab or is still queued for the grid,
 and is skipped when one did not complete. While a grid waits, the run moves on
 to the next grid and comes back once the decision lands.
 
+A task taken out of the grid protocol while the run is going is skipped where
+it is queued, before its grid is loaded for it: the operator removed it, and
+nothing failed.
+
 Where Stop lands
 ----------------
 The hardware calls are atomic; Stop is honoured at the checkpoints between them.
@@ -40,6 +44,8 @@ The hardware calls are atomic; Stop is honoured at the checkpoints between them.
 from __future__ import annotations
 
 import logging
+import uuid
+from copy import deepcopy
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
@@ -80,6 +86,22 @@ SKIP_GRID_NOT_FOUND = "grid_not_found"
 SKIP_GRID_NOT_LOADED = "grid_not_loaded"
 SKIP_MISSING_PREREQS = "missing_prereqs"  # the lamella manager's word for it
 SKIP_NOTHING_TO_RUN = "nothing_to_run"  # a load with no runnable task behind it
+SKIP_TASK_REMOVED = "task_removed"  # taken out of the grid protocol mid-run
+
+
+def grid_has_run(grid: GridRecord) -> bool:
+    """Whether a task has run on this grid, as against it only being loaded.
+
+    Its name is fixed from then on: the grid's folder is named after it, and every
+    image a task wrote carries it. Renaming after that could only lose the files,
+    move them, or leave them saying something else, so nothing renames it."""
+    return any(t.name != LOAD_ENTRY_NAME for t in grid.task_history)
+
+
+NAME_FIXED_REASON = (
+    "Named once it has run: its folder and images carry this name. "
+    "Use Edit note… for a correction."
+)
 
 
 def plan_grid_run(
@@ -217,9 +239,44 @@ class GridTaskManager(BaseTaskManager):
         ]
 
     def _runnable_now(self, grid: GridRecord, task_name: str) -> bool:
-        return self._defer_reason(
-            grid, task_name
-        ) is None and not self._missing_requirements(grid, task_name)
+        return (
+            self._in_protocol(task_name)
+            and self._defer_reason(grid, task_name) is None
+            and not self._missing_requirements(grid, task_name)
+        )
+
+    def _in_protocol(self, task_name: str) -> bool:
+        """Whether the grid protocol still has this task. Each task reads its
+        settings from the protocol when it starts, so an edit on the Protocol tab
+        reaches the grids not yet run; a task removed there has nothing to read."""
+        try:
+            return self.experiment.grid_protocol.task_config.get(task_name) is not None
+        except ValueError:  # no task protocol on this experiment
+            return False
+
+    def _skip_if_removed(self, item: WorkItem, grid: GridRecord) -> bool:
+        """Retire a queued task that is no longer in the protocol, as a skip: the
+        operator took it out, nothing failed. Asked before the load, so it costs
+        no exchange, and again after it, in case it went while the grid travelled."""
+        if self._in_protocol(item.task_name):
+            return False
+        msg = (
+            f"Skipping {item.task_name} on {grid.name}: it is no longer in the "
+            "grid protocol."
+        )
+        logging.info(msg)
+        self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+        self._emit_report(
+            item=item,
+            item_name=grid.name,
+            status=AutoLamellaTaskStatus.Skipped,
+            msg=msg,
+            skip_reason=SKIP_TASK_REMOVED,
+        )
+        self._fire_skipped_hook(
+            item.task_name, grid.name, SKIP_TASK_REMOVED, item_id=grid.id
+        )
+        return True
 
     def _load_defer_reason(self, grid: GridRecord) -> Optional[str]:
         """An exchange is the expensive step, so a grid is loaded for work that
@@ -297,8 +354,10 @@ class GridTaskManager(BaseTaskManager):
                 self._run_load_step(item, grid)
                 continue
 
-            # Before the load: a task that cannot use what it requires is not
-            # worth an exchange.
+            # Before the load: a task that is gone, or cannot use what it
+            # requires, is not worth an exchange.
+            if self._skip_if_removed(item, grid):
+                continue
             missing = self._missing_requirements(grid, item.task_name)
             if missing:
                 msg = (
@@ -351,6 +410,8 @@ class GridTaskManager(BaseTaskManager):
                     item_id=grid.id,
                 )
                 continue
+            if self._skip_if_removed(item, grid):
+                continue
 
             self._emit_report(
                 item=item,
@@ -398,12 +459,14 @@ class GridTaskManager(BaseTaskManager):
         """The planned exchange. Its outcome is the queue item's status, so the
         timeline shows a grid that would not load where it failed. Skipped,
         with no exchange, when every task queued for the grid is going to be
-        skipped for a requirement that did not complete (FIB-1005)."""
+        skipped: a requirement did not complete (FIB-1005), or the task has been
+        taken out of the protocol."""
         pending = self._pending_tasks(grid)
         if pending and not any(self._runnable_now(grid, i.task_name) for i in pending):
             msg = (
                 f"Not loading grid {grid.name}: none of its selected tasks can run "
-                "(a task they require did not complete)."
+                "(removed from the protocol, or a task they require did not "
+                "complete)."
             )
             logging.info(msg)
             self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
@@ -545,6 +608,7 @@ class GridTaskManager(BaseTaskManager):
 
     def _run_single_task(self, task_name: str, grid: GridRecord) -> Optional[Exception]:
         """Execute one task on one grid. Returns the exception, or None."""
+        recorded = len(grid.task_history)
         try:
             run_grid_task(
                 self.microscope,
@@ -571,8 +635,27 @@ class GridTaskManager(BaseTaskManager):
                 logging.warning(f"Error running {task_name} on grid {grid.name}: {e}")
                 grid.task_state.status = AutoLamellaTaskStatus.Failed
                 grid.task_state.status_message = str(e)
+            # A task freezes its own outcome into the history. One that failed
+            # before it existed left nothing there, so Results and the report would
+            # never hear of it: record it here, under this task's name.
+            if len(grid.task_history) == recorded:
+                self._record_unstarted(grid, task_name)
             self.experiment.save()
             return e
+
+    def _record_unstarted(self, grid: GridRecord, task_name: str) -> None:
+        """The history entry for a task that failed before it was constructed.
+        The record's one task_state is set field by field, as a task does it,
+        never replaced: the UI holds on to it."""
+        state = grid.task_state
+        now = datetime.timestamp(datetime.now())
+        state.name = task_name
+        state.task_id = str(uuid.uuid4())
+        state.task_type = self._task_type(task_name)
+        state.start_timestamp = now
+        state.end_timestamp = now
+        state.outputs = {}
+        grid.task_history.append(deepcopy(state))
 
     # --- Reporting ---
 

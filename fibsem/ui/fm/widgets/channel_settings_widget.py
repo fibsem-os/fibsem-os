@@ -3,6 +3,7 @@
 Shown below ChannelListWidget when a channel row is selected. Displays the full
 set of channel parameters (excitation, emission, exposure, power, gain).
 """
+
 from __future__ import annotations
 
 from typing import List, Optional
@@ -16,6 +17,11 @@ from PyQt5.QtWidgets import (
 
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
+from fibsem.ui.fm.widgets.emission_filter_combo import (
+    EmissionFilterComboBox,
+    FilterLookup,
+    emission_lookup_for,
+)
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
 
 _MS_TO_S = 1e-3
@@ -24,22 +30,16 @@ _PCT_TO_FRAC = 1e-2
 _FRAC_TO_PCT = 1e2
 
 
-def _fmt_emission(w) -> str:
-    if w is None:
-        return "Reflection"
-    if isinstance(w, str):
-        return w
-    return f"{int(w)} nm"
-
-
 class ChannelSettingsWidget(QWidget):
     """Detail-panel form showing all settings for one selected ChannelSettings.
 
     Shown by FluorescenceMultiChannelWidget when a row is selected.
     """
 
-    channel_changed = pyqtSignal(object)                    # ChannelSettings
-    channel_field_changed = pyqtSignal(object, str, object) # ChannelSettings, field, value
+    channel_changed = pyqtSignal(object)  # ChannelSettings
+    channel_field_changed = pyqtSignal(
+        object, str, object
+    )  # ChannelSettings, field, value
 
     def __init__(
         self,
@@ -48,8 +48,15 @@ class ChannelSettingsWidget(QWidget):
     ) -> None:
         super().__init__(parent)
         self._channel: Optional[ChannelSettings] = None
-        self._emission_items: List = list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
-        self._excitation_items: List[float] = list(fm.filter_set.available_excitation_wavelengths) if fm is not None else []
+        self._fm = fm
+        self._emission_items: List = (
+            list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+        )
+        self._excitation_items: List[float] = (
+            list(fm.filter_set.available_excitation_wavelengths)
+            if fm is not None
+            else []
+        )
 
         self._setup_ui()
         self._connect_signals()
@@ -84,11 +91,10 @@ class ChannelSettingsWidget(QWidget):
         self.excitation_combo.setToolTip("Excitation wavelength (nm)")
         form.addRow("Excitation", self.excitation_combo)
 
-        self.emission_combo = ValueComboBox(
+        self.emission_combo = EmissionFilterComboBox(
             items=self._emission_items,
-            format_fn=_fmt_emission,
+            lookup=emission_lookup_for(self._fm),
         )
-        self.emission_combo.setToolTip("Emission / filter")
         form.addRow("Emission", self.emission_combo)
 
         self.exposure_spin = ValueSpinBox(
@@ -154,12 +160,20 @@ class ChannelSettingsWidget(QWidget):
         where it does not, ``set_values`` falls back to the closest match rather
         than silently reporting a wavelength the hardware cannot produce.
         """
-        self._emission_items = list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
-        self._excitation_items = list(fm.filter_set.available_excitation_wavelengths) if fm is not None else []
+        self._fm = fm
+        self._emission_items = (
+            list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+        )
+        self._excitation_items = (
+            list(fm.filter_set.available_excitation_wavelengths)
+            if fm is not None
+            else []
+        )
 
         blocked = self.blockSignals(True)
         try:
             self.excitation_combo.set_values(self._excitation_items)
+            self.emission_combo.set_lookup(emission_lookup_for(fm))
             self.emission_combo.set_values(self._emission_items)
         finally:
             self.blockSignals(blocked)
@@ -189,8 +203,13 @@ class ChannelSettingsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _block_all(self, block: bool) -> None:
-        for w in (self.excitation_combo, self.emission_combo,
-                  self.exposure_spin, self.power_spin, self.gain_spin):
+        for w in (
+            self.excitation_combo,
+            self.emission_combo,
+            self.exposure_spin,
+            self.power_spin,
+            self.gain_spin,
+        ):
             w.blockSignals(block)
 
     # ------------------------------------------------------------------

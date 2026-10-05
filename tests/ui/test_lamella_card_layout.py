@@ -160,10 +160,11 @@ def test_the_menus_and_thumbnail_survive_a_toggle():
     assert [a.text() for a in card._btn_actions.menu().actions()] == [
         "Move to Position",
         "Update Position",
+        "Export GIF...",
         "Remove",
-        "Defect",
+        "Verdict",
     ]
-    assert card._btn_defect.toolTip() == "No defect"
+    assert card._btn_defect.toolTip() == "Not assessed"
     assert not card._thumb_label.pixmap().isNull()
     assert card._thumb_label.height() > 100, "redrawn at the cozy size"
 

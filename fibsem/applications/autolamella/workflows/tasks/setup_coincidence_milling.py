@@ -179,17 +179,13 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "SetupCoincidenceMillingTaskConfig":
-        # the base loader reads milling + reference imaging; it warns about any
-        # parameter it does not know, and it knows none of ours, so hand it none
-        cfg = AutoLamellaTaskConfig.from_dict({**ddict, "parameters": {}})
-        params = ddict.get("parameters", {}) or {}
+        params = ddict.get("parameters") or {}
+        cls._warn_unknown_parameters(params)
         objective_position = params.get("objective_position")
         fm_roi = ddict.get("fm_roi")
         pattern_offset = ddict.get("pattern_offset")
         return cls(
-            task_name=cfg.task_name,
-            milling=cfg.milling,
-            reference_imaging=cfg.reference_imaging,
+            **cls._load_core(ddict),
             field_of_view=float(params.get("field_of_view", 80e-6)),
             intensity_drop_fraction=float(params.get("intensity_drop_fraction", 0.4)),
             align_coincidence=bool(params.get("align_coincidence", False)),

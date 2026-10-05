@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -25,9 +26,9 @@ from superqt import ensure_main_thread
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
-    DefectState,
-    DefectType,
     Lamella,
+    QualityRecord,
+    Verdict,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -105,37 +106,102 @@ def short_status(text: str) -> str:
 
 
 def has_defect(lamella) -> bool:
+    """Whether someone has judged the lamella to need rework or to have failed.
+
+    Not "has any verdict": a lamella judged good has one too, and is not defective.
+    """
     defect = getattr(lamella, "defect", None)
-    return defect is not None and defect.state != DefectType.NONE
+    return defect is not None and defect.verdict in (Verdict.REWORK, Verdict.FAILED)
+
+
+def has_verdict(lamella) -> bool:
+    """Whether anyone has judged the lamella at all -- good, rework or failed."""
+    defect = getattr(lamella, "defect", None)
+    return defect is not None and defect.verdict is not Verdict.UNASSESSED
+
+
+# What each verdict looks like wherever one is shown or set, for lamellae and grids
+# alike: icon, colour, words. Filled circles for a judgement, an empty one for none.
+VERDICT_LOOK = {
+    Verdict.UNASSESSED: ("mdi:circle-outline", NEUTRAL_550, "Not assessed"),
+    Verdict.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
+    Verdict.REWORK: ("mdi:alert-circle", stylesheets.DEFECT_ORANGE_COLOR, "Rework"),
+    Verdict.FAILED: ("mdi:close-circle", stylesheets.DEFECT_RED_COLOR, "Failed"),
+}
+
+
+def add_verdict_actions(menu: QMenu) -> Dict[Verdict, QAction]:
+    """Good, Rework and Failed, then "Not assessed" after a separator, on *menu*.
+
+    The one layout for a verdict menu, used by a lamella's and by a grid's, so
+    the two cannot drift apart again: setting a judgement is the common action,
+    taking one back the rare one, so it comes last.
+    """
+    actions: Dict[Verdict, QAction] = {}
+    for verdict in (Verdict.GOOD, Verdict.REWORK, Verdict.FAILED, Verdict.UNASSESSED):
+        if verdict is Verdict.UNASSESSED:
+            menu.addSeparator()
+        icon, colour, text = VERDICT_LOOK[verdict]
+        action = menu.addAction(fibsem_icon(icon, color=colour), text)
+        action.setCheckable(True)
+        actions[verdict] = action
+    return actions
+
+
+def mark_current_verdict(actions: Dict[Verdict, QAction], current: Verdict) -> None:
+    """Check the current verdict and set it in bold.
+
+    Both, because with an icon on every item the style draws the icon in place of
+    a checkmark, so the check alone does not show which is current.
+    """
+    for verdict, action in actions.items():
+        is_current = verdict is current
+        action.setChecked(is_current)
+        font = action.font()
+        font.setBold(is_current)
+        action.setFont(font)
 
 
 def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
-    """A "Defect" submenu on *menu* writing `lamella.defect`; *on_changed* is
-    called after a write. The one place the state is set from, now that the
-    icon only shows once there is one."""
-    sub = menu.addMenu("Defect")
-    for text, icon, colour, state in (
-        ("No defect", "mdi:check-circle", stylesheets.GREEN_COLOR, DefectType.NONE),
-        (
-            "Rework required",
-            "mdi:refresh-circle",
-            stylesheets.DEFECT_ORANGE_COLOR,
-            DefectType.REWORK,
-        ),
-        (
-            "Failure",
-            "mdi:close-circle",
-            stylesheets.DEFECT_RED_COLOR,
-            DefectType.FAILURE,
-        ),
-    ):
-        action = sub.addAction(fibsem_icon(icon, color=colour), text)
+    """A "Verdict" submenu on *menu* writing `lamella.defect`; *on_changed* is
+    called after a write. The one place a person sets a lamella's verdict.
 
-        def _set(_checked=False, state=state):
-            lamella.defect = DefectState(state=state)
+    It offered "No defect", which wrote `Verdict.NONE` -- an alias of `UNASSESSED`
+    -- so "I looked and it is fine" was stored as "nobody has looked", and there was
+    no way to mark a lamella good. Good, rework and failed are offered now, with
+    "Not assessed" to take a judgement back.
+
+    The record is replaced rather than edited in place: every display of the
+    verdict redraws off `lamella.events.defect`, which only a replacement raises.
+    Who set it is filled in by whatever saves the change, from the experiment's
+    operator; this menu has no experiment to ask.
+    """
+    sub = menu.addMenu("Verdict")
+    actions = add_verdict_actions(sub)
+
+    for verdict, action in actions.items():
+
+        def _set(_checked=False, verdict=verdict):
+            if verdict is lamella.defect.verdict:
+                _show_current()  # re-tick: choosing the current one changes nothing
+                return
+            lamella.defect = QualityRecord(
+                verdict=verdict,
+                updated_at=(
+                    None
+                    if verdict is Verdict.UNASSESSED
+                    else datetime.timestamp(datetime.now())
+                ),
+            )
             on_changed()
 
         action.triggered.connect(_set)
+
+    def _show_current() -> None:
+        mark_current_verdict(actions, lamella.defect.verdict)
+
+    sub.aboutToShow.connect(_show_current)
+    _show_current()
     return sub
 
 
@@ -208,18 +274,11 @@ def _status_text(lamella: Lamella) -> tuple[str, str]:
 def _defect_icon(lamella: Lamella) -> tuple[str, str, str]:
     """Return (icon_name, icon_color, tooltip) for the defect indicator button."""
     d = lamella.defect
-    if d.state == DefectType.NONE:
-        return "mdi:check-circle", stylesheets.GREEN_COLOR, "No defect"
-    if d.state == DefectType.REWORK:
-        return (
-            "mdi:refresh-circle",
-            stylesheets.DEFECT_ORANGE_COLOR,
-            f"Rework required{': ' + d.description if d.description else ''}",
-        )
+    icon, colour, text = VERDICT_LOOK[d.verdict]
     return (
-        "mdi:close-circle",
-        stylesheets.DEFECT_RED_COLOR,
-        f"Failure{': ' + d.description if d.description else ''}",
+        icon,
+        colour,
+        f"{text}{': ' + d.reason if d.reason else ''}",
     )
 
 
@@ -273,8 +332,9 @@ class LamellaRowWidget(QWidget):
         self.status_label = ElidedLabel()
         layout.addWidget(self.status_label, 1)
 
-        # Only drawn once there is a defect; a tick on every healthy row says
-        # nothing. Clicking it opens the same defect menu the actions carry.
+        # Only drawn once someone has judged the lamella; a mark on every row nobody
+        # has looked at says nothing. Clicking it opens the same verdict menu the
+        # actions carry.
         self.btn_defect = QToolButton()
         self.btn_defect.setFixedSize(_BTN_SIZE)
         self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
@@ -374,7 +434,7 @@ class LamellaRowWidget(QWidget):
         icon_name, icon_color, tooltip = _defect_icon(self.lamella)
         self.btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
         self.btn_defect.setToolTip(tooltip)
-        self.btn_defect.setVisible(has_defect(self.lamella))
+        self.btn_defect.setVisible(has_verdict(self.lamella))
 
         grid = grid_of(self.lamella, self._grid_context)
         status_text, status_style = _status_text(self.lamella)

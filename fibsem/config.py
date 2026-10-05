@@ -99,7 +99,10 @@ LOG_PATH = os.path.join(BASE_PATH, "fibsem", "log")
 DATA_PATH = os.path.join(LOG_PATH, "data")
 DATA_ML_PATH: str = os.path.join(DATA_PATH, "ml")
 DATA_CC_PATH: str = os.path.join(DATA_PATH, "crosscorrelation")
+# Saved positions are session state (`fibsem.saved_positions`); these two files are
+# where they lived before, read once to import them and never written.
 POSITION_PATH = os.path.join(CONFIG_PATH, "saved-positions.yaml")
+LEGACY_POSITIONS_PATH = os.path.join(CONFIG_PATH, "positions.yaml")
 USER_PREFERENCES_PATH = os.path.join(CONFIG_PATH, "user-preferences.yaml")
 MODELS_PATH = os.path.join(BASE_PATH, "fibsem", "segmentation", "models")
 MICROSCOPE_CONFIGURATION_PATH = os.path.join(
@@ -290,28 +293,6 @@ DEFAULT_CHECKPOINT = "autolamella-mega-20240107.pt"
 
 # feature flags
 APPLY_CONFIGURATION_ENABLED = True
-
-# tescan manipulator
-
-TESCAN_MANIPULATOR_CALIBRATION_PATH = os.path.join(
-    CONFIG_PATH, "tescan_manipulator.yaml"
-)
-
-
-def load_tescan_manipulator_calibration() -> dict:
-    """Load the tescan manipulator calibration"""
-    from fibsem.utils import load_yaml
-
-    config = load_yaml(TESCAN_MANIPULATOR_CALIBRATION_PATH)
-    return config
-
-
-def save_tescan_manipulator_calibration(config: dict) -> None:
-    """Save the tescan manipulator calibration"""
-    from fibsem.utils import save_yaml
-
-    save_yaml(TESCAN_MANIPULATOR_CALIBRATION_PATH, config)
-    return None
 
 
 # ---------------------------------------------------------------------------

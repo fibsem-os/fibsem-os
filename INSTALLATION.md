@@ -173,6 +173,77 @@ python -c "from tescanautomation import Automation; print('Tescan SDK found')"
 If connecting later fails with a message about a missing module, this is the
 step to come back to.
 
+### Delmic METEOR (fluorescence)
+
+A METEOR's fluorescence microscope is driven by odemis, Delmic's software, on
+the METEOR's own Linux PC. odemis can only be reached from that computer, so
+fibsemOS reaches the FM in one of two ways:
+
+- **fibsemOS on the METEOR's Linux PC** (`manufacturer: Odemis`). fibsemOS
+  drives the FM directly, and finds odemis from `/etc/odemis.conf`. The user
+  running fibsemOS must be in the `odemis` group (step 1 below), and odemis must
+  be running.
+- **fibsemOS on the Thermo Fisher support PC**, driving the beams through
+  AutoScript, with the FM served from the METEOR's Linux PC. The steps below set
+  this up.
+
+On the METEOR's Linux PC:
+
+1. **Let your user reach odemis.** odemis only accepts connections from members
+   of the `odemis` group. Check with `groups`; if `odemis` is not listed, add
+   yourself, then log out and back in:
+
+   ```bash
+   sudo usermod -aG odemis $USER
+   ```
+
+2. **Install fibsemOS with the server extra**, into an environment that can
+   also import odemis:
+
+   ```bash
+   pip install "fibsem[server]"
+   ```
+
+3. **Start odemis** (`odemis-start`).
+4. **Serve the FM:**
+
+   ```bash
+   python -m fibsem.server.devices --serve odemis-fm --host 0.0.0.0 --port 8765
+   ```
+
+   If odemis cannot be imported or does not answer, this stops with a message
+   saying which. From the support PC, `http://<METEOR PC address>:8765/health`
+   should report `"ok": true`.
+
+5. **Open the port to the support PC only**, for example with `ufw`:
+
+   ```bash
+   sudo ufw allow from <support PC address> to any port 8765 proto tcp
+   ```
+
+To start the server with the computer rather than by hand, run step 4 as a
+service, for example with a systemd unit. It must run as a user in the `odemis`
+group, and after odemis has started.
+
+On the support PC, the microscope configuration names the FM as remote:
+
+```yaml
+hardware:
+    fm:
+        enabled:    true
+        driver:     remote
+        address:    192.168.0.20    # the METEOR PC
+        port:       8765
+```
+
+Two things to know:
+
+- **The server has no authentication yet.** Anyone who can reach the port can
+  drive the FM, so keep it on the microscope's private network.
+- **The odemis GUI and fibsemOS drive the same camera, light and filter wheel,**
+  and nothing arbitrates between them. Image from one at a time: stop the odemis
+  GUI's streams before acquiring from fibsemOS, and the other way round.
+
 ## Alternatives
 
 ### venv instead of conda

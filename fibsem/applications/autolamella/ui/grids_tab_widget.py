@@ -45,6 +45,10 @@ from fibsem.applications.autolamella.ui.grid_positions_widget import (
     GridPositionsWidget,
 )
 from fibsem.applications.autolamella.ui.grid_results_widget import GridResultsWidget
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    NAME_FIXED_REASON,
+    grid_has_run,
+)
 from fibsem.microscopes._stage import GridInventoryEntry, SampleGrid
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -116,6 +120,7 @@ class GridsTabWidget(QWidget):
         self.cards.load_requested.connect(self._on_load)
         self.cards.unload_requested.connect(self._on_unload)
         self.cards.rename_requested.connect(self._on_rename)
+        self.cards.note_requested.connect(self._on_note)
         self.cards.remove_requested.connect(self._on_remove)
         scroll = QScrollArea()
         scroll.setWidget(self.cards)
@@ -357,6 +362,8 @@ class GridsTabWidget(QWidget):
     # -- edits -----------------------------------------------------------------
 
     def _on_quality_changed(self, grid: GridRecord) -> None:
+        if self._experiment is not None:
+            self._experiment.sign_verdict(grid)
         self._save()
         self.experiment_changed.emit()
 
@@ -364,23 +371,40 @@ class GridsTabWidget(QWidget):
         experiment = self._experiment
         if experiment is None:
             return
+        # The card greys Rename out for a grid that has run; this is the rule
+        # itself, for any other way in.
+        if grid_has_run(grid):
+            self._say(f"{grid.name} cannot be renamed. {NAME_FIXED_REASON}", error=True)
+            return
         if experiment.get_grid_by_name(name) is not None:
             self._say(f"There is already a grid named {name}.", error=True)
             return
         old = grid.name
         entry = self._inventory.get(old)
-        grid.name = name
-        # The record links to the hardware by name, so the hardware follows: on the
-        # autoloader that writes the slot description, on a fixed holder the
-        # occupancy file.
+        # The record links to the hardware by name, so the hardware goes first:
+        # on the autoloader that writes the slot description, on a fixed holder
+        # the occupancy in the session state. A slot that keeps the old name
+        # would hand it back at the next inventory read, so the record keeps it.
         if entry is not None and entry.present and self.stage is not None:
             try:
-                self.stage.assign_grid(entry.slot_name, SampleGrid(name=name))
-            except Exception as e:  # noqa: BLE001 - the record is renamed; say so
-                logging.warning(f"Renamed the record but not the hardware slot: {e}")
-                self._say(
-                    f"Renamed, but the slot could not be updated: {e}", error=True
+                self.stage.assign_grid(
+                    entry.slot_name, SampleGrid(name=name), persist=True
                 )
+            except Exception as e:  # noqa: BLE001 - not renamed; say why
+                logging.warning(f"Could not rename {old}: {e}")
+                self._say(f"Could not rename {old}: {e}", error=True)
+                self.refresh()
+                return
+        grid.name = name
+        self._save()
+        self.refresh()
+        self.experiment_changed.emit()
+
+    def _on_note(self, grid: GridRecord, note: str) -> None:
+        """Keep the operator's note on the record. An empty note clears it. The
+        record's own field, apart from the verdict, so judging a grid again does
+        not wipe what was written about it."""
+        grid.description = note
         self._save()
         self.refresh()
         self.experiment_changed.emit()

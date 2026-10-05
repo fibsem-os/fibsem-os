@@ -100,6 +100,16 @@ def _pages(pdf: bytes) -> int:
     return len(re.findall(rb"/Type\s*/Page[^s]", pdf))
 
 
+def _shown(pdf: bytes) -> bytes:
+    """The text the pages show: the strings handed to the PDF's text operator.
+
+    For asserting a word is *absent*. The raw bytes also hold the embedded images,
+    which differ every run, and a short word turns up in them by chance -- "Poor"
+    did, in one run in a few.
+    """
+    return b"\n".join(re.findall(rb"\(((?:[^()\\]|\\.)*)\)\s*Tj", pdf))
+
+
 class TestPDF:
     def test_writes_under_the_experiment_by_default(self, screened):
         pytest.importorskip("reportlab")
@@ -123,6 +133,19 @@ class TestPDF:
             b"could not be gripped",
         ):
             assert text in pdf, text
+
+    def test_the_verdicts_read_as_the_app_says_them(self, pdf):
+        """The Grids tab says Failed and Not assessed; the page said Poor and
+        Unassessed."""
+        text = _shown(pdf)
+        assert b"Failed" in text and b"Not assessed" in text
+        assert b"Poor" not in text and b"Unassessed" not in text
+
+    def test_a_verdict_names_the_person_not_the_stored_form(self, pdf):
+        """A verdict is signed "human:<name>"; the page shows the name."""
+        text = _shown(pdf)
+        assert b"Good \\267 operator" in text  # \\267 is the middle dot
+        assert b"human:operator" not in text
 
     def test_a_failed_run_says_why(self, pdf):
         assert b"Load it first" in pdf

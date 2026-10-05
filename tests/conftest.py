@@ -35,9 +35,83 @@ def _isolate_sample_holder_config(tmp_path_factory, monkeypatch):
     default_sample_holder(pre_tilt=0.0).save(path)
     monkeypatch.setattr(cfg, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
     monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
+    # The file the occupancy lived in before the session state: imported from, so a
+    # developer's real one must not be.
     occupancy = holder_dir / "sample-holder-occupancy.yaml"  # absent until written
     monkeypatch.setattr(cfg, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(occupancy))
-    monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(occupancy))
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_user_configurations(tmp_path_factory):
+    """Pin the default configuration to the shipped `microscope-configuration.yaml`.
+
+    ``fibsem/config/user-configurations.yaml`` is the operator's list of
+    configurations and which one is the default, ignored by git and read once at
+    import. ``setup_session`` without a ``config_path`` connects with that default,
+    so a developer who had switched it to ``sim-iflm-configuration`` saw 44 tests
+    fail that pass on CI, where the file does not exist. Every reader looks the
+    module attributes up at call time, so patching them is enough; they are set to
+    what the module computes when the file is absent. The file path is pointed away
+    too, so registering or choosing a configuration in a test never writes to it.
+
+    Session-scoped, unlike the fixtures around it: module-scoped fixtures in
+    tests/ui/ connect a microscope once per file, before any function-scoped
+    fixture has run.
+    """
+    import fibsem.config as cfg
+
+    configurations = {
+        "default-configuration": {"path": cfg.MICROSCOPE_CONFIGURATION_PATH}
+    }
+    yaml_state = {"configurations": configurations, "default": "default-configuration"}
+    # Absent until written, as in a fresh checkout.
+    directory = tmp_path_factory.mktemp("user-configurations")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(cfg, "USER_CONFIGURATIONS_YAML", yaml_state)
+        mp.setattr(cfg, "USER_CONFIGURATIONS", configurations)
+        mp.setattr(cfg, "DEFAULT_CONFIGURATION_NAME", "default-configuration")
+        mp.setattr(cfg, "DEFAULT_CONFIGURATION_PATH", cfg.MICROSCOPE_CONFIGURATION_PATH)
+        mp.setattr(
+            cfg, "USER_CONFIGURATIONS_PATH", str(directory / "user-configurations.yaml")
+        )
+        yield
+
+
+def _point_session_state_at(monkeypatch, directory):
+    import fibsem.config as cfg
+    import fibsem.session_state as session_state
+
+    monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(directory))
+    monkeypatch.setattr(
+        cfg, "FM_CONFIGURATION_PATH", str(directory / "fm-configuration.yaml")
+    )
+    monkeypatch.setattr(
+        cfg, "FM_RECENT_CHANNELS_PATH", str(directory / "fm-recent-channels.yaml")
+    )
+    # and the two files saved positions are imported from
+    monkeypatch.setattr(cfg, "POSITION_PATH", str(directory / "saved-positions.yaml"))
+    monkeypatch.setattr(cfg, "LEGACY_POSITIONS_PATH", str(directory / "positions.yaml"))
+    # the coincidence viewer saves its milling config when it closes
+    monkeypatch.setattr(
+        cfg,
+        "COINCIDENCE_MILLING_CONFIG_PATH",
+        str(directory / "coincidence-milling-config.yaml"),
+    )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_session_state_for_module_fixtures(tmp_path_factory):
+    """Session state written outside any test goes to one shared tmp directory.
+
+    The per-test fixture below only starts with the test, so a module-scoped
+    fixture that connects a microscope and builds an FM widget used to write to
+    `fibsem/config/session/` -- it did, as `sim-iflm-configuration.yaml`, whenever
+    that configuration was the default. This catches those writes; each test still
+    gets its own directory.
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        _point_session_state_at(mp, tmp_path_factory.mktemp("session-state-shared"))
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -47,19 +121,10 @@ def _isolate_session_state(tmp_path_factory, monkeypatch):
     Any test that connects a microscope and builds an FM widget writes session
     state as the application would. Without this it lands in the checkout -- and in
     the next test's reads. The two files the FM state lived in before are pointed
-    away too, so nothing is imported from a developer's real ones.
+    away too, and so are the saved-positions files, so nothing is imported from a
+    developer's real ones.
     """
-    import fibsem.config as cfg
-    import fibsem.session_state as session_state
-
-    directory = tmp_path_factory.mktemp("session-state")
-    monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(directory))
-    monkeypatch.setattr(
-        cfg, "FM_CONFIGURATION_PATH", str(directory / "fm-configuration.yaml")
-    )
-    monkeypatch.setattr(
-        cfg, "FM_RECENT_CHANNELS_PATH", str(directory / "fm-recent-channels.yaml")
-    )
+    _point_session_state_at(monkeypatch, tmp_path_factory.mktemp("session-state"))
 
 
 @pytest.fixture(autouse=True)

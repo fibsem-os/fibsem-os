@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import glob
 import os
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
@@ -88,6 +88,37 @@ def final_reference_images(lamella: Lamella, *tasks: AutoLamellaTaskState) -> Li
             )
         }
     )
+
+
+def images_by_task(lamella: Lamella) -> List[Tuple[str, List[str], List[str]]]:
+    """Each task's final reference images and fluorescence stacks, in the order the
+    tasks last ran: ``(task name, final images, fluorescence stacks)``.
+
+    What a workflow animation is made of: a frame per task. One entry per task name,
+    because reference images are rewritten to the same filename on every run -- an
+    earlier run's files *are* the later run's -- so the entry sits where the task last
+    ran. Fluorescence stacks are uniquely named and accumulate across runs, oldest
+    first. A run that recorded nothing (cancelled, or failed before saving) adds
+    nothing, and a task none of whose runs left an image has no entry.
+    """
+    runs: Dict[str, List[AutoLamellaTaskState]] = {}
+    last: Dict[str, int] = {}
+    for index, run in enumerate(lamella.task_history):
+        runs.setdefault(run.name, []).append(run)
+        last[run.name] = index
+    steps = []
+    for name in sorted(last, key=last.__getitem__):
+        finals = final_reference_images(lamella, *runs[name])
+        stacks = fluorescence_images(lamella, *runs[name])
+        if finals or stacks:
+            steps.append((name, finals, stacks))
+    return steps
+
+
+def final_images_by_task(lamella: Lamella) -> List[Tuple[str, List[str]]]:
+    """Each task's final reference images, in the order the tasks last ran: the
+    tasks of ``images_by_task`` that left any."""
+    return [(name, finals) for name, finals, _ in images_by_task(lamella) if finals]
 
 
 def grid_outputs(

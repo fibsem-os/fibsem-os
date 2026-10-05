@@ -25,6 +25,7 @@ nothing in a screenshot names the machine or the person who ran it.
 import argparse
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -162,6 +163,12 @@ class Harness:
         cfg.USER_CONFIGURATIONS_PATH = str(tmp / "user-configurations.yaml")
         cfg.USER_PREFERENCES_PATH = str(tmp / "user-preferences.yaml")
         cfg.POSITION_PATH = str(tmp / "saved-positions.yaml")
+        cfg.LEGACY_POSITIONS_PATH = str(tmp / "positions.yaml")
+        # Session state -- saved positions, grids in the holder, FM working state --
+        # is written as the operator works, so it goes to the scratch directory too.
+        import fibsem.session_state as session_state
+
+        session_state.SESSION_STATE_DIRECTORY = str(tmp / "session")
         # the stage module imports the holder paths by name, so rebinding
         # cfg's is not enough: a calibration would land in the real file
         from fibsem.microscopes import _stage as stage_module
@@ -171,11 +178,12 @@ class Harness:
         cfg.SAMPLE_HOLDER_CONFIGURATION_PATH = holder_path
         cfg.SAMPLE_HOLDER_OCCUPANCY_PATH = occupancy_path
         stage_module.SAMPLE_HOLDER_CONFIGURATION_PATH = holder_path
-        stage_module.SAMPLE_HOLDER_OCCUPANCY_PATH = occupancy_path
+        # Copies, not the shipped files: the calibration wizard saves the holder
+        # into the configuration it was connected with.
         for name, filename in SIM_CONFIGURATIONS.items():
-            cfg.USER_CONFIGURATIONS[name] = {
-                "path": os.path.join(cfg.CONFIG_PATH, filename)
-            }
+            copy = tmp / filename
+            shutil.copyfile(os.path.join(cfg.CONFIG_PATH, filename), copy)
+            cfg.USER_CONFIGURATIONS[name] = {"path": str(copy)}
 
     # -- driving ------------------------------------------------------------
 

@@ -23,6 +23,7 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from fibsem.applications.autolamella.proposals import Author
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Experiment,
@@ -57,11 +58,13 @@ _STATUS_TEXT = {
     AutoLamellaTaskStatus.InProgress: "In progress",
     AutoLamellaTaskStatus.NotStarted: "Not started",
 }
+# The app's words for a verdict, so the page says what the Grids tab said. Kept as
+# literals: the app's table lives in a Qt module this report must not import.
 _VERDICT_TEXT = {
-    Verdict.UNASSESSED: "Unassessed",
+    Verdict.UNASSESSED: "Not assessed",
     Verdict.GOOD: "Good",
     Verdict.REWORK: "Rework",
-    Verdict.FAILED: "Poor",
+    Verdict.FAILED: "Failed",
 }
 
 
@@ -381,7 +384,9 @@ def generate_grid_report(
         verdict = _VERDICT_TEXT.get(
             section.quality.verdict, section.quality.verdict.name
         )
-        by = f" · {section.quality.author}" if section.quality.author else ""
+        # The person, not the stored "human:<name>" form a verdict is signed with.
+        author = section.quality.author
+        by = f" · {Author.parse(author).label}" if author else ""
         sub = " · ".join(x for x in [section.slot or "", f"p. {index + 2}"] if x)
         note = section.description or section.quality.reason
         if not note and section.load is not None and section.loaded is False:
@@ -476,6 +481,12 @@ def generate_grid_report(
             ]
             if entry.channels:
                 details.append(("Channels", ", ".join(entry.channels)))
+            # A run that finished with something to say: an overview that skipped
+            # tiles past the stage's reach has blanks there, and this says why.
+            if entry.status is AutoLamellaTaskStatus.Completed and (
+                entry.status_message not in ("", "Finished")
+            ):
+                details.append(("Run", entry.status_message))
             # A lamella can project to a point off the image: it is placed, but
             # not in this field. Say which, rather than listing it as marked.
             in_view, out_of_view = [], []

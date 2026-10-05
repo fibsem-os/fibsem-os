@@ -425,6 +425,8 @@ def setup_session(
     ip_address: str = None,
     manufacturer: str = None,
     debug: bool = False,
+    apply_defaults: Optional[bool] = None,
+    beams_on: Optional[bool] = None,
 ) -> Tuple["FibsemMicroscope", "MicroscopeSettings"]:
     """Setup microscope session
 
@@ -432,6 +434,11 @@ def setup_session(
         session_path (Path): path to logging directory
         config_path (Path): path to config directory
         protocol_path (Path): path to protocol file
+        apply_defaults (bool, optional): set the columns to the configured defaults
+            once connected. None (the default) does what the configuration's
+            `defaults.apply_on_connect` says.
+        beams_on (bool, optional): turn the beams on once connected. None (the
+            default) does what `defaults.beams_on_at_connect` says.
 
     Returns:
         tuple: microscope, settings
@@ -486,13 +493,25 @@ def setup_session(
         microscope = OdemisThermoMicroscope(settings.system)
 
     elif manufacturer == manufacturers.DEMO:
-        from fibsem.microscopes.simulator import DemoMicroscope
+        if settings.system.sim.get("devices"):
+            # The Demo backend rebuilt from devices, while the migration grows it.
+            from fibsem.microscopes.device_demo import (
+                DeviceDemoMicroscope as DemoMicroscope,
+            )
+        else:
+            from fibsem.microscopes.simulator import DemoMicroscope
 
         microscope = DemoMicroscope(settings.system)
         microscope.connect_to_microscope(ip_address, port=7520)
 
     else:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
+
+    # The planning stack estimates milling time without a microscope in scope, so
+    # the driver's model is installed for the session here, on connect.
+    from fibsem.milling.base import set_milling_time_estimator
+
+    set_milling_time_estimator(type(microscope).estimate_stage_milling_time)
 
     # set default image_settings path
     settings.image.path = session_path
@@ -501,10 +520,44 @@ def setup_session(
     microscope.configuration_path = str(
         config_path if config_path is not None else cfg.DEFAULT_CONFIGURATION_PATH
     )
+    # The stage was built during the connect, before the configuration was known,
+    # so the session state it restores from could not be found yet.
+    stage = getattr(microscope, "_stage", None)
+    if stage is not None:
+        stage.restore_occupancy()
+
+    # What connecting did beyond connecting, as the file (or the caller) asked:
+    # {"beams_on": worked, "defaults": worked}, for each one asked for. A failure
+    # does not fail the connection -- the microscope is connected, only a column was
+    # not set -- so it is recorded for the caller to report rather than raised.
+    if beams_on is None:
+        beams_on = settings.system.beams_on_at_connect
+    if apply_defaults is None:
+        apply_defaults = settings.system.apply_defaults_on_connect
+    microscope.connect_actions = {}
+    # The beams first, so the defaults are set on a live column.
+    if beams_on:
+        microscope.connect_actions["beams_on"] = _at_connect(
+            "turn the beams on", microscope.turn_beams_on
+        )
+    if apply_defaults:
+        microscope.connect_actions["defaults"] = _at_connect(
+            "apply the configured defaults", microscope.apply_defaults
+        )
 
     logging.info(f"Finished setup for session: {session}")
 
     return microscope, settings
+
+
+def _at_connect(what: str, action) -> bool:
+    """Run one of the things a configuration asks for at connect; whether it worked."""
+    try:
+        action()
+        return True
+    except Exception as e:
+        logging.error(f"Could not {what} at connect: {e}")
+        return False
 
 
 def load_microscope_configuration(
@@ -766,6 +819,27 @@ def write_objective_calibration(
     )
 
 
+def write_holder_calibration(
+    path: Union[str, Path], holders: Dict[str, dict], active_holder: str
+) -> None:
+    """Record the sample holders and which one is fitted in the configuration at *path*.
+
+    `calibration.holders` is replaced whole rather than merged: a holder renamed in
+    the wizard must not leave its old entry behind, and the entries are the
+    holders the session knows, which include every one the file had.
+    """
+    config = load_yaml(os.path.join(path)) or {}
+    if "version" not in config:
+        _keep_the_file_as_it_was(path)
+    calibration = config.get("calibration")
+    if not isinstance(calibration, dict):
+        calibration = config["calibration"] = {}
+    calibration["holders"] = holders
+    calibration["active_holder"] = active_holder
+    _retire_legacy_duplicates(config)
+    _write_configuration_file(path, config)
+
+
 def _plain(value):
     """*value* with numpy scalars, tuples and numpy arrays as YAML-native types.
 
@@ -878,37 +952,13 @@ def get_params(main_str: str) -> list:
     return cats
 
 
-def _get_position(name: str):
-
-    import os
-
-    from fibsem import config as cfg
-    from fibsem.structures import FibsemStagePosition
-
-    ddict = load_yaml(fname=os.path.join(cfg.CONFIG_PATH, "positions.yaml"))
-    # get position from save positions?
-    for d in ddict:
-        if d["name"] == name:
-            return FibsemStagePosition.from_dict(d)
-    return None
-
-
-def _get_positions(fname: str = None) -> List[str]:
-
-    import os
-
-    from fibsem import config as cfg
-
-    if fname is None:
-        fname = os.path.join(cfg.CONFIG_PATH, "positions.yaml")
-
-    ddict = load_yaml(fname=fname)
-
-    return [d["name"] for d in ddict]
-
-
 def save_positions(positions: list, path: str = None, overwrite: bool = False) -> None:
-    """save the list of positions to file"""
+    """Save a list of positions to a YAML file.
+
+    Not where the application keeps its saved positions any more: those are session
+    state (`fibsem.saved_positions`). A file written here is only imported if the
+    configuration's session state has no saved positions yet.
+    """
 
     from fibsem import config as cfg
 
