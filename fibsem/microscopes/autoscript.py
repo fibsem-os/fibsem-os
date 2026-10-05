@@ -852,6 +852,34 @@ def _thermo_application_file_wrapper_for_drawing_functions(
     return wrap
 
 
+def match_application_file(
+    application_file: str, application_files: List[str], strict: bool = True
+) -> str:
+    """The application file to use for `application_file`, from those available.
+
+    Application files are a ThermoFisher patterning setting. With `strict`, a name
+    that is not available raises; otherwise the closest available name is used.
+
+    Raises:
+        ValueError: If no available application file matches.
+    """
+    if application_file not in application_files:
+        if strict:
+            raise ValueError(
+                f"Application file {application_file} not available. Available files: {application_files}"
+            )
+        from difflib import get_close_matches
+
+        closest_match = get_close_matches(application_file, application_files, n=1)
+        if not closest_match:
+            raise ValueError(
+                f"Application file {application_file} not available. Available files: {application_files}"
+            )
+        application_file = str(closest_match[0])
+
+    return application_file
+
+
 class ThermoMicroscope(FibsemMicroscope):
     """
     A class representing a Thermo Fisher FIB-SEM microscope.
@@ -2125,6 +2153,23 @@ class ThermoMicroscope(FibsemMicroscope):
             total_time += pattern.time
 
         return total_time
+
+    def get_application_file(self, application_file: str, strict: bool = True) -> str:
+        """Get a valid application file for the patterning API.
+        The api requires setting a valid application file before creating patterns.
+        Args:
+            application_file (str): The name of the application file to set as default.
+            strict (bool): If True, raises an error if the application file is not available.
+                If False, tries to find the closest match to the application file.
+                Defaults to True.
+        Returns:
+                str: The name of the application file that was set as default.
+        Raises:
+            ValueError: If the application file is not available.
+        """
+        return match_application_file(
+            application_file, self.get_available_values("application_file"), strict
+        )
 
     def set_application_file(
         self, application_file: str, default: bool = False, strict: bool = True

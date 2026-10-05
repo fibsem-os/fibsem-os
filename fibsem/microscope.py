@@ -11,7 +11,6 @@ import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
-from difflib import get_close_matches
 from enum import Enum
 from types import MappingProxyType
 from typing import (
@@ -1280,36 +1279,6 @@ class FibsemMicroscope(ABC):
     def set_channel(self, channel: BeamType) -> None:
         """Make `channel` the active view and device, for the calls that act on it."""
         raise self._unsupported("set_channel")
-
-    def get_application_file(self, application_file: str, strict: bool = True) -> str:
-        """Get a valid application file for the patterning API.
-        The api requires setting a valid application file before creating patterns.
-        Args:
-            application_file (str): The name of the application file to set as default.
-            strict (bool): If True, raises an error if the application file is not available.
-                If False, tries to find the closest match to the application file.
-                Defaults to True.
-        Returns:
-                str: The name of the application file that was set as default.
-        Raises:
-            ValueError: If the application file is not available.
-        """
-
-        # check if the application file is valid
-        application_files = self.get_available_values("application_file")
-        if application_file not in application_files:
-            if strict:
-                raise ValueError(
-                    f"Application file {application_file} not available. Available files: {application_files}"
-                )
-            closest_match = get_close_matches(application_file, application_files, n=1)
-            if not closest_match:
-                raise ValueError(
-                    f"Application file {application_file} not available. Available files: {application_files}"
-                )
-            application_file = str(closest_match[0])
-
-        return application_file
 
     @abstractmethod
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:

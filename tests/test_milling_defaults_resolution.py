@@ -2,9 +2,11 @@
 
 Odemis and Demo used to call ThermoMicroscope's `run_milling`, `finish_milling`,
 `get_orientation` and `get_application_file` unbound, which fails only at runtime when
-the borrowed body reaches something the borrower lacks (FIB-1154). Those bodies use
-only base-class members, so they are base-class defaults now, and this pins which
-class each backend gets them from.
+the borrowed body reaches something the borrower lacks (FIB-1154). The milling bodies
+use only base-class members, so they are base-class defaults now, and this pins which
+class each backend gets them from. Application files are a ThermoFisher setting, so
+their matching stays off the base class: it is `match_application_file`, which
+ThermoFisher and Demo (a simulated ThermoFisher system) both call.
 """
 
 import pytest
@@ -40,7 +42,7 @@ def _owner(cls, name):
 def test_thermo_runs_the_base_milling_loop_and_resets_the_patterning_mode():
     assert _owner(ThermoMicroscope, "run_milling") is FibsemMicroscope
     assert _owner(ThermoMicroscope, "finish_milling") is ThermoMicroscope
-    assert _owner(ThermoMicroscope, "get_application_file") is FibsemMicroscope
+    assert _owner(ThermoMicroscope, "get_application_file") is ThermoMicroscope
 
 
 def test_odemis_inherits_rather_than_borrows(odemis_cls):
@@ -49,10 +51,14 @@ def test_odemis_inherits_rather_than_borrows(odemis_cls):
     assert _owner(odemis_cls, "get_orientation") is FibsemMicroscope
 
 
-def test_demo_keeps_its_own_milling_and_inherits_the_application_file():
+def test_demo_keeps_its_own_milling():
     assert _owner(DemoMicroscope, "run_milling") is DemoMilling
     assert _owner(DemoMicroscope, "finish_milling") is DemoMilling
-    assert _owner(DemoMicroscope, "get_application_file") is FibsemMicroscope
+
+
+def test_application_files_stay_off_the_base_class():
+    # a ThermoFisher patterning setting, not something every backend has
+    assert not hasattr(FibsemMicroscope, "get_application_file")
 
 
 def test_milling_loop_is_no_longer_abstract():
