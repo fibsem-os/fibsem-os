@@ -862,7 +862,6 @@ class FibsemMicroscope(ABC):
             scan_rotation=scan_rotation,
             fib_column_tilt=self.system.ion.column_tilt,
             stage_tilt=self.get_stage_position().t,
-            is_compustage=self.stage_is_compustage,
             relaxation=relaxation,
         )
         logging.info(f"Vertical movement: {stage_position}")

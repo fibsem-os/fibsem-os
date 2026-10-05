@@ -87,7 +87,6 @@ def vertical_move_delta(
     scan_rotation: float,
     fib_column_tilt: float,
     stage_tilt: float,
-    is_compustage: bool,
     relaxation: float = 1.0,
 ) -> FibsemStagePosition:
     """Relative stage movement that cancels an offset seen in the FIB view by height.
@@ -98,7 +97,9 @@ def vertical_move_delta(
     what keeps a feature already centred in the SEM where it is.
 
     The chamber-vertical is then decomposed into the tilted stage axes: y = m*sin(t),
-    z = m*cos(t) (FIB-773).
+    z = m*cos(t) (FIB-773). A stage tilted past -90 degrees has the sample turned over,
+    and the offset is reversed there. That is read from the tilt, not the stage type:
+    only a compustage reaches it today, at its FIB and FM poses (FIB-1124).
 
     Args:
         dx: offset along the displayed FIB image x-axis, in metres; moved as is.
@@ -106,7 +107,6 @@ def vertical_move_delta(
         scan_rotation: the ion beam's scan rotation, in radians.
         fib_column_tilt: the ion column tilt, in degrees.
         stage_tilt: stage tilt, in radians.
-        is_compustage: whether the stage is a compustage.
         relaxation: under-relaxation of the correction; 1.0 is geometrically exact.
 
     Returns:
@@ -114,11 +114,8 @@ def vertical_move_delta(
     """
     dx, dy = undo_scan_rotation(dx, dy, scan_rotation)
 
-    # TODO: ARCTIS Do we need to reverse the direction of the movement because of the inverted stage tilt?
-    if is_compustage:
+    if stage_tilt < np.deg2rad(-90):
         dy *= -1.0
-        if stage_tilt >= np.deg2rad(-90):
-            dy *= -1.0
 
     z_move = dy / np.sin(np.deg2rad(fib_column_tilt)) * relaxation
 

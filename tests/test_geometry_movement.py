@@ -135,7 +135,6 @@ def test_vertical_move_from_fib_sends_the_pure_delta(
         scan_rotation=scan_rotation,
         fib_column_tilt=microscope.system.ion.column_tilt,
         stage_tilt=pose.t,
-        is_compustage=microscope.stage_is_compustage,
         relaxation=relaxation,
     )
 
@@ -169,7 +168,6 @@ def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(
         scan_rotation=scan_rotation,
         fib_column_tilt=microscope.system.ion.column_tilt,
         stage_tilt=pose.t,
-        is_compustage=microscope.stage_is_compustage,
     )
     # approx: the move reads its dy back off the stage, as position minus position
     assert (vertical.x, vertical.y, vertical.z) == pytest.approx(
@@ -206,6 +204,25 @@ class TestTheOrientationOverride:
     def test_it_is_ignored_off_a_compustage(self):
         offset = FibsemHardwareGeometry(is_compustage=False)
         assert self._delta(0.0, True, offset) == self._delta(0.0, None, offset)
+
+
+def test_vertical_move_reverses_the_offset_once_the_stage_is_turned_over():
+    """Past -90 degrees of tilt the sample is turned over, whatever the stage type."""
+
+    def chamber_vertical(tilt_deg):
+        delta = vertical_move_delta(
+            dx=0.0,
+            dy=1e-6,
+            scan_rotation=0.0,
+            fib_column_tilt=52.0,
+            stage_tilt=np.deg2rad(tilt_deg),
+        )
+        t = np.deg2rad(tilt_deg)
+        return delta.y * np.sin(t) + delta.z * np.cos(t)
+
+    assert chamber_vertical(-89.0) == pytest.approx(1e-6 / np.sin(np.deg2rad(52)))
+    assert chamber_vertical(-91.0) == pytest.approx(-1e-6 / np.sin(np.deg2rad(52)))
+    assert chamber_vertical(-90.0) == pytest.approx(chamber_vertical(0.0))
 
 
 def test_undo_scan_rotation_inverts_only_a_half_turn():
