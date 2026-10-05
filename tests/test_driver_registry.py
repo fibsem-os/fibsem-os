@@ -171,3 +171,19 @@ def test_the_configurations_port_overrides_the_registered_one(
     )
     assert _Recorder.connected == [("10.0.0.1", 4321)]
     assert microscope.system.info.port == 4321
+
+
+def test_connect_microscope_builds_and_connects_the_registered_driver(
+    restore_registry,
+):
+    _Recorder.connected = []
+    register_driver(DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", 1234))
+    system = utils.load_microscope_configuration(None, None).system
+    system.info.manufacturer = manufacturers.DEMO
+    system.info.ip_address = "10.0.0.1"
+
+    microscope = registry.connect_microscope(system)
+
+    assert isinstance(microscope, _Recorder)
+    assert microscope.system is system
+    assert _Recorder.connected == [("10.0.0.1", 1234)]
