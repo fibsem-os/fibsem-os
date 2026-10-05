@@ -46,6 +46,7 @@ from fibsem.structures import (
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,
+    FibsemDetectorSettings,
     FibsemExperimentRef,
     FibsemGasInjectionSettings,
     FibsemImage,
@@ -1189,6 +1190,15 @@ class ThermoMicroscope(FibsemMicroscope):
             )
             return None
         return loader
+
+    def get_detector_settings(
+        self, beam_type: BeamType = BeamType.ELECTRON
+    ) -> FibsemDetectorSettings:
+        """The four detector reads under one hold of the imaging channel, so they
+        describe one detector and claim the channel once against other callers
+        (FIB-544). The lock is re-entrant, so the reads inside take it freely."""
+        with self._threading_lock:
+            return super().get_detector_settings(beam_type)
 
     def set_channel(self, channel: BeamType) -> None:
         """
@@ -2913,11 +2923,16 @@ class ThermoMicroscope(FibsemMicroscope):
             ]
             return values
 
-        if key == "detector_type":
-            values = self.connection.detector.type.available_values
-
-        if key == "detector_mode":
-            values = self.connection.detector.mode.available_values
+        # the detector's values are the active device's, so the channel is claimed
+        # for the read (FIB-544)
+        if key in ("detector_type", "detector_mode"):
+            with self._threading_lock:
+                if beam_type is not None:
+                    self.set_channel(beam_type)
+                if key == "detector_type":
+                    values = self.connection.detector.type.available_values
+                else:
+                    values = self.connection.detector.mode.available_values
 
         if key == "scan_direction":
             TFS_SCAN_DIRECTIONS = [
@@ -3055,17 +3070,19 @@ class ThermoMicroscope(FibsemMicroscope):
             "detector_brightness",
             "detector_contrast",
         ]:
-            # set beam active view and device
-            self.set_channel(beam_type)
+            # `connection.detector` resolves against the active device, so the channel
+            # is set and read under the lock, as for a grab (FIB-544)
+            with self._threading_lock:
+                self.set_channel(beam_type)
 
-            if key == "detector_type":
-                return self.connection.detector.type.value
-            if key == "detector_mode":
-                return self.connection.detector.mode.value
-            if key == "detector_brightness":
-                return self.connection.detector.brightness.value
-            if key == "detector_contrast":
-                return self.connection.detector.contrast.value
+                if key == "detector_type":
+                    return self.connection.detector.type.value
+                if key == "detector_mode":
+                    return self.connection.detector.mode.value
+                if key == "detector_brightness":
+                    return self.connection.detector.brightness.value
+                if key == "detector_contrast":
+                    return self.connection.detector.contrast.value
 
         # manipulator properties
         if key == "manipulator_position":
@@ -3179,40 +3196,43 @@ class ThermoMicroscope(FibsemMicroscope):
             "detector_brightness",
             "detector_contrast",
         ]:
-            self.set_channel(beam_type)
+            # the write half: with the channel moved it would land on the other
+            # column's detector and stay there (FIB-544)
+            with self._threading_lock:
+                self.set_channel(beam_type)
 
-            if key == "detector_mode":
-                if value in self.connection.detector.mode.available_values:
-                    self.connection.detector.mode.value = value
-                    logging.info(f"Detector mode set to {value}.")
-                else:
-                    logging.warning(f"Detector mode {value} not available.")
-                return
-            if key == "detector_type":
-                if value in self.connection.detector.type.available_values:
-                    self.connection.detector.type.value = value
-                    logging.info(f"Detector type set to {value}.")
-                else:
-                    logging.warning(f"Detector type {value} not available.")
-                return
-            if key == "detector_brightness":
-                if 0 < value <= 1:
-                    self.connection.detector.brightness.value = value
-                    logging.info(f"Detector brightness set to {value}.")
-                else:
-                    logging.warning(
-                        f"Detector brightness {value} not available, must be between 0 and 1."
-                    )
-                return
-            if key == "detector_contrast":
-                if 0 < value <= 1:
-                    self.connection.detector.contrast.value = value
-                    logging.info(f"Detector contrast set to {value}.")
-                else:
-                    logging.warning(
-                        f"Detector contrast {value} not available, mut be between 0 and 1."
-                    )
-                return
+                if key == "detector_mode":
+                    if value in self.connection.detector.mode.available_values:
+                        self.connection.detector.mode.value = value
+                        logging.info(f"Detector mode set to {value}.")
+                    else:
+                        logging.warning(f"Detector mode {value} not available.")
+                    return
+                if key == "detector_type":
+                    if value in self.connection.detector.type.available_values:
+                        self.connection.detector.type.value = value
+                        logging.info(f"Detector type set to {value}.")
+                    else:
+                        logging.warning(f"Detector type {value} not available.")
+                    return
+                if key == "detector_brightness":
+                    if 0 < value <= 1:
+                        self.connection.detector.brightness.value = value
+                        logging.info(f"Detector brightness set to {value}.")
+                    else:
+                        logging.warning(
+                            f"Detector brightness {value} not available, must be between 0 and 1."
+                        )
+                    return
+                if key == "detector_contrast":
+                    if 0 < value <= 1:
+                        self.connection.detector.contrast.value = value
+                        logging.info(f"Detector contrast set to {value}.")
+                    else:
+                        logging.warning(
+                            f"Detector contrast {value} not available, mut be between 0 and 1."
+                        )
+                    return
 
         # electron beam properties
         if beam_type is BeamType.ELECTRON:
