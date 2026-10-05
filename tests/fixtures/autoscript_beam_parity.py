@@ -75,6 +75,9 @@ def _fake_beam(beam, beam_type):
         "source.plasma_gas.value": "Xenon",
         "source.plasma_gas.available_values": ["Argon", "Oxygen", "Xenon"],
     }
+    if electron:
+        values["angular_correction.angle.value"] = 0.05
+        values["angular_correction.tilt_correction.is_on"] = False
     for path, value in values.items():
         _preset(beam, path, value)
 
@@ -144,6 +147,7 @@ GETS = (
     "detector_mode",
     "detector_brightness",
     "detector_contrast",
+    "angular_correction_angle",
     # not moved: still the old branches on both sides
     "preset",
 )
@@ -175,8 +179,15 @@ SETS = (
     ("detector_brightness", 0.0),  # warns, not set
     ("detector_contrast", 0.7),
     ("detector_contrast", 1.5),  # warns, not set
+    ("angular_correction_angle", 0.2),
     # not moved: still the old branches on both sides
     ("preset", "anything"),
+)
+
+# Sets with no read-back: the old key could only be set, so its get is new.
+SETS_ONLY = (
+    ("angular_correction_tilt_correction", True),
+    ("angular_correction_tilt_correction", False),
 )
 
 # The scan-mode methods, through the scan commands on one side and the old keys on
@@ -219,6 +230,11 @@ def cases():
                         m.set(k, v, b),
                         m.get(k, b),
                     ),
+                )
+            for key, value in SETS_ONLY:
+                add(
+                    f"set {key} {value!r}",
+                    lambda m, k=key, v=value, b=beam_type: m.set(k, v, b),
                 )
             for name, scan in SCANS:
                 add(f"scan {name}", lambda m, s=scan, b=beam_type: s(m, b))
@@ -310,6 +326,26 @@ def facts():
     microscope.set_channel = set_channel_recording
     result = run(lambda: microscope.get("detector_type", BeamType.ION))
     out["detector_read"] = {"selected": selected, "result": result[0]}
+
+    # the tilt correction, which could only be set before, reads what was set
+    microscope = routed(plasma=False)
+    tilt = {
+        "before": microscope.get(
+            "angular_correction_tilt_correction", BeamType.ELECTRON
+        )
+    }
+    vendor = (
+        microscope.connection.beams.electron_beam.angular_correction.tilt_correction
+    )
+    _preset(vendor, "is_on", True)
+    tilt["after"] = microscope.get(
+        "angular_correction_tilt_correction", BeamType.ELECTRON
+    )
+    tilt["old"] = old_branches(plasma=False).get(
+        "angular_correction_tilt_correction", BeamType.ELECTRON
+    )
+    tilt["ion"] = microscope.get("angular_correction_tilt_correction", BeamType.ION)
+    out["tilt_correction"] = tilt
 
     # a disabled column is never built, and connect never touches it
     microscope = make(plasma=False, ion=False)
