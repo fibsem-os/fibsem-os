@@ -122,3 +122,19 @@ def test_registering_under_an_alias_replaces_the_canonical_entry(restore_registr
     register_driver(DriverEntry("tescan", f"{__name__}:_Recorder", 1))
     assert get_driver(manufacturers.TESCAN).microscope_class == f"{__name__}:_Recorder"
     assert registry.registered_manufacturers() == list(BUILT_IN)
+
+
+def test_connect_microscope_builds_and_connects_the_registered_driver(
+    restore_registry,
+):
+    _Recorder.connected = []
+    register_driver(DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", 1234))
+    system = utils.load_microscope_configuration(None, None).system
+    system.info.manufacturer = manufacturers.DEMO
+    system.info.ip_address = "10.0.0.1"
+
+    microscope = registry.connect_microscope(system)
+
+    assert isinstance(microscope, _Recorder)
+    assert microscope.system is system
+    assert _Recorder.connected == [("10.0.0.1", 1234)]

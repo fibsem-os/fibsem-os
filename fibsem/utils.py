@@ -477,16 +477,11 @@ def setup_session(
             manufacturer
         )
 
-    manufacturer = settings.system.info.manufacturer
-    ip_address = settings.system.info.ip_address
-    _report(progress, f"Connecting to {ip_address}…")
+    _report(progress, f"Connecting to {settings.system.info.ip_address}…")
 
-    from fibsem.microscopes.registry import get_driver
+    from fibsem.microscopes.registry import connect_microscope
 
-    driver = get_driver(manufacturer)
-    microscope = driver.load()(settings.system)
-    if driver.port is not None:
-        microscope.connect_to_microscope(ip_address=ip_address, port=driver.port)
+    microscope = connect_microscope(settings.system)
 
     # The planning stack estimates milling time without a microscope in scope, so
     # the driver's model is installed for the session here, on connect.
