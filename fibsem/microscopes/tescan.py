@@ -14,7 +14,7 @@ import numpy as np
 
 import fibsem.constants as constants
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_ROUTES
+from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
@@ -455,8 +455,9 @@ class TescanMicroscope(FibsemMicroscope):
         self._default_detector_names = {BeamType.ELECTRON: "SE", BeamType.ION: "SE"}
         self._active_detector: Dict[BeamType, Detector] = {}
 
-        # the beams as devices, before anything below sets a beam key through them
+        # the beams and stage as devices, before anything below goes through them
         self._build_beams()
+        self._build_stage()
 
         available_detectors = self._get_available_detectors(BeamType.ELECTRON)
         if self._default_detector_names[BeamType.ELECTRON] not in [
@@ -506,6 +507,22 @@ class TescanMicroscope(FibsemMicroscope):
 
         self.beams = MappingProxyType(bind_tescan_beams(self))
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
+
+    def _build_stage(self) -> None:
+        """Build the stage device and route the stage keys to it.
+
+        The absolute and relative moves then go through the device, and so do the
+        view-corrected moves, which end in them. ``homed`` and ``linked`` are not on
+        the device, so their keys still go to ``_get``/``_set``. A disabled stage gets
+        no device.
+        """
+        from fibsem.devices.drivers.tescan import bind_tescan_stage
+
+        self.stage = bind_tescan_stage(self)
+        if self.stage is not None:
+            self._device_routes = MappingProxyType(
+                {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
+            )
 
     @property
     def manufacturer(self) -> str:
@@ -824,6 +841,11 @@ class TescanMicroscope(FibsemMicroscope):
         Returns:
             FibsemStagePosition: The stage position after the move.
         """
+        # through the stage device once connect has built it; the code below stays
+        # until a session on an instrument confirms the device's moves
+        if self.stage is not None:
+            return super().move_stage_absolute(position)
+
         logging.info(f"Moving stage to {position}.")
         # convert to tescan position
         x, y, z, r, t = to_tescan_stage_position(position=position)
@@ -840,6 +862,10 @@ class TescanMicroscope(FibsemMicroscope):
         position: FibsemStagePosition,
     ) -> FibsemStagePosition:
         """Move the stage by the specified relative move."""
+
+        # through the stage device once connect has built it, as move_stage_absolute
+        if self.stage is not None:
+            return super().move_stage_relative(position)
 
         logging.info(f"Moving stage by {position}.")
 

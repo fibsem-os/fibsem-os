@@ -1,10 +1,11 @@
-"""The Tescan (SharkSEM) beams as devices.
+"""The Tescan (SharkSEM) beams and stage as devices.
 
 ``TescanBeam`` implements the ``Beam`` device with the beam branches of
 ``TescanMicroscope._get``/``_set``, moved as they are, so the old call and the device
 make the same SDK calls in the same order and log the same messages.
 ``TescanMicroscope`` builds one per enabled column at connect and routes its beam keys
-to them; its old branches stay until a session on an instrument confirms the devices.
+to them, and builds a ``TescanStage`` and routes its stage keys and moves to it; its
+old branches stay until a session on an instrument confirms the devices.
 
 The vendor beams are ``connection.SEM`` and ``connection.FIB``. SharkSEM is one socket,
 so every read and write holds the microscope's ``_connection_lock``, as ``_get`` and
@@ -22,7 +23,8 @@ import numpy as np
 import fibsem.constants as constants
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
-from fibsem.structures import BeamType, Point, RangeLimit
+from fibsem.devices.stage import AXIS_UNITS, UNLIMITED, Stage
+from fibsem.structures import BeamType, FibsemStagePosition, Point, RangeLimit
 
 if TYPE_CHECKING:
     from fibsem.microscopes.tescan import TescanMicroscope
@@ -344,3 +346,69 @@ def bind_tescan_beams(
         for beam_type, on in enabled.items()
         if on
     }
+
+
+class TescanStage(Stage):
+    """The Tescan stage, in Tescan's own frame: the positions today's code reads.
+
+    Each method is what the matching part of ``TescanMicroscope`` does today:
+
+    - ``read_position``: the ``stage_position`` branch of ``_get``,
+      ``Stage.GetPosition`` in mm and degrees, converted to metres and radians;
+    - ``_move_absolute``: ``move_stage_absolute``, one ``Stage.MoveTo``, with an axis
+      that is None left where it is;
+    - ``_move_relative``: ``move_stage_relative``, which reads where the stage is and
+      moves to that plus the offset (SharkSEM moves are absolute).
+
+    Fibsem has never read the Tescan stage's limits, so every axis is unlimited and
+    the instrument refuses what it cannot reach, as it does today. It has never read
+    or set homed or linked either: ``home()`` refers to the native UI, so ``homed`` and
+    ``linked`` are absent and their keys still go to ``_get``/``_set``.
+
+    The frame is still Tescan's: x and y run opposite the image, y rides on the tilt
+    module and z is chamber-vertical, +z down. The view-corrected moves on
+    ``TescanMicroscope`` account for that, and move through this device.
+    """
+
+    def __init__(self, parent: TescanMicroscope, resources: Optional[Resources] = None):
+        super().__init__(parent=parent, resources=resources)
+
+    @property
+    def _lock(self):
+        return self.parent._connection_lock
+
+    def read_position(self) -> FibsemStagePosition:
+        from fibsem.microscopes.tescan import from_tescan_stage_position
+
+        with self._lock:
+            position = self.parent.connection.Stage.GetPosition()
+        return from_tescan_stage_position(position)
+
+    def metadata_position(self) -> ParameterMetadata:
+        return ParameterMetadata(limits={axis: UNLIMITED for axis in AXIS_UNITS})
+
+    def _move_absolute(self, position: FibsemStagePosition) -> None:
+        from fibsem.microscopes.tescan import to_tescan_stage_position
+
+        logging.info(f"Moving stage to {position}.")
+        x, y, z, r, t = to_tescan_stage_position(position=position)
+        with self._lock:
+            self.parent.connection.Stage.MoveTo(x=x, y=y, z=z, rot=r, tiltx=t)
+        logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
+
+    def _move_relative(self, delta: FibsemStagePosition) -> None:
+        logging.info(f"Moving stage by {delta}.")
+        target = self.position.get_value() + delta
+        logging.debug(f"Moving stage to {target}")
+        self._move_absolute(target)
+        logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
+
+
+def bind_tescan_stage(
+    microscope: TescanMicroscope, resources: Optional[Resources] = None
+) -> Optional[TescanStage]:
+    """Build ``stage`` for a connected Tescan microscope, or None when the stage is
+    disabled, so it is never touched."""
+    if microscope.system.stage.enabled is False:
+        return None
+    return TescanStage(microscope, resources).connect()
