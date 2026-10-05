@@ -24,7 +24,13 @@ import fibsem.constants as constants
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import AXIS_UNITS, UNLIMITED, Stage
-from fibsem.structures import BeamType, FibsemStagePosition, Point, RangeLimit
+from fibsem.structures import (
+    STAGE_FRAME_TESCAN,
+    BeamType,
+    FibsemStagePosition,
+    Point,
+    RangeLimit,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscopes.tescan import TescanMicroscope
@@ -369,6 +375,8 @@ class TescanStage(Stage):
     module and z is chamber-vertical, +z down. The view-corrected moves on
     ``TescanMicroscope`` account for that, and move through this device.
     """
+
+    frame = STAGE_FRAME_TESCAN
 
     def __init__(self, parent: TescanMicroscope, resources: Optional[Resources] = None):
         super().__init__(parent=parent, resources=resources)
