@@ -35,6 +35,7 @@ from fibsem import manufacturers
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.structures import SystemSettings
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,21 @@ def get_driver(manufacturer: Optional[str]) -> DriverEntry:
     if entry is None:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
     return entry
+
+
+def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":
+    """The microscope ``system.info.manufacturer`` names, built and connected.
+
+    Connects to ``system.info.ip_address`` on ``system.info.port`` when the
+    configuration names one, else on the driver's port. With neither, the
+    microscope is built and not connected.
+    """
+    driver = get_driver(system.info.manufacturer)
+    microscope = driver.load()(system)
+    port = system.info.port if system.info.port is not None else driver.port
+    if port is not None:
+        microscope.connect_to_microscope(ip_address=system.info.ip_address, port=port)
+    return microscope
 
 
 def registered_manufacturers() -> List[str]:
