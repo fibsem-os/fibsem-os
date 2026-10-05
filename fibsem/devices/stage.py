@@ -25,6 +25,12 @@ A backend implements the parameters with ``read_<name>``/``metadata_<name>`` met
 as for a beam, and the commands with four hooks: ``_move_absolute``,
 ``_move_relative``, ``_home`` and ``_link``. The base class does the rest once: the
 limit check, the ``stage`` resource, the read-back, and the change signals.
+
+The stage also declares its poses (FIB-1101): the rotation and tilt that each
+orientation name (SEM, FIB, and FM where the stage reaches it by re-posing) means on
+this stage. ``poses`` is a pure function of the geometry the microscope passes in,
+so the stage never asks its parent. MILLING is not a stage pose: it depends on the
+milling angle setting, so the microscope builds it from the SEM rotation.
 """
 
 from __future__ import annotations
@@ -43,6 +49,53 @@ AXIS_UNITS: Dict[str, str] = {"x": "m", "y": "m", "z": "m", "r": "rad", "t": "ra
 
 UNLIMITED = RangeLimit(min=-math.inf, max=math.inf)
 """The limits a driver gives an axis it has but cannot bound."""
+
+
+def rotating_stage_poses(
+    rotation_reference: float,
+    shuttle_pre_tilt: float,
+    fib_column_tilt: float,
+    rotates: bool = True,
+) -> Dict[str, FibsemStagePosition]:
+    """SEM and FIB for a stage that turns round to face the ion beam.
+
+    Angles in degrees in, radians out. SEM is the reference rotation, with the
+    pre-tilt cancelled so the sample faces the electron beam. FIB is half a turn from
+    it, tilted to the ion column less the pre-tilt. A stage without a rotation axis
+    (``rotates`` False) stays at the reference for FIB, as ``rotation_180`` does.
+    """
+    fib_rotation = (rotation_reference + 180) % 360 if rotates else rotation_reference
+    return {
+        "SEM": FibsemStagePosition(
+            r=math.radians(rotation_reference), t=math.radians(shuttle_pre_tilt)
+        ),
+        "FIB": FibsemStagePosition(
+            r=math.radians(fib_rotation),
+            t=math.radians(fib_column_tilt - shuttle_pre_tilt),
+        ),
+    }
+
+
+def compustage_poses(
+    rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+) -> Dict[str, FibsemStagePosition]:
+    """SEM, FIB and FM for a compustage, which tilts over instead of turning round.
+
+    It has no rotation axis, so every pose is at the reference rotation. FIB is the
+    rotating stage's tilt turned over by 180 degrees, because the grid is imaged from
+    its back. FM is the grid turned fully over to face the objective underneath.
+
+    FM is a pose only here. On an offset mount the FM is a place, not a pose: the
+    stage travels there holding whatever orientation it was in, so no FM pose exists.
+    """
+    poses = rotating_stage_poses(
+        rotation_reference, shuttle_pre_tilt, fib_column_tilt, rotates=False
+    )
+    poses["FIB"].t -= math.radians(180)
+    poses["FM"] = FibsemStagePosition(
+        r=math.radians(rotation_reference), t=math.radians(-180)
+    )
+    return poses
 
 
 def axis_limits_from_degrees(limits: Mapping[str, RangeLimit]) -> Dict[str, RangeLimit]:
@@ -206,6 +259,24 @@ class Stage(Device):
             raise StageLimitError(
                 f"{self.name}: target outside the stage limits: {', '.join(outside)}"
             )
+
+    # -- poses ------------------------------------------------------------------------
+
+    def poses(
+        self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+    ) -> Dict[str, FibsemStagePosition]:
+        """The pose for each orientation name on this stage, from the geometry in degrees.
+
+        A stage that turns round to face the ion beam by default, or stays at the
+        reference if it has no ``r`` axis. A stage that reaches the beams some other
+        way (a compustage) overrides this.
+        """
+        return rotating_stage_poses(
+            rotation_reference,
+            shuttle_pre_tilt,
+            fib_column_tilt,
+            rotates="r" in self.axes,
+        )
 
     # -- what a backend implements -------------------------------------------------
 
