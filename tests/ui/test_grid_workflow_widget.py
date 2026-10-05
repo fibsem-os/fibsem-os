@@ -698,8 +698,8 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
 def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     main_ui, tmp_path, monkeypatch
 ):
-    """The window hands the confirmation the grids that have never run: the
-    ticked ones for Run, the present ones for Screen all grids."""
+    """The window hands Run's confirmation the ticked grids that have never run;
+    Screen all grids runs on the grids its own dialog names."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     ui = main_ui.autolamella_ui
@@ -743,5 +743,22 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     view.grid_header.select_all.setChecked(True)
     main_ui._run_grid_workflow()
     assert shown == [["grid-birch"]]
-    assert main_ui._present_grids_not_run() == ["grid-birch"]
     assert not ui.is_workflow_running
+
+    # Screen all grids asks its own dialog, which names and records the grids,
+    # and runs on exactly the grids it hands back (FIB-1138).
+    started = []
+
+    class _Screen:
+        def __init__(self, stage, experiment, task_names, *args, **kwargs):
+            self.grid_names = ["grid-birch"]
+
+        def exec_(self):
+            return QDialog.Accepted
+
+    monkeypatch.setattr(module, "ScreenGridsDialog", _Screen)
+    monkeypatch.setattr(
+        main_ui, "_start_grid_run", lambda *args, **kwargs: started.append(args)
+    )
+    main_ui._on_screen_all_grids()
+    assert started == [(["overview_sem"], ["grid-birch"])]

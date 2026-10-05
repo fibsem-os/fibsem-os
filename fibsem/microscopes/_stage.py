@@ -165,10 +165,31 @@ class SampleGridLoader:
         return None
 
     def assign_grid(self, slot_name: str, grid: Optional[SampleGrid]) -> None:
-        """Name (or clear) the grid in a magazine slot, and tell the hardware."""
+        """Name (or clear) the grid in a magazine slot, and tell the hardware.
+
+        A loaded grid is the magazine slot's own record, so the working slot
+        follows the rename. A write the hardware refuses puts both back and
+        raises: the next read would bring the old name back anyway."""
         slot = self._magazine_slot(slot_name)
+        previous = slot.loaded_grid
+        working = next(
+            (
+                s
+                for s in self.holder.slots.values()
+                if previous is not None and s.loaded_grid is previous
+            ),
+            None,
+        )
         slot.loaded_grid = grid
-        self._write_slot_description(slot)
+        if working is not None:
+            working.loaded_grid = grid
+        try:
+            self._write_slot_description(slot)
+        except Exception:
+            slot.loaded_grid = previous
+            if working is not None:
+                working.loaded_grid = previous
+            raise
 
     def get_inventory(self) -> List[GridSlot]:
         """Read what the autoloader already knows about its magazine: instant,
