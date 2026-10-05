@@ -87,6 +87,7 @@ def vertical_move_delta(
     scan_rotation: float,
     fib_column_tilt: float,
     stage_tilt: float,
+    turned_over: bool,
     relaxation: float = 1.0,
 ) -> FibsemStagePosition:
     """Relative stage movement that cancels an offset seen in the FIB view by height.
@@ -97,9 +98,10 @@ def vertical_move_delta(
     what keeps a feature already centred in the SEM where it is.
 
     The chamber-vertical is then decomposed into the tilted stage axes: y = m*sin(t),
-    z = m*cos(t) (FIB-773). A stage tilted past -90 degrees has the sample turned over,
-    and the offset is reversed there. That is read from the tilt, not the stage type:
-    only a compustage reaches it today, at its FIB and FM poses (FIB-1124).
+    z = m*cos(t) (FIB-773). Where the stage has the sample turned over the offset is
+    reversed. The stage device says where that is (`Stage.turned_over`), not the stage
+    type: past -90 degrees of tilt by default, which only a compustage reaches today,
+    at its FIB and FM poses (FIB-1124).
 
     Args:
         dx: offset along the displayed FIB image x-axis, in metres; moved as is.
@@ -107,6 +109,7 @@ def vertical_move_delta(
         scan_rotation: the ion beam's scan rotation, in radians.
         fib_column_tilt: the ion column tilt, in degrees.
         stage_tilt: stage tilt, in radians.
+        turned_over: whether the stage has the sample turned over at this tilt.
         relaxation: under-relaxation of the correction; 1.0 is geometrically exact.
 
     Returns:
@@ -114,7 +117,7 @@ def vertical_move_delta(
     """
     dx, dy = undo_scan_rotation(dx, dy, scan_rotation)
 
-    if stage_tilt < np.deg2rad(-90):
+    if turned_over:
         dy *= -1.0
 
     z_move = dy / np.sin(np.deg2rad(fib_column_tilt)) * relaxation
