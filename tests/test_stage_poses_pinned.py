@@ -21,6 +21,8 @@ those two facts set the way `ThermoMicroscope` sets them.
 
 Readers measured, with the stage at each declared pose:
 - `move_flat_to_beam`, the deprecated move, with its own compustage branch;
+- `vertical_move`, whose compustage branch flips dy unless the stage is tilted past
+  -90 degrees (FIB-1124 step 2);
 - the geometry stamped onto images (`hardware_geometry`);
 - `transformations._projection_terms`, the pre-tilt sign of the view-corrected move;
 - `reprojection._tescan_pose_angles`, the same sign for reprojection;
@@ -166,6 +168,22 @@ def _measure(stage_type: str) -> Dict[str, Any]:
         out[f"move_flat_to_beam {beam_type.name}.r"] = _deg(moved[-1].r)
         out[f"move_flat_to_beam {beam_type.name}.t"] = _deg(moved[-1].t)
 
+    # vertical_move reads the stage tilt and moves relatively: give it each pose and
+    # record the move, in micrometres per micrometre of dy in the FIB view.
+    relative = []
+    microscope.move_stage_relative = relative.append
+    for name, pose in orientations.items():
+        microscope.get_stage_position = lambda pose=pose: FibsemStagePosition(
+            x=0, y=0, z=0, r=pose.r, t=pose.t
+        )
+        microscope.vertical_move(dy=1e-6)
+        out[f"vertical_move {name}"] = (
+            relative[-1].x * 1e6,
+            relative[-1].y * 1e6,
+            relative[-1].z * 1e6,
+        )
+    del microscope.get_stage_position
+
     geometry = microscope.hardware_geometry()
     out["stamped rotation_180"] = geometry.rotation_180
     out["stamped is_compustage"] = geometry.is_compustage
@@ -252,6 +270,9 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "move_flat_to_beam ELECTRON.t": 35.0,
         "move_flat_to_beam ION.r": 180.0,
         "move_flat_to_beam ION.t": 17.0,
+        "vertical_move SEM": (0.0, 0.727879, 1.039519),
+        "vertical_move FIB": (0.0, 0.371025, 1.213568),
+        "vertical_move MILLING": (0.0, 0.263844, 1.241287),
         "stamped rotation_180": 180.0,
         "stamped is_compustage": False,
         "projection_terms SEM": (1.0, 35.0, 35.0),
@@ -305,6 +326,9 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "move_flat_to_beam ELECTRON.t": 0.0,
         "move_flat_to_beam ION.r": 0.0,
         "move_flat_to_beam ION.t": 55.0,
+        "vertical_move SEM": (0.0, 0.0, 1.220775),
+        "vertical_move FIB": (0.0, 1.0, 0.700208),
+        "vertical_move MILLING": (0.0, -0.417529, 1.147153),
         "stamped rotation_180": 0.0,
         "stamped is_compustage": False,
         "projection_terms SEM": (1.0, 0.0, 0.0),
@@ -368,6 +392,10 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "move_flat_to_beam ELECTRON.t": 0.0,
         "move_flat_to_beam ION.r": 0.0,
         "move_flat_to_beam ION.t": -128.0,
+        "vertical_move SEM": (0.0, 0.0, 1.269018),
+        "vertical_move FIB": (0.0, 1.0, 0.781286),
+        "vertical_move MILLING": (0.0, -0.495845, 1.168137),
+        "vertical_move FM": (0.0, 0.0, 1.269018),
         "stamped rotation_180": 0.0,
         "stamped is_compustage": True,
         "projection_terms SEM": (-1.0, 0.0, 180.0),
