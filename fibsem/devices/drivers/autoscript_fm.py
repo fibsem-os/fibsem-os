@@ -269,6 +269,12 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
     def write_gain(self, value: float) -> None:
         self._channel.connection.detector.contrast.value = value
 
+    def metadata_gain(self) -> ParameterMetadata:
+        # The FM detector's contrast, which AutoScript keeps as a fraction already.
+        with self._channel.scope():
+            limits = self._channel.connection.detector.contrast.limits
+            return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
+
     def read_offset(self) -> float:
         return self._offset
 
