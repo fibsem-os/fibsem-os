@@ -23,7 +23,14 @@ See FIB-666.
 import logging
 from typing import TYPE_CHECKING, Iterable, Optional
 
-from fibsem.structures import ImageSettings, MillingAlignment, ReferenceImageParameters
+from fibsem.structures import (
+    AutoContrastMode,
+    AutoFocusMode,
+    ImageSettings,
+    MillingAlignment,
+    OverviewAcquisitionSettings,
+    ReferenceImageParameters,
+)
 
 if TYPE_CHECKING:
     from fibsem.milling.base import FibsemMillingStage
@@ -84,6 +91,18 @@ REFERENCE_ALIGNMENT_S = 4.8
 # median 0.69 / 0.70 s across two runs -- small, but it is paid once per coordinate.
 SPOT_BURN_POINT_OVERHEAD_S = 0.75
 
+# Grid overview tiles on an Arctis (FIB-893, 2026-10-02): the move and settle between
+# tiles of a grid overview, net of the acquisition. A 3 x 3 SEM overview at 500 um took
+# about 3 minutes and a 3 x 6 FIB overview at 200 um about 4: about 20 s and 13 s a tile
+# all in, at 1536 x 1024. Net of a 1 us frame at IMAGE_OVERHEAD_S (3.6 s), that leaves
+# about 16.5 s and 9.5 s of travel a tile; the SEM's steps are 2.5 times as long. The
+# larger is taken, so a FIB overview quotes about half as long again as it ran. The
+# dwell time was not recorded, so the scan share is assumed; refit both from the run's
+# history entries (start and end per task) when they are to hand. Far above
+# STAGE_MOVE_ABSOLUTE_S, which was measured on a lamella run's short moves on another
+# instrument.
+OVERVIEW_TILE_MOVE_S = 16.5
+
 # Still not counted, and deliberately not invented here: the pattern setup between the
 # milling estimate and the first stroke (0 s on a rectangle, 15 s on a trench in the one
 # run measured -- too variable to pick a number from), and the per-task setup either
@@ -118,7 +137,9 @@ def reference_image_cost(
     """
     if params is None:
         return 0.0
-    n_fovs = sum([params.acquire_image1, params.acquire_image2]) if fovs is None else fovs
+    n_fovs = (
+        sum([params.acquire_image1, params.acquire_image2]) if fovs is None else fovs
+    )
     n_beams = sum([params.acquire_sem, params.acquire_fib])
     return image_cost(params.imaging, n_fovs * n_beams)
 
@@ -196,6 +217,70 @@ def milling_task_cost(config) -> float:
     elif acquisition is not None and getattr(acquisition, "acquire_final_image", False):
         # the post-task refresh: one FIB image, only when the task acquired none itself
         total += image_cost(acquisition.imaging, 1)
+    return total
+
+
+def beam_autofocus_cost(settings) -> float:
+    """Seconds for one image-based focus sweep on a beam (``run_auto_focus``).
+
+    One probe frame per sweep position, ``n_steps + 1`` a pass as the sweep builds them,
+    each charged the scan at the probe resolution and dwell plus
+    :data:`IMAGE_OVERHEAD_S`. Takes the settings structurally, as
+    :func:`milling_task_cost` does.
+    """
+    if settings is None or not settings.enabled:
+        return 0.0
+    width, height = settings.probe_resolution
+    frame = width * height * settings.probe_dwell_time + IMAGE_OVERHEAD_S
+    n_images = sum(p.n_steps + 1 for p in settings.passes if p.enabled)
+    total = n_images * frame
+    if settings.use_autocontrast:
+        total += ALIGNMENT_AUTOCONTRAST_S
+    return total
+
+
+def beam_overview_cost(settings: Optional[OverviewAcquisitionSettings]) -> float:
+    """Seconds for a tiled SEM or FIB overview (``TiledAcquisitionRunner``).
+
+    Per enabled tile, the move to it (:data:`OVERVIEW_TILE_MOVE_S`) and its frame;
+    then what the settings switch on: the contrast set once at the centre or on every
+    tile, and the focus sweeps, once, per row or per tile; and the move back to where
+    the stage started. Tiles the stage cannot reach are skipped at run time, which
+    this cannot see, so they are counted: it errs long.
+
+    A focus stack images each tile as ``n_steps`` strips, each paying the per-frame
+    overhead. Its vendor autofocus per strip is not counted: it is not measured.
+    """
+    if settings is None:
+        return 0.0
+    tiles = settings.n_enabled_tiles
+    if tiles <= 0:
+        return 0.0
+    image = settings.image_settings
+    per_tile = OVERVIEW_TILE_MOVE_S + image_cost(image)
+    stack = settings.focus_stack_settings
+    if stack is not None and stack.enabled and stack.n_steps > 1:
+        per_tile += (stack.n_steps - 1) * IMAGE_OVERHEAD_S
+    total = tiles * per_tile
+
+    if settings.autocontrast_mode is AutoContrastMode.ONCE:
+        total += stage_move_cost(1) + ALIGNMENT_AUTOCONTRAST_S
+    elif settings.autocontrast_mode is AutoContrastMode.EACH_TILE:
+        total += tiles * ALIGNMENT_AUTOCONTRAST_S
+
+    focus = settings.autofocus_mode
+    sweeps = 0
+    if focus is AutoFocusMode.ONCE:
+        sweeps = 1
+    elif focus is AutoFocusMode.EACH_ROW:
+        mask = settings.tile_mask
+        sweeps = settings.nrows if mask is None else sum(1 for r in mask if any(r))
+    elif focus is AutoFocusMode.EACH_TILE:
+        sweeps = tiles
+    total += sweeps * beam_autofocus_cost(settings.autofocus_settings)
+
+    # the runner returns the stage to where it started
+    total += stage_move_cost(1)
     return total
 
 

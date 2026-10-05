@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type, Union
 
+from fibsem import timing
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
@@ -32,7 +33,14 @@ from fibsem.fm.acquisition import (
     record_fluorescence_image,
 )
 from fibsem.fm.preview import composite_projection
-from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    ChannelSettings,
+    ObjectiveStartPosition,
+    OverviewParameters,
+    ZParameters,
+)
+from fibsem.fm.timing import estimate_autofocus_time, estimate_tileset_acquisition_time
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.imaging.tiling.geometry import (
@@ -177,6 +185,46 @@ class FluorescenceOverviewGridTaskConfig(GridTaskConfig):
     filename: str = "overview"
 
     role: ClassVar[str] = "overview_fm"
+
+    @property
+    def estimated_duration(self) -> float:
+        """What ``_run`` does, in order: the move to the FM, the objective in, the
+        tileset, the runner's return of the stage and objective, the objective out.
+
+        The images come from ``estimate_tileset_acquisition_time``; its tile moves
+        (an unmeasured 5 s) and focus sweeps (a flat 5 s) are replaced by the
+        measured tile move and the sweep as configured -- every pass for a focus
+        once, the finest for one per row or tile, as the runner does. Inserting and
+        retracting are always counted, though the task skips both when the
+        objective is already in: which it is, is runtime state. Errs long.
+        """
+        overview = self.overview
+        tiles = overview.n_enabled_tiles
+        if tiles <= 0:
+            return 0.0
+        tileset = estimate_tileset_acquisition_time(
+            list(self.channels),
+            (overview.rows, overview.cols),
+            zparams=self.zparams if overview.use_zstack else None,
+            autofocus_mode=overview.autofocus_mode,
+            tile_mask=overview.tile_mask,
+        )
+        total = tileset["image_acquisition_time"]
+        total += tiles * timing.OVERVIEW_TILE_MOVE_S
+        sweeps = tileset["breakdown"]["autofocus"]["operations"]
+        focus = self.autofocus_settings
+        if sweeps and focus is not None and self.channels:
+            passes = [p for p in focus.passes if p.enabled]
+            if overview.autofocus_mode is not AutoFocusMode.ONCE:
+                passes = passes[-1:]
+            sweep = replace(focus, passes=passes)
+            total += sweeps * estimate_autofocus_time(sweep, list(self.channels))
+        if overview.objective_start is not ObjectiveStartPosition.CURRENT:
+            total += timing.OBJECTIVE_FOCUS_MOVE_S
+        total += timing.stage_move_cost(1) + timing.OBJECTIVE_INSERT_S
+        total += timing.stage_move_cost(1) + timing.OBJECTIVE_FOCUS_MOVE_S
+        total += timing.OBJECTIVE_RETRACT_S
+        return total
 
 
 @register_grid_task

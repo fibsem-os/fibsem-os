@@ -79,6 +79,19 @@ class GridTaskConfig(ABC):
     requires: List[str] = field(default_factory=list)
 
     @property
+    def estimated_duration(self) -> float:
+        """Conservative forward estimate of one run of this task on one grid, in
+        seconds: what the run confirmation, the timeline and Add to queue quote.
+
+        On the config, as on the lamella side, because those callers hold configs
+        and no microscope. The exchange that brings the grid in is not the task's:
+        it is the loader's (``SampleGridLoader.exchange_seconds``), priced once per
+        grid. Zero here; each task type adds what its run does (see
+        :mod:`fibsem.timing`).
+        """
+        return 0.0
+
+    @property
     def parameters(self) -> Tuple[str, ...]:
         """The task-specific fields, in declaration order: what a form shows."""
         return tuple(f.name for f in fields(self) if f.name not in _WORKFLOW_FIELDS)

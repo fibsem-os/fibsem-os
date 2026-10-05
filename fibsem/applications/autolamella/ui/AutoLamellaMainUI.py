@@ -90,6 +90,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     NAME_FIXED_REASON,
     grid_has_run,
+    plan_grid_run,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.status import (
@@ -102,7 +103,9 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_super
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     AdditionEstimate,
     estimate_addition,
+    estimate_grid_run,
     estimate_workflow,
+    grid_item_seconds,
 )
 from fibsem.imaging.spot import SpotBurnProgress
 from fibsem.imaging.tiling.progress import TiledProgress, TiledStatus
@@ -1824,13 +1827,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if not grids or not task_names or ui.experiment is None:
             return
         grid_names = [g.name for g in grids]
+        exchanges = self.grid_workflow_widget.exchanges_for(grids)
         dialog = GridRunPreflightDialog(
             task_names,
             grid_names,
-            self.grid_workflow_widget.exchanges_for(grids),
+            exchanges,
             str(ui.experiment.path),
             beams_off=self._beams_off(),
             first_run=[g.name for g in grids if not grid_has_run(g)],
+            estimate=self._grid_run_estimate(task_names, grid_names, exchanges),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -1848,14 +1853,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if not task_names:
             return
         known = [g.name for g in ui.experiment.grids]
+        exchanges = self.grid_workflow_widget.exchanges_for(list(ui.experiment.grids))
         dialog = GridRunPreflightDialog(
             task_names,
             known,
-            self.grid_workflow_widget.exchanges_for(list(ui.experiment.grids)),
+            exchanges,
             str(ui.experiment.path),
             screen_all=True,
             beams_off=self._beams_off(),
             first_run=self._present_grids_not_run(),
+            # from the grids known before the inventory: the dialog says so
+            estimate=self._grid_run_estimate(task_names, known, exchanges),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -1900,6 +1908,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     ) -> None:
         ui = self.autolamella_ui
         self._set_border_state("automated")
+        # The plan's steps, priced for the timeline. Screen all grids builds its
+        # queue after the inventory, so it is priced for the grids known now.
+        known = grid_names
+        if known is None and ui.experiment is not None:
+            known = [g.name for g in ui.experiment.grids]
+        self._push_timeline_estimates(plan_grid_run(task_names, known or []))
         # One writer (FIB-683): land any edit still in the editors first.
         self.lamella_widget.flush_pending_save()
         ui._start_run_grid_workflow_thread(task_names, grid_names, inventory_first)
@@ -3370,7 +3384,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """
         from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
             GridTaskManager,
-            plan_grid_run,
         )
 
         if not isinstance(manager, GridTaskManager):
@@ -3397,6 +3410,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             str(experiment.path) if experiment is not None else "",
             adding=True,
             first_run=[g.name for g in grids if not grid_has_run(g)],
+            addition=self._estimate_addition(manager, pairs, run_next=False),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -3429,16 +3443,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return None
 
         lamella_by_name = {lam.name: lam for lam in experiment.positions}
+        step_seconds = self._step_seconds(experiment)
 
         def seconds_for(item):
-            lamella = lamella_by_name.get(item.item_name)
-            if lamella is None:
-                return None
-            config = lamella.task_config.get(item.task_name)
-            if config is None:
-                return None
             try:
-                return config.estimated_duration
+                return step_seconds(item.item_name, item.task_name)
             except Exception:
                 # `estimated_time` divides by the sputter rate (milling/base.py:292), so
                 # a hand-edited protocol can raise. Losing the figure is a great deal
@@ -3466,11 +3475,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         active_elapsed = None
         active = manager.queue.active
         if active is not None:
-            lamella = lamella_by_name.get(active.item_name)
-            if lamella is not None and lamella.task_state.start_timestamp:
-                active_elapsed = max(
-                    0.0, time.time() - lamella.task_state.start_timestamp
-                )
+            item = lamella_by_name.get(active.item_name)
+            if item is None:
+                item = experiment.get_grid_by_name(active.item_name)
+            if item is not None and item.task_state.start_timestamp:
+                active_elapsed = max(0.0, time.time() - item.task_state.start_timestamp)
 
         return estimate_addition(
             manager.queue.items,
@@ -3480,6 +3489,48 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             schedule=schedule,
             active_elapsed=active_elapsed,
         )
+
+    def _step_seconds(self, experiment):
+        """``(item, task) -> seconds``, or None for a step with nothing to offer:
+        a lamella's from its own task config, a grid's from the grid protocol and
+        the loader's exchange (``grid_item_seconds``). The timeline and the queue
+        key steps by name, so one lookup serves either kind of run."""
+        lamella_by_name = {lam.name: lam for lam in experiment.positions}
+        grid_seconds = None
+        if experiment.task_protocol is not None:
+            view = self.grid_workflow_widget
+            grid_seconds = grid_item_seconds(
+                experiment, view.exchange_seconds(), view.loaded_grid_names()
+            )
+
+        def seconds_for(item_name: str, task_name: str):
+            lamella = lamella_by_name.get(item_name)
+            if lamella is not None:
+                config = lamella.task_config.get(task_name)
+                return config.estimated_duration if config is not None else None
+            if grid_seconds is not None:
+                return grid_seconds(item_name, task_name)
+            return None
+
+        return seconds_for
+
+    def _grid_run_estimate(self, task_names: list, grid_names: list, exchanges: int):
+        """What a grid run will take, for its confirmation; None if it cannot say.
+        A figure is not worth losing the dialog over (see `_push_timeline_estimates`)."""
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        if experiment is None:
+            return None
+        try:
+            return estimate_grid_run(
+                experiment,
+                task_names,
+                grid_names,
+                exchanges,
+                self.grid_workflow_widget.exchange_seconds(),
+            )
+        except Exception:
+            logging.warning("Could not estimate the grid run.", exc_info=True)
+            return None
 
     def _push_timeline_estimates(self, pairs: list) -> None:
         """Give the timeline the per-item durations, and the schedule they walk past.
@@ -3494,19 +3545,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if experiment is None:
             return
 
-        lamella_by_name = {lam.name: lam for lam in experiment.positions}
+        step_seconds = self._step_seconds(experiment)
         estimates = {}
         for lamella_name, task_name in pairs:
-            lamella = lamella_by_name.get(lamella_name)
-            if lamella is None:
-                continue
-            config = lamella.task_config.get(task_name)
-            # A lamella with no config for the task has no duration to offer, and
-            # inventing one would be worse than leaving the column empty.
-            if config is None:
-                continue
             try:
-                estimates[(lamella_name, task_name)] = config.estimated_duration
+                seconds = step_seconds(lamella_name, task_name)
+                # A lamella with no config for the task has no duration to offer,
+                # and inventing one would be worse than leaving the column empty.
+                if seconds is not None:
+                    estimates[(lamella_name, task_name)] = seconds
             except Exception:
                 # Deliberately caught, against this codebase's fail-fast default. This
                 # runs in a slot, and PyQt5 aborts the process on an unhandled exception
