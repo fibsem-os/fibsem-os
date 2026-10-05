@@ -3276,6 +3276,7 @@ class FibsemMicroscope(ABC):
             self.system,
             is_compustage=self.stage_is_compustage,
             rotation_centre=self.rotation_centre,
+            poses=self._stage_poses(),
         )
 
     def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
