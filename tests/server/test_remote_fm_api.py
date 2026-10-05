@@ -19,12 +19,18 @@ from fibsem.fm.structures import ChannelSettings, FluorescenceImage  # noqa: E40
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
 
 
+def _far_group(fm):
+    """The FM group on the far side, behind the remote one."""
+    return fm._served["fm"]
+
+
 @pytest.fixture
 def served():
     local = {d.name: d for d in demo_fm_devices()}
     server = DeviceServer(local.values()).start()
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
     fm = RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port, client=client)
+    fm._served = local  # for the tests that check the far side's devices
     # The simulated FM behind the served devices, as its computer would hold it.
     far = local["fm"]._fm
     yield far, fm
@@ -148,6 +154,56 @@ def test_acquire_image_sets_up_the_channel_on_the_far_side(served):
     assert isinstance(image.data, np.ndarray) and image.data.ndim == 2
 
 
+def _counting_requests(fm):
+    """Record each request the FM API sends to the FM's computer."""
+    sent = []
+    request = fm.client.request
+
+    def counted(method, path, *args, **kwargs):
+        sent.append((method, path))
+        return request(method, path, *args, **kwargs)
+
+    fm.client.request = counted
+    return sent
+
+
+def test_a_frame_is_one_request_with_its_metadata(served):
+    far, fm = served
+    channel = ChannelSettings(
+        name="GFP", excitation_wavelength=450, power=0.2, exposure_time=0.01
+    )
+    sent = _counting_requests(fm)
+    image = fm.acquire_image(channel)
+    assert sent == [("POST", "devices/fm/commands/acquire_frame")]
+    md = image.metadata
+    ch = md.channels[0]
+    assert (ch.power, ch.excitation_wavelength, ch.exposure_time) == (0.2, 450, 0.01)
+    assert ch.emission_wavelength == far.filter_set.emission_wavelength
+    assert (ch.gain, ch.offset, ch.binning) == (
+        far.camera.gain,
+        far.camera.offset,
+        far.camera.binning,
+    )
+    assert ch.objective_position == far.objective.position
+    assert (md.pixel_size_x, md.pixel_size_y) == tuple(far.camera.pixel_size)
+    assert md.resolution == tuple(far.camera.resolution)
+
+    sent.clear()
+    fm.acquire_image()  # the current settings, as live view takes each frame
+    assert sent == [("POST", "devices/fm/commands/acquire_frame")]
+
+
+def test_a_server_without_acquire_frame_still_acquires(served):
+    """A METEOR PC on an older fibsem: the frame alone, metadata read as before."""
+    far, fm = served
+    fm.devices["fm"].server_commands -= {"acquire_frame"}
+    sent = _counting_requests(fm)
+    image = fm.acquire_image()
+    assert sent[0] == ("POST", "devices/fm/commands/acquire_channel")
+    assert len(sent) > 1  # the metadata, read live
+    assert image.metadata.channels[0].exposure_time == far.camera.exposure_time
+
+
 def test_live_acquisition_streams_frames(served):
     _, fm = served
     fm._rate_limit = 0
@@ -159,6 +215,57 @@ def test_live_acquisition_streams_frames(served):
         time.sleep(0.01)
     fm.stop_acquisition()
     assert len(images) >= 3
+
+
+def test_live_view_is_pulled_from_the_far_side(served):
+    """Live view runs on the FM's computer; each frame is one request for the next."""
+    far, fm = served
+    fm._rate_limit = 0
+    images = []
+    fm.acquisition_signal.connect(images.append)
+    sent = _counting_requests(fm)
+    channel = ChannelSettings(excitation_wavelength=450, power=0.3, exposure_time=0.01)
+    fm.start_acquisition(channel)
+    end = time.monotonic() + 5
+    while len(images) < 3 and time.monotonic() < end:
+        time.sleep(0.01)
+    fm.stop_acquisition()
+    assert len(images) >= 3
+    assert far.light_source.power == 0.3  # set up on the far side
+    commands = [path.rsplit("/", 1)[-1] for _, path in sent if "/commands/" in path]
+    assert commands[0] == "start_live" and commands[-1] == "stop_live"
+    assert set(commands[1:-1]) == {"acquire_frame"}
+
+
+def test_far_side_live_view_stops_when_the_viewer_goes(served):
+    """A client that disappears mid-live (a crash, a dropped link) leaves the light
+    on only until the FM's own watchdog notices nobody is asking."""
+    _, fm = served
+    group = fm.devices["fm"]
+    far_group = _far_group(fm)
+    far_group.live_timeout = 0.2
+    group.start_live()
+    assert far_group.is_live
+    deadline = time.monotonic() + 3
+    while far_group.is_live and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not far_group.is_live
+
+
+def test_a_server_without_live_view_is_still_pulled(served):
+    _, fm = served
+    group = fm.devices["fm"]
+    group.server_commands -= {"start_live", "stop_live"}
+    fm._rate_limit = 0
+    images = []
+    fm.acquisition_signal.connect(images.append)
+    fm.start_acquisition()
+    end = time.monotonic() + 5
+    while len(images) < 2 and time.monotonic() < end:
+        time.sleep(0.01)
+    fm.stop_acquisition()
+    assert len(images) >= 2
+    assert not _far_group(fm).is_live
 
 
 def test_a_guard_read_fails_closed_when_the_fm_computer_is_gone(served):

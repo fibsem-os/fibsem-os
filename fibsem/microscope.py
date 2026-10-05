@@ -30,6 +30,7 @@ from psygnal import Signal
 
 import fibsem.constants as constants
 from fibsem import manufacturers
+from fibsem.devices.core import IMAGING_CHANNEL, Resources
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import (
     apply_delta,
@@ -40,8 +41,9 @@ from fibsem.geometry.movement import (
 )
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
 from fibsem.imaging.tiling.progress import TiledProgress
-from fibsem.milling.progress import MillingProgress
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (
+    ACTIVE_MILLING_STATES,
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
     FM_DRIVER_REMOTE,
@@ -225,6 +227,35 @@ class RequiredDeviceUnavailable(RuntimeError):
     """A device the configuration marks `required` could not be reached at connect."""
 
 
+class _PerInstance:
+    """A class-level default made once per instance, on first use.
+
+    For state every backend needs whether or not its ``__init__`` calls the base
+    class's: each microscope gets its own, made by ``factory(instance)``. Assigning the
+    attribute on an instance replaces it there, as with a plain attribute.
+    """
+
+    def __init__(self, factory: Callable[[Any], Any]):
+        self._factory = factory
+        self._name = ""
+        self._guard = threading.Lock()
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self._name = name
+
+    def __get__(self, instance: Any, owner: Optional[type] = None) -> Any:
+        if instance is None:
+            return self
+        try:
+            return instance.__dict__[self._name]
+        except KeyError:
+            pass
+        with self._guard:  # two threads asking first must get the same one
+            if self._name not in instance.__dict__:
+                instance.__dict__[self._name] = self._factory(instance)
+            return instance.__dict__[self._name]
+
+
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
 
@@ -261,9 +292,20 @@ class FibsemMicroscope(ABC):
     # live acquisition
     sem_acquisition_signal = Signal(FibsemImage)
     fib_acquisition_signal = Signal(FibsemImage)
-    _stop_acquisition_event = threading.Event()
+    _stop_acquisition_event = _PerInstance(lambda _: threading.Event())
     _acquisition_thread: threading.Thread = None
-    _threading_lock: threading.RLock = threading.RLock()
+    # One acquisition at a time on this microscope's imaging view. Devices claim the
+    # same lock as the `imaging_channel` resource (`resources` below).
+    _threading_lock = _PerInstance(lambda _: threading.RLock())
+    # The shared resources this microscope's devices claim. `imaging_channel` is
+    # `_threading_lock`, so the old path and the devices exclude each other; every other
+    # name shares one lock of its own, the default in `Resources`.
+    resources = _PerInstance(
+        lambda m: Resources(
+            groups={IMAGING_CHANNEL: IMAGING_CHANNEL},
+            locks={IMAGING_CHANNEL: m._threading_lock},
+        )
+    )
 
     # fluorescence
     fm: Optional[FluorescenceMicroscope]
@@ -1279,19 +1321,117 @@ class FibsemMicroscope(ABC):
         position = self._get_saved_manipulator_position(name)
         return self.move_manipulator_absolute(position)
 
+    def set_channel(self, channel: BeamType) -> None:
+        """Make `channel` the active view and device, for the calls that act on it."""
+        raise self._unsupported("set_channel")
+
     @abstractmethod
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
         pass
 
-    @abstractmethod
     def run_milling(
         self, milling_current: float, milling_voltage: float, asynch: bool = False
     ) -> None:
-        pass
+        """
+        Run ion beam milling using the specified milling current.
 
-    @abstractmethod
+        The default loop for a backend whose patterning runs on the instrument: set
+        the milling beam, start, poll `get_milling_state` until it finishes, emitting
+        progress, then clear the patterns. A backend that runs milling another way
+        overrides it.
+
+        Args:
+            milling_current (float): The current to use for milling in amps.
+            milling_voltage (float): The voltage to use for milling in volts.
+            asynch (bool, optional): If True, the milling will be run asynchronously.
+                                     Defaults to False, in which case it will run synchronously.
+        """
+        if not self.is_available("ion_beam"):
+            raise ValueError("Ion beam not available.")
+
+        try:
+            # change to milling current, voltage # TODO: do this in a more standard way (there are other settings)
+            if self.get_beam_voltage(beam_type=self.milling_channel) != milling_voltage:
+                self.set_beam_voltage(
+                    voltage=milling_voltage, beam_type=self.milling_channel
+                )
+            if self.get_beam_current(beam_type=self.milling_channel) != milling_current:
+                self.set_beam_current(
+                    current=milling_current, beam_type=self.milling_channel
+                )
+        except Exception as e:
+            logging.warning(
+                f"Failed to set voltage or current: {e}, voltage={milling_voltage}, current={milling_current}"
+            )
+
+        # run milling (asynchronously)
+        self.set_channel(self.milling_channel)  # the ion beam view
+        logging.info(f"running ion beam milling now... asynchronous={asynch}")
+        self.start_milling()
+
+        start_time = time.time()
+        estimated_time = self.estimate_milling_time()
+        remaining_time = estimated_time
+
+        if asynch:
+            return  # return immediately, up to the caller to handle the milling process
+
+        MILLING_SLEEP_TIME = 1
+        while self.get_milling_state() is MillingState.IDLE:  # giving time to start
+            time.sleep(0.5)
+        while self.get_milling_state() in ACTIVE_MILLING_STATES:
+            # logging.info(f"Patterning State: {self.connection.patterning.state}")
+            # TODO: add drift correction support here... generically
+            if self.get_milling_state() is MillingState.RUNNING:
+                remaining_time -= (
+                    MILLING_SLEEP_TIME  # TODO: investigate if this is a good estimate
+                )
+            time.sleep(MILLING_SLEEP_TIME)
+            # TODO: refresh the remaining time by getting the milling time from the patterning API as user can change the patterns on xtUI
+
+            # update milling progress via signal
+            self.milling_progress_signal.emit(
+                MillingProgress(
+                    status=MillingProgressStatus.STAGE_UPDATE,
+                    start_time=start_time,
+                    milling_state=self.get_milling_state(),
+                    estimated_time=estimated_time,
+                    remaining_time=remaining_time,
+                )
+            )
+
+        # milling complete
+        self.clear_patterns()
+
+        logging.debug(
+            {
+                "msg": "run_milling",
+                "milling_current": milling_current,
+                "milling_voltage": milling_voltage,
+                "asynch": asynch,
+            }
+        )
+
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        pass
+        """
+        Finalises the milling process by clearing the microscope of any patterns and returning the current to the imaging current.
+
+        Args:
+            imaging_current (float): The current to use for imaging in amps.
+            imaging_voltage (float): The voltage to use for imaging in volts.
+        """
+        self.clear_patterns()
+        self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
+        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
+        # TODO: store initial imaging settings in setup_milling, restore here, rather than hybrid
+
+        logging.debug(
+            {
+                "msg": "finish_milling",
+                "imaging_current": imaging_current,
+                "imaging_voltage": imaging_voltage,
+            }
+        )
 
     def finish_milling2(self):
         pass

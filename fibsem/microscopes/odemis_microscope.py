@@ -12,7 +12,7 @@ from fibsem.microscope import (
     _records_beam_shift,
     _records_stage_move,
 )
-from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES, ThermoMicroscope
+from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
@@ -333,10 +333,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
     def disconnect(self):
         pass
-
-    def get_orientation(self, orientation: str) -> str:
-        """Get the current orientation of the microscope."""
-        return ThermoMicroscope.get_orientation(self, orientation)
 
     def move_flat_to_beam(self, beam_type: BeamType, _safe: bool = True) -> None:
         # new style
@@ -1024,19 +1020,17 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             {"msg": "setup_milling", "mill_settings": mill_settings.to_dict()}
         )
 
-    def run_milling(
-        self, milling_current: float, milling_voltage: float, asynch: bool = False
-    ):
-        ThermoMicroscope.run_milling(self, milling_current, milling_voltage, asynch)
-
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        ThermoMicroscope.finish_milling(self, imaging_current, imaging_voltage)
+        """Restore the imaging beam, then reset the patterning mode, as ThermoMicroscope
+        does: the mode persists in xT."""
+        super().finish_milling(imaging_current, imaging_voltage)
+        self.set_patterning_mode("Serial")
 
     def set_patterning_mode(self, mode: str) -> str:
         """Set the patterning mode, "Serial" or "Parallel", as ThermoMicroscope does.
 
-        Called by the borrowed `ThermoMicroscope.finish_milling`; without it every
-        milling task raised in its cleanup.
+        Called by `finish_milling`; without it every milling task raised in its
+        cleanup.
         """
         if mode not in ("Serial", "Parallel"):
             raise ValueError(
