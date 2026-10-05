@@ -10,7 +10,9 @@ The far side of a remote device (the METEOR PC, say). It wraps any
     PUT  /devices/{device}/{parameter}         {"value": ...}    -> {"value": written}
     GET  /devices/{device}/{parameter}/metadata                  -> limits, choices, settable
     POST /devices/{device}/commands/{command}  {"kwargs": {...}} -> {"result": ...},
-                                               or np.save bytes for an image
+                                               or np.save bytes for an image, with a
+                                               frame's metadata as JSON in the
+                                               X-Frame-Metadata header
     WS   /events                               {"device", "parameter", "kind", "value"},
                                                with pings as a heartbeat
 
@@ -59,7 +61,14 @@ from fibsem.devices.core import (
     ParameterUnavailable,
     _limits_to_dict,
 )
-from fibsem.devices.wire import NPY_MEDIA_TYPE, decode_kwargs, from_wire, to_wire
+from fibsem.devices.wire import (
+    FRAME_METADATA_HEADER,
+    NPY_MEDIA_TYPE,
+    Frame,
+    decode_kwargs,
+    from_wire,
+    to_wire,
+)
 
 """A command that returns an array (an image) answers with ``np.save`` bytes."""
 
@@ -241,10 +250,18 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
         method = getattr(d, command)
         kwargs = decode_kwargs(method, body.get("kwargs", {}))
         result = run(lambda: method(**kwargs))
+        headers = {}
+        if isinstance(result, Frame):  # the image, its metadata in a header
+            headers[FRAME_METADATA_HEADER] = json.dumps(
+                jsonable_encoder(result.metadata)
+            )
+            result = result.data
         if isinstance(result, np.ndarray):  # an image: binary, not JSON
             buffer = io.BytesIO()
             np.save(buffer, result, allow_pickle=False)
-            return Response(buffer.getvalue(), media_type=NPY_MEDIA_TYPE)
+            return Response(
+                buffer.getvalue(), media_type=NPY_MEDIA_TYPE, headers=headers
+            )
         return {"result": jsonable_encoder(result)}
 
     @app.websocket("/events")

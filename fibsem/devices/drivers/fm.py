@@ -10,12 +10,14 @@ driver uses it where it's there.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from fibsem.devices.core import Device, ParameterMetadata, Resources
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
+from fibsem.devices.wire import Frame, to_wire
 from fibsem.fm.structures import (
     REFLECTION,
     EmissionFilter,
@@ -27,6 +29,7 @@ from fibsem.structures import InsertableDeviceState, RangeLimit
 
 if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.fm.structures import FluorescenceImage
 
 
 class FMCamera(Camera):
@@ -208,17 +211,56 @@ class FMGroup(FM):
         return None
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
+        if channel is None:
+            return self._fm.acquire_image(None).data
+        return self._acquire_image(channel).data
+
+    def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
+        if channel is None:
+            # The current settings: the camera's own frame, as the FM API over devices
+            # took it before (``camera.acquire``), with the parts' state beside it.
+            acquisition_date = datetime.now().isoformat()
+            data = self.parts["camera"].acquire()
+            metadata = {"acquisition_date": acquisition_date, **self._frame_metadata()}
+            return Frame(data, metadata)
+        image = self._acquire_image(channel)
+        # The FM class already stamped what the frame was taken with, including what
+        # the driver reports per frame (odemis: pixel size, date, exposure).
+        md = image.metadata
+        metadata: Dict[str, Any] = {
+            "acquisition_date": md.acquisition_date,
+            "pixel_size": [md.pixel_size_x, md.pixel_size_y],
+            "resolution": list(md.resolution) if md.resolution else None,
+        }
+        if md.channels:
+            ch = md.channels[0]
+            metadata.update(
+                exposure_time=ch.exposure_time,
+                gain=ch.gain,
+                offset=ch.offset,
+                binning=ch.binning,
+                power=ch.power,
+                excitation_wavelength=ch.excitation_wavelength,
+                emission_filter=to_wire(
+                    self.parts["filter_set"].emission_filter.get_value()
+                ),
+                objective_position=ch.objective_position,
+                objective_magnification=ch.objective_magnification,
+                objective_numerical_aperture=ch.objective_numerical_aperture,
+            )
+        metadata = {key: value for key, value in metadata.items() if value is not None}
+        return Frame(image.data, metadata)
+
+    def _acquire_image(self, channel: Dict[str, Any]) -> FluorescenceImage:
         from fibsem.fm.structures import ChannelSettings
 
-        settings = ChannelSettings.from_dict(channel) if channel is not None else None
-        data = self._fm.acquire_image(settings).data
-        if settings is not None:
-            # The FM class set the parts directly, past their devices: read them back
-            # so each change is cached and signalled, here and on any remote client.
-            for part in self.channel_parts:
-                for param in part.parameters.values():
-                    param.get_value()
-        return data
+        image = self._fm.acquire_image(ChannelSettings.from_dict(channel))
+        # The FM class set the parts directly, past their devices: read them back so
+        # each change is cached and signalled, here and on any remote client.
+        for part in self.channel_parts:
+            for param in part.parameters.values():
+                param.get_value()
+        return image
 
 
 def bind_fm_devices(
@@ -234,4 +276,5 @@ def bind_fm_devices(
     ]
     objective = FMObjective(fm.objective, resources=resources)
     group.channel_parts = parts
+    group.parts = {part.name: part for part in [*parts, objective]}
     return {device.name: device.connect() for device in [group, *parts, objective]}

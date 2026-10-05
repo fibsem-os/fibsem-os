@@ -14,11 +14,14 @@ every driver.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from datetime import datetime
+from types import MappingProxyType
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 import numpy as np
 
 from fibsem.devices.core import Device, Parameter, command
+from fibsem.devices.wire import Frame, to_wire
 from fibsem.fm.structures import EmissionFilter
 from fibsem.structures import InsertableDeviceState
 
@@ -116,8 +119,28 @@ class Objective(Device):
         raise NotImplementedError
 
 
+# What `FM.acquire_frame` reports with a frame: (part, parameter) -> metadata key.
+FRAME_METADATA: Dict[Tuple[str, str], str] = {
+    ("camera", "exposure_time"): "exposure_time",
+    ("camera", "gain"): "gain",
+    ("camera", "offset"): "offset",
+    ("camera", "binning"): "binning",
+    ("camera", "pixel_size"): "pixel_size",
+    ("camera", "resolution"): "resolution",
+    ("light_source", "power"): "power",
+    ("filter_set", "excitation_wavelength"): "excitation_wavelength",
+    ("filter_set", "emission_filter"): "emission_filter",
+    ("objective", "position"): "objective_position",
+    ("objective", "magnification"): "objective_magnification",
+    ("objective", "numerical_aperture"): "objective_numerical_aperture",
+}
+
+
 class FM(Device):
     """The group: sequences over several parts, run by the driver next to them."""
+
+    parts: Mapping[str, Device] = MappingProxyType({})
+    """The parts this group drives, by device name. A driver sets it."""
 
     @command
     def acquire_channel(self, channel: Optional[Dict[str, Any]] = None) -> np.ndarray:
@@ -127,5 +150,33 @@ class FM(Device):
         """
         return self._acquire_channel(channel)
 
+    @command
+    def acquire_frame(self, channel: Optional[Dict[str, Any]] = None) -> Frame:
+        """``acquire_channel``, with what the frame was taken with.
+
+        The metadata is read here, next to the hardware, so building the image needs
+        no reads after the frame. It holds ``acquisition_date`` (ISO, when the
+        acquisition started) and the keys of `FRAME_METADATA` the parts have, as plain
+        JSON-ready values: tuples are lists and the emission filter is its
+        ``to_dict()``.
+        """
+        return self._acquire_frame(channel)
+
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         raise NotImplementedError(f"{type(self).__name__} can't acquire")
+
+    def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
+        acquisition_date = datetime.now().isoformat()
+        data = self._acquire_channel(channel)
+        metadata = {"acquisition_date": acquisition_date, **self._frame_metadata()}
+        return Frame(data, metadata)
+
+    def _frame_metadata(self) -> Dict[str, Any]:
+        """What the parts say now, through their parameters. A part or parameter the
+        driver doesn't have is left out."""
+        found: Dict[str, Any] = {}
+        for (part_name, parameter), key in FRAME_METADATA.items():
+            part = self.parts.get(part_name)
+            if part is not None and parameter in part.parameters:
+                found[key] = to_wire(part.parameters[parameter].get_value())
+        return found

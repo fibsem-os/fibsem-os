@@ -10,10 +10,25 @@ from __future__ import annotations
 import logging
 import typing
 from enum import Enum
-from typing import Any, Callable, Dict, Union
+from typing import Any, Callable, Dict, NamedTuple, Union
 
 # How the server sends an array (a camera frame) and the remote driver recognises one.
 NPY_MEDIA_TYPE = "application/x-npy"
+
+# The JSON header a `Frame`'s metadata travels in, beside its array.
+FRAME_METADATA_HEADER = "X-Frame-Metadata"
+
+
+class Frame(NamedTuple):
+    """A camera frame and what it was taken with, read next to the hardware.
+
+    A command returns one so that building the image needs no reads after it: on a
+    remote FM, each of those reads is a request. ``metadata`` is plain JSON-ready data;
+    `fibsem.devices.fm.FM.acquire_frame` lists its keys.
+    """
+
+    data: Any  # np.ndarray; Any so this module doesn't import numpy
+    metadata: Dict[str, Any]
 
 
 def to_wire(value: Any) -> Any:

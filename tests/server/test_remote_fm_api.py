@@ -148,6 +148,56 @@ def test_acquire_image_sets_up_the_channel_on_the_far_side(served):
     assert isinstance(image.data, np.ndarray) and image.data.ndim == 2
 
 
+def _counting_requests(fm):
+    """Record each request the FM API sends to the FM's computer."""
+    sent = []
+    request = fm.client.request
+
+    def counted(method, path, *args, **kwargs):
+        sent.append((method, path))
+        return request(method, path, *args, **kwargs)
+
+    fm.client.request = counted
+    return sent
+
+
+def test_a_frame_is_one_request_with_its_metadata(served):
+    far, fm = served
+    channel = ChannelSettings(
+        name="GFP", excitation_wavelength=450, power=0.2, exposure_time=0.01
+    )
+    sent = _counting_requests(fm)
+    image = fm.acquire_image(channel)
+    assert sent == [("POST", "devices/fm/commands/acquire_frame")]
+    md = image.metadata
+    ch = md.channels[0]
+    assert (ch.power, ch.excitation_wavelength, ch.exposure_time) == (0.2, 450, 0.01)
+    assert ch.emission_wavelength == far.filter_set.emission_wavelength
+    assert (ch.gain, ch.offset, ch.binning) == (
+        far.camera.gain,
+        far.camera.offset,
+        far.camera.binning,
+    )
+    assert ch.objective_position == far.objective.position
+    assert (md.pixel_size_x, md.pixel_size_y) == tuple(far.camera.pixel_size)
+    assert md.resolution == tuple(far.camera.resolution)
+
+    sent.clear()
+    fm.acquire_image()  # the current settings, as live view takes each frame
+    assert sent == [("POST", "devices/fm/commands/acquire_frame")]
+
+
+def test_a_server_without_acquire_frame_still_acquires(served):
+    """A METEOR PC on an older fibsem: the frame alone, metadata read as before."""
+    far, fm = served
+    fm.devices["fm"].server_commands -= {"acquire_frame"}
+    sent = _counting_requests(fm)
+    image = fm.acquire_image()
+    assert sent[0] == ("POST", "devices/fm/commands/acquire_channel")
+    assert len(sent) > 1  # the metadata, read live
+    assert image.metadata.channels[0].exposure_time == far.camera.exposure_time
+
+
 def test_live_acquisition_streams_frames(served):
     _, fm = served
     fm._rate_limit = 0

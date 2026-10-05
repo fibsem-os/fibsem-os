@@ -1168,18 +1168,7 @@ class FluorescenceMicroscope(ABC):
                 'pixel_size' ((x, y) in metres), 'acquisition_date'
                 (ISO string), 'exposure_time' (seconds).
         """
-        md = self.get_metadata()
-
-        if frame_metadata:
-            pixel_size = frame_metadata.get("pixel_size")
-            if pixel_size is not None:
-                md.pixel_size_x, md.pixel_size_y = pixel_size[0], pixel_size[1]
-            acquisition_date = frame_metadata.get("acquisition_date")
-            if acquisition_date is not None:
-                md.acquisition_date = acquisition_date
-            exposure_time = frame_metadata.get("exposure_time")
-            if exposure_time is not None and md.channels:
-                md.channels[0].exposure_time = exposure_time
+        md = self._metadata_for_frame(frame_metadata)
 
         # Apply image transformation to align with SEM/FIB images
         data = self._apply_image_transform(data)
@@ -1194,6 +1183,25 @@ class FluorescenceMicroscope(ABC):
                 self._last_updated_at = now
 
         return img
+
+    def _metadata_for_frame(
+        self, frame_metadata: Optional[dict]
+    ) -> FluorescenceImageMetadata:
+        """The image's metadata: the current state, with what the driver reported for
+        the frame itself in place of it."""
+        md = self.get_metadata()
+
+        if frame_metadata:
+            pixel_size = frame_metadata.get("pixel_size")
+            if pixel_size is not None:
+                md.pixel_size_x, md.pixel_size_y = pixel_size[0], pixel_size[1]
+            acquisition_date = frame_metadata.get("acquisition_date")
+            if acquisition_date is not None:
+                md.acquisition_date = acquisition_date
+            exposure_time = frame_metadata.get("exposure_time")
+            if exposure_time is not None and md.channels:
+                md.channels[0].exposure_time = exposure_time
+        return md
 
     def get_metadata(self) -> FluorescenceImageMetadata:
         """Generate comprehensive metadata for the current microscope state.
