@@ -7,12 +7,14 @@ import threading
 import time
 from copy import deepcopy
 from queue import Queue
+from types import MappingProxyType
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
 import fibsem.constants as constants
 from fibsem import manufacturers
+from fibsem.devices.beam import BEAM_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
@@ -452,6 +454,10 @@ class TescanMicroscope(FibsemMicroscope):
         # set up detectors
         self._default_detector_names = {BeamType.ELECTRON: "SE", BeamType.ION: "SE"}
         self._active_detector: Dict[BeamType, Detector] = {}
+
+        # the beams as devices, before anything below sets a beam key through them
+        self._build_beams()
+
         available_detectors = self._get_available_detectors(BeamType.ELECTRON)
         if self._default_detector_names[BeamType.ELECTRON] not in [
             d.name for d in available_detectors
@@ -488,6 +494,18 @@ class TescanMicroscope(FibsemMicroscope):
                 "system_info": self.system.info.to_dict(),
             }
         )
+
+    def _build_beams(self) -> None:
+        """Build the beam devices and route the beam keys to them.
+
+        A key a beam does not have (the ion column's working distance, the electron
+        column's preset, ``detector_mode``) is still answered by ``_get``/``_set``,
+        and so is every key of a disabled column, which gets no device.
+        """
+        from fibsem.devices.drivers.tescan import bind_tescan_beams
+
+        self.beams = MappingProxyType(bind_tescan_beams(self))
+        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
 
     @property
     def manufacturer(self) -> str:
