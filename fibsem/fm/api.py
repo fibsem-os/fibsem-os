@@ -117,13 +117,16 @@ class DeviceObjectiveLens(ObjectiveLens):
         self._device.move_absolute(position)
         self._notify_moved()
 
+    # Announced unless the driver says nothing moved, as the FM classes announce
+    # only a move (`_notify_moved`).
+
     def insert(self) -> None:
-        self._device.insert()
-        self._notify_moved()
+        if self._device.insert() is not False:
+            self._notify_moved()
 
     def retract(self) -> None:
-        self._device.retract()
-        self._notify_moved()
+        if self._device.retract() is not False:
+            self._notify_moved()
 
 
 class DeviceCamera(Camera):

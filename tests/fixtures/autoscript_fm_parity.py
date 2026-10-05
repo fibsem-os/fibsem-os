@@ -90,6 +90,9 @@ def _install_fake_sdk():
         setattr(enums, name, value)
     structs.GrabFrameSettings = GrabFrameSettings
     structs.Limits = Limits
+    # Anything else fibsem.microscopes.autoscript imports, by name.
+    for module in (proxies, enums, structs):
+        module.__getattr__ = lambda name: type(name, (), {})
     for module in (package, build, proxies, enums, structs):
         sys.modules[module.__name__] = module
 
@@ -300,6 +303,8 @@ def new_fm(view, objective, filter_mode):
 
 
 def _value(value):
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
     if isinstance(value, np.ndarray):
         return {"shape": list(value.shape), "sum": int(value.sum())}
     if value is REFLECTION or value == REFLECTION:
@@ -451,11 +456,9 @@ def _moved(d, move):
 
 
 def _moved_if(d, move):
-    """`_moved`, for insert and retract, which announce only when they moved."""
-    detector = d["objective"]._channel.connection.detector
-    before = detector._state
-    move()
-    if detector._state != before:
+    """`_moved`, for insert and retract, which announce only when they moved: the
+    command returns False when nothing did."""
+    if move() is not False:
         _moved(d, lambda: None)
 
 
@@ -671,6 +674,159 @@ def _cases(add):
         )
 
 
+# -- the FM API: today's class, and the FM API over the devices --------------------
+
+
+def api_pair(view, objective, filter_mode, fn):
+    """Run *fn* on today's Thermo FM class and on the FM API over the devices, each
+    over a fresh fake: the same call on both, since the API is the same."""
+    from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
+
+    fm, _ = old_fm(view, objective, filter_mode)
+    out = {"old": run(lambda: _api_value(fn(fm)), view)}
+    connection = make_connection(objective, filter_mode)
+    parent = Parent(connection)
+    devices = bind_autoscript_fm(parent)
+    devices["fm"].live_timeout = None  # as ThermoMicroscope builds it
+    api = DeviceThermoFisherFluorescenceMicroscope(devices, parent=parent)
+    out["new"] = run(lambda: _api_value(fn(api)), view)
+    return out
+
+
+def _api_value(value):
+    """An image as its data and metadata, without the time it was taken."""
+    if hasattr(value, "data") and hasattr(value, "metadata"):
+        md = value.metadata.to_dict()
+        md.pop("acquisition_date", None)
+        for channel in md.get("channels") or []:
+            channel.pop("acquisition_date", None)
+        return {"data": _value(value.data), "metadata": _plain(md)}
+    return _value(value)
+
+
+def _live(fm, channel, frames):
+    """Live view through the FM API, stopped after *frames* frames, as the UI's stop
+    button would: the worker thread runs it, and this waits for it to finish."""
+
+    def stop_after(n):
+        if n >= frames:
+            fm._stop_acquisition_event.set()
+
+    fm.connection.imaging.on_frame = stop_after
+    fm.start_acquisition(channel)
+    fm._acquisition_thread.join(10)
+    return not fm._acquisition_thread.is_alive()
+
+
+def _tileset(fm):
+    """What a tileset does with the FM: hold the channel for the run, and for each
+    tile a z-stack and the channels at the tile's focus."""
+    from fibsem.fm.acquisition import acquire_channels, acquire_z_stack
+    from fibsem.fm.structures import ZParameters
+
+    zparams = ZParameters(zmin=-2e-6, zmax=2e-6, zstep=2e-6)
+    with fm.active_channel():
+        for _ in range(2):
+            acquire_z_stack(fm, [CHANNEL, REFLECTION_CHANNEL], zparams)
+            acquire_channels(fm, [CHANNEL])
+    return None
+
+
+def api_cases():
+    from fibsem.fm.acquisition import acquire_channels, acquire_z_stack
+    from fibsem.fm.structures import ZParameters, ZStackOrder
+
+    calls = {
+        # reads
+        "camera reads": lambda fm: [
+            fm.camera.exposure_time,
+            fm.camera.binning,
+            fm.camera.gain,
+            fm.camera.offset,
+            list(fm.camera.pixel_size),
+            list(fm.camera.resolution),
+            list(fm.camera.exposure_time_limits),
+            list(fm.camera.available_binnings),
+        ],
+        "light reads": lambda fm: [
+            fm.light_source.power,
+            list(fm.light_source.power_limits),
+        ],
+        "filter reads": lambda fm: [
+            fm.filter_set.excitation_wavelength,
+            fm.filter_set.emission_wavelength,
+            list(fm.filter_set.available_excitation_wavelengths),
+            list(fm.filter_set.available_emission_wavelengths),
+        ],
+        "objective reads": lambda fm: [
+            fm.objective.position,
+            list(fm.objective.limits),
+            fm.objective.state,
+            fm.objective.magnification,
+            fm.objective.numerical_aperture,
+            fm.objective.focus_position,
+            fm.objective.limit_position,
+        ],
+        # writes
+        "set_channel fluorescence": lambda fm: fm.set_channel(CHANNEL),
+        "set_channel reflection": lambda fm: fm.set_channel(REFLECTION_CHANNEL),
+        "set_binning": lambda fm: fm.set_binning(4),
+        "set_exposure_time out of range": lambda fm: fm.set_exposure_time(100.0),
+        "emission then read": lambda fm: (
+            setattr(fm.filter_set, "excitation_wavelength", 365),
+            setattr(fm.filter_set, "emission_wavelength", 365),
+            fm.filter_set.emission_wavelength,
+        )[2],
+        "objective moves": lambda fm: (
+            fm.objective.move_absolute(6e-3),
+            fm.objective.move_relative(1e-4),
+            fm.objective.move_absolute(8.8e-3),
+            fm.objective.position,
+        )[3],
+        "objective insert retract": lambda fm: (
+            fm.objective.insert(),
+            fm.objective.retract(),
+            fm.objective.state,
+        )[2],
+        "objective limit_position": lambda fm: (
+            setattr(fm.objective, "limit_position", 7e-3),
+            fm.objective.move_absolute(8e-3),
+            fm.objective.position,
+        )[2],
+        # acquisitions
+        "acquire_image fluorescence": lambda fm: fm.acquire_image(CHANNEL),
+        "acquire_image reflection": lambda fm: fm.acquire_image(REFLECTION_CHANNEL),
+        "acquire_image current settings": lambda fm: fm.acquire_image(None),
+        "acquire_channels": lambda fm: acquire_channels(
+            fm, [CHANNEL, REFLECTION_CHANNEL]
+        ),
+        "acquire_z_stack by channel": lambda fm: acquire_z_stack(
+            fm, [CHANNEL, REFLECTION_CHANNEL], ZParameters(zmin=-2e-6, zmax=2e-6)
+        ),
+        "acquire_z_stack by z level": lambda fm: acquire_z_stack(
+            fm,
+            [CHANNEL, REFLECTION_CHANNEL],
+            ZParameters(zmin=-1e-6, zmax=1e-6, order=ZStackOrder.Z_LEVEL),
+        ),
+        "tileset": _tileset,
+        "live 3 frames": lambda fm: _live(fm, CHANNEL, 3),
+        "live current settings": lambda fm: _live(fm, None, 2),
+    }
+    out = []
+    for view in (BEAM_VIEW, FM_VIEW):
+        for objective in ("Retracted", "Inserted"):
+            for mode in (CameraFilterType.FLUORESCENCE, CameraFilterType.REFLECTION):
+                tag = f"view={view} objective={objective} filter={mode.name}"
+                for name, fn in calls.items():
+                    out.append(
+                        {
+                            "key": f"{tag} {name}",
+                            **api_pair(view, objective, mode, fn),
+                        }
+                    )
+    return out
+
+
 def _completes_while_held(view, read):
     """Whether *read* finishes while another thread holds the microscope's lock."""
     parent = Parent(make_connection("Retracted", CameraFilterType.FLUORESCENCE))
@@ -695,12 +851,30 @@ def _completes_while_held(view, read):
     return finished
 
 
+def _thermo_microscope_fm():
+    """What a Thermo microscope builds its FM from."""
+    import fibsem.microscopes.autoscript as A
+
+    microscope = object.__new__(A.ThermoMicroscope)
+    microscope.connection = make_connection("Retracted", CameraFilterType.FLUORESCENCE)
+    fm = microscope._connect_fluorescence_devices()
+    group = fm.devices["fm"]
+    return {
+        "fm": type(fm).__name__,
+        "devices": sorted(fm.devices),
+        "live_timeout": group.live_timeout,
+        "shares_the_microscope_lock": group._channel.lock is microscope._threading_lock,
+        "parent": fm.parent is microscope,
+    }
+
+
 def facts():
     """What the drivers are, beside the parity cases."""
     parent = Parent(make_connection("Retracted", CameraFilterType.FLUORESCENCE))
     devices = bind_autoscript_fm(parent)
     position = lambda d: d["objective"].position.get_value()  # noqa: E731
     return {
+        "thermo_microscope": _thermo_microscope_fm(),
         "devices": {name: type(d).__name__ for name, d in devices.items()},
         "parameters": {name: sorted(d.parameters) for name, d in devices.items()},
         "commands": {name: sorted(d.commands) for name, d in devices.items()},
@@ -721,4 +895,6 @@ def facts():
 
 if __name__ == "__main__":
     with open(sys.argv[1], "w") as f:
-        json.dump({"cases": cases(), "facts": facts()}, f, default=str)
+        json.dump(
+            {"cases": cases(), "api": api_cases(), "facts": facts()}, f, default=str
+        )
