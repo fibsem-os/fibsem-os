@@ -592,11 +592,12 @@ class Device:
     # -- internals -----------------------------------------------------------------
 
     @contextmanager
-    def _claim(self, param: BoundParameter) -> Iterator[None]:
-        if not param.needs_channel:
-            yield
-            return
-        # claim, select, act, restore, release
+    def claim_channel(self) -> Iterator[None]:
+        """Hold the imaging channel with this device selected on it.
+
+        What a ``needs_channel`` parameter does around its read or write, for a command
+        whose vendor call needs the channel: claim, select, act, restore, release.
+        """
         with self.resources.claim(IMAGING_CHANNEL):
             restore = self.select_channel()
             try:
@@ -604,6 +605,14 @@ class Device:
             finally:
                 if restore is not None:
                     restore()
+
+    @contextmanager
+    def _claim(self, param: BoundParameter) -> Iterator[None]:
+        if not param.needs_channel:
+            yield
+            return
+        with self.claim_channel():
+            yield
 
     def select_channel(self) -> Optional[Callable[[], None]]:
         """Make this device the active imaging channel. Backends that share one override it.
