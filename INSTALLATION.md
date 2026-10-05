@@ -104,7 +104,7 @@ skip it entirely for the simulator.
 
 fibsemOS controls Thermo Fisher instruments through AutoScript, Thermo
 Fisher's scripting interface. It is a licensed product; contact Thermo Fisher
-for pricing and installation. fibsemOS works with AutoScript 4.7 and later.
+for pricing and installation. fibsemOS works with AutoScript 4.9 and later.
 
 If AutoScript is already installed on this computer, fibsemOS will most likely
 find it on its own: the first step of Guided Setup reports whether it was

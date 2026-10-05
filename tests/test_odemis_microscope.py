@@ -235,7 +235,7 @@ def microscope(odemis_microscope_cls):
     microscope = object.__new__(odemis_microscope_cls)  # skip __init__ (hardware)
     microscope.system = utils.load_microscope_configuration(ODEMIS_CONFIG_PATH).system
     microscope.connection = FakeOdemisClient()
-    microscope.stage = FakeStage()
+    microscope._vendor_stage = FakeStage()
     microscope.stage_is_compustage = False
     microscope.fm = None
     microscope.user = FibsemUser()

@@ -11,6 +11,7 @@ import numpy as np
 from psygnal import Signal
 
 from fibsem import manufacturers
+from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
@@ -304,7 +305,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.connection: OdemisAutoscriptClient = model.getComponent(role="fibsem")
 
         # stage
-        self.stage: model.Actuator = model.getComponent(role="stage-bare")
+        self._vendor_stage: model.Actuator = model.getComponent(role="stage-bare")
 
         logging.info("OdemisThermoMicroscope initialized")
 
@@ -329,6 +330,8 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
 
+        self._build_devices()
+
         self.fm = None
         try:
             if (
@@ -348,6 +351,32 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             self._create_sample_stage()
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
+
+    def _build_devices(self) -> None:
+        """Build the beam and stage devices and route the beam and stage keys to them.
+
+        The moves and ``home`` then go through the stage device. A ``stage_link`` set
+        stays with ``_set``: a false value unlinks there, and the device's ``link``
+        command only links. A failure leaves every key on the old code, as it was
+        before the devices, and says so.
+        """
+        from fibsem.devices.drivers.odemis import bind_odemis_beams, bind_odemis_stage
+
+        try:
+            beams = bind_odemis_beams(self)
+            stage = bind_odemis_stage(self)
+        except Exception as e:
+            logging.warning(
+                f"Could not build the beam and stage devices, using the old code: {e}"
+            )
+            return
+        self.beams = MappingProxyType(beams)
+        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
+        self.stage = stage
+        self._device_routes = MappingProxyType(
+            {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
+        )
+        self._command_routes = MappingProxyType({"stage_home": ("stage", "home")})
 
     def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
         """The FM as the FM API over the Odemis FM devices, which make the odemis
@@ -623,7 +652,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
         # stage properties
         if key == "stage_position":
-            pdict = self.stage.position.value
+            pdict = self._vendor_stage.position.value
             return FibsemStagePosition.from_odemis_dict(pdict)
 
         if key == "stage_homed":
@@ -916,18 +945,25 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def retract_manipulator(self) -> None:
         pass
 
+    # Through the stage device once it is built; the code below stays until a session
+    # on an instrument confirms the device's moves.
+
     @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
+        if self.stage is not None:
+            return super().move_stage_absolute(position)
         pdict = stage_position_to_odemis_dict(position)
-        f = self.stage.moveAbs(pdict)
+        f = self._vendor_stage.moveAbs(pdict)
         f.result()
         # TODO: implement compucentric rotation
         return self.get_stage_position()
 
     @_records_stage_move
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
+        if self.stage is not None:
+            return super().move_stage_relative(position)
         pdict = stage_position_to_odemis_dict(position)
-        f = self.stage.moveRel(pdict)
+        f = self._vendor_stage.moveRel(pdict)
         f.result()
         return self.get_stage_position()
 
