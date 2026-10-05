@@ -302,7 +302,12 @@ def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
     assert not editor.task_parameters_config_widget.isVisibleTo(editor)
     assert not editor.milling_task_editor.isVisibleTo(editor)
     config = editor.grid_protocol.add_task(BEAM, "overview_sem")
-    assert saved_protocol(exp)["grid_tasks"]["order"] == ["overview_sem"]
+    # after the shipped protocol's own grid tasks (FIB-1145)
+    assert saved_protocol(exp)["grid_tasks"]["order"] == [
+        "SEM Overview",
+        "FIB Overview",
+        "overview_sem",
+    ]
     assert editor.grid_protocol.editor_panel.title.text() == (
         "overview_sem · Beam overview"
     )
