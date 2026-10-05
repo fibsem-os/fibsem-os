@@ -187,7 +187,9 @@ class AutoscriptBeam(Beam):
     channel and select this beam's (``needs_channel``), as the old branches do under
     the lock. The scan commands are the old ``spot_mode``/``reduced_area``/
     ``full_frame`` keys; ``scanning_mode`` reads the vendor's scan mode, which nothing
-    read before.
+    read before. The electron beam's ``angular_correction`` and ``tilt_correction``
+    are the old ``angular_correction_angle`` and ``angular_correction_tilt_correction``
+    keys; the tilt correction could only be set before, and now reads too.
 
     Not here, so absent on the new API and still answered by the old branches:
     ``preset`` (Thermo has none).
@@ -424,6 +426,34 @@ class AutoscriptBeam(Beam):
 
     def _full_frame(self) -> None:
         self._beam.scanning.mode.set_full_frame()
+
+    # The angular correction: the electron column's only.
+
+    def available_angular_correction(self) -> bool:
+        return self.beam_type is BeamType.ELECTRON
+
+    def read_angular_correction(self) -> float:
+        return self._beam.angular_correction.angle.value
+
+    def write_angular_correction(self, value: float) -> None:
+        self._beam.angular_correction.angle.value = value
+        logging.info(f"Angular correction angle set to {value} radians.")
+
+    def available_tilt_correction(self) -> bool:
+        return self.beam_type is BeamType.ELECTRON
+
+    def read_tilt_correction(self) -> Optional[bool]:
+        # New: the old key could only be set. A failed read warns and reads None, so
+        # a write that has already been made does not fail on its read-back.
+        try:
+            return bool(self._beam.angular_correction.tilt_correction.is_on)
+        except Exception as e:
+            logging.warning(f"Tilt correction could not be read: {e}")
+            return None
+
+    def write_tilt_correction(self, value: bool) -> None:
+        tilt_correction = self._beam.angular_correction.tilt_correction
+        tilt_correction.turn_on() if value else tilt_correction.turn_off()
 
     # Only a plasma ion column has a gas.
     def available_plasma_gas(self) -> bool:

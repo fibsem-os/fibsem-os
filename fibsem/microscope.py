@@ -112,6 +112,9 @@ _INFO_KEYS = frozenset(
 # value"). Routed to a device command only for a true value; a false one still goes
 # to `_set`.
 _VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber"))
+# Keys only ever set: the old `_get` has no branch for them and returns None. A get
+# stays with `_get`, so it still returns None, rather than reading the device.
+_SET_ONLY_KEYS = frozenset(("angular_correction_tilt_correction",))
 
 
 # Whether a stage move is being recorded on this thread. A move is often made of
@@ -1709,7 +1712,7 @@ class FibsemMicroscope(ABC):
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> Union[float, int, bool, str, list, tuple, Point]:
         """Get wrapper for logging."""
-        param = self._route(key, beam_type)
+        param = None if key in _SET_ONLY_KEYS else self._route(key, beam_type)
         if param is not None:
             value = _old_key_value(key, param.get_value())
         elif key in _BEAM_CONFIG_KEYS:
