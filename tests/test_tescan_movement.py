@@ -37,6 +37,10 @@ from fibsem.imaging.tiled import (
     _inverse_y_corrected_stage_movement_tescan,
     calculate_reprojected_stage_position2,
 )
+from fibsem.imaging.tiling.reprojection import (
+    inverse_y_corrected_stage_movement_tescan_from_geometry,
+    y_corrected_stage_movement_tescan_from_geometry,
+)
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
     BeamSettings,
@@ -132,6 +136,44 @@ def make_image(
     return FibsemImage(data=np.zeros(shape, dtype=np.uint8), metadata=md)
 
 
+def _forward(m, expected_y, beam_type=BeamType.ELECTRON) -> FibsemStagePosition:
+    """The Tescan-frame forward, at the stubbed stage pose."""
+    y, z = y_corrected_stage_movement_tescan_from_geometry(
+        geometry=FibsemHardwareGeometry.from_system_settings(m.system),
+        stage_position=m.get_stage_position(),
+        expected_y=expected_y,
+        beam_type=beam_type,
+    )
+    return FibsemStagePosition(x=0, y=y, z=z)
+
+
+def _inverse(m, dy, dz, beam_type=BeamType.ELECTRON) -> float:
+    """The Tescan-frame inverse, at the stubbed stage pose."""
+    return inverse_y_corrected_stage_movement_tescan_from_geometry(
+        geometry=FibsemHardwareGeometry.from_system_settings(m.system),
+        stage_position=m.get_stage_position(),
+        dy=dy,
+        dz=dz,
+        beam_type=beam_type,
+    )
+
+
+def _native_click(m, dx, dy, beam_type, base, scan_rotation_deg=0.0):
+    """Where a click at (dx, dy) took a stage in Tescan's frame: the move the old
+    ``project_stable_move`` made, x and y inverted against the image."""
+    if np.isclose(scan_rotation_deg, 180.0):
+        dx, dy = -dx, -dy
+    move = _forward(m, dy, beam_type)
+    return FibsemStagePosition(
+        x=base.x - dx,
+        y=base.y - move.y,
+        z=base.z + move.z,
+        r=base.r,
+        t=base.t,
+        coordinate_system="RAW",
+    )
+
+
 def stage_at(
     tilt_deg: float, rotation: float = ROTATION_FLAT_TO_EB
 ) -> FibsemStagePosition:
@@ -154,7 +196,7 @@ def test_sem_y_move_is_dy_over_cos_tilt(tilt_deg, pretilt_deg):
     m = make_microscope(pretilt_deg=pretilt_deg, stage_position=stage_at(tilt_deg))
     dy = 2e-6
 
-    move = m._y_corrected_stage_movement(expected_y=dy, beam_type=BeamType.ELECTRON)
+    move = _forward(m, dy, BeamType.ELECTRON)
 
     tilt = np.deg2rad(tilt_deg)
     pretilt = np.deg2rad(pretilt_deg)
@@ -172,7 +214,7 @@ def test_no_pretilt_move_is_pure_y(beam_type, tilt_deg):
     m = make_microscope(pretilt_deg=0.0, stage_position=stage_at(tilt_deg))
     dy = 2e-6
 
-    move = m._y_corrected_stage_movement(expected_y=dy, beam_type=beam_type)
+    move = _forward(m, dy, beam_type)
 
     beam_tilt = 0.0 if beam_type is BeamType.ELECTRON else FIB_COLUMN_TILT
     d = dy / np.cos(np.deg2rad(tilt_deg) - beam_tilt)
@@ -188,7 +230,7 @@ def test_fib_move_explicit_values():
     m = make_microscope(pretilt_deg=pretilt_deg, stage_position=stage_at(tilt_deg))
     dy = 2e-6
 
-    move = m._y_corrected_stage_movement(expected_y=dy, beam_type=BeamType.ION)
+    move = _forward(m, dy, BeamType.ION)
 
     tilt = np.deg2rad(tilt_deg)
     inclination = np.deg2rad(tilt_deg - pretilt_deg)  # -18 deg
@@ -207,7 +249,7 @@ def test_logged_milling_pose_regression():
     m = make_microscope(pretilt_deg=40.0, stage_position=stage_at(20.0))
     dy = 33.3e-6
 
-    move = m._y_corrected_stage_movement(expected_y=dy, beam_type=BeamType.ION)
+    move = _forward(m, dy, BeamType.ION)
 
     d = dy / np.cos(np.deg2rad(-20.0) - FIB_COLUMN_TILT)  # 128.66 um
     assert move.y == pytest.approx(d)  # cos(incl) == cos(tilt) at this exact pose
@@ -227,8 +269,8 @@ def test_pretilt_sign_flips_when_facing_ion():
     m_eb = make_microscope(pretilt_deg, stage_at(tilt_deg, ROTATION_FLAT_TO_EB))
     m_ion = make_microscope(pretilt_deg, stage_at(tilt_deg, ROTATION_FLAT_TO_ION))
 
-    move_eb = m_eb._y_corrected_stage_movement(dy, BeamType.ELECTRON)
-    move_ion = m_ion._y_corrected_stage_movement(dy, BeamType.ELECTRON)
+    move_eb = _forward(m_eb, dy, BeamType.ELECTRON)
+    move_ion = _forward(m_ion, dy, BeamType.ELECTRON)
 
     d_eb = dy / np.cos(tilt - pretilt)
     d_ion = dy / np.cos(tilt + pretilt)
@@ -240,58 +282,6 @@ def test_pretilt_sign_flips_when_facing_ion():
 # ---------------------------------------------------------------------------
 # stable_move / project_stable_move
 # ---------------------------------------------------------------------------
-
-
-def test_stable_move_applies_axis_inversion():
-    """stable_move applies the empirical stage-axis inversion (x=-dx, y=-y_move)
-    after the trig, leaving z independent."""
-    m = make_microscope(pretilt_deg=35.0, stage_position=stage_at(17.0))
-    dx, dy = 1e-6, 2e-6
-
-    m.stable_move(dx=dx, dy=dy, beam_type=BeamType.ELECTRON)
-
-    assert len(m._recorded_moves) == 1
-    move = m._recorded_moves[0]
-    tilt, pretilt = np.deg2rad(17.0), np.deg2rad(35.0)
-    d = dy / np.cos(tilt - pretilt)
-    assert move.x == pytest.approx(-dx)
-    assert move.y == pytest.approx(-dy / np.cos(tilt))  # SEM y, inverted
-    assert move.z == pytest.approx(d * np.sin(pretilt) / np.cos(tilt))  # z not inverted
-
-
-def test_stable_move_scan_rotation_180_flips_xy():
-    """At 180 deg scan rotation the image axes flip, cancelling the inversion."""
-    m = make_microscope(
-        pretilt_deg=35.0, stage_position=stage_at(17.0), scan_rotation_deg=180.0
-    )
-    dx, dy = 1e-6, 2e-6
-
-    m.stable_move(dx=dx, dy=dy, beam_type=BeamType.ELECTRON)
-
-    move = m._recorded_moves[0]
-    tilt, pretilt = np.deg2rad(17.0), np.deg2rad(35.0)
-    d = dy / np.cos(tilt - pretilt)
-    assert move.x == pytest.approx(dx)
-    assert move.y == pytest.approx(dy / np.cos(tilt))
-    assert move.z == pytest.approx(-d * np.sin(pretilt) / np.cos(tilt))
-
-
-@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
-def test_project_stable_move_matches_stable_move(beam_type):
-    """project_stable_move is the pure-math equivalent of stable_move."""
-    base = stage_at(17.0)
-    m = make_microscope(pretilt_deg=35.0, stage_position=base)
-    dx, dy = 1e-6, 2e-6
-
-    projected = m.project_stable_move(
-        dx=dx, dy=dy, beam_type=beam_type, base_position=base
-    )
-    m.stable_move(dx=dx, dy=dy, beam_type=beam_type)
-    applied = m._recorded_moves[0]
-
-    assert projected.x - base.x == pytest.approx(applied.x)
-    assert projected.y - base.y == pytest.approx(applied.y)
-    assert projected.z - base.z == pytest.approx(applied.z)
 
 
 # ---------------------------------------------------------------------------
@@ -309,12 +299,10 @@ def test_microscope_inverse_round_trip(beam_type, rotation, tilt_deg, pretilt_de
     m = make_microscope(pretilt_deg, stage_at(tilt_deg, rotation))
     dy = 2e-6
 
-    chamber = m._y_corrected_stage_movement(expected_y=dy, beam_type=beam_type)
+    chamber = _forward(m, dy, beam_type)
     dy_raw, dz_raw = -chamber.y, chamber.z  # as applied by stable_move
 
-    recovered = m._inverse_y_corrected_stage_movement(
-        dy=dy_raw, dz=dz_raw, beam_type=beam_type
-    )
+    recovered = _inverse(m, dy_raw, dz_raw, beam_type)
 
     assert recovered == pytest.approx(dy)
 
@@ -335,67 +323,15 @@ def test_inverse_uses_z_branch_when_pretilt_dominates(beam_type):
     m = make_microscope(pretilt_deg, stage_at(tilt_deg, ROTATION_FLAT_TO_ION))
     dy = 2e-6
 
-    chamber = m._y_corrected_stage_movement(expected_y=dy, beam_type=beam_type)
+    chamber = _forward(m, dy, beam_type)
     inclination = np.deg2rad(tilt_deg + pretilt_deg)
     assert abs(np.sin(np.deg2rad(pretilt_deg))) > abs(np.cos(inclination)), (
         "fixture must hit the z branch"
     )
 
-    recovered = m._inverse_y_corrected_stage_movement(
-        dy=-chamber.y, dz=chamber.z, beam_type=beam_type
-    )
+    recovered = _inverse(m, -chamber.y, chamber.z, beam_type)
 
     assert recovered == pytest.approx(dy)
-
-
-@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
-@pytest.mark.parametrize("tilt_deg", [0.0, 17.0, 30.0])
-def test_standalone_inverse_matches_microscope(beam_type, tilt_deg):
-    """The metadata-based standalone inverse (reprojection.py) matches the microscope method."""
-    stage_position = stage_at(tilt_deg)
-    m = make_microscope(pretilt_deg=35.0, stage_position=stage_position)
-    image = make_image(m.system, stage_position, beam_type=beam_type)
-    dy_raw, dz_raw = -1.5e-6, 0.5e-6
-
-    from_microscope = m._inverse_y_corrected_stage_movement(
-        dy=dy_raw, dz=dz_raw, beam_type=beam_type
-    )
-    from_metadata = _inverse_y_corrected_stage_movement_tescan(
-        image, dy=dy_raw, dz=dz_raw, beam_type=beam_type
-    )
-
-    assert from_metadata == pytest.approx(from_microscope)
-
-
-@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
-def test_standalone_inverse_matches_microscope_z_branch(beam_type):
-    """The standalone must match the microscope method in the z branch too.
-
-    The z branch encodes the z convention independently of the y branch, and the two
-    copies of the inverse once diverged in exactly that branch (dz vs -dz), silently
-    placing reprojected positions at the opposite corner. The microscope method now
-    delegates to the reprojection core, so this pins the delegation and the
-    metadata-path geometry staying equivalent.
-    """
-    tilt_deg, pretilt_deg = 60.0, 35.0
-    stage_position = stage_at(tilt_deg, ROTATION_FLAT_TO_ION)
-    m = make_microscope(pretilt_deg=pretilt_deg, stage_position=stage_position)
-    image = make_image(m.system, stage_position, beam_type=beam_type)
-
-    inclination = np.deg2rad(tilt_deg + pretilt_deg)  # 95 deg -> z branch
-    assert abs(np.sin(np.deg2rad(pretilt_deg))) > abs(np.cos(inclination)), (
-        "fixture must hit the z branch"
-    )
-
-    dy_raw, dz_raw = -1.5e-6, 0.5e-6
-    from_microscope = m._inverse_y_corrected_stage_movement(
-        dy=dy_raw, dz=dz_raw, beam_type=beam_type
-    )
-    from_metadata = _inverse_y_corrected_stage_movement_tescan(
-        image, dy=dy_raw, dz=dz_raw, beam_type=beam_type
-    )
-
-    assert from_metadata == pytest.approx(from_microscope)
 
 
 @pytest.mark.parametrize("manufacturer", ["Tescan", "TESCAN"])
@@ -435,7 +371,7 @@ def test_reprojection_round_trip(beam_type, manufacturer):
     image.metadata.system_info.manufacturer = manufacturer
     dx, dy = 1e-6, 2e-6
 
-    pos = m.project_stable_move(dx=dx, dy=dy, beam_type=beam_type, base_position=base)
+    pos = _native_click(m, dx, dy, beam_type, base)
     point = calculate_reprojected_stage_position2(image, pos)
 
     centre_x = image.data.shape[1] / 2
@@ -462,7 +398,7 @@ def test_reprojection_round_trip_scan_rotation_180(beam_type):
     )
     dx, dy = 1e-6, 2e-6
 
-    pos = m.project_stable_move(dx=dx, dy=dy, beam_type=beam_type, base_position=base)
+    pos = _native_click(m, dx, dy, beam_type, base, scan_rotation_deg=180.0)
     point = calculate_reprojected_stage_position2(image, pos)
 
     centre_x = image.data.shape[1] / 2
@@ -504,23 +440,11 @@ def test_the_deprecated_name_is_the_electron_branch():
     assert m_new._recorded_moves[0].is_close2(m_old._recorded_moves[0], tol=1e-12)
 
 
-def test_the_fib_view_is_the_default():
-    """Every existing caller passes no beam_type and must keep the FIB geometry."""
-    dy = 10e-6
-
-    m_default = make_microscope(stage_position=stage_at(-15.0))
-    m_default.vertical_move(dy=dy)
-
-    m_ion = make_microscope(stage_position=stage_at(-15.0))
-    m_ion.vertical_move(dy=dy, beam_type=BeamType.ION)
-
-    assert m_default._recorded_moves[0].is_close2(m_ion._recorded_moves[0], tol=1e-12)
-
-
-@pytest.mark.parametrize("beam_type", [BeamType.ION, BeamType.ELECTRON])
-def test_relaxation_is_accepted_but_not_applied(beam_type):
+def test_relaxation_is_accepted_but_not_applied_from_the_sem_view():
     """The automated coincidence alignment passes relaxation to every backend.
-    Tescan must accept it rather than raise TypeError; it does not apply it."""
+    Tescan's own SEM-view move accepts it and does not apply it. The FIB view takes
+    the shared move, which does."""
+    beam_type = BeamType.ELECTRON
     dx, dy = 1e-6, 10e-6
 
     m_default = make_microscope(pretilt_deg=40.0, stage_position=stage_at(20.0))

@@ -74,6 +74,7 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
+    STAGE_FRAME_TESCAN,
     BeamSettings,
     BeamSystemSettings,
     BeamType,
@@ -636,7 +637,7 @@ class TescanMicroscope(FibsemMicroscope):
             raise ValueError("Failed to acquire image from microscope.")
 
         # convert to FibsemImage
-        fibsem_image: FibsemImage = fromTescanImage(image, effective_image_settings)
+        fibsem_image = self._image_from_tescan(image, effective_image_settings)
         fibsem_image.metadata.image_settings.beam_type = deepcopy(effective_beam_type)
 
         # save the last image for md
@@ -790,6 +791,24 @@ class TescanMicroscope(FibsemMicroscope):
             {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
         )
 
+    def _image_from_tescan(self, image, image_settings: ImageSettings) -> FibsemImage:
+        """An acquired Tescan image, with its header's stage position in fibsem's frame.
+
+        The header records the stage in Tescan's frame; the stage device converts it,
+        as it converts every position it reads. Without a stage device the position is
+        left as Tescan reported it, and ``stage_frame`` says so.
+        """
+        fibsem_image = fromTescanImage(image, image_settings)
+        state = fibsem_image.metadata.microscope_state
+        if self.stage is not None and state.stage_position is not None:
+            state.stage_position = self.stage.from_native(state.stage_position)
+        return fibsem_image
+
+    @property
+    def stage_frame(self) -> str:
+        """fibsem's frame through the stage device; Tescan's own without one."""
+        return self.stage.frame if self.stage is not None else STAGE_FRAME_TESCAN
+
     @_records_stage_move
     def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
         # Inert until Tescan has a fluorescence microscope at all -- `self.fm` is set
@@ -799,36 +818,6 @@ class TescanMicroscope(FibsemMicroscope):
 
         # TODO: implement if required.
         self.move_stage_absolute(stage_position)
-
-    def project_stable_move(
-        self,
-        dx: float,
-        dy: float,
-        beam_type: BeamType,
-        base_position: FibsemStagePosition,
-    ) -> FibsemStagePosition:
-        """Project an image-space displacement into a stage position, without moving.
-        Pure-math equivalent of stable_move (see https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414)."""
-
-        # adjust for scan rotation (radians, codebase convention)
-        scan_rotation = self.get_scan_rotation(beam_type)
-        if np.isclose(scan_rotation, np.pi):
-            dx *= -1.0
-            dy *= -1.0
-
-        # sample-plane move in the chamber frame
-        yz_move = self._y_corrected_stage_movement(dy, beam_type)
-
-        # apply the same stage-axis inversion as stable_move (see there)
-        new_position = deepcopy(base_position)
-        if new_position.x is not None:
-            new_position.x += -dx
-        if new_position.y is not None:
-            new_position.y += -yz_move.y
-        if new_position.z is not None:
-            new_position.z += yz_move.z
-
-        return new_position
 
     @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
@@ -880,121 +869,6 @@ class TescanMicroscope(FibsemMicroscope):
 
         return moved
 
-    @_records_stage_move
-    def stable_move(
-        self,
-        dx: float,
-        dy: float,
-        beam_type: BeamType,
-        static_wd: bool = False,
-    ) -> FibsemStagePosition:
-        """
-        Calculate the corrected stage movements based on the beam_type stage tilt
-        and shuttle pre-tilt, and then move the stage relatively.
-
-        Args:
-            dx (float): distance along the x-axis (image coordinates)
-            dy (float): distance along the y-axis (image coordinates)
-            beam_type (BeamType): beam type to move in
-            static_wd (bool, optional): unused on tescan (working distance is not stage-linked).
-        """
-
-        # adjust for scan rotation (radians, codebase convention)
-        scan_rotation = self.get_scan_rotation(beam_type)
-        if np.isclose(scan_rotation, np.pi):
-            dx *= -1.0
-            dy *= -1.0
-
-        # calculate the sample-plane move in the chamber frame
-        # (see https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414)
-        yz_move = self._y_corrected_stage_movement(
-            expected_y=dy,
-            beam_type=beam_type,
-        )
-
-        # The x/y inversion is empirical (tescan stage x/y appear inverted wrt
-        # image coordinates); it is applied after the trig so the z sign stays
-        # independent. Verified on hardware 2026-08-26: stable moves at tilt
-        # centre the feature and hold focus, in both views.
-        stage_position = FibsemStagePosition(x=-dx, y=-yz_move.y, z=yz_move.z, r=0, t=0)
-        logging.info(f"moving stage ({beam_type.name}): {stage_position}")
-        self.move_stage_relative(stage_position)
-
-        logging.debug(
-            {
-                "msg": "stable_move",
-                "dx": dx,
-                "dy": dy,
-                "beam_type": beam_type.name,
-                "static_wd": static_wd,
-                "scan_rotation": scan_rotation,
-                "position": stage_position.to_dict(),
-            }
-        )
-
-        return self.get_stage_position()
-
-    @_records_stage_move
-    def vertical_move(
-        self,
-        dy: float,
-        dx: float = 0.0,
-        beam_type: BeamType = BeamType.ION,
-        relaxation: float = 1.0,
-    ) -> FibsemStagePosition:
-        """Restore the coincidence point from an offset measured in one beam view.
-
-        Args:
-            dy (float): distance in y-axis (image coordinates)
-            dx (float, optional): distance in x-axis (image coordinates)
-            beam_type (BeamType, optional): the view the offset was measured in.
-                Defaults to ION.
-            relaxation (float, optional): accepted for interface compatibility with
-                the other backends; not applied on Tescan.
-        """
-        self._check_vertical_move_supported(beam_type)
-        if beam_type is BeamType.ELECTRON:
-            return self._vertical_move_from_sem(dx=dx, dy=dy)
-        return self._vertical_move_from_fib(dx=dx, dy=dy)
-
-    def _vertical_move_from_fib(
-        self,
-        dy: float,
-        dx: float = 0.0,
-    ) -> FibsemStagePosition:
-        """
-        Move the stage vertically to correct coincidence point
-
-        Args:
-            dy (float): distance in y-axis (image coordinates)
-            dx (float, optional): distance in x-axis (image coordinates)
-        """
-        # adjust for scan rotation (radians, codebase convention)
-        scan_rotation = self.get_scan_rotation(BeamType.ION)
-        if np.isclose(scan_rotation, np.pi):
-            dx *= -1.0
-            dy *= -1.0
-
-        # A coincidence correction is a purely vertical chamber move. On tescan,
-        # stage z is below the tilt axis (chamber-vertical), so this is a pure
-        # z move — no y compensation needed (unlike ThermoFisher).
-        # Perspective: the FIB views the vertical axis at the column tilt (55 deg),
-        # so the image dy projects onto the vertical with factor sin(column_tilt).
-        # See https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414.
-        fib_column_tilt = np.deg2rad(self.system.ion.column_tilt)
-        dz = dy / np.sin(fib_column_tilt)
-
-        # Verified on hardware 2026-07-22: this move (negated z + the 1/sin(column_tilt)
-        # perspective factor above) corrects coincidence from the FIB view. z is negated
-        # because Tescan +z increases downward, see _y_corrected_stage_movement.
-        # The x inversion assumes it matches stable_move; dx is currently always
-        # passed as 0 by the only caller, so it remains unexercised.
-        z_move = FibsemStagePosition(x=-dx, y=0, z=-dz, r=0, t=0)
-        logging.info(f"vertical movement: {z_move}")
-        self.move_stage_relative(z_move)
-
-        return self.get_stage_position()
-
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct the coincidence point from the SEM view.
 
@@ -1003,10 +877,16 @@ class TescanMicroscope(FibsemMicroscope):
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
 
-    def _vertical_move_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
+    def _vertical_move_from_sem(
+        self, dx: float, dy: float, relaxation: float = 1.0
+    ) -> FibsemStagePosition:
         """Correct the coincidence point from the SEM view.
 
-        The mirror of the FIB branch above: the stage slides along the FIB
+        Tescan's own move, kept in place of the shared stable move then FIB-vertical
+        move because it is the one verified on hardware. ``relaxation`` is not applied,
+        as it never was here.
+
+        The mirror of the FIB-view move: the stage slides along the FIB
         line of sight, which is invisible in the FIB image, until the clicked
         feature is centred in the SEM. A feature already positioned in the FIB
         view (e.g. just milled, or just corrected with vertical_move) therefore
@@ -1042,9 +922,12 @@ class TescanMicroscope(FibsemMicroscope):
             dy=dy,
         )
 
-        # same empirical x/y stage-axis inversion as stable_move (see there);
-        # z is commanded as computed (+z is down).
+        # The move in Tescan's frame: x and y run opposite the image, z as computed
+        # (+z is down). The stage device takes fibsem's frame, at the current tilt.
         stage_position = FibsemStagePosition(x=-dx, y=-y_move, z=z_move, r=0, t=0)
+        if self.stage is not None:
+            tilt = self.get_stage_position().t
+            stage_position = self.stage.native_delta(stage_position, tilt)
         logging.info(f"coincident move from SEM: {stage_position}")
         self.move_stage_relative(stage_position)
 
@@ -1058,108 +941,6 @@ class TescanMicroscope(FibsemMicroscope):
             }
         )
         return self.get_stage_position()
-
-    def _y_corrected_stage_movement(
-        self,
-        expected_y: float,
-        beam_type: BeamType = BeamType.ELECTRON,
-    ) -> FibsemStagePosition:
-        """
-        Calculate the stage command for a move along the sample plane, corrected for
-        the shuttle pre-tilt, the current stage tilt, and the viewing beam's
-        perspective.
-
-        Tescan stage axes (corrected 2026-08-25 from the 2026-07-22 session log): the
-        y-axis is mounted ON the tilt module -- a y command travels along the tilted
-        stage plate -- while z stays chamber-vertical (+z down, verified on hardware
-        2026-07-23). The axes are therefore non-orthogonal at tilt. The math lives in
-        reprojection.py (single source, shared with the image-metadata path and the
-        overview canvas). See
-        https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
-        for the derivation, the sign chain, and the hardware evidence.
-
-        Verified on hardware 2026-08-26: stable moves at tilt centre the feature
-        and hold focus, in both views. (The model was derived from the 2026-07-22
-        session log, whose observed 1.65x ion-view overshoot the previous
-        chamber-fixed model cannot produce at all.)
-
-        Args:
-            expected_y (float): distance along the image y-axis.
-            beam_type (BeamType, optional): beam perspective to correct for. Defaults to BeamType.ELECTRON.
-
-        Returns:
-            FibsemStagePosition: relative stage movement (before the stage-axis
-                inversion applied by the caller).
-        """
-        from fibsem.imaging.tiling.reprojection import (
-            _tescan_pose_angles,
-            y_corrected_stage_movement_tescan_from_geometry,
-        )
-
-        geometry = self.hardware_geometry()
-        current_stage_position = self.get_stage_position()
-
-        y_move, z_move = y_corrected_stage_movement_tescan_from_geometry(
-            geometry=geometry,
-            stage_position=current_stage_position,
-            expected_y=expected_y,
-            beam_type=beam_type,
-        )
-
-        # the angle terms are logged so a session log alone can reconstruct the
-        # geometry the move was computed under (this is how the 2026-07-22 ion-view
-        # overshoot was diagnosed after the fact)
-        stage_tilt, corrected_pretilt_angle, sample_inclination = _tescan_pose_angles(
-            geometry, current_stage_position
-        )
-        logging.debug(
-            {
-                "msg": "_y_corrected_stage_movement",
-                "stage_tilt": stage_tilt,
-                "corrected_pretilt_angle": corrected_pretilt_angle,
-                "sample_inclination": sample_inclination,
-                "expected_y": expected_y,
-                "y_move": y_move,
-                "z_move": z_move,
-            }
-        )
-
-        return FibsemStagePosition(x=0, y=y_move, z=z_move)
-
-    def _inverse_y_corrected_stage_movement(
-        self, dy: float, dz: float, beam_type: BeamType = BeamType.ELECTRON
-    ) -> float:
-        """
-        Calculate the expected_y input from dy, dz stage movements and beam_type.
-        This is the inverse of stable_move's y/z calculation: it takes actual (raw)
-        stage movements, as applied by stable_move (including the stage-axis
-        inversion), and returns the image-space dy that would produce them.
-
-        Thin adapter over the shared core in reprojection.py — the live-microscope
-        counterpart of _inverse_y_corrected_stage_movement_tescan (which reads image
-        metadata). Both feed the same maths, so they cannot drift apart. hardware_geometry()
-        returns the same column-tilt / pre-tilt / rotation terms this used to read straight
-        off self.system.
-
-        Args:
-            dy (float): actual y stage movement (raw stage frame)
-            dz (float): actual z stage movement (raw stage frame)
-            beam_type (BeamType, optional): beam_type used. Defaults to BeamType.ELECTRON.
-
-        Returns:
-            float: expected_y input that would produce the given dy, dz movements
-        """
-        from fibsem.imaging.tiling.reprojection import (
-            inverse_y_corrected_stage_movement_tescan_from_geometry,
-        )
-
-        return inverse_y_corrected_stage_movement_tescan_from_geometry(
-            geometry=self.hardware_geometry(),
-            stage_position=self.get_stage_position(),
-            dy=dy,
-            dz=dz,
-            beam_type=beam_type,
-        )
 
     def get_manipulator_state(self) -> bool:
         """returns true if nanomanipulator is inserted. Manipulator positions must be calibrated and stored in system.yaml file if not done so

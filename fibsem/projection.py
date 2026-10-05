@@ -37,7 +37,12 @@ from fibsem.imaging.tiling.reprojection import (
     inverse_y_corrected_stage_movement_tescan_from_geometry,
     y_corrected_stage_movement_tescan_from_geometry,
 )
-from fibsem.structures import BeamType, FibsemStagePosition, Point
+from fibsem.structures import (
+    STAGE_FRAME_TESCAN,
+    BeamType,
+    FibsemStagePosition,
+    Point,
+)
 from fibsem.transformations import (
     inverse_view_corrected_dy,
     view_corrected_stage_movement,
@@ -237,11 +242,10 @@ class BeamStageProjection:
     geometry: "FibsemHardwareGeometry"
     beam_type: BeamType
     scan_rotation: float  # radians
-    # Tescan's stage geometry is different enough that it overrides the projection
-    # rather than passing a different view tilt -- its z-axis sits below the tilt axis,
-    # so the decomposition uses the full chamber-frame sample inclination. It also
-    # inverts stage x against image x. Carried as a flag rather than re-derived from a
-    # manufacturer string at each use (FIB-300 is the string check itself).
+    # A position in Tescan's own stage frame (an image from before TescanStage
+    # converted to fibsem's, FIB-1114) projects through Tescan's maths: its z-axis
+    # sits below the tilt axis and it inverts stage x and y against the image. Every
+    # other position is in fibsem's frame and takes the shared maths.
     is_tescan: bool = False
 
     @classmethod
@@ -260,7 +264,7 @@ class BeamStageProjection:
                 geometry=microscope.hardware_geometry(),
                 beam_type=beam_type,
                 scan_rotation=microscope.get_scan_rotation(beam_type=beam_type),
-                is_tescan=manufacturers.is_tescan(microscope.system.info.manufacturer),
+                is_tescan=microscope.stage_frame == STAGE_FRAME_TESCAN,
             )
         except Exception as e:
             logging.debug(f"Could not read the live beam geometry: {e}")
@@ -294,7 +298,8 @@ class BeamStageProjection:
                 beam_type=beam_type,
                 scan_rotation=beam.scan_rotation,
                 is_tescan=(
-                    info is not None and manufacturers.is_tescan(info.manufacturer)
+                    geometry.resolved_stage_frame(info and info.manufacturer)
+                    == STAGE_FRAME_TESCAN
                 ),
             )
         except Exception as e:

@@ -1,8 +1,8 @@
 """Images stamp the frame their stage position is in (FIB-1114).
 
-Tescan's stage still reports Tescan's own frame; every other stage reports fibsem's. An
-image records which, so that when TescanStage converts to fibsem's frame, an image
-taken before and one taken after can be told apart. Nothing reads the stamp yet.
+Every stage device reports fibsem's frame, Tescan's included since TescanStage converts
+(FIB-1114). An image records it, so a Tescan image from before the conversion, which
+has no stamp, is still read in Tescan's own frame.
 """
 
 import os
@@ -21,10 +21,11 @@ from fibsem.structures import (
 from tests.fixtures.tescan_sdk import connect, image_at
 
 
-def _tescan(monkeypatch):
+def _tescan(monkeypatch, stage=True):
     system = utils.load_microscope_configuration(
         os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
     ).system
+    system.stage.enabled = stage
     return connect(monkeypatch, system)
 
 
@@ -43,18 +44,34 @@ def test_a_demo_stage_stamps_fibsem(filename):
     assert microscope.hardware_geometry().stage_frame == STAGE_FRAME_FIBSEM
 
 
-def test_a_tescan_stage_stamps_its_own_frame(monkeypatch):
+def test_a_tescan_stage_stamps_fibsem(monkeypatch):
     microscope, _ = _tescan(monkeypatch)
-    assert microscope.stage.frame == STAGE_FRAME_TESCAN
+    assert microscope.hardware_geometry().stage_frame == STAGE_FRAME_FIBSEM
+
+
+def test_without_a_stage_device_tescan_stamps_its_own_frame(monkeypatch):
+    microscope, _ = _tescan(monkeypatch, stage=False)
     assert microscope.hardware_geometry().stage_frame == STAGE_FRAME_TESCAN
 
 
-def test_a_tescan_image_round_trips_its_frame(monkeypatch):
+def test_a_tescan_image_records_its_stage_in_fibsem_frame(monkeypatch):
     microscope, fake = _tescan(monkeypatch)
+    fake.Stage.position = [1.2, -0.8, 29.0, 180.0, 30.0]
     image = image_at(microscope, fake, BeamType.ELECTRON)
     loaded = FibsemImageMetadata.from_dict(image.metadata.to_dict())
 
-    assert loaded.hardware_geometry.stage_frame == STAGE_FRAME_TESCAN
+    assert loaded.hardware_geometry.stage_frame == STAGE_FRAME_FIBSEM
+    stamped = loaded.microscope_state.stage_position
+    live = microscope.get_stage_position()
+    for axis in "xyzrt":
+        assert getattr(stamped, axis) == pytest.approx(getattr(live, axis))
+
+
+def test_an_unstamped_tescan_image_is_in_tescan_frame():
+    geometry = FibsemHardwareGeometry()
+    assert geometry.resolved_stage_frame("TESCAN") == STAGE_FRAME_TESCAN
+    assert geometry.resolved_stage_frame("Thermo") == STAGE_FRAME_FIBSEM
+    assert geometry.resolved_stage_frame(None) == STAGE_FRAME_FIBSEM
 
 
 def test_a_file_without_the_stamp_loads_with_none():
