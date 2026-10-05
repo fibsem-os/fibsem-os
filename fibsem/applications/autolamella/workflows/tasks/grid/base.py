@@ -65,6 +65,12 @@ class GridTaskConfig(ABC):
 
     task_type: ClassVar[str]
     display_name: ClassVar[str]
+    # Whether the task works on the grid under the beam. Every task that drives
+    # the microscope does, and the run loads the grid for it. A task that works
+    # from what is already on disk -- segmenting recorded overview tiles, say --
+    # sets this False: the run neither loads the grid for it nor skips it because
+    # the grid would not load, so on an autoloader it costs no exchange.
+    requires_microscope: ClassVar[bool] = True
     task_name: str = ""  # unique within a protocol; the key the workflow uses
     # Who decides the task's record: automated (the task confirms its own) or
     # supervised (the task ends AwaitingDecision and the Review tab decides;

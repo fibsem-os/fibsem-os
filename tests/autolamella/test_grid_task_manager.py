@@ -9,6 +9,7 @@ runs real overview tasks end to end.
 
 import os
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import List
 
 import pytest
@@ -24,14 +25,17 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as 
 from fibsem.applications.autolamella.task_outputs import grid_outputs
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
+    FluorescenceOverviewGridTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     manager as manager_module,
 )
+from fibsem.applications.autolamella.workflows.tasks.grid.base import GridTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
     SKIP_GRID_NOT_FOUND,
     SKIP_GRID_NOT_LOADED,
+    SKIP_LOAD_NOT_NEEDED,
     SKIP_NOTHING_TO_RUN,
     SKIP_TASK_REMOVED,
     GridTaskManager,
@@ -430,6 +434,131 @@ class TestProtocolEditedMidRun:
         assert [t.name for t in grid.task_history if t.name == "overview_sem"] == [
             "overview_sem"
         ]
+
+
+@dataclass
+class ScoreTilesConfig(GridTaskConfig):
+    """A task that works from the grid's recorded tiles, as an ML screening
+    task would (FIB-939): it needs a GPU and the files, not the grid."""
+
+    task_type = "SCORE_TILES_TEST"
+    display_name = "Score tiles"
+    requires_microscope = False
+
+
+def counting_loads(microscope) -> List[str]:
+    """Every grid the run asks the stage to make reachable, in order."""
+    attempts: List[str] = []
+    stage = microscope._stage
+    original = stage.ensure_loaded
+
+    def counting(name):
+        attempts.append(name)
+        return original(name)
+
+    stage.ensure_loaded = counting
+    return attempts
+
+
+class TestTasksThatNeedNoBeam:
+    """A task with ``requires_microscope`` False (FIB-940): no exchange for it,
+    and no skip because its grid is not in the beam."""
+
+    @pytest.fixture(autouse=True)
+    def _score_tiles(self, experiment):
+        experiment.grid_protocol.add(ScoreTilesConfig(task_name="score_tiles"))
+
+    def test_every_shipped_task_needs_the_beam(self):
+        assert BeamOverviewGridTaskConfig.requires_microscope is True
+        assert FluorescenceOverviewGridTaskConfig.requires_microscope is True
+
+    def test_it_costs_no_exchange_and_leaves_no_load_entry(
+        self, manager, experiment, microscope
+    ):
+        attempts = counting_loads(microscope)
+        executed = run_with_stub(manager, ["score_tiles"], ["Grid-01", "Grid-02"])
+        assert executed == [("Grid-01", "score_tiles"), ("Grid-02", "score_tiles")]
+        assert attempts == []
+        assert microscope._stage.loaded_grids == []
+        # no load step planned, so the timeline shows none
+        assert [(i.item_name, i.task_name) for i in manager.queue.items] == [
+            ("Grid-01", "score_tiles"),
+            ("Grid-02", "score_tiles"),
+        ]
+        for name in ("Grid-01", "Grid-02"):
+            assert load_entries(experiment.get_grid_by_name(name)) == []
+        df = manager.build_run_summary_dataframe()
+        assert df["task_status"].tolist() == ["Completed", "Completed"]
+        assert df["loaded"].isna().all()
+
+    def test_it_does_not_exchange_back_to_a_grid_already_unloaded(
+        self, manager, experiment, microscope
+    ):
+        run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
+        assert microscope._stage.loaded_grids[0].name == "Grid-02"
+        attempts = counting_loads(microscope)
+
+        second = GridTaskManager(microscope, experiment, parent_ui=RecordingUI())
+        executed = run_with_stub(second, ["score_tiles"], ["Grid-01"])
+        assert executed == [("Grid-01", "score_tiles")]
+        assert attempts == []
+        assert microscope._stage.loaded_grids[0].name == "Grid-02"
+
+    def test_it_runs_on_a_grid_that_would_not_load(
+        self, manager, experiment, microscope
+    ):
+        microscope._stage.loader.fail_next_exchange = True
+        executed = run_with_stub(manager, ["overview_sem", "score_tiles"], ["Grid-01"])
+        assert executed == [("Grid-01", "score_tiles")]
+        assert [(i.task_name, i.status) for i in manager.queue.items] == [
+            (LOAD_ENTRY_NAME, Status.Failed),
+            ("overview_sem", Status.Skipped),
+            ("score_tiles", Status.Completed),
+        ]
+        df = manager.build_run_summary_dataframe()
+        # the beam task was not in the beam; the other never asked to be
+        assert df["loaded"].tolist()[:2] == [False, False]
+        assert df["loaded"].isna().tolist() == [False, False, True]
+        assert manager._grid_summary_lines()[0].endswith("; 1 skipped, 1 completed")
+
+    def test_a_grid_with_a_beam_task_too_is_loaded_once_for_both(
+        self, manager, experiment, microscope
+    ):
+        attempts = counting_loads(microscope)
+        executed = run_with_stub(manager, ["overview_sem", "score_tiles"], ["Grid-01"])
+        assert executed == [("Grid-01", "overview_sem"), ("Grid-01", "score_tiles")]
+        assert attempts == ["Grid-01", "Grid-01"]  # an exchange, then a confirm
+        (entry,) = load_entries(experiment.get_grid_by_name("Grid-01"))
+        assert entry.status is Status.Completed
+
+    def test_a_load_left_with_only_such_tasks_behind_it_is_skipped(
+        self, manager, experiment, microscope
+    ):
+        attempts = counting_loads(microscope)
+
+        def on_task(task_name, grid):
+            if (grid.name, task_name) == ("Grid-01", "score_tiles"):
+                experiment.grid_protocol.remove("overview_sem")
+
+        executed = run_with_stub(
+            manager, ["overview_sem", "score_tiles"], ["Grid-01", "Grid-02"], on_task
+        )
+        assert executed == [
+            ("Grid-01", "overview_sem"),
+            ("Grid-01", "score_tiles"),
+            ("Grid-02", "score_tiles"),
+        ]
+        assert "Grid-02" not in attempts
+        assert load_entries(experiment.get_grid_by_name("Grid-02")) == []
+        skipped = {
+            (r.item_name, r.task_name): r.skip_reason
+            for r in manager.parent_ui.reports
+            if r.status is Status.Skipped
+        }
+        assert skipped == {
+            ("Grid-02", LOAD_ENTRY_NAME): SKIP_LOAD_NOT_NEEDED,
+            ("Grid-02", "overview_sem"): SKIP_TASK_REMOVED,
+        }
 
 
 class TestStopAndStatus:
