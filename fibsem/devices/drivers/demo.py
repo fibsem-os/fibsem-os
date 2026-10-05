@@ -1,12 +1,13 @@
-"""The Demo backend's parts as devices, beside the untouched Demo microscope.
+"""The Demo backend's parts as devices: what ``DemoMicroscope`` is built from.
 
-Each device is the matching part of ``DemoMicroscope``: every parameter and
-command does what the matching branch of ``DemoMicroscope._get`` and ``_set`` (or
-method) does, and each FM device what the matching part of the simulated FM does.
+Each device is the matching part of ``LegacyDemoMicroscope``, the Demo before
+devices: every parameter and command does what the matching branch of its ``_get``
+and ``_set`` (or method) does, and each FM device what the matching part of the
+simulated FM does.
 Each keeps its own simulated part, copied when it is built from the starting parts
 it is given (``start``, a ``DemoParts``) or else from the microscope's own, and
-never touches the microscope's again; ``DeviceDemoMicroscope`` routes the old keys
-to them. The Demo chain itself is unchanged.
+never touches the microscope's again; ``DemoMicroscope`` routes the old keys to
+them.
 """
 
 from __future__ import annotations
@@ -58,7 +59,8 @@ if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
     from fibsem.fm.microscope import LightSource as FMClassLightSource
     from fibsem.fm.microscope import ObjectiveLens as FMClassObjectiveLens
-    from fibsem.microscopes.simulator import DemoMicroscope, DemoParts
+    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.microscopes.simulator import DemoParts
 
 
 class DemoBeam(Beam):
@@ -268,7 +270,7 @@ class DemoBeam(Beam):
         return self._choices("plasma_gas")
 
     # "preset" is not implemented: Demo has no presets, so it is absent on the new
-    # API while the old set("preset", ...) keeps its no-op through the Demo chain.
+    # API while the old set("preset", ...) stays a logged no-op.
 
 
 def bind_demo_beams(
@@ -291,8 +293,8 @@ class DemoStage(Stage):
     ``sim_linked``, copied when it is built from the starting ``stage_system``
     (``start``, else the microscope's own), and it never touches the microscope's
     again. A microscope that builds it routes the stage keys to it
-    (``DeviceDemoMicroscope``). Each method is what the matching part of
-    ``DemoMicroscope`` does, on that copy:
+    (``DemoMicroscope``). Each method is what the matching part of
+    ``LegacyDemoMicroscope`` does, on that copy:
 
     - ``read_position``: the ``stage_position`` branch of ``_get``;
     - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked`` branches;
@@ -396,8 +398,8 @@ class DemoChamber(Chamber):
     It keeps its own simulated chamber in ``sim_state`` and ``sim_pressure``, copied
     when it is built from the starting ``chamber`` (``start``, else the microscope's
     own), and it never touches the microscope's again. A microscope that builds it
-    routes the chamber keys to it (``DeviceDemoMicroscope``). Each method is what the matching part of
-    ``DemoMicroscope`` does, on that copy:
+    routes the chamber keys to it (``DemoMicroscope``). Each method is what the
+    matching part of ``LegacyDemoMicroscope`` does, on that copy:
 
     - ``read_state`` / ``read_pressure``: the ``chamber_state`` / ``chamber_pressure``
       branches of ``_get``;
@@ -456,8 +458,8 @@ class DemoManipulator(Manipulator):
     It keeps its own simulated needle in ``sim_position`` and ``sim_inserted``,
     copied when it is built from the starting ``manipulator_system`` (``start``,
     else the microscope's own), and it never touches the microscope's again. A microscope that builds it
-    routes the manipulator keys to it (``DeviceDemoMicroscope``). Each method is what
-    the matching part of ``DemoMicroscope`` does, on that copy:
+    routes the manipulator keys to it (``DemoMicroscope``). Each method is what
+    the matching part of ``LegacyDemoMicroscope`` does, on that copy:
 
     - ``read_position`` / ``read_state``: the ``manipulator_position`` /
       ``manipulator_state`` branches of ``_get``;
@@ -607,7 +609,7 @@ def bind_demo_gis(
 #
 # The simulated FM's parts as devices. Each keeps its own simulated part in sim_*
 # fields, copied when built from the part the simulated FM (``fibsem.fm.microscope``)
-# built, and does what that part does, on the copy. DeviceDemo's ``fm`` is the FM API
+# built, and does what that part does, on the copy. the Demo's ``fm`` is the FM API
 # over them (``fibsem.fm.api``).
 
 

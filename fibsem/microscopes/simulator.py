@@ -578,9 +578,9 @@ class DemoImaging:
     """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
 
     Shared by both demos. It reads and changes the beams only through
-    ``get``/``set``, so on DeviceDemo it images through the beam devices. Its own
-    state is the imaging channel and last images (``imaging_system``), the image
-    sequence and the sample scene, which the demo sets up at construction.
+    ``get``/``set``, so on the device-built Demo it images through the beam devices.
+    Its own state is the imaging channel and last images (``imaging_system``), the
+    image sequence and the sample scene, which the demo sets up at construction.
     """
 
     imaging_system: ImagingSystem
@@ -1651,7 +1651,7 @@ class DemoSession:
         sim_sleep(seconds)
 
 
-class DemoMicroscope(
+class LegacyDemoMicroscope(
     DemoSession,
     DemoConfiguration,
     DemoImaging,
@@ -1659,7 +1659,14 @@ class DemoMicroscope(
     DemoMilling,
     FibsemMicroscope,
 ):
-    """Simulator microscope client based on TFS microscopes"""
+    """The Demo backend before devices: simulated parts behind ``_get``/``_set``.
+
+    ``DemoMicroscope`` (``fibsem.microscopes.device_demo``) replaced it, built from
+    devices. This class is kept frozen as the reference the contract suite compares
+    the device-built Demo against (``tests/test_microscope_contract.py``); a
+    deliberate behaviour change to the Demo lands here in the same PR. No
+    configuration selects it.
+    """
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
@@ -2117,3 +2124,13 @@ class DemoMicroscope(
     def home(self) -> bool:
         self.stage_system.is_homed = True
         return self.get("stage_homed")
+
+
+def __getattr__(name: str):
+    # `DemoMicroscope` is the device-built Demo, which imports this module, so it is
+    # looked up when asked for rather than imported at the top.
+    if name == "DemoMicroscope":
+        from fibsem.microscopes.device_demo import DemoMicroscope
+
+        return DemoMicroscope
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

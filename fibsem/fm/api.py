@@ -6,7 +6,7 @@ and objective, and the ``fm`` group that runs a channel. It doesn't know which d
 built them, or whether they run in this process or on another computer, so the FM
 UI, acquisition and workflows use it unchanged either way:
 
-- DeviceDemo's FM is this over the Demo FM devices (``fibsem.devices.drivers.demo``);
+- the Demo's FM is this over the Demo FM devices (``fibsem.devices.drivers.demo``);
 - ``RemoteFluorescenceMicroscope`` (``fibsem.fm.remote``) is this over remote devices,
   plus connecting to their server.
 

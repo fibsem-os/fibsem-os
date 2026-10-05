@@ -260,9 +260,11 @@ class TestEveryMetadataReadIsInsideTheScope:
 
     @pytest.fixture
     def fm(self):
-        from fibsem import utils
+        # The legacy Demo's FM runs `fibsem.fm.microscope`'s own `acquire_image`; the
+        # device-built Demo's frame comes with its metadata, so there is no read.
+        from tests._legacy_demo import setup_legacy_session
 
-        microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+        microscope, _ = setup_legacy_session(ip_address="localhost")
         return microscope.fm
 
     def test_the_metadata_is_read_with_the_channel_still_held(self, fm, monkeypatch):
