@@ -174,16 +174,15 @@ unchanged.
   SerialFIB migration; a Zeiss backend should be built there rather than in
   a new file.
 - **Registration.** Implementing the class is not sufficient. The
-  manufacturer dispatch is hard-coded in four places, and a missing entry
+  manufacturer dispatch is hard-coded in three places, and a missing entry
   raises `NotImplementedError` at connection time, not at import:
   `fibsem/manufacturers.py` (the constant and alias), `setup_session()` in
-  `fibsem/utils.py` (the branch that constructs the class),
-  `fibsem/configuration.py` (the accepted manufacturers), and
+  `fibsem/utils.py` (the branch that constructs the class), and
   `fibsem/guided_setup.py` (`MANUFACTURERS`, and a `MicroscopeModel` per
   instrument, which is what the first-run wizard offers).
 - **Configuration.** Instruments are described by a YAML file in
-  `fibsem/config/`; `fibsem-generate-config` scaffolds one. For a
-  manufacturer it does not know, scaffold a Demo configuration and edit it.
+  `fibsem/config/`; the setup wizard creates one. For a manufacturer it
+  does not know, start from a Demo configuration and edit it.
 - **Verification.** Connect with `utils.setup_session()` and run the tests
   that exercise the Demo through the same interface (`tests/test_acquire.py`,
   `tests/test_movement.py`, `tests/test_microscope.py`), then connect through
