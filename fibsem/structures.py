@@ -2878,10 +2878,9 @@ class SystemInfo:
     port: Optional[int] = None
 
     def to_dict(self):
-        return {
+        ddict = {
             "name": self.name,
             "ip_address": self.ip_address,
-            "port": self.port,
             "manufacturer": self.manufacturer,
             "model": self.model,
             "serial_number": self.serial_number,
@@ -2891,6 +2890,11 @@ class SystemInfo:
             "application": self.application,
             "fibsem_revision": self.fibsem_revision,
         }
+        # Written only when set: unset is the driver's registered port, and a file
+        # that says `port: null` reads as though it chose one.
+        if self.port is not None:
+            ddict["port"] = self.port
+        return ddict
 
     @staticmethod
     def from_dict(settings: dict):

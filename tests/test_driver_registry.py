@@ -347,3 +347,15 @@ def test_a_broken_plugin_is_recorded_and_registers_nothing(
     assert "JEOL" not in registry.registered_manufacturers()
     with pytest.raises(NotImplementedError):
         get_driver("JEOL")
+
+
+def test_an_unset_port_is_left_out_of_the_saved_file():
+    """Unset is the driver's registered port; `port: null` would read as a choice."""
+    from fibsem.structures import SystemInfo
+
+    assert "port" not in SystemInfo.from_dict({}).to_dict()
+    assert SystemInfo.from_dict({"port": 4321}).to_dict()["port"] == 4321
+
+    config = utils.load_yaml(cfg.DEFAULT_CONFIGURATION_PATH)
+    config["info"]["port"] = 4321
+    assert "info.port" not in utils.unrecognised_configuration_keys(config)
