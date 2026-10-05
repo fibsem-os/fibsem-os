@@ -96,6 +96,15 @@ def acquire_z_stack(
     stop_event: Optional["threading.Event"] = None,
 ) -> Optional[FluorescenceImage]:
     """Acquire a Z-stack of images for a given channel."""
+    from fibsem.fm.api import DeviceFluorescenceMicroscope
+
+    if isinstance(microscope, DeviceFluorescenceMicroscope) and (
+        microscope.runs_z_stack_on_device
+    ):
+        # A remote FM: the whole stack is one command on its computer.
+        return microscope.acquire_z_stack_on_device(
+            channel_settings, zparams, stop_event
+        )
 
     # Claimed for the whole stack, as a tileset claims it for a whole run. Each z
     # step is a move and an acquisition, and each of those opened and closed its own

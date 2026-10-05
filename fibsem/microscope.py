@@ -112,6 +112,9 @@ _INFO_KEYS = frozenset(
 # value"). Routed to a device command only for a true value; a false one still goes
 # to `_set`.
 _VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber"))
+# Keys only ever set: the old `_get` has no branch for them and returns None. A get
+# stays with `_get`, so it still returns None, rather than reading the device.
+_SET_ONLY_KEYS = frozenset(("angular_correction_tilt_correction",))
 
 
 # Whether a stage move is being recorded on this thread. A move is often made of
@@ -427,8 +430,8 @@ class FibsemMicroscope(ABC):
             FibsemStagePosition: The current stage position.
         """
 
-        if self.stage_device is not None:
-            stage_position = self.stage_device.position.get_value()
+        if self.stage is not None:
+            stage_position = self.stage.position.get_value()
         else:
             stage_position = self.get("stage_position")
 
@@ -681,16 +684,16 @@ class FibsemMicroscope(ABC):
 
     @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        if self.stage_device is None:
+        if self.stage is None:
             raise self._unsupported("move_stage_absolute")
-        self.stage_device.move_through(position)
+        self.stage.move_through(position)
         return self.get_stage_position()
 
     @_records_stage_move
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        if self.stage_device is None:
+        if self.stage is None:
             raise self._unsupported("move_stage_relative")
-        self.stage_device.move_through(position, relative=True)
+        self.stage.move_through(position, relative=True)
         return self.get_stage_position()
 
     # The view-corrected moves below are shared by every backend but Tescan, which has
@@ -1573,12 +1576,21 @@ class FibsemMicroscope(ABC):
     # stage methods below use it when it is there and today's keys when it is not.
     # A backend whose stage device keeps its own state also routes the stage keys
     # (`_device_routes`, `_command_routes`), so `get("stage_position")` and the
-    # device can't disagree. The name is temporary: `stage` is taken by the vendor
-    # object on Thermo and Odemis, and the final name is decided with the stage
-    # redesign.
-    stage_device: Optional[Any] = None
+    # device can't disagree. A backend keeps its vendor stage object private
+    # (`_vendor_stage` on Thermo and Odemis).
+    stage: Optional[Any] = None
+
+    @property
+    def stage_device(self) -> Optional[Any]:
+        """The stage device's earlier name, kept as an alias of `stage`."""
+        return self.stage
+
+    @stage_device.setter
+    def stage_device(self, device: Optional[Any]) -> None:
+        self.stage = device
+
     # The chamber and the manipulator as devices (fibsem.devices.Chamber and
-    # .Manipulator), named like `stage_device` because `chamber` is taken on Demo.
+    # .Manipulator), named `*_device` because `chamber` is taken on Demo.
     # As with the stage, their keys are not routed: the methods that read them
     # (pump/vent, get_manipulator_state/position) use the device directly.
     chamber_device: Optional[Any] = None
@@ -1592,12 +1604,12 @@ class FibsemMicroscope(ABC):
     fm_devices: Mapping[str, Any] = MappingProxyType({})
     _beam_routes: Mapping[str, str] = MappingProxyType({})
     # Keys with no beam type that have moved to a device: key -> (device attribute,
-    # parameter), e.g. "stage_position" -> ("stage_device", "position"). The
+    # parameter), e.g. "stage_position" -> ("stage", "position"). The
     # parameters are the device's state, read-only, so a `set` of one still goes to
     # `_set`, as the old call did.
     _device_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
     # Set keys that are verbs, moved to a device command: key -> (device attribute,
-    # command), e.g. "stage_home" -> ("stage_device", "home"). The command ignores
+    # command), e.g. "stage_home" -> ("stage", "home"). The command ignores
     # the value, as the old branches do, except where the old branch did nothing for
     # a false value (`_VERBS_THAT_NEED_TRUE`). A command the device doesn't have (a
     # compustage can't link) leaves the key to `_set`.
@@ -1653,7 +1665,7 @@ class FibsemMicroscope(ABC):
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> Union[float, int, bool, str, list, tuple, Point]:
         """Get wrapper for logging."""
-        param = self._route(key, beam_type)
+        param = None if key in _SET_ONLY_KEYS else self._route(key, beam_type)
         if param is not None:
             value = _old_key_value(key, param.get_value())
         elif key in _BEAM_CONFIG_KEYS:
@@ -2168,21 +2180,15 @@ class FibsemMicroscope(ABC):
 
     def home(self) -> bool:
         """Home the stage."""
-        if (
-            self.stage_device is not None
-            and self.stage_device.commands["home"].available
-        ):
-            return self.stage_device.home()
+        if self.stage is not None and self.stage.commands["home"].available:
+            return self.stage.home()
         self.set("stage_home", True)
         return self.get("stage_homed")
 
     def link_stage(self) -> bool:
         """Link the stage to the working distance"""
-        if (
-            self.stage_device is not None
-            and self.stage_device.commands["link"].available
-        ):
-            return self.stage_device.link()
+        if self.stage is not None and self.stage.commands["link"].available:
+            return self.stage.link()
         self.set("stage_link", True)
         return self.get("stage_linked")
 
