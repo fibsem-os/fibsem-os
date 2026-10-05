@@ -4152,6 +4152,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             tab = getattr(self, name, None)
             if tab is not None:
                 tab.refresh_positions()
+        # And the selected lamella's pose rows: a pose moved on a canvas changes the
+        # position, the chip and how far apart the two poses are, and nothing else
+        # redraws them. `update_lamella_ui` stands aside while a workflow runs.
+        autolamella_ui = getattr(self, "autolamella_ui", None)
+        if autolamella_ui is not None:
+            autolamella_ui.update_lamella_ui()
+            # The coincidence viewer shows the same rows in its own window. It is told
+            # from here rather than subscribing itself: a window that can be closed
+            # must not hold a live subscription (FIB-603). The same workflow rule.
+            viewer = getattr(autolamella_ui, "_coincidence_viewer_window", None)
+            if viewer is not None and not autolamella_ui.is_workflow_running:
+                viewer.refresh_lamella_poses()
 
     def _on_notification_service(
         self, message: str, notification_type: str, temporary: bool
