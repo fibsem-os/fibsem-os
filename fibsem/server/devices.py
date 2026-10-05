@@ -311,10 +311,9 @@ class DeviceServer:
 def demo_devices() -> List[Device]:
     """The Demo microscope's beams, standing in for real hardware."""
     from fibsem import utils
-    from fibsem.devices.drivers.demo import bind_demo_beams
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    return list(bind_demo_beams(microscope).values())
+    return list(microscope.beams.values())
 
 
 def demo_fm_devices() -> List[Device]:

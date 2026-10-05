@@ -1,15 +1,13 @@
-"""The Demo backend, rebuilt from devices.
+"""The Demo backend, built from devices.
 
-``DeviceDemoMicroscope`` is the demo microscope built from devices, beside the
-untouched ``DemoMicroscope``. It does not inherit Demo: it is its devices plus the
-demo code both share from ``fibsem.microscopes.simulator`` (``DemoSession``,
-``DemoConfiguration``, ``DemoImaging``, ``DemoScene`` and ``DemoMilling``). It will
-take the ``DemoMicroscope`` name, and the old class stays as the reference.
+``DemoMicroscope`` is the simulated microscope every Demo session gets. It is its
+devices plus the demo code it shares with ``LegacyDemoMicroscope``, the Demo before
+devices, from ``fibsem.microscopes.simulator`` (``DemoSession``,
+``DemoConfiguration``, ``DemoImaging``, ``DemoScene`` and ``DemoMilling``).
+``fibsem.microscopes.simulator.DemoMicroscope`` is this class too.
 
 ``tests/test_microscope_contract.py`` runs the same contract against both, and
-compares them call by call, so the two can't drift while both exist.
-
-Select it with ``sim: {devices: true}`` in a Demo configuration.
+compares them call by call against the legacy one, so the two can't drift.
 
 Devices, from ``fibsem.devices.drivers.demo``: the beams (``DemoBeam``), the stage
 (``DemoStage``), the chamber (``DemoChamber``), the manipulator
@@ -27,9 +25,9 @@ part goes to its device:
   ``stage_home`` and ``stage_link`` commands; a compustage has no ``linked``, so
   its ``stage_linked`` reads the stage's own flag, which nothing changes there;
 - ``chamber_state`` and ``chamber_pressure``, and the ``pump_chamber`` and
-  ``vent_chamber`` commands (a false value does nothing, as on Demo);
-- ``manipulator_position`` and ``manipulator_state`` (a bool, as Demo returns it);
-  the old API moves the needle with methods, which use the device;
+  ``vent_chamber`` commands (a false value does nothing, as on the legacy Demo);
+- ``manipulator_position`` and ``manipulator_state`` (a bool, as the legacy Demo
+  returns it); the old API moves the needle with methods, which use the device;
 - the GIS has no keys; ``cryo_deposition_v2`` runs its sequence through the
   device's commands.
 
@@ -40,7 +38,7 @@ imaging, the sample scene and milling, changing the beams only through
 
 The FM is devices too: ``fm_devices`` are the Demo FM devices (``DemoCamera`` and
 the rest), each copied when it is built from the part the simulated FM built, and
-``fm`` is the FM API over them (``DeviceDemoFluorescenceMicroscope``), so today's
+``fm`` is the FM API over them (``DemoFluorescenceMicroscope``), so today's
 FM API drives the devices. It keeps the simulated FM's share of the imaging
 channel with the beams, and the session's own state: the objective's saved focus,
 the channel name and colour, and the image transform. A remote FM
@@ -107,7 +105,7 @@ def _routes(device: str, routes: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
 _BEAM_KEYS_WITHOUT_BEAM = ("plasma_gas", "preset")
 
 
-class DeviceDemoFluorescenceMicroscope(
+class DemoFluorescenceMicroscope(
     DeviceFluorescenceMicroscope, SimulatedFluorescenceMicroscope
 ):
     """The FM API over the Demo FM devices, sharing the imaging channel with
@@ -115,20 +113,21 @@ class DeviceDemoFluorescenceMicroscope(
 
 
 def _needs_beam_type(key: str, beam_type: Optional[BeamType]) -> None:
-    """A beam key with no beam type raises, as Demo's branches do."""
+    """A beam key with no beam type raises, as the legacy Demo's branches do."""
     if beam_type is None and key in BEAM_ROUTES and key not in _BEAM_KEYS_WITHOUT_BEAM:
         raise ValueError(f"{key} needs a beam type")
 
 
 def _unknown_key(key: str, beam_type: Optional[BeamType]) -> None:
-    """Log a key no device or shared code answers, as Demo does; it reads None."""
+    """Log a key no device or shared code answers, as the legacy Demo does; it
+    reads None."""
     if key in SIMULATOR_KNOWN_UNKNOWN_KEYS:
         logging.debug(f"Skipping unknown key: {key} for {beam_type}")
         return
     logging.warning(f"Unknown key: {key} ({beam_type})")
 
 
-class DeviceDemoMicroscope(
+class DemoMicroscope(
     DemoSession,
     DemoConfiguration,
     DemoImaging,
@@ -146,7 +145,7 @@ class DeviceDemoMicroscope(
     def __init__(self, system_settings: SystemSettings):
         self._start_session(system_settings)
         # The ion beam's plasma gas is read before its device is built, which only
-        # offers a gas on a plasma column; Demo reads it at connect.
+        # offers a gas on a plasma column; the legacy Demo reads it at connect.
         self._read_plasma_source()
         self._build_devices(initial_demo_parts(self.system))
         self._setup_fluorescence()
@@ -185,7 +184,7 @@ class DeviceDemoMicroscope(
             return dict(devices)
         simulated = self.fm
         devices = bind_demo_fm(self, simulated)
-        self.fm = DeviceDemoFluorescenceMicroscope(devices, parent=self)
+        self.fm = DemoFluorescenceMicroscope(devices, parent=self)
         # The saved focus is the session's, so the FM API keeps it; the configured
         # one was applied to the simulated FM's objective before the devices existed.
         self.fm.objective.focus_position = simulated.objective.focus_position
@@ -219,7 +218,8 @@ class DeviceDemoMicroscope(
             logging.debug("Plasma gas cannot be set on this microscope.")
             return
         _needs_beam_type(key, beam_type)
-        # A command its device doesn't run: Demo's branches log and do nothing.
+        # A command its device doesn't run: the legacy Demo's branches log and do
+        # nothing.
         if key == "stage_link":
             logging.debug("Compustage does not support linking.")
             return

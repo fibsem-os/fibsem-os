@@ -82,7 +82,7 @@ def test_update_fluorescence_pose_preserves_configured_objective(
     """Refreshing the pose keeps the configured objective position, even when the
     live objective is at a different position."""
     # clip limit below the configured value so moving the objective diverges from it
-    fm_microscope.fm.objective._limit_position = CLIP_LIMIT
+    fm_microscope.fm.objective.limit_position = CLIP_LIMIT
     lamella = _make_lamella(tmp_path, CONFIGURED_OBJECTIVE)
     task = _acquire_task(fm_microscope, lamella)
 

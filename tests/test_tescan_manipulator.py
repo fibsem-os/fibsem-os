@@ -2,7 +2,7 @@
 
 Every backend's manipulator moves return the position after the move, as the
 Manipulator device's commands do (the contract suite pins it on Demo and
-DeviceDemo). These check Tescan's, which returned None, and its relative move,
+LegacyDemo). These check Tescan's, which returned None, and its relative move,
 which logged a failure and returned the exception instead of raising it.
 
 No hardware or Tescan SDK required: the microscope is created without __init__

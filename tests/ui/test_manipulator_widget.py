@@ -87,10 +87,10 @@ def test_demo_offers_park_eucentric_and_corrected_moves(demo):
     assert widget.dZ_spinbox.isHidden()
 
 
-def test_device_demo_lists_its_manipulator_devices_named_positions():
+def test_demo_lists_its_manipulator_devices_named_positions():
     from tests.test_microscope_contract import _connect
 
-    microscope = _connect("DeviceDemo")
+    microscope = _connect("Demo")
     assert microscope.manipulator_named_positions() == ["PARK", "EUCENTRIC"]
     widget = FibsemManipulatorWidget(microscope=microscope)
     assert _listed(widget) == ["PARK", "EUCENTRIC"]
