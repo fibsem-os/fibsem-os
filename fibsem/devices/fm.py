@@ -22,12 +22,11 @@ import logging
 import threading
 import time
 from datetime import datetime
-from types import MappingProxyType
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from fibsem.devices.core import Device, Parameter, command
+from fibsem.devices.core import Device, Parameter, Role, command
 from fibsem.devices.wire import Frame, to_wire
 from fibsem.fm.structures import EmissionFilter
 from fibsem.structures import InsertableDeviceState
@@ -132,7 +131,7 @@ class Objective(Device):
         raise NotImplementedError
 
 
-# What `FM.acquire_frame` reports with a frame: (part, parameter) -> metadata key.
+# What `FM.acquire_frame` reports with a frame: (role, parameter) -> metadata key.
 FRAME_METADATA: Dict[Tuple[str, str], str] = {
     ("camera", "exposure_time"): "exposure_time",
     ("camera", "gain"): "gain",
@@ -164,8 +163,11 @@ class FM(Device):
         "none is running.",
     )
 
-    parts: Mapping[str, Device] = MappingProxyType({})
-    """The parts this group drives, by device name. A driver sets it."""
+    # The parts this group drives. A driver fills them with ``fill_roles``.
+    camera = Role(Camera)
+    light_source = Role(LightSource)
+    filter_set = Role(FilterSet)
+    objective = Role(Objective)
 
     runs_elsewhere: bool = False
     """Whether the group's commands run on another computer, where one call for a
@@ -297,8 +299,9 @@ class FM(Device):
         """What the parts say now, through their parameters. A part or parameter the
         driver doesn't have is left out."""
         found: Dict[str, Any] = {}
-        for (part_name, parameter), key in FRAME_METADATA.items():
-            part = self.parts.get(part_name)
+        parts = self.roles
+        for (role, parameter), key in FRAME_METADATA.items():
+            part = parts.get(role)
             if part is not None and parameter in part.parameters:
                 found[key] = to_wire(part.parameters[parameter].get_value())
         return found
@@ -348,7 +351,7 @@ class FM(Device):
     ) -> List[Frame]:
         """Moves the objective and takes each frame with `acquire_frame`, so it runs
         on any driver; the same steps, in the same order, as the FM API's z-stack."""
-        objective = self.parts["objective"]
+        objective = self.objective
         n_channels, n_positions = len(channels), len(positions)
         frames: List[List[Optional[Frame]]] = [[None] * n_positions for _ in channels]
 

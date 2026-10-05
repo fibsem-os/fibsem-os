@@ -449,17 +449,15 @@ class AutoscriptFM(FM):
     def __init__(
         self,
         channel: AutoscriptFMChannel,
-        parts: Dict[str, Device],
         parent: Any = None,
         resources: Optional[Resources] = None,
     ):
         super().__init__(name="fm", parent=parent, resources=resources)
         self._channel = channel
-        self.parts = parts
 
     def check_health(self) -> Optional[str]:
         """Whether the FM answers: one live read, the camera's exposure time."""
-        self.parts["camera"].exposure_time.get_value()
+        self.camera.exposure_time.get_value()
         return None
 
     def _apply_channel(self, channel: Optional[Dict[str, Any]]) -> None:
@@ -469,15 +467,15 @@ class AutoscriptFM(FM):
         from fibsem.fm.api import emission_filter_named
 
         settings = ChannelSettings.from_dict(channel)
-        filters = self.parts["filter_set"]
+        filters = self.filter_set
         filters.excitation_wavelength.write_through(settings.excitation_wavelength)
         filters.emission_filter.write_through(
             emission_filter_named(
                 settings.emission_wavelength, filters.emission_filter.choices
             )
         )
-        self.parts["light_source"].power.write_through(settings.power)
-        camera = self.parts["camera"]
+        self.light_source.power.write_through(settings.power)
+        camera = self.camera
         camera.exposure_time.write_through(settings.exposure_time)
         if settings.gain is not None:
             camera.gain.write_through(settings.gain)
@@ -486,7 +484,7 @@ class AutoscriptFM(FM):
         self._apply_channel(channel)
         if self.is_live:
             return self._live_frame()
-        return self.parts["camera"].acquire()
+        return self.camera.acquire()
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         with self._channel.scope():
@@ -510,8 +508,8 @@ class AutoscriptFM(FM):
             self._channel.set_active_channel()
             # The colour the hardware has, as the old fast acquisition starts it.
             emission_color = connection.detector.camera_settings.emission.type.value
-            self.parts["light_source"].start_emission(emission_type=emission_color)
-            self.parts["camera"]._start_acquisition()
+            self.light_source.start_emission(emission_type=emission_color)
+            self.camera._start_acquisition()
 
     def _live_frame(self) -> np.ndarray:
         if self._channel.connection.imaging.state != ImagingState.ACQUIRING:
@@ -525,8 +523,8 @@ class AutoscriptFM(FM):
             return self._channel.connection.imaging.get_image().data
 
     def _stop_live(self) -> None:
-        self.parts["light_source"].stop_emission()
-        self.parts["camera"]._stop_acquisition()
+        self.light_source.stop_emission()
+        self.camera._stop_acquisition()
 
 
 def bind_autoscript_fm(
@@ -544,5 +542,5 @@ def bind_autoscript_fm(
         "filter_set": filter_set,
         "objective": AutoscriptFMObjective(channel, **common),
     }
-    group = AutoscriptFM(channel, parts, **common)
+    group = AutoscriptFM(channel, **common).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}

@@ -881,16 +881,14 @@ class DemoFM(FM):
 
     def __init__(
         self,
-        parts: Dict[str, Device],
         parent: DemoMicroscope,
         resources: Optional[Resources] = None,
     ):
         super().__init__(name="fm", parent=parent, resources=resources)
-        self.parts = parts
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         self._apply_channel(channel)
-        return self.parts["camera"].acquire()
+        return self.camera.acquire()
 
     def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
         # The simulated camera renders a frame when asked: nothing runs between.
@@ -899,15 +897,15 @@ class DemoFM(FM):
     def _apply_channel(self, channel: Optional[Dict[str, Any]]) -> None:
         if channel is not None:
             settings = ChannelSettings.from_dict(channel)
-            filters = self.parts["filter_set"]
+            filters = self.filter_set
             filters.excitation_wavelength.write_through(settings.excitation_wavelength)
             filters.emission_filter.write_through(
                 emission_filter_named(
                     settings.emission_wavelength, filters.emission_filter.choices
                 )
             )
-            self.parts["light_source"].power.write_through(settings.power)
-            camera = self.parts["camera"]
+            self.light_source.power.write_through(settings.power)
+            camera = self.camera
             camera.exposure_time.write_through(settings.exposure_time)
             if settings.gain is not None:
                 camera.gain.write_through(settings.gain)
@@ -927,5 +925,5 @@ def bind_demo_fm(
         "filter_set": DemoFilterSet(fm.filter_set, microscope, resources),
         "objective": DemoObjective(fm.objective, microscope, resources),
     }
-    group = DemoFM(parts, microscope, resources)
+    group = DemoFM(microscope, resources).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}
