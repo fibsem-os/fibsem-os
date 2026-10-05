@@ -431,6 +431,74 @@ def test_the_preflight_says_which_beams_are_off(qapp):
     )
 
 
+def test_the_preflight_offers_what_happens_at_the_end(qapp, monkeypatch):
+    """Unload only with a loader to return the grid to; the report wherever
+    reportlab is installed, and on by default. Neither when adding to a
+    running queue: the added work ends the way that run was started."""
+    monkeypatch.setattr(
+        GridRunPreflightDialog, "_end_of_run", {"unload": False, "report": True}
+    )
+    fixed = GridRunPreflightDialog(["overview_sem"], ["Grid-01"], 0, "/exp")
+    assert fixed.unload_check.isHidden()
+    assert not fixed.unload_at_end()
+    assert fixed.report_at_end()
+
+    loader = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", can_unload=True
+    )
+    assert not loader.unload_check.isHidden()
+    assert not loader.unload_at_end(), "off until asked for"
+    loader.unload_check.setChecked(True)
+    assert loader.unload_at_end()
+
+    adding = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", adding=True, can_unload=True
+    )
+    assert adding.unload_check.isHidden() and adding.report_check.isHidden()
+    assert not adding.unload_at_end() and not adding.report_at_end()
+
+
+def test_the_preflight_says_why_it_cannot_write_the_report(qapp, monkeypatch):
+    monkeypatch.setattr(
+        GridRunPreflightDialog, "_end_of_run", {"unload": False, "report": True}
+    )
+    reason = "Needs the reporting tools: pip install fibsem-os[reporting]"
+    dialog = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", report_unavailable=reason
+    )
+    assert not dialog.report_check.isEnabled()
+    assert not dialog.report_check.isChecked()
+    assert dialog.report_check.toolTip() == reason
+    assert not dialog.report_at_end()
+    dialog.accept()
+    # not a choice the operator made, so the next run still offers it on
+    assert GridRunPreflightDialog._end_of_run["report"] is True
+
+
+def test_the_preflight_offers_the_last_runs_choices(qapp, monkeypatch):
+    monkeypatch.setattr(
+        GridRunPreflightDialog, "_end_of_run", {"unload": False, "report": True}
+    )
+    first = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", can_unload=True
+    )
+    first.unload_check.setChecked(True)
+    first.report_check.setChecked(False)
+    first.accept()
+    second = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-02"], 1, "/exp", can_unload=True
+    )
+    assert second.unload_at_end() and not second.report_at_end()
+
+    # a cancelled confirmation changes nothing
+    second.unload_check.setChecked(False)
+    second.reject()
+    third = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-02"], 1, "/exp", can_unload=True
+    )
+    assert third.unload_at_end()
+
+
 @pytest.fixture
 def main_ui(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
@@ -730,10 +798,12 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)
 
     shown = []
+    offered = []
 
     class _Capture:
         def __init__(self, *args, **kwargs):
             shown.append(kwargs.get("first_run"))
+            offered.append(kwargs.get("can_unload"))
 
         def exec_(self):
             return QDialog.Rejected  # look, do not run
@@ -743,5 +813,6 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     view.grid_header.select_all.setChecked(True)
     main_ui._run_grid_workflow()
     assert shown == [["grid-birch"]]
+    assert offered == [False], "a fixed holder has nothing to unload"
     assert main_ui._present_grids_not_run() == ["grid-birch"]
     assert not ui.is_workflow_running

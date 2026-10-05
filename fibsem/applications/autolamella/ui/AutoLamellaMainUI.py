@@ -51,6 +51,9 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
     Lamella,
 )
+from fibsem.applications.autolamella.tools.grid_report_pdf import (
+    report_unavailable_reason,
+)
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -1831,11 +1834,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             str(ui.experiment.path),
             beams_off=self._beams_off(),
             first_run=[g.name for g in grids if not grid_has_run(g)],
+            **self._end_of_run_offer(),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
-        self._start_grid_run(task_names, grid_names, inventory_first=False)
+        self._start_grid_run(
+            task_names,
+            grid_names,
+            inventory_first=False,
+            unload_at_end=dialog.unload_at_end(),
+            report_at_end=dialog.report_at_end(),
+        )
 
     def _on_screen_all_grids(self) -> None:
         """One click: inventory, every present grid, the ticked tasks (FIB-898)."""
@@ -1856,11 +1866,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             screen_all=True,
             beams_off=self._beams_off(),
             first_run=self._present_grids_not_run(),
+            **self._end_of_run_offer(),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
-        self._start_grid_run(task_names, None, inventory_first=True)
+        self._start_grid_run(
+            task_names,
+            None,
+            inventory_first=True,
+            unload_at_end=dialog.unload_at_end(),
+            report_at_end=dialog.report_at_end(),
+        )
+
+    def _end_of_run_offer(self) -> dict:
+        """What the confirmation can offer for the end of the run: an unload
+        only with a loader to return the grid to, and the report only where
+        reportlab is installed."""
+        stage = getattr(
+            getattr(self.autolamella_ui, "microscope", None), "_stage", None
+        )
+        return {
+            "can_unload": stage is not None and stage.loader is not None,
+            "report_unavailable": report_unavailable_reason(),
+        }
 
     def _present_grids_not_run(self) -> list:
         """The grids Screen all grids will run for the first time, as far as the
@@ -1896,13 +1925,24 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         return off
 
     def _start_grid_run(
-        self, task_names: list, grid_names, inventory_first: bool
+        self,
+        task_names: list,
+        grid_names,
+        inventory_first: bool,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ) -> None:
         ui = self.autolamella_ui
         self._set_border_state("automated")
         # One writer (FIB-683): land any edit still in the editors first.
         self.lamella_widget.flush_pending_save()
-        ui._start_run_grid_workflow_thread(task_names, grid_names, inventory_first)
+        ui._start_run_grid_workflow_thread(
+            task_names,
+            grid_names,
+            inventory_first,
+            unload_at_end=unload_at_end,
+            report_at_end=report_at_end,
+        )
         self.set_workflow_running()
         # Clear the grid ticks, as a lamella run clears its selection: left ticked,
         # the grids this run is on would be queued again by the next Add to Queue.

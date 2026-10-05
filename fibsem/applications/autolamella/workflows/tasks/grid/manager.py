@@ -39,6 +39,21 @@ The hardware calls are atomic; Stop is honoured at the checkpoints between them.
   A Stop that lands during the unload leaves the working slot empty and the
   next grid in the magazine; the load entry says so. A Stop that lands during
   the load is honoured once the grid is in, the last checkpoint an exchange has.
+
+The end of a run
+----------------
+Two options, chosen when the run starts, run here once the loop is over so every
+entry point shares them:
+
+* *Unload the grid* (``unload_at_end``): only when the queue is done, failed
+  tasks included. A Stop leaves the grid where it is, since the operator asked
+  the hardware to stop, and so does a run that gave up waiting on the Review
+  tab: the grid is still wanted there. Recorded on the grid's history as an
+  ``Unload grid`` entry, and shown in the queue as a step, like the load.
+* *Write the screening report* (``report_at_end``): after the unload, so a report
+  that fails cannot leave the grid loaded, and on every ending, a Stop and a
+  stalled run included: it only reads the experiment. A report that fails is
+  said and logged, never a failed run.
 """
 
 from __future__ import annotations
@@ -81,6 +96,15 @@ if TYPE_CHECKING:
 LOAD_ENTRY_NAME = "Load grid"
 LOAD_TASK_TYPE = "LOAD_GRID"
 
+# Its counterpart at the end of a run that was asked to unload: the last step in
+# the queue and an entry on the grid it returned to the magazine.
+UNLOAD_ENTRY_NAME = "Unload grid"
+UNLOAD_TASK_TYPE = "UNLOAD_GRID"
+
+# The steps the manager adds around the tasks: on a grid's history, neither one is
+# a task that ran on it.
+EXCHANGE_ENTRY_NAMES = (LOAD_ENTRY_NAME, UNLOAD_ENTRY_NAME)
+
 # Skip reasons, in the vocabulary TASK_SKIPPED hooks and status reports carry.
 SKIP_GRID_NOT_FOUND = "grid_not_found"
 SKIP_GRID_NOT_LOADED = "grid_not_loaded"
@@ -95,7 +119,7 @@ def grid_has_run(grid: GridRecord) -> bool:
     Its name is fixed from then on: the grid's folder is named after it, and every
     image a task wrote carries it. Renaming after that could only lose the files,
     move them, or leave them saying something else, so nothing renames it."""
-    return any(t.name != LOAD_ENTRY_NAME for t in grid.task_history)
+    return any(t.name not in EXCHANGE_ENTRY_NAMES for t in grid.task_history)
 
 
 NAME_FIXED_REASON = (
@@ -125,8 +149,15 @@ class GridTaskManager(BaseTaskManager):
         experiment: "Experiment",
         parent_ui: Optional["AutoLamellaUI"] = None,
         hook_manager: Optional[HookManager] = None,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ):
+        """``unload_at_end`` and ``report_at_end``: the end-of-run options (see
+        the module docstring). Set for the run; work added to it mid-run ends
+        the way the run it joined does."""
         super().__init__(microscope, experiment, parent_ui, hook_manager)
+        self.unload_at_end = unload_at_end
+        self.report_at_end = report_at_end
         # Grids this run could not bring onto the stage, and why. One attempt per
         # grid per run: an exchange that failed once is not retried on the next
         # task, which would only re-run the same failure in front of a queue of
@@ -450,10 +481,105 @@ class GridTaskManager(BaseTaskManager):
             # completed, not cancelled. The next Run picks up from there.
             self._report_stall()
         else:
+            if self.unload_at_end:
+                self._unload_at_end()
             self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
             self._say(workflow_info=self._completion_message())
+        if self.report_at_end:
+            self._report_at_end()
         for line in self._grid_summary_lines():
             logging.info(line)
+
+    def _unload_at_end(self) -> None:
+        """Return the grid in the working slot to the magazine: the run's last
+        step, queued as one so the timeline and the run summary show it, and
+        recorded on the grid as the load is. Nothing to do on a fixed holder, or
+        with the slot already empty. A failed unload is the step's outcome and a
+        notification; the run itself is done."""
+        stage = self.microscope._stage
+        occupant = self._working_slot_occupant(stage)
+        if occupant is None or self.is_stopped:
+            return
+        queued = self.queue.add(occupant, UNLOAD_ENTRY_NAME)
+        item = self.queue.next(skip=lambda i: i.id != queued.id) or queued
+        grid = self.experiment.get_grid_by_name(occupant)
+        self._emit_report(
+            item=item,
+            item_name=occupant,
+            status=AutoLamellaTaskStatus.InProgress,
+            msg=f"Unloading grid {occupant}.",
+        )
+        self._say(status_bar=f"Unloading grid {occupant}...")
+        entry = AutoLamellaTaskState(
+            name=UNLOAD_ENTRY_NAME,
+            task_type=UNLOAD_TASK_TYPE,
+            status=AutoLamellaTaskStatus.InProgress,
+        )
+        try:
+            stage.unload()
+        except Exception as e:  # noqa: BLE001 - the run is over; said, not raised
+            entry.status = AutoLamellaTaskStatus.Failed
+            entry.status_message = str(e)
+            msg = f"Grid {occupant} could not be unloaded at the end of the run: {e}"
+            logging.warning(msg)
+            self._notify(msg, "warning")
+        else:
+            entry.status = AutoLamellaTaskStatus.Completed
+            entry.status_message = "Returned to the magazine."
+            msg = f"Grid {occupant} is unloaded."
+            logging.info(msg)
+        entry.end_timestamp = datetime.timestamp(datetime.now())
+        if grid is not None:
+            grid.task_history.append(entry)
+            self.experiment.save()
+        self.queue.mark_done(item, entry.status)
+        self._emit_report(
+            item=item,
+            item_name=occupant,
+            status=entry.status,
+            error_message=(
+                entry.status_message
+                if entry.status is AutoLamellaTaskStatus.Failed
+                else None
+            ),
+            task_duration=entry.duration,
+            msg=msg,
+        )
+        self._say(status_bar="")
+
+    def _report_at_end(self) -> None:
+        """Write the grid screening report to the experiment folder, the file
+        Tools -> Reporting writes. Usually nobody has judged a grid yet; the
+        cover then says so and recommends none. A failure -- reportlab not
+        installed, an unreadable image -- is a notification and a log line."""
+        self._say(status_bar="Writing the grid screening report...")
+        try:
+            from fibsem.applications.autolamella.tools.grid_report_pdf import (
+                generate_grid_report,
+            )
+
+            # The stage's own record, for the slot column; no hardware call.
+            inventory = self.microscope._stage.grid_inventory()
+            path = generate_grid_report(self.experiment, inventory=inventory)
+        except Exception as e:  # noqa: BLE001 - the run is over; said, not raised
+            msg = f"The grid screening report was not written: {e}"
+            logging.warning(msg, exc_info=True)
+            self._notify(msg, "warning")
+            self._say(status_bar="")
+            return
+        logging.info(f"Grid screening report written: {path}")
+        self._notify(f"Grid screening report written: {path}", "info")
+        self._say(status_bar="")
+
+    @staticmethod
+    def _notify(message: str, notification_type: str) -> None:
+        """A notification that stays in the app's history, so an overnight run's
+        last word is there in the morning. Headless, the log line is all."""
+        try:
+            from fibsem.ui import notification_service
+        except ImportError:  # no Qt: a headless install
+            return
+        notification_service.show(message, notification_type)
 
     def _run_load_step(self, item: WorkItem, grid: GridRecord) -> None:
         """The planned exchange. Its outcome is the queue item's status, so the
@@ -694,13 +820,21 @@ class GridTaskManager(BaseTaskManager):
             1
             for i in items
             if i.status is AutoLamellaTaskStatus.Failed
-            and i.task_name != LOAD_ENTRY_NAME
+            and i.task_name not in EXCHANGE_ENTRY_NAMES
         )
+        not_unloaded = [
+            i.item_name
+            for i in items
+            if i.task_name == UNLOAD_ENTRY_NAME
+            and i.status is AutoLamellaTaskStatus.Failed
+        ]
         parts = [f"{len(grids) - len(not_loaded)} of {len(grids)} grids run"]
         if not_loaded:
             parts.append(f"{len(not_loaded)} could not be loaded")
         if failed:
             parts.append(f"{failed} task{'s' if failed != 1 else ''} failed")
+        for name in not_unloaded:
+            parts.append(f"{name} could not be unloaded")
         return "Grid workflow complete: " + ", ".join(parts) + "."
 
     def _grid_summary_lines(self) -> List[str]:
@@ -714,7 +848,7 @@ class GridTaskManager(BaseTaskManager):
             outcomes = [
                 i.status.name
                 for i in items
-                if i.item_name == name and i.task_name != LOAD_ENTRY_NAME
+                if i.item_name == name and i.task_name not in EXCHANGE_ENTRY_NAMES
             ]
             counts = {s: outcomes.count(s) for s in dict.fromkeys(outcomes)}
             summary = ", ".join(f"{n} {s.lower()}" for s, n in counts.items())
@@ -729,11 +863,24 @@ def run_grid_tasks(
     grid_names: Optional[List[str]] = None,
     parent_ui: Optional["AutoLamellaUI"] = None,
     hook_manager: Optional[HookManager] = None,
+    unload_at_end: bool = False,
+    report_at_end: bool = False,
 ) -> GridTaskManager:
     """Run grid tasks headless: the protocol's tasks in its order, on every grid,
-    unless told otherwise. Returns the manager, for its queue and run summary."""
+    unless told otherwise. Returns the manager, for its queue and run summary.
+
+    ``unload_at_end`` returns the last grid to the magazine once the queue is
+    done; ``report_at_end`` writes the grid screening report however the run
+    ends. Both off unless asked for; the app's confirmation offers them."""
     if task_names is None:
         task_names = experiment.grid_protocol.ordered_task_names
-    manager = GridTaskManager(microscope, experiment, parent_ui, hook_manager)
+    manager = GridTaskManager(
+        microscope,
+        experiment,
+        parent_ui,
+        hook_manager,
+        unload_at_end=unload_at_end,
+        report_at_end=report_at_end,
+    )
     manager.run(task_names, grid_names)
     return manager

@@ -1208,11 +1208,15 @@ class AutoLamellaUI(QMainWindow):
         task_names: List[str],
         grid_names: Optional[List[str]],
         inventory_first: bool = False,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ) -> None:
         """Start a grid run on the workflow thread: the lamella run's twin.
 
         `grid_names` None with `inventory_first` is "Screen all grids": the worker
         runs the inventory, records every present grid, and runs over them all.
+        `unload_at_end` and `report_at_end` are the confirmation's end-of-run
+        options, carried out by the manager.
         Shares the worker slot, the manager slot and the finished signal with the
         lamella run, so Stop, the timeline and the run summary work unchanged and
         the two cannot overlap.
@@ -1223,7 +1227,12 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast(msg, "warning")
             return
         self._task_worker_thread = FunctionWorker(
-            self._run_grid_tasks_worker, task_names, grid_names, inventory_first
+            self._run_grid_tasks_worker,
+            task_names,
+            grid_names,
+            inventory_first,
+            unload_at_end,
+            report_at_end,
         )
         self._task_worker_thread.start()
 
@@ -1232,6 +1241,8 @@ class AutoLamellaUI(QMainWindow):
         task_names: List[str],
         grid_names: Optional[List[str]],
         inventory_first: bool,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ) -> None:
         """Worker thread for a grid run."""
         from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
@@ -1258,6 +1269,8 @@ class AutoLamellaUI(QMainWindow):
                 experiment=self.experiment,
                 parent_ui=self,
                 hook_manager=self.setup_hooks(),
+                unload_at_end=unload_at_end,
+                report_at_end=report_at_end,
             )
             if self._workflow_stop_event.is_set():
                 self._task_manager.stop()

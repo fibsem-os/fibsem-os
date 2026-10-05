@@ -36,7 +36,7 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
     ExpandedImageDialog,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
+    EXCHANGE_ENTRY_NAMES as _EXCHANGE_ENTRY_NAMES,
 )
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
@@ -100,10 +100,10 @@ def image_for(
 
 def latest_runs(grid: GridRecord) -> dict:
     """The most recent history entry per task, in first-run order; the load
-    step is not a task."""
+    and unload steps are not tasks."""
     latest = {}
     for state in grid.task_history:
-        if state.name != _LOAD_ENTRY_NAME:
+        if state.name not in _EXCHANGE_ENTRY_NAMES:
             latest[state.name] = state
     return latest
 
@@ -191,7 +191,7 @@ class _HistoryRow(QWidget):
             self.tile.clicked.connect(self._open)
             layout.addWidget(self.tile, 0, Qt.AlignLeft)
         elif (
-            state.name != _LOAD_ENTRY_NAME
+            state.name not in _EXCHANGE_ENTRY_NAMES
             and state.status is AutoLamellaTaskStatus.Completed
         ):
             note = QLabel("No image recorded.")
@@ -306,7 +306,7 @@ class GridResultsWidget(QWidget):
             (
                 t
                 for t in reversed(grid.task_history)
-                if t.name != _LOAD_ENTRY_NAME
+                if t.name not in _EXCHANGE_ENTRY_NAMES
                 and t.status is AutoLamellaTaskStatus.Completed
             ),
             None,
