@@ -47,6 +47,7 @@ from fibsem.structures import (
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
     FM_DRIVER_REMOTE,
+    STAGE_FRAME_FIBSEM,
     BeamSettings,
     BeamSystemSettings,
     BeamType,
@@ -3316,7 +3317,13 @@ class FibsemMicroscope(ABC):
             is_compustage=self.stage_is_compustage,
             rotation_centre=self.rotation_centre,
             poses=self._stage_poses(),
+            stage_frame=self.stage_frame,
         )
+
+    @property
+    def stage_frame(self) -> str:
+        """The frame the stage reports positions in: the stage device's, else fibsem's."""
+        return getattr(self.stage_device, "frame", STAGE_FRAME_FIBSEM)
 
     def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
         """Report a fact for the experiment's record on ``record_signal``.
