@@ -198,6 +198,103 @@ def estimate_workflow(
     )
 
 
+def estimate_grid_run(
+    experiment: "Experiment",
+    task_names: List[str],
+    grid_names: List[str],
+    exchanges: int,
+    exchange_seconds: float,
+    now: Optional[datetime] = None,
+) -> WorkflowEstimate:
+    """Estimate a grid run of ``task_names`` over ``grid_names``, as
+    ``plan_grid_run`` lays it out: each grid loaded, then its tasks.
+
+    The same breakdown as a lamella workflow's, so the same dialog lays it out: a
+    row per task with its grid count, after a row for the exchanges when there are
+    any. ``exchanges`` is how many of the grids are not loaded now, and
+    ``exchange_seconds`` what the loader says one costs; a fixed holder passes
+    zero for either and prices none. Grid tasks share the protocol's config, so a
+    task costs the same on every grid. Nothing is scheduled on a grid task.
+
+    Args:
+        experiment: the experiment holding the grid protocol
+        task_names: grid tasks to run, in order
+        grid_names: grids to run them on
+        exchanges: how many of the grids an exchange has to bring in
+        exchange_seconds: the loader's figure for one exchange
+        now: the clock to start from; defaults to the current time
+    """
+    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        LOAD_ENTRY_NAME,
+    )
+
+    started_at = now if now is not None else datetime.now()
+    configs = experiment.grid_protocol.task_config
+    review_on = _review_on()
+
+    rows: List[TaskEstimate] = []
+    if exchanges > 0 and exchange_seconds > 0:
+        rows.append(
+            TaskEstimate(
+                name=LOAD_ENTRY_NAME,
+                lamella_count=exchanges,
+                seconds=exchanges * exchange_seconds,
+                supervised=False,
+            )
+        )
+    for task_name in task_names:
+        config = configs.get(task_name)
+        if config is None:
+            continue
+        rows.append(
+            TaskEstimate(
+                name=task_name,
+                lamella_count=len(grid_names),
+                seconds=len(grid_names) * config.estimated_duration,
+                supervised=review_on and config.attention is Attention.supervised,
+            )
+        )
+
+    work_seconds = sum(row.seconds for row in rows)
+    return WorkflowEstimate(
+        tasks=rows,
+        lamella_names=list(grid_names),
+        work_seconds=work_seconds,
+        started_at=started_at,
+        expected_finish=started_at + timedelta(seconds=work_seconds),
+    )
+
+
+def grid_item_seconds(
+    experiment: "Experiment", exchange_seconds: float, loaded: Sequence[str] = ()
+) -> "Callable[[str, str], Optional[float]]":
+    """Per-step estimates for a grid queue, by ``(grid, step)``: what the timeline
+    and Add to queue price a grid item with.
+
+    A "Load grid" step costs ``exchange_seconds``, unless its grid is one of
+    ``loaded`` (on the stage now), when the load is a no-op. A task costs its
+    config's estimate. None for anything else: a step this protocol does not have
+    has nothing to offer, as on the lamella side.
+    """
+    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        LOAD_ENTRY_NAME,
+    )
+
+    grids = {grid.name for grid in experiment.grids}
+    configs = experiment.grid_protocol.task_config
+    on_stage = set(loaded)
+
+    def seconds_for(grid_name: str, step: str) -> Optional[float]:
+        if grid_name not in grids:
+            return None
+        if step == LOAD_ENTRY_NAME:
+            return 0.0 if grid_name in on_stage else exchange_seconds
+        config = configs.get(step)
+        return config.estimated_duration if config is not None else None
+
+    return seconds_for
+
+
 @dataclass(frozen=True)
 class QueueEstimate:
     """What is left of a live queue, and when it will be done.

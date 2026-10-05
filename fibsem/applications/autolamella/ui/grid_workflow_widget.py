@@ -49,6 +49,9 @@ from fibsem.applications.autolamella.ui.workflow_config_widget import (
     _requires_phrase,
     _review_available,
 )
+from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
+    _task_block as task_block,
+)
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     FluorescenceOverviewGridTaskConfig,
     GridTaskConfig,
@@ -56,6 +59,10 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
     plan_grid_run,
+)
+from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    AdditionEstimate,
+    WorkflowEstimate,
 )
 from fibsem.microscopes._stage import GridInventoryEntry, GridSlotState
 from fibsem.structures import BeamType
@@ -83,8 +90,11 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.preflight import (
     BACKGROUND,
     ON_PANEL,
+    TEXT_MUTED,
     TEXT_STRONG,
     detail_block,
+    format_clock,
+    format_duration,
     meta_label,
     metric,
     warning_label,
@@ -750,6 +760,17 @@ class GridWorkflowWidget(QWidget):
             if row.checkbox.isEnabled():
                 row.checkbox.setChecked(checked)
 
+    def exchange_seconds(self) -> float:
+        """What the loader says one exchange costs; nothing on a fixed holder."""
+        stage = self.stage
+        if stage is None or stage.loader is None:
+            return 0.0
+        return stage.loader.exchange_seconds
+
+    def loaded_grid_names(self) -> List[str]:
+        """The grids on the stage now, which a load step does not exchange."""
+        return [name for name, row in self._grid_rows.items() if row.loaded]
+
     def exchanges_for(self, grids: List[GridRecord]) -> int:
         """How many of these grids are not loaded now: the exchanges a run
         would make on a loader, zero on a fixed holder."""
@@ -880,11 +901,12 @@ class GridWorkflowWidget(QWidget):
 
 class GridRunPreflightDialog(QDialog):
     """What a grid run is about to do: how many grids and tasks, how many
-    exchanges, where the files go, and the first steps of the plan.
+    exchanges, how long and when it is done, where the files go, and the first
+    steps of the plan.
 
-    Its own dialog rather than the lamella preflight: that one is built on a
-    lamella estimate with durations, and grid tasks have no duration estimate
-    yet. When they do, this grows a time column.
+    Its own dialog rather than the lamella preflight, which confirms lamellae
+    and schedules; the time figures and the per-task block are the same pieces,
+    laid out the same way.
     """
 
     _STEPS_SHOWN = 12
@@ -899,13 +921,18 @@ class GridRunPreflightDialog(QDialog):
         adding: bool = False,
         beams_off: Sequence[BeamType] = (),
         first_run: Sequence[str] = (),
+        estimate: Optional[WorkflowEstimate] = None,
+        addition: Optional[AdditionEstimate] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         """``adding``: the same plan, going onto the end of a running queue
         rather than starting one. ``beams_off``: beams that are off now; the
         run turns them on when it starts, and the dialog says so first.
         ``first_run``: grids in the plan that have never run, whose names this
-        run will fix."""
+        run will fix. ``estimate``: what the run will take, task by task
+        (``estimate_grid_run``); ``addition``: what adding it to the running
+        queue costs, and how much later the queue now finishes. Without
+        either, no time is quoted."""
         super().__init__(parent)
         self.setWindowTitle(
             "Add to the queue"
@@ -948,6 +975,27 @@ class GridRunPreflightDialog(QDialog):
             )
         )
         layout.addLayout(metrics)
+
+        for widget in self._time_figures(estimate, addition):
+            layout.addWidget(widget)
+        if estimate is not None and estimate.tasks:
+            layout.addWidget(task_block(estimate.tasks, estimate.started_at))
+        if estimate is not None or (addition is not None and addition.is_priced):
+            note = "Estimates round up."
+            if estimate is not None and estimate.waits_for_a_human:
+                note += " Time spent waiting for you is not included."
+            if screen_all:
+                # The plan is built from the grids known before the inventory
+                # reads the magazine, so the quote is for those.
+                note += (
+                    f" Quoted for the {len(grid_names)} grid"
+                    f"{'s' if len(grid_names) != 1 else ''} known now; the "
+                    "inventory can find more."
+                )
+            footnote = QLabel(note)
+            footnote.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; {ON_PANEL}")
+            footnote.setWordWrap(True)
+            layout.addWidget(footnote)
 
         plan = plan_grid_run(task_names, grid_names)
         lines = [
@@ -1010,6 +1058,37 @@ class GridRunPreflightDialog(QDialog):
         buttons.addWidget(self.btn_cancel)
         buttons.addWidget(self.btn_run)
         layout.addLayout(buttons)
+
+    @staticmethod
+    def _time_figures(
+        estimate: Optional[WorkflowEstimate], addition: Optional[AdditionEstimate]
+    ) -> List[QWidget]:
+        """The duration and the finish, as the lamella preflight and Add to queue
+        quote them: a run's own, or what an addition adds and moves the finish to."""
+        if estimate is not None:
+            first = metric("Estimated duration", format_duration(estimate.work_seconds))
+            second = metric(
+                "Expected finish",
+                format_clock(estimate.expected_finish, estimate.started_at),
+            )
+        elif addition is not None and addition.is_priced:
+            before = addition.finish_before
+            first = metric("Adds", format_duration(addition.work_seconds))
+            second = metric(
+                "Expected finish",
+                format_clock(addition.finish_after, before),
+                f"was {format_clock(before, before)}",
+            )
+        else:
+            return []
+        row = QWidget()
+        row.setStyleSheet("background: transparent;")
+        figures = QHBoxLayout(row)
+        figures.setContentsMargins(0, 0, 0, 0)
+        figures.setSpacing(10)
+        figures.addWidget(first)
+        figures.addWidget(second)
+        return [row]
 
 
 # What the autoloader reads for a slot with no description, and what the
