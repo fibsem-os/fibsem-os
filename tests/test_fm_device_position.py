@@ -24,8 +24,8 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.microscope import DeviceImagingState
 from fibsem.structures import (
-    DEFAULT_DEVICE_RANGE,
     DEFAULT_STAGE_DEVICES,
+    VERSION_1_DEVICE_RANGE,
     FibsemStagePosition,
     StageDeviceSettings,
 )
@@ -35,9 +35,9 @@ IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
 # block at all -- so it is also the test of what saying nothing gets you.
 ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
 
-# Between the two windows: past the beams' 20 mm, short of the FM's 28.8 mm.
-# Mid-traverse, and at no device.
-IN_THE_GAP_MM = 24.0
+# Past the FM's window (28.8 mm to 68.8 mm), so only the beams', which is unbounded,
+# contains it; travelling to the FM from here would arrive outside the FM's window.
+OUTSIDE_THE_FM_MM = 24.0
 
 
 def _microscope(config_path: str = IFLM_CONFIG):
@@ -65,7 +65,9 @@ def test_the_devices_come_from_the_configuration_file():
 
     assert microscope.get_device_origin("FIBSEM").x == pytest.approx(0.0)
     assert microscope.get_device_origin("FM").x == pytest.approx(48.8e-3)
-    assert microscope.system.stage.device_range.x == pytest.approx(20.0e-3)
+    # The file is version 1: its shared `device_range` is copied onto the FM.
+    assert microscope.system.stage.devices["FM"].range.x == pytest.approx(20.0e-3)
+    assert microscope.system.stage.devices["FIBSEM"].range is None
 
 
 def test_a_configuration_that_says_nothing_gets_the_objective_under_the_grid():
@@ -85,7 +87,6 @@ def test_a_configuration_that_says_nothing_gets_the_objective_under_the_grid():
         not in utils.load_yaml(cfg.MICROSCOPE_CONFIGURATION_PATH)["hardware"]["stage"]
     )
     assert default.system.stage.devices == DEFAULT_STAGE_DEVICES
-    assert default.system.stage.device_range == DEFAULT_DEVICE_RANGE
 
 
 def test_a_device_is_a_place_and_leaves_the_pose_alone():
@@ -104,12 +105,15 @@ def test_a_device_is_a_place_and_leaves_the_pose_alone():
 
 
 def test_the_configuration_survives_a_round_trip():
-    """`system.to_dict()` is served over the API and written into image metadata."""
-    stage = _microscope().system.stage
-    restored = type(stage).from_dict(stage.to_dict())
+    """`system.to_dict()` is served over the API and written into image metadata.
 
-    assert restored.devices == stage.devices
-    assert restored.device_range == stage.device_range
+    The positions are written on the devices' entries, so it is the whole record that
+    round-trips, not the stage's.
+    """
+    system = _microscope().system
+    restored = type(system).from_dict(system.to_dict())
+
+    assert restored.stage.devices == system.stage.devices
 
 
 # ── the other half of a device: which poses it can image from ────────
@@ -126,7 +130,7 @@ def _can_see_the_sample(microscope, device: str) -> bool:
     An empty list is vacuously TRUE -- the device does not constrain the pose -- so
     the place term alone decides. The beams are that case.
     """
-    orientations = microscope.system.stage.devices[device].acquisition_orientations
+    orientations = microscope.system.stage.devices[device].available_orientations
     return microscope.is_at_device(device) and (
         not orientations or microscope.get_stage_orientation() in orientations
     )
@@ -141,21 +145,20 @@ def test_a_device_says_which_poses_it_can_image_from():
     """
     microscope = _microscope()
 
-    assert microscope.system.stage.devices["FM"].acquisition_orientations == ["FIB"]
+    assert microscope.system.stage.devices["FM"].available_orientations == ["FIB"]
 
 
-def test_the_beams_say_nothing_about_the_pose():
-    """Empty means unconstrained: the orientation term is vacuously true.
-
-    SEM, FIB and MILLING are all views of the sample from the beams, and choosing
-    between them is not the device axis's business -- so the place term alone decides,
-    and the beams can see the sample in every pose. The other reading, "can never
-    image", is deliberately unrepresentable: a device that can never image should not
-    be declared, and an empty list must not silently mean a dead instrument.
-    """
+def test_the_beams_image_from_every_beam_pose():
+    """SEM, FIB and MILLING are all views of the sample from the beams, which is the
+    beams' default; nothing configures it. An empty list is refused at load, so it
+    cannot silently mean a dead instrument."""
     microscope = _microscope()
 
-    assert microscope.system.stage.devices["FIBSEM"].acquisition_orientations == []
+    assert microscope.system.stage.devices["FIBSEM"].available_orientations == [
+        "SEM",
+        "FIB",
+        "MILLING",
+    ]
     for orientation in ("SEM", "FIB", "MILLING"):
         microscope.move_to_orientation(orientation)
         assert _can_see_the_sample(microscope, "FIBSEM") is True
@@ -168,16 +171,16 @@ def test_a_misspelt_orientation_is_refused_at_load():
     instrument would be dead with no error -- undetectable in normal operation,
     because the load-bearing field on each mounting is the other mounting's inert one.
     """
-    with pytest.raises(ValueError, match=r"Unknown acquisition orientation.*FIBB"):
+    with pytest.raises(ValueError, match=r"Unknown orientation.*FIBB"):
         StageDeviceSettings.from_dict(
-            {"origin": {"x": 48.8e-3}, "acquisition_orientations": ["FIBB"]}
+            {"origin": {"x": 48.8e-3}, "available_orientations": ["FIBB"]}
         )
 
 
 def test_the_fm_object_reads_the_device_declaration():
     """One source of truth, not two fields with the same name.
 
-    `FluorescenceMicroscope.acquisition_orientations` used to hardcode
+    `FluorescenceMicroscope.available_orientations` used to hardcode
     `[default_orientation]` -- `["FM"]` on every mounting, which on offset names a
     pose the classifier never returns there. It now reads the device declaration, so
     the widget gates that consume it can be true at the actual FM.
@@ -258,14 +261,14 @@ def test_the_term_that_fails_names_the_remedy():
     assert _can_see_the_sample(offset, "FM") is False
 
 
-def test_the_acquisition_orientations_survive_a_round_trip():
+def test_the_available_orientations_survive_a_round_trip():
     """`system.to_dict()` is served over the API and written into image metadata."""
     devices = _microscope().system.stage.devices
 
     restored = StageDeviceSettings.from_dict(devices["FM"].to_dict())
 
     assert restored == devices["FM"]
-    assert restored.acquisition_orientations == ["FIB"]
+    assert restored.available_orientations == ["FIB"]
 
 
 def test_a_configuration_that_says_nothing_can_still_see_the_sample():
@@ -278,7 +281,7 @@ def test_a_configuration_that_says_nothing_can_still_see_the_sample():
     microscope = _microscope(ARCTIS_CONFIG)
 
     assert "devices" not in utils.load_yaml(ARCTIS_CONFIG)["hardware"]["stage"]
-    assert microscope.system.stage.devices["FM"].acquisition_orientations == ["FM"]
+    assert microscope.system.stage.devices["FM"].available_orientations == ["FM"]
 
 
 # ── the question nothing could ask ───────────────────────────────────
@@ -306,18 +309,31 @@ def test_the_window_is_wider_than_the_origin():
     assert microscope.is_at_device("FM", position) is False
 
 
-def test_between_the_two_devices_is_neither():
-    """The windows do not tile the axis, and that is deliberate.
+def test_the_beams_are_wherever_no_other_device_is():
+    """The beams have no range: the stage is at them anywhere outside the FM's window.
 
-    The beam window ends at 20 mm and the fluorescence one begins at 28.8 mm, so 8.8
-    mm of travel belongs to neither. A stage there is mid-traverse, which is a real
-    state and not one to guess a device for.
+    Version 1 gave the beams the shared 20 mm window too, which left 8.8 mm of travel
+    belonging to no device and refused every traverse from there. Now only another
+    device's window takes a position away from the beams.
     """
     microscope = _microscope()
-    position = FibsemStagePosition(x=IN_THE_GAP_MM * 1e-3, y=0.0, z=0.0, r=0.0, t=0.0)
+    position = FibsemStagePosition(
+        x=OUTSIDE_THE_FM_MM * 1e-3, y=0.0, z=0.0, r=0.0, t=0.0
+    )
 
-    assert microscope.is_at_device("FIBSEM", position) is False
+    assert microscope.is_at_device("FIBSEM", position) is True
     assert microscope.is_at_device("FM", position) is False
+    assert microscope.get_current_device(position) == "FIBSEM"
+
+
+def test_where_two_devices_contain_the_stage_the_nearest_origin_wins():
+    """The FM's window lies inside the beams' unbounded one, so both contain a stage
+    at the FM; it is at the FM, whose origin is nearer."""
+    microscope = _microscope()
+
+    for x_mm, expected in ((30.0, "FM"), (48.8, "FM"), (68.0, "FM"), (24.0, "FIBSEM")):
+        position = FibsemStagePosition(x=x_mm * 1e-3, y=0.0, z=0.0, r=0.0, t=0.0)
+        assert microscope.get_current_device(position) == expected, x_mm
 
 
 def test_the_axes_a_device_does_not_constrain_do_not_decide():
@@ -340,11 +356,12 @@ def test_a_device_the_range_cannot_decide_is_never_arrived_at():
     device = StageDeviceSettings(origin=FibsemStagePosition(x=48.8e-3))
     here = FibsemStagePosition(x=48.8e-3, y=0.0, z=0.0)
 
-    assert device.contains(here, FibsemStagePosition(y=1.0e-3)) is False
+    device.range = FibsemStagePosition(y=1.0e-3)
+    assert device.contains(here) is False
     assert (
-        StageDeviceSettings(origin=FibsemStagePosition()).contains(
-            here, DEFAULT_DEVICE_RANGE
-        )
+        StageDeviceSettings(
+            origin=FibsemStagePosition(), range=VERSION_1_DEVICE_RANGE
+        ).contains(here)
         is False
     )
 
@@ -444,11 +461,10 @@ def test_anywhere_in_the_beam_window_traverses_to_somewhere_in_the_fm_window(
     against the beams' 20 mm, and the traverse carries the offset across unchanged.
     Above beam x = 11.2 mm the stage arrived at the FM and reported that it had not.
 
-    Now that both ranges come from one value this holds by arithmetic rather than by
-    agreement: `|arrival - target| = |start - source|`. That is why
-    `move_to_microscope` checks where the stage *starts* and never checks where it
-    will land -- a destination check could not fire. This test is what makes that
-    claim checkable instead of asserted.
+    The traverse keeps `|arrival - target| = |start - source|`, so the FM's 20 mm
+    window, copied from the version 1 file's `device_range`, takes every grid position
+    within 20 mm of the beams' origin. Each device now has its own range, so
+    `move_to_microscope` also checks where the stage will land, and refuses beyond it.
     """
     microscope = _at_beam_x(_microscope(), beam_x_mm)
 
@@ -478,7 +494,7 @@ def test_asking_twice_does_not_traverse_twice(beam_x_mm: float):
 
 
 def test_the_source_is_where_the_stage_is_not_the_other_device():
-    """`get_current_device` reports the device, and `None` between them."""
+    """`get_current_device` reports the device the stage is at."""
     microscope = _microscope()
 
     assert microscope.get_current_device() == "FIBSEM"
@@ -488,25 +504,35 @@ def test_the_source_is_where_the_stage_is_not_the_other_device():
         )
         == "FM"
     )
-    assert (
-        microscope.get_current_device(
-            FibsemStagePosition(x=24.0e-3, y=0, z=0, r=0, t=0)
-        )
-        is None
-    )
 
 
-def test_travelling_from_neither_device_is_refused_rather_than_guessed():
-    """Mid-traverse the old code translated anyway, and landed nowhere in particular.
+def test_a_traverse_that_would_arrive_outside_the_target_is_refused():
+    """The arrival check: each device has its own range now, so the far end is checked.
 
-    It assumed the source was "the other device". A visible refusal the operator can
-    report beats a move that silently ends up 24 mm past the objective -- the same
-    preference FIB-640 argues for.
+    The traverse keeps the stage's offset from the source's origin. From 24 mm along
+    at the beams that arrives 24 mm from the FM's origin, outside its 20 mm, where the
+    stage would report it had not arrived. Refused before anything moves.
     """
     microscope = _microscope()
     microscope.move_to_orientation("FIB")
     microscope.move_stage_relative(
-        FibsemStagePosition(x=IN_THE_GAP_MM * 1e-3, y=0, z=0, r=0, t=0)
+        FibsemStagePosition(x=OUTSIDE_THE_FM_MM * 1e-3, y=0, z=0, r=0, t=0)
+    )
+    before = deepcopy(microscope.get_stage_position())
+
+    with pytest.raises(ValueError, match="outside its range"):
+        microscope.move_to_microscope("FM")
+
+    assert microscope.get_stage_position().x == pytest.approx(before.x)
+
+
+def test_a_stage_at_no_device_is_refused_rather_than_guessed():
+    """Only a position missing an axis an origin sets is at no device now."""
+    microscope = _microscope()
+    microscope.system.stage.devices["FIBSEM"].range = VERSION_1_DEVICE_RANGE
+    microscope.move_to_orientation("FIB")
+    microscope.move_stage_relative(
+        FibsemStagePosition(x=OUTSIDE_THE_FM_MM * 1e-3, y=0, z=0, r=0, t=0)
     )
     assert microscope.get_current_device() is None
 
@@ -563,7 +589,7 @@ def test_arriving_at_the_fm_leaves_the_objective_inserted_either_way():
 def test_a_refused_traverse_leaves_the_objective_alone():
     """A call that refuses changes nothing, the objective included.
 
-    The source is resolved before the objective is touched, so a refusal is inert
+    Both ends are checked before the objective is touched, so a refusal is inert
     rather than half-done. Retracting first would mean a rejected request still moved
     hardware -- and the operator would be left with the objective out and no
     explanation for it.
@@ -572,46 +598,43 @@ def test_a_refused_traverse_leaves_the_objective_alone():
     microscope.move_to_microscope("FM")
     assert microscope.fm.objective.state == "Inserted"
 
+    # Out of the FM's window, so back at the beams; going to the FM from there would
+    # arrive outside its window.
     microscope.move_stage_relative(
-        FibsemStagePosition(x=(IN_THE_GAP_MM - 48.8) * 1e-3, y=0, z=0, r=0, t=0)
-    )  # into the gap
+        FibsemStagePosition(x=(OUTSIDE_THE_FM_MM - 48.8) * 1e-3, y=0, z=0, r=0, t=0)
+    )
 
-    with pytest.raises(ValueError, match="not at any configured device"):
-        microscope.move_to_microscope("FIBSEM")
+    with pytest.raises(ValueError, match="outside its range"):
+        microscope.move_to_microscope("FM")
 
     assert microscope.fm.objective.state == "Inserted"
 
 
-# ── one range, not a window per device ───────────────────────────────
+# ── a range per device ───────────────────────────────────────────────
 
 
-def test_the_window_is_the_range_placed_at_each_origin():
-    """The number that used to be written out per device, and drifted.
-
-    Both windows come from one range, so no device can be given a region that
-    disagrees with the traverse that gets to it.
-    """
+def test_the_window_is_the_devices_range_about_its_origin():
     microscope = _microscope()
-    device_range = microscope.system.stage.device_range.x
+    fm = microscope.system.stage.devices["FM"]
+    fm.range = FibsemStagePosition(x=5.0e-3)
 
-    for device, origin in (("FIBSEM", 0.0), ("FM", 48.8e-3)):
-        inside = FibsemStagePosition(x=origin + device_range * 0.99, y=0.0, z=0.0)
-        outside = FibsemStagePosition(x=origin + device_range * 1.01, y=0.0, z=0.0)
+    inside = FibsemStagePosition(x=48.8e-3 + 4.9e-3, y=0.0, z=0.0)
+    outside = FibsemStagePosition(x=48.8e-3 + 5.1e-3, y=0.0, z=0.0)
 
-        assert microscope.is_at_device(device, inside) is True
-        assert microscope.is_at_device(device, outside) is False
+    assert microscope.is_at_device("FM", inside) is True
+    assert microscope.is_at_device("FM", outside) is False
+    assert microscope.is_at_device("FIBSEM", outside) is True
 
 
-def test_widening_the_range_widens_every_device_at_once():
-    """One number, so the two windows cannot be changed out of step with each other."""
+def test_widening_one_devices_range_leaves_the_others_alone():
     microscope = _microscope()
-    just_past_the_beams = FibsemStagePosition(x=24.0e-3, y=0.0, z=0.0)
+    position = FibsemStagePosition(x=26.0e-3, y=0.0, z=0.0)
+    assert microscope.get_current_device(position) == "FIBSEM"
 
-    assert microscope.get_current_device(just_past_the_beams) is None
+    microscope.system.stage.devices["FM"].range = FibsemStagePosition(x=25.0e-3)
 
-    microscope.system.stage.device_range = FibsemStagePosition(x=25.0e-3)
-
-    assert microscope.get_current_device(just_past_the_beams) == "FIBSEM"
+    assert microscope.get_current_device(position) == "FM"
+    assert microscope.system.stage.devices["FIBSEM"].range is None
 
 
 def test_devices_are_allowed_to_overlap():
@@ -680,12 +703,11 @@ def test_with_one_place_the_pose_still_decides():
 
 
 def test_with_two_places_the_range_still_decides():
-    """The offset mount is unchanged: past the beams' window is mid-traverse."""
+    """The offset mount is unchanged: outside the FM's window is not the FM."""
     microscope = _microscope()
-    stranded = FibsemStagePosition(x=IN_THE_GAP_MM * 1e-3, y=0.0, z=0.0)
+    away = FibsemStagePosition(x=OUTSIDE_THE_FM_MM * 1e-3, y=0.0, z=0.0)
 
-    assert microscope.is_at_device("FIBSEM", stranded) is False
-    assert microscope.is_at_device("FM", stranded) is False
+    assert microscope.is_at_device("FM", away) is False
 
 
 # ── what the traverse does not do ────────────────────────────────────
@@ -717,3 +739,54 @@ def test_the_traverse_commands_only_the_axes_the_devices_differ_along():
     assert after.z == pytest.approx(before.z)
     assert after.r == pytest.approx(before.r)
     assert after.t == pytest.approx(before.t)
+
+
+# ── origins on more than x ───────────────────────────────────────────
+
+
+def test_an_axis_a_device_leaves_unset_is_the_beams():
+    """The beams' origin is zero on x and y, so a y on the FM is travelled along."""
+    microscope = _at_beam_x(_microscope(), 0.0)
+    microscope.system.stage.devices["FM"] = StageDeviceSettings(
+        origin=FibsemStagePosition(x=48.8e-3, y=2.0e-3),
+        available_orientations=["FIB"],
+        range=FibsemStagePosition(x=20.0e-3, y=1.0e-3),
+    )
+    before = deepcopy(microscope.get_stage_position())
+
+    microscope.move_to_microscope("FM")
+
+    after = microscope.get_stage_position()
+    assert after.x == pytest.approx(before.x + 48.8e-3)
+    assert after.y == pytest.approx(before.y + 2.0e-3)
+    assert microscope.get_current_device() == "FM"
+
+
+def test_a_range_covers_every_axis_its_origin_sets():
+    """A version 1 `{x: 20 mm}` copied onto an origin that also sets y gets 1 mm on y;
+    left out, `contains` would answer no on y and the device could not be reached."""
+    device = StageDeviceSettings.from_dict(
+        {"origin": {"x": 48.8e-3, "y": 2.0e-3}}, default_range=VERSION_1_DEVICE_RANGE
+    )
+
+    assert (device.range.x, device.range.y) == (20.0e-3, 1.0e-3)
+    assert device.contains(FibsemStagePosition(x=50.0e-3, y=2.5e-3, z=0.0))
+
+
+def test_a_re_pose_that_would_arrive_outside_the_target_is_refused_before_moving():
+    """The arrival is the `get_target_position` conversion the move drives to, so the
+    re-pose route is checked as well as the plain traverse."""
+    microscope = _microscope()
+    microscope.move_to_orientation("SEM")
+    microscope.move_stage_relative(
+        FibsemStagePosition(x=OUTSIDE_THE_FM_MM * 1e-3, y=0, z=0, r=0, t=0)
+    )
+    before = deepcopy(microscope.get_stage_position())
+    arrival = microscope.to_device(before, "FM")
+    assert microscope.is_at_device("FM", arrival) is False
+
+    with pytest.raises(ValueError, match="outside its range"):
+        microscope.move_to_microscope("FM")
+
+    after = microscope.get_stage_position()
+    assert (after.x, after.r, after.t) == pytest.approx((before.x, before.r, before.t))

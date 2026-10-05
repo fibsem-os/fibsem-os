@@ -19,6 +19,7 @@ from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
 from fibsem.structures import (
     CONFIGURATION_VERSION,
     CONFIGURED_DEVICES,
+    STAGE_POSITION_KEYS,
     BeamType,
     DeviceEntry,
     FibsemImage,
@@ -620,6 +621,10 @@ LEGACY_CONFIGURATION_KEYS: Set[str] = {
     # `plasma: bool` was folded into `plasma_gas`: a column with a gas is a plasma
     # column. Still read, so `plasma: false` in an old file wins over a stray gas.
     "ion.plasma",
+    # Where the stage travels for each device moved from the stage onto each device's
+    # entry, with a range each instead of one shared one.
+    "hardware.stage.devices",
+    "hardware.stage.device_range",
 }
 
 # Old block spellings that are still read. A key under one of these is legal if it
@@ -677,7 +682,10 @@ def written_configuration_keys() -> Set[str]:
                 for entry in sub:
                     device = f"{path}.{entry['name']}"
                     keys.add(device)
-                    keys.add(f"{device}.roles")  # written only when the file has it
+                    # Written only when the file has them: a device's roles, and
+                    # where the stage travels for it (the beams' is never written).
+                    keys.add(f"{device}.roles")
+                    keys.update(f"{device}.{k}" for k in STAGE_POSITION_KEYS)
                     keys.update(
                         f"{device}.{k}"
                         for k in entry
