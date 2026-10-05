@@ -85,3 +85,28 @@ def test_the_command_line_stops_with_the_reason(odemis_stubs, caplog):
 
     assert stopped.value.code == 1
     assert "odemis-start" in caplog.text
+
+
+def test_a_remote_fm_shows_power_and_gain_in_the_hardwares_units(odemis_stubs):
+    """Power and gain are fractions everywhere; the hardware's own full scale crosses
+    the wire with their metadata, for a display to show beside them."""
+    pytest.importorskip("websockets")
+    from fibsem.devices.drivers.remote import DeviceClient
+    from fibsem.fm.remote import RemoteFluorescenceMicroscope
+    from fibsem.server.devices import DeviceServer
+
+    components = stubs.default_components()
+    components["ccd"].gain = stubs.FakeVA(4.0, range=(0.0, 16.0))
+    stubs.use_components(components)
+    server = DeviceServer(odemis_fm_devices()).start()
+    client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
+    try:
+        fm = RemoteFluorescenceMicroscope.connect(
+            "127.0.0.1", server.port, client=client
+        )
+        assert fm.light_source.power_native_scale == (0.4, "W")
+        assert fm.camera.gain_native_scale == (16.0, None)
+        assert fm.camera.gain == 0.25
+    finally:
+        client.close()
+        server.stop()

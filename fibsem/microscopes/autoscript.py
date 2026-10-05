@@ -25,6 +25,9 @@ from packaging.version import parse as parse_version
 from skimage import transform
 
 from fibsem import manufacturers
+from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
+from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
+from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
@@ -47,6 +50,7 @@ from fibsem.structures import (
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,
+    FibsemDetectorSettings,
     FibsemExperimentRef,
     FibsemGasInjectionSettings,
     FibsemImage,
@@ -79,7 +83,7 @@ if TYPE_CHECKING:
     from fibsem.structures import TFibsemPatternSettings
 
 THERMO_API_AVAILABLE = False
-MINIMUM_AUTOSCRIPT_VERSION_4_7 = parse_version("4.7")
+MINIMUM_AUTOSCRIPT_VERSION = parse_version("4.9")
 # Set when the guarded import below fails, so the connection error can say why.
 THERMO_API_IMPORT_ERROR: Optional[str] = None
 # Declared so importers can rely on the name; only meaningful once
@@ -137,12 +141,12 @@ try:
 
     # special case for Monash development environment
     if os.environ.get("COMPUTERNAME", "hostname") == "MU00190108":
-        logging.info("Overwriting autoscript version to 4.7, for Monash dev install")
-        AUTOSCRIPT_VERSION = MINIMUM_AUTOSCRIPT_VERSION_4_7
+        logging.info("Overwriting autoscript version to 4.9, for Monash dev install")
+        AUTOSCRIPT_VERSION = MINIMUM_AUTOSCRIPT_VERSION
 
-    if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
+    if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION:
         raise AutoScriptException(
-            f"AutoScript {version} found. Please update your AutoScript version to 4.7 or higher."
+            f"AutoScript {version} found. Please update your AutoScript version to 4.9 or higher."
         )
 
     from autoscript_sdb_microscope_client._dynamic_object_proxies import (
@@ -1093,16 +1097,18 @@ class ThermoMicroscope(FibsemMicroscope):
             f"Autoscript Server: {self.connection.service.autoscript.server.version}"
         )
 
+        self._build_beams()
+
         if reset_beam_shift:
             self.reset_beam_shifts()
 
         # assign stage
         if self.connection.specimen.compustage.is_installed:
-            self.stage = self.connection.specimen.compustage
+            self._vendor_stage = self.connection.specimen.compustage
             self.stage_is_compustage = True
             self._default_stage_coordinate_system = CoordinateSystem.SPECIMEN
         elif self.connection.specimen.stage.is_installed:
-            self.stage = self.connection.specimen.stage
+            self._vendor_stage = self.connection.specimen.stage
             self.stage_is_compustage = False
             self._default_stage_coordinate_system = CoordinateSystem.RAW
         else:
@@ -1111,7 +1117,10 @@ class ThermoMicroscope(FibsemMicroscope):
             )
 
         # set default coordinate system
-        self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
+        self._vendor_stage.set_default_coordinate_system(
+            self._default_stage_coordinate_system
+        )
+        self._build_stage()
         # TODO: set default move settings, is this dependent on the stage type?
         self.set_application_file(self.get_default_application_file(), default=True)
 
@@ -1153,6 +1162,82 @@ class ThermoMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
 
+        # after the sample stage, which reads which subsystems are fitted
+        self._build_parts()
+
+    def _build_beams(self) -> None:
+        """Build the beam devices and route the beam keys that have moved to them.
+
+        The scan-mode methods then use the beam's scan commands. ``preset`` is still
+        answered by ``_get``/``_set``. A disabled column gets no device, so its keys
+        stay with the old branches too.
+        """
+        from fibsem.devices.drivers.autoscript import bind_autoscript_beams
+
+        self.beams = MappingProxyType(bind_autoscript_beams(self))
+        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
+
+    def _build_stage(self) -> None:
+        """Build the stage device and route the stage keys to it.
+
+        The moves, ``home`` and ``link_stage`` then go through the device. A
+        ``stage_link`` set stays with ``_set``: a false value unlinks there, and the
+        device's ``link`` command only links.
+        """
+        from fibsem.devices.drivers.autoscript import bind_autoscript_stage
+
+        self.stage = bind_autoscript_stage(self)
+        self._device_routes = MappingProxyType(
+            {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
+        )
+        self._command_routes = MappingProxyType({"stage_home": ("stage", "home")})
+
+    def _build_parts(self) -> None:
+        """Build the chamber, and the manipulator and gas injectors that are fitted,
+        and route the chamber and manipulator keys to them.
+
+        ``pump``, ``vent`` and the manipulator's raw moves then go through the
+        devices, and ``cryo_deposition_v2`` through the gas injector for its port.
+        The corrected and offset needle moves stay here and move through the device.
+        """
+        from fibsem.devices.drivers.autoscript import (
+            MULTICHEM,
+            bind_autoscript_chamber,
+            bind_autoscript_gis,
+            bind_autoscript_manipulator,
+        )
+
+        self.chamber_device = bind_autoscript_chamber(self)
+        if self.is_available("manipulator"):
+            self.manipulator_device = bind_autoscript_manipulator(self)
+        self.gis_devices = MappingProxyType(bind_autoscript_gis(self))
+        # the one a caller of the device API means: the multichem, or a lone port
+        if MULTICHEM in self.gis_devices:
+            self.gis_device = self.gis_devices[MULTICHEM]
+        elif len(self.gis_devices) == 1:
+            self.gis_device = next(iter(self.gis_devices.values()))
+
+        routes = dict(self._device_routes)
+        routes.update(
+            {key: ("chamber_device", name) for key, name in CHAMBER_ROUTES.items()}
+        )
+        if self.manipulator_device is not None:
+            routes.update(
+                {
+                    key: ("manipulator_device", name)
+                    for key, name in MANIPULATOR_ROUTES.items()
+                }
+            )
+        self._device_routes = MappingProxyType(routes)
+        commands = dict(self._command_routes)
+        commands.update(
+            {
+                key: ("chamber_device", name)
+                for key, name in CHAMBER_COMMAND_ROUTES.items()
+            }
+        )
+        self._command_routes = MappingProxyType(commands)
+
     def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
         """The FM API over the Thermo FM devices, sharing this microscope's
         connection and its imaging channel lock with the beams.
@@ -1180,6 +1265,15 @@ class ThermoMicroscope(FibsemMicroscope):
             )
             return None
         return loader
+
+    def get_detector_settings(
+        self, beam_type: BeamType = BeamType.ELECTRON
+    ) -> FibsemDetectorSettings:
+        """The four detector reads under one hold of the imaging channel, so they
+        describe one detector and claim the channel once against other callers
+        (FIB-544). The lock is re-entrant, so the reads inside take it freely."""
+        with self._threading_lock:
+            return super().get_detector_settings(beam_type)
 
     def set_channel(self, channel: BeamType) -> None:
         """
@@ -1662,6 +1756,11 @@ class ThermoMicroscope(FibsemMicroscope):
             FibsemStagePosition: The stage position after movement.
         """
 
+        # through the stage device once connect has built it; the code below stays
+        # until a session on an instrument confirms the device's moves
+        if self.stage is not None:
+            return super().move_stage_absolute(position)
+
         # get current working distance, to be restored later
         wd = self.get_working_distance(BeamType.ELECTRON)
 
@@ -1675,7 +1774,7 @@ class ThermoMicroscope(FibsemMicroscope):
             autoscript_position.r = None
 
         logging.info(f"Moving stage to {position}.")
-        self.stage.absolute_move(
+        self._vendor_stage.absolute_move(
             autoscript_position, MoveSettings(rotate_compucentric=True)
         )  # TODO: This needs at least an optional safe move to prevent collision?
 
@@ -1696,6 +1795,11 @@ class ThermoMicroscope(FibsemMicroscope):
             position: the relative stage position to move by.
         """
 
+        # through the stage device once connect has built it; the code below stays
+        # until a session on an instrument confirms the device's moves
+        if self.stage is not None:
+            return super().move_stage_relative(position)
+
         logging.info(f"Moving stage by {position}.")
 
         # convert to autoscript position
@@ -1704,7 +1808,7 @@ class ThermoMicroscope(FibsemMicroscope):
         )
 
         # move stage
-        self.stage.relative_move(thermo_position)
+        self._vendor_stage.relative_move(thermo_position)
 
         logging.debug({"msg": "move_stage_relative", "position": position.to_dict()})
 
@@ -1774,12 +1878,12 @@ class ThermoMicroscope(FibsemMicroscope):
         if self.stage_is_compustage:
             return STAGE_LIMITS_COMPUSTAGE
 
-        if not hasattr(self.stage, "get_axis_limits"):
+        if not hasattr(self._vendor_stage, "get_axis_limits"):
             return STAGE_LIMITS_DEFAULT
 
         limits: Dict[str, RangeLimit] = {}
         for axis in ["x", "y", "z", "t"]:
-            axis_limit = self.stage.get_axis_limits(axis)
+            axis_limit = self._vendor_stage.get_axis_limits(axis)
             # t is in radians -> degrees
             if axis == "t":
                 limits[axis] = RangeLimit(
@@ -1802,16 +1906,16 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def insert_manipulator(self, name: str = "PARK") -> FibsemManipulatorPosition:
         """Insert the manipulator to the specified position"""
+        # through the manipulator device once connect has built it; the code below
+        # stays until a session on an instrument confirms the device
+        if self.manipulator_device is not None:
+            return super().insert_manipulator(name)
 
         if not self.is_available("manipulator"):
             raise ValueError("Manipulator not available.")
 
         if name not in ["PARK", "EUCENTRIC"]:
             raise ValueError(f"insert position {name} not supported.")
-        if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
-            raise NotImplementedError(
-                "Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher"
-            )
 
         # get the saved position name
         saved_position = (
@@ -1842,11 +1946,8 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def retract_manipulator(self) -> FibsemManipulatorPosition:
         """Retract the manipulator"""
-
-        if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
-            raise NotImplementedError(
-                "Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher"
-            )
+        if self.manipulator_device is not None:
+            return super().retract_manipulator()
 
         if not self.is_available("manipulator"):
             raise NotImplementedError("Manipulator not available.")
@@ -1868,6 +1969,8 @@ class ThermoMicroscope(FibsemMicroscope):
     def move_manipulator_relative(
         self, position: FibsemManipulatorPosition
     ) -> FibsemManipulatorPosition:
+        if self.manipulator_device is not None:
+            return super().move_manipulator_relative(position)
         logging.info(f"moving manipulator by {position}")
 
         # convert to autoscript position
@@ -1883,6 +1986,8 @@ class ThermoMicroscope(FibsemMicroscope):
         self, position: FibsemManipulatorPosition
     ) -> FibsemManipulatorPosition:
         """Move the manipulator to the specified coordinates."""
+        if self.manipulator_device is not None:
+            return super().move_manipulator_absolute(position)
         logging.info(f"moving manipulator to {position}")
 
         # convert to autoscript
@@ -2014,19 +2119,18 @@ class ThermoMicroscope(FibsemMicroscope):
     manipulator_move_types = ("relative", "corrected")
 
     def manipulator_named_positions(self) -> List[str]:
+        if self.manipulator_device is not None:
+            return super().manipulator_named_positions()
         return ["PARK", "EUCENTRIC"]
 
     def _get_saved_manipulator_position(
         self, name: str = "PARK"
     ) -> FibsemManipulatorPosition:
+        if self.manipulator_device is not None:
+            return super()._get_saved_manipulator_position(name)
 
         if name not in ["PARK", "EUCENTRIC"]:
             raise ValueError(f"saved position {name} not supported.")
-        if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
-            raise NotImplementedError(
-                "Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher"
-            )
-
         named_position = (
             ManipulatorSavedPosition.PARK
             if name == "PARK"
@@ -2667,6 +2771,15 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return
 
+    def _gis_device_for(
+        self, port: Optional[str], use_multichem: bool
+    ) -> Optional[Any]:
+        """The gas injector ``get_gis`` would use, if connect built it."""
+        from fibsem.devices.drivers.autoscript import MULTICHEM
+
+        devices = getattr(self, "gis_devices", None) or {}
+        return devices.get(MULTICHEM if use_multichem else port)
+
     def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
         """Run non-specific cryo deposition protocol.
 
@@ -2680,6 +2793,24 @@ class ThermoMicroscope(FibsemMicroscope):
         insert_position = gis_settings.insert_position
 
         logging.debug({"msg": "cryo_depositon_v2", "settings": gis_settings.to_dict()})
+
+        # through the gas injector for this port once connect has built it; the code
+        # below stays until a session on an instrument confirms the device
+        gis = self._gis_device_for(port, use_multichem)
+        if gis is not None:
+            logging.info(f"Inserting Gas Injection System at {insert_position}")
+            gis.insert(insert_position if use_multichem else None)
+            gas = gas if use_multichem else None
+            gis.heater_on(gas)
+            logging.info(f"Running deposition for {duration} seconds")
+            gis.open()
+            time.sleep(duration)
+            gis.close()
+            logging.info(f"Turning off heater for {gas}")
+            gis.heater_off()
+            logging.info("Retracting Gas Injection System")
+            gis.retract()
+            return
 
         # get gis subsystem
         self.get_gis(port)
@@ -2894,11 +3025,16 @@ class ThermoMicroscope(FibsemMicroscope):
             ]
             return values
 
-        if key == "detector_type":
-            values = self.connection.detector.type.available_values
-
-        if key == "detector_mode":
-            values = self.connection.detector.mode.available_values
+        # the detector's values are the active device's, so the channel is claimed
+        # for the read (FIB-544)
+        if key in ("detector_type", "detector_mode"):
+            with self._threading_lock:
+                if beam_type is not None:
+                    self.set_channel(beam_type)
+                if key == "detector_type":
+                    values = self.connection.detector.type.available_values
+                else:
+                    values = self.connection.detector.mode.available_values
 
         if key == "scan_direction":
             TFS_SCAN_DIRECTIONS = [
@@ -3005,22 +3141,22 @@ class ThermoMicroscope(FibsemMicroscope):
         # stage properties
         if key == "stage_position":
             # get stage position in raw coordinates
-            self.stage.set_default_coordinate_system(
+            self._vendor_stage.set_default_coordinate_system(
                 self._default_stage_coordinate_system
             )  # TODO: remove this once testing is done
             stage_position = stage_position_from_autoscript(
-                self.stage.current_position
+                self._vendor_stage.current_position
             )  # TODO: apply compucentric/raw coordinate system conversion here
             return stage_position
 
         if key == "stage_homed":
-            return self.stage.is_homed
+            return self._vendor_stage.is_homed
         if key == "stage_linked":
             # A compustage can't link (`set("stage_link")` refuses, and
             # `AutoscriptCompustage` has no `linked`), so it is never linked.
             if self.stage_is_compustage:
                 return False
-            return self.stage.is_linked
+            return self._vendor_stage.is_linked
 
         # chamber properties
         if key == "chamber_state":
@@ -3036,17 +3172,19 @@ class ThermoMicroscope(FibsemMicroscope):
             "detector_brightness",
             "detector_contrast",
         ]:
-            # set beam active view and device
-            self.set_channel(beam_type)
+            # `connection.detector` resolves against the active device, so the channel
+            # is set and read under the lock, as for a grab (FIB-544)
+            with self._threading_lock:
+                self.set_channel(beam_type)
 
-            if key == "detector_type":
-                return self.connection.detector.type.value
-            if key == "detector_mode":
-                return self.connection.detector.mode.value
-            if key == "detector_brightness":
-                return self.connection.detector.brightness.value
-            if key == "detector_contrast":
-                return self.connection.detector.contrast.value
+                if key == "detector_type":
+                    return self.connection.detector.type.value
+                if key == "detector_mode":
+                    return self.connection.detector.mode.value
+                if key == "detector_brightness":
+                    return self.connection.detector.brightness.value
+                if key == "detector_contrast":
+                    return self.connection.detector.contrast.value
 
         # manipulator properties
         if key == "manipulator_position":
@@ -3160,40 +3298,43 @@ class ThermoMicroscope(FibsemMicroscope):
             "detector_brightness",
             "detector_contrast",
         ]:
-            self.set_channel(beam_type)
+            # the write half: with the channel moved it would land on the other
+            # column's detector and stay there (FIB-544)
+            with self._threading_lock:
+                self.set_channel(beam_type)
 
-            if key == "detector_mode":
-                if value in self.connection.detector.mode.available_values:
-                    self.connection.detector.mode.value = value
-                    logging.info(f"Detector mode set to {value}.")
-                else:
-                    logging.warning(f"Detector mode {value} not available.")
-                return
-            if key == "detector_type":
-                if value in self.connection.detector.type.available_values:
-                    self.connection.detector.type.value = value
-                    logging.info(f"Detector type set to {value}.")
-                else:
-                    logging.warning(f"Detector type {value} not available.")
-                return
-            if key == "detector_brightness":
-                if 0 < value <= 1:
-                    self.connection.detector.brightness.value = value
-                    logging.info(f"Detector brightness set to {value}.")
-                else:
-                    logging.warning(
-                        f"Detector brightness {value} not available, must be between 0 and 1."
-                    )
-                return
-            if key == "detector_contrast":
-                if 0 < value <= 1:
-                    self.connection.detector.contrast.value = value
-                    logging.info(f"Detector contrast set to {value}.")
-                else:
-                    logging.warning(
-                        f"Detector contrast {value} not available, mut be between 0 and 1."
-                    )
-                return
+                if key == "detector_mode":
+                    if value in self.connection.detector.mode.available_values:
+                        self.connection.detector.mode.value = value
+                        logging.info(f"Detector mode set to {value}.")
+                    else:
+                        logging.warning(f"Detector mode {value} not available.")
+                    return
+                if key == "detector_type":
+                    if value in self.connection.detector.type.available_values:
+                        self.connection.detector.type.value = value
+                        logging.info(f"Detector type set to {value}.")
+                    else:
+                        logging.warning(f"Detector type {value} not available.")
+                    return
+                if key == "detector_brightness":
+                    if 0 < value <= 1:
+                        self.connection.detector.brightness.value = value
+                        logging.info(f"Detector brightness set to {value}.")
+                    else:
+                        logging.warning(
+                            f"Detector brightness {value} not available, must be between 0 and 1."
+                        )
+                    return
+                if key == "detector_contrast":
+                    if 0 < value <= 1:
+                        self.connection.detector.contrast.value = value
+                        logging.info(f"Detector contrast set to {value}.")
+                    else:
+                        logging.warning(
+                            f"Detector contrast {value} not available, mut be between 0 and 1."
+                        )
+                    return
 
         # electron beam properties
         if beam_type is BeamType.ELECTRON:
@@ -3228,7 +3369,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # stage properties
         if key == "stage_home":
             logging.info("Homing stage...")
-            self.stage.home()
+            self._vendor_stage.home()
             logging.info("Stage homed.")
             return
 
@@ -3238,7 +3379,7 @@ class ThermoMicroscope(FibsemMicroscope):
                 return
 
             logging.info("Linking stage...")
-            self.stage.link() if value else self.stage.unlink()
+            self._vendor_stage.link() if value else self._vendor_stage.unlink()
             logging.info(f"Stage {'linked' if value else 'unlinked'}.")
             return
 
@@ -3313,20 +3454,24 @@ class ThermoMicroscope(FibsemMicroscope):
             return FibsemStagePosition(x=0, y=0)
 
         # get stage position in speciemn coordinates
-        self.stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
+        self._vendor_stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
         specimen_stage_position = stage_position_from_autoscript(
-            self.stage.current_position
+            self._vendor_stage.current_position
         )
 
         # get stage position in raw coordinates
-        self.stage.set_default_coordinate_system(CoordinateSystem.RAW)
-        raw_stage_position = stage_position_from_autoscript(self.stage.current_position)
+        self._vendor_stage.set_default_coordinate_system(CoordinateSystem.RAW)
+        raw_stage_position = stage_position_from_autoscript(
+            self._vendor_stage.current_position
+        )
 
         # calculate the offset
         offset = specimen_stage_position - raw_stage_position  # XY only
 
         # restore stage coordinate system
-        self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
+        self._vendor_stage.set_default_coordinate_system(
+            self._default_stage_coordinate_system
+        )
 
         return offset
 

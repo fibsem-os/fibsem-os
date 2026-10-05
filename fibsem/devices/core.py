@@ -64,11 +64,17 @@ class ParameterMetadata:
 
     ``limits`` is a ``RangeLimit`` for a number. For a composite value, such as a
     stage position, it is one ``RangeLimit`` per field, by field name.
+
+    ``native_max`` and ``native_unit`` are for a parameter kept as a fraction of the
+    hardware's maximum (power, gain): what 1.0 is in the hardware's own units, when
+    the driver knows. A display can then show both.
     """
 
     limits: Optional[Limits] = None
     choices: Optional[Sequence[Any]] = None
     settable: bool = True
+    native_max: Optional[float] = None
+    native_unit: Optional[str] = None
 
 
 class Parameter:
@@ -578,16 +584,7 @@ class Device:
 
     def describe(self) -> Dict[str, Dict[str, Any]]:
         """Plain data for every bound parameter: enough for a UI or a remote proxy."""
-        return {
-            name: {
-                "type": p.type.__name__,
-                "unit": p.unit,
-                "limits": _limits_to_dict(p.limits),
-                "choices": list(p.choices) if p.choices is not None else None,
-                "settable": p.settable,
-            }
-            for name, p in self._bound.items()
-        }
+        return {name: _describe(p) for name, p in self._bound.items()}
 
     # -- internals -----------------------------------------------------------------
 
@@ -622,6 +619,21 @@ class Device:
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} '{self.name}': {sorted(self._bound)}>"
+
+
+def _describe(p: BoundParameter) -> Dict[str, Any]:
+    described = {
+        "type": p.type.__name__,
+        "unit": p.unit,
+        "limits": _limits_to_dict(p.limits),
+        "choices": list(p.choices) if p.choices is not None else None,
+        "settable": p.settable,
+    }
+    # Only a fraction of a hardware maximum has these, so only it carries them.
+    if p.metadata.native_max is not None:
+        described["native_max"] = p.metadata.native_max
+        described["native_unit"] = p.metadata.native_unit
+    return described
 
 
 def _limits_to_dict(limits: Optional[Limits]) -> Any:

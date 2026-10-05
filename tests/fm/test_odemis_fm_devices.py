@@ -438,6 +438,12 @@ CACHED_AT_CONNECT = {
 }
 
 
+# Gain is a fraction of the gain VA's maximum on the devices, so they read its range
+# (or choices) to convert; the old class passes gain through in camera units. The
+# "gain" state's VA has neither, so the values match and only these reads differ.
+GAIN_RANGE_READS = {"ccd.gain.range", "ccd.gain.choices"}
+
+
 # Writes that read back what odemis took, so the change is cached and signalled.
 READBACKS = {
     "set excitation": "stream.excitation.value",
@@ -480,9 +486,9 @@ def test_each_part_makes_the_old_calls(odemis, state, name, old, new, to_old):
     if readback:
         assert found[-1][:2] == ("get", readback)
         found = found[:-1]
-    assert _without_reads_of(found, CACHED_AT_CONNECT) == _without_reads_of(
-        expected, CACHED_AT_CONNECT
-    )
+    assert _without_reads_of(
+        found, CACHED_AT_CONNECT | GAIN_RANGE_READS
+    ) == _without_reads_of(expected, CACHED_AT_CONNECT)
 
 
 def test_every_part_case_ran(odemis):
@@ -517,6 +523,7 @@ def test_connecting_makes_the_old_calls_and_reads_the_limits(odemis):
         "stream.excitation.value",
         "stream.emission.value",
         "stream.power.range",
+        "stream.power.unit",  # the watts the power fraction is of, for display
         "stream.power.value",
         "ccd.exposureTime.value",
         "ccd.binning.value",
@@ -594,7 +601,9 @@ def test_an_acquisition_makes_the_same_changes(odemis, state, channel):
     assert [e[1] for e in _changes(old_world.log)].count("acquire") == 1
     readback = [("get", "stream.excitation.value")]
     assert _changes(new_world.log) == _changes(old_world.log)
-    assert _reads(new_world.log) - set(r[1] for r in readback) <= _reads(old_world.log)
+    assert _reads(new_world.log) - set(r[1] for r in readback) - GAIN_RANGE_READS <= (
+        _reads(old_world.log)
+    )
     assert _reads(old_world.log) <= _reads(new_world.log)
 
 
@@ -697,6 +706,49 @@ def test_a_camera_without_gain_has_no_gain_parameter(odemis):
     finally:
         _CURRENT.pop()
     assert "gain" not in devices["camera"].parameters
+
+
+def _camera_with_gain(drivers, va):
+    components = _components("retracted")
+    components["ccd"].gain = va
+    world = _World(components)
+    _CURRENT.append(world)
+    try:
+        return drivers.bind_odemis_fm()["camera"]
+    finally:
+        _CURRENT.pop()
+
+
+def test_gain_is_a_fraction_of_the_cameras_range(odemis):
+    _, drivers = odemis
+    va = stubs.FakeVA(4.0, range=(0.0, 16.0))
+    camera = _camera_with_gain(drivers, va)
+
+    assert camera.gain.get_value() == pytest.approx(0.25)
+    camera.gain.write_through(0.5)
+    assert va.value == pytest.approx(8.0)
+    assert (camera.gain.limits.min, camera.gain.limits.max) == (0.0, 1.0)
+    camera.gain.write_through(1.5)  # clipped to the camera's maximum
+    assert va.value == pytest.approx(16.0)
+
+
+def test_gain_with_set_values_takes_the_nearest(odemis):
+    _, drivers = odemis
+    va = stubs.FakeVA(2.0, choices={1.0, 2.0, 4.0})
+    camera = _camera_with_gain(drivers, va)
+
+    assert camera.gain.get_value() == pytest.approx(0.5)
+    camera.gain.write_through(0.9)  # 3.6 in camera units
+    assert va.value == 4.0
+
+
+def test_gain_without_a_range_stays_in_camera_units(odemis):
+    _, drivers = odemis
+    va = stubs.FakeVA(3.0)
+    camera = _camera_with_gain(drivers, va)
+
+    assert camera.gain.get_value() == 3.0
+    assert camera.gain.limits is None
 
 
 # -- the FM API: today's Odemis class against the FM API over the devices -------------
@@ -830,7 +882,7 @@ def test_the_api_makes_the_old_changes(odemis, state, name):
     assert _same(_plain(old_result), _plain(new_result)), (old_result, new_result)
     assert _changes(new_world.log) == _changes(old_world.log)
     readbacks = set(READBACKS.values())
-    assert _reads(new_world.log) - readbacks <= _reads(old_world.log)
+    assert _reads(new_world.log) - readbacks - GAIN_RANGE_READS <= _reads(old_world.log)
     assert _reads(old_world.log) - CACHED_AT_CONNECT <= _reads(new_world.log)
 
 
