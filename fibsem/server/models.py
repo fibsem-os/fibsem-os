@@ -48,8 +48,8 @@ class VerticalMoveRequest(BaseModel):
     dx: float = 0.0
 
 
-class FlatToBeamRequest(BaseModel):
-    beam_type: str
+class OrientationRequest(BaseModel):
+    orientation: str
 
 
 # --- Beam / Detector / State ---

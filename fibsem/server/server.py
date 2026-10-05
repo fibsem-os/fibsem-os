@@ -64,7 +64,6 @@ from fibsem.server.models import (
     DetectorSettingsRequest,
     DrawPatternsRequest,
     FinishMillingRequest,
-    FlatToBeamRequest,
     FloatBeamRequest,
     ImageSettingsRequest,
     IsCloseToMillingAngleRequest,
@@ -73,6 +72,7 @@ from fibsem.server.models import (
     MillingAngleRequest,
     MillingSettingsRequest,
     MoveToMillingAngleRequest,
+    OrientationRequest,
     PointBeamRequest,
     ProjectStableMoveRequest,
     ResolutionBeamRequest,
@@ -348,10 +348,10 @@ def build_server(
         )
         return {"status": "ok"}
 
-    @hw.post("/move_flat_to_beam")
-    def move_flat_to_beam(body: FlatToBeamRequest):
-        microscope.move_flat_to_beam(beam_type=_beam_type(body.beam_type))
-        return {"status": "ok"}
+    @hw.post("/move_to_orientation")
+    def move_to_orientation(body: OrientationRequest):
+        result = microscope.move_to_orientation(body.orientation)
+        return StagePositionResponse(position=result.to_dict())
 
     # --- Microscope state ---
 

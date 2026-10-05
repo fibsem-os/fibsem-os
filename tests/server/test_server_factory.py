@@ -253,3 +253,19 @@ def test_arming_mid_session_takes_effect_without_a_new_token(microscope):
             "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
         )
         assert refused_again.status_code == 403
+
+
+def test_move_to_orientation_over_http(armed_client, microscope):
+    """The remote replacement for the removed `/move_flat_to_beam`."""
+    resp = armed_client.post(
+        "/move_to_orientation", headers=AUTH, json={"orientation": "FIB"}
+    )
+    assert resp.status_code == 200
+    assert microscope.get_stage_orientation() == "FIB"
+
+    resp = armed_client.post(
+        "/move_to_orientation", headers=AUTH, json={"orientation": "SEM"}
+    )
+    assert resp.status_code == 200
+    assert microscope.get_stage_orientation() == "SEM"
+    assert "r" in resp.json()["position"]
