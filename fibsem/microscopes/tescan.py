@@ -2200,7 +2200,9 @@ class TescanMicroscope(FibsemMicroscope):
 
         # beam properties
         if key == "on":
-            return beam.Beam.GetStatus()
+            # GetStatus is a status code, not a flag: a column warming up or in
+            # transition is not on, so compare against BeamOn as _prepare_beam does.
+            return beam.Beam.GetStatus() == beam.Beam.Status.BeamOn
         if key == "working_distance" and beam_type == BeamType.ELECTRON:
             return beam.Optics.GetWD() * constants.MILLIMETRE_TO_METRE
         if key == "current":
