@@ -40,10 +40,23 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Type
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+)
 
 __all__ = [
     "PluginRecord",
+    "PluginRegistry",
     "PluginRejected",
     "load_entry_point_group",
     "subclass_of",
@@ -286,3 +299,73 @@ def clear_cache() -> None:
     (``MILLING_PATTERNS``, ``TASK_REGISTRY``), which is worse than a stale list.
     """
     _CACHE.clear()
+
+
+T = TypeVar("T")
+
+
+def qualified_name(obj: Any) -> str:
+    """``module.QualName``, how a listing names a registered class."""
+    return f"{obj.__module__}.{obj.__qualname__}"
+
+
+class PluginRegistry(Generic[T]):
+    """One plugin group: its built-ins, what is registered at runtime, and its
+    entry points.
+
+    When two claim one name, the built-in wins, then the runtime registration,
+    then the plugin (the later plugin, between two). ``fibsem.plugins.report``
+    lists any registry from what it holds.
+    """
+
+    def __init__(
+        self,
+        group: str,
+        kind: str,
+        resolve: Resolver,
+        builtins: Optional[Mapping[str, T]] = None,
+        describe: Callable[[T], str] = qualified_name,
+    ) -> None:
+        self.group = group
+        """The entry point group, e.g. ``"fibsem.patterns"``."""
+        self.kind = kind
+        """Singular noun for log messages, e.g. ``"pattern"``."""
+        self.resolve = resolve
+        self.builtins: Mapping[str, T] = {} if builtins is None else builtins
+        self.registered: Dict[str, T] = {}
+        self.describe = describe
+        """What a listing shows for a registered object."""
+
+    def register(self, name: str, obj: T) -> None:
+        """Register *obj* under *name* at runtime, replacing an earlier one."""
+        self.registered[name] = obj
+        logging.info("Registered %s '%s'", self.kind, name)
+
+    def plugin_records(self) -> Tuple[PluginRecord, ...]:
+        """Every entry point in the group and what became of it, read once.
+
+        Includes the plugins that failed and the ones a built-in or a runtime
+        registration shadows, neither of which :meth:`all` returns.
+        """
+        return load_entry_point_group(self.group, kind=self.kind, resolve=self.resolve)
+
+    def plugins(self) -> Dict[str, T]:
+        """The plugins that loaded, by name."""
+        return plugin_classes(self.plugin_records())
+
+    def all(self) -> Dict[str, T]:
+        """Everything registered, by name, with clashes settled."""
+        return {**self.plugins(), **self.registered, **self.builtins}
+
+    def get(self, name: str) -> Optional[T]:
+        """What *name* is registered as, or ``None``. Looks at the plugins only
+        when neither a built-in nor a runtime registration has the name."""
+        if name in self.builtins:
+            return self.builtins[name]
+        if name in self.registered:
+            return self.registered[name]
+        return self.plugins().get(name)
+
+    def describe_builtin(self, name: str) -> str:
+        """What a listing shows for the built-in *name*."""
+        return self.describe(self.builtins[name])

@@ -189,3 +189,64 @@ def test_missing_distribution_metadata_does_not_break_loading(fake_group):
     (record,) = fake_group(entry_point)
     assert record.loaded and record.cls is Good
     assert record.distribution is None and record.version is None
+
+
+# ---------------------------------------------------------------------------
+# PluginRegistry
+# ---------------------------------------------------------------------------
+
+
+class Other(Base):
+    name = "Good"  # the same name as Good, to clash with it
+
+
+def _registry(monkeypatch, *entry_points, builtins=None):
+    loader.clear_cache()
+    monkeypatch.setattr(loader, "_entry_points", lambda g: iter(entry_points))
+    return loader.PluginRegistry(
+        group="test.group",
+        kind="thing",
+        resolve=loader.subclass_of(Base, lambda cls: cls.name),
+        builtins=builtins,
+    )
+
+
+def test_a_registry_settles_a_clash_built_in_then_registered_then_plugin(monkeypatch):
+    plugin = FakeEntryPoint("good", "pkg.mod:Good", Good)
+
+    registry = _registry(monkeypatch, plugin)
+    assert registry.get("Good") is Good and registry.all() == {"Good": Good}
+
+    registry.register("Good", Other)
+    assert registry.get("Good") is Other and registry.all() == {"Good": Other}
+
+    registry = _registry(monkeypatch, plugin, builtins={"Good": Base})
+    registry.register("Good", Other)
+    assert registry.get("Good") is Base and registry.all() == {"Good": Base}
+    loader.clear_cache()
+
+
+def test_a_registry_reads_its_entry_points_only_when_it_has_to(monkeypatch):
+    calls = []
+
+    class Counting(FakeEntryPoint):
+        def load(self):
+            calls.append(self.name)
+            return super().load()
+
+    registry = _registry(
+        monkeypatch, Counting("good", "pkg.mod:Good", Good), builtins={"Built": Base}
+    )
+    registry.register("Registered", Other)
+
+    assert registry.get("Built") is Base and registry.get("Registered") is Other
+    assert calls == []
+    assert registry.get("Good") is Good
+    assert [r.name for r in registry.plugin_records()] == ["Good"]
+    assert calls == ["good"]
+    loader.clear_cache()
+
+
+def test_a_registry_describes_what_it_holds(monkeypatch):
+    registry = _registry(monkeypatch, builtins={"Good": Good})
+    assert registry.describe_builtin("Good") == f"{__name__}.Good"
