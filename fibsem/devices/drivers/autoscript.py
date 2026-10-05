@@ -23,7 +23,7 @@ import numpy as np
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
-from fibsem.devices.stage import Stage, axis_limits_from_degrees
+from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
 from fibsem.structures import (
     BeamType,
     FibsemRectangle,
@@ -153,6 +153,11 @@ class AutoscriptCompustage(AutoscriptStage):
 
     def available_linked(self) -> bool:
         return False
+
+    def poses(
+        self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+    ) -> Dict[str, FibsemStagePosition]:
+        return compustage_poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
 
 
 def autoscript_stage_class(microscope: ThermoMicroscope) -> Type[AutoscriptStage]:

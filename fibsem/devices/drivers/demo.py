@@ -25,7 +25,7 @@ from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
-from fibsem.devices.stage import Stage, axis_limits_from_degrees
+from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
 from fibsem.fm.api import emission_filter_named
 from fibsem.fm.microscope import (
     BINNING_VALUES,
@@ -343,6 +343,16 @@ class DemoStage(Stage):
     # so on the new API "linked" is absent and link() is unavailable.
     def available_linked(self) -> bool:
         return not self.parent.stage_is_compustage
+
+    # The simulator is a compustage or an offset stage by its configuration.
+    def poses(
+        self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+    ) -> Dict[str, FibsemStagePosition]:
+        if self.parent.stage_is_compustage:
+            return compustage_poses(
+                rotation_reference, shuttle_pre_tilt, fib_column_tilt
+            )
+        return super().poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
 
     def read_linked(self) -> bool:
         return self.sim_linked

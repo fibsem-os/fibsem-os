@@ -2962,50 +2962,49 @@ class FibsemMicroscope(ABC):
 
         return self.orientations[orientation]
 
+    def _stage_poses(self) -> Dict[str, FibsemStagePosition]:
+        """The stage's pose for each orientation name, from the configured geometry.
+
+        The stage device declares them (FIB-1101). A backend without a stage device
+        yet (Odemis, Tescan, the legacy Demo) gets the same declarations here, chosen
+        by the stage type it reported; this branch goes once each has a stage device.
+        """
+        from fibsem.devices.stage import compustage_poses, rotating_stage_poses
+
+        stage_settings = self.system.stage
+        geometry = dict(
+            rotation_reference=stage_settings.rotation_reference,
+            shuttle_pre_tilt=stage_settings.shuttle_pre_tilt,
+            fib_column_tilt=self.system.ion.column_tilt,
+        )
+        if self.stage_device is not None:
+            return self.stage_device.poses(**geometry)
+        if self.stage_is_compustage:
+            return compustage_poses(**geometry)
+        return rotating_stage_poses(**geometry, rotates=stage_settings.rotation)
+
     def _update_orientations(self) -> None:
         """Update the stage orientations based on the current system settings."""
 
-        stage_settings = self.system.stage
-        shuttle_pre_tilt = stage_settings.shuttle_pre_tilt  # deg
-        milling_angle = stage_settings.milling_angle  # deg
+        milling_angle = self.system.stage.milling_angle  # deg
 
         # needs to be dynmaically updated as it can change.
         milling_stage_tilt = get_stage_tilt_from_milling_angle(
             self, np.radians(milling_angle)
         )
 
+        # The stage's own poses, with MILLING between FIB and the rest: it is the SEM
+        # rotation at the tilt the milling angle needs, so it is not the stage's to
+        # declare.
+        poses = self._stage_poses()
+        sem = poses.pop("SEM")
+        fib = poses.pop("FIB")
         self.orientations = {
-            "SEM": FibsemStagePosition(
-                r=np.radians(stage_settings.rotation_reference),
-                t=np.radians(shuttle_pre_tilt),
-            ),
-            "FIB": FibsemStagePosition(
-                r=np.radians(stage_settings.rotation_180),
-                t=np.radians(self.system.ion.column_tilt - shuttle_pre_tilt),
-            ),
-            "MILLING": FibsemStagePosition(
-                r=np.radians(stage_settings.rotation_reference), t=milling_stage_tilt
-            ),
+            "SEM": sem,
+            "FIB": fib,
+            "MILLING": FibsemStagePosition(r=sem.r, t=milling_stage_tilt),
+            **poses,
         }
-
-        # FM is an orientation only where reaching the FM *is* a re-pose: on a
-        # compustage the objective is under the grid and the stage turns over to face
-        # it. On an offset mount the FM is a place, not a pose -- the stage travels
-        # there holding whatever orientation it was in -- so there is no FM entry to
-        # derive. (There used to be: a `deepcopy` of the FIB pose, a second name for
-        # a pose that already had one. The classifier matched FM last, so the copy
-        # was never returned, and deleting it changes no classification -- it only
-        # stops `get_orientation("FM")` naming a pose that does not exist.)
-        if self.stage_is_compustage:
-            self.orientations["FIB"].r = np.radians(
-                0
-            )  # Compustage is always at 0 rotation
-            self.orientations["FIB"].t -= np.radians(180)
-
-            self.orientations["FM"] = FibsemStagePosition(
-                r=np.radians(0),
-                t=np.radians(-180),
-            )
 
     def set_milling_angle(self, milling_angle: float) -> None:
         """Set the 'stored' milling angle in the system settings."""

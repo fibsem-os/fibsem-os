@@ -1,0 +1,91 @@
+"""The stage device declares its poses (FIB-1101).
+
+`tests/test_stage_poses_pinned.py` holds the values on every shipped stage type, through
+the microscope. This file holds the pieces: the two declarations, which driver declares
+which, and that a backend without a stage device gets the same table as one with it.
+"""
+
+import math
+import os
+
+import pytest
+
+import fibsem.config as cfg
+from fibsem import utils
+from fibsem.devices.drivers.autoscript import AutoscriptCompustage, AutoscriptStage
+from fibsem.devices.stage import Axes, compustage_poses, rotating_stage_poses
+
+
+def _deg(poses):
+    return {
+        name: (round(math.degrees(pose.r), 9), round(math.degrees(pose.t), 9))
+        for name, pose in poses.items()
+    }
+
+
+def test_a_rotating_stage_faces_the_ion_beam_half_a_turn_round():
+    poses = rotating_stage_poses(0.0, 35.0, 52.0)
+    assert _deg(poses) == {"SEM": (0.0, 35.0), "FIB": (180.0, 17.0)}
+
+
+def test_the_half_turn_wraps():
+    """Tescan's reference is 180, so FIB is at 0 and not 360."""
+    poses = rotating_stage_poses(180.0, 0.0, 55.0)
+    assert _deg(poses) == {"SEM": (180.0, 0.0), "FIB": (0.0, 55.0)}
+
+
+def test_a_stage_without_a_rotation_axis_stays_at_the_reference():
+    poses = rotating_stage_poses(0.0, 35.0, 52.0, rotates=False)
+    assert _deg(poses)["FIB"] == (0.0, 17.0)
+
+
+def test_a_compustage_tilts_over_and_has_an_fm_pose():
+    poses = compustage_poses(0.0, 0.0, 52.0)
+    assert _deg(poses) == {
+        "SEM": (0.0, 0.0),
+        "FIB": (0.0, -128.0),
+        "FM": (0.0, -180.0),
+    }
+
+
+def _unconnected(cls, axes):
+    # The poses read only the axes, so no AutoScript connection is needed.
+    stage = object.__new__(cls)
+    stage.axes = Axes({name: None for name in axes})
+    return stage
+
+
+@pytest.mark.parametrize(
+    "cls, axes, expected",
+    [
+        (AutoscriptStage, "xyzrt", rotating_stage_poses(0.0, 35.0, 52.0)),
+        (AutoscriptCompustage, "xyzt", compustage_poses(0.0, 35.0, 52.0)),
+    ],
+)
+def test_each_autoscript_stage_declares_its_own(cls, axes, expected):
+    stage = _unconnected(cls, axes)
+    assert _deg(stage.poses(0.0, 35.0, 52.0)) == _deg(expected)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "microscope-configuration.yaml",
+        "tescan-configuration.yaml",
+        "sim-arctis-configuration.yaml",
+    ],
+)
+def test_a_backend_without_a_stage_device_gets_the_same_table(filename):
+    """Odemis and Tescan have no stage device yet; they must not notice the move."""
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.CONFIG_PATH, filename), manufacturer="Demo"
+    )
+    assert microscope.stage_device is not None
+    microscope._update_orientations()
+    with_device = _deg(microscope.orientations)
+
+    microscope.stage_device = None
+    microscope._update_orientations()
+
+    assert _deg(microscope.orientations) == with_device
+    assert list(microscope.orientations) == list(with_device)
