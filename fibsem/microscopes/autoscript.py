@@ -75,6 +75,7 @@ if TYPE_CHECKING:
     )
     from numpy.typing import NDArray
 
+    from fibsem.fm.microscope import FluorescenceMicroscope
     from fibsem.structures import TFibsemPatternSettings
 
 THERMO_API_AVAILABLE = False
@@ -1124,10 +1125,9 @@ class ThermoMicroscope(FibsemMicroscope):
                 self.fm = self._connect_remote_fluorescence()
                 self.set_channel(BeamType.ELECTRON)
             else:
-                from fibsem.fm.autoscript import ThermoFisherFluorescenceMicroscope
-
-                self.fm = ThermoFisherFluorescenceMicroscope(self, self.connection)
+                self.fm = self._connect_fluorescence_devices()
                 self.fm.set_active_channel()  # this will fail if no fm available
+                self.fm_devices = MappingProxyType(self.fm.devices)
                 logging.info(
                     "Thermo Fisher Fluorescence Microscope initialized successfully."
                 )
@@ -1176,6 +1176,20 @@ class ThermoMicroscope(FibsemMicroscope):
         self._command_routes = MappingProxyType(
             {"stage_home": ("stage_device", "home")}
         )
+
+    def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
+        """The FM API over the Thermo FM devices, sharing this microscope's
+        connection and its imaging channel lock with the beams.
+
+        Live view here is pulled by this process's own worker, which never stops
+        asking while it runs, so it has no watchdog: a slow frame handler must not
+        end it. A served FM keeps the default."""
+        from fibsem.devices.drivers.autoscript_fm import bind_autoscript_fm
+        from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
+
+        devices = bind_autoscript_fm(self)
+        devices["fm"].live_timeout = None
+        return DeviceThermoFisherFluorescenceMicroscope(devices, parent=self)
 
     def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
         """The AutoScript autoloader, when the microscope has one.

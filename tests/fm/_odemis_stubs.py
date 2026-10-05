@@ -58,6 +58,7 @@ ODEMIS_MODULE_NAMES = (
 FIBSEM_ODEMIS_MODULE_NAMES = (
     "fibsem.fm.odemis",
     "fibsem.microscopes.odemis_microscope",
+    "fibsem.devices.drivers.odemis_fm",
 )
 
 
