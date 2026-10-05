@@ -2358,75 +2358,32 @@ def _make_minimal_config(**kwargs) -> FluorescenceConfiguration:
     return FluorescenceConfiguration(**defaults)
 
 
-def test_fluorescence_configuration_default_orientation():
-    """default_orientation defaults to 'FM'."""
+def test_fluorescence_configuration_ignores_a_saved_default_orientation(caplog):
+    """The key a file saved before FIB-831 may carry names an instrument-wide
+    default the application no longer has; it is read past, not honoured, and a
+    value someone chose is not dropped silently."""
     config = _make_minimal_config()
-    assert config.default_orientation == "FM"
-
-
-def test_fluorescence_configuration_custom_orientation():
-    """default_orientation can be set to 'SEM'."""
-    config = _make_minimal_config(default_orientation="SEM")
-    assert config.default_orientation == "SEM"
-
-
-def test_fluorescence_configuration_to_dict_includes_orientation():
-    """to_dict serialises default_orientation."""
-    config = _make_minimal_config(default_orientation="SEM")
     d = config.to_dict()
-    assert "default_orientation" in d
-    assert d["default_orientation"] == "SEM"
+    assert "default_orientation" not in d
+    d["default_orientation"] = "SEM"
+
+    with caplog.at_level("WARNING"):
+        restored = FluorescenceConfiguration.from_dict(d)
+
+    assert not hasattr(restored, "default_orientation")
+    assert "Default Orientation (SEM)" in caplog.text
 
 
-def test_fluorescence_configuration_from_dict_with_orientation():
-    """from_dict round-trips default_orientation when the key is present."""
-    config = _make_minimal_config(default_orientation="SEM")
-    restored = FluorescenceConfiguration.from_dict(config.to_dict())
-    assert restored.default_orientation == "SEM"
+def test_fluorescence_configuration_reads_the_old_fm_default_quietly(caplog):
+    """Every file saved before FIB-831 carries "FM", the old default, which is
+    also where a compustage FM's poses still go; that is not worth a warning."""
+    d = _make_minimal_config().to_dict()
+    d["default_orientation"] = "FM"
 
+    with caplog.at_level("WARNING"):
+        FluorescenceConfiguration.from_dict(d)
 
-def test_fluorescence_configuration_from_dict_missing_orientation():
-    """from_dict falls back to 'FM' when default_orientation key is absent (old config)."""
-    config = _make_minimal_config(default_orientation="SEM")
-    d = config.to_dict()
-    del d["default_orientation"]  # simulate an old config file
-    restored = FluorescenceConfiguration.from_dict(d)
-    assert restored.default_orientation == "FM"
-
-
-def test_fluorescence_configuration_yaml_roundtrip():
-    """Export to YAML and reload preserves default_orientation."""
-    config = _make_minimal_config(default_orientation="SEM")
-    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
-        filename = f.name
-    try:
-        config.export(filename)
-        loaded = FluorescenceConfiguration.load(filename)
-        assert loaded.default_orientation == "SEM"
-    finally:
-        import os
-
-        if os.path.exists(filename):
-            os.unlink(filename)
-
-
-def test_fluorescence_configuration_yaml_roundtrip_fm():
-    """Export to YAML and reload preserves default_orientation 'FM'."""
-    config = _make_minimal_config(default_orientation="FM")
-    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
-        filename = f.name
-    try:
-        config.export(filename)
-        loaded = FluorescenceConfiguration.load(filename)
-        assert loaded.default_orientation == "FM"
-    finally:
-        import os
-
-        if os.path.exists(filename):
-            os.unlink(filename)
-
-
-# FluorescenceImage.filepath — the file an image is associated with on disk
+    assert "Default Orientation" not in caplog.text
 
 
 def _make_image() -> FluorescenceImage:
