@@ -153,6 +153,16 @@ def _mm(metres: Optional[float]) -> str:
     return NOT_STATED if metres is None else f"{metres * 1e3:.2f} mm"
 
 
+def _axes_mm(position, prefix: str = "") -> str:
+    """The x, y and z a partial position sets, in mm: `x 48.80 mm, y 2.00 mm`."""
+    stated = [
+        f"{axis} {prefix}{_mm(getattr(position, axis))}"
+        for axis in ("x", "y", "z")
+        if getattr(position, axis) is not None
+    ]
+    return ", ".join(stated) or NOT_STATED
+
+
 def _degrees(value: Optional[float]) -> str:
     return NOT_STATED if value is None else f"{value:g}°"
 
@@ -295,16 +305,16 @@ def geometry_tab(microscope: FibsemMicroscope) -> QWidget:
                 ("Yes" if stage.rotation else "No") + "  (reported by the stage)",
             ),
             ("Milling angle", _degrees(stage.milling_angle)),
-            ("Device range", f"± {_mm(stage.device_range.x)} in x"),
         ]
     )
     devices = _table(
-        ["Device", "Origin (x)", "Acquires at"],
+        ["Device", "Origin", "Range", "Acquires at"],
         [
             (
                 name,
-                _mm(device.origin.x),
-                ", ".join(device.acquisition_orientations) or NOT_STATED,
+                _axes_mm(device.origin),
+                "unbounded" if device.range is None else _axes_mm(device.range, "± "),
+                ", ".join(device.available_orientations) or NOT_STATED,
             )
             for name, device in stage.devices.items()
         ],

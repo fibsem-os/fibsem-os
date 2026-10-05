@@ -1884,7 +1884,7 @@ class FMOverviewWidget(QWidget):
         and naming only `default_orientation` would send the user further than they have
         to go.
         """
-        allowed = self.microscope.system.stage.devices["FM"].acquisition_orientations
+        allowed = self.microscope.system.stage.devices["FM"].available_orientations
         if not allowed:
             # An unconstrained device -- the pose is not what is wrong, so this string
             # is never shown for one; named defensively all the same.

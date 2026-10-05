@@ -204,10 +204,12 @@ def test_the_fm_is_still_not_an_orientation_on_an_offset_mount():
         microscope.get_target_position(_at(microscope, "SEM", 0.0), "FM")
 
 
-def test_converting_from_between_the_devices_is_refused():
-    """Mid-traverse there is no source frame to convert out of, so it says so."""
+def test_converting_from_no_device_is_refused():
+    """At no device there is no source frame to convert out of, so it says so. The
+    beams are unbounded, so only a range given to them can leave the stage at none."""
     microscope = _microscope()
-    stranded = _at(microscope, "SEM", 24.0)  # the gap between the two ranges
+    microscope.system.stage.devices["FIBSEM"].range = FibsemStagePosition(x=20.0e-3)
+    stranded = _at(microscope, "SEM", 24.0)  # past the beams, short of the FM
 
     assert microscope.get_current_device(stranded) is None
 

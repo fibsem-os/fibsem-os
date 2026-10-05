@@ -768,7 +768,7 @@ class FluorescenceMicroscope(ABC):
         # `get_device_imaging_state(...).allows_acquisition` on the parent microscope
         # -- the stage owns stage questions.
         #
-        # Read from the device declaration (`stage.devices.FM.acquisition_orientations`)
+        # Read from the device declaration (`stage.devices.FM.available_orientations`)
         # so there is exactly one source of truth. On a compustage that is `["FM"]` --
         # what this attribute always held. On an offset mount it is the beam pose the
         # sample is held in at the FM (`["FIB"]` on the iFLM simulator), which the old
@@ -787,7 +787,7 @@ class FluorescenceMicroscope(ABC):
         """
         try:
             devices = self.parent.system.stage.devices
-            return list(devices["FM"].acquisition_orientations)
+            return list(devices["FM"].available_orientations)
         except (AttributeError, KeyError, TypeError):
             return [self.default_orientation]
 

@@ -44,6 +44,7 @@ from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
+    BEAMS_STAGE_DEVICE,
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
     FM_DRIVER_REMOTE,
@@ -224,6 +225,20 @@ def _old_key_value(key: str, value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
     return value
+
+
+def _distance_from_origin(
+    origin: FibsemStagePosition, position: FibsemStagePosition
+) -> float:
+    """How far `position` is from a device's `origin`, over the axes the origin sets."""
+    return (
+        sum(
+            (getattr(position, axis) - getattr(origin, axis)) ** 2
+            for axis in DEVICE_AXES
+            if getattr(origin, axis) is not None and getattr(position, axis) is not None
+        )
+        ** 0.5
+    )
 
 
 class RequiredDeviceUnavailable(RuntimeError):
@@ -3572,36 +3587,60 @@ class FibsemMicroscope(ABC):
         Where every device shares one origin -- the objective under the grid, which
         is also what a configuration that declares no devices describes -- there is
         nowhere else to travel to, and the answer is `True` wherever the stage is.
-        `device_range` exists to tell places apart; with one place it tells nothing,
-        and reading it literally refused a lamella 25 mm along an Arctis grid as
-        "needs travel".
+        A device's `range` exists to tell places apart; with one place it tells
+        nothing, and reading it literally refused a lamella 25 mm along an Arctis grid
+        as "needs travel".
+
+        Each device has its own range, and the beams' is unbounded, so the stage can be
+        within more than one; it is at the one `get_current_device` picks, the nearest
+        origin. Within the beams' range but nearer the FM's origin is at the FM.
         """
         target = self._get_device(device)
         if self._is_the_only_place(target):
             return True
         if stage_position is None:
             stage_position = self.get_stage_position()
-        return target.contains(stage_position, self.system.stage.device_range)
+        if not target.contains(stage_position):
+            return False
+        return self.get_current_device(stage_position) == device
 
     def _is_the_only_place(self, target: StageDeviceSettings) -> bool:
         """Does every device sit at *target*'s origin, so there is nowhere to travel?"""
-        origin = target.origin
-        if all(getattr(origin, axis) is None for axis in DEVICE_AXES):
+        if all(getattr(target.origin, axis) is None for axis in DEVICE_AXES):
             return False
+        origin = self._resolved_origin(target)
         return all(
-            getattr(device.origin, axis) == getattr(origin, axis)
+            getattr(self._resolved_origin(device), axis) == getattr(origin, axis)
             for device in self.system.stage.devices.values()
             for axis in DEVICE_AXES
         )
+
+    def _resolved_origin(self, device: StageDeviceSettings) -> FibsemStagePosition:
+        """*device*'s origin, with each axis it leaves unset taken from the beams'.
+
+        An FM declared at `{x: 48.8 mm}` is at the beams' y, so a y offset on another
+        device is travelled along from it rather than skipped.
+        """
+        beams = self.system.stage.devices.get(BEAMS_STAGE_DEVICE)
+        origin = deepcopy(device.origin)
+        if beams is None:
+            return origin
+        for axis in DEVICE_AXES:
+            if getattr(origin, axis) is None:
+                setattr(origin, axis, getattr(beams.origin, axis))
+        return origin
 
     def get_current_device(
         self, stage_position: Optional[FibsemStagePosition] = None
     ) -> Optional[str]:
         """Which device the stage is at, or `None` if it is at no configured device.
 
-        `None` is a real answer, not a failure to find one: the device ranges
-        deliberately leave a gap between them, so a stage part-way through a traverse
-        -- or left there by one that was aborted -- is at neither.
+        Every device has its own range and the beams' is unbounded, so more than one
+        can contain a position: an offset FM's window lies inside the beams'. Then the
+        device with the **nearest origin** wins -- the stage at the FM is nearer the
+        FM's origin than the beams' -- and a tie goes to the first configured. `None`
+        means no device contains the position, which with the beams unbounded only a
+        position missing an axis an origin sets can be.
 
         Positional, so it is the wrong question on a compustage, where the beams and
         the FM are the same place reached by flipping and the devices fully overlap.
@@ -3613,10 +3652,19 @@ class FibsemMicroscope(ABC):
         if stage_position is None:
             stage_position = self.get_stage_position()
 
-        for device in self.system.stage.devices:
-            if self.is_at_device(device, stage_position):
-                return device
-        return None
+        containing = [
+            name
+            for name, device in self.system.stage.devices.items()
+            if self._is_the_only_place(device) or device.contains(stage_position)
+        ]
+        if not containing:
+            return None
+        return min(
+            containing,
+            key=lambda name: _distance_from_origin(
+                self._resolved_origin(self.system.stage.devices[name]), stage_position
+            ),
+        )
 
     def get_device_imaging_state(
         self, device: str, stage_position: Optional[FibsemStagePosition] = None
@@ -3628,7 +3676,7 @@ class FibsemMicroscope(ABC):
 
         * **place** -- `is_at_device`, against the device's declared origin
         * **pose** -- `get_stage_orientation`, against the device's declared
-          `acquisition_orientations`; an empty list constrains nothing and the term
+          `available_orientations`; an empty list constrains nothing and the term
           is vacuously true
 
         Each mounting makes a *different* term trivially true. A compustage FM shares
@@ -3650,7 +3698,7 @@ class FibsemMicroscope(ABC):
             return DeviceImagingState.NO_DEVICE
 
         at_device = self.is_at_device(device, stage_position)
-        orientations = self._get_device(device).acquisition_orientations
+        orientations = self._get_device(device).available_orientations
         in_orientation = (
             not orientations
             or self.get_stage_orientation(stage_position) in orientations
@@ -3699,7 +3747,7 @@ class FibsemMicroscope(ABC):
             if orientation != "NONE"
             else "held in an unrecognised orientation"
         )
-        allowed = self._get_device(device).acquisition_orientations
+        allowed = self._get_device(device).available_orientations
         images_from = (
             f"images from the {' or '.join(allowed)} orientation"
             if allowed
@@ -3753,7 +3801,7 @@ class FibsemMicroscope(ABC):
         # somewhere it never goes and `is_at_device(\"FM\")` is False at the
         # objective itself.
         if self.stage_is_compustage and "FM" in devices and "FIBSEM" in devices:
-            if devices["FM"].origin != devices["FIBSEM"].origin:
+            if self._resolved_origin(devices["FM"]) != devices["FIBSEM"].origin:
                 logging.warning(
                     "This compustage declares an FM device origin away from the "
                     "beams. Its objective is under the grid: the FM shares the "
@@ -3779,8 +3827,8 @@ class FibsemMicroscope(ABC):
         if self.stage_is_compustage:
             return FibsemStagePosition()
 
-        source_origin = self._get_device(source).origin
-        target_origin = self._get_device(target).origin
+        source_origin = self._resolved_origin(self._get_device(source))
+        target_origin = self._resolved_origin(self._get_device(target))
 
         translation = FibsemStagePosition()
         for axis in DEVICE_AXES:
@@ -3806,7 +3854,7 @@ class FibsemMicroscope(ABC):
         """
         if orientation is not None:
             return orientation
-        allowed = self._get_device(device).acquisition_orientations
+        allowed = self._get_device(device).available_orientations
         if allowed and self.get_stage_orientation(stage_position) not in allowed:
             return allowed[0]
         return None
@@ -3883,36 +3931,32 @@ class FibsemMicroscope(ABC):
         if desired is not None and orientation is None:
             logging.info(
                 f"The {device} device images from "
-                f"{target_device.acquisition_orientations}; re-posing to {desired} "
+                f"{target_device.available_orientations}; re-posing to {desired} "
                 f"at the beams before travelling."
             )
 
         if desired is None and source == device:
             logging.info(f"Already at {device} position, no need to move.")
         else:
-            # Retracted immediately before the stage moves, and only then. The
-            # objective must not be out over the sample while the stage moves, but
-            # every reason to retract it is the motion itself -- so a call that
-            # refuses, or finds it has nowhere to go, leaves the objective exactly
-            # as it found it rather than pulling it out of the sample for nothing.
-            logging.info(f"Moving to {device} position...")
-            if self.fm is not None:
-                self.fm.objective.retract()
+            # Both ends checked before anything moves: the source by finding it, the
+            # target by converting to where the stage will arrive.
+            arrival = self._planned_arrival(device, stage_position, desired)
+            if arrival is not None:
+                self._check_arrival(device, arrival)
 
             if desired is not None:
-                # The bracketing order: every re-pose happens at the beams, where
-                # the rotation is about the sample rather than a 48.8 mm arm.
+                # The bracketing order: every re-pose happens at the beams, where the
+                # rotation is about the sample rather than a 48.8 mm arm.
                 #
-                # Driven to the *converted* position, not to the orientation by
-                # name. `move_to_orientation` rewrites r and t where the stage
-                # stands; a half turn there is compucentric about a centre that is
-                # not the sample, so the point that was under the beam is swung
-                # away and the traverse carries the wrong piece of sample out. The
-                # transform is what every pose derivation and overview marker uses,
-                # so arriving where it says is what puts the stage on the marked
-                # point. Falls back to the bare re-pose only from a pose the
-                # classifier cannot name: there is no point to keep there, and the
-                # fallback is how a stage in an unsupported pose gets back to a
+                # Driven to the *converted* position, not to the orientation by name.
+                # `move_to_orientation` rewrites r and t where the stage stands; a half
+                # turn there is compucentric about a centre that is not the sample, so the
+                # point that was under the beam is swung away and the traverse carries the
+                # wrong piece of sample out. The transform is what every pose derivation
+                # and overview marker uses, so arriving where it says is what puts the
+                # stage on the marked point. Falls back to the bare re-pose only from a
+                # pose the classifier cannot name: there is no point to keep there, and
+                # the fallback is how a stage in an unsupported pose gets back to a
                 # supported one.
                 try:
                     at_the_beams = self.get_target_position(
@@ -3923,6 +3967,8 @@ class FibsemMicroscope(ABC):
                         f"Re-posing to {desired} without keeping the sample point: {e}"
                     )
                     at_the_beams = None
+
+                self._retract_objective_to_move(device)
                 if source != "FIBSEM":
                     self.move_stage_relative(self._device_translation(source, "FIBSEM"))
                 if at_the_beams is not None:
@@ -3932,13 +3978,66 @@ class FibsemMicroscope(ABC):
                 if device != "FIBSEM":
                     self.move_stage_relative(self._device_translation("FIBSEM", device))
             else:
-                self.move_stage_relative(self._device_translation(source, device))
+                translation = self._device_translation(source, device)
+                self._retract_objective_to_move(device)
+                self.move_stage_relative(translation)
 
         # Unconditional, so that the postcondition is the device *and* the objective
         # state together: asking again for a device the stage is already at cannot
         # leave the FM blind.
         if device == "FM":
             self.fm.objective.insert()
+
+    def _retract_objective_to_move(self, device: str) -> None:
+        """Retract the objective immediately before the stage moves, and only then.
+
+        The objective must not be out over the sample while the stage moves, but every
+        reason to retract it is the motion itself -- so a call that refuses, or finds
+        it has nowhere to go, leaves the objective exactly as it found it rather than
+        pulling it out of the sample for nothing.
+        """
+        logging.info(f"Moving to {device} position...")
+        if self.fm is not None:
+            self.fm.objective.retract()
+
+    def _planned_arrival(
+        self,
+        device: str,
+        stage_position: FibsemStagePosition,
+        desired: Optional[str],
+    ) -> Optional[FibsemStagePosition]:
+        """Where `move_to_device` will put the stage: the `get_target_position`
+        conversion it drives to, or the bare translation from a pose the conversion
+        cannot name. `None` when neither can say -- a re-pose from such a pose, which
+        has no point to keep and is checked by nothing but the move itself."""
+        try:
+            return self.get_target_position(
+                deepcopy(stage_position), desired, target_device=device
+            )
+        except ValueError as e:
+            if desired is not None:
+                logging.warning(f"Not checking where {device} will be reached: {e}")
+                return None
+            source = self.get_current_device(stage_position)
+            return stage_position + self._device_translation(source, device)
+
+    def _check_arrival(self, device: str, arrival: FibsemStagePosition) -> None:
+        """Refuse a traverse that would arrive outside *device*'s range.
+
+        The start is checked by finding the source (`get_current_device`); this is the
+        other end. Each device has its own range, and the stage keeps its offset from
+        the source's origin, so a position well inside the beams' range can land
+        outside an FM's -- where the stage would report it had not arrived, and could
+        not go back. Checked before the stage moves, and before the objective is
+        retracted for it.
+        """
+        if not self.is_at_device(device, arrival):
+            raise ValueError(
+                f"Travelling to {device} from here would arrive at {arrival}, outside "
+                f"its range {self._get_device(device).range} of its origin "
+                f"{self._get_device(device).origin}. Move the stage nearer the "
+                "source's origin first."
+            )
 
     def _move_to_device_compustage(
         self, device: str, orientation: Optional[str] = None

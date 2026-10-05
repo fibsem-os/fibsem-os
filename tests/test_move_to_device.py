@@ -178,7 +178,7 @@ def test_to_device_refuses_an_unsupported_pose():
 def _beam_side_arctis():
     """A compustage whose objective also images from the beam side."""
     microscope = _microscope(ARCTIS_CONFIG)
-    microscope.system.stage.devices["FM"].acquisition_orientations = [
+    microscope.system.stage.devices["FM"].available_orientations = [
         "FM",
         "SEM",
         "MILLING",
@@ -217,7 +217,7 @@ def test_a_compustage_still_flips_from_a_pose_its_objective_cannot_use():
 
 def test_a_compustage_that_declares_only_the_flip_is_unchanged():
     microscope = _microscope(ARCTIS_CONFIG)
-    microscope.system.stage.devices["FM"].acquisition_orientations = ["FM"]
+    microscope.system.stage.devices["FM"].available_orientations = ["FM"]
     microscope.move_stage_absolute(_off_centre(microscope, "SEM"))
 
     microscope.move_to_device("FM")
@@ -268,13 +268,14 @@ def test_asking_for_the_device_it_is_at_does_not_move():
     assert microscope.fm.objective.state == "Inserted"
 
 
-def test_travelling_from_neither_device_is_still_refused():
-    """Mid-traverse is a real state, and not one to guess a starting device for."""
+def test_arriving_outside_the_target_is_still_refused():
+    """The beams have no range, so 24 mm along is at the beams; the traverse would
+    arrive 24 mm from the FM's origin, outside its 20 mm."""
     microscope = _microscope()
     microscope.move_to_orientation("FIB")
     microscope.move_stage_relative(FibsemStagePosition(x=24.0e-3, y=0.0, z=0.0))
 
-    with pytest.raises(ValueError, match="not at any configured device"):
+    with pytest.raises(ValueError, match="outside its range"):
         microscope.move_to_device("FM")
 
 

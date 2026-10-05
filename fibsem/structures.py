@@ -2052,8 +2052,12 @@ DEVICE_AXES = ("x", "y", "z")
 # The named orientations the microscope derives poses for -- see
 # `_update_orientations`. The poses themselves are computed from physical parameters
 # (pre-tilt, column tilt, milling angle); these are the only names a device's
-# `acquisition_orientations` may reference.
+# `available_orientations` may reference.
 KNOWN_ORIENTATIONS = ("SEM", "FIB", "MILLING", "FM")
+
+# The orientations the beams image from, which is also a device's default when it
+# states none and its type has no default of its own.
+BEAM_ORIENTATIONS = ("SEM", "FIB", "MILLING")
 
 
 class DeviceImagingState(Enum):
@@ -2143,12 +2147,12 @@ class StageDeviceSettings:
     axis that is absent does not decide anything.
 
     A device is therefore described along **both** axes: `origin` says where the stage
-    goes, `acquisition_orientations` says which poses the instrument can see the sample
+    goes, `available_orientations` says which poses the instrument can see the sample
     in once it is there. Neither answers on its own -- see `FibsemMicroscope` and
     FIB-839 -- and which of the two does the discriminating is a fact about the
     mounting rather than about the code:
 
-    | | origin | acquisition_orientations |
+    | | origin | available_orientations |
     | -- | -- | -- |
     | compustage | shared with the beams, so the term is true everywhere | `["FM"]` -- carries it |
     | offset mount | 48.8 mm away -- carries it | `["FIB"]`, true wherever the objective reaches |
@@ -2167,36 +2171,30 @@ class StageDeviceSettings:
     # derives it, and a list of names can only reference the derived poses, never
     # disagree with them.
     #
-    # Empty means the device does not constrain the pose: the orientation half of the
-    # question is vacuously TRUE, not false. The beams are that case -- SEM, FIB and
-    # MILLING are all views of the sample from there, and choosing between them is not
-    # this field's business. The other reading, "this device can never image", is
-    # deliberately unrepresentable: a device that can never image should not be
-    # declared, and making the empty list mean that would turn every forgotten key
-    # into a silently dead instrument.
-    acquisition_orientations: List[str] = field(default_factory=list)
+    # Always stated, never empty: an empty list is refused where configuration enters
+    # (`from_dict`), because "this device can image from nowhere" would turn a
+    # forgotten key into a silently dead instrument. A device that does not say gets
+    # its type's default (`DEFAULT_AVAILABLE_ORIENTATIONS`) -- the beams image from
+    # SEM, FIB and MILLING.
+    available_orientations: List[str] = field(
+        default_factory=lambda: list(BEAM_ORIENTATIONS)
+    )
 
-    def contains(
-        self, stage_position: FibsemStagePosition, device_range: FibsemStagePosition
-    ) -> bool:
-        """Is `stage_position` within `device_range` of this device's origin?
+    # The region belonging to this device, as a half-width per axis from its origin.
+    # `None` is unbounded: the beams, which the stage is at wherever no other device
+    # claims it. A configured device that states none gets 1 mm on each axis its
+    # origin sets (`default_device_range`).
+    range: Optional[FibsemStagePosition] = None
 
-        `device_range` is the region belonging to a device, as a half-width per axis
-        from its origin. One value shared by every device, and it has to be shared.
-        The stage travels by the *difference* between two origins, so it keeps its
-        offset: a grid position 15 mm along at the beams arrives 15 mm along at the
-        FM. If the destination's range were the smaller of the two, the traverse could
-        legally produce a position the destination refuses to recognise -- the stage
-        would arrive somewhere it reports it has not arrived, ask again and traverse a
-        second time, and be unable to go back either. That is not hypothetical: the
-        two windows this replaces were 20 mm at the beams and about 10 mm at the FM,
-        written out separately, and that is exactly what they did.
+    def contains(self, stage_position: FibsemStagePosition) -> bool:
+        """Is `stage_position` within this device's `range` of its origin?
 
-        Sharing it makes the mapping invertible, and makes a destination check
-        unnecessary rather than merely omitted: `|arrival - target| = |start -
-        source|`, so a traverse that starts inside a range always ends inside one.
-        What has to be checked is the *start*, which
-        `FibsemMicroscope.move_to_microscope` does.
+        Each device has its own range, so a traverse is no longer invertible by
+        construction: the stage travels by the *difference* between two origins and
+        keeps its offset, so a grid position 15 mm along at the beams arrives 15 mm
+        along at the FM, which may not count that as arrived. So a traverse checks
+        both ends -- the source's range at the start, the target's for where it will
+        arrive -- before it moves (`FibsemMicroscope.move_to_device`).
 
         Not the same question as whether the device usefully *covers* the sample
         here -- an objective's field, a knife's approach -- which genuinely does vary
@@ -2207,7 +2205,7 @@ class StageDeviceSettings:
         device axis is degenerate there and this question is not the one to ask -- see
         `FibsemMicroscope.get_current_device`.
 
-        A device whose origin constrains an axis that `device_range` says nothing
+        A device whose origin constrains an axis that `range` says nothing
         about answers **no**. The caller is "have I already arrived", and the two costs are
         not symmetric: a wrong `False` costs a move that was not needed, a wrong
         `True` skips one that was.
@@ -2219,45 +2217,103 @@ class StageDeviceSettings:
             return False
 
         for axis in constrained:
-            extent, value = getattr(device_range, axis), getattr(stage_position, axis)
-            if extent is None or value is None:
+            value = getattr(stage_position, axis)
+            if value is None:
+                return False
+            if self.range is None:
+                continue
+            extent = getattr(self.range, axis)
+            if extent is None:
                 return False
             if abs(value - getattr(self.origin, axis)) > extent:
                 return False
         return True
 
     def to_dict(self) -> dict:
-        return {
+        """The keys a device entry carries for its stage position."""
+        ddict = {
             "origin": device_axes_to_dict(self.origin),
-            "acquisition_orientations": list(self.acquisition_orientations),
+            "available_orientations": list(self.available_orientations),
         }
+        if self.range is not None:
+            ddict["range"] = device_axes_to_dict(self.range)
+        return ddict
 
     @staticmethod
-    def from_dict(ddict: dict) -> "StageDeviceSettings":
-        orientations = [
-            str(orientation)
-            for orientation in ddict.get("acquisition_orientations") or []
-        ]
+    def from_dict(
+        ddict: dict,
+        default_orientations: Sequence[str] = (),
+        default_range: Optional[FibsemStagePosition] = None,
+    ) -> "StageDeviceSettings":
+        """Read a device's stage position.
+
+        `available_orientations` missing is the device type's default; stated empty is
+        an error. The configuration version 1 spelling, `acquisition_orientations`, is
+        read too, and there an empty list meant "any orientation", so it reads as all
+        of them. `range` missing is *default_range*, or 1 mm on each axis the origin
+        sets.
+        """
+        origin = device_axes_from_dict(ddict.get("origin"), "device origin")
+        if "available_orientations" in ddict:
+            orientations = [str(o) for o in ddict["available_orientations"] or []]
+            if not orientations:
+                raise ValueError(
+                    "available_orientations is empty: a device that can image from no "
+                    f"orientation. Name at least one of {list(KNOWN_ORIENTATIONS)}, "
+                    "or leave the key out for the device's default."
+                )
+        elif "acquisition_orientations" in ddict:
+            orientations = [str(o) for o in ddict["acquisition_orientations"] or []]
+            orientations = orientations or list(KNOWN_ORIENTATIONS)
+        else:
+            orientations = list(default_orientations) or list(BEAM_ORIENTATIONS)
         # Validated here, at the one place configuration enters, because a typo would
         # otherwise be perfectly quiet: the conjunction that reads this list would
         # simply never be true, and the instrument would be dead with no error.
         unknown = [o for o in orientations if o not in KNOWN_ORIENTATIONS]
         if unknown:
             raise ValueError(
-                f"Unknown acquisition orientation(s) {unknown}. "
+                f"Unknown orientation(s) {unknown}. "
                 f"Known orientations: {list(KNOWN_ORIENTATIONS)}"
             )
+        if ddict.get("range"):
+            range_ = device_axes_from_dict(ddict["range"], "device range")
+        elif default_range is not None:
+            range_ = deepcopy(default_range)
+        else:
+            range_ = default_device_range(origin)
+        # A range covers every axis the origin sets; one it leaves out gets the
+        # default. Otherwise `contains` answers no on that axis, and the device -- a
+        # version 1 `{x: 20 mm}` copied onto an origin that also sets y -- could never
+        # be arrived at.
+        for axis in DEVICE_AXES:
+            if getattr(origin, axis) is not None and getattr(range_, axis) is None:
+                setattr(range_, axis, DEFAULT_DEVICE_RANGE_EXTENT)
         return StageDeviceSettings(
-            origin=device_axes_from_dict(ddict.get("origin"), "device origin"),
-            acquisition_orientations=orientations,
+            origin=origin, available_orientations=orientations, range=range_
         )
 
 
-# The region belonging to a device, as a half-width from its origin: the grid, give
-# or take. One value for every device, so no device can be given a range inconsistent
-# with the traverse that gets to it -- that inconsistency was a real bug, and
-# per-device windows are how it happened.
-DEFAULT_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
+# What a configured device's range is when it states none: 1 mm on each axis its origin
+# sets.
+DEFAULT_DEVICE_RANGE_EXTENT: float = 1.0e-3
+
+
+def default_device_range(origin: FibsemStagePosition) -> FibsemStagePosition:
+    """1 mm on each axis *origin* constrains, and nothing on the rest."""
+    return FibsemStagePosition(
+        **{
+            axis: DEFAULT_DEVICE_RANGE_EXTENT
+            for axis in DEVICE_AXES
+            if getattr(origin, axis) is not None
+        }
+    )
+
+
+# The range every device shared in configuration version 1 when the file stated none.
+# A version 1 file is read with its `device_range` (or this) copied onto each device,
+# so an existing site keeps the window it had; the 1 mm default is for new entries.
+VERSION_1_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
 
 # The ion column's angle from the electron column, in degrees. A property of the
 # instrument rather than a preference, and the same on every dual-beam this supports,
@@ -2292,15 +2348,44 @@ CONFIGURATION_VERSION: int = 2
 #
 # Getting this the right way round is what lets one question be asked of both mountings
 # instead of each caller branching on the stage type (FIB-839).
+# The beams' origin: the stage's zero on x and y. z is left free -- the stage sits at
+# its working distance there, not at zero -- so a device origin's z is checked but
+# never travelled along until the beams' working z is configured too. An axis a
+# device's origin leaves unset is the beams'.
+BEAMS_ORIGIN = FibsemStagePosition(x=0.0, y=0.0)
+
 DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
-    # The beams say nothing about the pose: SEM, FIB and MILLING are all views of the
-    # sample from here, and choosing between them is not this dict's business.
-    "FIBSEM": StageDeviceSettings(origin=FibsemStagePosition(x=0.0)),
+    # The beams: the implicit zero, imaging from SEM, FIB and MILLING, and unbounded --
+    # the stage is at the beams wherever no other device claims it. Never configured;
+    # no device entry describes them.
+    "FIBSEM": StageDeviceSettings(origin=deepcopy(BEAMS_ORIGIN)),
     "FM": StageDeviceSettings(
         origin=FibsemStagePosition(x=0.0),
-        acquisition_orientations=["FM"],
+        available_orientations=["FM"],
+        range=default_device_range(FibsemStagePosition(x=0.0)),
     ),
 }
+
+# The stage-device key for the beams, which no configuration entry describes.
+BEAMS_STAGE_DEVICE = "FIBSEM"
+
+# A device type's orientations when its entry states none. Any other type gets the
+# beams' (`BEAM_ORIENTATIONS`).
+DEFAULT_AVAILABLE_ORIENTATIONS: Dict[str, Tuple[str, ...]] = {"fm": ("FM",)}
+
+
+def stage_device_key(entry_name: str) -> str:
+    """The `StageSystemSettings.devices` key for a device entry's stage position.
+
+    The FM was keyed `FM` before devices had entries, and `move_to_device("FM")` and
+    its callers still use that; any other device is keyed by its entry name.
+    """
+    return "FM" if entry_name == "fm" else entry_name
+
+
+def stage_device_entry_name(key: str) -> str:
+    """The device entry a `StageSystemSettings.devices` key is written onto."""
+    return "fm" if key == "FM" else key
 
 
 # Where a half turn of the stage is centred, in raw stage coordinates (x, y), metres:
@@ -2360,12 +2445,11 @@ class StageSystemSettings:
     # name -- "FIBSEM" and "FM" today -- and separate from `orientations`, which says
     # what pose the sample is held in once the stage is there.
     #
-    # `device_range` is how far from one of them the stage can be and still count as
-    # having travelled to it. Not to be confused with `microscope._stage.limits`,
-    # which is how far the axes can physically move.
-    device_range: FibsemStagePosition = field(
-        default_factory=lambda: deepcopy(DEFAULT_DEVICE_RANGE)
-    )
+    # Configured on each device's entry (`origin`, `available_orientations`, `range`)
+    # rather than on the stage; `SystemSettings.from_dict` fills this from them. Each
+    # device's `range` is how far from it the stage can be and still count as having
+    # travelled to it. Not to be confused with `microscope._stage.limits`, which is
+    # how far the axes can physically move.
     devices: Dict[str, StageDeviceSettings] = field(
         default_factory=lambda: deepcopy(DEFAULT_STAGE_DEVICES)
     )
@@ -2447,10 +2531,6 @@ class StageSystemSettings:
             "enabled": self.enabled,
             "rotation": self.rotation,
             "milling_angle": self.milling_angle,
-            "device_range": device_axes_to_dict(self.device_range),
-            "devices": {
-                name: device.to_dict() for name, device in self.devices.items()
-            },
             # `include_grids=False`: which grid is in which slot is session state and
             # has its own file. Writing it here would make the configuration go stale
             # every time someone swapped a grid.
@@ -2471,8 +2551,6 @@ class StageSystemSettings:
 
     @staticmethod
     def from_dict(settings: dict):
-        devices = settings.get("devices")
-        device_range = settings.get("device_range")
         # `rotation_180` is deliberately not read. A file written before FIB-834 still
         # carries the key and still loads -- the value is simply ignored, because it is
         # now derived from the two fields that decide it. Ignoring beats honouring: a
@@ -2497,22 +2575,54 @@ class StageSystemSettings:
             enabled=settings.get("enabled", True),
             rotation=settings.get("rotation", True),
             milling_angle=settings.get("milling_angle", 15.0),
-            device_range=(
-                device_axes_from_dict(device_range, "device range")
-                if device_range
-                else deepcopy(DEFAULT_DEVICE_RANGE)
-            ),
-            devices=(
-                {
-                    name: StageDeviceSettings.from_dict(device)
-                    for name, device in devices.items()
-                }
-                if devices
-                else deepcopy(DEFAULT_STAGE_DEVICES)
-            ),
+            devices=_version_1_stage_devices(settings),
             holders=holders,
             active_holder=active_holder,
         )
+
+
+def _version_1_stage_devices(stage: dict) -> Dict[str, StageDeviceSettings]:
+    """The device positions a version 1 `stage:` block declares, or the defaults.
+
+    Version 1 kept them under `stage.devices`, keyed `FIBSEM` and `FM`, with one
+    `device_range` for all of them. Each declared device gets that range (or the 20 mm
+    version 1 used when the file stated none), so an existing site keeps the window it
+    had. The beams are the implicit zero and unbounded whatever the file said; a
+    version 1 origin for them away from zero is not kept, and is warned about.
+    """
+    devices = stage.get("devices")
+    result = deepcopy(DEFAULT_STAGE_DEVICES)
+    if not devices:
+        return result
+    range_ = (
+        device_axes_from_dict(stage["device_range"], "device range")
+        if stage.get("device_range")
+        else deepcopy(VERSION_1_DEVICE_RANGE)
+    )
+    for key, device in devices.items():
+        if key == BEAMS_STAGE_DEVICE:
+            origin = device_axes_from_dict(
+                (device or {}).get("origin"), "device origin"
+            )
+            if any(getattr(origin, axis) for axis in DEVICE_AXES):
+                logging.warning(
+                    f"stage.devices.{key}.origin {device_axes_to_dict(origin)} is not "
+                    "kept: the beams are the stage's zero."
+                )
+            continue
+        result[key] = StageDeviceSettings.from_dict(
+            device or {},
+            default_orientations=DEFAULT_AVAILABLE_ORIENTATIONS.get(
+                stage_device_entry_name(key), ()
+            ),
+            default_range=range_,
+        )
+    # A version 1 file that declared devices declared all of them: one it left out
+    # did not exist there.
+    for key in list(result):
+        if key != BEAMS_STAGE_DEVICE and key not in devices:
+            del result[key]
+    return result
 
 
 def _detector_block_from(settings: dict) -> dict:
@@ -3009,6 +3119,10 @@ class DeviceEntry:
         )
 
 
+# The keys a device entry carries for where the stage travels for it to see the sample.
+STAGE_POSITION_KEYS = ("origin", "available_orientations", "range")
+
+
 def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
     """Every device a configuration dict names, by name, in file order.
 
@@ -3131,6 +3245,7 @@ class SystemSettings:
             if entry["name"] in self.device_roles:
                 entry["roles"] = self.device_roles[entry["name"]]
         devices.extend(entry.to_dict() for entry in self.other_devices)
+        self._write_stage_positions(devices)
         return {
             "info": self.info.to_dict(),
             # No manipulator or GIS unless the file named one. What is fitted is the
@@ -3142,6 +3257,26 @@ class SystemSettings:
             "defaults": defaults,
             "sim": self.sim,
         }
+
+    def _write_stage_positions(self, devices: List[dict]) -> None:
+        """Write each device's stage position onto its entry in *devices*.
+
+        The beams have none to write: they are the implicit zero. The FM's is written
+        only when it is not the default -- the objective under the grid -- so a site
+        with nothing to say about it says nothing.
+        """
+        by_name = {entry["name"]: entry for entry in devices}
+        for key, position in self.stage.devices.items():
+            if key == BEAMS_STAGE_DEVICE:
+                continue
+            if key in DEFAULT_STAGE_DEVICES and position == DEFAULT_STAGE_DEVICES[key]:
+                continue
+            name = stage_device_entry_name(key)
+            entry = by_name.get(name)
+            if entry is None:
+                entry = by_name[name] = {"name": name, "type": name}
+                devices.append(entry)
+            entry.update(position.to_dict())
 
     @staticmethod
     def from_dict(settings: dict):
@@ -3183,6 +3318,33 @@ class SystemSettings:
         electron["beam_type"] = BeamType.ELECTRON.name
         ion["beam_type"] = BeamType.ION.name
 
+        # Device positions are on each device's entry (`origin`,
+        # `available_orientations`, `range`); version 1 kept them under
+        # `stage.devices`, which `StageSystemSettings.from_dict` reads. An entry's
+        # wins.
+        stage_settings = StageSystemSettings.from_dict(stage)
+        for name, entry in entries.items():
+            position = {
+                key: entry.options.pop(key)
+                for key in STAGE_POSITION_KEYS
+                if key in entry.options
+            }
+            if not position or name == BEAMS_STAGE_DEVICE:
+                continue
+            if "origin" not in position:
+                raise ValueError(
+                    f"hardware.devices: '{name}' states "
+                    f"{sorted(position)} but no origin."
+                )
+            stage_settings.devices[stage_device_key(name)] = (
+                StageDeviceSettings.from_dict(
+                    position,
+                    default_orientations=DEFAULT_AVAILABLE_ORIENTATIONS.get(
+                        entry.type, ()
+                    ),
+                )
+            )
+
         fm = FluorescenceSystemSettings.from_dict(block("fm"))
         objective = calibration.get("objective") or {}
         fm.focus_position = objective.get("focus_position")
@@ -3191,7 +3353,7 @@ class SystemSettings:
         return SystemSettings(
             apply_defaults_on_connect=bool(defaults.get("apply_on_connect", False)),
             beams_on_at_connect=bool(defaults.get("beams_on_at_connect", False)),
-            stage=StageSystemSettings.from_dict(stage),
+            stage=stage_settings,
             electron=BeamSystemSettings.from_dict(electron),
             ion=BeamSystemSettings.from_dict(ion),
             # Not read from the file: filled in at connect by the backend.
