@@ -753,9 +753,10 @@ class FibsemMicroscope(ABC):
         self.stage.move_through(position, relative=True)
         return self.get_stage_position()
 
-    # The view-corrected moves below are shared by every backend but Tescan, which has
-    # its own stage model. The geometry is in `fibsem.geometry.movement`; these read the
-    # instrument, command the move and look after the working distance.
+    # The view-corrected moves below are shared by every backend; Tescan's stage converts
+    # to this frame (FIB-1114) and keeps only its own SEM-view coincidence move. The
+    # geometry is in `fibsem.geometry.movement`; these read the instrument, command the
+    # move and look after the working distance.
 
     # TODO: migrate from stable_move vocab to sample_stage
     @_records_stage_move
@@ -834,7 +835,7 @@ class FibsemMicroscope(ABC):
                 the old hard-coded 0.9, which was found to be absorbing a
                 decomposition error rather than correcting perspective (FIB-773).
                 Every backend must accept it, because ensure_coincident passes it;
-                a backend may ignore it (Tescan does).
+                a backend may ignore it (Tescan's SEM-view move does).
 
         Raises:
             NotImplementedError: if this backend cannot correct from that view.

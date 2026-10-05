@@ -18,6 +18,7 @@ from fibsem import manufacturers, movement
 from fibsem.conversions import is_inside_image_bounds
 from fibsem.structures import (
     LEGACY_ROTATION_CENTRE,
+    STAGE_FRAME_TESCAN,
     BeamType,
     FibsemHardwareGeometry,
     FibsemImage,
@@ -170,10 +171,9 @@ def calculate_reprojected_stage_position2(
             "Stage position x coordinate is None. Cannot reproject stage position."
         )
 
-    # Tescan stage x is inverted wrt image coordinates (see TescanMicroscope.stable_move);
-    # the y inversion is handled inside _inverse_y_corrected_stage_movement_tescan.
-    system_info = image.metadata.system_info
-    if system_info is not None and manufacturers.is_tescan(system_info.manufacturer):
+    # In Tescan's own frame stage x is inverted wrt image coordinates; the y inversion
+    # is handled inside _inverse_y_corrected_stage_movement_tescan.
+    if _in_tescan_frame(image):
         dx = -dx
 
     # dy = microscope._inverse_y_corrected_stage_movement(dy=delta.y, dz=delta.z, beam_type=beam_type) # type: ignore
@@ -349,11 +349,9 @@ def _inverse_y_corrected_stage_movement(
             "Image metadata or hardware geometry is not set. Cannot calculate inverse y corrected stage movement."
         )
 
-    # Tescan stages have a different geometry (y rides the tilt module, z stays
-    # chamber-vertical), so the inverse is a separate derivation, not the
-    # compustage-aware path below.
-    system_info = image.metadata.system_info
-    if system_info is not None and manufacturers.is_tescan(system_info.manufacturer):
+    # In Tescan's own frame y rides the tilt module and z stays chamber-vertical, so
+    # the inverse is a separate derivation, not the compustage-aware path below.
+    if _in_tescan_frame(image):
         return _inverse_y_corrected_stage_movement_tescan(
             image, dy=dy, dz=dz, beam_type=beam_type
         )
@@ -374,6 +372,18 @@ def _inverse_y_corrected_stage_movement(
         stage_rotation=position.r if position.r is not None else 0.0,
         stage_tilt=position.t if position.t is not None else 0.0,
     )
+
+
+def _in_tescan_frame(image: FibsemImage) -> bool:
+    """Whether the image's stage position is in Tescan's own frame (FIB-1114): an
+    image from before TescanStage converted to fibsem's frame."""
+    metadata = image.metadata
+    geometry = metadata.hardware_geometry
+    if geometry is None:
+        return False
+    info = metadata.system_info
+    manufacturer = info.manufacturer if info is not None else None
+    return geometry.resolved_stage_frame(manufacturer) == STAGE_FRAME_TESCAN
 
 
 def _inverse_y_corrected_stage_movement_tescan(

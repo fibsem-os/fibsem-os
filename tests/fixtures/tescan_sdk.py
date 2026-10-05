@@ -23,7 +23,7 @@ from typing import List, Optional, Sequence
 import numpy as np
 
 from fibsem.microscopes import tescan as tescan_module
-from fibsem.microscopes.tescan import TescanMicroscope, fromTescanImage
+from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, FibsemImage, ImageSettings, SystemSettings
 
 
@@ -341,7 +341,7 @@ def image_at(
         },
     }
     document = _Document(np.zeros(shape, dtype=np.uint8), header)
-    image = fromTescanImage(
+    image = microscope._image_from_tescan(
         document,
         ImageSettings(resolution=(shape[1], shape[0]), beam_type=beam_type),
     )

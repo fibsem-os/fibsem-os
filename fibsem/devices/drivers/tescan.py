@@ -4,8 +4,9 @@
 ``TescanMicroscope._get``/``_set``, moved as they are, so the old call and the device
 make the same SDK calls in the same order and log the same messages.
 ``TescanMicroscope`` builds one per enabled column at connect and routes its beam keys
-to them, and builds a ``TescanStage`` and routes its stage keys and moves to it; its
-old branches stay until a session on an instrument confirms the devices.
+to them, and builds a ``TescanStage``, which converts between fibsem's stage frame and
+Tescan's, and routes its stage keys and moves to it; the old ``_get``/``_set`` branches
+stay until a session on an instrument confirms the devices.
 
 The vendor beams are ``connection.SEM`` and ``connection.FIB``. SharkSEM is one socket,
 so every read and write holds the microscope's ``_connection_lock``, as ``_get`` and
@@ -25,7 +26,6 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import AXIS_UNITS, UNLIMITED, Stage
 from fibsem.structures import (
-    STAGE_FRAME_TESCAN,
     BeamType,
     FibsemStagePosition,
     Point,
@@ -354,59 +354,154 @@ def bind_tescan_beams(
     }
 
 
+TILT_AXIS_Z = 29.8e-3
+"""z′₀, in metres: the Tescan z reading at which the converted frame puts the tilt axis.
+
+The working z′ in the 2026-07-22 session log (29.69 to 30.04 mm over the session), until
+the hardware session measures the eucentric z′ (FIB-1114). Not Tescan's
+``eucentric_height``, which is the FIB working distance.
+"""
+
+
+def from_tescan_frame(
+    native: FibsemStagePosition, tilt_axis_z: float = TILT_AXIS_Z
+) -> FibsemStagePosition:
+    """A position in Tescan's frame (metres, radians) in fibsem's frame.
+
+    Tescan's x and y run opposite fibsem's; its y rides the tilt module and its z is
+    chamber-vertical, +z down, while fibsem's y and z both ride the tilt (FIB-1114):
+
+        x = -x′,  y = -y′ - (z′ - z′₀)·sin t,  z = -(z′ - z′₀)·cos t
+    """
+    h = native.z - tilt_axis_z
+    t = native.t
+    return FibsemStagePosition(
+        x=-native.x,
+        y=-native.y - h * np.sin(t),
+        z=-h * np.cos(t),
+        r=native.r,
+        t=t,
+        coordinate_system=native.coordinate_system,
+    )
+
+
+def to_tescan_frame(
+    position: FibsemStagePosition, tilt_axis_z: float = TILT_AXIS_Z
+) -> FibsemStagePosition:
+    """The inverse of :func:`from_tescan_frame`, for a position with every axis set."""
+    t = position.t
+    return FibsemStagePosition(
+        x=-position.x,
+        y=-(position.y - position.z * np.tan(t)),
+        z=tilt_axis_z - position.z / np.cos(t),
+        r=position.r,
+        t=t,
+        coordinate_system=position.coordinate_system,
+    )
+
+
 class TescanStage(Stage):
-    """The Tescan stage, in Tescan's own frame: the positions today's code reads.
+    """The Tescan stage, in fibsem's frame, converting to Tescan's inside.
 
-    Each method is what the matching part of ``TescanMicroscope`` does today:
+    ``position`` is in fibsem's frame (:func:`from_tescan_frame`); every
+    ``Stage.MoveTo`` is in Tescan's. Through the conversion a position puts the sample
+    where a ThermoFisher stage at that position would, so the shared movement and
+    projection maths hold unchanged (FIB-1114).
 
-    - ``read_position``: the ``stage_position`` branch of ``_get``,
-      ``Stage.GetPosition`` in mm and degrees, converted to metres and radians;
-    - ``_move_absolute``: ``move_stage_absolute``, one ``Stage.MoveTo``, with an axis
-      that is None left where it is;
-    - ``_move_relative``: ``move_stage_relative``, which reads where the stage is and
-      moves to that plus the offset (SharkSEM moves are absolute).
+    - ``read_position``: ``Stage.GetPosition`` in mm and degrees, converted.
+    - ``_move_absolute``: one ``Stage.MoveTo``. y and z convert together, so when one
+      is None it is taken from where the stage is. When both are, y′ and z′ are left
+      where they are too: a pose change alone is a pure tilt and rotation on the
+      instrument, as it was before the conversion.
+    - ``_move_relative``: reads where the stage is and moves to that plus the offset
+      (SharkSEM moves are absolute); x, y or z the offset leaves None is left None, so a
+      tilt alone is a pure tilt here too.
+
+    ``tilt_axis_z`` is z′₀ (:data:`TILT_AXIS_Z`). Relative moves and anything at one
+    pose don't depend on it; positions compared across tilts do.
 
     Fibsem has never read the Tescan stage's limits, so every axis is unlimited and
-    the instrument refuses what it cannot reach, as it does today. It has never read
-    or set homed or linked either: ``home()`` refers to the native UI, so ``homed`` and
-    ``linked`` are absent and their keys still go to ``_get``/``_set``.
-
-    The frame is still Tescan's: x and y run opposite the image, y rides on the tilt
-    module and z is chamber-vertical, +z down. The view-corrected moves on
-    ``TescanMicroscope`` account for that, and move through this device.
+    the instrument refuses what it cannot reach. ``home()`` refers to the native UI, so
+    ``homed`` is absent and its key still goes to ``_get``/``_set``. z is not linked to
+    the working distance, so ``linked`` reads False.
     """
 
-    frame = STAGE_FRAME_TESCAN
-
-    def __init__(self, parent: TescanMicroscope, resources: Optional[Resources] = None):
+    def __init__(
+        self,
+        parent: TescanMicroscope,
+        resources: Optional[Resources] = None,
+        tilt_axis_z: float = TILT_AXIS_Z,
+    ):
         super().__init__(parent=parent, resources=resources)
+        self.tilt_axis_z = tilt_axis_z
 
     @property
     def _lock(self):
         return self.parent._connection_lock
+
+    def from_native(self, native: FibsemStagePosition) -> FibsemStagePosition:
+        """A position Tescan reported (an image header's, say) in fibsem's frame."""
+        return from_tescan_frame(native, self.tilt_axis_z)
+
+    def native_delta(
+        self, native: FibsemStagePosition, tilt: float
+    ) -> FibsemStagePosition:
+        """A move in Tescan's frame at ``tilt`` as the same move in fibsem's."""
+        return FibsemStagePosition(
+            x=-native.x,
+            y=-native.y - native.z * np.sin(tilt),
+            z=-native.z * np.cos(tilt),
+            r=native.r,
+            t=native.t,
+        )
 
     def read_position(self) -> FibsemStagePosition:
         from fibsem.microscopes.tescan import from_tescan_stage_position
 
         with self._lock:
             position = self.parent.connection.Stage.GetPosition()
-        return from_tescan_stage_position(position)
+        return self.from_native(from_tescan_stage_position(position))
 
     def metadata_position(self) -> ParameterMetadata:
         return ParameterMetadata(limits={axis: UNLIMITED for axis in AXIS_UNITS})
+
+    def read_linked(self) -> bool:
+        return False
+
+    def _native(self, position: FibsemStagePosition) -> FibsemStagePosition:
+        """``position`` in Tescan's frame, with None where the move leaves an axis."""
+        x = None if position.x is None else -position.x
+        y = z = None
+        if position.y is not None or position.z is not None:
+            current = self.position.get_value()
+            full = FibsemStagePosition(
+                x=0.0,
+                y=current.y if position.y is None else position.y,
+                z=current.z if position.z is None else position.z,
+                r=0.0,
+                t=current.t if position.t is None else position.t,
+            )
+            native = to_tescan_frame(full, self.tilt_axis_z)
+            y, z = native.y, native.z
+        return FibsemStagePosition(x=x, y=y, z=z, r=position.r, t=position.t)
 
     def _move_absolute(self, position: FibsemStagePosition) -> None:
         from fibsem.microscopes.tescan import to_tescan_stage_position
 
         logging.info(f"Moving stage to {position}.")
-        x, y, z, r, t = to_tescan_stage_position(position=position)
+        x, y, z, r, t = to_tescan_stage_position(position=self._native(position))
         with self._lock:
             self.parent.connection.Stage.MoveTo(x=x, y=y, z=z, rot=r, tiltx=t)
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
     def _move_relative(self, delta: FibsemStagePosition) -> None:
         logging.info(f"Moving stage by {delta}.")
-        target = self.position.get_value() + delta
+        current = self.position.get_value()
+        # x, y or z the delta leaves None stays None, so a tilt alone stays a pure tilt
+        target = current + delta
+        for axis in ("x", "y", "z"):
+            if getattr(delta, axis) is None:
+                setattr(target, axis, None)
         logging.debug(f"Moving stage to {target}")
         self._move_absolute(target)
         logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
