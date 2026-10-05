@@ -77,7 +77,7 @@ if TYPE_CHECKING:
     from fibsem.structures import TFibsemPatternSettings
 
 THERMO_API_AVAILABLE = False
-MINIMUM_AUTOSCRIPT_VERSION_4_7 = parse_version("4.7")
+MINIMUM_AUTOSCRIPT_VERSION = parse_version("4.9")
 # Set when the guarded import below fails, so the connection error can say why.
 THERMO_API_IMPORT_ERROR: Optional[str] = None
 # Declared so importers can rely on the name; only meaningful once
@@ -135,12 +135,12 @@ try:
 
     # special case for Monash development environment
     if os.environ.get("COMPUTERNAME", "hostname") == "MU00190108":
-        logging.info("Overwriting autoscript version to 4.7, for Monash dev install")
-        AUTOSCRIPT_VERSION = MINIMUM_AUTOSCRIPT_VERSION_4_7
+        logging.info("Overwriting autoscript version to 4.9, for Monash dev install")
+        AUTOSCRIPT_VERSION = MINIMUM_AUTOSCRIPT_VERSION
 
-    if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
+    if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION:
         raise AutoScriptException(
-            f"AutoScript {version} found. Please update your AutoScript version to 4.7 or higher."
+            f"AutoScript {version} found. Please update your AutoScript version to 4.9 or higher."
         )
 
     from autoscript_sdb_microscope_client._dynamic_object_proxies import (
@@ -1798,10 +1798,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         if name not in ["PARK", "EUCENTRIC"]:
             raise ValueError(f"insert position {name} not supported.")
-        if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
-            raise NotImplementedError(
-                "Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher"
-            )
 
         # get the saved position name
         saved_position = (
@@ -1832,11 +1828,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def retract_manipulator(self) -> FibsemManipulatorPosition:
         """Retract the manipulator"""
-
-        if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
-            raise NotImplementedError(
-                "Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher"
-            )
 
         if not self.is_available("manipulator"):
             raise NotImplementedError("Manipulator not available.")
@@ -2012,11 +2003,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         if name not in ["PARK", "EUCENTRIC"]:
             raise ValueError(f"saved position {name} not supported.")
-        if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
-            raise NotImplementedError(
-                "Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher"
-            )
-
         named_position = (
             ManipulatorSavedPosition.PARK
             if name == "PARK"
