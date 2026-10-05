@@ -16,6 +16,7 @@ import sys
 import time
 from copy import deepcopy
 from functools import wraps
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -23,6 +24,7 @@ from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 from skimage import transform
 
+from fibsem.devices.beam import BEAM_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
@@ -1081,6 +1083,8 @@ class ThermoMicroscope(FibsemMicroscope):
             f"Autoscript Server: {self.connection.service.autoscript.server.version}"
         )
 
+        self._build_beams()
+
         if reset_beam_shift:
             self.reset_beam_shifts()
 
@@ -1141,6 +1145,18 @@ class ThermoMicroscope(FibsemMicroscope):
             self._create_sample_stage()
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
+
+    def _build_beams(self) -> None:
+        """Build the beam devices and route the beam keys that have moved to them.
+
+        The other beam keys (the detector keys, the scan modes, ``preset``) are still
+        answered by ``_get``/``_set``. A disabled column gets no device, so its keys
+        stay with the old branches too.
+        """
+        from fibsem.devices.drivers.autoscript import bind_autoscript_beams
+
+        self.beams = MappingProxyType(bind_autoscript_beams(self))
+        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
 
     def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
         """The AutoScript autoloader, when the microscope has one.

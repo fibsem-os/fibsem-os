@@ -142,3 +142,10 @@ def test_a_disabled_column_is_never_built_or_touched(recording):
     facts = recording["facts"]["ion_disabled"]
     assert facts["beams"] == ["ELECTRON"]
     assert not any("ion_beam" in call[1] for call in facts["calls"])
+
+
+def test_connect_builds_the_beams_before_it_resets_their_shifts(recording):
+    assert recording["facts"]["connect"] == {
+        "beams": ["ELECTRON", "ION"],
+        "routed": True,
+    }

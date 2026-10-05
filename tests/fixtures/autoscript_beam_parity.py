@@ -92,11 +92,18 @@ def make(plasma, ion=True):
     return microscope
 
 
-def routed(plasma):
-    """The same microscope, its beam keys routed to the drivers."""
+def old_branches(plasma):
+    """A microscope whose beam keys are all still answered by ``_get``/``_set``."""
     microscope = make(plasma)
-    microscope.beams = MappingProxyType(bind_autoscript_beams(microscope))
-    microscope._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
+    microscope.beams = MappingProxyType({})
+    microscope._beam_routes = MappingProxyType({})
+    return microscope
+
+
+def routed(plasma):
+    """The same microscope, its beam keys routed as connect routes them."""
+    microscope = make(plasma)
+    microscope._build_beams()
     return microscope
 
 
@@ -161,7 +168,7 @@ def cases():
             tag = f"plasma={plasma} {beam_type.name}"
 
             def add(name, call):
-                old, new = make(plasma), routed(plasma)
+                old, new = old_branches(plasma), routed(plasma)
                 out.append(
                     {
                         "key": f"{tag} {name}",
@@ -219,6 +226,25 @@ def facts():
             out[f"plasma={plasma} {beam_type.name}"]["routed"] = sorted(
                 key for key in BEAM_ROUTES if microscope._route(key, beam_type)
             )
+
+    # connect builds the beams before it resets the beam shifts through them
+    class _Stop(Exception):
+        pass
+
+    microscope = make(plasma=True)
+    seen = {}
+
+    def reset_beam_shifts():
+        seen["beams"] = sorted(bt.name for bt in microscope.beams)
+        seen["routed"] = microscope._route("shift", BeamType.ION) is not None
+        raise _Stop
+
+    microscope.reset_beam_shifts = reset_beam_shifts
+    try:
+        microscope.connect_to_microscope("localhost")
+    except _Stop:
+        pass
+    out["connect"] = seen
 
     # the new API checks a value; the old one passes it on as it is
     beam = bind_autoscript_beams(make(plasma=False))[BeamType.ELECTRON]
