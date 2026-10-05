@@ -77,7 +77,7 @@ def _running_config(bbox=None, supervised=True, drop=0.4):
     return config
 
 
-def _stats(value, peak, threshold, drop=False):
+def _stats(value, peak, threshold, drop=False, below=0, timeout=1200.0):
     return {
         "value": value,
         "rolling_mean": value,
@@ -88,6 +88,9 @@ def _stats(value, peak, threshold, drop=False):
         "drop_fraction": value / peak if peak else 1.0,
         "threshold_fraction": 0.6,
         "consecutive_count": 10,
+        "below_threshold_count": below,
+        "timeout_remaining": timeout,
+        "elapsed_time": 372.0,
     }
 
 
@@ -115,11 +118,28 @@ def test_enter_attaches_to_the_running_strategies(viewer, qapp):
     assert not viewer.lamella_list_widget.isEnabled()
     assert not viewer.btn_setup_continue.isVisible()
 
-    # live stats reach the panel: a drop turns the chip orange
-    strategy.intensity_stats_signal.emit(_stats(1000.0, 1800.0, 1080.0, drop=True))
+    # the task-mode chrome: the run is not ours, the box is shown dashed
+    assert viewer.label_task_lock.text() == "Task owns this run"
+    assert viewer.label_task_lock.isVisible()
+    assert viewer.fib_canvas.rect_overlay._linestyle == "--"
+
+    # live stats reach the panel: a drop turns the chip orange, and the run
+    # panel says what the drop does, how close the latch is, and the timeout
+    strategy.intensity_stats_signal.emit(
+        _stats(1000.0, 1800.0, 1080.0, drop=True, below=7, timeout=1428.0)
+    )
     qapp.processEvents()
     assert "Intensity Drop" in viewer.label_threshold_chip.text()
-    assert viewer.line_plot_widget is not None
+    metrics = viewer._info_widget._run_metrics_label.text()
+    assert "Supervised · drop alerts, you stop" in metrics
+    assert "Below thr: 7 / 10 frames" in metrics
+    assert "Timeout  : in 0:23:48" in metrics
+    # flipping the mode is reflected in the panel
+    viewer._set_supervised(False)
+    assert (
+        "Automated · drop stops the mill"
+        in viewer._info_widget._run_metrics_label.text()
+    )
 
 
 def test_stop_is_the_runs_stop_and_the_toggle_reaches_the_strategy(viewer, qapp):
@@ -166,6 +186,8 @@ def test_exit_detaches_and_restores_the_manual_controls(viewer, qapp):
     assert not viewer._is_milling_active
     assert viewer._active_strategies == []
     assert viewer.btn_milling.text() == "Start Milling"
+    assert not viewer.label_task_lock.isVisible()
+    assert viewer.fib_canvas.rect_overlay._linestyle == "solid"
     assert viewer.lamella_list_widget.isEnabled()
     assert viewer.milling_viewer_widget.get_config().name == manual_name
     # detached: a late stat from the strategy changes nothing
