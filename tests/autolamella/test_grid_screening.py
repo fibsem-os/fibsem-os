@@ -15,11 +15,13 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
+from fibsem.applications.autolamella.tools.grid_report_pdf import REPORT_FILENAME
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
+    UNLOAD_ENTRY_NAME,
     GridTaskManager,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
@@ -152,6 +154,21 @@ class TestOnTheAutoloader:
             Status.Skipped,
         ]
 
+    def test_ends_with_the_slot_empty_and_the_report_written(
+        self, arctis, experiment, stub_tasks, tmp_path
+    ):
+        pytest.importorskip("reportlab")
+        manager = screen_grids(
+            arctis,
+            experiment,
+            task_names=["overview_sem"],
+            unload_at_end=True,
+            report_at_end=True,
+        )
+        assert arctis._stage.loaded_grids == []
+        assert manager.queue.items[-1].task_name == UNLOAD_ENTRY_NAME
+        assert (tmp_path / "exp" / REPORT_FILENAME).exists()
+
 
 class TestOnAFixedHolder:
     def test_every_grid_is_present_and_nothing_is_exchanged(
@@ -168,6 +185,26 @@ class TestOnAFixedHolder:
         assert [i.status for i in loads] == [Status.Completed, Status.Completed]
         for grid in experiment.grids:
             assert not any(t.name == LOAD_ENTRY_NAME for t in grid.task_history)
+
+    def test_there_is_nothing_to_unload_but_the_report_is_written(
+        self, fixed_holder, experiment, stub_tasks, tmp_path
+    ):
+        pytest.importorskip("reportlab")
+        manager = screen_grids(
+            fixed_holder,
+            experiment,
+            task_names=["overview_sem"],
+            unload_at_end=True,
+            report_at_end=True,
+        )
+        assert [g.name for g in fixed_holder._stage.loaded_grids] == [
+            "grid-aspen",
+            "grid-birch",
+        ]
+        assert UNLOAD_ENTRY_NAME not in [i.task_name for i in manager.queue.items]
+        for grid in experiment.grids:
+            assert not any(t.name == UNLOAD_ENTRY_NAME for t in grid.task_history)
+        assert (tmp_path / "exp" / REPORT_FILENAME).exists()
 
     def test_nothing_to_screen_is_an_empty_run(self, experiment, stub_tasks):
         microscope, _ = utils.setup_session(manufacturer="Demo")

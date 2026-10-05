@@ -1782,6 +1782,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         grid_names = [g.name for g in grids]
         exchanges = self.grid_workflow_widget.exchanges_for(grids)
+        ending = self._end_of_run()
         dialog = GridRunPreflightDialog(
             task_names,
             grid_names,
@@ -1790,11 +1791,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             beams_off=self._beams_off(),
             first_run=[g.name for g in grids if not grid_has_run(g)],
             estimate=self._grid_run_estimate(task_names, grid_names, exchanges),
+            **ending,
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
-        self._start_grid_run(task_names, grid_names, inventory_first=False)
+        self._start_grid_run(
+            task_names,
+            grid_names,
+            inventory_first=False,
+            **ending,
+        )
 
     def _on_screen_all_grids(self) -> None:
         """One click: inventory, every present grid, the ticked tasks (FIB-898)."""
@@ -1808,6 +1815,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         known = [g.name for g in ui.experiment.grids]
         exchanges = self.grid_workflow_widget.exchanges_for(list(ui.experiment.grids))
+        ending = self._end_of_run()
         dialog = GridRunPreflightDialog(
             task_names,
             known,
@@ -1818,11 +1826,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             first_run=self._present_grids_not_run(),
             # from the grids known before the inventory: the dialog says so
             estimate=self._grid_run_estimate(task_names, known, exchanges),
+            **ending,
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
-        self._start_grid_run(task_names, None, inventory_first=True)
+        self._start_grid_run(
+            task_names,
+            None,
+            inventory_first=True,
+            **ending,
+        )
+
+    def _end_of_run(self) -> dict:
+        """How a grid run ends, as the Grids page's ⚙ sets it: unload the last
+        grid, write the screening report. Read once at the click, so the run
+        ends the way its confirmation said."""
+        view = self.grid_workflow_widget
+        return {
+            "unload_at_end": view.unload_at_end(),
+            "report_at_end": view.report_at_end(),
+        }
 
     def _present_grids_not_run(self) -> list:
         """The grids Screen all grids will run for the first time, as far as the
@@ -1858,7 +1882,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         return off
 
     def _start_grid_run(
-        self, task_names: list, grid_names, inventory_first: bool
+        self,
+        task_names: list,
+        grid_names,
+        inventory_first: bool,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ) -> None:
         ui = self.autolamella_ui
         self._set_border_state("automated")
@@ -1870,7 +1899,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._push_timeline_estimates(plan_grid_run(task_names, known or []))
         # One writer (FIB-683): land any edit still in the editors first.
         self.lamella_widget.flush_pending_save()
-        ui._start_run_grid_workflow_thread(task_names, grid_names, inventory_first)
+        ui._start_run_grid_workflow_thread(
+            task_names,
+            grid_names,
+            inventory_first,
+            unload_at_end=unload_at_end,
+            report_at_end=report_at_end,
+        )
         self.set_workflow_running()
         # Clear the grid ticks, as a lamella run clears its selection: left ticked,
         # the grids this run is on would be queued again by the next Add to Queue.
