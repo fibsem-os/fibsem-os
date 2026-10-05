@@ -677,6 +677,7 @@ def written_configuration_keys() -> Set[str]:
                 for entry in sub:
                     device = f"{path}.{entry['name']}"
                     keys.add(device)
+                    keys.add(f"{device}.roles")  # written only when the file has it
                     keys.update(
                         f"{device}.{k}"
                         for k in entry

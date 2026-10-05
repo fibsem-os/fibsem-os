@@ -247,3 +247,24 @@ def test_a_version_2_file_is_not_copied(tmp_path):
     utils.write_configuration(path, {"defaults": {"ion": {"voltage": 8000}}})
 
     assert not utils.configuration_backup_path(path, before=2).exists()
+
+
+def test_roles_are_kept_on_every_entry():
+    """`roles:` binds one entry to another; nothing reads it yet, but a file stating it
+    must not lose it on save, on the four with records as on any other."""
+    config = {
+        "hardware": {
+            "devices": [
+                {"name": "electron", "roles": {"scanner": "scan_generator"}},
+                {"name": "scan_generator", "type": "scan_generator"},
+            ]
+        }
+    }
+
+    written = SystemSettings.from_dict(config).to_dict()
+
+    assert utils.configuration_device(written, "electron")["roles"] == {
+        "scanner": "scan_generator"
+    }
+    assert "roles" not in utils.configuration_device(written, "ion")
+    assert utils.unrecognised_configuration_keys(written) == []

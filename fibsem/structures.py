@@ -2925,7 +2925,9 @@ class DeviceEntry:
 
     `enabled` has three states, as `fm.enabled` always has: absent is the backend's
     default, `false` means never built and its driver never touches it. `driver`
-    absent is the driver for `info.manufacturer`.
+    absent is the driver for `info.manufacturer`. `roles` binds a role this device has
+    to another entry by name (`{scanner: scan_generator}`); nothing reads it yet, and it
+    is kept so a file stating it is not dropped on save.
 
     Every other key is the entry's own and sits beside these in the file: the device's
     facts (`column_tilt`, `rotation_reference`) and its driver's keys (`address`,
@@ -2937,6 +2939,7 @@ class DeviceEntry:
     enabled: Optional[bool] = None
     driver: Optional[str] = None
     required: Optional[bool] = None
+    roles: Optional[Dict[str, str]] = None
     options: Dict[str, Any] = field(default_factory=dict)
 
     # Which entry it is, rather than anything about the device.
@@ -2944,7 +2947,7 @@ class DeviceEntry:
 
     def to_dict(self) -> dict:
         entry: Dict[str, Any] = {"name": self.name, "type": self.type}
-        for key in ("enabled", "driver", "required"):
+        for key in ("enabled", "driver", "required", "roles"):
             value = getattr(self, key)
             if value is not None:
                 entry[key] = value
@@ -2987,7 +2990,8 @@ class DeviceEntry:
                 f"hardware.devices: a beam is named `electron` or `ion`, not '{name}'."
             )
         reserved = {
-            key: data.pop(key, None) for key in ("enabled", "driver", "required")
+            key: data.pop(key, None)
+            for key in ("enabled", "driver", "required", "roles")
         }
         return DeviceEntry(
             name=str(name),
@@ -2995,6 +2999,7 @@ class DeviceEntry:
             enabled=reserved["enabled"],
             driver=reserved["driver"],
             required=reserved["required"],
+            roles=reserved["roles"],
             options=data,
         )
 
@@ -3067,6 +3072,9 @@ class SystemSettings:
     # The devices `hardware.devices` names beyond the four with records of their own
     # (`CONFIGURED_DEVICES`), as the file states them, and written back as they were.
     other_devices: List[DeviceEntry] = field(default_factory=list)
+    # The `roles:` the file gives those four, by device name. Their records have no
+    # place for it, so it is kept here and written back onto their entries.
+    device_roles: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
     #: What a column *is*: the keys that stay in `electron:` / `ion:`. Everything
     #: else a `BeamSystemSettings` writes -- voltage, current, hfw, detector, the
@@ -3114,6 +3122,9 @@ class SystemSettings:
             {"name": "ion", "type": "beam", **ion},
             {"name": "fm", "type": "fm", **self.fm.to_dict()},
         ]
+        for entry in devices:
+            if entry["name"] in self.device_roles:
+                entry["roles"] = self.device_roles[entry["name"]]
         devices.extend(entry.to_dict() for entry in self.other_devices)
         return {
             "info": self.info.to_dict(),
@@ -3189,6 +3200,11 @@ class SystemSettings:
                 for name, entry in entries.items()
                 if name not in CONFIGURED_DEVICES
             ],
+            device_roles={
+                name: entry.roles
+                for name, entry in entries.items()
+                if name in CONFIGURED_DEVICES and entry.roles is not None
+            },
         )
 
 
