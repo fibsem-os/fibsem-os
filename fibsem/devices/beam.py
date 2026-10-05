@@ -9,9 +9,12 @@ key falls through to the backend's untouched if/elif chain.
 from __future__ import annotations
 
 import logging
+import threading
 from enum import Enum
 from math import pi
 from typing import Any, Dict, List, Mapping, Optional
+
+from psygnal import Signal
 
 from fibsem.devices.core import BoundParameter, Device, Parameter, command
 from fibsem.devices.stage import Stage
@@ -54,9 +57,15 @@ class Beam(Device):
         bool, doc="The angular correction's tilt correction is on."
     )
 
+    live_frame = Signal(object)
+    """Each image live view acquires (a FibsemImage), from the live view's thread."""
+
     def __init__(self, beam_type: BeamType, parent: Any = None, **kwargs: Any):
         super().__init__(name=beam_type.name.lower(), parent=parent, **kwargs)
         self.beam_type = beam_type
+        self._live_lock = threading.Lock()
+        self._live_stop = threading.Event()
+        self._live_thread: Optional[threading.Thread] = None
 
     @command(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:
@@ -99,10 +108,105 @@ class Beam(Device):
     def _full_frame(self) -> None:
         raise NotImplementedError
 
+    # Imaging and the autofunctions. A driver implements _acquire, _last_image,
+    # _autocontrast and _auto_focus, claiming the imaging channel for the vendor call
+    # (claim_channel), and builds the FibsemImage as its backend does today. A beam
+    # whose driver lacks a hook doesn't have that command. auto_focus is the
+    # instrument's own routine only: the software sweep stays microscope.auto_focus's.
+
     @command
     def acquire(self, image_settings: Optional[ImageSettings] = None) -> FibsemImage:
-        """Acquire an image with this beam. Imaging is a beam command, not a device."""
-        return self.parent.acquire_image(image_settings, beam_type=self.beam_type)
+        """Acquire an image with this beam: with the given settings, or with the beam's
+        current ones. Imaging is a beam command, not a device."""
+        if (
+            image_settings is not None
+            and image_settings.beam_type is not self.beam_type
+        ):
+            raise ValueError(
+                f"{self.name} can't acquire an image for the "
+                f"{image_settings.beam_type.name} beam"
+            )
+        return self._acquire(image_settings)
+
+    @command(available=lambda beam: _implements(beam, "_last_image"))
+    def last_image(self) -> FibsemImage:
+        """The last image this beam acquired, read back from the instrument."""
+        return self._last_image()
+
+    @command(available=lambda beam: _implements(beam, "_autocontrast"))
+    def autocontrast(self, reduced_area: Optional[FibsemRectangle] = None) -> None:
+        """Run the instrument's brightness and contrast routine, optionally on a
+        rectangle of the frame (0 to 1); the beam scans the full frame after."""
+        self._autocontrast(reduced_area)
+
+    @command(available=lambda beam: _implements(beam, "_auto_focus"))
+    def auto_focus(self, reduced_area: Optional[FibsemRectangle] = None) -> None:
+        """Run the instrument's autofocus routine, optionally on a rectangle of the
+        frame (0 to 1); the beam scans the full frame after."""
+        self._auto_focus(reduced_area)
+
+    def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
+        # Until a driver implements it: the microscope's own acquire_image.
+        if image_settings is None:
+            return self.parent.acquire_image(beam_type=self.beam_type)
+        return self.parent.acquire_image(image_settings)
+
+    def _last_image(self) -> FibsemImage:
+        raise NotImplementedError
+
+    def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
+        raise NotImplementedError
+
+    def _auto_focus(self, reduced_area: Optional[FibsemRectangle]) -> None:
+        raise NotImplementedError
+
+    # Live view: the driver's _live runs on a thread of its own, acquiring with the
+    # beam's current settings and emitting each image on live_frame, until stop_live
+    # sets the event it is given. Frames are pushed, as the SEM and FIB viewers take
+    # them today.
+
+    @command(available=lambda beam: _implements(beam, "_live"))
+    def start_live(self) -> None:
+        """Acquire continuously with the current settings, each image on
+        ``live_frame``, until `stop_live`. Warns and does nothing when already live."""
+        with self._live_lock:
+            if self.is_live:
+                logging.warning(f"{self.name} live view is already running.")
+                return
+            self._live_stop.clear()
+            self._live_thread = threading.Thread(
+                target=self._run_live, name=f"{self.name}-live", daemon=True
+            )
+            self._live_thread.start()
+
+    @command(available=lambda beam: _implements(beam, "_live"))
+    def stop_live(self) -> None:
+        """Stop live view, waiting briefly for its last frame. Safe when not live."""
+        thread = self._live_thread
+        if thread is None or self._live_stop.is_set():
+            return
+        self._live_stop.set()
+        if thread is not threading.current_thread():
+            thread.join(timeout=2)
+
+    @property
+    def is_live(self) -> bool:
+        thread = self._live_thread
+        return thread is not None and thread.is_alive()
+
+    def _run_live(self) -> None:
+        try:
+            self._live(self._live_stop)
+        except Exception as e:
+            logging.error(f"{self.name} live view stopped: {e}")
+
+    def _live(self, stop: threading.Event) -> None:
+        raise NotImplementedError
+
+
+def _implements(beam: Beam, hook: str) -> bool:
+    """Whether the beam's driver overrides *hook*."""
+    return getattr(type(beam), hook) is not getattr(Beam, hook)
 
 
 # Old key -> parameter name. Every beam key keeps its old name here, so the table is

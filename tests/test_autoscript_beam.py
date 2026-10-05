@@ -101,10 +101,15 @@ def test_the_moved_keys_are_the_ones_routed(recording, plasma, beam):
     assert facts["parameters"] == sorted(MOVED + gas + parameters)
     assert facts["commands"] == [
         "acquire",
+        "auto_focus",
+        "autocontrast",
         "blank",
         "full_frame",
+        "last_image",
         "reduced_area",
         "spot",
+        "start_live",
+        "stop_live",
         "unblank",
     ]
 

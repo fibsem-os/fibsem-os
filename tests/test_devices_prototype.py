@@ -369,9 +369,17 @@ def test_actions_are_plain_methods_that_describe_themselves(beams):
         "spot",
         "reduced_area",
         "full_frame",
+        "last_image",
+        "autocontrast",
+        "auto_focus",
+        "start_live",
+        "stop_live",
     }
     assert commands["acquire"].signature.startswith("(image_settings")
     assert commands["blank"].available
+    # a driver without the imaging hooks doesn't have those commands
+    assert not commands["last_image"].available
+    assert not commands["auto_focus"].available
 
     sem.blank()
     assert sem.blanked.get_value() is True
