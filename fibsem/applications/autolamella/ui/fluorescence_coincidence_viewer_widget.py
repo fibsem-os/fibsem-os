@@ -1333,6 +1333,22 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._reset_timelapse()
         self.lamella_selected_signal.emit(lamella)
 
+    def refresh_lamella_poses(self) -> None:
+        """Redraw the selected lamella's pose rows after a change made elsewhere.
+
+        The main window calls this when the experiment's positions change, so a pose
+        moved there is not left showing its old place, chip and distance here. Not
+        while milling, or while the window is closed: working out how far apart the
+        two poses are can read the stage -- see `poses.pose_disagreement`.
+        """
+        if self._is_milling_active or not self.isVisible():
+            return
+        if getattr(self, "selected_lamella_widget", None) is None:
+            return
+        show_lamella_poses(
+            self.selected_lamella_widget, self.microscope, self._selected_lamella
+        )
+
     # ------------------------------------------------------------------
     # Selected-lamella widget handlers (objective + poses), self-contained
     # ------------------------------------------------------------------

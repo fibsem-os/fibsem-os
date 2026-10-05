@@ -4158,6 +4158,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         autolamella_ui = getattr(self, "autolamella_ui", None)
         if autolamella_ui is not None:
             autolamella_ui.update_lamella_ui()
+            # The coincidence viewer shows the same rows in its own window. It is told
+            # from here rather than subscribing itself: a window that can be closed
+            # must not hold a live subscription (FIB-603). The same workflow rule.
+            viewer = getattr(autolamella_ui, "_coincidence_viewer_window", None)
+            if viewer is not None and not autolamella_ui.is_workflow_running:
+                viewer.refresh_lamella_poses()
 
     def _on_notification_service(
         self, message: str, notification_type: str, temporary: bool

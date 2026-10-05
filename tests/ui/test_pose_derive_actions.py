@@ -426,3 +426,47 @@ def test_a_move_on_a_canvas_redraws_the_selected_lamella(window):
 
     rows = _rows(ui.selected_lamella_widget.pose_list)
     assert rows[FLUORESCENCE_POSE].provenance_label.text() == "30 µm off"
+
+
+def test_a_move_in_the_main_window_redraws_the_coincidence_viewer(
+    window, tmp_path, monkeypatch
+):
+    """The coincidence viewer shows the same pose rows in its own window and does not
+    subscribe to the experiment itself, so the main window's handler tells it -- or
+    a pose moved in the main window is left showing its old distance there."""
+    from copy import deepcopy
+
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI,
+    )
+    from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
+        FluorescenceCoincidenceViewerWidget,
+    )
+
+    ui, lamella = window
+    # closing the viewer writes its milling configuration; keep that out of the tree
+    monkeypatch.setattr(
+        cfg,
+        "COINCIDENCE_MILLING_CONFIG_PATH",
+        str(tmp_path / "coincidence-milling-config.yaml"),
+    )
+    viewer = FluorescenceCoincidenceViewerWidget(
+        microscope=ui.microscope, experiment=ui.experiment
+    )
+    viewer.show()
+    ui._coincidence_viewer_window = viewer
+    try:
+        rows = _rows(viewer.selected_lamella_widget.pose_list)
+        assert rows[FLUORESCENCE_POSE].provenance_label.isHidden()
+
+        moved = deepcopy(lamella.milling_pose.stage_position)
+        moved.x += 30e-6
+        move_pose(ui.microscope, lamella, MILLING_POSE, position=moved)
+        host = type("_Window", (), {"autolamella_ui": ui})()
+        AutoLamellaSingleWindowUI._refresh_overview_positions(host)
+
+        rows = _rows(viewer.selected_lamella_widget.pose_list)
+        assert rows[FLUORESCENCE_POSE].provenance_label.text() == "30 µm off"
+    finally:
+        viewer.close()
+        ui._coincidence_viewer_window = None
