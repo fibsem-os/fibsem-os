@@ -9,6 +9,7 @@ import yaml
 
 import fibsem
 from fibsem import manufacturers
+from fibsem.microscopes import registry
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445
@@ -154,11 +155,9 @@ def load_yaml(fname):
     return config
 
 
-AVAILABLE_MANUFACTURERS = [
-    manufacturers.THERMOFISHER,
-    manufacturers.TESCAN,
-    manufacturers.DEMO,
-]
+# The manufacturers a configuration can be generated for: those whose driver brings
+# default configuration values (FIB-1123). Odemis registers none, so it is not here.
+AVAILABLE_MANUFACTURERS = list(registry.default_configuration_values())
 DEFAULT_MANUFACTURER = manufacturers.THERMOFISHER
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 SUPPORTED_PLASMA_GASES = ["Argon", "Oxygen", "Nitrogen", "Xenon"]
@@ -270,21 +269,10 @@ def set_default_configuration(configuration_name: str):
         yaml.dump(USER_CONFIGURATIONS_YAML, f)
 
 
-# default configuration values
-DEFAULT_CONFIGURATION_VALUES = {
-    manufacturers.THERMOFISHER: {
-        "ion-column-tilt": 52,
-        "electron-column-tilt": 0,
-    },
-    "Tescan": {
-        "ion-column-tilt": 55,
-        "electron-column-tilt": 0,
-    },
-    "Demo": {
-        "ion-column-tilt": 52,
-        "electron-column-tilt": 0,
-    },
-}
+# default configuration values, per manufacturer, from the driver registry. A
+# snapshot of the drivers registered at import; read
+# registry.default_configuration_values() for one registered since.
+DEFAULT_CONFIGURATION_VALUES = registry.default_configuration_values()
 
 
 # machine learning

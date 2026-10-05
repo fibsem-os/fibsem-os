@@ -485,8 +485,12 @@ def setup_session(
 
     driver = get_driver(manufacturer)
     microscope = driver.load()(settings.system)
-    if driver.port is not None:
-        microscope.connect_to_microscope(ip_address=ip_address, port=driver.port)
+    # The configuration's info.port, when it names one, overrides the driver's.
+    port = settings.system.info.port
+    if port is None:
+        port = driver.port
+    if port is not None:
+        microscope.connect_to_microscope(ip_address=ip_address, port=port)
 
     # The planning stack estimates milling time without a microscope in scope, so
     # the driver's model is installed for the session here, on connect.
