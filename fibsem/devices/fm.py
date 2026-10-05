@@ -1,9 +1,9 @@
 """The fluorescence microscope's parts as devices, and the FM that groups them.
 
 Each part is its own device with its own parameters: the camera, the light source,
-the filter set and the objective. ``FM`` holds no parameters of its own; it is where
-sequences that use several parts live, such as acquiring one channel (filter, light,
-exposure, camera). A driver runs those sequences next to the hardware, which matters
+the filter set and the objective. ``FM`` holds no hardware parameters of its own (only
+``progress``, where a running z-stack is); it is where sequences that use several parts
+live, such as acquiring one channel (filter, light, exposure, camera) or a z-stack. A driver runs those sequences next to the hardware, which matters
 when the FM is on another computer: one call over the network, not one per step, and
 a dropped connection can't leave the light on.
 
@@ -23,7 +23,7 @@ import threading
 import time
 from datetime import datetime
 from types import MappingProxyType
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -149,11 +149,27 @@ FRAME_METADATA: Dict[Tuple[str, str], str] = {
 }
 
 
+Z_STACK_ORDERS = ("channel", "z")
+"""A z-stack's order: each channel through every z position, or every channel at each
+z position."""
+
+
 class FM(Device):
     """The group: sequences over several parts, run by the driver next to them."""
 
+    progress = Parameter(
+        dict,
+        doc="Where a running z-stack is: channel, channel_index, total_channels, "
+        "zlevel and total_zlevels (1-based), reported before each frame; empty when "
+        "none is running.",
+    )
+
     parts: Mapping[str, Device] = MappingProxyType({})
     """The parts this group drives, by device name. A driver sets it."""
+
+    runs_elsewhere: bool = False
+    """Whether the group's commands run on another computer, where one call for a
+    whole sequence saves a round trip per step."""
 
     live_timeout: Optional[float] = 5.0
     """Seconds live view may go without a frame being asked for before it stops by
@@ -166,6 +182,19 @@ class FM(Device):
         self._live = False
         self._last_pull = 0.0
         self._pulling = 0  # frames being acquired right now, so a long exposure counts
+        self._cancel = threading.Event()
+        self._progress: Dict[str, Any] = {}
+
+    def read_progress(self) -> Dict[str, Any]:
+        return dict(self._progress)
+
+    def _report_progress(self, progress: Dict[str, Any]) -> None:
+        param = self.parameters.get("progress")
+        if param is not None:
+            _ = param.cached  # a first report signals only once something was read
+        self._progress = progress
+        if param is not None:
+            param.report(dict(progress))
 
     # -- live view --------------------------------------------------------------------
     #
@@ -273,3 +302,96 @@ class FM(Device):
             if part is not None and parameter in part.parameters:
                 found[key] = to_wire(part.parameters[parameter].get_value())
         return found
+
+    # -- z-stack ------------------------------------------------------------------------
+
+    @command
+    def acquire_z_stack(
+        self,
+        channels: List[Dict[str, Any]],
+        positions: List[float],
+        order: str = "channel",
+        restore_position: Optional[float] = None,
+    ) -> List[Frame]:
+        """A z-stack, next to the hardware: one frame per channel (each a
+        ``ChannelSettings.to_dict()``) at each objective position, in metres.
+
+        ``order`` is "channel" (each channel through every position) or "z" (every
+        channel at each position). The frames come back channel by channel, each
+        channel's in position order, whichever the order. The objective goes back to
+        ``restore_position`` afterwards, when given. `cancel` stops it between frames:
+        the objective goes back, and the result is empty.
+        """
+        if order not in Z_STACK_ORDERS:
+            raise ValueError(f"order must be one of {Z_STACK_ORDERS}, not {order!r}")
+        self._cancel.clear()
+        try:
+            return self._acquire_z_stack(channels, positions, order, restore_position)
+        finally:
+            self._report_progress({})
+
+    @command
+    def cancel(self) -> None:
+        """Stop a running z-stack before its next frame. Safe when none is running."""
+        self._cancel.set()
+        self._cancelled()
+
+    def _cancelled(self) -> None:
+        """Pass the cancel on, for a driver whose z-stack runs elsewhere."""
+
+    def _acquire_z_stack(
+        self,
+        channels: List[Dict[str, Any]],
+        positions: List[float],
+        order: str,
+        restore_position: Optional[float],
+    ) -> List[Frame]:
+        """Moves the objective and takes each frame with `acquire_frame`, so it runs
+        on any driver; the same steps, in the same order, as the FM API's z-stack."""
+        objective = self.parts["objective"]
+        n_channels, n_positions = len(channels), len(positions)
+        frames: List[List[Optional[Frame]]] = [[None] * n_positions for _ in channels]
+
+        def frame(i: int, j: int) -> bool:
+            channel = channels[i]
+            self._report_progress(
+                {
+                    "channel": channel.get("name"),
+                    "channel_index": i + 1,
+                    "total_channels": n_channels,
+                    "zlevel": j + 1,
+                    "total_zlevels": n_positions,
+                }
+            )
+            if self._cancel.is_set():
+                return False
+            if order == "channel":
+                objective.move_absolute(positions[j])
+            frames[i][j] = self.acquire_frame(channel)
+            return True
+
+        def cancelled() -> List[Frame]:
+            logging.info(f"{self.name}: z-stack cancelled")
+            if restore_position is not None:
+                objective.move_absolute(restore_position)
+            return []
+
+        if order == "z":
+            for j, z in enumerate(positions):
+                if self._cancel.is_set():
+                    return cancelled()
+                objective.move_absolute(z)
+                for i in range(n_channels):
+                    if not frame(i, j):
+                        return cancelled()
+        else:
+            for i in range(n_channels):
+                if self._cancel.is_set():
+                    return cancelled()
+                for j in range(n_positions):
+                    if not frame(i, j):
+                        return cancelled()
+
+        if restore_position is not None:
+            objective.move_absolute(restore_position)
+        return [f for channel_frames in frames for f in channel_frames]

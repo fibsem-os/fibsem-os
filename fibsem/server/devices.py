@@ -63,9 +63,11 @@ from fibsem.devices.core import (
 )
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
+    FRAMES_MEDIA_TYPE,
     NPY_MEDIA_TYPE,
     Frame,
     decode_kwargs,
+    frames_to_bytes,
     from_wire,
     to_wire,
 )
@@ -251,6 +253,12 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
         kwargs = decode_kwargs(method, body.get("kwargs", {}))
         result = run(lambda: method(**kwargs))
         headers = {}
+        if (
+            isinstance(result, list)
+            and result
+            and all(isinstance(item, Frame) for item in result)
+        ):  # several images, a z-stack: one archive
+            return Response(frames_to_bytes(result), media_type=FRAMES_MEDIA_TYPE)
         if isinstance(result, Frame):  # the image, its metadata in a header
             headers[FRAME_METADATA_HEADER] = json.dumps(
                 jsonable_encoder(result.metadata)
