@@ -55,7 +55,7 @@ def test_the_odemis_fm_is_served_as_its_parts(odemis_stubs):
 
 def test_health_reports_an_fm_that_stopped_answering(odemis_stubs):
     devices = {d.name: d for d in odemis_fm_devices()}
-    devices["fm"]._fm.camera._camera.exposureTime = _Unanswered()
+    devices["camera"]._camera.exposureTime = _Unanswered()
 
     health = device_health(devices["fm"])
 

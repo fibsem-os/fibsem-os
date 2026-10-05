@@ -334,24 +334,22 @@ def odemis_fm_devices() -> List[Device]:
         RuntimeError: odemis is not installed here, or its backend did not answer;
             the message says which, and what to check.
     """
-    from fibsem.devices.drivers.fm import bind_fm_devices
-
     try:
-        from fibsem.fm.odemis import OdemisFluorescenceMicroscope
+        import fibsem.fm.odemis  # noqa: F401
+        from fibsem.devices.drivers.odemis_fm import bind_odemis_fm
     except ImportError as e:
         raise RuntimeError(
             f"odemis cannot be imported here ({e}). Serve the odemis FM from the "
             "METEOR PC that runs odemis."
         ) from e
     try:
-        fm = OdemisFluorescenceMicroscope(parent=None)
+        return list(bind_odemis_fm(parent=None).values())
     except Exception as e:
         raise RuntimeError(
             f"The odemis backend did not answer ({type(e).__name__}: {e}). Check "
             "that odemis is running (odemis-start) and that this user is in the "
             "'odemis' group."
         ) from e
-    return list(bind_fm_devices(fm).values())
 
 
 def main(argv: Optional[List[str]] = None) -> None:

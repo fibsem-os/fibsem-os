@@ -412,6 +412,8 @@ def _part_cases():
                 lambda: getattr(d["objective"], c)(),
                 lambda: _moved_if_it_moved(d["objective"]),
             )(),
+            # The device says whether it moved; the old method returns nothing.
+            lambda moved: None,
         )
     return cases
 
@@ -695,3 +697,199 @@ def test_a_camera_without_gain_has_no_gain_parameter(odemis):
     finally:
         _CURRENT.pop()
     assert "gain" not in devices["camera"].parameters
+
+
+# -- the FM API: today's Odemis class against the FM API over the devices -------------
+
+
+def _api_pair(odemis, state):
+    old_module, drivers = odemis
+
+    def new_fm():
+        devices = drivers.bind_odemis_fm()
+        devices["fm"].live_timeout = None
+        return old_module.DeviceOdemisFluorescenceMicroscope(devices)
+
+    old_world, old_fm = _build(
+        state, lambda: old_module.OdemisFluorescenceMicroscope(None)
+    )
+    new_world, new_fm = _build(state, new_fm)
+    _prepare(old_world, old_fm._stream, state)
+    _prepare(new_world, new_fm.devices["fm"]._stream, state)
+    return (old_world, old_fm), (new_world, new_fm)
+
+
+def _summary(value):
+    """An image, or a list of them, as what it shows and what it says it was."""
+    from fibsem.fm.structures import FluorescenceImage
+
+    if isinstance(value, FluorescenceImage):
+        shape, found = _old_frame(value)
+        found["emission_wavelength"] = value.metadata.channels[0].emission_wavelength
+        found["gain"] = value.metadata.channels[0].gain
+        return shape, found
+    if isinstance(value, (list, tuple)):
+        return [_summary(v) for v in value]
+    return value
+
+
+def _api_cases():
+    from fibsem.fm.acquisition import acquire_channels, acquire_z_stack
+    from fibsem.fm.structures import ZParameters, ZStackOrder
+
+    fluorescence, reflection, label = (
+        CHANNELS["fluorescence"],
+        CHANNELS["reflection"],
+        CHANNELS["label"],
+    )
+    reads = {
+        "camera exposure_time": lambda fm: fm.camera.exposure_time,
+        "camera binning": lambda fm: fm.camera.binning,
+        "camera gain": lambda fm: fm.camera.gain,
+        "camera offset": lambda fm: fm.camera.offset,
+        "camera pixel_size": lambda fm: fm.camera.pixel_size,
+        "camera resolution": lambda fm: fm.camera.resolution,
+        "camera available_binnings": lambda fm: fm.camera.available_binnings,
+        "camera exposure_time_limits": lambda fm: fm.camera.exposure_time_limits,
+        "light power": lambda fm: fm.light_source.power,
+        "light power_limits": lambda fm: fm.light_source.power_limits,
+        "filter excitation": lambda fm: fm.filter_set.excitation_wavelength,
+        "filter emission": lambda fm: fm.filter_set.emission_wavelength,
+        "filter excitations": lambda fm: sorted(
+            fm.filter_set.available_excitation_wavelengths
+        ),
+        "filter emissions": lambda fm: sorted(
+            fm.filter_set.available_emission_wavelengths, key=lambda v: v or 0
+        ),
+        "filter emission_bands": lambda fm: sorted(
+            fm.filter_set.emission_bands.items()
+        ),
+        "objective position": lambda fm: fm.objective.position,
+        "objective state": lambda fm: fm.objective.state,
+        "objective magnification": lambda fm: fm.objective.magnification,
+        "objective numerical_aperture": lambda fm: fm.objective.numerical_aperture,
+        "objective limits": lambda fm: fm.objective.limits,
+        "objective limit_position": lambda fm: fm.objective.limit_position,
+        "objective focus_position": lambda fm: fm.objective.focus_position,
+    }
+    writes = {
+        "set exposure_time": lambda fm: setattr(fm.camera, "exposure_time", 0.3),
+        "set binning": lambda fm: setattr(fm.camera, "binning", 4),
+        "set gain": lambda fm: setattr(fm.camera, "gain", 3.0),
+        "set power": lambda fm: setattr(fm.light_source, "power", 0.7),
+        "set excitation": lambda fm: setattr(
+            fm.filter_set, "excitation_wavelength", 365
+        ),
+        "set emission None": lambda fm: setattr(
+            fm.filter_set, "emission_wavelength", None
+        ),
+        "set emission 590": lambda fm: setattr(
+            fm.filter_set, "emission_wavelength", 590.0
+        ),
+        "set emission Fluorescence": lambda fm: setattr(
+            fm.filter_set, "emission_wavelength", "Fluorescence"
+        ),
+        "set_channel fluorescence": lambda fm: fm.set_channel(fluorescence),
+        "set_channel label": lambda fm: fm.set_channel(label),
+        "objective move_absolute": lambda fm: fm.objective.move_absolute(4e-3),
+        "objective move_relative": lambda fm: fm.objective.move_relative(1e-4),
+        "objective insert": lambda fm: fm.objective.insert(),
+        "objective retract": lambda fm: fm.objective.retract(),
+    }
+    acquisitions = {
+        "acquire_image fluorescence": lambda fm: fm.acquire_image(fluorescence),
+        "acquire_image reflection": lambda fm: fm.acquire_image(reflection),
+        "acquire_image label": lambda fm: fm.acquire_image(label),
+        "acquire_image current": lambda fm: fm.acquire_image(None),
+        "acquire_channels": lambda fm: acquire_channels(fm, [fluorescence, reflection]),
+        "acquire_z_stack by channel": lambda fm: acquire_z_stack(
+            fm, [fluorescence, reflection], ZParameters(zmin=-2e-6, zmax=2e-6)
+        ),
+        "acquire_z_stack by z level": lambda fm: acquire_z_stack(
+            fm,
+            [fluorescence, reflection],
+            ZParameters(zmin=-1e-6, zmax=1e-6, order=ZStackOrder.Z_LEVEL),
+        ),
+    }
+    return {**reads, **writes, **acquisitions}
+
+
+API_CASES = _api_cases()
+API_STATES = ("retracted", "inserted", "reflection", "gain", "no-favourites")
+
+
+@pytest.mark.parametrize("state", API_STATES)
+@pytest.mark.parametrize("name", list(API_CASES))
+def test_the_api_makes_the_old_changes(odemis, state, name):
+    (old_world, old_fm), (new_world, new_fm) = _api_pair(odemis, state)
+    action = API_CASES[name]
+
+    old_result = _run(old_world, lambda: _summary(action(old_fm)))
+    new_result = _run(new_world, lambda: _summary(action(new_fm)))
+
+    assert _same(_plain(old_result), _plain(new_result)), (old_result, new_result)
+    assert _changes(new_world.log) == _changes(old_world.log)
+    readbacks = set(READBACKS.values())
+    assert _reads(new_world.log) - readbacks <= _reads(old_world.log)
+    assert _reads(old_world.log) - CACHED_AT_CONNECT <= _reads(new_world.log)
+
+
+def test_the_api_cases_record_calls(odemis):
+    """Guard against comparing two empty logs: an acquisition calls odemis."""
+    (old_world, old_fm), _ = _api_pair(odemis, "inserted")
+    _run(old_world, lambda: old_fm.acquire_image(CHANNELS["fluorescence"]))
+    assert "acquire" in [e[1] for e in _changes(old_world.log)]
+
+
+@pytest.mark.parametrize("channel", ["fluorescence", "current"])
+def test_api_live_view_runs_the_stream_as_the_old_live_view(odemis, channel):
+    (old_world, old_fm), (new_world, new_fm) = _api_pair(odemis, "inserted")
+    settings = CHANNELS[channel]
+
+    def old():
+        old_fm.start_acquisition(settings)
+        _push_frames(old_fm, 3)
+        old_fm.stop_acquisition()
+        return True
+
+    def new():
+        new_fm.start_acquisition(settings)
+        assert stubs_wait(
+            lambda: sum(e[1] == "ccd.data.get" for e in list(new_world.log)) >= 3
+        )
+        new_fm.stop_acquisition()
+        return not new_fm.is_streaming
+
+    assert _run(old_world, old) is True
+    assert _run(new_world, new) is True
+
+    pushed = {"ccd.data.subscribe", "ccd.data.unsubscribe"}
+    pulled = {"ccd.data.get"}
+    assert _changes(new_world.log, drop=pulled) == _changes(old_world.log, drop=pushed)
+    stream = _unwrap(new_fm.devices["fm"]._stream)
+    assert stream.is_active.value is False
+
+
+def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
+    import fibsem.microscopes.odemis_microscope as odemis_microscope
+
+    microscope = odemis_microscope.OdemisThermoMicroscope.__new__(
+        odemis_microscope.OdemisThermoMicroscope
+    )
+    world = _World(_components("inserted"))
+    _CURRENT.append(world)
+    try:
+        fm = microscope._connect_fluorescence_devices()
+    finally:
+        _CURRENT.pop()
+    assert type(fm).__name__ == "DeviceOdemisFluorescenceMicroscope"
+    assert fm.parent is microscope
+    assert sorted(microscope.fm_devices) == [
+        "camera",
+        "filter_set",
+        "fm",
+        "light_source",
+        "objective",
+    ]
+    assert fm.devices["fm"].live_timeout is None
+    assert all(d.parent is microscope for d in fm.devices.values())

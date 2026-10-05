@@ -94,14 +94,20 @@ class Objective(Device):
     limit_position = Parameter(float, unit="m", doc="The furthest a move may go in.")
 
     @command
-    def insert(self) -> None:
-        """Move the objective in, to its imaging position."""
-        self._insert()
+    def insert(self) -> Optional[bool]:
+        """Move the objective in, to its imaging position.
+
+        Returns False when it was already in and nothing moved, where the driver
+        knows; otherwise None."""
+        return self._insert()
 
     @command
-    def retract(self) -> None:
-        """Move the objective out, clear of the sample."""
-        self._retract()
+    def retract(self) -> Optional[bool]:
+        """Move the objective out, clear of the sample.
+
+        Returns False when it was already out and nothing moved, where the driver
+        knows; otherwise None."""
+        return self._retract()
 
     @command
     def move_absolute(self, position: float) -> None:
@@ -113,10 +119,10 @@ class Objective(Device):
         """Move the objective by a distance, in metres (positive is towards the sample)."""
         self._move_relative(delta)
 
-    def _insert(self) -> None:
+    def _insert(self) -> Optional[bool]:
         raise NotImplementedError
 
-    def _retract(self) -> None:
+    def _retract(self) -> Optional[bool]:
         raise NotImplementedError
 
     def _move_absolute(self, position: float) -> None:
