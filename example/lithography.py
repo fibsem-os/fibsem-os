@@ -11,9 +11,9 @@ from PIL import Image
 from fibsem import acquire, milling, movement, utils
 
 # from fibsem.ui import windows
-from fibsem.structures import BeamType
 
 BASE_PATH = os.path.dirname(__file__)
+
 
 def save_profile_to_bmp(arr: np.ndarray, fname: str = "profile.bmp"):
 
@@ -40,7 +40,7 @@ def main():
     # )
     # movement.safe_absolute_stage_movement(microscope, stage_position)
 
-    microscope.move_flat_to_beam(BeamType.ION)
+    microscope.move_to_orientation("FIB")
 
     # eucentric, select position
     # windows.ask_user_movement(
@@ -88,7 +88,7 @@ def main():
         centre_y=0,
         width=lens_width,
         height=lens_height,
-        depth=settings.protocol["milling"]["milling_depth"], 
+        depth=settings.protocol["milling"]["milling_depth"],
         bitmap_pattern_definition=bitmap_pattern,
     )
     milling.run_milling(microscope, settings.protocol["milling"]["milling_current"])

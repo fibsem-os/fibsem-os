@@ -948,62 +948,6 @@ class FibsemMicroscope(ABC):
         )
         return apply_delta(base_position, delta)
 
-    def move_flat_to_beam(self, beam_type: BeamType, _safe: bool = True) -> None:
-        """Move the sample surface flat to the electron or ion beam.
-
-        .. deprecated::
-            Use :meth:`move_to_orientation` instead. This method will be removed in the next version.
-            ``move_flat_to_beam(BeamType.ELECTRON)`` → ``move_to_orientation("SEM")``
-            ``move_flat_to_beam(BeamType.ION)`` → ``move_to_orientation("FIB")``
-        """
-        warnings.warn(
-            "move_flat_to_beam is deprecated and will be removed in the next version. "
-            "Use move_to_orientation('SEM') or move_to_orientation('FIB') instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        stage_settings = self.system.stage
-        shuttle_pre_tilt = stage_settings.shuttle_pre_tilt
-
-        if beam_type is BeamType.ELECTRON:
-            rotation = np.deg2rad(stage_settings.rotation_reference)
-            tilt = np.deg2rad(shuttle_pre_tilt)
-
-        if beam_type is BeamType.ION:
-            rotation = np.deg2rad(stage_settings.rotation_180)
-            tilt = np.deg2rad(self.system.ion.column_tilt - shuttle_pre_tilt)
-
-        # new style
-        # omap = {BeamType.ELECTRON: "SEM", BeamType.ION: "FIB"}
-        # pos = self.get_orientation(omap[beam_type])
-        # rotation, tilt = pos.r, pos.t
-
-        # compustage is tilted by 180 degrees for flat to beam, because we image the backside fo the grid,
-        # therefore, we need to offset the tilt by 180 degrees
-        if self.stage_is_compustage and beam_type is BeamType.ION:
-            rotation = 0
-            tilt = -np.pi + tilt
-
-        # updated safe rotation move
-        logging.info(f"moving flat to {beam_type.name}")
-        stage_position = FibsemStagePosition(
-            r=rotation, t=tilt, coordinate_system="Raw"
-        )
-
-        logging.debug(
-            {
-                "msg": "move_flat_to_beam",
-                "stage_position": stage_position.to_dict(),
-                "beam_type": beam_type.name,
-            }
-        )
-
-        if _safe:
-            self.safe_absolute_stage_movement(stage_position)
-        else:
-            self.move_stage_absolute(stage_position)
-
     def _axis_restrictions_apply(
         self, position: Optional[FibsemStagePosition] = None
     ) -> bool:

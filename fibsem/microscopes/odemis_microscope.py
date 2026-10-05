@@ -401,41 +401,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def disconnect(self):
         pass
 
-    def move_flat_to_beam(self, beam_type: BeamType, _safe: bool = True) -> None:
-        # new style
-        omap = {BeamType.ELECTRON: "SEM", BeamType.ION: "FIB"}
-        pos = self.get_orientation(omap[beam_type])
-        rotation, tilt = pos.r, pos.t
-        stage_orientation = self.get_stage_orientation()
-
-        # updated safe rotation move
-        logging.info(f"moving flat to {beam_type.name}")
-        stage_position = FibsemStagePosition(
-            r=rotation, t=tilt, coordinate_system="Raw"
-        )
-
-        # imitate compucentric movements
-        if (stage_orientation in ["SEM", "MILLING"] and beam_type == BeamType.ION) or (
-            stage_orientation == "FIB" and beam_type == BeamType.ELECTRON
-        ):
-            current_stage_position = self.get_stage_position()
-            stage_position.x = -current_stage_position.x
-            stage_position.y = -current_stage_position.y
-            stage_position.z = current_stage_position.z
-
-        logging.debug(
-            {
-                "msg": "move_flat_to_beam",
-                "stage_position": stage_position.to_dict(),
-                "beam_type": beam_type.name,
-            }
-        )
-
-        if _safe:
-            self.safe_absolute_stage_movement(stage_position)
-        else:
-            self.move_stage_absolute(stage_position)
-
     def set_channel(self, channel: BeamType):
         """Set the active channels for the microscope."""
         self.connection.set_active_view(channel.value)

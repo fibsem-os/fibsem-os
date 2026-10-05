@@ -20,7 +20,6 @@ reported by AutoScript, so it is pinned here as connect leaves it on an Arctis, 
 those two facts set the way `ThermoMicroscope` sets them.
 
 Readers measured, with the stage at each declared pose:
-- `move_flat_to_beam`, the deprecated move, with its own compustage branch;
 - `vertical_move`, whose compustage branch flips dy unless the stage is tilted past
   -90 degrees (FIB-1124 step 2);
 - the geometry stamped onto images (`hardware_geometry`);
@@ -160,14 +159,6 @@ def _measure(stage_type: str) -> Dict[str, Any]:
         probe = FibsemStagePosition(r=orientations["SEM"].r, t=np.radians(tilt))
         out[f"classify SEM.r t={tilt:g}"] = microscope.get_stage_orientation(probe)
 
-    moved = []
-    microscope.safe_absolute_stage_movement = moved.append
-    for beam_type in (BeamType.ELECTRON, BeamType.ION):
-        with pytest.warns(DeprecationWarning):
-            microscope.move_flat_to_beam(beam_type)
-        out[f"move_flat_to_beam {beam_type.name}.r"] = _deg(moved[-1].r)
-        out[f"move_flat_to_beam {beam_type.name}.t"] = _deg(moved[-1].t)
-
     # vertical_move reads the stage tilt and moves relatively: give it each pose and
     # record the move, in micrometres per micrometre of dy in the FIB view.
     relative = []
@@ -266,10 +257,6 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "classify MILLING t-7": "MILLING",
         "classify SEM.r t=-44": "MILLING",
         "classify SEM.r t=-46": "NONE",
-        "move_flat_to_beam ELECTRON.r": 0.0,
-        "move_flat_to_beam ELECTRON.t": 35.0,
-        "move_flat_to_beam ION.r": 180.0,
-        "move_flat_to_beam ION.t": 17.0,
         "vertical_move SEM": (0.0, 0.727879, 1.039519),
         "vertical_move FIB": (0.0, 0.371025, 1.213568),
         "vertical_move MILLING": (0.0, 0.263844, 1.241287),
@@ -322,10 +309,6 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "classify MILLING t-7": "MILLING",
         "classify SEM.r t=-44": "MILLING",
         "classify SEM.r t=-46": "NONE",
-        "move_flat_to_beam ELECTRON.r": 180.0,
-        "move_flat_to_beam ELECTRON.t": 0.0,
-        "move_flat_to_beam ION.r": 0.0,
-        "move_flat_to_beam ION.t": 55.0,
         "vertical_move SEM": (0.0, 0.0, 1.220775),
         "vertical_move FIB": (0.0, 1.0, 0.700208),
         "vertical_move MILLING": (0.0, -0.417529, 1.147153),
@@ -388,10 +371,6 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "classify FM t-7": "NONE",
         "classify SEM.r t=-44": "MILLING",
         "classify SEM.r t=-46": "NONE",
-        "move_flat_to_beam ELECTRON.r": 0.0,
-        "move_flat_to_beam ELECTRON.t": 0.0,
-        "move_flat_to_beam ION.r": 0.0,
-        "move_flat_to_beam ION.t": -128.0,
         "vertical_move SEM": (0.0, 0.0, 1.269018),
         "vertical_move FIB": (0.0, 1.0, 0.781286),
         "vertical_move MILLING": (0.0, -0.495845, 1.168137),

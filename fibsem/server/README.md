@@ -109,9 +109,9 @@ pos = microscope.vertical_move(dy=5e-6)
 # Safe move with collision avoidance
 microscope.safe_absolute_stage_movement(FibsemStagePosition(x=0.0, y=0.0, z=0.004))
 
-# Orient sample flat to beam
-microscope.move_flat_to_beam(BeamType.ELECTRON)
-microscope.move_flat_to_beam(BeamType.ION)
+# Move to a named orientation ("SEM", "FIB", "MILLING", or "FM" on a compustage)
+microscope.move_to_orientation("SEM")
+microscope.move_to_orientation("FIB")
 ```
 
 ### Milling
@@ -175,7 +175,7 @@ seconds = microscope.estimate_milling_time() # float
 | `POST` | `/stable_move` | Beam-corrected lateral move |
 | `POST` | `/vertical_move` | Vertical stage move |
 | `POST` | `/safe_absolute_stage_movement` | Safe move with collision avoidance |
-| `POST` | `/move_flat_to_beam` | Orient flat to beam |
+| `POST` | `/move_to_orientation` | Move to a named orientation |
 | `POST` | `/setup_milling` | Configure milling settings |
 | `POST` | `/draw_patterns` | Draw milling patterns |
 | `POST` | `/run_milling` | Run milling (blocking) |

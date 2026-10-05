@@ -157,8 +157,9 @@ class FibsemClient:
     def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
         self._post("safe_absolute_stage_movement", {"position": position.to_dict()})
 
-    def move_flat_to_beam(self, beam_type: BeamType) -> None:
-        self._post("move_flat_to_beam", {"beam_type": beam_type.name})
+    def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
+        result = self._post("move_to_orientation", {"orientation": orientation})
+        return FibsemStagePosition.from_dict(result["position"])
 
     # --- Microscope state ---
 
