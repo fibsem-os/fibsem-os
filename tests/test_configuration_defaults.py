@@ -175,7 +175,8 @@ def test_writing_a_configuration_produces_the_split_shape():
         "imaging",
     }
     assert "imaging" not in written
-    assert set(written["hardware"]["electron"]) <= HARDWARE_KEYS
+    electron = utils.configuration_device(written, "electron")
+    assert set(electron) - {"name", "type"} <= HARDWARE_KEYS
     assert written["defaults"]["electron"]["voltage"] == 2000
 
 

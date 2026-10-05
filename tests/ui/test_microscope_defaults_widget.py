@@ -1,5 +1,6 @@
 """The Defaults panel: read from the instrument, edit, save to the configuration."""
 
+import copy
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -192,7 +193,9 @@ def test_saving_writes_the_defaults_section_and_nothing_else(widget, microscope)
     written = utils.load_yaml(path)
     assert written["defaults"]["ion"]["voltage"] == 8000
     assert written["defaults"]["electron"]["hfw"] == pytest.approx(80.0e-6)
-    assert written["hardware"] == before["hardware"]
+    # Saving lists the devices (configuration v2) and changes nothing they say.
+    upgraded = utils.upgrade_configuration(copy.deepcopy(before))
+    assert written["hardware"] == upgraded["hardware"]
     assert written["calibration"] == before["calibration"]
     assert written["defaults"]["imaging"] == before["defaults"]["imaging"]
     assert written["defaults"]["apply_on_connect"] is False
