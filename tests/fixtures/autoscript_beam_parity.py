@@ -148,6 +148,8 @@ GETS = (
     "detector_brightness",
     "detector_contrast",
     "angular_correction_angle",
+    # set only: the old get never answered it, and the routed get leaves it to _get
+    "angular_correction_tilt_correction",
     # not moved: still the old branches on both sides
     "preset",
 )
@@ -327,18 +329,17 @@ def facts():
     result = run(lambda: microscope.get("detector_type", BeamType.ION))
     out["detector_read"] = {"selected": selected, "result": result[0]}
 
-    # the tilt correction, which could only be set before, reads what was set
+    # the tilt correction, which could only be set before, reads on the new API; the
+    # old key's get still leaves it to _get, which returns None
     microscope = routed(plasma=False)
-    tilt = {
-        "before": microscope.get(
-            "angular_correction_tilt_correction", BeamType.ELECTRON
-        )
-    }
+    beam = microscope.beams[BeamType.ELECTRON]
+    tilt = {"before": beam.tilt_correction.get_value()}
     vendor = (
         microscope.connection.beams.electron_beam.angular_correction.tilt_correction
     )
     _preset(vendor, "is_on", True)
-    tilt["after"] = microscope.get(
+    tilt["after"] = beam.tilt_correction.get_value()
+    tilt["key"] = microscope.get(
         "angular_correction_tilt_correction", BeamType.ELECTRON
     )
     tilt["old"] = old_branches(plasma=False).get(

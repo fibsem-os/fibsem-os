@@ -11,8 +11,8 @@ Cases: every moved key on both beams, with and without a plasma column; the hfw
 clip; an unlisted plasma gas, which warns and is still set; the detector keys, which
 select the beam's channel first, and their refused values; the scan-mode methods,
 through the scan commands on one side and the old keys on the other; the electron
-beam's angular correction, whose tilt correction could only be set before and now
-reads too; and ``preset``,
+beam's angular correction, whose tilt correction could only be set before: it reads
+on the new API, and the old key's get still returns None; and ``preset``,
 which has not moved, so both sides still answer it with the old branches. The fake SDK has to be in place before ``fibsem.microscopes.autoscript`` is
 first imported, so the recording runs in its own interpreter
 (``tests/fixtures/autoscript_beam_parity.py``). Nothing here has run on an instrument.
@@ -246,11 +246,13 @@ def test_the_angular_correction_is_set_as_before(recording):
     assert ["INFO", "Angular correction angle set to 0.2 radians."] in case["new"][2]
 
 
-def test_the_tilt_correction_now_reads(recording):
-    """The old key could only be set; its get warned and read None."""
+def test_the_tilt_correction_reads_on_the_new_api_only(recording):
+    """The old key could only be set, and its get returned None. It still does; the
+    device's parameter reads the vendor's state."""
     assert recording["facts"]["tilt_correction"] == {
         "before": False,
         "after": True,
+        "key": None,
         "old": None,
         "ion": None,
     }
