@@ -124,7 +124,7 @@ def test_the_half_turn_wraps():
     The modulo is the difference between a file that reads `0` and one that reads `360`.
     Both compare equal through `rotation_angle_is_smaller`, so nothing would have broken
     -- it would just have been written in a spelling no other configuration uses, for a
-    reader to wonder about. `fibsem/configuration.py` omitted the modulo for years.
+    reader to wonder about. The old configuration generator omitted the modulo for years.
     """
     assert _stage(rotation_reference=180.0).rotation_180 == 0.0
 

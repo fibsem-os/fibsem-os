@@ -53,7 +53,7 @@ def _install_fake_sdk():
     package = types.ModuleType("autoscript_sdb_microscope_client")
     package.SdbMicroscopeClient = type("SdbMicroscopeClient", (), {})
     build = types.ModuleType("autoscript_sdb_microscope_client.build_information")
-    build.INFO_VERSIONSHORT = "4.8.1"
+    build.INFO_VERSIONSHORT = "4.9.0"
     package.build_information = build
 
     proxies = types.ModuleType(
@@ -263,7 +263,7 @@ def make(compustage, fm_inserted=False):
         microscope._default_stage_coordinate_system = "Raw"
         stage = FakeStage("specimen.stage", position, OFFSET_LIMITS)
     microscope.connection = connection
-    microscope.stage = stage
+    microscope._vendor_stage = stage
     return microscope
 
 

@@ -65,8 +65,10 @@ from fibsem.devices.core import (
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
+    FRAMES_MEDIA_TYPE,
     NPY_MEDIA_TYPE,
     Frame,
+    frames_from_bytes,
     from_wire,
     to_wire,
 )
@@ -108,6 +110,8 @@ def _metadata(payload: Dict[str, Any], type_: type) -> ParameterMetadata:
         limits=_limits(payload.get("limits")),
         choices=None if choices is None else [from_wire(type_, c) for c in choices],
         settable=payload.get("settable", True),
+        native_max=payload.get("native_max"),
+        native_unit=payload.get("native_unit"),
     )
 
 
@@ -158,6 +162,8 @@ class DeviceClient:
                 f"{method} {self.base_url}/{path}: {reason}"
             ) from None
         if response.ok:
+            if response.headers.get("content-type", "").startswith(FRAMES_MEDIA_TYPE):
+                return frames_from_bytes(response.content)
             if response.headers.get("content-type", "").startswith(NPY_MEDIA_TYPE):
                 data = np.load(io.BytesIO(response.content), allow_pickle=False)
                 metadata = response.headers.get(FRAME_METADATA_HEADER)
@@ -369,13 +375,16 @@ class RemoteDevice(Device):
         for param in self.parameters.values():
             param.get_value()
 
-    def call_command(self, command: str, **kwargs: Any) -> Any:
+    def call_command(
+        self, command: str, timeout: Any = WRITE_TIMEOUT, **kwargs: Any
+    ) -> Any:
         """Run one of the device's commands on the server. Structured arguments
-        (a ``Point``) cross the wire like parameter values do."""
+        (a ``Point``) cross the wire like parameter values do. ``timeout`` is the
+        requests timeout: seconds, or (connect, read)."""
         path = f"devices/{self.name}/commands/{command}"
         body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
-        answer = self.client.request("POST", path, WRITE_TIMEOUT, json=body)
-        if isinstance(answer, (np.ndarray, Frame)):
+        answer = self.client.request("POST", path, timeout, json=body)
+        if isinstance(answer, (np.ndarray, Frame, list)):
             return answer
         return answer["result"]
 
@@ -483,6 +492,8 @@ class RemoteObjective(RemoteDevice, Objective):
 class RemoteFM(RemoteDevice, FM):
     """Channel acquisition runs on the FM's computer, in one call."""
 
+    runs_elsewhere = True
+
     # The server's FM watches live view; a second watchdog here would only stop it
     # when this process stops asking, which the server notices anyway.
     live_timeout = None
@@ -506,6 +517,34 @@ class RemoteFM(RemoteDevice, FM):
             # reads the metadata as it used to.
             return Frame(self._acquire_channel(channel), {})
         return self.call_command("acquire_frame", channel=channel)
+
+    def _acquire_z_stack(
+        self,
+        channels: List[Dict[str, Any]],
+        positions: List[float],
+        order: str,
+        restore_position: Optional[float],
+    ) -> List[Frame]:
+        if "acquire_z_stack" not in self.server_commands:
+            # A server from before the command: the stack runs here, one move and one
+            # frame per request, as before.
+            return super()._acquire_z_stack(
+                channels, positions, order, restore_position
+            )
+        # A whole stack takes as long as its exposures and moves; it ends by
+        # answering, or by the connection dropping, so no read timeout.
+        return self.call_command(
+            "acquire_z_stack",
+            timeout=(READ_TIMEOUT, None),
+            channels=channels,
+            positions=positions,
+            order=order,
+            restore_position=restore_position,
+        )
+
+    def _cancelled(self) -> None:
+        if "cancel" in self.server_commands:
+            self.call_command("cancel")
 
 
 REMOTE_FM_PARTS = {
