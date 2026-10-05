@@ -25,6 +25,8 @@ from packaging.version import parse as parse_version
 from skimage import transform
 
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
+from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
+from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
@@ -79,7 +81,7 @@ if TYPE_CHECKING:
     from fibsem.structures import TFibsemPatternSettings
 
 THERMO_API_AVAILABLE = False
-MINIMUM_AUTOSCRIPT_VERSION_4_7 = parse_version("4.7")
+MINIMUM_AUTOSCRIPT_VERSION = parse_version("4.9")
 # Set when the guarded import below fails, so the connection error can say why.
 THERMO_API_IMPORT_ERROR: Optional[str] = None
 # Declared so importers can rely on the name; only meaningful once
@@ -137,12 +139,12 @@ try:
 
     # special case for Monash development environment
     if os.environ.get("COMPUTERNAME", "hostname") == "MU00190108":
-        logging.info("Overwriting autoscript version to 4.7, for Monash dev install")
-        AUTOSCRIPT_VERSION = MINIMUM_AUTOSCRIPT_VERSION_4_7
+        logging.info("Overwriting autoscript version to 4.9, for Monash dev install")
+        AUTOSCRIPT_VERSION = MINIMUM_AUTOSCRIPT_VERSION
 
-    if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
+    if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION:
         raise AutoScriptException(
-            f"AutoScript {version} found. Please update your AutoScript version to 4.7 or higher."
+            f"AutoScript {version} found. Please update your AutoScript version to 4.9 or higher."
         )
 
     from autoscript_sdb_microscope_client._dynamic_object_proxies import (
@@ -1148,6 +1150,9 @@ class ThermoMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
 
+        # after the sample stage, which reads which subsystems are fitted
+        self._build_parts()
+
     def _build_beams(self) -> None:
         """Build the beam devices and route the beam keys that have moved to them.
 
@@ -1177,6 +1182,52 @@ class ThermoMicroscope(FibsemMicroscope):
         self._command_routes = MappingProxyType(
             {"stage_home": ("stage_device", "home")}
         )
+
+    def _build_parts(self) -> None:
+        """Build the chamber, and the manipulator and gas injectors that are fitted,
+        and route the chamber and manipulator keys to them.
+
+        ``pump``, ``vent`` and the manipulator's raw moves then go through the
+        devices, and ``cryo_deposition_v2`` through the gas injector for its port.
+        The corrected and offset needle moves stay here and move through the device.
+        """
+        from fibsem.devices.drivers.autoscript import (
+            MULTICHEM,
+            bind_autoscript_chamber,
+            bind_autoscript_gis,
+            bind_autoscript_manipulator,
+        )
+
+        self.chamber_device = bind_autoscript_chamber(self)
+        if self.is_available("manipulator"):
+            self.manipulator_device = bind_autoscript_manipulator(self)
+        self.gis_devices = MappingProxyType(bind_autoscript_gis(self))
+        # the one a caller of the device API means: the multichem, or a lone port
+        if MULTICHEM in self.gis_devices:
+            self.gis_device = self.gis_devices[MULTICHEM]
+        elif len(self.gis_devices) == 1:
+            self.gis_device = next(iter(self.gis_devices.values()))
+
+        routes = dict(self._device_routes)
+        routes.update(
+            {key: ("chamber_device", name) for key, name in CHAMBER_ROUTES.items()}
+        )
+        if self.manipulator_device is not None:
+            routes.update(
+                {
+                    key: ("manipulator_device", name)
+                    for key, name in MANIPULATOR_ROUTES.items()
+                }
+            )
+        self._device_routes = MappingProxyType(routes)
+        commands = dict(self._command_routes)
+        commands.update(
+            {
+                key: ("chamber_device", name)
+                for key, name in CHAMBER_COMMAND_ROUTES.items()
+            }
+        )
+        self._command_routes = MappingProxyType(commands)
 
     def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
         """The FM API over the Thermo FM devices, sharing this microscope's
@@ -1868,16 +1919,16 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def insert_manipulator(self, name: str = "PARK") -> FibsemManipulatorPosition:
         """Insert the manipulator to the specified position"""
+        # through the manipulator device once connect has built it; the code below
+        # stays until a session on an instrument confirms the device
+        if self.manipulator_device is not None:
+            return super().insert_manipulator(name)
 
         if not self.is_available("manipulator"):
             raise ValueError("Manipulator not available.")
 
         if name not in ["PARK", "EUCENTRIC"]:
             raise ValueError(f"insert position {name} not supported.")
-        if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
-            raise NotImplementedError(
-                "Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher"
-            )
 
         # get the saved position name
         saved_position = (
@@ -1908,11 +1959,8 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def retract_manipulator(self) -> FibsemManipulatorPosition:
         """Retract the manipulator"""
-
-        if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
-            raise NotImplementedError(
-                "Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher"
-            )
+        if self.manipulator_device is not None:
+            return super().retract_manipulator()
 
         if not self.is_available("manipulator"):
             raise NotImplementedError("Manipulator not available.")
@@ -1934,6 +1982,8 @@ class ThermoMicroscope(FibsemMicroscope):
     def move_manipulator_relative(
         self, position: FibsemManipulatorPosition
     ) -> FibsemManipulatorPosition:
+        if self.manipulator_device is not None:
+            return super().move_manipulator_relative(position)
         logging.info(f"moving manipulator by {position}")
 
         # convert to autoscript position
@@ -1949,6 +1999,8 @@ class ThermoMicroscope(FibsemMicroscope):
         self, position: FibsemManipulatorPosition
     ) -> FibsemManipulatorPosition:
         """Move the manipulator to the specified coordinates."""
+        if self.manipulator_device is not None:
+            return super().move_manipulator_absolute(position)
         logging.info(f"moving manipulator to {position}")
 
         # convert to autoscript
@@ -2080,19 +2132,18 @@ class ThermoMicroscope(FibsemMicroscope):
     manipulator_move_types = ("relative", "corrected")
 
     def manipulator_named_positions(self) -> List[str]:
+        if self.manipulator_device is not None:
+            return super().manipulator_named_positions()
         return ["PARK", "EUCENTRIC"]
 
     def _get_saved_manipulator_position(
         self, name: str = "PARK"
     ) -> FibsemManipulatorPosition:
+        if self.manipulator_device is not None:
+            return super()._get_saved_manipulator_position(name)
 
         if name not in ["PARK", "EUCENTRIC"]:
             raise ValueError(f"saved position {name} not supported.")
-        if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION_4_7:
-            raise NotImplementedError(
-                "Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher"
-            )
-
         named_position = (
             ManipulatorSavedPosition.PARK
             if name == "PARK"
@@ -2733,6 +2784,15 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return
 
+    def _gis_device_for(
+        self, port: Optional[str], use_multichem: bool
+    ) -> Optional[Any]:
+        """The gas injector ``get_gis`` would use, if connect built it."""
+        from fibsem.devices.drivers.autoscript import MULTICHEM
+
+        devices = getattr(self, "gis_devices", None) or {}
+        return devices.get(MULTICHEM if use_multichem else port)
+
     def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
         """Run non-specific cryo deposition protocol.
 
@@ -2746,6 +2806,24 @@ class ThermoMicroscope(FibsemMicroscope):
         insert_position = gis_settings.insert_position
 
         logging.debug({"msg": "cryo_depositon_v2", "settings": gis_settings.to_dict()})
+
+        # through the gas injector for this port once connect has built it; the code
+        # below stays until a session on an instrument confirms the device
+        gis = self._gis_device_for(port, use_multichem)
+        if gis is not None:
+            logging.info(f"Inserting Gas Injection System at {insert_position}")
+            gis.insert(insert_position if use_multichem else None)
+            gas = gas if use_multichem else None
+            gis.heater_on(gas)
+            logging.info(f"Running deposition for {duration} seconds")
+            gis.open()
+            time.sleep(duration)
+            gis.close()
+            logging.info(f"Turning off heater for {gas}")
+            gis.heater_off()
+            logging.info("Retracting Gas Injection System")
+            gis.retract()
+            return
 
         # get gis subsystem
         self.get_gis(port)

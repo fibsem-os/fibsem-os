@@ -36,7 +36,7 @@ from fibsem.structures import InsertableDeviceState
 class Camera(Device):
     exposure_time = Parameter(float, unit="s")
     binning = Parameter(int)
-    gain = Parameter(float)
+    gain = Parameter(float, doc="A fraction of the camera's gain range, 0 to 1.")
     offset = Parameter(float)
     pixel_size = Parameter(tuple, unit="m", doc="(x, y), after binning.")
     resolution = Parameter(tuple, doc="(width, height) in pixels, after binning.")

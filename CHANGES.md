@@ -154,6 +154,8 @@ writing up.
 - **The "Report an Issue" bug reporter and user scripts are on for everyone**, and their
   flags are gone. In v0.5.2 both were opt-in. A user script still has the application's
   access to the microscope and none of its checks, so read one before running it.
+- **AutoScript 4.9 or later is required**, up from 4.7. With an older AutoScript the
+  ThermoFisher microscope is unavailable, and the connection error names the version found.
 
 ## v0.5.3 (30/09/2026)
 

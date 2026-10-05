@@ -50,6 +50,12 @@ class Beam(Device):
     scanning_mode = Parameter(
         ScanMode, doc="What the beam scans; the scan commands set it."
     )
+    angular_correction = Parameter(
+        float, unit="rad", doc="The tilt the angular correction corrects the image for."
+    )
+    tilt_correction = Parameter(
+        bool, doc="The angular correction's tilt correction is on."
+    )
 
     live_frame = Signal(object)
     """Each image live view acquires (a FibsemImage), from the live view's thread."""
@@ -224,6 +230,8 @@ BEAM_ROUTES: Dict[str, str] = {
     "shift": "shift",
     "on": "on",
     "scanning_mode": "scanning_mode",
+    "angular_correction_angle": "angular_correction",
+    "angular_correction_tilt_correction": "tilt_correction",
 }
 
 
