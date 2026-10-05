@@ -62,6 +62,9 @@ class FMCamera(Camera):
     def write_gain(self, value: float) -> None:
         self._camera.gain = value
 
+    def metadata_gain(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=RangeLimit(min=0.0, max=1.0))
+
     def read_offset(self) -> float:
         return self._camera.offset
 

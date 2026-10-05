@@ -23,9 +23,20 @@ saved focus position, the channel name and colour, and the image transform.
 from __future__ import annotations
 
 import logging
+import threading
 from copy import deepcopy
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Sequence, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 
@@ -36,6 +47,10 @@ from fibsem.fm.microscope import (
     LightSource,
     ObjectiveLens,
 )
+from fibsem.fm.progress import (
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
 from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
@@ -43,6 +58,8 @@ from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
+    ZParameters,
+    ZStackOrder,
     emission_filter_for,
     objective_state_name,
     same_emission_value,
@@ -171,6 +188,10 @@ class DeviceCamera(Camera):
         _param(self._device, "gain").write_through(value)
 
     @property
+    def gain_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
+        return _native_scale(self._device, "gain")
+
+    @property
     def offset(self) -> float:
         return _param(self._device, "offset").get_value()
 
@@ -185,6 +206,16 @@ class DeviceCamera(Camera):
     @property
     def resolution(self) -> Tuple[int, int]:
         return tuple(_param(self._device, "resolution").get_value())
+
+
+def _native_scale(device: Device, name: str) -> Optional[Tuple[float, Optional[str]]]:
+    """A fraction parameter's full scale in hardware units, when the driver gives it."""
+    if name not in device.parameters:
+        return None
+    metadata = _param(device, name).metadata
+    if metadata.native_max is None:
+        return None
+    return (metadata.native_max, metadata.native_unit)
 
 
 class DeviceLightSource(LightSource):
@@ -204,6 +235,10 @@ class DeviceLightSource(LightSource):
     def power_limits(self) -> Tuple[float, float]:
         limits = _param(self._device, "power").limits
         return (limits.min, limits.max)
+
+    @property
+    def power_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
+        return _native_scale(self._device, "power")
 
 
 def _old_emission_value(found: EmissionFilter) -> Optional[Union[float, str]]:
@@ -313,6 +348,86 @@ class DeviceFluorescenceMicroscope(FluorescenceMicroscope):
                 channel = channel_settings.to_dict()
             frame = self.devices["fm"].acquire_frame(channel)
             return self._construct_image(frame.data, frame.metadata)
+
+    @property
+    def runs_z_stack_on_device(self) -> bool:
+        """Whether a z-stack is one command on the ``fm`` group: when the group runs
+        on another computer and has the command. A local FM runs it step by step, so
+        each slice is shown as it arrives."""
+        group = self.devices["fm"]
+        return getattr(group, "runs_elsewhere", False) and (
+            "acquire_z_stack" in getattr(group, "server_commands", group.commands)
+        )
+
+    def acquire_z_stack_on_device(
+        self,
+        channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+        zparams: ZParameters,
+        stop_event: Optional[threading.Event] = None,
+    ) -> Optional[FluorescenceImage]:
+        """``fibsem.fm.acquisition.acquire_z_stack`` as one ``fm`` group command:
+        the same positions, order, progress and cancelling, with the frames coming
+        back together at the end."""
+        group = self.devices["fm"]
+        channels = (
+            channel_settings
+            if isinstance(channel_settings, list)
+            else [channel_settings]
+        )
+        with self.active_channel():
+            z_init = self.objective.position
+            positions = [float(z) for z in zparams.generate_positions(z_init=z_init)]
+            order = "z" if zparams.order == ZStackOrder.Z_LEVEL else "channel"
+
+            def on_changed(name: str, value: Any) -> None:
+                if name != "progress" or not value:
+                    return
+                self.acquisition_progress_signal.emit(
+                    FluorescenceAcquisitionProgress(
+                        status=FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+                        **value,
+                    )
+                )
+
+            done = threading.Event()
+
+            def watch_for_stop() -> None:
+                while not done.wait(0.1):
+                    if stop_event.is_set():
+                        group.cancel()
+                        return
+
+            group.changed.connect(on_changed)
+            if stop_event is not None:
+                threading.Thread(
+                    target=watch_for_stop, name="fm-z-stack-stop", daemon=True
+                ).start()
+            try:
+                frames = group.acquire_z_stack(
+                    channels=[ch.to_dict() for ch in channels],
+                    positions=positions,
+                    order=order,
+                    restore_position=z_init,
+                )
+            finally:
+                done.set()
+                group.changed.disconnect(on_changed)
+            # The objective moved on the FM's side; announce where it ended up.
+            self.objective._notify_moved()
+            if not frames:
+                logging.info("Z-stack acquisition cancelled")
+                return None
+
+            images: List[FluorescenceImage] = []
+            n = len(positions)
+            for i, ch in enumerate(channels):
+                self.channel_name, self.channel_color = ch.name, ch.color
+                planes = [
+                    self._construct_image(frame.data, frame.metadata)
+                    for frame in frames[i * n : (i + 1) * n]
+                ]
+                images.append(FluorescenceImage.create_z_stack(planes))
+            return FluorescenceImage.create_multi_channel_image(images)
 
     def _acquisition_worker(
         self, channel_settings: Optional[ChannelSettings] = None
