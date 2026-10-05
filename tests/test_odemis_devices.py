@@ -152,7 +152,7 @@ def make(cls, devices=True, ion=True):
     if not devices:
         microscope.beams = MappingProxyType({})
         microscope._beam_routes = MappingProxyType({})
-        microscope.stage_device = None
+        microscope.stage = None
         microscope._device_routes = MappingProxyType({})
         microscope._command_routes = MappingProxyType({})
     return microscope
@@ -341,7 +341,7 @@ def test_creating_the_microscope_builds_the_beams_and_stage(odemis_cls):
     microscope = make(odemis_cls)
     assert set(microscope.beams) == {BeamType.ELECTRON, BeamType.ION}
     assert all(isinstance(b, OdemisBeam) for b in microscope.beams.values())
-    assert isinstance(microscope.stage_device, OdemisStage)
+    assert isinstance(microscope.stage, OdemisStage)
     electron = microscope.beams[BeamType.ELECTRON]
     assert "plasma_gas" not in electron.parameters
     assert "preset" not in electron.parameters
@@ -350,15 +350,15 @@ def test_creating_the_microscope_builds_the_beams_and_stage(odemis_cls):
     assert electron.current.choices[0] == 1e-12
     assert electron.voltage.choices == sorted(electron.voltage.choices)
     assert sorted(electron.detector_type.choices) == ["ETD", "TLD"]
-    assert sorted(microscope.stage_device.axes) == ["r", "t", "x", "y", "z"]
-    assert microscope.stage_device.commands["link"].available
+    assert sorted(microscope.stage.axes) == ["r", "t", "x", "y", "z"]
+    assert microscope.stage.commands["link"].available
 
 
 def test_the_calls_go_through_the_devices(odemis_cls):
     microscope = make(odemis_cls)
     used = []
     for device, hooks in (
-        (microscope.stage_device, ("_move_absolute", "_move_relative", "_home")),
+        (microscope.stage, ("_move_absolute", "_move_relative", "_home")),
     ):
         for hook in hooks:
             original = getattr(device, hook)
@@ -392,7 +392,7 @@ def test_a_device_that_cannot_be_built_leaves_the_old_code(odemis_cls, caplog):
     with caplog.at_level(logging.WARNING):
         microscope = odemis_cls(_system())
     assert dict(microscope.beams) == {}
-    assert microscope.stage_device is None
+    assert microscope.stage is None
     assert microscope._route("stage_position", None) is None
     assert "Could not build the beam and stage devices" in caplog.text
     assert microscope.get("hfw", BeamType.ELECTRON) == 150e-6

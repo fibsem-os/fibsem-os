@@ -283,7 +283,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.connection: OdemisAutoscriptClient = model.getComponent(role="fibsem")
 
         # stage
-        self.stage: model.Actuator = model.getComponent(role="stage-bare")
+        self._vendor_stage: model.Actuator = model.getComponent(role="stage-bare")
 
         logging.info("OdemisThermoMicroscope initialized")
 
@@ -350,13 +350,11 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             return
         self.beams = MappingProxyType(beams)
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
-        self.stage_device = stage
+        self.stage = stage
         self._device_routes = MappingProxyType(
-            {key: ("stage_device", name) for key, name in STAGE_ROUTES.items()}
+            {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
         )
-        self._command_routes = MappingProxyType(
-            {"stage_home": ("stage_device", "home")}
-        )
+        self._command_routes = MappingProxyType({"stage_home": ("stage", "home")})
 
     def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
         """The FM as the FM API over the Odemis FM devices, which make the odemis
@@ -632,7 +630,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
         # stage properties
         if key == "stage_position":
-            pdict = self.stage.position.value
+            pdict = self._vendor_stage.position.value
             return FibsemStagePosition.from_odemis_dict(pdict)
 
         if key == "stage_homed":
@@ -930,20 +928,20 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
     @_records_stage_move
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        if self.stage_device is not None:
+        if self.stage is not None:
             return super().move_stage_absolute(position)
         pdict = stage_position_to_odemis_dict(position)
-        f = self.stage.moveAbs(pdict)
+        f = self._vendor_stage.moveAbs(pdict)
         f.result()
         # TODO: implement compucentric rotation
         return self.get_stage_position()
 
     @_records_stage_move
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        if self.stage_device is not None:
+        if self.stage is not None:
             return super().move_stage_relative(position)
         pdict = stage_position_to_odemis_dict(position)
-        f = self.stage.moveRel(pdict)
+        f = self._vendor_stage.moveRel(pdict)
         f.result()
         return self.get_stage_position()
 

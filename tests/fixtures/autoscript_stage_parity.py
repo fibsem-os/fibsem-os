@@ -263,7 +263,7 @@ def make(compustage, fm_inserted=False):
         microscope._default_stage_coordinate_system = "Raw"
         stage = FakeStage("specimen.stage", position, OFFSET_LIMITS)
     microscope.connection = connection
-    microscope.stage = stage
+    microscope._vendor_stage = stage
     return microscope
 
 
