@@ -5,9 +5,9 @@ the microscope did not, so what a backend promises was spread across every test 
 happens to use Demo. This file writes it down, through the public API only: `get`/`set`
 keys, their base-class wrappers, stage moves, state, and image acquisition.
 
-It holds `DeviceDemoMicroscope`, the demo backend being rebuilt from devices, to
-exactly what `DemoMicroscope` does today: every test runs against both, and the
-differential test at the bottom compares them call by call.
+It holds `DemoMicroscope`, the demo backend built from devices, to exactly what
+`LegacyDemoMicroscope`, the Demo before devices, does: every test runs against both,
+and the differential test at the bottom compares them call by call.
 
 What is pinned is today's behaviour, including the parts nobody would design on
 purpose (a beam key read without a beam type raises; `stage_link` links whatever value
@@ -41,46 +41,35 @@ from fibsem.structures import (
     Point,
     ScanMode,
 )
+from tests._legacy_demo import setup_legacy_session
 
 # The backends this suite runs against. Each is built the way a session builds it,
-# through `utils.setup_session`, so it is chosen exactly as a configuration file
-# would choose it. "DeviceDemo" is the Demo backend rebuilt from devices
-# (`fibsem.microscopes.device_demo`), selected by `sim: {devices: true}`.
-BACKENDS = ["Demo", "DeviceDemo"]
+# through `utils.setup_session`. "LegacyDemo" is the Demo before devices
+# (`LegacyDemoMicroscope`), which no configuration selects, built in its place.
+BACKENDS = ["Demo", "LegacyDemo"]
 
 # The backend every other one is compared against in the differential test.
-REFERENCE_BACKEND = "Demo"
+REFERENCE_BACKEND = "LegacyDemo"
 
 BEAMS = [BeamType.ELECTRON, BeamType.ION]
 
 
-def _device_demo_configuration(base: str = cfg.DEFAULT_CONFIGURATION_PATH) -> str:
-    """A configuration (the default one unless given) with the device-built Demo
-    selected."""
-    with open(base) as f:
-        configuration = yaml.safe_load(f)
-    configuration.setdefault("sim", {})
-    configuration["sim"] = {**(configuration["sim"] or {}), "devices": True}
-    path = os.path.join(tempfile.mkdtemp(), "device-demo-configuration.yaml")
-    with open(path, "w") as f:
-        yaml.safe_dump(configuration, f)
-    return path
-
-
 def _connect(backend: str, base: str = cfg.DEFAULT_CONFIGURATION_PATH):
-    config_path = _device_demo_configuration(base) if backend == "DeviceDemo" else base
+    if backend == "LegacyDemo":
+        microscope, _ = setup_legacy_session(config_path=base, setup_logging=False)
+        return microscope
     microscope, _ = utils.setup_session(
-        config_path=config_path, manufacturer="Demo", setup_logging=False
+        config_path=base, manufacturer="Demo", setup_logging=False
     )
     return microscope
 
 
 def test_backends_are_what_they_say():
-    from fibsem.microscopes.device_demo import DeviceDemoMicroscope
-    from fibsem.microscopes.simulator import DemoMicroscope
+    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.microscopes.simulator import LegacyDemoMicroscope
 
     assert type(_connect("Demo")) is DemoMicroscope
-    assert type(_connect("DeviceDemo")) is DeviceDemoMicroscope
+    assert type(_connect("LegacyDemo")) is LegacyDemoMicroscope
 
 
 # The parts not every system has, and the patterns not every vendor can draw: a
@@ -152,9 +141,9 @@ def _is_pair_of_ints(value) -> bool:
     )
 
 
-# The keys DeviceDemo serves from its devices rather than the Demo chain. The
+# The keys the Demo serves from its devices. The
 # contract above runs through them; this checks that it really does.
-DEVICE_DEMO_ROUTED_BEAM_KEYS = [
+DEMO_ROUTED_BEAM_KEYS = [
     "voltage",
     "current",
     "working_distance",
@@ -174,23 +163,23 @@ DEVICE_DEMO_ROUTED_BEAM_KEYS = [
 ]
 
 
-@pytest.mark.parametrize("key", DEVICE_DEMO_ROUTED_BEAM_KEYS)
+@pytest.mark.parametrize("key", DEMO_ROUTED_BEAM_KEYS)
 @pytest.mark.parametrize("beam_type", BEAMS)
-def test_device_demo_serves_its_beam_keys_from_devices(key, beam_type):
-    microscope = _connect("DeviceDemo")
+def test_demo_serves_its_beam_keys_from_devices(key, beam_type):
+    microscope = _connect("Demo")
     param = microscope._route(key, beam_type)
     assert param is not None
     assert param.device is microscope.beams[beam_type]
 
 
-def test_device_demo_reads_the_manipulator_and_chamber_from_their_devices():
-    """The wrappers over these keys never reach the Demo chain on DeviceDemo."""
-    microscope = _connect("DeviceDemo")
+def test_demo_reads_the_manipulator_and_chamber_from_their_devices():
+    """The wrappers over these keys never reach the _get/_set chain on the Demo."""
+    microscope = _connect("Demo")
     chain_get = microscope._get
     keys = ("manipulator_position", "manipulator_state", "chamber_state")
 
     def refuse(key, beam_type=None):
-        assert key not in keys, f"{key} went to the Demo chain"
+        assert key not in keys, f"{key} went to the _get/_set chain"
         return chain_get(key, beam_type)
 
     microscope._get = refuse
@@ -205,8 +194,8 @@ def test_device_demo_reads_the_manipulator_and_chamber_from_their_devices():
     assert microscope.pump() == "Pumped"
 
 
-def test_device_demo_pumps_and_vents_through_its_chamber_device():
-    microscope = _connect("DeviceDemo")
+def test_demo_pumps_and_vents_through_its_chamber_device():
+    microscope = _connect("Demo")
     chamber = microscope.chamber_device
     calls = []
     for name in ("_pump", "_vent"):
@@ -222,8 +211,8 @@ def test_device_demo_pumps_and_vents_through_its_chamber_device():
     assert calls == ["_vent", "_pump"]
 
 
-def test_device_demo_moves_its_manipulator_device():
-    microscope = _connect("DeviceDemo")
+def test_demo_moves_its_manipulator_device():
+    microscope = _connect("Demo")
     manipulator = microscope.manipulator_device
     calls = []
     for name in ("_insert", "_retract", "_move_absolute", "_move_relative"):
@@ -256,8 +245,8 @@ def test_device_demo_moves_its_manipulator_device():
     assert manipulator.state.cached is InsertableDeviceState.RETRACTED
 
 
-def test_device_demo_deposits_through_its_gis_device():
-    microscope = _connect("DeviceDemo")
+def test_demo_deposits_through_its_gis_device():
+    microscope = _connect("Demo")
     gis = microscope.gis_device
     calls = []
     hooks = ("_insert", "_retract", "_heater_on", "_heater_off", "_open", "_close")
@@ -271,7 +260,9 @@ def test_device_demo_deposits_through_its_gis_device():
                 original(*args),
             ),
         )
-    microscope.gis_system = None  # the device keeps its own GIS, never Demo's
+    microscope.gis_system = (
+        None  # the device keeps its own GIS, never the legacy Demo's
+    )
     settings = FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0)
     microscope.cryo_deposition_v2(settings)
     assert calls == [
@@ -286,9 +277,9 @@ def test_device_demo_deposits_through_its_gis_device():
     assert gis.heated.cached is False
 
 
-def test_device_demo_moves_its_stage_device():
-    """DeviceDemo's stage methods go through its stage device, not the Demo chain."""
-    microscope = _connect("DeviceDemo")
+def test_demo_moves_its_stage_device():
+    """The Demo's stage methods go through its stage device, not _get/_set."""
+    microscope = _connect("Demo")
     stage = microscope.stage_device
     assert stage is not None
     calls = []
@@ -313,12 +304,9 @@ def test_device_demo_moves_its_stage_device():
     )
 
 
-def test_device_demo_stage_keeps_its_own_state_and_serves_the_stage_keys():
-    """The stage device owns its state: the stage keys read and drive it, and Demo's
-    own stage is never touched again after connect."""
-    microscope = _connect("DeviceDemo")
-    demo_stage = deepcopy(microscope.stage_system)
-    assert microscope.stage_device.sim_position is not microscope.stage_system.position
+def test_demo_stage_keeps_its_own_state_and_serves_the_stage_keys():
+    """The stage device owns its state: the stage keys read and drive it."""
+    microscope = _connect("Demo")
     chain = []
     for name in ("_get", "_set"):
         original = getattr(microscope, name)
@@ -342,14 +330,11 @@ def test_device_demo_stage_keeps_its_own_state_and_serves_the_stage_keys():
     )
     assert microscope.get("stage_position").x == pytest.approx(1e-3)
     assert not [key for key in chain if key.startswith("stage_")]
-    assert microscope.stage_system == demo_stage
 
 
-def test_device_demo_chamber_keeps_its_own_state_and_serves_the_chamber_keys():
-    """The chamber device owns its state: the chamber keys read and drive it, and
-    Demo's own chamber is never touched again after connect."""
-    microscope = _connect("DeviceDemo")
-    demo_chamber = deepcopy(microscope.chamber)
+def test_demo_chamber_keeps_its_own_state_and_serves_the_chamber_keys():
+    """The chamber device owns its state: the chamber keys read and drive it."""
+    microscope = _connect("Demo")
     chain = []
     for name in ("_get", "_set"):
         original = getattr(microscope, name)
@@ -367,14 +352,11 @@ def test_device_demo_chamber_keeps_its_own_state_and_serves_the_chamber_keys():
     microscope.set("pump_chamber", True)
     assert microscope.get("chamber_state") == "Pumped"
     assert not chain
-    assert microscope.chamber == demo_chamber
 
 
-def test_device_demo_manipulator_keeps_its_own_state_and_serves_its_keys():
-    """The manipulator device owns its state: the manipulator keys read it, and
-    Demo's own needle is never touched again after connect."""
-    microscope = _connect("DeviceDemo")
-    demo_needle = deepcopy(microscope.manipulator_system)
+def test_demo_manipulator_keeps_its_own_state_and_serves_its_keys():
+    """The manipulator device owns its state: the manipulator keys read it."""
+    microscope = _connect("Demo")
     chain = []
     original = microscope._get
     microscope._get = lambda key, *args: (chain.append(key), original(key, *args))[1]
@@ -387,14 +369,11 @@ def test_device_demo_manipulator_keeps_its_own_state_and_serves_its_keys():
     )
     assert microscope.get("manipulator_position").x == pytest.approx(1e-6)
     assert not chain
-    assert microscope.manipulator_system == demo_needle
 
 
-def test_device_demo_beams_keep_their_own_state():
-    """The beam devices own their state: Demo's own beams are never touched again
-    after connect, whatever the old API does to the beams."""
-    microscope = _connect("DeviceDemo")
-    demo_beams = deepcopy((microscope.electron_system, microscope.ion_system))
+def test_demo_beams_keep_their_own_state():
+    """The beam devices own their state, whatever the old API does to the beams."""
+    microscope = _connect("Demo")
     for beam_type in BEAMS:
         microscope.set("hfw", 80e-6, beam_type)
         microscope.set("detector_contrast", 0.9, beam_type)
@@ -404,15 +383,12 @@ def test_device_demo_beams_keep_their_own_state():
         microscope.set("full_frame", None, beam_type)
         assert microscope.get("hfw", beam_type) == 80e-6
         assert microscope.beams[beam_type].sim_beam.hfw == 80e-6
-    assert (microscope.electron_system, microscope.ion_system) == demo_beams
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
-def test_device_demo_images_through_its_beam_devices(beam_type):
-    """Acquiring, autocontrast and autofocus read and change the beam devices,
-    never Demo's own beams."""
-    microscope = _connect("DeviceDemo")
-    demo_beams = deepcopy((microscope.electron_system, microscope.ion_system))
+def test_demo_images_through_its_beam_devices(beam_type):
+    """Acquiring, autocontrast and autofocus read and change the beam devices."""
+    microscope = _connect("Demo")
     settings = ImageSettings(
         beam_type=beam_type, hfw=50e-6, resolution=(64, 48), dwell_time=1e-9
     )
@@ -431,13 +407,12 @@ def test_device_demo_images_through_its_beam_devices(beam_type):
     assert beam.sim_beam.working_distance == microscope.get(
         "working_distance", beam_type
     )
-    assert (microscope.electron_system, microscope.ion_system) == demo_beams
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
-def test_device_demo_scans_through_its_beam_commands(beam_type):
-    """DeviceDemo's scan-mode methods call the beam's commands, not the Demo chain."""
-    microscope = _connect("DeviceDemo")
+def test_demo_scans_through_its_beam_commands(beam_type):
+    """The Demo's scan-mode methods call the beam's commands, not _set."""
+    microscope = _connect("Demo")
     beam = microscope.beams[beam_type]
     calls = []
 
@@ -683,15 +658,15 @@ def _plasma_configuration() -> str:
     return path
 
 
-def test_device_demo_beams_own_their_choices(monkeypatch):
-    """The beam keys' values come from the beam devices, never Demo's lists."""
-    from fibsem.microscopes.simulator import DemoMicroscope
+def test_demo_beams_own_their_choices(monkeypatch):
+    """The beam keys' values come from the beam devices, not the legacy Demo's lists."""
+    from fibsem.microscopes.simulator import LegacyDemoMicroscope
 
     def refuse(self, key, beam_type=None):
-        raise AssertionError(f"{key} asked Demo for its values")
+        raise AssertionError(f"{key} asked the legacy Demo for its values")
 
-    monkeypatch.setattr(DemoMicroscope, "get_available_values", refuse)
-    microscope = _connect("DeviceDemo", _plasma_configuration())
+    monkeypatch.setattr(LegacyDemoMicroscope, "get_available_values", refuse)
+    microscope = _connect("Demo", _plasma_configuration())
     for beam_type in BEAMS:
         for key in ("current", "voltage", "detector_type", "detector_mode"):
             assert microscope.get_available_values(key, beam_type)
@@ -720,16 +695,16 @@ def test_plasma_is_the_configured_ion_column(backend):
     assert microscope.get("plasma", BeamType.ELECTRON) is False
 
 
-def test_device_demo_reads_its_configuration_without_demo(monkeypatch):
+def test_demo_reads_its_configuration_without_demo(monkeypatch):
     """The configured keys and capabilities read the configuration, not Demo."""
-    from fibsem.microscopes.simulator import DemoMicroscope
+    from fibsem.microscopes.simulator import LegacyDemoMicroscope
 
     def refuse(self, key, beam_type=None):
-        raise AssertionError(f"{key} went to Demo")
+        raise AssertionError(f"{key} went to the legacy Demo")
 
-    microscope = _connect("DeviceDemo", _plasma_configuration())
-    monkeypatch.setattr(DemoMicroscope, "_get", refuse)
-    monkeypatch.setattr(DemoMicroscope, "get_available_values", refuse)
+    microscope = _connect("Demo", _plasma_configuration())
+    monkeypatch.setattr(LegacyDemoMicroscope, "_get", refuse)
+    monkeypatch.setattr(LegacyDemoMicroscope, "get_available_values", refuse)
     assert microscope.get("plasma", BeamType.ION) is True
     for key in ("plasma_gas", "gis_ports", "scan_direction"):
         assert microscope.get_available_values(key)
@@ -737,15 +712,15 @@ def test_device_demo_reads_its_configuration_without_demo(monkeypatch):
     assert microscope._get_axis_limits()
 
 
-def test_device_demo_sets_its_imaging_and_milling_keys_without_demo(monkeypatch):
-    from fibsem.microscopes.simulator import DemoMicroscope
+def test_demo_sets_its_imaging_and_milling_keys_without_demo(monkeypatch):
+    from fibsem.microscopes.simulator import LegacyDemoMicroscope
 
     def refuse(self, key, value=None, beam_type=None):
-        raise AssertionError(f"{key} went to Demo")
+        raise AssertionError(f"{key} went to the legacy Demo")
 
-    microscope = _connect("DeviceDemo")
-    monkeypatch.setattr(DemoMicroscope, "_set", refuse)
-    monkeypatch.setattr(DemoMicroscope, "get_available_values", refuse)
+    microscope = _connect("Demo")
+    monkeypatch.setattr(LegacyDemoMicroscope, "_set", refuse)
+    monkeypatch.setattr(LegacyDemoMicroscope, "get_available_values", refuse)
     files = microscope.get_available_values("application_file")
     microscope.set("application_file", files[-1])
     microscope.set("patterning_mode", "Parallel")
@@ -760,35 +735,23 @@ def test_device_demo_sets_its_imaging_and_milling_keys_without_demo(monkeypatch)
     assert microscope.imaging_system.active_view == BeamType.ION.value
 
 
-# What DeviceDemo still takes from Demo: methods it inherits as they are, and its
-# own methods that hand on to Demo's through `super()`. Each step of the migration
-# takes names off; when both are empty the inheritance goes.
-DEVICE_DEMO_INHERITS_FROM_DEMO = {"__init__", "_wait", "disconnect"}  # fmt: skip
-DEVICE_DEMO_HANDS_ON_TO_DEMO = {
-    "connect_to_microscope", "_get", "_set", "get_available_values",
-}  # fmt: skip
+def test_demo_is_not_built_on_the_legacy_demo():
+    """The Demo is devices and the shared demo code: it inherits nothing from
+    LegacyDemoMicroscope and has none of its simulated parts."""
+    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.microscopes.simulator import LegacyDemoMicroscope
 
-
-def test_what_device_demo_still_takes_from_demo():
-    import inspect
-
-    from fibsem.microscopes.device_demo import DeviceDemoMicroscope
-    from fibsem.microscopes.simulator import DemoMicroscope
-
-    demo = vars(DemoMicroscope)
-    inherited = {
-        name
-        for name, value in demo.items()
-        if callable(value)
-        and inspect.getattr_static(DeviceDemoMicroscope, name) is value
-    }
-    handed_on = {
-        name
-        for name, value in vars(DeviceDemoMicroscope).items()
-        if callable(value) and name in demo and "super()" in inspect.getsource(value)
-    }
-    assert inherited == DEVICE_DEMO_INHERITS_FROM_DEMO
-    assert handed_on == DEVICE_DEMO_HANDS_ON_TO_DEMO
+    assert LegacyDemoMicroscope not in DemoMicroscope.__mro__
+    microscope = _connect("Demo")
+    for part in (
+        "chamber",
+        "stage_system",
+        "manipulator_system",
+        "gis_system",
+        "electron_system",
+        "ion_system",
+    ):
+        assert not hasattr(microscope, part)
 
 
 @pytest.mark.parametrize(
@@ -953,6 +916,25 @@ def test_a_false_pump_or_vent_does_nothing(microscope, key):
     assert microscope.get("chamber_state") == before
 
 
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda m: m.get("plasma_gas", BeamType.ION),
+        lambda m: m.set("plasma_gas", "Argon", BeamType.ION),
+        lambda m: m.set("pump_chamber", False),
+        lambda m: m.set("vent_chamber", False),
+    ],
+    ids=["read-gas", "set-gas", "pump-false", "vent-false"],
+)
+def test_keys_without_an_effect_here_are_not_unknown(microscope, call, caplog):
+    """No plasma gas on a Ga column, and a false pump or vent: known keys that do
+    nothing here, so they are not reported as unknown."""
+    assert not microscope.get("plasma", BeamType.ION)
+    with caplog.at_level(logging.WARNING):
+        call(microscope)
+    assert not [r for r in caplog.records if "Unknown key" in r.getMessage()]
+
+
 def test_home_homes_and_says_so(microscope):
     """`home` returns whether the stage is homed afterwards, on every backend."""
     assert microscope.home() is True
@@ -1092,7 +1074,7 @@ def test_cryo_deposition_leaves_the_microscope_as_it_was(microscope, insert_posi
 
 def test_cryo_deposition_opens_the_valve_and_closes_it(microscope, monkeypatch):
     """The gas flows: the valve opens for the deposition and is closed after it."""
-    # The valve is Demo's GIS on Demo, and the GIS device's own on DeviceDemo.
+    # The valve is the legacy Demo's GIS there, and the GIS device's own on Demo.
     device = microscope.gis_device
     gis = microscope.gis_system if device is None else device
     hooks = ("open", "close") if device is None else ("_open", "_close")
@@ -1125,6 +1107,16 @@ def fm_microscope(request):
     return _connect(request.param, FM_CONFIGURATION)
 
 
+def test_a_compustage_is_never_linked_and_cannot_link(fm_microscope, caplog):
+    """The Arctis simulator is a compustage: ``stage_linked`` is False and
+    ``stage_link`` does nothing, without either being an unknown key."""
+    assert fm_microscope.stage_is_compustage
+    with caplog.at_level(logging.WARNING):
+        fm_microscope.set("stage_link", True)
+        assert fm_microscope.get("stage_linked") is False
+    assert not [r for r in caplog.records if "Unknown key" in r.getMessage()]
+
+
 def test_fm_acquires_a_channel(fm_microscope):
     from fibsem.fm.structures import ChannelSettings
 
@@ -1144,15 +1136,15 @@ def test_fm_objective_inserts_and_retracts(fm_microscope):
     assert objective.state == "Retracted"
 
 
-def test_device_demo_builds_no_fm_devices_without_an_fm():
-    microscope = _connect("DeviceDemo")
+def test_demo_builds_no_fm_devices_without_an_fm():
+    microscope = _connect("Demo")
     assert microscope.fm is None
     assert dict(microscope.fm_devices) == {}
 
 
-def test_device_demo_fm_devices_share_state_with_the_fm():
+def test_demo_fm_devices_share_state_with_the_fm():
     """The devices drive the parts `fm` holds: a change on either side shows on both."""
-    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    microscope = _connect("Demo", FM_CONFIGURATION)
     fm, devices = microscope.fm, microscope.fm_devices
     assert sorted(devices) == [
         "camera",
@@ -1170,10 +1162,10 @@ def test_device_demo_fm_devices_share_state_with_the_fm():
     assert devices["objective"].state.cached is InsertableDeviceState.INSERTED
 
 
-def test_device_demo_fm_group_acquires_a_channel():
+def test_demo_fm_group_acquires_a_channel():
     from fibsem.fm.structures import ChannelSettings
 
-    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    microscope = _connect("Demo", FM_CONFIGURATION)
     devices = microscope.fm_devices
     channel = ChannelSettings(excitation_wavelength=450, power=0.3, exposure_time=0.02)
     data = devices["fm"].acquire_channel(channel.to_dict())
@@ -1184,12 +1176,12 @@ def test_device_demo_fm_group_acquires_a_channel():
     assert devices["filter_set"].excitation_wavelength.cached == 450
 
 
-def test_device_demo_fm_is_the_fm_api_over_devices():
+def test_demo_fm_is_the_fm_api_over_devices():
     """`fm` is the same FM API over devices a remote FM is, over the Demo FM devices."""
     from fibsem.devices.drivers.demo import DemoCamera
     from fibsem.fm.api import DeviceFluorescenceMicroscope
 
-    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    microscope = _connect("Demo", FM_CONFIGURATION)
     fm = microscope.fm
     assert isinstance(fm, DeviceFluorescenceMicroscope)
     assert fm.devices == dict(microscope.fm_devices)
@@ -1199,46 +1191,63 @@ def test_device_demo_fm_is_the_fm_api_over_devices():
     assert fm.acquire_image().data.shape == (height, width)
 
 
-def test_device_demo_fm_starts_where_the_simulated_fm_was():
+def test_demo_fm_starts_where_the_simulated_fm_was():
     """The devices copy the simulated FM's parts at connect, calibration included."""
+    legacy = _connect("LegacyDemo", FM_CONFIGURATION)
     demo = _connect("Demo", FM_CONFIGURATION)
-    device_demo = _connect("DeviceDemo", FM_CONFIGURATION)
     for name in ("focus_position", "limit_position", "position", "state"):
-        assert getattr(device_demo.fm.objective, name) == getattr(
-            demo.fm.objective, name
-        ), name
+        assert getattr(demo.fm.objective, name) == getattr(legacy.fm.objective, name), (
+            name
+        )
     for part, names in {
         "camera": ("exposure_time", "binning", "gain", "pixel_size", "resolution"),
         "light_source": ("power",),
         "filter_set": ("excitation_wavelength", "emission_wavelength"),
     }.items():
         for name in names:
-            assert getattr(getattr(device_demo.fm, part), name) == getattr(
-                getattr(demo.fm, part), name
+            assert getattr(getattr(demo.fm, part), name) == getattr(
+                getattr(legacy.fm, part), name
             ), f"{part}.{name}"
 
 
-def test_device_demo_fm_snaps_excitation_to_its_bands(caplog):
+def test_demo_fm_snaps_excitation_to_its_bands(caplog):
     """As the hardware does, and unlike the simulated FM, which stores any value: an
     excitation between bands selects the nearest, with a warning."""
-    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    microscope = _connect("Demo", FM_CONFIGURATION)
     microscope.fm.filter_set.excitation_wavelength = 488
     assert microscope.fm.filter_set.excitation_wavelength == 450
     assert "set to the nearest, 450" in caplog.text
 
 
-def test_device_demo_fm_names_a_numeric_emission_as_its_multi_band_filter():
+def test_demo_fm_names_a_numeric_emission_as_its_multi_band_filter():
     """The simulator's filter set has no bands, so a wavelength means its multi-band
     filter, as Thermo reports one; the simulated FM stores the number."""
-    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+    microscope = _connect("Demo", FM_CONFIGURATION)
     microscope.fm.filter_set.emission_wavelength = 520.0
     assert microscope.fm.filter_set.emission_wavelength == "Fluorescence"
     microscope.fm.filter_set.emission_wavelength = None
     assert microscope.fm.filter_set.emission_wavelength is None
 
 
-def test_device_demo_fm_objective_clips_to_its_limit():
-    microscope = _connect("DeviceDemo", FM_CONFIGURATION)
+def test_fm_image_metadata_is_the_state_it_was_taken_in(fm_microscope):
+    """Whether the FM reads its state after the frame (the legacy Demo) or its devices
+    report it with the frame (Demo), the image says the same."""
+    from fibsem.fm.structures import ChannelSettings
+
+    fm = fm_microscope.fm
+    channel = ChannelSettings(
+        name="GFP", excitation_wavelength=450, power=0.3, exposure_time=0.02
+    )
+    md = fm.acquire_image(channel).metadata
+    now = fm.get_metadata()
+    assert md.channels == now.channels
+    assert (md.pixel_size_x, md.pixel_size_y) == (now.pixel_size_x, now.pixel_size_y)
+    assert md.resolution == now.resolution
+    assert md.stage_position == now.stage_position
+
+
+def test_demo_fm_objective_clips_to_its_limit():
+    microscope = _connect("Demo", FM_CONFIGURATION)
     objective = microscope.fm.objective
     objective.limit_position = 5e-3
     objective.move_absolute(7e-3)
@@ -1396,3 +1405,34 @@ def test_call_sequence_matches_the_reference(backend):
     candidate = _record(_connect(backend))
     difference = _first_difference(reference, candidate)
     assert not difference, difference
+
+
+def test_each_microscope_has_its_own_imaging_lock_and_stop_event():
+    first, second = _connect("Demo"), _connect("Demo")
+    assert first._threading_lock is not second._threading_lock
+    assert first._stop_acquisition_event is not second._stop_acquisition_event
+    assert first.resources is not second.resources
+
+
+def test_the_imaging_channel_resource_is_the_old_paths_lock():
+    from fibsem.devices import IMAGING_CHANNEL
+    from fibsem.devices.stage import STAGE_RESOURCE
+
+    microscope = _connect("Demo")
+    assert microscope.resources.lock(IMAGING_CHANNEL) is microscope._threading_lock
+    # a stage move does not wait for a frame
+    assert microscope.resources.lock(STAGE_RESOURCE) is not microscope._threading_lock
+
+
+def test_demo_devices_claim_the_microscopes_resources():
+    microscope = _connect("Demo", FM_CONFIGURATION)
+    devices = [
+        *microscope.beams.values(),
+        microscope.stage_device,
+        microscope.chamber_device,
+        microscope.manipulator_device,
+        microscope.gis_device,
+        *microscope.fm_devices.values(),
+    ]
+    assert microscope.fm_devices
+    assert all(device.resources is microscope.resources for device in devices)

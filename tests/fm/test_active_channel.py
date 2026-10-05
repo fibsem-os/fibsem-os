@@ -10,6 +10,7 @@ the microscope, so the context manager is exercised against a stub connection th
 stub of the class rather than the real import. What is under test is the contract --
 capture, set, restore, restore-on-failure -- not the SDK.
 """
+
 from contextlib import contextmanager
 
 import pytest
@@ -81,7 +82,9 @@ class _FM:
 
 
 class TestTheContract:
-    def test_the_block_runs_on_the_fm(self, ):
+    def test_the_block_runs_on_the_fm(
+        self,
+    ):
         fm = _FM(view=1)  # the beam side owns it
 
         with fm.active_channel():
@@ -129,12 +132,12 @@ class TestTheContract:
         assert fm.connection.imaging.view == 1
 
     def test_the_lock_is_not_held_across_the_body(self):
-        """The scope can span a whole tileset, and the lock it takes is
-        `FibsemMicroscope._threading_lock` -- a class attribute, shared by every caller
-        in the process. Holding it for minutes would block them all; the known ones are
-        a Pause/Resume click and the milling monitor loop, neither of which should
-        overlap an FM run, but the point is that a shared lock held that long makes any
-        future caller a hostage.
+        """The scope can span a whole tileset, and the lock it takes is the
+        microscope's `_threading_lock`, shared by every caller on the microscope and by
+        its devices as `imaging_channel`. Holding it for minutes would block them all;
+        the known ones are a Pause/Resume click and the milling monitor loop, neither of
+        which should overlap an FM run, but the point is that a shared lock held that
+        long makes any future caller a hostage.
         """
         import threading
 
@@ -257,9 +260,11 @@ class TestEveryMetadataReadIsInsideTheScope:
 
     @pytest.fixture
     def fm(self):
-        from fibsem import utils
+        # The legacy Demo's FM runs `fibsem.fm.microscope`'s own `acquire_image`; the
+        # device-built Demo's frame comes with its metadata, so there is no read.
+        from tests._legacy_demo import setup_legacy_session
 
-        microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+        microscope, _ = setup_legacy_session(ip_address="localhost")
         return microscope.fm
 
     def test_the_metadata_is_read_with_the_channel_still_held(self, fm, monkeypatch):
@@ -287,22 +292,38 @@ class TestTheRealDriverMatches:
 
         import fibsem.fm as fm_package
 
-        return (Path(fm_package.__file__).parent / "autoscript.py").read_text(encoding="utf-8")
+        return (Path(fm_package.__file__).parent / "autoscript.py").read_text(
+            encoding="utf-8"
+        )
 
     @staticmethod
-    def _functions(source: str):
+    def _functions(source: str, class_name: str = ""):
+        """Functions by name; within one class when ``class_name`` is given, since the
+        device-backed FM in the same module defines some of the same names."""
         import ast
 
+        tree = ast.parse(source)
+        if class_name:
+            tree = next(
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ClassDef) and node.name == class_name
+            )
         return {
             node.name: node
-            for node in ast.walk(ast.parse(source))
+            for node in ast.walk(tree)
             if isinstance(node, ast.FunctionDef)
         }
+
+    def _active_channel(self):
+        return self._functions(self._source(), "ThermoFisherFluorescenceMicroscope")[
+            "active_channel"
+        ]
 
     def test_the_context_manager_captures_and_restores_the_view(self):
         import ast
 
-        node = self._functions(self._source())["active_channel"]
+        node = self._active_channel()
         body = ast.dump(node)
         assert "get_active_view" in body, "does not capture the view"
         assert "set_active_view" in body, "does not restore the view"
@@ -336,8 +357,7 @@ class TestTheRealDriverMatches:
             in {
                 child.func.attr
                 for child in ast.walk(node)
-                if isinstance(child, ast.Call)
-                and isinstance(child.func, ast.Attribute)
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
             }
         )
         assert offenders == [], (
@@ -350,7 +370,7 @@ class TestTheRealDriverMatches:
         minutes and blocks everything else that takes it."""
         import ast
 
-        node = self._functions(self._source())["active_channel"]
+        node = self._active_channel()
         locked = [
             child
             for child in ast.walk(node)
@@ -373,7 +393,7 @@ class TestTheRealDriverMatches:
         """
         import ast
 
-        node = self._functions(self._source())["active_channel"]
+        node = self._active_channel()
         entry = next(
             child
             for child in ast.walk(node)
@@ -392,8 +412,10 @@ class TestTheRealDriverMatches:
             )
         )
         counted_it = index_of(
-            lambda stmt: isinstance(stmt, ast.AugAssign)
-            and "_channel_depth" in ast.dump(stmt.target)
+            lambda stmt: (
+                isinstance(stmt, ast.AugAssign)
+                and "_channel_depth" in ast.dump(stmt.target)
+            )
         )
         assert took_it < counted_it, (
             "the scope is counted before the channel is taken, so a connection that "
@@ -404,9 +426,75 @@ class TestTheRealDriverMatches:
         """The one that stopped a workflow task, named so a regression is legible."""
         import ast
 
-        node = self._functions(self._source())["state"]
+        node = self._functions(self._source(), "ThermoFisherObjectiveLens")["state"]
         assert any(
             isinstance(child, ast.With)
             and "active_channel" in ast.dump(child.items[0].context_expr)
             for child in ast.walk(node)
         )
+
+
+class TestTheDeviceChannelMatches:
+    """The devices' FM channel (`AutoscriptFMChannel.scope`) is the same scope, moved.
+    Thermo's FM API runs on it, so it is pinned the same way."""
+
+    @staticmethod
+    def _scope():
+        import ast
+        from pathlib import Path
+
+        import fibsem.devices.drivers as drivers
+
+        source = (Path(drivers.__file__).parent / "autoscript_fm.py").read_text(
+            encoding="utf-8"
+        )
+        cls = next(
+            node
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.ClassDef) and node.name == "AutoscriptFMChannel"
+        )
+        return next(
+            node
+            for node in cls.body
+            if isinstance(node, ast.FunctionDef) and node.name == "scope"
+        )
+
+    def test_it_captures_and_restores_the_view_in_a_finally(self):
+        import ast
+
+        node = self._scope()
+        body = ast.dump(node)
+        assert "get_active_view" in body and "set_active_view" in body
+        assert any(isinstance(n, ast.Try) and n.finalbody for n in ast.walk(node))
+
+    def test_the_lock_is_not_held_across_the_body(self):
+        import ast
+
+        locked = [
+            child
+            for child in ast.walk(self._scope())
+            if isinstance(child, ast.With) and "lock" in ast.dump(child.items[0])
+        ]
+        assert locked
+        assert not any(
+            isinstance(inner, ast.Expr) and isinstance(inner.value, ast.Yield)
+            for block in locked
+            for inner in ast.walk(block)
+        )
+
+    def test_the_scope_is_counted_only_after_the_channel_is_taken(self):
+        import ast
+
+        entry = next(
+            child
+            for child in ast.walk(self._scope())
+            if isinstance(child, ast.With) and "set_active_channel" in ast.dump(child)
+        )
+        calls = [ast.dump(stmt) for stmt in entry.body]
+        took_it = next(i for i, d in enumerate(calls) if "set_active_channel" in d)
+        counted_it = next(
+            i
+            for i, stmt in enumerate(entry.body)
+            if isinstance(stmt, ast.AugAssign) and "_depth" in ast.dump(stmt.target)
+        )
+        assert took_it < counted_it

@@ -23,7 +23,7 @@ from fibsem.microscope import (
     _records_beam_shift,
     _records_stage_move,
 )
-from fibsem.microscopes.autoscript import ThermoMicroscope
+from fibsem.microscopes.autoscript import match_application_file
 from fibsem.microscopes.sim_scene import fm_channel_weights
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.projection import FMStageProjection
@@ -453,7 +453,8 @@ class DemoConfiguration:
     """What a demo configuration says the instrument has, shared by both demos.
 
     Everything here reads only ``system`` (its ``sim:`` block and ``ion``), never a
-    simulated part, so it is the same whether the parts are Demo's or devices.
+    simulated part (the beam keys' values go through ``get``), so it is the same whether
+    the parts are Demo's or devices.
     """
 
     system: SystemSettings
@@ -526,6 +527,42 @@ class DemoConfiguration:
             return ["Pt Dep", "Pt Dep Cryo2"]
         return None
 
+    def get_available_values(
+        self, key: str, beam_type: Optional[BeamType] = None
+    ) -> List[Union[str, int, float]]:
+        """Get the available values for a given key."""
+        values = []
+        if key == "current":
+            # return values based on beam type, and plasma gas
+            if beam_type is BeamType.ION:
+                plasma_gas = self.get("plasma_gas", beam_type)
+                values = SIMULATOR_BEAM_CURRENTS[beam_type][plasma_gas]
+            else:
+                values = SIMULATOR_BEAM_CURRENTS[beam_type]
+
+        if key == "voltage":
+            if beam_type is BeamType.ELECTRON:
+                # SEM: [1000, 2000, 3000, 5000, 10000, 20000, 30000]
+                values = [2000, 5000, 10000, 20000, 30000]
+            elif beam_type is BeamType.ION:
+                values = [500, 1000, 2000, 8000, 16000, 30000]
+                # FIB: [500, 1000, 2000, 8000, 1600, 30000]
+
+        milling = self._milling_values(key)
+        if milling is not None:
+            values = milling
+
+        if key == "detector_type":
+            values = ["ETD", "TLD", "EDS"]
+        if key == "detector_mode":
+            values = ["SecondaryElectrons", "BackscatteredElectrons", "EDS"]
+
+        configured = self._configured_values(key)
+        if configured is not None:
+            values = configured
+
+        return values
+
     def check_available_values(
         self, key: str, value, beam_type: BeamType = None
     ) -> bool:
@@ -541,9 +578,9 @@ class DemoImaging:
     """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
 
     Shared by both demos. It reads and changes the beams only through
-    ``get``/``set``, so on DeviceDemo it images through the beam devices. Its own
-    state is the imaging channel and last images (``imaging_system``), the image
-    sequence and the sample scene, which the demo sets up at construction.
+    ``get``/``set``, so on the device-built Demo it images through the beam devices.
+    Its own state is the imaging channel and last images (``imaging_system``), the
+    image sequence and the sample scene, which the demo sets up at construction.
     """
 
     imaging_system: ImagingSystem
@@ -643,7 +680,7 @@ class DemoImaging:
         # holds it over `set_channel` + `grab_frame` (FIB-542): the grab reads the
         # active view's buffer, so a channel that is not still ours when the frame lands
         # returns whoever took it in between. Deliberately just that pair --
-        # `_threading_lock` is a class attribute every caller in the process shares.
+        # `_threading_lock` is shared by every caller on this microscope.
         with self._threading_lock:
             self.set_channel(effective_beam_type)
             # The frame. On hardware this is the one `grab_frame` RPC; here the sleep is
@@ -1272,8 +1309,9 @@ class DemoMilling:
     def set_default_application_file(
         self, application_file: str, strict: bool = True
     ) -> str:
-        application_file = ThermoMicroscope.get_application_file(
-            self, application_file, strict
+        # Demo models a ThermoFisher system, so it matches application files as one.
+        application_file = match_application_file(
+            application_file, self.get_available_values("application_file"), strict
         )
         self.milling_system.default_application_file = application_file
         return application_file
@@ -1379,98 +1417,115 @@ class DemoMilling:
         return True
 
 
-class DemoMicroscope(
-    DemoConfiguration, DemoImaging, DemoScene, DemoMilling, FibsemMicroscope
-):
-    """Simulator microscope client based on TFS microscopes"""
+@dataclass
+class DemoParts:
+    """The simulated parts a demo starts with, before anything has moved them."""
 
-    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+    chamber: ChamberSystem
+    stage_system: StageSystem
+    manipulator_system: ManipulatorSystem
+    gis_system: GasInjectionSystem
+    electron_system: BeamSystem
+    ion_system: BeamSystem
 
-    def __init__(self, system_settings: SystemSettings):
 
+def initial_demo_parts(system: SystemSettings) -> DemoParts:
+    """A demo's parts at construction, for its configuration."""
+    chamber = ChamberSystem(state="Pumped", pressure=1e-6)
+    stage_system = StageSystem(
+        is_homed=True,
+        is_linked=True,
+        position=FibsemStagePosition(x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW"),
+    )
+
+    manipulator_system = ManipulatorSystem(
+        inserted=False,
+        position=FibsemManipulatorPosition(
+            x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW"
+        ),
+    )
+
+    gis_system = GasInjectionSystem(gas="Pt dep")
+
+    electron_system = BeamSystem(
+        on=True,
+        blanked=False,
+        beam=BeamSettings(
+            beam_type=BeamType.ELECTRON,
+            working_distance=4.0e-3,
+            beam_current=100e-12,
+            voltage=2000,
+            hfw=150e-6,
+            resolution=(1536, 1024),
+            dwell_time=1e-6,
+            stigmation=Point(0, 0),
+            shift=Point(0, 0),
+            scan_rotation=0,
+        ),
+        detector=FibsemDetectorSettings(
+            type="ETD",
+            mode="SecondaryElectrons",
+            brightness=0.5,
+            contrast=0.5,
+        ),
+        scanning_mode="full_frame",
+    )
+
+    ion_system = BeamSystem(
+        on=True,
+        blanked=False,
+        beam=BeamSettings(
+            beam_type=BeamType.ION,
+            working_distance=16.5e-3,
+            beam_current=20e-12,
+            voltage=30000,
+            hfw=150e-6,
+            resolution=(1536, 1024),
+            dwell_time=1e-6,
+            stigmation=Point(0, 0),
+            shift=Point(0, 0),
+            scan_rotation=0,
+        ),
+        detector=FibsemDetectorSettings(
+            type="ETD",
+            mode="SecondaryElectrons",
+            brightness=0.5,
+            contrast=0.5,
+        ),
+        scanning_mode="full_frame",
+        scanning_mode_value=None,
+    )
+    compustage = system.sim.get("is_compustage", False)
+    # A compustage can't link (`set("stage_link")` refuses), so it is never linked.
+    stage_system.is_linked = not compustage
+    if not compustage:
+        # boot at the SEM orientation, as a loaded shuttle sits: at t=0 a
+        # pre-tilted shuttle presents the FIB a grazing 3 deg view, a pose
+        # no real session starts in. A compustage is flat at t=0 already
+        stage_system.position.r = np.radians(system.stage.rotation_reference)
+        stage_system.position.t = np.radians(system.stage.shuttle_pre_tilt)
+    return DemoParts(
+        chamber=chamber,
+        stage_system=stage_system,
+        manipulator_system=manipulator_system,
+        gis_system=gis_system,
+        electron_system=electron_system,
+        ion_system=ion_system,
+    )
+
+
+class DemoSession:
+    """Building and connecting a demo, shared by both demos.
+
+    A demo's ``__init__`` is ``_start_session``, then its parts (Demo's simulated
+    parts, or devices), then ``_setup_fluorescence`` and ``_finish_session``.
+    """
+
+    def _start_session(self, system_settings: SystemSettings) -> None:
         # initialise system
         self.connection = DemoMicroscopeClient()
         self.system = system_settings
-
-        self.chamber = ChamberSystem(state="Pumped", pressure=1e-6)
-        self.stage_system = StageSystem(
-            is_homed=True,
-            is_linked=True,
-            position=FibsemStagePosition(
-                x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW"
-            ),
-        )
-
-        self.manipulator_system = ManipulatorSystem(
-            inserted=False,
-            position=FibsemManipulatorPosition(
-                x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW"
-            ),
-        )
-
-        self.gis_system = GasInjectionSystem(gas="Pt dep")
-
-        self.electron_system = BeamSystem(
-            on=True,
-            blanked=False,
-            beam=BeamSettings(
-                beam_type=BeamType.ELECTRON,
-                working_distance=4.0e-3,
-                beam_current=100e-12,
-                voltage=2000,
-                hfw=150e-6,
-                resolution=(1536, 1024),
-                dwell_time=1e-6,
-                stigmation=Point(0, 0),
-                shift=Point(0, 0),
-                scan_rotation=0,
-            ),
-            detector=FibsemDetectorSettings(
-                type="ETD",
-                mode="SecondaryElectrons",
-                brightness=0.5,
-                contrast=0.5,
-            ),
-            scanning_mode="full_frame",
-        )
-
-        self.ion_system = BeamSystem(
-            on=True,
-            blanked=False,
-            beam=BeamSettings(
-                beam_type=BeamType.ION,
-                working_distance=16.5e-3,
-                beam_current=20e-12,
-                voltage=30000,
-                hfw=150e-6,
-                resolution=(1536, 1024),
-                dwell_time=1e-6,
-                stigmation=Point(0, 0),
-                shift=Point(0, 0),
-                scan_rotation=0,
-            ),
-            detector=FibsemDetectorSettings(
-                type="ETD",
-                mode="SecondaryElectrons",
-                brightness=0.5,
-                contrast=0.5,
-            ),
-            scanning_mode="full_frame",
-            scanning_mode_value=None,
-        )
         self.stage_is_compustage: bool = self.system.sim.get("is_compustage", False)
-        # A compustage can't link (`set("stage_link")` refuses), so it is never linked.
-        self.stage_system.is_linked = not self.stage_is_compustage
-        if not self.stage_is_compustage:
-            # boot at the SEM orientation, as a loaded shuttle sits: at t=0 a
-            # pre-tilted shuttle presents the FIB a grazing 3 deg view, a pose
-            # no real session starts in. A compustage is flat at t=0 already
-            self.stage_system.position.r = np.radians(
-                self.system.stage.rotation_reference
-            )
-            self.stage_system.position.t = np.radians(
-                self.system.stage.shuttle_pre_tilt
-            )
         self.milling_system = MillingSystem(patterns=[])
         self.imaging_system = ImagingSystem()
 
@@ -1480,6 +1535,7 @@ class DemoMicroscope(
         except ValueError as e:
             logging.error("Failed to set up sim image iterators: %s", str(e))
 
+    def _setup_fluorescence(self) -> None:
         # fluorescence microscope
         #
         # `has_fm` stands in for a capability read, not for configuration. A real
@@ -1523,6 +1579,7 @@ class DemoMicroscope(
         self._apply_fluorescence_calibration()
         self._warn_on_fluorescence_geometry()
 
+    def _finish_session(self) -> None:
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
@@ -1535,7 +1592,7 @@ class DemoMicroscope(
         logging.debug(
             {
                 "msg": "create_microscope_client",
-                "system_settings": system_settings.to_dict(),
+                "system_settings": self.system.to_dict(),
             }
         )
 
@@ -1589,6 +1646,41 @@ class DemoMicroscope(
         """Disconnect from the microscope server."""
         self.connection.disconnect()
         logging.info("Disconnected from Demo Microscope")
+
+    def _wait(self, seconds: float) -> None:
+        sim_sleep(seconds)
+
+
+class LegacyDemoMicroscope(
+    DemoSession,
+    DemoConfiguration,
+    DemoImaging,
+    DemoScene,
+    DemoMilling,
+    FibsemMicroscope,
+):
+    """The Demo backend before devices: simulated parts behind ``_get``/``_set``.
+
+    ``DemoMicroscope`` (``fibsem.microscopes.device_demo``) replaced it, built from
+    devices. This class is kept frozen as the reference the contract suite compares
+    the device-built Demo against (``tests/test_microscope_contract.py``); a
+    deliberate behaviour change to the Demo lands here in the same PR. No
+    configuration selects it.
+    """
+
+    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+
+    def __init__(self, system_settings: SystemSettings):
+        self._start_session(system_settings)
+        parts = initial_demo_parts(self.system)
+        self.chamber = parts.chamber
+        self.stage_system = parts.stage_system
+        self.manipulator_system = parts.manipulator_system
+        self.gis_system = parts.gis_system
+        self.electron_system = parts.electron_system
+        self.ion_system = parts.ion_system
+        self._setup_fluorescence()
+        self._finish_session()
 
     @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
@@ -1783,42 +1875,6 @@ class DemoMicroscope(
         gis.retract()
 
         return
-
-    def get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[Union[str, int, float]]:
-        """Get the available values for a given key."""
-        values = []
-        if key == "current":
-            # return values based on beam type, and plasma gas
-            if beam_type is BeamType.ION:
-                plasma_gas = self.get("plasma_gas", beam_type)
-                values = SIMULATOR_BEAM_CURRENTS[beam_type][plasma_gas]
-            else:
-                values = SIMULATOR_BEAM_CURRENTS[beam_type]
-
-        if key == "voltage":
-            if beam_type is BeamType.ELECTRON:
-                # SEM: [1000, 2000, 3000, 5000, 10000, 20000, 30000]
-                values = [2000, 5000, 10000, 20000, 30000]
-            elif beam_type is BeamType.ION:
-                values = [500, 1000, 2000, 8000, 16000, 30000]
-                # FIB: [500, 1000, 2000, 8000, 1600, 30000]
-
-        milling = self._milling_values(key)
-        if milling is not None:
-            values = milling
-
-        if key == "detector_type":
-            values = ["ETD", "TLD", "EDS"]
-        if key == "detector_mode":
-            values = ["SecondaryElectrons", "BackscatteredElectrons", "EDS"]
-
-        configured = self._configured_values(key)
-        if configured is not None:
-            values = configured
-
-        return values
 
     def _get(
         self, key, beam_type: Optional[BeamType] = None
@@ -2065,9 +2121,16 @@ class DemoMicroscope(
         logging.warning(f"Unknown key: {key} ({beam_type})")
         return None
 
-    def _wait(self, seconds: float) -> None:
-        sim_sleep(seconds)
-
     def home(self) -> bool:
         self.stage_system.is_homed = True
         return self.get("stage_homed")
+
+
+def __getattr__(name: str):
+    # `DemoMicroscope` is the device-built Demo, which imports this module, so it is
+    # looked up when asked for rather than imported at the top.
+    if name == "DemoMicroscope":
+        from fibsem.microscopes.device_demo import DemoMicroscope
+
+        return DemoMicroscope
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

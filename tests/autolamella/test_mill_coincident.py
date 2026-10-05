@@ -165,8 +165,9 @@ def test_the_mill_sets_the_monitoring_channel_on_the_fm(microscope, tmp_path):
     lamella = _lamella(microscope, tmp_path)
     _run_setup(microscope, lamella)
     task = _mill_task(microscope, lamella, timeout=3)
+    # one of the Demo's excitation bands, which the FM keeps as set
     task.config.monitoring_channel = ChannelSettings(
-        name="Green", excitation_wavelength=488, power=0.05, exposure_time=0.05
+        name="Green", excitation_wavelength=450, power=0.05, exposure_time=0.05
     )
     # the final z-stack would set the fluorescence task's channels afterwards;
     # skip it so the channel left on the FM is the one the mill monitored on
@@ -175,7 +176,7 @@ def test_the_mill_sets_the_monitoring_channel_on_the_fm(microscope, tmp_path):
     task.run()
 
     assert microscope.fm.channel_name == "Green"
-    assert microscope.fm.filter_set.excitation_wavelength == 488
+    assert microscope.fm.filter_set.excitation_wavelength == 450
 
 
 def test_fails_before_moving_without_a_setup_record(microscope, tmp_path):

@@ -63,7 +63,13 @@ from fibsem.devices.core import (
     command,
 )
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
-from fibsem.devices.wire import NPY_MEDIA_TYPE, from_wire, to_wire
+from fibsem.devices.wire import (
+    FRAME_METADATA_HEADER,
+    NPY_MEDIA_TYPE,
+    Frame,
+    from_wire,
+    to_wire,
+)
 from fibsem.structures import BeamType, FibsemRectangle, Point, RangeLimit
 
 READ_TIMEOUT = 5.0
@@ -153,7 +159,11 @@ class DeviceClient:
             ) from None
         if response.ok:
             if response.headers.get("content-type", "").startswith(NPY_MEDIA_TYPE):
-                return np.load(io.BytesIO(response.content), allow_pickle=False)
+                data = np.load(io.BytesIO(response.content), allow_pickle=False)
+                metadata = response.headers.get(FRAME_METADATA_HEADER)
+                if metadata is not None:
+                    return Frame(data, json.loads(metadata))
+                return data
             return response.json()
         try:
             detail = response.json().get("detail")
@@ -308,6 +318,9 @@ class RemoteDevice(Device):
     def __init__(self, *args: Any, client: DeviceClient, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.client = client
+        self.server_commands: frozenset = frozenset()
+        """The commands the server has for this device, known once bound. A server
+        older than this client may lack some."""
         self.online = False
         """Bound to what the server has. False while a device built offline waits for
         its server; its parameters are absent until then."""
@@ -347,6 +360,7 @@ class RemoteDevice(Device):
                 write=self._writer(name) if info["settable"] else None,
                 metadata=self._metadata_reader(name, first=info),
             )
+        self.server_commands = frozenset(description.get("commands", {}))
         self.online = True
 
     def _prime(self) -> None:
@@ -361,7 +375,9 @@ class RemoteDevice(Device):
         path = f"devices/{self.name}/commands/{command}"
         body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
         answer = self.client.request("POST", path, WRITE_TIMEOUT, json=body)
-        return answer if isinstance(answer, np.ndarray) else answer["result"]
+        if isinstance(answer, (np.ndarray, Frame)):
+            return answer
+        return answer["result"]
 
     def _reader(self, name: str) -> Callable[[], Any]:
         path = f"devices/{self.name}/{name}"
@@ -467,8 +483,29 @@ class RemoteObjective(RemoteDevice, Objective):
 class RemoteFM(RemoteDevice, FM):
     """Channel acquisition runs on the FM's computer, in one call."""
 
+    # The server's FM watches live view; a second watchdog here would only stop it
+    # when this process stops asking, which the server notices anyway.
+    live_timeout = None
+
+    def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
+        # A server from before live view: frames are still pulled, each one a whole
+        # acquisition, as before.
+        if "start_live" in self.server_commands:
+            self.call_command("start_live", channel=channel)
+
+    def _stop_live(self) -> None:
+        if "stop_live" in self.server_commands:
+            self.call_command("stop_live")
+
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         return self.call_command("acquire_channel", channel=channel)
+
+    def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
+        if "acquire_frame" not in self.server_commands:
+            # A server from before acquire_frame: the frame alone, and the client
+            # reads the metadata as it used to.
+            return Frame(self._acquire_channel(channel), {})
+        return self.call_command("acquire_frame", channel=channel)
 
 
 REMOTE_FM_PARTS = {

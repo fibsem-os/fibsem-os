@@ -5,6 +5,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Uni
 
 import numpy as np
 
+from fibsem.fm.api import (
+    DeviceCamera,
+    DeviceFilterSet,
+    DeviceFluorescenceMicroscope,
+    DeviceObjectiveLens,
+)
 from fibsem.fm.microscope import (
     Camera,
     FilterSet,
@@ -967,5 +973,79 @@ class OdemisFluorescenceMicroscope(FluorescenceMicroscope):
         if settings change during live view.
         """
         if frame_metadata is None:
-            frame_metadata = _frame_metadata_from_data(data)
+            frame_metadata = self.frame_metadata_of(data)
         return super()._construct_image(data, frame_metadata=frame_metadata)
+
+    def frame_metadata_of(self, data: np.ndarray) -> Optional[dict]:
+        return _frame_metadata_from_data(data)
+
+
+class DeviceOdemisObjectiveLens(DeviceObjectiveLens):
+    """The FM API's objective over the Odemis objective device, focusing where the old
+    objective does: odemis's favourite inserted position."""
+
+    def __init__(self, device, parent=None):
+        super().__init__(device, parent=parent)
+        self._focus_position = device.focus_position
+
+
+class DeviceOdemisCamera(DeviceCamera):
+    """The FM API's camera over the Odemis camera device. A camera without a gain
+    control reads its gain as None and ignores a write, as the old camera does."""
+
+    def __init__(self, device, parent=None):
+        super().__init__(device, parent=parent)
+        self._gain_warning_logged = False
+
+    @property
+    def gain(self) -> Optional[float]:
+        if "gain" not in self._device.parameters:
+            return None
+        return self._device.gain.get_value()
+
+    @gain.setter
+    def gain(self, value: float) -> None:
+        if "gain" in self._device.parameters:
+            self._device.gain.write_through(value)
+            return
+        if not self._gain_warning_logged:
+            logging.warning("Camera has no gain control; ignoring gain settings.")
+            self._gain_warning_logged = True
+
+
+class DeviceOdemisFilterSet(DeviceFilterSet):
+    """The FM API's filter set over the Odemis filter set device. A "Fluorescence"
+    emission (TFS-style channel settings) is the band odemis matches to the current
+    excitation, as on the old filter set."""
+
+    @property
+    def emission_bands(self) -> Dict[float, Tuple[Tuple[float, float], ...]]:
+        """Each emission filter's bands in nm, keyed by its bottom edge."""
+        return {f.low: f.bands for f in self._emission_filters() if f.low is not None}
+
+    @property
+    def emission_wavelength(self) -> Optional[float]:
+        return DeviceFilterSet.emission_wavelength.fget(self)
+
+    @emission_wavelength.setter
+    def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
+        if isinstance(value, str):
+            self._device.select_fluorescence()
+            return
+        DeviceFilterSet.emission_wavelength.fset(self, value)
+
+
+class DeviceOdemisFluorescenceMicroscope(DeviceFluorescenceMicroscope):
+    """The FM API over the Odemis FM devices (``fibsem.devices.drivers.odemis_fm``):
+    what ``OdemisFluorescenceMicroscope`` does, through its devices. Live view is the
+    stream running, with each frame pulled."""
+
+    objective: DeviceOdemisObjectiveLens
+    camera: DeviceOdemisCamera
+    filter_set: DeviceOdemisFilterSet
+
+    def __init__(self, devices, parent: Optional["FibsemMicroscope"] = None):
+        super().__init__(devices, parent=parent)
+        self.objective = DeviceOdemisObjectiveLens(devices["objective"], parent=self)
+        self.camera = DeviceOdemisCamera(devices["camera"], parent=self)
+        self.filter_set = DeviceOdemisFilterSet(devices["filter_set"], parent=self)

@@ -2407,7 +2407,7 @@ class TestADraggedGridIsLiftedToTheStage:
 
         # Moved without anyone polling afterwards: exactly the case the subscription
         # cannot see, and what a move made in the vendor software looks like from here.
-        at_a_known_height.stage_system.position += FibsemStagePosition(z=490e-6)
+        at_a_known_height.stage_device.sim_position += FibsemStagePosition(z=490e-6)
         assert widget._stage_position.z == pytest.approx(stale.z), (
             "the cache updated by itself, so this proves nothing"
         )
@@ -2425,7 +2425,7 @@ class TestADraggedGridIsLiftedToTheStage:
         """The other half of the same report: nothing was dragged, the stage moved in z
         in the vendor software, and the run still went to the old height."""
         stale = widget._stage_position
-        at_a_known_height.stage_system.position += FibsemStagePosition(z=490e-6)
+        at_a_known_height.stage_device.sim_position += FibsemStagePosition(z=490e-6)
 
         centre = self._acquire(widget, monkeypatch, tmp_path)
 
@@ -2583,7 +2583,7 @@ class TestADraggedGridIsLiftedToTheStage:
             else:
                 # A tilt nobody polls after: what a move made in the vendor software
                 # looks like from here, and what the subscription cannot see.
-                microscope.stage_system.position = _at_tilt(start, milling)
+                microscope.stage_device.sim_position = _at_tilt(start, milling)
 
             centre = self._acquire(widget, monkeypatch, tmp_path)
 

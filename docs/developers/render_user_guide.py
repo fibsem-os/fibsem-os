@@ -1240,16 +1240,63 @@ def render_sample_holder(h: Harness) -> None:
     # the Arctis: holder plus the autoloader magazine
     h.connect("sim-arctis")
     sw = h.ui.sample_widget
+    hw, lw = sw.holder_widget, sw.loader_widget
+    ctrl = h.ui.movement_widget.control_widget
+    iw = h.ui.image_widget
     h.ui.tabWidget.setCurrentWidget(sw)
     h.pump(300)
     h.shot(
         "sample-tab-arctis",
         target=sw,
-        callouts=[Box(sw.holder_widget), Box(sw.loader_widget)],
+        callouts=[Box(hw), Box(lw), lw.btn_scan, hw.btn_calibrate],
         numbered=True,
         crop=True,
         height=760,
     )
+
+    # the working slot's calibration: a grid loaded from the magazine, then the
+    # same wizard, for one slot. The simulated grid sits at the stage origin,
+    # so it is captured there; a capture elsewhere would move the overviews
+    # the grid workflow page renders next, from the same configuration.
+    magazine = sorted(lw.loader.slots.values(), key=lambda s_: s_.index)
+    lw._on_load(magazine[0])
+    waited = 0
+    while lw.busy and waited < 60000:
+        h.pump(200)
+        waited += 200
+    if lw.busy:
+        raise RuntimeError("the grid did not load")
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
+    hw._on_calibrate()
+    dialog = hw._calibration_dialog
+    h.pump(300)
+    h.shot("calibrate-arctis-1-holder", target=dialog)
+    dialog._on_next()
+    h.pump(200)
+    dialog._on_move_to_orientation()
+    waited = 0
+    while dialog._worker is not None and dialog._worker.is_alive() and waited < 30000:
+        h.pump(200)
+        waited += 200
+    h.pump(500)
+    dialog._refresh_orientation_status()
+    dialog._on_next()
+    h.pump(300)
+    dialog._on_capture()
+    h.pump(300)
+    h.shot("calibrate-arctis-2-slot", target=dialog)
+    dialog._on_next()
+    h.pump(300)
+    dialog._on_next()  # save
+    h.pump(500)
+    h.shot("sample-tab-arctis-calibrated", target=hw, crop=True)
+    # back to the magazine, so the grid workflow page starts with none loaded
+    lw._on_unload(magazine[0])
+    waited = 0
+    while lw.busy and waited < 60000:
+        h.pump(200)
+        waited += 200
 
 
 @page("fluorescence")
@@ -1990,28 +2037,30 @@ def render_workflows(h: Harness) -> None:
 
 @page("grid-workflow")
 def render_grid_workflow(h: Harness) -> None:
-    """Grid screening on the simulated Arctis: the grid tasks on the Protocol
-    tab, the inventory on the Grids tab, a run over two grids from the
-    Workflow tab's Grids view, and the results. Behind the grid_workflow
-    flag, which the harness turns on for the page and off again after."""
-    from PyQt5.QtWidgets import QDialog
+    """Grid screening on the simulated Arctis: the working slot's calibration
+    on the Sample tab, the shipped grid tasks on the Protocol tab, the
+    inventory and naming on the Grids tab, a run over two grids from the
+    Workflow tab's Grids view, then the verdict, note and report."""
+    from PyQt5.QtGui import QTextCursor
+    from PyQt5.QtWidgets import QDialog, QInputDialog, QMenu, QPlainTextEdit
 
+    from fibsem.applications.autolamella.structures import Verdict
+    from fibsem.applications.autolamella.tools import grid_report_pdf
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
     from fibsem.applications.autolamella.ui import grid_workflow_widget as gww
+    from fibsem.applications.autolamella.ui.lamella_list_widget import (
+        add_verdict_actions,
+        mark_current_verdict,
+    )
     from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
         ExpandedImageDialog,
     )
     from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
         StepStatus,
     )
-    from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
-        FluorescenceOverviewGridTaskConfig,
-    )
     from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
         BeamOverviewGridTaskConfig,
     )
-    from fibsem.fm.structures import ChannelSettings
-    from fibsem.structures import BeamType
     from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 
     h.first_run(False)
@@ -2023,58 +2072,40 @@ def render_grid_workflow(h: Harness) -> None:
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
 
-    # the flag: the Grids tab, the Workflow tab's Grids view and the Protocol
-    # tab's Grid page appear
-    h.window._preferences.features.grid_workflow = True
-    h.window._apply_grid_workflow_visibility()
+    # -- calibrating the working slot, on the Sample tab ---------------------
+    # Photographed at the capture step and closed: the Sample holder page goes
+    # through the whole calibration.
+    sw = h.ui.sample_widget
+    hw = sw.holder_widget
+    h.ui.tabWidget.setCurrentWidget(sw)
+    h.pump(300)
+    hw._on_calibrate()
+    dialog = hw._calibration_dialog
+    h.pump(300)
+    dialog._on_next()
+    h.pump(200)
+    dialog._on_move_to_orientation()
+    waited = 0
+    while dialog._worker is not None and dialog._worker.is_alive() and waited < 30000:
+        h.pump(200)
+        waited += 200
+    h.pump(500)
+    dialog._refresh_orientation_status()
+    dialog._on_next()
+    h.pump(300)
+    h.shot("calibrate-working-slot", target=dialog)
+    dialog.close()
     h.pump(300)
 
     # -- the grid tasks, on the Protocol tab's Grid page --------------------
+    # the shipped protocol's own, unedited
     h.show_main_tab("Protocol")
     editor = h.window.task_widget
     editor.protocol_tabs.setCurrentIndex(1)
     h.pump(300)
     gp = editor.grid_protocol
-    for name in list(gp.task_names):
-        gp.remove_task(name)
-    sem = gp.add_task(BeamOverviewGridTaskConfig.task_type, "SEM Overview")
-    fib = gp.add_task(BeamOverviewGridTaskConfig.task_type, "FIB Overview")
-    fm = gp.add_task(FluorescenceOverviewGridTaskConfig.task_type, "FM Overview")
-    # small overviews: the page needs a picture of each, not a survey
-    for config, beam in ((sem, BeamType.ELECTRON), (fib, BeamType.ION)):
-        config.settings.nrows = 2
-        config.settings.ncols = 2
-        config.settings.overlap = 0.1
-        config.settings.image_settings.beam_type = beam
-        config.settings.image_settings.hfw = 300e-6
-        config.settings.image_settings.resolution = [1024, 1024]
-        config.settings.image_settings.dwell_time = 0.5e-6
-    # two channels, so the mosaic is a colour composite; the sim's filter set
-    # has its own lines, so the nearest to each is taken
-    lines = sorted(h.ui.microscope.fm.filter_set.available_excitation_wavelengths)
-
-    def nearest(target):
-        return min(lines, key=lambda v: abs(v - target))
-
-    fm.channels = [
-        ChannelSettings(
-            name="Reflection",
-            excitation_wavelength=nearest(550),
-            emission_wavelength=None,
-            color="gray",
-        ),
-        ChannelSettings(
-            name="GFP",
-            excitation_wavelength=nearest(488),
-            emission_wavelength="Fluorescence",
-            color="green",
-        ),
-    ]
-    fm.overview.rows = 7
-    fm.overview.cols = 7
-    fm.overview.overlap = 0.1
-    gp._save()
-    gp.refresh()
+    if list(gp.task_names) != ["SEM Overview", "FIB Overview"]:
+        raise RuntimeError(f"the shipped grid tasks changed: {gp.task_names}")
     gp.task_list.select("SEM Overview")
     h.pump(500)
     h.shot(
@@ -2086,6 +2117,32 @@ def render_grid_workflow(h: Harness) -> None:
         ],
         numbered=True,
     )
+
+    # one row and column more than ships is past the Arctis stage's reach:
+    # the page says so as it is sized, then it is sized back
+    beam_editor = gp.editor_panel.editor_for(BeamOverviewGridTaskConfig.task_type)
+
+    def size(tiles: int) -> None:
+        settings = beam_editor.settings.get_settings()
+        settings.nrows = settings.ncols = tiles
+        beam_editor.settings.update_from_settings(settings)
+        gp._on_editor_changed()
+        h.pump(300)
+
+    reach = gp.editor_panel.reach_label
+    size(4)
+    if reach.isHidden():
+        raise RuntimeError("no reach warning for a 4 x 4 SEM overview")
+    # padded, so the box round the warning is not cut at the panel's edge
+    h.shot(
+        "protocol-grid-reach",
+        target=gp.editor_panel,
+        callouts=[Box(reach)],
+        crop=True,
+    )
+    size(3)
+    if not reach.isHidden():
+        raise RuntimeError("the reach warning stayed for the shipped 3 x 3")
 
     # -- the inventory, on the Grids tab -------------------------------------
     h.show_main_tab("Grids")
@@ -2100,6 +2157,22 @@ def render_grid_workflow(h: Harness) -> None:
     grids = list(h.ui.experiment.grids)
     if len(grids) < 3:
         raise RuntimeError(f"inventory found {len(grids)} grids, expected 3")
+
+    # a card's menu: the grid's name and note, and on an Arctis its exchange
+    card = gt.cards.card_for(grids[0])
+    menu = card._btn_actions.menu()
+    menu.popup(card._btn_actions.mapToGlobal(QPoint(0, card._btn_actions.height())))
+    h.pump(300)
+    h.shot("grid-card-actions", target=menu)
+    menu.close()
+    h.pump(200)
+
+    # named before their first run, as the page says: the run fixes them
+    for grid, name in zip(grids, ("Grid A", "Grid B", "Grid C")):
+        gt._on_rename(grid, name)
+        h.pump(200)
+    if [g.name for g in grids] != ["Grid A", "Grid B", "Grid C"]:
+        raise RuntimeError(f"renaming failed: {[g.name for g in grids]}")
     gt.cards._on_card_clicked(grids[0])
     h.pump(400)
     h.shot(
@@ -2161,7 +2234,7 @@ def render_grid_workflow(h: Harness) -> None:
     if not h.ui.is_workflow_running:
         raise RuntimeError("grid workflow did not start")
     # the queue mid-run: the first grid done, the second exchanged in and
-    # its first task under way (steps: load + 3 tasks per grid)
+    # its first task under way (steps: load + 2 tasks per grid)
     waited = 0
     queue_shot = False
     while h.ui.is_workflow_running and waited < 1200000:
@@ -2170,7 +2243,7 @@ def render_grid_workflow(h: Harness) -> None:
         if queue_shot:
             continue
         steps = h.window.workflow_timeline._outer._steps
-        if len(steps) > 5 and steps[5].status is StepStatus.ACTIVE:
+        if len(steps) > 4 and steps[4].status is StepStatus.ACTIVE:
             h.pump(1500)
             h.shot(
                 "queue-running",
@@ -2202,6 +2275,47 @@ def render_grid_workflow(h: Harness) -> None:
     # select_grid shows the selection but does not tell the results panel
     # (a click toggles, and this card is already selected from above)
     first = h.ui.experiment.grids[0]
+    card = gt.cards.card_for(first)
+
+    # the verdict, a person's: the icon beside the grid's name
+    menu = QMenu(card)
+    mark_current_verdict(add_verdict_actions(menu), first.quality.verdict)
+    menu.popup(card._btn_quality.mapToGlobal(card._btn_quality.rect().bottomLeft()))
+    h.pump(300)
+    h.shot("grid-verdict-menu", target=menu)
+    menu.close()
+    h.pump(200)
+    card.set_quality(Verdict.GOOD)
+
+    # the note, from the card's menu: the dialog is modal, so it is built from
+    # the card's own arguments, photographed and answered
+    note = "Thin ice in the centre squares.\nCracked along the top edge."
+    real_multiline = QInputDialog.getMultiLineText
+
+    def multiline(parent, title, label, text=""):
+        dialog = QInputDialog(parent)
+        dialog.setWindowTitle(title)
+        dialog.setLabelText(label)
+        dialog.setOption(QInputDialog.UsePlainTextEditForTextInput)
+        dialog.setTextValue(note)
+        dialog.show()
+        h.pump(300)
+        # shown as typed: the dialog selects all of it as it opens
+        dialog.findChild(QPlainTextEdit).moveCursor(QTextCursor.End)
+        h.pump(100)
+        h.shot("grid-note", target=dialog)
+        dialog.close()
+        return note, True
+
+    QInputDialog.getMultiLineText = multiline
+    try:
+        card._on_edit_note()
+    finally:
+        QInputDialog.getMultiLineText = real_multiline
+    h.pump(300)
+    if first.description != note:
+        raise RuntimeError("the note was not kept")
+
     gt.cards.select_grid(first)
     gt.results_widget.set_grid(first)
     h.pump(600)
@@ -2226,12 +2340,50 @@ def render_grid_workflow(h: Harness) -> None:
     dialog.close()
     h.pump(300)
 
-    # the flag off again: the next page sees the app as shipped
+    # -- the report, from Tools -> Reporting ---------------------------------
+    # The cover names the experiment folder, which is the scratch directory;
+    # the worked example's is on the support PC. The PDF opens in the
+    # desktop's viewer, so its path is kept instead, and two pages drawn.
+    real_collect = grid_report_pdf.collect_grid_report
+
+    def collect(*args, **kwargs):
+        report = real_collect(*args, **kwargs)
+        report.experiment_path = f"{EXAMPLE_EXPERIMENT_DIR}\\{EXAMPLE_EXPERIMENT_NAME}"
+        return report
+
+    written: List[str] = []
+    grid_report_pdf.collect_grid_report = collect
+    gt.open_report = written.append
+    try:
+        h.window.action_generate_grid_report.trigger()
+        waited = 0
+        while not written and waited < 120000:
+            h.pump(250)
+            waited += 250
+    finally:
+        grid_report_pdf.collect_grid_report = real_collect
+        del gt.open_report
+    if not written:
+        raise RuntimeError("the grid screening report was not written")
+    import fitz
+
+    pdf = fitz.open(written[0])
+    pages = [p.get_text() for p in pdf]
+    grid_page = next(
+        (i for i, text in enumerate(pages) if i > 0 and first.name in text), None
+    )
+    if grid_page is None:
+        raise RuntimeError(f"no page for {first.name} in the report")
+    for index, name in ((0, "report-cover"), (grid_page, "report-grid")):
+        path = h.img_root / h._page / f"{name}.png"
+        pdf[index].get_pixmap(dpi=96).save(str(path))
+        h.manifest[h._page].append(path.name)
+    pdf.close()
+
+    # back to the lamella pages, so the next page starts where it expects
     h.show_main_tab("Workflow")
     left.setCurrentIndex(0)
     editor.protocol_tabs.setCurrentIndex(0)
-    h.window._preferences.features.grid_workflow = False
-    h.window._apply_grid_workflow_visibility()
     h.pump(300)
 
 

@@ -6,7 +6,7 @@ and objective, and the ``fm`` group that runs a channel. It doesn't know which d
 built them, or whether they run in this process or on another computer, so the FM
 UI, acquisition and workflows use it unchanged either way:
 
-- DeviceDemo's FM is this over the Demo FM devices (``fibsem.devices.drivers.demo``);
+- the Demo's FM is this over the Demo FM devices (``fibsem.devices.drivers.demo``);
 - ``RemoteFluorescenceMicroscope`` (``fibsem.fm.remote``) is this over remote devices,
   plus connecting to their server.
 
@@ -22,7 +22,10 @@ saved focus position, the channel name and colour, and the image transform.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, Optional, Sequence, Tuple, Union
+import logging
+from copy import deepcopy
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -37,7 +40,9 @@ from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
     EmissionFilter,
+    FluorescenceChannelMetadata,
     FluorescenceImage,
+    FluorescenceImageMetadata,
     emission_filter_for,
     objective_state_name,
     same_emission_value,
@@ -112,13 +117,16 @@ class DeviceObjectiveLens(ObjectiveLens):
         self._device.move_absolute(position)
         self._notify_moved()
 
+    # Announced unless the driver says nothing moved, as the FM classes announce
+    # only a move (`_notify_moved`).
+
     def insert(self) -> None:
-        self._device.insert()
-        self._notify_moved()
+        if self._device.insert() is not False:
+            self._notify_moved()
 
     def retract(self) -> None:
-        self._device.retract()
-        self._notify_moved()
+        if self._device.retract() is not False:
+            self._notify_moved()
 
 
 class DeviceCamera(Camera):
@@ -294,13 +302,91 @@ class DeviceFluorescenceMicroscope(FluorescenceMicroscope):
     def acquire_image(
         self, channel_settings: Optional[ChannelSettings] = None
     ) -> FluorescenceImage:
-        """One command on the ``fm`` group sets up the channel and takes the frame."""
+        """One command on the ``fm`` group sets up the channel and takes the frame,
+        with what it was taken with, so building the image needs no further reads."""
         with self.active_channel():
-            if channel_settings is None:
-                data = self.devices["camera"].acquire()
-            else:
+            channel = None
+            if channel_settings is not None:
                 # The name and colour are this session's labels, not hardware.
                 self.channel_name = channel_settings.name
                 self.channel_color = channel_settings.color
-                data = self.devices["fm"].acquire_channel(channel_settings.to_dict())
-            return self._construct_image(data)
+                channel = channel_settings.to_dict()
+            frame = self.devices["fm"].acquire_frame(channel)
+            return self._construct_image(frame.data, frame.metadata)
+
+    def _acquisition_worker(
+        self, channel_settings: Optional[ChannelSettings] = None
+    ) -> None:
+        """Live view, pulled: the ``fm`` group keeps the hardware acquiring, and each
+        frame is one `acquire_image` with the current settings. Stopping, or this
+        process going away, ends it; the group stops by itself if no frame is asked
+        for in its ``live_timeout``."""
+        group = self.devices["fm"]
+        try:
+            if channel_settings is not None:
+                self.set_channel(channel_settings)
+            group.start_live()
+            try:
+                while not self._stop_acquisition_event.is_set():
+                    self.acquire_image()
+            finally:
+                group.stop_live()
+        except Exception as e:
+            logging.error(f"Error in acquisition worker: {e}")
+
+    def _metadata_for_frame(
+        self, frame_metadata: Optional[dict]
+    ) -> FluorescenceImageMetadata:
+        """Built from what the ``fm`` group reported with the frame. Anything it didn't
+        report (a server from before ``acquire_frame``) is read live, as before."""
+        frame = frame_metadata or {}
+
+        def reported(key: str, read: Callable[[], Any]) -> Any:
+            return frame[key] if key in frame else read()
+
+        if "emission_filter" in frame:
+            emission = _old_emission_value(
+                EmissionFilter.from_dict(frame["emission_filter"])
+            )
+        else:
+            emission = self.filter_set.emission_wavelength
+        camera, objective = self.camera, self.objective
+        channel = FluorescenceChannelMetadata(
+            name=self.channel_name,
+            color=self.channel_color,
+            excitation_wavelength=reported(
+                "excitation_wavelength",
+                lambda: self.filter_set.excitation_wavelength,
+            ),
+            emission_wavelength=emission,
+            power=reported("power", lambda: self.light_source.power),
+            exposure_time=reported("exposure_time", lambda: camera.exposure_time),
+            gain=reported("gain", lambda: camera.gain),
+            offset=reported("offset", lambda: camera.offset),
+            binning=reported("binning", lambda: camera.binning),
+            objective_position=reported(
+                "objective_position", lambda: objective.position
+            ),
+            objective_magnification=reported(
+                "objective_magnification", lambda: objective.magnification
+            ),
+            objective_numerical_aperture=reported(
+                "objective_numerical_aperture", lambda: objective.numerical_aperture
+            ),
+        )
+        pixel_size = reported("pixel_size", lambda: camera.pixel_size)
+        resolution = reported("resolution", lambda: camera.resolution)
+        parent = self.parent
+        # The coordinator's own state, as `get_metadata` stamps it.
+        return FluorescenceImageMetadata(
+            acquisition_date=reported(
+                "acquisition_date", lambda: datetime.now().isoformat()
+            ),
+            pixel_size_x=pixel_size[0],
+            pixel_size_y=pixel_size[1],
+            resolution=(resolution[0], resolution[1]),
+            stage_position=parent.get_stage_position() if parent else None,
+            geometry=parent.fm_image_geometry() if parent else None,
+            experiment=deepcopy(parent.experiment) if parent else None,
+            channels=[channel],
+        )

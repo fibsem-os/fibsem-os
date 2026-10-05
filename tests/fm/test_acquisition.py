@@ -221,15 +221,15 @@ def test_acquire_channels(demo_microscope):
     channels = [
         ChannelSettings(
             name="DAPI",
-            excitation_wavelength=358,
-            emission_wavelength=461,
+            excitation_wavelength=365,
+            emission_wavelength="Fluorescence",
             power=0.1,
             exposure_time=0.5,
         ),
         ChannelSettings(
             name="GFP",
-            excitation_wavelength=488,
-            emission_wavelength=509,
+            excitation_wavelength=450,
+            emission_wavelength="Fluorescence",
             power=0.2,
             exposure_time=0.3,
         ),
@@ -244,14 +244,14 @@ def test_acquire_channels(demo_microscope):
     # Check metadata
     assert len(result.metadata.channels) == 2
     assert result.metadata.channels[0].name == "DAPI"
-    assert result.metadata.channels[0].excitation_wavelength == 358
-    assert result.metadata.channels[0].emission_wavelength == 461
+    assert result.metadata.channels[0].excitation_wavelength == 365
+    assert result.metadata.channels[0].emission_wavelength == "Fluorescence"
     assert result.metadata.channels[0].power == 0.1
     assert result.metadata.channels[0].exposure_time == 0.5
 
     assert result.metadata.channels[1].name == "GFP"
-    assert result.metadata.channels[1].excitation_wavelength == 488
-    assert result.metadata.channels[1].emission_wavelength == 509
+    assert result.metadata.channels[1].excitation_wavelength == 450
+    assert result.metadata.channels[1].emission_wavelength == "Fluorescence"
     assert result.metadata.channels[1].power == 0.2
     assert result.metadata.channels[1].exposure_time == 0.3
 
@@ -269,8 +269,8 @@ def test_acquire_z_stack(demo_microscope):
     # Create test channel
     channel = ChannelSettings(
         name="DAPI",
-        excitation_wavelength=358,
-        emission_wavelength=461,
+        excitation_wavelength=365,
+        emission_wavelength="Fluorescence",
         power=0.1,
         exposure_time=0.1,
     )
@@ -289,8 +289,8 @@ def test_acquire_z_stack(demo_microscope):
     # Check metadata
     assert len(result.metadata.channels) == 1
     assert result.metadata.channels[0].name == "DAPI"
-    assert result.metadata.channels[0].excitation_wavelength == 358
-    assert result.metadata.channels[0].emission_wavelength == 461
+    assert result.metadata.channels[0].excitation_wavelength == 365
+    assert result.metadata.channels[0].emission_wavelength == "Fluorescence"
     assert result.metadata.channels[0].power == 0.1
     assert result.metadata.channels[0].exposure_time == 0.1
 
@@ -578,8 +578,8 @@ def test_acquire_image(fm_microscope):
     # Create test channel
     channel = ChannelSettings(
         name="GFP",
-        excitation_wavelength=488,
-        emission_wavelength=509,
+        excitation_wavelength=450,
+        emission_wavelength="Fluorescence",
         power=0.2,
         exposure_time=0.3,
     )
@@ -593,8 +593,8 @@ def test_acquire_image(fm_microscope):
     # Check metadata
     assert len(result.metadata.channels) == 1
     assert result.metadata.channels[0].name == "GFP"
-    assert result.metadata.channels[0].excitation_wavelength == 488
-    assert result.metadata.channels[0].emission_wavelength == 509
+    assert result.metadata.channels[0].excitation_wavelength == 450
+    assert result.metadata.channels[0].emission_wavelength == "Fluorescence"
     assert result.metadata.channels[0].power == 0.2
     assert result.metadata.channels[0].exposure_time == 0.3
 

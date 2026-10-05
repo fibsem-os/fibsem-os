@@ -1,10 +1,13 @@
-"""The Demo backend's parts as devices, beside the untouched Demo microscope.
+"""The Demo backend's parts as devices: what ``DemoMicroscope`` is built from.
 
-Each device is the matching part of ``DemoMicroscope``: every parameter and
-command does what the matching branch of ``DemoMicroscope._get`` and ``_set`` (or
-method) does, and each FM device what the matching part of the simulated FM does. Each keeps its own simulated part, copied from the microscope's at
-connect, and never touches the microscope's again; ``DeviceDemoMicroscope`` routes
-the old keys to them. The Demo chain itself is unchanged.
+Each device is the matching part of ``LegacyDemoMicroscope``, the Demo before
+devices: every parameter and command does what the matching branch of its ``_get``
+and ``_set`` (or method) does, and each FM device what the matching part of the
+simulated FM does.
+Each keeps its own simulated part, copied when it is built from the starting parts
+it is given (``start``, a ``DemoParts``) or else from the microscope's own, and
+never touches the microscope's again; ``DemoMicroscope`` routes the old keys to
+them.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ import numpy as np
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
-from fibsem.devices.core import Device, ParameterMetadata, Resources
+from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
@@ -56,7 +59,8 @@ if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
     from fibsem.fm.microscope import LightSource as FMClassLightSource
     from fibsem.fm.microscope import ObjectiveLens as FMClassObjectiveLens
-    from fibsem.microscopes.simulator import DemoMicroscope
+    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.microscopes.simulator import DemoParts
 
 
 class DemoBeam(Beam):
@@ -64,10 +68,10 @@ class DemoBeam(Beam):
 
     It keeps its own simulated column: ``sim_beam`` and ``sim_detector`` (the beam's
     and detector's settings), ``sim_on``, ``sim_blanked``, ``sim_scanning_mode`` and
-    ``sim_scanning_mode_value``, copied from the microscope's ``electron_system`` or
-    ``ion_system`` at connect, so it starts where Demo's beam is and never touches
-    Demo's again. The plasma gas is configuration (``system.ion``), not beam state,
-    so it is still read and written there.
+    ``sim_scanning_mode_value``, copied when it is built from the starting
+    ``electron_system`` or ``ion_system`` (``start``, else the microscope's own), and
+    it never touches the microscope's again. The plasma gas is configuration
+    (``system.ion``), not beam state, so it is still read and written there.
     """
 
     def __init__(
@@ -75,12 +79,14 @@ class DemoBeam(Beam):
         beam_type: BeamType,
         parent: DemoMicroscope,
         resources: Optional[Resources] = None,
+        start: Optional[DemoParts] = None,
     ):
         super().__init__(beam_type, parent=parent, resources=resources)
+        source = parent if start is None else start
         start = (
-            parent.electron_system
+            source.electron_system
             if beam_type is BeamType.ELECTRON
-            else parent.ion_system
+            else source.ion_system
         )
         self.sim_beam: BeamSettings = deepcopy(start.beam)
         self.sim_detector: FibsemDetectorSettings = deepcopy(start.detector)
@@ -264,16 +270,18 @@ class DemoBeam(Beam):
         return self._choices("plasma_gas")
 
     # "preset" is not implemented: Demo has no presets, so it is absent on the new
-    # API while the old set("preset", ...) keeps its no-op through the Demo chain.
+    # API while the old set("preset", ...) stays a logged no-op.
 
 
 def bind_demo_beams(
-    microscope: DemoMicroscope, resources: Optional[Resources] = None
+    microscope: DemoMicroscope,
+    resources: Optional[Resources] = None,
+    start: Optional[DemoParts] = None,
 ) -> Dict[BeamType, Beam]:
     """Build ``beams[BeamType]`` for a connected Demo microscope."""
-    resources = resources if resources is not None else Resources()
+    resources = resources if resources is not None else resources_of(microscope)
     return {
-        beam_type: DemoBeam(beam_type, microscope, resources).connect()
+        beam_type: DemoBeam(beam_type, microscope, resources, start).connect()
         for beam_type in (BeamType.ELECTRON, BeamType.ION)
     }
 
@@ -282,10 +290,11 @@ class DemoStage(Stage):
     """The Demo stage.
 
     It keeps its own simulated stage in ``sim_position``, ``sim_homed`` and
-    ``sim_linked``, copied from the microscope's ``stage_system`` at connect, so it
-    starts where Demo's stage is and never touches Demo's again. A microscope that builds it routes the stage keys to it
-    (``DeviceDemoMicroscope``). Each method is what the matching part of
-    ``DemoMicroscope`` does, on that copy:
+    ``sim_linked``, copied when it is built from the starting ``stage_system``
+    (``start``, else the microscope's own), and it never touches the microscope's
+    again. A microscope that builds it routes the stage keys to it
+    (``DemoMicroscope``). Each method is what the matching part of
+    ``LegacyDemoMicroscope`` does, on that copy:
 
     - ``read_position``: the ``stage_position`` branch of ``_get``;
     - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked`` branches;
@@ -300,13 +309,18 @@ class DemoStage(Stage):
     radians; the metadata here converts them, so limits and values share one unit.
     """
 
-    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
+    def __init__(
+        self,
+        parent: DemoMicroscope,
+        resources: Optional[Resources] = None,
+        start: Optional[DemoParts] = None,
+    ):
         super().__init__(parent=parent, resources=resources)
-        start = parent.stage_system
+        start = (parent if start is None else start).stage_system
         self.sim_position: FibsemStagePosition = deepcopy(start.position)
         self.sim_homed: bool = start.is_homed
         self.sim_linked: bool = start.is_linked
-        # Read once at connect, as a vendor's limits would be.
+        # Read once when built, as a vendor's limits would be at connect.
         self._axis_limits = parent._get_axis_limits()
 
     # -- position ----------------------------------------------------------------
@@ -364,10 +378,12 @@ class DemoStage(Stage):
 
 
 def bind_demo_stage(
-    microscope: DemoMicroscope, resources: Optional[Resources] = None
+    microscope: DemoMicroscope,
+    resources: Optional[Resources] = None,
+    start: Optional[DemoParts] = None,
 ) -> DemoStage:
     """Build ``stage`` for a connected Demo microscope."""
-    return DemoStage(microscope, resources).connect()
+    return DemoStage(microscope, resources, start).connect()
 
 
 def _insertable_state(inserted: bool) -> InsertableDeviceState:
@@ -380,10 +396,10 @@ class DemoChamber(Chamber):
     """The Demo chamber.
 
     It keeps its own simulated chamber in ``sim_state`` and ``sim_pressure``, copied
-    from the microscope's ``chamber`` at connect, so it starts where Demo's chamber
-    is and never touches Demo's again. A microscope that builds it routes the chamber keys to it
-    (``DeviceDemoMicroscope``). Each method is what the matching part of
-    ``DemoMicroscope`` does, on that copy:
+    when it is built from the starting ``chamber`` (``start``, else the microscope's
+    own), and it never touches the microscope's again. A microscope that builds it
+    routes the chamber keys to it (``DemoMicroscope``). Each method is what the
+    matching part of ``LegacyDemoMicroscope`` does, on that copy:
 
     - ``read_state`` / ``read_pressure``: the ``chamber_state`` / ``chamber_pressure``
       branches of ``_get``;
@@ -391,10 +407,16 @@ class DemoChamber(Chamber):
       ``_set``.
     """
 
-    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
+    def __init__(
+        self,
+        parent: DemoMicroscope,
+        resources: Optional[Resources] = None,
+        start: Optional[DemoParts] = None,
+    ):
         super().__init__(parent=parent, resources=resources)
-        self.sim_state = ChamberState.from_name(parent.chamber.state)
-        self.sim_pressure: float = parent.chamber.pressure
+        chamber = (parent if start is None else start).chamber
+        self.sim_state = ChamberState.from_name(chamber.state)
+        self.sim_pressure: float = chamber.pressure
 
     def read_state(self) -> ChamberState:
         return self.sim_state
@@ -416,10 +438,12 @@ class DemoChamber(Chamber):
 
 
 def bind_demo_chamber(
-    microscope: DemoMicroscope, resources: Optional[Resources] = None
+    microscope: DemoMicroscope,
+    resources: Optional[Resources] = None,
+    start: Optional[DemoParts] = None,
 ) -> DemoChamber:
     """Build ``chamber`` for a connected Demo microscope."""
-    return DemoChamber(microscope, resources).connect()
+    return DemoChamber(microscope, resources, start).connect()
 
 
 # Demo's two saved positions. insert_manipulator goes to PARK and
@@ -432,10 +456,10 @@ class DemoManipulator(Manipulator):
     """The Demo manipulator.
 
     It keeps its own simulated needle in ``sim_position`` and ``sim_inserted``,
-    copied from the microscope's ``manipulator_system`` at connect, so it starts
-    where Demo's is and never touches Demo's again. A microscope that builds it
-    routes the manipulator keys to it (``DeviceDemoMicroscope``). Each method is what
-    the matching part of ``DemoMicroscope`` does, on that copy:
+    copied when it is built from the starting ``manipulator_system`` (``start``,
+    else the microscope's own), and it never touches the microscope's again. A microscope that builds it
+    routes the manipulator keys to it (``DemoMicroscope``). Each method is what
+    the matching part of ``LegacyDemoMicroscope`` does, on that copy:
 
     - ``read_position`` / ``read_state``: the ``manipulator_position`` /
       ``manipulator_state`` branches of ``_get``;
@@ -449,9 +473,14 @@ class DemoManipulator(Manipulator):
     the position it was given, so neither side can change the other's object.
     """
 
-    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
+    def __init__(
+        self,
+        parent: DemoMicroscope,
+        resources: Optional[Resources] = None,
+        start: Optional[DemoParts] = None,
+    ):
         super().__init__(parent=parent, resources=resources)
-        start = parent.manipulator_system
+        start = (parent if start is None else start).manipulator_system
         self.sim_position: FibsemManipulatorPosition = deepcopy(start.position)
         self.sim_inserted: bool = start.inserted
 
@@ -497,25 +526,33 @@ class DemoManipulator(Manipulator):
 
 
 def bind_demo_manipulator(
-    microscope: DemoMicroscope, resources: Optional[Resources] = None
+    microscope: DemoMicroscope,
+    resources: Optional[Resources] = None,
+    start: Optional[DemoParts] = None,
 ) -> DemoManipulator:
     """Build ``manipulator`` for a connected Demo microscope."""
-    return DemoManipulator(microscope, resources).connect()
+    return DemoManipulator(microscope, resources, start).connect()
 
 
 class DemoGasInjector(GasInjector):
     """The Demo gas injection system.
 
     It keeps its own simulated GIS in ``sim_gas``, ``sim_inserted``, ``sim_heated``
-    and ``sim_opened``, copied from the microscope's ``gis_system`` at connect, so it
-    starts where Demo's is and never touches Demo's again. Each hook is what the
+    and ``sim_opened``, copied when it is built from the starting ``gis_system``
+    (``start``, else the microscope's own), and it never touches the microscope's
+    again. Each hook is what the
     matching method of Demo's ``GasInjectionSystem`` does, on that copy. Demo's GIS
     takes no insert position or gas, so those arguments are only logged.
     """
 
-    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources] = None):
+    def __init__(
+        self,
+        parent: DemoMicroscope,
+        resources: Optional[Resources] = None,
+        start: Optional[DemoParts] = None,
+    ):
         super().__init__(parent=parent, resources=resources)
-        start = parent.gis_system
+        start = (parent if start is None else start).gis_system
         self.sim_gas: str = start.gas
         self.sim_inserted: bool = start.inserted
         self.sim_heated: bool = start.heated
@@ -560,17 +597,19 @@ class DemoGasInjector(GasInjector):
 
 
 def bind_demo_gis(
-    microscope: DemoMicroscope, resources: Optional[Resources] = None
+    microscope: DemoMicroscope,
+    resources: Optional[Resources] = None,
+    start: Optional[DemoParts] = None,
 ) -> DemoGasInjector:
     """Build ``gis`` for a connected Demo microscope."""
-    return DemoGasInjector(microscope, resources).connect()
+    return DemoGasInjector(microscope, resources, start).connect()
 
 
 # -- The FM -------------------------------------------------------------------------
 #
 # The simulated FM's parts as devices. Each keeps its own simulated part in sim_*
-# fields, copied at connect from the part the simulated FM (``fibsem.fm.microscope``)
-# built, and does what that part does, on the copy. DeviceDemo's ``fm`` is the FM API
+# fields, copied when built from the part the simulated FM (``fibsem.fm.microscope``)
+# built, and does what that part does, on the copy. the Demo's ``fm`` is the FM API
 # over them (``fibsem.fm.api``).
 
 
@@ -840,6 +879,14 @@ class DemoFM(FM):
         self.parts = parts
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
+        self._apply_channel(channel)
+        return self.parts["camera"].acquire()
+
+    def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
+        # The simulated camera renders a frame when asked: nothing runs between.
+        self._apply_channel(channel)
+
+    def _apply_channel(self, channel: Optional[Dict[str, Any]]) -> None:
         if channel is not None:
             settings = ChannelSettings.from_dict(channel)
             filters = self.parts["filter_set"]
@@ -854,7 +901,6 @@ class DemoFM(FM):
             camera.exposure_time.write_through(settings.exposure_time)
             if settings.gain is not None:
                 camera.gain.write_through(settings.gain)
-        return self.parts["camera"].acquire()
 
 
 def bind_demo_fm(
@@ -864,6 +910,7 @@ def bind_demo_fm(
 ) -> Dict[str, Device]:
     """Build the FM's parts and group for a connected Demo microscope, each starting
     where the simulated FM ``fm``'s part is, by device name."""
+    resources = resources if resources is not None else resources_of(microscope)
     parts: Dict[str, Device] = {
         "camera": DemoCamera(fm.camera, microscope, resources),
         "light_source": DemoLightSource(fm.light_source, microscope, resources),

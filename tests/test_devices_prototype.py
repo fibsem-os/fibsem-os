@@ -26,12 +26,13 @@ from fibsem.devices import (
 )
 from fibsem.devices.drivers.demo import bind_demo_beams
 from fibsem.structures import BeamType, FibsemImage, RangeLimit
+from tests._legacy_demo import setup_legacy_session
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 
 
 def _demo(plasma: bool = False):
-    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope, _ = setup_legacy_session()
     if plasma:
         microscope.system.ion.plasma_gas = "Xenon"
     return microscope
@@ -287,6 +288,45 @@ def test_needs_channel_claims_the_resource_and_selects_the_channel():
     det.contrast.get_value()
     det.contrast.set_value(0.7)
     assert events == ["select", "read", "select", ("write", 0.7)]
+
+
+def test_a_selected_channel_is_restored_before_the_resource_is_released():
+    resources = Resources()
+    lock = resources.lock("imaging_channel")
+    events = []
+
+    class Detector(Device):
+        contrast = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
+
+    def select():
+        events.append("select")
+        return lambda: events.append(("restore", lock._is_owned()))  # type: ignore[attr-defined]
+
+    def failing_write(value):
+        raise RuntimeError("instrument refused")
+
+    det = Detector("fm-camera", resources=resources)
+    det.bind_channel(select)
+    det.bind(
+        "contrast",
+        read=lambda: events.append("read") or 0.5,
+        write=failing_write,
+        needs_channel=True,
+    )
+
+    det.contrast.get_value()
+    with pytest.raises(RuntimeError):
+        det.contrast.set_value(0.7)
+    # claim, select, act, restore, release -- restored even when the act failed
+    assert events == ["select", "read", ("restore", True), "select", ("restore", True)]
+    assert not lock._is_owned()  # type: ignore[attr-defined]
+
+
+def test_resources_can_use_a_lock_that_already_exists():
+    existing = threading.RLock()
+    resources = Resources({"imaging_channel": "view"}, locks={"view": existing})
+    assert resources.lock("imaging_channel") is existing
+    assert resources.lock("stage") is not existing
 
 
 def test_resources_share_one_lock_unless_a_backend_separates_them():
