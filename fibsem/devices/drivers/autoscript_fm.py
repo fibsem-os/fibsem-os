@@ -64,7 +64,7 @@ from fibsem.fm.structures import (
     emission_filter_for,
     objective_device_state,
 )
-from fibsem.structures import InsertableDeviceState, RangeLimit
+from fibsem.structures import CameraImageTransform, InsertableDeviceState, RangeLimit
 
 if TYPE_CHECKING:
     from fibsem.microscopes.autoscript import ThermoMicroscope
@@ -530,10 +530,13 @@ class AutoscriptFM(FM):
 
 
 def bind_autoscript_fm(
-    microscope: ThermoMicroscope, resources: Optional[Resources] = None
+    microscope: ThermoMicroscope,
+    resources: Optional[Resources] = None,
+    mount_transform: CameraImageTransform = CameraImageTransform.NONE,
 ) -> Dict[str, Device]:
     """The Thermo FM's parts and group for a connected Thermo microscope, by device
-    name. They share the microscope's ``imaging_channel`` lock with the beams."""
+    name. They share the microscope's ``imaging_channel`` lock with the beams.
+    ``mount_transform`` is how the camera is mounted, which the camera reports."""
     resources = resources if resources is not None else resources_of(microscope)
     channel = AutoscriptFMChannel(microscope, resources.lock(IMAGING_CHANNEL))
     common = {"parent": microscope, "resources": resources}
@@ -544,5 +547,6 @@ def bind_autoscript_fm(
         "filter_set": filter_set,
         "objective": AutoscriptFMObjective(channel, **common),
     }
+    parts["camera"]._mount_transform = mount_transform
     group = AutoscriptFM(channel, parts, **common)
     return {device.name: device.connect() for device in [group, *parts.values()]}

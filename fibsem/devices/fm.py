@@ -30,7 +30,25 @@ import numpy as np
 from fibsem.devices.core import Device, Parameter, command
 from fibsem.devices.wire import Frame, to_wire
 from fibsem.fm.structures import EmissionFilter
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures import CameraImageTransform, InsertableDeviceState
+
+
+def mount_transform_name(transform: CameraImageTransform) -> str:
+    """How a mount transform is written in a configuration and on the wire."""
+    return transform.value or "none"
+
+
+def mount_transform_from_name(name: Optional[str]) -> CameraImageTransform:
+    """The mount transform a configuration or a camera names; absent is none."""
+    if name is None or name == "none":
+        return CameraImageTransform.NONE
+    try:
+        return CameraImageTransform(name)
+    except ValueError:
+        names = ", ".join(mount_transform_name(t) for t in CameraImageTransform)
+        raise ValueError(
+            f"Unknown mount transform {name!r}; it is one of {names}."
+        ) from None
 
 
 class Camera(Device):
@@ -40,11 +58,26 @@ class Camera(Device):
     offset = Parameter(float)
     pixel_size = Parameter(tuple, unit="m", doc="(x, y), after binning.")
     resolution = Parameter(tuple, doc="(width, height) in pixels, after binning.")
+    mount_transform = Parameter(
+        str,
+        doc="The flip that puts the camera's frames into the stage's axes, from how "
+        "it is mounted: none, flip-x, flip-y or flip-xy. Applied to every frame "
+        "before the user's own image transform.",
+    )
+
+    _mount_transform: CameraImageTransform = CameraImageTransform.NONE
+    """Set by the driver's binder from the site's configuration; a fact about the
+    mount, not something the camera can measure."""
 
     @command
     def acquire(self) -> np.ndarray:
-        """One frame with the current settings, as the camera gives it."""
+        """One frame with the current settings, as the camera gives it. ``acquire``
+        returns the sensor's frame; ``mount_transform`` is applied by whoever builds
+        the image."""
         return self._acquire()
+
+    def read_mount_transform(self) -> str:
+        return mount_transform_name(self._mount_transform)
 
     def _acquire(self) -> np.ndarray:
         raise NotImplementedError(f"{type(self).__name__} can't acquire")
