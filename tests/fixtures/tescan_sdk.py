@@ -92,40 +92,165 @@ class FakeStage(Node):
         return True
 
 
-class FakeOptics(Node):
+class _Recorded(Node):
+    """A vendor object whose methods record their call before they answer."""
+
+    def _call(self, name, *args, **kwargs):
+        self._sdk.record(f"{self._path}.{name}", args, kwargs)
+
+
+class FakeOptics(_Recorded):
     def __init__(self, sdk: "FakeTescan", path: str):
         super().__init__(sdk, path)
         self.image_rotation = 0.0  # degrees
         self.image_shift = (0.0, 0.0)  # mm
+        self.wd = 7.0  # mm
+        self.viewfield = 0.15  # mm
 
     def GetImageRotation(self):
-        self._sdk.record(f"{self._path}.GetImageRotation", (), {})
+        self._call("GetImageRotation")
         return self.image_rotation
 
+    def SetImageRotation(self, value):
+        self._call("SetImageRotation", value)
+        self.image_rotation = float(value)
+
     def GetImageShift(self):
-        self._sdk.record(f"{self._path}.GetImageShift", (), {})
+        self._call("GetImageShift")
         return self.image_shift
 
     def SetImageShift(self, x, y):
-        self._sdk.record(f"{self._path}.SetImageShift", (x, y), {})
+        self._call("SetImageShift", x, y)
         self.image_shift = (float(x), float(y))
 
+    def GetWD(self):
+        self._call("GetWD")
+        return self.wd
 
-class FakeDetectors(Node):
+    def SetWD(self, value):
+        self._call("SetWD", value)
+        self.wd = float(value)
+
+    def GetViewfield(self):
+        self._call("GetViewfield")
+        return self.viewfield
+
+    def SetViewfield(self, value):
+        self._call("SetViewfield", value)
+        self.viewfield = float(value)
+
+
+class _Status:
+    BeamOn = "BeamOn"
+    BeamOff = "BeamOff"
+
+
+class FakeBeamUnit(_Recorded):
+    """``SEM.Beam`` or ``FIB.Beam``: status, current (pA) and voltage (V)."""
+
+    Status = _Status
+
+    def __init__(self, sdk: "FakeTescan", path: str):
+        super().__init__(sdk, path)
+        self.status = _Status.BeamOn
+        self.current = 50.0  # pA
+        self.voltage = 30000.0
+
+    def GetStatus(self):
+        self._call("GetStatus")
+        return self.status
+
+    def On(self):
+        self._call("On")
+        self.status = _Status.BeamOn
+
+    def Off(self):
+        self._call("Off")
+        self.status = _Status.BeamOff
+
+    def GetCurrent(self):
+        self._call("GetCurrent")
+        return self.current
+
+    def SetCurrent(self, value):
+        self._call("SetCurrent", value)
+        self.current = float(value)
+
+    def ReadProbeCurrent(self):
+        self._call("ReadProbeCurrent")
+        return self.current
+
+    def GetVoltage(self):
+        self._call("GetVoltage")
+        return self.voltage
+
+    def SetVoltage(self, value):
+        self._call("SetVoltage", value)
+        self.voltage = float(value)
+
+
+class FakeDetectors(_Recorded):
     def __init__(self, sdk: "FakeTescan", path: str, names: Sequence[str]):
         super().__init__(sdk, path)
         self.detectors = [FakeDetector(name, i) for i, name in enumerate(names)]
+        self.selected = self.detectors[0]
+        self.gain_black = {d.name: (50.0, 40.0) for d in self.detectors}
 
     def Enum(self):
-        self._sdk.record(f"{self._path}.Enum", (), {})
+        self._call("Enum")
         return list(self.detectors)
 
+    def Get(self, Channel=0):
+        self._call("Get", Channel=Channel)
+        return self.selected
 
-class FakeColumn(Node):
-    def __init__(self, sdk: "FakeTescan", path: str, detectors: Sequence[str]):
+    def Set(self, Channel=0, Detector=None):
+        self._call("Set", Channel=Channel, Detector=Detector)
+        self.selected = Detector
+
+    def GetGainBlack(self, Detector=None):
+        self._call("GetGainBlack", Detector=Detector)
+        return self.gain_black[Detector.name]
+
+    def SetGainBlack(self, Detector=None, Gain=None, Black=None):
+        self._call("SetGainBlack", Detector=Detector, Gain=Gain, Black=Black)
+        self.gain_black[Detector.name] = (float(Gain), float(Black))
+
+
+class FakePresets(_Recorded):
+    def __init__(self, sdk: "FakeTescan", path: str, names: Sequence[str]):
+        super().__init__(sdk, path)
+        self.names = list(names)
+
+    def Enum(self):
+        self._call("Enum")
+        return list(self.names)
+
+    def IsAvailable(self, name):
+        self._call("IsAvailable", name)
+        return name in self.names
+
+    def Activate(self, name):
+        self._call("Activate", name)
+
+
+class FakeColumn(_Recorded):
+    def __init__(
+        self,
+        sdk: "FakeTescan",
+        path: str,
+        detectors: Sequence[str],
+        presets: Sequence[str] = (),
+    ):
         super().__init__(sdk, path)
         self.Optics = FakeOptics(sdk, f"{path}.Optics")
+        self.Beam = FakeBeamUnit(sdk, f"{path}.Beam")
         self.Detector = FakeDetectors(sdk, f"{path}.Detector", detectors)
+        self.Preset = FakePresets(sdk, f"{path}.Preset", presets)
+
+    def IsBusy(self):
+        self._call("IsBusy")
+        return False
 
 
 class FakeTescan(Node):
@@ -136,10 +261,18 @@ class FakeTescan(Node):
         super().__init__(self, "connection")
         self.Stage = FakeStage(self)
         self.SEM = FakeColumn(self, "SEM", ["SE", "E-T", "BSE"])
-        self.FIB = FakeColumn(self, "FIB", ["SE", "SI"])
+        self.FIB = FakeColumn(
+            self, "FIB", ["SE", "SI"], ["30 keV; 1 nA", "30 keV; 100 pA"]
+        )
+        # The microscope's connection lock, once connected: every call made without
+        # it held is listed in `unlocked`.
+        self.lock = None
+        self.unlocked: list = []
 
     def record(self, path, args, kwargs):
         self.log.append([path, _plain(list(args)), _plain(kwargs)])
+        if self.lock is not None and not self.lock._is_owned():
+            self.unlocked.append(path)
 
     def calls(self, path: str) -> list:
         """The keyword arguments of each call made to ``path``, in order."""
@@ -159,6 +292,7 @@ def connect(monkeypatch, system: SystemSettings, fake: Optional[FakeTescan] = No
     monkeypatch.setattr(tescan_module, "Detector", FakeDetector, raising=False)
     microscope = TescanMicroscope(copy.deepcopy(system))
     microscope.connect_to_microscope(ip_address="localhost", port=8300)
+    fake.lock = microscope._connection_lock
     fake.log.clear()
     return microscope, fake
 
