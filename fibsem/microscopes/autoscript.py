@@ -1158,7 +1158,8 @@ class ThermoMicroscope(FibsemMicroscope):
     def _build_beams(self) -> None:
         """Build the beam devices and route the beam keys that have moved to them.
 
-        The scan-mode methods then use the beam's scan commands. ``preset`` is still
+        The scan-mode methods then use the beam's scan commands, and acquire_image,
+        last_image, autocontrast and auto_focus its imaging commands. ``preset`` is still
         answered by ``_get``/``_set``. A disabled column gets no device, so its keys
         stay with the old branches too.
         """
@@ -1293,6 +1294,17 @@ class ThermoMicroscope(FibsemMicroscope):
         Returns:
             FibsemImage: A new FibsemImage object representing the acquired image.
         """
+        # The beam's acquire command, once connect has built the beam; a beam_type
+        # takes precedence and means the current settings, as below.
+        target = (
+            beam_type
+            if beam_type is not None
+            else getattr(image_settings, "beam_type", None)
+        )
+        beam = self.beams.get(target) if target is not None else None
+        if beam is not None:
+            return beam.acquire(None if beam_type is not None else image_settings)
+
         if beam_type is not None:
             return self.acquire_image3(image_settings=None, beam_type=beam_type)
 
@@ -1509,6 +1521,9 @@ class ThermoMicroscope(FibsemMicroscope):
         Raises:
             Exception: If there's an error while getting the last image.
         """
+        beam = self.beams.get(beam_type)
+        if beam is not None:
+            return beam.last_image()
         # One lock over the channel and the read, as `acquire_image` holds it over
         # `set_channel` + `grab_frame` (FIB-542). `get_image` retrieves the image "in the
         # active view", so this is the same pair on the retrieval path: a channel that is
@@ -1642,6 +1657,10 @@ class ThermoMicroscope(FibsemMicroscope):
         Args:
             beam_type (BeamType) The imaging beam type for which to adjust the contrast.
         """
+        beam = self.beams.get(beam_type)
+        if beam is not None:
+            beam.autocontrast(reduced_area)
+            return
         logging.debug(f"Running autocontrast on {beam_type.name}.")
         # `run_auto_cb` optimises "the active detector in the active view", so the
         # channel has to be ours for the whole routine, not just when it starts. Unlike
@@ -1674,6 +1693,10 @@ class ThermoMicroscope(FibsemMicroscope):
         Args:
             beam_type (BeamType): The imaging beam type for which to focus.
         """
+        beam = self.beams.get(beam_type)
+        if beam is not None:
+            beam.auto_focus(reduced_area)
+            return
         logging.debug(f"Running auto-focus on {beam_type.name}.")
         # Held for the same reason as `autocontrast`, and it matters more here:
         # `run_auto_focus` runs "in the active view", and `imaging/tiled.py` calls this

@@ -19,6 +19,7 @@ the SDK's ``Point`` inside a write, which the old branch imports there too.
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
@@ -34,9 +35,11 @@ from fibsem.devices.stage import Stage, axis_limits_from_degrees
 from fibsem.structures import (
     BeamType,
     ChamberState,
+    FibsemImage,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
+    ImageSettings,
     InsertableDeviceState,
     Point,
     RangeLimit,
@@ -191,6 +194,9 @@ class AutoscriptBeam(Beam):
     read before. The electron beam's ``angular_correction`` and ``tilt_correction``
     are the old ``angular_correction_angle`` and ``angular_correction_tilt_correction``
     keys; the tilt correction could only be set before, and now reads too.
+
+    ``acquire``, ``last_image``, ``autocontrast`` and ``auto_focus`` are the old
+    methods, claiming the imaging channel for the vendor call.
 
     Not here, so absent on the new API and still answered by the old branches:
     ``preset`` (Thermo has none).
@@ -478,6 +484,105 @@ class AutoscriptBeam(Beam):
         return ParameterMetadata(
             choices=list(self._beam.source.plasma_gas.available_values)
         )
+
+    # Imaging and the autofunctions: ThermoMicroscope's acquire_image (and
+    # acquire_image3's current-settings path), last_image, autocontrast and auto_focus,
+    # moved as they are. The vendor call runs with this beam's channel claimed
+    # (claim_channel), which is the old `_threading_lock` + `set_channel` pair, and the
+    # FibsemImage is built from get_microscope_state as before.
+
+    def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
+        from fibsem.microscopes import autoscript as thermo
+
+        microscope = self.parent
+        name = self.beam_type.name
+        if image_settings is None:
+            # acquire_image(beam_type=...): the beam's current settings
+            settings = microscope.get_imaging_settings(beam_type=self.beam_type)
+            logging.info(f"acquiring new {name} image.")
+            with self.claim_channel():
+                adorned = microscope.connection.imaging.grab_frame(None)
+            logging.info(f"acquiring new {name} image.")
+        else:
+            settings = image_settings
+            if settings.reduced_area is not None:
+                rect = settings.reduced_area
+                reduced_area = thermo.Rectangle(
+                    rect.left, rect.top, rect.width, rect.height
+                )
+                logging.debug(
+                    f"Set reduced are: {reduced_area} for beam type {settings.beam_type}"
+                )
+            else:
+                reduced_area = None
+                self.full_frame()
+            microscope.set_field_of_view(hfw=settings.hfw, beam_type=self.beam_type)
+            logging.info(f"acquiring new {name} image.")
+            frame_settings = thermo.GrabFrameSettings(
+                resolution=f"{settings.resolution[0]}x{settings.resolution[1]}",
+                dwell_time=settings.dwell_time,
+                reduced_area=reduced_area,
+                line_integration=settings.line_integration,
+                scan_interlacing=settings.scan_interlacing,
+                frame_integration=settings.frame_integration,
+                drift_correction=settings.drift_correction,
+            )
+            with self.claim_channel():
+                adorned = microscope.connection.imaging.grab_frame(frame_settings)
+            if settings.reduced_area is not None:
+                self.full_frame()
+
+        state = microscope.get_microscope_state(beam_type=self.beam_type)
+        image = thermo.fibsem_image_from_adorned_image(
+            copy.deepcopy(adorned), copy.deepcopy(settings), copy.deepcopy(state)
+        )
+        microscope._set_additional_metadata(image)
+        if image_settings is not None:
+            microscope._last_imaging_settings = image_settings
+        logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
+        return image
+
+    def _last_image(self) -> FibsemImage:
+        from fibsem.microscopes import autoscript as thermo
+
+        microscope = self.parent
+        with self.claim_channel():
+            image = microscope.connection.imaging.get_image()
+        image = thermo.AdornedImage(
+            data=image.data.astype(np.uint8), metadata=image.metadata
+        )
+        state = microscope.get_microscope_state(beam_type=self.beam_type)
+        fibsem_image = thermo.fibsem_image_from_adorned_image(
+            adorned=image, image_settings=None, state=state, beam_type=self.beam_type
+        )
+        microscope._set_additional_metadata(fibsem_image)
+        logging.debug(
+            {"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()}
+        )
+        return fibsem_image
+
+    def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
+        # The routine optimises the active detector in the active view, so the channel
+        # is held for all of it, with the reduced area set inside (FIB-569).
+        logging.debug(f"Running autocontrast on {self.beam_type.name}.")
+        with self.claim_channel():
+            if reduced_area is not None:
+                self.reduced_area(reduced_area)
+            self.parent.connection.auto_functions.run_auto_cb()
+        if reduced_area is not None:
+            self.full_frame()
+        logging.debug({"msg": "autocontrast", "beam_type": self.beam_type.name})
+
+    def _auto_focus(self, reduced_area: Optional[FibsemRectangle]) -> None:
+        # Held for the whole routine, as autocontrast is: it runs in the active view.
+        logging.debug(f"Running auto-focus on {self.beam_type.name}.")
+        with self.claim_channel():
+            if reduced_area is not None:
+                self.reduced_area(reduced_area)
+            self.parent.connection.auto_functions.run_auto_focus()
+        if reduced_area is not None:
+            self.full_frame()
+        logging.debug({"msg": "auto_focus", "beam_type": self.beam_type.name})
 
 
 # The vendor's scan mode names (FullFrame, ReducedArea, Spot), lower-cased.
