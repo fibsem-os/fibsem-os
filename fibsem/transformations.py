@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Optional, Tuple
 
 import numpy as np
 
+from fibsem.geometry.frames import StageModel, image_y_shift, in_plane_move
 from fibsem.movement import rotation_angle_is_smaller
 
 if TYPE_CHECKING:
@@ -179,6 +180,27 @@ def _projection_terms(
     return compustage_sign, corrected_pretilt_angle, stage_tilt
 
 
+def _image_y_flip(
+    geometry: "FibsemHardwareGeometry",
+    stage_rotation: float,
+    stage_tilt: float,
+    is_fib_orientation: Optional[bool] = None,
+) -> float:
+    """-1 where the projection reverses image y beyond what the geometry gives.
+
+    Only a compustage at its FIB pose, as the projection has always done; plain
+    geometry (`fibsem.geometry.frames`) gives no reversal anywhere. Whether the
+    instrument flips the image there is an open question (FIB-1101), so it stays a
+    named exception here rather than in the model.
+    """
+    if not geometry.is_compustage:
+        return 1.0
+    sign, _, _ = _projection_terms(
+        geometry, stage_rotation, stage_tilt, is_fib_orientation
+    )
+    return -sign
+
+
 def view_corrected_stage_movement(
     expected_y: float,
     view_tilt: float,
@@ -206,19 +228,13 @@ def view_corrected_stage_movement(
     Returns:
         (dy, dz) stage movement, in metres.
     """
-    compustage_sign, corrected_pretilt_angle, stage_tilt = _projection_terms(
-        geometry, stage_rotation, stage_tilt, is_fib_orientation
-    )
-
-    if geometry.is_compustage:
-        expected_y = expected_y * compustage_sign
-
-    perspective_tilt_adjustment = -corrected_pretilt_angle - view_tilt
-    y_sample_move = expected_y / np.cos(stage_tilt + perspective_tilt_adjustment)
-
-    return (
-        float(y_sample_move * np.cos(corrected_pretilt_angle)),
-        float(-y_sample_move * np.sin(corrected_pretilt_angle)),
+    flip = _image_y_flip(geometry, stage_rotation, stage_tilt, is_fib_orientation)
+    return in_plane_move(
+        StageModel.from_geometry(geometry),
+        flip * expected_y,
+        view_tilt,
+        stage_rotation,
+        stage_tilt,
     )
 
 
@@ -269,21 +285,6 @@ def inverse_view_corrected_dy(
     Returns:
         The in-image y-displacement produced by that stage movement, in metres.
     """
-    compustage_sign, corrected_pretilt_angle, stage_tilt = _projection_terms(
-        geometry, stage_rotation, stage_tilt
-    )
-
-    perspective_tilt_adjustment = -corrected_pretilt_angle - view_tilt
-    phi = stage_tilt + perspective_tilt_adjustment
-
-    cos_pretilt = np.cos(corrected_pretilt_angle)
-    sin_pretilt = np.sin(corrected_pretilt_angle)
-    in_plane = dy * cos_pretilt - dz * sin_pretilt
-    normal = dy * sin_pretilt + dz * cos_pretilt
-
-    expected_y = in_plane * np.cos(phi) - normal * np.sin(phi)
-
-    if geometry.is_compustage:
-        expected_y *= compustage_sign
-
-    return float(expected_y)
+    flip = _image_y_flip(geometry, stage_rotation, stage_tilt)
+    model = StageModel.from_geometry(geometry)
+    return flip * image_y_shift(model, dy, dz, view_tilt, stage_tilt)
