@@ -89,3 +89,42 @@ def test_a_backend_without_a_stage_device_gets_the_same_table(filename):
 
     assert _deg(microscope.orientations) == with_device
     assert list(microscope.orientations) == list(with_device)
+
+
+def _classifier(poses_deg):
+    """A Demo microscope classifying against hand-written poses, in degrees."""
+    from fibsem.structures import FibsemStagePosition
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.orientations = {
+        name: FibsemStagePosition(r=math.radians(r), t=math.radians(t))
+        for name, (r, t) in poses_deg.items()
+    }
+    return microscope
+
+
+def _at(r, t):
+    from fibsem.structures import FibsemStagePosition
+
+    return FibsemStagePosition(r=math.radians(r), t=math.radians(t))
+
+
+def test_classification_picks_the_nearest_declared_pose():
+    """Two poses whose tolerances overlap: the one the stage is nearer wins,
+    whichever is listed first."""
+    microscope = _classifier(
+        {"SEM": (0, 0), "FIB": (0, 8), "MILLING": (0, -20), "FM": (0, 4)}
+    )
+    assert microscope.get_stage_orientation(_at(0, 1)) == "SEM"
+    assert microscope.get_stage_orientation(_at(0, 7)) == "FIB"
+    assert microscope.get_stage_orientation(_at(0, 4.5)) == "FM"
+
+
+def test_a_declared_pose_inside_the_milling_range_is_not_milling():
+    """A stage that reaches FIB by tilting at the SEM rotation (FIB-1101's JEOL
+    case): MILLING is a range, so it never shadows a pose the stage declares."""
+    microscope = _classifier({"SEM": (0, 0), "FIB": (0, 30), "MILLING": (0, 15)})
+    assert microscope.get_stage_orientation(_at(0, 30)) == "FIB"
+    assert microscope.get_stage_orientation(_at(0, 15)) == "MILLING"
+    assert microscope.get_stage_orientation(_at(0, -50)) == "NONE"
+    assert microscope.get_stage_orientation(_at(90, 30)) == "NONE"

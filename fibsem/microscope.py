@@ -2841,16 +2841,12 @@ class FibsemMicroscope(ABC):
         stage_tilt = stage_position.t
 
         from fibsem import movement
+
         # TODO: also check xyz ranges?
 
         sem = self.get_orientation("SEM")
         fib = self.get_orientation("FIB")
         milling = self.get_orientation("MILLING")
-        # FM is an orientation only on a compustage -- see `_update_orientations`. On
-        # an offset mount there is no FM pose to classify against, and there never
-        # effectively was: the deleted copy was byte-identical to FIB, which matches
-        # first, so no position ever classified as FM off a compustage.
-        fm = self.orientations.get("FM")
         if sem is None or fib is None or milling is None:
             raise ValueError(
                 "SEM, FIB or MILLING orientation not defined in the system."
@@ -2867,30 +2863,37 @@ class FibsemMicroscope(ABC):
                 "SEM, FIB or MILLING orientation must have both rotation (r) and tilt (t) defined."
             )
 
-        is_sem_rotation = movement.rotation_angle_is_smaller(
-            stage_rotation, sem.r, atol=5
-        )  # query: do we need rotation_angle_is_smaller, since we % 2pi the rotation?
-        is_fib_rotation = movement.rotation_angle_is_smaller(
-            stage_rotation, fib.r, atol=5
-        )
-        is_fm_rotation = fm is not None and movement.rotation_angle_is_smaller(
-            stage_rotation, fm.r, atol=5
-        )
+        # The nearest declared pose, of those within tolerance: 5 degrees in r and
+        # 0.1 rad in t. Each pose the stage declares (SEM, FIB, and FM on a
+        # compustage) is a candidate; MILLING is not, because it is a range.
+        # Nearest rather than first-listed, so a stage whose poses sit close together
+        # gets the one it is actually at.
+        rotation_tolerance = np.deg2rad(5)
+        tilt_tolerance = 0.1
+        nearest, nearest_distance = None, np.inf
+        for name, pose in self.orientations.items():
+            if name == "MILLING":
+                continue
+            rotation_error = movement.angle_difference(stage_rotation, pose.r)
+            if rotation_error >= rotation_tolerance:
+                continue
+            if not np.isclose(stage_tilt, pose.t, atol=tilt_tolerance):
+                continue
+            distance = (rotation_error / rotation_tolerance) ** 2 + (
+                (stage_tilt - pose.t) / tilt_tolerance
+            ) ** 2
+            if distance < nearest_distance:
+                nearest, nearest_distance = name, distance
+        if nearest is not None:
+            return nearest
 
-        is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
-        is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
-
-        is_milling_tilt = np.radians(-45) < stage_tilt and not is_sem_tilt
-        is_fm_tilt = fm is not None and np.isclose(stage_tilt, fm.t, atol=0.1)
-
-        if is_sem_rotation and is_sem_tilt:
-            return "SEM"
-        if is_sem_rotation and is_milling_tilt:
+        # MILLING: any tilt above -45 degrees at the SEM rotation that is not a
+        # declared pose.
+        if (
+            movement.rotation_angle_is_smaller(stage_rotation, sem.r, atol=5)
+            and np.radians(-45) < stage_tilt
+        ):
             return "MILLING"
-        if is_fib_rotation and is_fib_tilt:
-            return "FIB"
-        if is_fm_rotation and is_fm_tilt:
-            return "FM"
 
         return "NONE"
 
