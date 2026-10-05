@@ -6,17 +6,22 @@ fixed holder the inventory is the holder itself and every present grid is in the
 beam. Nothing here is cached: every answer is re-derived from the slots.
 """
 
+import logging
+
 import pytest
 
 from fibsem import utils
 from fibsem.microscopes import _stage as stage_module
 from fibsem.microscopes._stage import (
+    COMPUSTAGE_HOLDER_NAME,
     DemoSampleLoader,
     GridExchangeError,
     GridSlot,
     GridSlotState,
     SampleGrid,
     SampleGridLoader,
+    SampleHolder,
+    SlotCalibration,
     _create_sample_stage,
 )
 from fibsem.structures import FibsemStagePosition
@@ -348,6 +353,68 @@ class TestCreateSampleStage:
             "Grid-01",
             "Grid-04",
         ]
+
+    @staticmethod
+    def _captured_working_slot(microscope, x=150e-6, pre_tilt=None):
+        """A CompuStage Holder in the configuration, its slot captured at x."""
+        stage = microscope.system.stage
+        slot = GridSlot(
+            name="Slot-01",
+            index=0,
+            position=FibsemStagePosition(name="Slot-01", x=x, y=-50e-6, z=20e-6),
+            calibration=SlotCalibration(
+                orientation="SEM",
+                pre_tilt=float(
+                    stage.shuttle_pre_tilt if pre_tilt is None else pre_tilt
+                ),
+                rotation_reference=float(stage.rotation_reference),
+                captured_at="2026-10-02T12:00:00",
+                fibsem_version="test",
+            ),
+        )
+        stage.holders = {
+            COMPUSTAGE_HOLDER_NAME: SampleHolder(
+                pre_tilt=float(stage.shuttle_pre_tilt),
+                name=COMPUSTAGE_HOLDER_NAME,
+                capacity=1,
+                slots={"Slot-01": slot},
+            )
+        }
+
+    def test_compustage_working_slot_is_the_origin_until_calibrated(self):
+        microscope = _compustage_demo()
+        slot = microscope._stage.holder.slots["Slot-01"]
+        assert (slot.position.x, slot.position.y, slot.position.z) == (0.0, 0.0, 0.0)
+        assert slot.calibration.is_builtin
+
+    def test_compustage_uses_a_captured_working_slot(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = True
+        self._captured_working_slot(microscope)
+        stage = _create_sample_stage(microscope)
+        (slot,) = stage.holder.slots.values()
+        assert stage.holder.name == COMPUSTAGE_HOLDER_NAME
+        assert (slot.position.x, slot.position.y, slot.position.z) == (
+            150e-6,
+            -50e-6,
+            20e-6,
+        )
+        assert not slot.calibration.is_builtin
+        assert slot.loaded_grid is None  # occupancy is the session's, not copied
+
+    def test_compustage_drops_a_working_slot_captured_at_another_pre_tilt(self, caplog):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = True
+        self._captured_working_slot(microscope, pre_tilt=12.0)
+        # setup_session configures the root logger; listen after it has
+        logging.getLogger().addHandler(caplog.handler)
+        try:
+            stage = _create_sample_stage(microscope)
+        finally:
+            logging.getLogger().removeHandler(caplog.handler)
+        slot = stage.holder.slots["Slot-01"]
+        assert slot.position.x == 0.0 and slot.calibration.is_builtin
+        assert "Using the stage origin" in caplog.text
 
     def test_compustage_demo_without_loader_block_has_an_empty_magazine(self):
         microscope = _compustage_demo()
