@@ -10,7 +10,7 @@ in without changes to callers.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPixmap
@@ -43,6 +43,12 @@ from fibsem.ui.fm.widgets.emission_filter_combo import (
     EmissionFilterComboBox,
     FilterLookup,
     emission_lookup_for,
+)
+from fibsem.ui.fm.widgets.fm_limits import (
+    EXPOSURE_RANGE_MS,
+    POWER_RANGE_PERCENT,
+    exposure_range_ms,
+    power_range_percent,
 )
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.tokens import (
@@ -166,6 +172,8 @@ class ChannelRowWidget(QWidget):
         enabled: bool = True,
         parent: Optional[QWidget] = None,
         emission_lookup: Optional[FilterLookup] = None,
+        exposure_range: Tuple[float, float] = EXPOSURE_RANGE_MS,
+        power_range: Tuple[float, float] = POWER_RANGE_PERCENT,
     ) -> None:
         super().__init__(parent)
         self.channel = channel
@@ -210,8 +218,8 @@ class ChannelRowWidget(QWidget):
 
         self.exposure_spin = ValueSpinBox(
             suffix="ms",
-            minimum=1.0,
-            maximum=10000.0,
+            minimum=exposure_range[0],
+            maximum=exposure_range[1],
             step=1.0,
             decimals=1,
         )
@@ -234,8 +242,8 @@ class ChannelRowWidget(QWidget):
 
         self.power_spin = ValueSpinBox(
             suffix="%",
-            minimum=0.0,
-            maximum=100.0,
+            minimum=power_range[0],
+            maximum=power_range[1],
             step=1.0,
             decimals=1,
         )
@@ -670,6 +678,8 @@ class ChannelListWidget(QWidget):
             if fm is not None
             else []
         )
+        self._exposure_range = exposure_range_ms(fm)
+        self._power_range = power_range_percent(fm)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -925,6 +935,8 @@ class ChannelListWidget(QWidget):
             excitation_items=self._excitation_items,
             enabled=enabled,
             emission_lookup=self._emission_lookup(),
+            exposure_range=self._exposure_range,
+            power_range=self._power_range,
         )
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, channel)
@@ -1159,6 +1171,8 @@ class ChannelListWidget(QWidget):
                 excitation_items=self._excitation_items,
                 enabled=enabled,
                 emission_lookup=self._emission_lookup(),
+                exposure_range=self._exposure_range,
+                power_range=self._power_range,
             )
             item.setSizeHint(self._row_item_size())
             self._list.setItemWidget(item, row)
