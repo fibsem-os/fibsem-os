@@ -2358,17 +2358,32 @@ def _make_minimal_config(**kwargs) -> FluorescenceConfiguration:
     return FluorescenceConfiguration(**defaults)
 
 
-def test_fluorescence_configuration_ignores_a_saved_default_orientation():
+def test_fluorescence_configuration_ignores_a_saved_default_orientation(caplog):
     """The key a file saved before FIB-831 may carry names an instrument-wide
-    default the application no longer has; it is read past, not honoured."""
+    default the application no longer has; it is read past, not honoured, and a
+    value someone chose is not dropped silently."""
     config = _make_minimal_config()
     d = config.to_dict()
     assert "default_orientation" not in d
     d["default_orientation"] = "SEM"
 
-    restored = FluorescenceConfiguration.from_dict(d)
+    with caplog.at_level("WARNING"):
+        restored = FluorescenceConfiguration.from_dict(d)
 
     assert not hasattr(restored, "default_orientation")
+    assert "Default Orientation (SEM)" in caplog.text
+
+
+def test_fluorescence_configuration_reads_the_old_fm_default_quietly(caplog):
+    """Every file saved before FIB-831 carries "FM", the old default, which is
+    also where a compustage FM's poses still go; that is not worth a warning."""
+    d = _make_minimal_config().to_dict()
+    d["default_orientation"] = "FM"
+
+    with caplog.at_level("WARNING"):
+        FluorescenceConfiguration.from_dict(d)
+
+    assert "Default Orientation" not in caplog.text
 
 
 def _make_image() -> FluorescenceImage:

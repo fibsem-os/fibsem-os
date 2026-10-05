@@ -1774,6 +1774,16 @@ class FluorescenceConfiguration:
         else:
             camera_settings = CameraSettings()
 
+        # "FM" was the default every file saved, and it is the first orientation a
+        # compustage FM declares, so only a value someone chose changes anything.
+        saved_orientation = ddict.get("default_orientation")
+        if saved_orientation is not None and saved_orientation != "FM":
+            logging.warning(
+                f"Ignoring the saved Default Orientation ({saved_orientation}): a new "
+                "lamella's fluorescence pose now goes to the FM's first declared "
+                "acquisition orientation. Choose another per lamella with Derive."
+            )
+
         return cls(
             channel_settings=[
                 ChannelSettings.from_dict(ch) for ch in ddict["channel_settings"]
