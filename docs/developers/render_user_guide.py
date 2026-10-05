@@ -1240,16 +1240,63 @@ def render_sample_holder(h: Harness) -> None:
     # the Arctis: holder plus the autoloader magazine
     h.connect("sim-arctis")
     sw = h.ui.sample_widget
+    hw, lw = sw.holder_widget, sw.loader_widget
+    ctrl = h.ui.movement_widget.control_widget
+    iw = h.ui.image_widget
     h.ui.tabWidget.setCurrentWidget(sw)
     h.pump(300)
     h.shot(
         "sample-tab-arctis",
         target=sw,
-        callouts=[Box(sw.holder_widget), Box(sw.loader_widget)],
+        callouts=[Box(hw), Box(lw), lw.btn_scan, hw.btn_calibrate],
         numbered=True,
         crop=True,
         height=760,
     )
+
+    # the working slot's calibration: a grid loaded from the magazine, then the
+    # same wizard, for one slot. The simulated grid sits at the stage origin,
+    # so it is captured there; a capture elsewhere would move the overviews
+    # the grid workflow page renders next, from the same configuration.
+    magazine = sorted(lw.loader.slots.values(), key=lambda s_: s_.index)
+    lw._on_load(magazine[0])
+    waited = 0
+    while lw.busy and waited < 60000:
+        h.pump(200)
+        waited += 200
+    if lw.busy:
+        raise RuntimeError("the grid did not load")
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
+    hw._on_calibrate()
+    dialog = hw._calibration_dialog
+    h.pump(300)
+    h.shot("calibrate-arctis-1-holder", target=dialog)
+    dialog._on_next()
+    h.pump(200)
+    dialog._on_move_to_orientation()
+    waited = 0
+    while dialog._worker is not None and dialog._worker.is_alive() and waited < 30000:
+        h.pump(200)
+        waited += 200
+    h.pump(500)
+    dialog._refresh_orientation_status()
+    dialog._on_next()
+    h.pump(300)
+    dialog._on_capture()
+    h.pump(300)
+    h.shot("calibrate-arctis-2-slot", target=dialog)
+    dialog._on_next()
+    h.pump(300)
+    dialog._on_next()  # save
+    h.pump(500)
+    h.shot("sample-tab-arctis-calibrated", target=hw, crop=True)
+    # back to the magazine, so the grid workflow page starts with none loaded
+    lw._on_unload(magazine[0])
+    waited = 0
+    while lw.busy and waited < 60000:
+        h.pump(200)
+        waited += 200
 
 
 @page("fluorescence")
@@ -2026,8 +2073,8 @@ def render_grid_workflow(h: Harness) -> None:
     h.wait_move(ctrl, iw)
 
     # -- calibrating the working slot, on the Sample tab ---------------------
-    # Photographed at the capture step and closed: a capture here would be
-    # saved into the shipped configuration.
+    # Photographed at the capture step and closed: the Sample holder page goes
+    # through the whole calibration.
     sw = h.ui.sample_widget
     hw = sw.holder_widget
     h.ui.tabWidget.setCurrentWidget(sw)
