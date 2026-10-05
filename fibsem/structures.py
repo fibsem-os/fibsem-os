@@ -2271,7 +2271,10 @@ DEFAULT_FIB_COLUMN_TILT: float = 52.0
 # it yet: it exists because a format change cannot migrate a file that does not say
 # what format it is, and the field cannot be added retrospectively -- a file without
 # it is indistinguishable from one written before it existed.
-CONFIGURATION_VERSION: int = 1
+#
+# 2: `hardware:` is a list of devices (`hardware.devices`) instead of one block per
+# device. Version 1 files load unchanged; the reader takes both.
+CONFIGURATION_VERSION: int = 2
 
 # **The default is the objective under the grid**: the FM shares the beams' origin, and
 # is told apart by the pose the sample is held in. A site whose objective is offset --
@@ -2890,6 +2893,160 @@ class FluorescenceSystemSettings:
         )
 
 
+# The devices configuration v1 had a block for, and their type. Each has its own record
+# on `SystemSettings` (`system.stage`, `system.electron`, ...), which is what every
+# reader uses; their entries in `hardware.devices` fill those records.
+CONFIGURED_DEVICES: Dict[str, str] = {
+    "stage": "stage",
+    "electron": "beam",
+    "ion": "beam",
+    "fm": "fm",
+}
+
+# Types a backend builds a device of by itself, so an entry named after one of them
+# needs no `type:` -- `name: gis` is the GIS. A plugin may configure a type not listed
+# here; such an entry states its `type`.
+DEVICE_TYPES: Tuple[str, ...] = ("beam", "stage", "chamber", "manipulator", "gis", "fm")
+
+
+@dataclass
+class DeviceEntry:
+    """One entry of `hardware.devices`: a device the configuration says something about.
+
+    **The list is an overlay.** A backend builds the devices it always has; an entry
+    only changes one (switches it off, gives it another driver, gives it keys), or adds
+    one the backend cannot find for itself, such as an FM on its own PC. A device the
+    file does not name is built exactly as before.
+
+    `name` is unique within the file and is how the device is found; it defaults to the
+    `type`, so a site with one GIS writes `type: gis` and nothing else. `type` may be left
+    out where the name says it (`name: fm`). Two devices of one type need two names. A
+    beam is named for its column, `electron` or `ion`, as `beams[BeamType]` keys it.
+
+    `enabled` has three states, as `fm.enabled` always has: absent is the backend's
+    default, `false` means never built and its driver never touches it. `driver`
+    absent is the driver for `info.manufacturer`.
+
+    Every other key is the entry's own and sits beside these in the file: the device's
+    facts (`column_tilt`, `rotation_reference`) and its driver's keys (`address`,
+    `port`). They are kept in `options` and written back flat.
+    """
+
+    name: str
+    type: str
+    enabled: Optional[bool] = None
+    driver: Optional[str] = None
+    required: Optional[bool] = None
+    options: Dict[str, Any] = field(default_factory=dict)
+
+    # Which entry it is, rather than anything about the device.
+    IDENTITY_KEYS = ("name", "type")
+
+    def to_dict(self) -> dict:
+        entry: Dict[str, Any] = {"name": self.name, "type": self.type}
+        for key in ("enabled", "driver", "required"):
+            value = getattr(self, key)
+            if value is not None:
+                entry[key] = value
+        entry.update(self.options)
+        return entry
+
+    def as_block(self) -> dict:
+        """The entry as the version 1 block for its device, which the records read."""
+        block = dict(self.options)
+        for key in ("enabled", "driver", "required"):
+            value = getattr(self, key)
+            if value is not None:
+                block[key] = value
+        return block
+
+    @staticmethod
+    def from_dict(data: dict, name: Optional[str] = None) -> "DeviceEntry":
+        """Read one entry. *name* is the block's key, for a version 1 block."""
+        data = dict(data or {})
+        name = data.pop("name", None) or name
+        type_ = data.pop("type", None)
+        if name is None and type_ is None:
+            raise ValueError(
+                f"A device in hardware.devices names neither a name nor a type: {data}"
+            )
+        if type_ is None:
+            type_ = CONFIGURED_DEVICES.get(name) or (
+                name if name in DEVICE_TYPES else None
+            )
+            if type_ is None:
+                raise ValueError(
+                    f"hardware.devices: '{name}' states no type, and no device type "
+                    "is called that. A device the backend does not build itself "
+                    "needs a `type:`."
+                )
+        if name is None:
+            name = type_
+        if type_ == "beam" and name not in ("electron", "ion"):
+            raise ValueError(
+                f"hardware.devices: a beam is named `electron` or `ion`, not '{name}'."
+            )
+        reserved = {
+            key: data.pop(key, None) for key in ("enabled", "driver", "required")
+        }
+        return DeviceEntry(
+            name=str(name),
+            type=str(type_),
+            enabled=reserved["enabled"],
+            driver=reserved["driver"],
+            required=reserved["required"],
+            options=data,
+        )
+
+
+def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
+    """Every device a configuration dict names, by name, in file order.
+
+    Reads all three shapes a file can be in: the blocks at the top level from before the
+    sections (`stage:`), the version 1 blocks under `hardware:` (`hardware.stage:`) --
+    both only for the devices that had one, `CONFIGURED_DEVICES` -- and the version 2
+    list (`hardware.devices:`). A later shape wins key by key, so a file
+    half way between two reads as it says. Two list entries with one name are an error:
+    which of them the file meant cannot be known.
+    """
+    settings = settings or {}
+    hardware = settings.get("hardware") or {}
+    entries: Dict[str, DeviceEntry] = {}
+
+    def merge(entry: DeviceEntry) -> None:
+        old = entries.get(entry.name)
+        if old is None:
+            entries[entry.name] = entry
+            return
+        entries[entry.name] = DeviceEntry.from_dict(
+            {**old.to_dict(), **entry.to_dict()}
+        )
+
+    for name in CONFIGURED_DEVICES:
+        if isinstance(settings.get(name), dict):
+            merge(DeviceEntry.from_dict(settings[name], name=name))
+    # Only the blocks version 1 wrote. Any other `hardware.<name>` block was never read,
+    # and reading it now would build a device from a key a site left there for nothing.
+    for name in CONFIGURED_DEVICES:
+        if isinstance(hardware.get(name), dict):
+            merge(DeviceEntry.from_dict(hardware[name], name=name))
+
+    listed = hardware.get("devices") or []
+    if not isinstance(listed, list):
+        raise ValueError("hardware.devices must be a list of devices.")
+    seen: Set[str] = set()
+    for item in listed:
+        entry = DeviceEntry.from_dict(item)
+        if entry.name in seen:
+            raise ValueError(
+                f"hardware.devices names '{entry.name}' twice. Give each device its "
+                "own name."
+            )
+        seen.add(entry.name)
+        merge(entry)
+    return entries
+
+
 @dataclass
 class SystemSettings:
     stage: StageSystemSettings
@@ -2907,6 +3064,9 @@ class SystemSettings:
     # Whether each column is turned on at connect (`turn_beams_on`), before the
     # defaults are applied. Only ever on; off unless the file says so.
     beams_on_at_connect: bool = False
+    # The devices `hardware.devices` names beyond the four with records of their own
+    # (`CONFIGURED_DEVICES`), as the file states them, and written back as they were.
+    other_devices: List[DeviceEntry] = field(default_factory=list)
 
     #: What a column *is*: the keys that stay in `electron:` / `ion:`. Everything
     #: else a `BeamSystemSettings` writes -- voltage, current, hfw, detector, the
@@ -2946,18 +3106,22 @@ class SystemSettings:
             "electron": _split_defaults(electron),
             "ion": _split_defaults(ion),
         }
+        electron.pop("beam_type", None)  # the entry's name says which column
+        ion.pop("beam_type", None)
+        devices = [
+            {"name": "stage", "type": "stage", **stage},
+            {"name": "electron", "type": "beam", **electron},
+            {"name": "ion", "type": "beam", **ion},
+            {"name": "fm", "type": "fm", **self.fm.to_dict()},
+        ]
+        devices.extend(entry.to_dict() for entry in self.other_devices)
         return {
             "info": self.info.to_dict(),
-            # No `manipulator:` or `gis:`. What is fitted is the instrument's to
-            # report (or the backend's, where it cannot be asked), not a file's to
-            # state; a file that said so could describe hardware a site does not have,
-            # or omit hardware it does, and nothing would disagree.
-            "hardware": {
-                "stage": stage,
-                "electron": electron,
-                "ion": ion,
-                "fm": self.fm.to_dict(),
-            },
+            # No manipulator or GIS unless the file named one. What is fitted is the
+            # instrument's to report (or the backend's, where it cannot be asked), not
+            # a file's to state: `hardware.devices` is an overlay on what the backend
+            # builds, so a device it does not name is built exactly as before.
+            "hardware": {"devices": devices},
             "calibration": calibration,
             "defaults": defaults,
             "sim": self.sim,
@@ -2982,12 +3146,17 @@ class SystemSettings:
         # Every file written before the sections existed has its blocks at the top
         # level, so each block is read from there first and from `hardware:` over
         # it; `calibration:` folds into the stage record it belongs to.
-        hardware = settings.get("hardware") or {}
+        #
+        # Version 2 lists the devices (`hardware.devices`); `read_device_entries`
+        # reads the list and both older shapes, and gives each device back as the
+        # block its record has always read.
         calibration = settings.get("calibration") or {}
         defaults = settings.get("defaults") or {}
+        entries = read_device_entries(settings)
 
         def block(name: str) -> dict:
-            return {**(settings.get(name) or {}), **(hardware.get(name) or {})}
+            entry = entries.get(name)
+            return entry.as_block() if entry is not None else {}
 
         stage = block("stage")
         for key in ("holders", "active_holder", "shuttle_pre_tilt"):
@@ -3015,6 +3184,11 @@ class SystemSettings:
             info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
             fm=fm,
+            other_devices=[
+                entry
+                for name, entry in entries.items()
+                if name not in CONFIGURED_DEVICES
+            ],
         )
 
 

@@ -64,7 +64,7 @@ def test_it_is_written_under_calibration_and_round_trips():
         "focus_position": 7.6e-3,
         "limit_position": 8.6e-3,
     }
-    assert "focus_position" not in written["hardware"]["fm"]
+    assert "focus_position" not in utils.configuration_device(written, "fm")
     assert SystemSettings.from_dict(copy.deepcopy(written)).fm == system.fm
 
 
@@ -141,7 +141,11 @@ def test_writing_goes_to_the_file_named_and_keeps_its_shape(tmp_path):
 
     utils.write_objective_calibration(path, np.float64(7.3e-3), np.float32(8.4e-3))
 
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["site.yml"]
+    # No sibling `site.yaml`; the version 1 file it was is kept as a copy.
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "site.yml",
+        "site.yml.before-v2",
+    ]
     written = utils.load_yaml(str(path))  # safe_load: raises on a numpy tag
     assert list(written) == order
     assert written["calibration"]["objective"]["focus_position"] == pytest.approx(
@@ -163,7 +167,8 @@ def test_writing_the_calibration_touches_only_that_block(tmp_path):
         "focus_position": 7.3e-3,
         "limit_position": 8.4e-3,
     }
-    expected = copy.deepcopy(original)
+    # The file is upgraded on the way (the device list), and otherwise left alone.
+    expected = utils.upgrade_configuration(copy.deepcopy(original))
     expected["calibration"]["objective"] = written["calibration"]["objective"]
     assert written == expected
     # and it loads

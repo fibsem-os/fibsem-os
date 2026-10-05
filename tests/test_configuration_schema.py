@@ -60,9 +60,11 @@ def test_every_shipped_configuration_declares_its_version(filename: str):
     """A format change cannot migrate a file that does not say what format it is.
 
     Cheap now; impossible to add retrospectively, because a file without the field is
-    indistinguishable from one written before the field existed.
+    indistinguishable from one written before the field existed. Any version the
+    reader takes will do: a shipped file in an older one is read and upgraded on the
+    first save, like a site's.
     """
-    assert _load(filename)["version"] == CONFIGURATION_VERSION
+    assert 1 <= _load(filename)["version"] <= CONFIGURATION_VERSION
 
 
 def test_saving_writes_the_version():
@@ -331,6 +333,9 @@ def test_the_old_plasma_flag_is_read_for_migration_and_not_written():
     assert "ion.plasma" not in utils.unrecognised_configuration_keys(config)
 
     written = MicroscopeSettings.from_dict(config).to_dict()
-    assert "plasma" not in written["hardware"]["ion"]
-    assert "plasma" not in written["hardware"]["electron"]
-    assert "plasma_gas" not in written["hardware"]["electron"]
+    ion = utils.configuration_device(written, "ion")
+    electron = utils.configuration_device(written, "electron")
+    assert ion and electron
+    assert "plasma" not in ion
+    assert "plasma" not in electron
+    assert "plasma_gas" not in electron

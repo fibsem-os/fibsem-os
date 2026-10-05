@@ -5,6 +5,7 @@ import yaml
 
 from fibsem import manufacturers
 from fibsem.config import CONFIG_PATH, DEFAULT_CONFIGURATION_VALUES
+from fibsem.utils import configuration_device, upgrade_configuration
 
 
 def get_column_tilt(manufacturer: str, beam: str) -> int:
@@ -30,26 +31,25 @@ def generate_configuration(user_config: dict) -> dict:
     config["info"]["ip_address"] = user_config["ip_address"]
     config["info"]["manufacturer"] = user_config["manufacturer"]
 
-    hardware = config["hardware"]
+    upgrade_configuration(config)
+    stage = configuration_device(config, "stage", create=True)
+    electron = configuration_device(config, "electron", create=True)
+    ion = configuration_device(config, "ion", create=True)
 
     # stage
-    hardware["stage"]["rotation_reference"] = user_config["rotation-reference"]
-    hardware["stage"].pop("rotation_180", None)  # derived from the reference (FIB-834)
+    stage["rotation_reference"] = user_config["rotation-reference"]
+    stage.pop("rotation_180", None)  # derived from the reference (FIB-834)
     config["calibration"]["shuttle_pre_tilt"] = user_config["shuttle-pre-tilt"]
 
     # electron
-    hardware["electron"]["eucentric_height"] = user_config[
-        "electron-beam-eucentric-height"
-    ]
-    hardware["electron"]["column_tilt"] = get_column_tilt(
+    electron["eucentric_height"] = user_config["electron-beam-eucentric-height"]
+    electron["column_tilt"] = get_column_tilt(
         config["info"]["manufacturer"], "electron"
     )
 
     # ion
-    hardware["ion"]["eucentric_height"] = user_config["ion-beam-eucentric-height"]
-    hardware["ion"]["column_tilt"] = get_column_tilt(
-        config["info"]["manufacturer"], "ion"
-    )
+    ion["eucentric_height"] = user_config["ion-beam-eucentric-height"]
+    ion["column_tilt"] = get_column_tilt(config["info"]["manufacturer"], "ion")
 
     return config
 

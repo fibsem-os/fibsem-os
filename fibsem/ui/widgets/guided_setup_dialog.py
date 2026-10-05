@@ -1614,7 +1614,9 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             return
 
         info = config.get("info", {})
-        stage = (config.get("hardware") or {}).get("stage") or {}
+        from fibsem import utils
+
+        stage = utils.configuration_device(config, "stage")
         calibration = config.get("calibration") or {}
         # "from the shipped configuration" is said rather than left implicit: a value
         # nobody typed still ends up in the file, and it should be visible that it was

@@ -17,7 +17,10 @@ from fibsem import config as cfg
 from fibsem import manufacturers
 from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
 from fibsem.structures import (
+    CONFIGURATION_VERSION,
+    CONFIGURED_DEVICES,
     BeamType,
+    DeviceEntry,
     FibsemImage,
     FibsemStagePosition,
     MicroscopeSettings,
@@ -625,10 +628,10 @@ LEGACY_CONFIGURATION_KEYS: Set[str] = {
 # with the column's hardware and now lives at `defaults.electron.voltage`. A mapping
 # of old home to new, not a second copy of the schema.
 LEGACY_CONFIGURATION_BLOCKS: Dict[str, Tuple[str, ...]] = {
-    "stage": ("hardware.stage", "calibration"),
-    "electron": ("hardware.electron", "defaults.electron"),
-    "ion": ("hardware.ion", "defaults.ion"),
-    "fm": ("hardware.fm",),
+    "stage": ("hardware.devices.stage", "calibration"),
+    "electron": ("hardware.devices.electron", "defaults.electron"),
+    "ion": ("hardware.devices.ion", "defaults.ion"),
+    "fm": ("hardware.devices.fm",),
     "imaging": ("defaults.imaging",),
 }
 
@@ -641,6 +644,9 @@ OPEN_CONFIGURATION_BLOCKS = ("sim", "protocol", "calibration.holders")
 # The sections, policed one level deeper: `hardware.electron` is a block of keys, and
 # a typo in it should be reported the way a typo in the old flat `electron:` is.
 SECTION_BLOCKS = ("hardware", "calibration", "defaults")
+
+# Configuration version 2's list of devices, which is policed by device name.
+DEVICE_LIST = "hardware.devices"
 
 
 @functools.lru_cache(maxsize=1)
@@ -655,7 +661,8 @@ def written_configuration_keys() -> Set[str]:
 
     One level deep, blocks and their keys -- two for the `SECTION_BLOCKS`. A value
     that is itself a dict below that (`stage.devices`) is accepted wholesale under
-    its key.
+    its key. The device list is read by name: each device it writes is
+    `hardware.devices.<name>`, with its keys under that.
     """
     written = MicroscopeSettings.from_dict({}).to_dict()
     keys: Set[str] = set()
@@ -666,6 +673,16 @@ def written_configuration_keys() -> Set[str]:
         for key, sub in value.items():
             path = f"{block}.{key}"
             keys.add(path)
+            if path == DEVICE_LIST:
+                for entry in sub:
+                    device = f"{path}.{entry['name']}"
+                    keys.add(device)
+                    keys.update(
+                        f"{device}.{k}"
+                        for k in entry
+                        if k not in DeviceEntry.IDENTITY_KEYS
+                    )
+                continue
             if (
                 block in SECTION_BLOCKS
                 and isinstance(sub, dict)
@@ -686,7 +703,11 @@ def unrecognised_configuration_keys(config: dict) -> List[str]:
     and nothing said so. One line at load is the difference between "my setting
     vanished" and "my setting is not supported".
     """
-    known = written_configuration_keys() | LEGACY_CONFIGURATION_KEYS
+    known = (
+        written_configuration_keys()
+        | LEGACY_CONFIGURATION_KEYS
+        | _version_1_device_keys(written_configuration_keys())
+    )
 
     def is_known(path: str) -> bool:
         if path in known:
@@ -710,6 +731,9 @@ def unrecognised_configuration_keys(config: dict) -> List[str]:
             path = f"{block}.{key}"
             if path in OPEN_CONFIGURATION_BLOCKS:
                 continue
+            if path == DEVICE_LIST and isinstance(sub, list):
+                unknown.extend(_unrecognised_device_keys(sub, known))
+                continue
             if not is_known(path):
                 unknown.append(path)
             elif block in SECTION_BLOCKS and isinstance(sub, dict):
@@ -717,6 +741,46 @@ def unrecognised_configuration_keys(config: dict) -> List[str]:
                     f"{path}.{k}" for k in sub if not is_known(f"{path}.{k}")
                 )
     return sorted(unknown)
+
+
+def _version_1_device_keys(written: Set[str]) -> Set[str]:
+    """The `hardware.<name>.<key>` paths a version 1 file states for the same keys.
+
+    Version 1 had a block per device where version 2 has a list entry; both are read,
+    so a key legal in one is legal in the other.
+    """
+    prefix = f"{DEVICE_LIST}."
+    return {
+        f"hardware.{path[len(prefix) :]}" for path in written if path.startswith(prefix)
+    }
+
+
+def _unrecognised_device_keys(entries: list, known: Set[str]) -> List[str]:
+    """The keys of `hardware.devices` entries this version will not write back.
+
+    Only the devices with records of their own are policed. Any other entry -- a GIS
+    given a driver, a plugin's device -- carries its driver's keys, which are the
+    driver's to know, and is written back as it was.
+    """
+    unknown: List[str] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            unknown.append(DEVICE_LIST)
+            continue
+        try:
+            name = DeviceEntry.from_dict(item).name
+        except ValueError:
+            unknown.append(DEVICE_LIST)
+            continue
+        device = f"{DEVICE_LIST}.{name}"
+        if device not in known:
+            continue
+        unknown.extend(
+            f"{device}.{k}"
+            for k in item
+            if k not in DeviceEntry.IDENTITY_KEYS and f"{device}.{k}" not in known
+        )
+    return unknown
 
 
 def report_unrecognised_configuration_keys(config: dict, source: str = "") -> List[str]:
@@ -749,29 +813,116 @@ def write_configuration(path: Union[str, Path], updates: dict) -> None:
     preserved at the parsed level. This is the one writer of the file from the
     application: a calibration action writes `calibration.*`, the defaults panel
     writes `defaults.*`, and neither can disturb the other's section.
+
+    The file is also brought to the current version on the way (`upgrade_configuration`),
+    so a site's file takes the device list the first time anything saves it.
     """
-    config = load_yaml(os.path.join(path)) or {}
-    if "version" not in config:
-        _keep_the_file_as_it_was(path)
+    config = _read_for_writing(path)
     _deep_update(config, updates)
     _retire_legacy_duplicates(config)
     _write_configuration_file(path, config)
 
 
-def configuration_backup_path(path: Union[str, Path]) -> Path:
-    """Where a configuration written before the sections existed is kept."""
-    return Path(f"{path}.before-v1")
+def _read_for_writing(path: Union[str, Path]) -> dict:
+    """The configuration at *path*, upgraded, with a copy kept of an older version."""
+    config = load_yaml(os.path.join(path)) or {}
+    version = config.get("version")
+    if version is None:
+        _keep_the_file_as_it_was(path)
+    elif version < CONFIGURATION_VERSION:
+        _keep_the_file_as_it_was(path, before=CONFIGURATION_VERSION)
+    return upgrade_configuration(config)
 
 
-def _keep_the_file_as_it_was(path: Union[str, Path]) -> None:
-    """Copy a file written before the sections existed, once, before it is changed.
+def upgrade_configuration(config: dict) -> dict:
+    """Bring a configuration dict to `CONFIGURATION_VERSION`, in place, and return it.
 
-    The first write can move keys out of the old flat blocks (see
-    `_retire_legacy_duplicates`), and a version from before the sections cannot read
-    the result. The copy is what a site going back to that version restores. Made
-    once: a second write must not replace the original with a half-converted file.
+    Version 1's blocks under `hardware:` become entries of `hardware.devices`, one per
+    device, keys and all; an entry the list already has for the device wins key by key,
+    as the reader would have it. A file from before the sections has no version and is
+    left without one: its flat blocks are retired key by key as they are written
+    (`_retire_legacy_duplicates`), not converted wholesale.
     """
-    backup = configuration_backup_path(path)
+    hardware = config.get("hardware")
+    if isinstance(hardware, dict):
+        listed = hardware.get("devices")
+        listed = list(listed) if isinstance(listed, list) else []
+        by_name = {}
+        for item in listed:
+            if isinstance(item, dict):
+                try:
+                    by_name[DeviceEntry.from_dict(item).name] = item
+                except ValueError:
+                    pass  # left as it is, for the reader to report
+        converted = []
+        for name, type_ in CONFIGURED_DEVICES.items():
+            block = hardware.pop(name, None)
+            if not isinstance(block, dict):
+                continue
+            entry = by_name.get(name)
+            if entry is None:
+                converted.append({"name": name, "type": type_, **block})
+                continue
+            merged = {"name": name, "type": type_, **block, **entry}
+            entry.clear()
+            entry.update(merged)
+        if converted or "devices" in hardware:
+            hardware["devices"] = converted + listed
+    # Never lowered: a file from a later version keeps saying so.
+    if "version" in config and config["version"] < CONFIGURATION_VERSION:
+        config["version"] = CONFIGURATION_VERSION
+    return config
+
+
+def configuration_device(config: dict, name: str, create: bool = False) -> dict:
+    """The `hardware.devices` entry for *name* in an upgraded configuration dict.
+
+    For code that reads or edits the file itself rather than through
+    `MicroscopeSettings` -- the setup wizard filling in a shipped file. With *create*, an
+    entry is added when the list has none, so a write lands in the file; without it, a
+    missing device reads as an empty dict.
+    """
+    hardware = config.get("hardware")
+    if not isinstance(hardware, dict):
+        if not create:
+            return {}
+        hardware = config["hardware"] = {}
+    listed = hardware.get("devices")
+    if not isinstance(listed, list):
+        if not create:
+            return {}
+        listed = hardware["devices"] = []
+    for item in listed:
+        if isinstance(item, dict):
+            try:
+                if DeviceEntry.from_dict(item).name == name:
+                    return item
+            except ValueError:
+                continue
+    if not create:
+        return {}
+    entry = {"name": name, "type": CONFIGURED_DEVICES.get(name, name)}
+    listed.append(entry)
+    return entry
+
+
+def configuration_backup_path(path: Union[str, Path], before: int = 1) -> Path:
+    """Where a configuration written before version *before* is kept."""
+    return Path(f"{path}.before-v{before}")
+
+
+def _keep_the_file_as_it_was(path: Union[str, Path], before: int = 1) -> None:
+    """Copy a file written before version *before*, once, before it is changed.
+
+    A file from before the sections (*before* 1): the first write can move keys out of
+    the old flat blocks (see `_retire_legacy_duplicates`), and a version from before
+    the sections cannot read the result. A version 1 file (*before* 2): the first write
+    lists its devices (`upgrade_configuration`), and version 1 does not read the list
+    -- it would load every device's geometry as the defaults. The copy is what a site
+    going back to that version restores. Made once: a second write must not replace
+    the original with a half-converted file.
+    """
+    backup = configuration_backup_path(path, before)
     if backup.exists() or not os.path.exists(path):
         return
     import shutil
@@ -779,7 +930,7 @@ def _keep_the_file_as_it_was(path: Union[str, Path]) -> None:
     shutil.copy2(path, backup)
     logging.info(
         f"Kept a copy of {path} as {backup} before changing it; a version of "
-        "fibsem-os from before configuration v1 can read the copy."
+        f"fibsem-os from before configuration v{before} can read the copy."
     )
 
 
@@ -797,11 +948,16 @@ def _retire_legacy_duplicates(config: dict) -> None:
         if not isinstance(old, dict):
             continue
         for alias in aliases:
-            new_home = config
-            for part in alias.split("."):
-                new_home = new_home.get(part) if isinstance(new_home, dict) else None
-                if new_home is None:
-                    break
+            if alias.startswith(f"{DEVICE_LIST}."):
+                new_home = configuration_device(config, alias[len(DEVICE_LIST) + 1 :])
+            else:
+                new_home = config
+                for part in alias.split("."):
+                    new_home = (
+                        new_home.get(part) if isinstance(new_home, dict) else None
+                    )
+                    if new_home is None:
+                        break
             if not isinstance(new_home, dict):
                 continue
             for key in list(old):
@@ -839,9 +995,7 @@ def write_holder_calibration(
     the wizard must not leave its old entry behind, and the entries are the
     holders the session knows, which include every one the file had.
     """
-    config = load_yaml(os.path.join(path)) or {}
-    if "version" not in config:
-        _keep_the_file_as_it_was(path)
+    config = _read_for_writing(path)
     calibration = config.get("calibration")
     if not isinstance(calibration, dict):
         calibration = config["calibration"] = {}
