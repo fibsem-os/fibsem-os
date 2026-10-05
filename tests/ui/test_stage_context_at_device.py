@@ -67,6 +67,20 @@ def test_a_slot_is_carried_to_an_offset_fm(iflm):
     assert carried.x > FM_X / 2
 
 
+def test_the_carried_slot_agrees_with_a_derived_fluorescence_pose(iflm):
+    """The same conversion, so a lamella marked at the slot centre draws on top of the
+    slot's crosshair rather than beside it."""
+    from fibsem.applications.autolamella.poses import build_lamella_poses
+
+    place = _slot_place(iflm)
+    carried = at_device(iflm, "FM", place)
+    poses = build_lamella_poses(iflm, place)
+
+    fluorescence = poses.fluorescence.stage_position
+    assert carried.x == pytest.approx(fluorescence.x, abs=1e-9)
+    assert carried.y == pytest.approx(fluorescence.y, abs=1e-9)
+
+
 def test_the_beam_canvas_leaves_the_slot_alone(iflm):
     place = _slot_place(iflm)
 
