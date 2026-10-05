@@ -1144,10 +1144,10 @@ class FibsemMicroscope(ABC):
         Dormant until the connection gate opens: `microscope.fm` is `None` on every
         non-compustage system today, so nothing can park at the FM to begin with.
         """
-        # A compustage reaches the FM by flipping, and its devices are the same place,
-        # so "parked at the FM" is not a state it can be in -- and it has no rotation
-        # axis to be compucentric about either.
-        if self.stage_is_compustage or self.fm is None:
+        # A stage that reaches the FM by re-posing (a compustage, flipping) has its
+        # devices at one place, so "parked at the FM" is not a state it can be in --
+        # and it has no rotation axis to be compucentric about either.
+        if self._fm_is_a_pose() or self.fm is None:
             return
 
         if stage_position.r is None:
@@ -2742,7 +2742,7 @@ class FibsemMicroscope(ABC):
         # beam wearing the FM's rotation and tilt. Ask for it as a device instead:
         # `target_device="FM"`, with whichever orientation the sample should be in.
         if "FM" in (currrent_orientation, target_orientation) and (
-            not self.stage_is_compustage
+            not self._fm_is_a_pose()
         ):
             raise ValueError("Cannot move to FM position on non-compustage systems.")
 
@@ -2983,6 +2983,17 @@ class FibsemMicroscope(ABC):
         if self.stage_is_compustage:
             return compustage_poses(**geometry)
         return rotating_stage_poses(**geometry, rotates=stage_settings.rotation)
+
+    def _fm_is_a_pose(self) -> bool:
+        """Does the stage reach the FM by re-posing rather than by travelling?
+
+        True where the stage declares an FM pose (FIB-1101): the objective is under
+        the grid and the stage turns the grid over to face it, so the beams and the
+        FM are one place. False on an offset mount, where the FM is a place the stage
+        travels to in whatever pose it holds. The FM decisions ask this rather than
+        the stage's type; today it is true exactly on a compustage.
+        """
+        return "FM" in self._stage_poses()
 
     def _update_orientations(self) -> None:
         """Update the stage orientations based on the current system settings."""
@@ -3788,7 +3799,7 @@ class FibsemMicroscope(ABC):
         # An offset mount that enabled the FM but declared no geometry inherits the
         # default -- the objective under the grid, sharing the beams' origin -- so
         # every place-term answer is about somewhere its FM is not.
-        if not self.stage_is_compustage and devices == DEFAULT_STAGE_DEVICES:
+        if not self._fm_is_a_pose() and devices == DEFAULT_STAGE_DEVICES:
             logging.warning(
                 "A fluorescence microscope is enabled but no `stage.devices` block "
                 "is declared, so the FM defaults to the beams' origin. An offset "
@@ -3800,7 +3811,7 @@ class FibsemMicroscope(ABC):
         # reaches its FM by flipping, not travelling, so a distinct origin is
         # somewhere it never goes and `is_at_device(\"FM\")` is False at the
         # objective itself.
-        if self.stage_is_compustage and "FM" in devices and "FIBSEM" in devices:
+        if self._fm_is_a_pose() and "FM" in devices and "FIBSEM" in devices:
             if self._resolved_origin(devices["FM"]) != devices["FIBSEM"].origin:
                 logging.warning(
                     "This compustage declares an FM device origin away from the "
@@ -3817,14 +3828,14 @@ class FibsemMicroscope(ABC):
         rather than absolute on purpose: the devices constrain x only, and a relative
         move carries y, z, r and t across unchanged.
 
-        **Nothing on a compustage.** There the objective is under the grid, so the
-        beams and the FM are the same place and the stage reaches one from the other
-        by flipping, not travelling -- the configured origins describe an offset
-        chamber and do not apply. Answering here rather than at each call site is the
+        **Nothing where the FM is a pose** (a compustage). There the objective is under
+        the grid, so the beams and the FM are the same place and the stage reaches one
+        from the other by flipping, not travelling -- the configured origins describe
+        an offset chamber and do not apply. Answering here rather than at each call site is the
         same arrangement `_get_compucentric_rotation_position` already uses: the
         primitive is the no-op, so no caller needs a stage-type branch.
         """
-        if self.stage_is_compustage:
+        if self._fm_is_a_pose():
             return FibsemStagePosition()
 
         source_origin = self._resolved_origin(self._get_device(source))
@@ -3908,7 +3919,7 @@ class FibsemMicroscope(ABC):
         """
         target_device = self._get_device(device)  # refuses by name
 
-        if self.stage_is_compustage:
+        if self._fm_is_a_pose():
             self._move_to_device_compustage(device, orientation)
             return
 
@@ -4090,7 +4101,7 @@ class FibsemMicroscope(ABC):
     def move_to_microscope_compustage(self, target: str) -> None:
         """Deprecated name for the compustage half of `move_to_device`."""
 
-        if not self.stage_is_compustage:
+        if not self._fm_is_a_pose():
             raise ValueError(
                 "This method is only available for Compustage microscopes."
             )
