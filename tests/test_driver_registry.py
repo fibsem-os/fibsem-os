@@ -42,10 +42,12 @@ def restore_registry():
     from fibsem.milling import base
 
     saved = dict(registry._DRIVERS)
+    plugins = registry._PLUGINS
     estimator = base._milling_time_estimator
     yield
     registry._DRIVERS.clear()
     registry._DRIVERS.update(saved)
+    registry._PLUGINS = plugins
     base.set_milling_time_estimator(estimator)
 
 
@@ -57,7 +59,10 @@ def test_built_in_drivers_keep_their_class_and_port(manufacturer):
 
 def test_the_default_configuration_values_come_from_the_registry():
     assert cfg.DEFAULT_CONFIGURATION_VALUES == COLUMN_TILTS
-    assert registry.default_configuration_values() == COLUMN_TILTS
+    # A plugin driver's, if one has been read, come after the built-ins'.
+    values = registry.default_configuration_values()
+    assert list(values)[: len(COLUMN_TILTS)] == list(COLUMN_TILTS)
+    assert {m: values[m] for m in COLUMN_TILTS} == COLUMN_TILTS
 
 
 def test_the_available_manufacturers_are_the_drivers_with_defaults():
@@ -72,8 +77,10 @@ def test_a_registered_driver_brings_its_defaults(restore_registry):
     assert registry.default_configuration_values()["Zeiss"] == {"ion-column-tilt": 54}
 
 
-def test_only_the_built_in_drivers_are_registered():
-    assert registry.registered_manufacturers() == list(BUILT_IN)
+def test_the_built_in_drivers_are_registered_first():
+    """In order, ahead of any plugin driver (CI installs one, tests/fixtures/plugin)."""
+    registered = registry.registered_manufacturers()
+    assert registered[: len(BUILT_IN)] == list(BUILT_IN)
 
 
 def test_listing_the_drivers_imports_no_driver():
@@ -148,7 +155,7 @@ def test_setup_session_connects_on_the_registered_port(
 def test_registering_under_an_alias_replaces_the_canonical_entry(restore_registry):
     register_driver(DriverEntry("tescan", f"{__name__}:_Recorder", 1))
     assert get_driver(manufacturers.TESCAN).microscope_class == f"{__name__}:_Recorder"
-    assert registry.registered_manufacturers() == list(BUILT_IN)
+    assert registry.registered_manufacturers()[: len(BUILT_IN)] == list(BUILT_IN)
 
 
 def test_the_configurations_port_overrides_the_registered_one(
@@ -171,3 +178,104 @@ def test_the_configurations_port_overrides_the_registered_one(
     )
     assert _Recorder.connected == [("10.0.0.1", 4321)]
     assert microscope.system.info.port == 4321
+
+
+# ---------------------------------------------------------------------------
+# The fibsem.drivers entry point group
+# ---------------------------------------------------------------------------
+
+
+class _EntryPoint:
+    """Stands in for an installed entry point; ``load`` returns *target*."""
+
+    dist = None
+
+    def __init__(self, name, target):
+        self.name = name
+        self.value = f"some_plugin:{name}"
+        self._target = target
+
+    def load(self):
+        if isinstance(self._target, Exception):
+            raise self._target
+        return self._target
+
+
+def _read(monkeypatch, *entry_points):
+    """Read *entry_points* as if they were the installed fibsem.drivers group."""
+    from fibsem.plugins import loader
+
+    monkeypatch.setattr(loader, "_entry_points", lambda group: iter(entry_points))
+    registry._PLUGINS = None
+    return {record.entry_point: record for record in registry.load_driver_plugins()}
+
+
+def test_a_plugin_driver_registers_the_record_it_returns(restore_registry, monkeypatch):
+    entry = DriverEntry("JEOL", f"{__name__}:_Recorder", 5000, {"ion-column-tilt": 53})
+    records = _read(monkeypatch, _EntryPoint("jeol", lambda: entry))
+
+    assert records["jeol"].registered
+    assert get_driver("JEOL") is entry
+    assert registry.default_configuration_values()["JEOL"] == {"ion-column-tilt": 53}
+
+
+def test_get_driver_reads_the_entry_points_first(restore_registry, monkeypatch):
+    from fibsem.plugins import loader
+
+    entry = DriverEntry("JEOL", f"{__name__}:_Recorder")
+    monkeypatch.setattr(
+        loader,
+        "_entry_points",
+        lambda group: iter([_EntryPoint("jeol", lambda: entry)]),
+    )
+    registry._PLUGINS = None
+    assert get_driver("JEOL") is entry
+
+
+def test_a_plugin_cannot_take_a_built_in_manufacturer(restore_registry, monkeypatch):
+    records = _read(
+        monkeypatch,
+        _EntryPoint("thermo", lambda: DriverEntry("Thermo", f"{__name__}:_Recorder")),
+    )
+
+    assert not records["thermo"].registered
+    assert "built-in" in records["thermo"].error
+    assert (
+        get_driver(manufacturers.THERMOFISHER).microscope_class
+        == (BUILT_IN[manufacturers.THERMOFISHER][0])
+    )
+
+
+def test_a_later_plugin_takes_the_manufacturer_and_the_earlier_says_so(
+    restore_registry, monkeypatch
+):
+    first = DriverEntry("JEOL", f"{__name__}:_Recorder", 1)
+    second = DriverEntry("JEOL", f"{__name__}:_Recorder", 2)
+    records = _read(
+        monkeypatch,
+        _EntryPoint("first", lambda: first),
+        _EntryPoint("second", lambda: second),
+    )
+
+    assert get_driver("JEOL") is second
+    assert records["second"].registered
+    assert records["first"].error == "JEOL was taken by 'some_plugin:second'"
+
+
+@pytest.mark.parametrize(
+    "target,error",
+    [
+        (ImportError("No module named 'jeol_sdk'"), "ImportError: No module named"),
+        (lambda: "fibsem_jeol:JeolMicroscope", "returned str, not a DriverEntry"),
+        (DriverEntry("JEOL", "x:Y"), "TypeError"),  # a record, not a function
+    ],
+)
+def test_a_broken_plugin_is_recorded_and_registers_nothing(
+    restore_registry, monkeypatch, target, error
+):
+    records = _read(monkeypatch, _EntryPoint("broken", target))
+
+    assert error in records["broken"].error
+    assert "JEOL" not in registry.registered_manufacturers()
+    with pytest.raises(NotImplementedError):
+        get_driver("JEOL")
