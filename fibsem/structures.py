@@ -41,7 +41,7 @@ from fibsem.config import (
     SUPPORTED_COORDINATE_SYSTEMS,
     UNVERSIONED_METADATA,
 )
-from fibsem.manufacturers import is_tescan, normalize_manufacturer
+from fibsem.manufacturers import normalize_manufacturer
 from fibsem.versioning import get_revision
 
 if TYPE_CHECKING:
@@ -3152,22 +3152,14 @@ class FibsemHardwareGeometry:
     # the stage declared its poses; `declared_poses` rebuilds them for those.
     poses: Dict[str, Tuple[float, float]] = field(default_factory=dict)
     # The frame the image's stage position is in: STAGE_FRAME_FIBSEM, or
-    # STAGE_FRAME_TESCAN for a Tescan stage that does not convert yet (FIB-1114). None
-    # on an image written before this was stamped, whose position is in the frame its
-    # backend reported: Tescan's own for a Tescan image, fibsem's for any other.
+    # STAGE_FRAME_TESCAN from a Tescan without a stage device (FIB-1114). None on an
+    # image written before this was stamped, whose position is in the frame its backend
+    # reported: Tescan's own for a Tescan image, fibsem's for any other. Nothing reads
+    # Tescan's frame any more; old Tescan images are not converted.
     stage_frame: Optional[str] = None
     # Fluorescence only; left at these defaults for a beam image.
     camera_tilt: float = 0.0  # viewing axis, from the electron column
     transform: CameraImageTransform = CameraImageTransform.NONE
-
-    def resolved_stage_frame(self, manufacturer: Optional[str]) -> str:
-        """The frame the stage position is in. An image from before the frame was
-        stamped is in the frame its backend reported: Tescan's own on a Tescan image."""
-        if self.stage_frame is not None:
-            return self.stage_frame
-        if is_tescan(manufacturer):
-            return STAGE_FRAME_TESCAN
-        return STAGE_FRAME_FIBSEM
 
     def declared_poses(self) -> Dict[str, "FibsemStagePosition"]:
         """The stage's pose for each orientation name when this was recorded, in radians.
