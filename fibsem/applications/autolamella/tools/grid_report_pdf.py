@@ -14,6 +14,7 @@ rendering here can be tested where the `reporting` extra is not installed.
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import logging
 import os
@@ -208,6 +209,15 @@ def _escape(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def report_unavailable_reason() -> str:
+    """Why the report cannot be written on this install, or "". reportlab is the
+    optional `reporting` extra; asked before offering to write the report at the
+    end of a run, so an overnight run does not find out at its end."""
+    if importlib.util.find_spec("reportlab") is None:
+        return "Needs the reporting tools: pip install fibsem-os[reporting]"
+    return ""
+
+
 def generate_grid_report(
     experiment: Experiment,
     output_path: Optional[str] = None,
@@ -370,6 +380,21 @@ def generate_grid_report(
         ),
     )
     story += [meta_table, Spacer(1, 8)]
+    # Written at the end of a run, before anyone has looked: a record of the
+    # overviews, not yet the handout for choosing a grid. Said, so it is not
+    # read as "nothing was any good".
+    if report.sections and all(
+        s.quality.verdict is Verdict.UNASSESSED for s in report.sections
+    ):
+        story += [
+            p(
+                "No grid has a verdict yet, so none is recommended. Set each "
+                "grid's quality on the Grids tab, then write the report again "
+                "to choose a grid.",
+                "muted",
+            ),
+            Spacer(1, 6),
+        ]
 
     thumb_w = 42 * mm
     rows = [

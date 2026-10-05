@@ -40,6 +40,9 @@ from fibsem.applications.autolamella.ui.lamella_list_widget import (
     mark_current_verdict,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    EXCHANGE_ENTRY_NAMES as _EXCHANGE_ENTRY_NAMES,
+)
+from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
@@ -128,7 +131,7 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     waiting = [
         name
         for name in dict.fromkeys(t.name for t in history)
-        if name != _LOAD_ENTRY_NAME and grid.is_awaiting_decision(name)
+        if name not in _EXCHANGE_ENTRY_NAMES and grid.is_awaiting_decision(name)
     ]
     if waiting:
         return (
@@ -143,7 +146,7 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
             start = i
             break
     load = history[start] if history[start].name == _LOAD_ENTRY_NAME else None
-    tasks = [t for t in history[start:] if t.name != _LOAD_ENTRY_NAME]
+    tasks = [t for t in history[start:] if t.name not in _EXCHANGE_ENTRY_NAMES]
     if load is not None and load.status is AutoLamellaTaskStatus.Failed:
         return "Load failed", ERROR_COLOR
     if not tasks:

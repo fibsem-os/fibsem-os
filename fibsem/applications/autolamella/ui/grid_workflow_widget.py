@@ -889,6 +889,12 @@ class GridRunPreflightDialog(QDialog):
 
     _STEPS_SHOWN = 12
 
+    # The end-of-run choices, kept for the session: the next run is offered what
+    # the last one was started with. Unload is off until asked for, since it
+    # moves the hardware after the operator has stopped watching; the report
+    # only writes a file, so it is on.
+    _end_of_run = {"unload": False, "report": True}
+
     def __init__(
         self,
         task_names: List[str],
@@ -899,13 +905,17 @@ class GridRunPreflightDialog(QDialog):
         adding: bool = False,
         beams_off: Sequence[BeamType] = (),
         first_run: Sequence[str] = (),
+        can_unload: bool = False,
+        report_unavailable: str = "",
         parent: Optional[QWidget] = None,
     ) -> None:
         """``adding``: the same plan, going onto the end of a running queue
         rather than starting one. ``beams_off``: beams that are off now; the
         run turns them on when it starts, and the dialog says so first.
         ``first_run``: grids in the plan that have never run, whose names this
-        run will fix."""
+        run will fix. ``can_unload``: the stage has a loader, so there is a
+        grid to return to the magazine at the end; a fixed holder has none.
+        ``report_unavailable``: why the report cannot be written here, or ""."""
         super().__init__(parent)
         self.setWindowTitle(
             "Add to the queue"
@@ -998,6 +1008,35 @@ class GridRunPreflightDialog(QDialog):
                 )
             )
 
+        # What happens once the queue is done. Not offered when adding: the
+        # added work ends the way the run it joins was started.
+        self.unload_check = QCheckBox("Unload the grid when the run finishes")
+        self.unload_check.setToolTip(
+            "Return the last grid to the magazine once every queued task has "
+            "run. A Stop, or a run left waiting on the Review tab, leaves it "
+            "loaded."
+        )
+        self.unload_check.setChecked(self._end_of_run["unload"])
+        self.report_check = QCheckBox("Write the grid screening report at the end")
+        self.report_check.setToolTip(
+            "Writes grid-screening-report.pdf to the experiment folder, after "
+            "the unload. No grid has a verdict yet then: write it again once "
+            "they do."
+        )
+        self.report_check.setChecked(
+            self._end_of_run["report"] and not report_unavailable
+        )
+        if report_unavailable:
+            self.report_check.setEnabled(False)
+            self.report_check.setToolTip(report_unavailable)
+        for box in (self.unload_check, self.report_check):
+            box.setStyleSheet(f"color: {TEXT_STRONG}; font-size: 12px; {ON_PANEL}")
+        self.unload_check.setVisible(can_unload and not adding)
+        self.report_check.setVisible(not adding)
+        layout.addWidget(self.unload_check)
+        layout.addWidget(self.report_check)
+        self.accepted.connect(self._remember_end_of_run)
+
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         self.btn_cancel = QPushButton("Cancel")
@@ -1010,6 +1049,25 @@ class GridRunPreflightDialog(QDialog):
         buttons.addWidget(self.btn_cancel)
         buttons.addWidget(self.btn_run)
         layout.addLayout(buttons)
+
+    def unload_at_end(self) -> bool:
+        """Whether the run unloads its last grid once the queue is done."""
+        return self.unload_check.isVisibleTo(self) and self.unload_check.isChecked()
+
+    def report_at_end(self) -> bool:
+        """Whether the run writes the grid screening report as it ends."""
+        return (
+            self.report_check.isVisibleTo(self)
+            and self.report_check.isEnabled()
+            and self.report_check.isChecked()
+        )
+
+    def _remember_end_of_run(self) -> None:
+        """The choices a run was started with, offered to the next one."""
+        if self.unload_check.isVisibleTo(self):
+            type(self)._end_of_run["unload"] = self.unload_check.isChecked()
+        if self.report_check.isVisibleTo(self) and self.report_check.isEnabled():
+            type(self)._end_of_run["report"] = self.report_check.isChecked()
 
 
 # What the autoloader reads for a slot with no description, and what the

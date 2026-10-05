@@ -13,11 +13,13 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from fibsem.applications.autolamella.structures import Verdict
 from fibsem.applications.autolamella.tools.grid_report_pdf import (
     PRINT_MAX_EDGE,
     REPORT_FILENAME,
     generate_grid_report,
     render_overview,
+    report_unavailable_reason,
     scale_bar_length,
 )
 
@@ -153,6 +155,35 @@ class TestPDF:
 
     def test_the_fm_row_names_its_channels(self, pdf):
         assert b"GFP, mCherry" in pdf
+
+    def test_with_verdicts_the_cover_says_nothing_of_their_absence(self, pdf):
+        assert b"No grid has a verdict yet" not in _shown(pdf)
+
+    def test_before_any_verdict_the_cover_says_so(self, screened, tmp_path):
+        """Written at the end of a run, before anyone has judged a grid: a
+        record of the overviews, not yet the handout for choosing one."""
+        pytest.importorskip("reportlab")
+        verdicts = [g.quality.verdict for g in screened.grids]
+        try:
+            for grid in screened.grids:
+                grid.quality.verdict = Verdict.UNASSESSED
+            path = generate_grid_report(
+                screened, output_path=str(tmp_path / "r.pdf"), compress=False
+            )
+        finally:
+            for grid, verdict in zip(screened.grids, verdicts):
+                grid.quality.verdict = verdict
+        text = _shown(Path(path).read_bytes())
+        assert b"No grid has a verdict yet" in text
+        assert b"0 recommended" in text
+
+    def test_says_when_reportlab_is_missing(self, monkeypatch):
+        from fibsem.applications.autolamella.tools import grid_report_pdf
+
+        monkeypatch.setattr(
+            grid_report_pdf.importlib.util, "find_spec", lambda name: None
+        )
+        assert "fibsem-os[reporting]" in report_unavailable_reason()
 
     def test_every_run_has_a_row(self, pdf):
         assert pdf.count(b"overview_sem") >= 3  # protocol line, aspen row, birch row
