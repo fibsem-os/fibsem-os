@@ -731,11 +731,11 @@ class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
         device belongs to the view and comes back with it.
 
         The lock covers the bookkeeping only, and deliberately **not** the body. A scope
-        can span a whole tileset, and this is `FibsemMicroscope._threading_lock` -- a
-        class attribute every caller in the process shares. Holding it for minutes would
-        block all of them, and while the callers today are ones that should not overlap
-        an FM run anyway, a shared lock held that long makes a hostage of whoever takes
-        it next.
+        can span a whole tileset, and this is the microscope's `_threading_lock`, which
+        every caller on the microscope shares, devices claiming `imaging_channel`
+        included. Holding it for minutes would block all of them, and while the callers
+        today are ones that should not overlap an FM run anyway, a shared lock held that
+        long makes a hostage of whoever takes it next.
 
         A depth count rather than a captured local, so the view is put back once, by the
         outermost scope. A tileset holds the channel for the whole run; each tile's

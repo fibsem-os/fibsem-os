@@ -18,7 +18,7 @@ import numpy as np
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
-from fibsem.devices.core import Device, ParameterMetadata, Resources
+from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
@@ -271,7 +271,7 @@ def bind_demo_beams(
     microscope: DemoMicroscope, resources: Optional[Resources] = None
 ) -> Dict[BeamType, Beam]:
     """Build ``beams[BeamType]`` for a connected Demo microscope."""
-    resources = resources if resources is not None else Resources()
+    resources = resources if resources is not None else resources_of(microscope)
     return {
         beam_type: DemoBeam(beam_type, microscope, resources).connect()
         for beam_type in (BeamType.ELECTRON, BeamType.ION)
@@ -871,6 +871,7 @@ def bind_demo_fm(
 ) -> Dict[str, Device]:
     """Build the FM's parts and group for a connected Demo microscope, each starting
     where the simulated FM ``fm``'s part is, by device name."""
+    resources = resources if resources is not None else resources_of(microscope)
     parts: Dict[str, Device] = {
         "camera": DemoCamera(fm.camera, microscope, resources),
         "light_source": DemoLightSource(fm.light_source, microscope, resources),

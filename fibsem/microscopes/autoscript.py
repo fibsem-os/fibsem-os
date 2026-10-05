@@ -1200,9 +1200,10 @@ class ThermoMicroscope(FibsemMicroscope):
         # rather than from what came back. That is FIB-517 on the beam side (FIB-542),
         # and it is the discipline every other set-then-act pair here already keeps.
         #
-        # Deliberately just the pair: `_threading_lock` is a class attribute shared by
-        # every caller in the process, so holding it over the metadata reads or the
-        # state fetch below would block all of them for the length of a frame.
+        # Deliberately just the pair: `_threading_lock` is shared by every caller on
+        # this microscope (live view, workflows, the FM), so holding it over the
+        # metadata reads or the state fetch below would block all of them for the
+        # length of a frame.
         with self._threading_lock:
             self.set_channel(image_settings.beam_type)
             image = self.connection.imaging.grab_frame(frame_settings)
