@@ -45,8 +45,9 @@ class TescanBeam(Beam):
     ``get_available_values``'s.
 
     What the Tescan API refuses is still written, so the old API keeps its message,
-    but reads as not settable: the ion column's current and voltage (set by preset),
-    and the resolution, dwell time and stigmation, which are read from the last image.
+    but reads as not settable: the current on both columns, the ion column's voltage
+    (set by preset), and the resolution, dwell time and stigmation, which are read
+    from the last image.
 
     Not here, so absent on the new API and still answered by the old branches: the ion
     column's working distance (the old read warns of an unknown key), the electron
@@ -138,9 +139,10 @@ class TescanBeam(Beam):
             logging.info(f"Electron beam current set to {value} A.")
 
     def metadata_current(self) -> ParameterMetadata:
+        # Not settable on either column: the ion current is the preset's, and the
+        # electron current is not set directly on a Tescan either.
         return ParameterMetadata(
-            choices=list(_CURRENT_CHOICES[self.beam_type]),
-            settable=self.beam_type is BeamType.ELECTRON,
+            choices=list(_CURRENT_CHOICES[self.beam_type]), settable=False
         )
 
     def read_voltage(self) -> float:

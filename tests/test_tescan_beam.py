@@ -214,7 +214,7 @@ def test_what_the_api_refuses_reads_as_not_settable(monkeypatch):
         "scan_rotation",
         "shift",
     ]
-    assert settable[E] == sorted(common + ["current", "voltage", "working_distance"])
+    assert settable[E] == sorted(common + ["voltage", "working_distance"])
     assert settable[I] == sorted(common + ["preset"])
 
 
