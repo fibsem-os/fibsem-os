@@ -1,7 +1,8 @@
 """Thermo's imaging methods make the same SDK calls through the beam commands.
 
 ``AutoscriptBeam``'s ``acquire``, ``last_image``, ``autocontrast`` and ``auto_focus``
-are ``ThermoMicroscope``'s methods moved onto the beam. Each case runs an old method
+are ``ThermoMicroscope``'s methods moved onto the beam, and its ``start_live`` and
+``stop_live`` its live view worker, whose frames the old signals forward. Each case runs an old method
 on a microscope with no beam devices, and the same call on one whose beams are built
 as connect builds them, both over a fake AutoScript client that records every SDK
 call and write, and requires the same result, the same calls in the same order
@@ -39,7 +40,7 @@ def recording(tmp_path_factory):
 
 def test_the_recording_makes_sdk_calls_on_both_beams(recording):
     cases = recording["cases"]
-    assert len(cases) == 21
+    assert len(cases) == 23
     assert any(c["key"].startswith("ION ") for c in cases)
     assert all(c["old"][1] for c in cases if c["key"] != "acquire nothing")
 
@@ -93,7 +94,14 @@ def test_an_autofunction_on_an_area_scans_it_then_the_full_frame(recording):
 @pytest.mark.parametrize("beam", ["ELECTRON", "ION"])
 def test_both_beams_have_the_imaging_commands(recording, beam):
     commands = recording["facts"]["commands"][beam]
-    for name in ("acquire", "last_image", "autocontrast", "auto_focus"):
+    for name in (
+        "acquire",
+        "last_image",
+        "autocontrast",
+        "auto_focus",
+        "start_live",
+        "stop_live",
+    ):
         assert name in commands
 
 
@@ -105,3 +113,27 @@ def test_a_beam_refuses_settings_for_the_other_beam(recording):
 
 def test_a_disabled_column_has_no_beam(recording):
     assert recording["facts"]["ion_disabled"] == ["ELECTRON"]
+
+
+@pytest.mark.parametrize("beam", ["ELECTRON", "ION"])
+def test_live_view_through_the_beam_makes_the_old_calls_and_frames(recording, beam):
+    case = next(c for c in recording["cases"] if c["key"] == f"{beam} live")
+    assert case["old"] == case["new"]
+    frames, acquiring = case["new"][0]
+    assert frames == [
+        [[4, 6], "uint16"],  # the fast path's frames
+        [[4, 6], "uint16"],
+        [[4, 6], "uint8"],  # then a grab per pass
+        [[4, 6], "uint8"],
+    ]
+    assert acquiring is False
+
+
+def test_start_acquisition_runs_the_beams_live_view_and_stop_stops_it(recording):
+    assert recording["facts"]["live"] == {
+        "live": True,
+        "acquiring": True,
+        "ion": False,  # already acquiring: the second start does nothing
+        "stopped": [False, False],
+        "thread": True,  # the microscope's own worker never started
+    }

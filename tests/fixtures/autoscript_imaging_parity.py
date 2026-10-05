@@ -17,6 +17,7 @@ import copy
 import json
 import os
 import sys
+import threading
 import types
 from types import MappingProxyType
 
@@ -79,6 +80,14 @@ class FakeImaging(S.Node):
     def get_image(self, settings=None):
         LOG.append(["call", f"{self._path}.get_image", [S._plain(settings)], "{}"])
         return _adorned((4, 6), np.uint16)
+
+    @property
+    def state(self):
+        """Acquiring for as many reads as ``_acquiring`` says, then idle."""
+        left = self.__dict__.get("_acquiring", 0)
+        object.__setattr__(self, "_acquiring", max(left - 1, 0))
+        LOG.append(["get", f"{self._path}.state"])
+        return "ACQUIRING" if left > 0 else "Idle"
 
 
 def make(beams):
@@ -187,6 +196,56 @@ def cases():
     return out
 
 
+def _live(microscope, beam_type, frames=4):
+    """Live view on *beam_type* until the old signal has had *frames* images: two
+    from the fast path, then one per pass of the loop (a fast path that finds the
+    imaging idle, then a grab)."""
+    object.__setattr__(microscope.connection.imaging, "_acquiring", 2)
+    seen, done = [], threading.Event()
+    beam = microscope.beams.get(beam_type)
+    stop = microscope._stop_acquisition_event if beam is None else beam._live_stop
+
+    def on_frame(image):
+        seen.append([list(image.data.shape), str(image.data.dtype)])
+        if len(seen) == frames:
+            stop.set()
+            done.set()
+
+    signal = (
+        microscope.sem_acquisition_signal
+        if beam_type is BeamType.ELECTRON
+        else microscope.fib_acquisition_signal
+    )
+    signal.connect(on_frame)
+
+    def call():
+        microscope.start_acquisition(beam_type)
+        assert done.wait(10), "live view never reached its frames"
+        threads = [microscope._acquisition_thread] + [
+            b._live_thread for b in microscope.beams.values()
+        ]
+        for thread in threads:
+            if thread is not None:
+                thread.join(10)
+        return [seen, bool(microscope.is_acquiring)]
+
+    return call
+
+
+def live_cases():
+    out = []
+    for beam_type in (BeamType.ELECTRON, BeamType.ION):
+        old, new = make(beams=False), make(beams=True)
+        out.append(
+            {
+                "key": f"{beam_type.name} live",
+                "old": B.run(_live(old, beam_type)),
+                "new": B.run(_live(new, beam_type)),
+            }
+        )
+    return out
+
+
 def facts():
     out = {}
     microscope = make(beams=True)
@@ -239,6 +298,19 @@ def facts():
     beam.auto_focus(AREA)
     out["held"] = held
 
+    # live view through the microscope: the beam is live, and stop stops it
+    microscope = make(beams=True)
+    object.__setattr__(microscope.connection.imaging, "_acquiring", 10**9)
+    sem = microscope.beams[BeamType.ELECTRON]
+    microscope.start_acquisition(BeamType.ELECTRON)
+    live = {"live": sem.is_live, "acquiring": bool(microscope.is_acquiring)}
+    microscope.start_acquisition(BeamType.ION)  # already acquiring: warns, no-op
+    live["ion"] = microscope.beams[BeamType.ION].is_live
+    microscope.stop_acquisition()
+    live["stopped"] = [sem.is_live, bool(microscope.is_acquiring)]
+    live["thread"] = microscope._acquisition_thread is None
+    out["live"] = live
+
     # the new API refuses settings for the other beam
     try:
         beam.acquire(_settings(BeamType.ELECTRON))
@@ -255,4 +327,8 @@ def facts():
 
 if __name__ == "__main__":
     with open(sys.argv[1], "w") as f:
-        json.dump({"cases": cases(), "facts": copy.deepcopy(facts())}, f, default=str)
+        json.dump(
+            {"cases": cases() + live_cases(), "facts": copy.deepcopy(facts())},
+            f,
+            default=str,
+        )

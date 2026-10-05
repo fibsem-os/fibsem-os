@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import threading
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
 
@@ -583,6 +584,50 @@ class AutoscriptBeam(Beam):
         if reduced_area is not None:
             self.full_frame()
         logging.debug({"msg": "auto_focus", "beam_type": self.beam_type.name})
+
+    # Live view: ThermoMicroscope's _acquisition_worker and _fast_acquisition_worker,
+    # moved as they are, with this beam's live_frame in place of the microscope's
+    # signal (which forwards it) and the stop event the beam gives.
+
+    def _live(self, stop: threading.Event) -> None:
+        self.parent.set_channel(channel=self.beam_type)
+        try:
+            while True:
+                if stop.is_set():
+                    break
+                # fast continuous acquisition
+                self._live_fast(stop)
+                if stop.is_set():
+                    break
+                # acquire an image with the current beam settings
+                self.live_frame.emit(self.acquire())
+        except Exception as e:
+            logging.error(f"Error in acquisition worker: {e}")
+
+    def _live_fast(self, stop: threading.Event) -> None:
+        from fibsem.microscopes import autoscript as thermo
+
+        imaging = self.parent.connection.imaging
+        try:
+            with self.claim_channel():
+                imaging.start_acquisition()
+            while imaging.state == thermo.ImagingState.ACQUIRING:
+                if stop.is_set():
+                    imaging.stop_acquisition()
+                    break
+                with self.claim_channel():
+                    adorned_image = imaging.get_image(
+                        thermo.GetImageSettings(wait_for_frame=True)
+                    )
+                    image = self.parent._construct_image(
+                        adorned_image, beam_type=self.beam_type
+                    )
+                    logging.info(f"Acquired Image: {image.data.shape}")
+                    self.live_frame.emit(image)
+        except Exception as e:
+            logging.error(f"Exception occurred during fast acquisition: {e}")
+        finally:
+            imaging.stop_acquisition()
 
 
 # The vendor's scan mode names (FullFrame, ReducedArea, Spot), lower-cased.
