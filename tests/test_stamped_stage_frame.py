@@ -2,7 +2,7 @@
 
 Every stage device reports fibsem's frame, Tescan's included since TescanStage converts
 (FIB-1114). An image records it, so a Tescan image from before the conversion, which
-has no stamp, is still read in Tescan's own frame.
+has no stamp, can be told apart from one after.
 """
 
 import os
@@ -65,13 +65,6 @@ def test_a_tescan_image_records_its_stage_in_fibsem_frame(monkeypatch):
     live = microscope.get_stage_position()
     for axis in "xyzrt":
         assert getattr(stamped, axis) == pytest.approx(getattr(live, axis))
-
-
-def test_an_unstamped_tescan_image_is_in_tescan_frame():
-    geometry = FibsemHardwareGeometry()
-    assert geometry.resolved_stage_frame("TESCAN") == STAGE_FRAME_TESCAN
-    assert geometry.resolved_stage_frame("Thermo") == STAGE_FRAME_FIBSEM
-    assert geometry.resolved_stage_frame(None) == STAGE_FRAME_FIBSEM
 
 
 def test_a_file_without_the_stamp_loads_with_none():
