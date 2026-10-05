@@ -163,9 +163,14 @@ class OdemisFMCamera(Camera):
         self._camera.gain.value = raw
 
     def metadata_gain(self) -> ParameterMetadata:
-        if self._max_gain() is None:
+        max_gain = self._max_gain()
+        if max_gain is None:
             return ParameterMetadata()
-        return ParameterMetadata(limits=RangeLimit(min=0.0, max=1.0))
+        return ParameterMetadata(
+            limits=RangeLimit(min=0.0, max=1.0),
+            native_max=max_gain,
+            native_unit=getattr(self._camera.gain, "unit", None),
+        )
 
     def read_offset(self) -> float:
         """The camera's MD_BASELINE, read at connect. Read-only, as on the old class."""
@@ -226,7 +231,12 @@ class OdemisFMLightSource(LightSource):
         self._stream.power.value = value * max_power
 
     def metadata_power(self) -> ParameterMetadata:
-        return ParameterMetadata(limits=RangeLimit(min=0.0, max=1.0))
+        power = self._stream.power
+        return ParameterMetadata(
+            limits=RangeLimit(min=0.0, max=1.0),
+            native_max=power.range[1],
+            native_unit=getattr(power, "unit", None),
+        )
 
 
 class OdemisFMFilterSet(FilterSet):

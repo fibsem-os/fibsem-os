@@ -468,6 +468,12 @@ class Camera(ABC):
         self._gain = value
 
     @property
+    def gain_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
+        """What a gain of 1 is in the camera's own units, as (value, unit), when the
+        driver knows; None when the camera's gain is a fraction itself."""
+        return None
+
+    @property
     def offset(self) -> float:
         """Get the current offset setting of the camera.
 
@@ -573,6 +579,12 @@ class LightSource(ABC):
             A tuple of (minimum, maximum) power levels
         """
         return (0.0, 1.0)
+
+    @property
+    def power_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
+        """What full power is in the light's own units, as (value, unit), when the
+        driver knows; None when the light's power is a fraction itself."""
+        return None
 
 
 class FilterSet(ABC):
