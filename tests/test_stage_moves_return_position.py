@@ -155,7 +155,7 @@ def _odemis(cls):
         os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
     ).system
     microscope.stage_is_compustage = False
-    microscope.stage = _OdemisStage()
+    microscope._vendor_stage = _OdemisStage()
     return microscope
 
 
