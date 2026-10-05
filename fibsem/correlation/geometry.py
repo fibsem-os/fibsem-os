@@ -374,11 +374,16 @@ def _complete_fm_pose(
 
 
 def _is_tescan(fib_metadata) -> bool:
-    from fibsem import manufacturers
+    """Whether the FIB image's stage position is in Tescan's own frame: a Tescan image
+    from before TescanStage converted to fibsem's (FIB-1114)."""
+    from fibsem.structures import STAGE_FRAME_TESCAN
 
+    geometry = getattr(fib_metadata, "hardware_geometry", None)
+    if geometry is None:
+        return False
     info = getattr(fib_metadata, "system_info", None)
     manufacturer = getattr(info, "manufacturer", None)
-    return bool(manufacturer) and manufacturers.is_tescan(manufacturer)
+    return geometry.resolved_stage_frame(manufacturer) == STAGE_FRAME_TESCAN
 
 
 # ── rotation helpers ──────────────────────────────────────────────────────

@@ -4,8 +4,7 @@ Pure functions, with no microscope and no I/O. Each takes a displacement in the 
 the user is looking at, the geometry of the view it was seen in, and the stage pose, and
 returns a stage movement. Reading those inputs off an instrument, commanding the move and
 restoring the working distance afterwards is the caller's job -- today
-``FibsemMicroscope.stable_move`` and ``vertical_move``, which every backend except
-Tescan shares.
+``FibsemMicroscope.stable_move`` and ``vertical_move``, which every backend shares.
 
 A beam and the fluorescence camera are the same kind of view here. They differ only in
 how far their viewing axis is tilted from the electron column (``view_tilt``) and in the
@@ -13,8 +12,8 @@ display transform undone before projecting: a beam's scan rotation, the camera's
 transform. The projection itself is :func:`fibsem.transformations.
 view_corrected_stage_movement`, which the saved-image reprojection shares.
 
-Tescan keeps its own model: its y-axis travels on the tilted plate, so its stage
-movements are not these (see ``TescanMicroscope._y_corrected_stage_movement``).
+Tescan's stage converts its own axes (y on the tilted plate, z chamber-vertical) to this
+frame inside its stage device, so these hold for it too (FIB-1114).
 """
 
 from __future__ import annotations
